@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/multi-detect/mission.schema.json",
+  "title": "Multi-Detect mission configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mission_id",
+    "mission_type",
+    "platform_mode",
+    "payloads",
+    "target_classes",
+    "human_authorization_required"
+  ],
+  "properties": {
+    "mission_id": {"type": "string", "minLength": 1},
+    "mission_type": {
+      "enum": [
+        "fire_suppression",
+        "rescue_supply",
+        "communication_relay",
+        "environmental_sensor",
+        "agriculture",
+        "industrial_sensor",
+        "multipoint_logistics",
+        "search_and_rescue"
+      ]
+    },
+    "platform_mode": {"enum": ["disposable", "multi_deployment"]},
+    "payload_count": {"type": "integer", "minimum": 1},
+    "payloads": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot_id", "payload_type"],
+        "properties": {
+          "slot_id": {"type": "string", "minLength": 1},
+          "payload_type": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "target_classes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "human_authorization_required": {"const": true},
+    "minimum_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_track_time_seconds": {"type": "number", "minimum": 0},
+    "minimum_track_observations": {"type": "integer", "minimum": 2},
+    "maximum_track_gap_seconds": {"type": "number", "exclusiveMinimum": 0},
+    "target_reengagement_cooldown_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "person_exclusion_enabled": {"type": "boolean"},
+    "person_labels": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "require_thermal_corroboration": {"type": "boolean"},
+    "completion_policy": {
+      "enum": ["terminate_after_first", "continue_while_payload_available"]
+    },
+    "ruleset_version": {"type": "string", "minLength": 1},
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum_altitude_agl_m": {"type": "number", "minimum": 0},
+        "maximum_altitude_agl_m": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_abs_roll_deg": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_abs_pitch_deg": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_ground_speed_mps": {"type": "number", "minimum": 0},
+        "person_exclusion_margin_normalized": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        },
+        "sensor_data_max_age_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "authorization_ttl_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "release_confirmation_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  }
+}

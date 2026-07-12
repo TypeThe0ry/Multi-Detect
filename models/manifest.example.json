@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "model_id": "fire-smoke-yolov5s-legacy-export",
+  "model_version": "98b1fec0f82e-onnx-candidate-1",
+  "status": "quarantined",
+  "intended_use": "rgb_detection_candidate_generation_only",
+  "prohibited_uses": [
+    "payload_release_authorization",
+    "direct_payload_release",
+    "flight_control",
+    "person_safety_clearance"
+  ],
+  "source": {
+    "repository": "https://github.com/gengyanlei/fire-smoke-detect-yolov4",
+    "commit": "98b1fec0f82e09d67ef5fc657a80eaf0b1450360",
+    "path": "yolov5/best.pt",
+    "size_bytes": 14758954,
+    "sha256": "d1eae6859229ac1f5699c60f9445fa054dafc6a2cc59f00fc30ea6379dc3247e",
+    "serialization": "pytorch_zip_pickle_full_model",
+    "checkpoint_loaded_only_in_isolated_export": true
+  },
+  "classes": [
+    {
+      "id": 0,
+      "source_name": "fire",
+      "canonical_label": "flame"
+    },
+    {
+      "id": 1,
+      "source_name": "smoke",
+      "canonical_label": "smoke"
+    }
+  ],
+  "input": {
+    "sensor": "rgb",
+    "color_space": "RGB",
+    "tensor_layout": "NCHW",
+    "dtype": "float32",
+    "shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "normalization_scale": 0.00392156862745098,
+    "resize": "letterbox",
+    "letterbox_color": [
+      114,
+      114,
+      114
+    ]
+  },
+  "output": {
+    "native_export": {
+      "format": "raw_yolo_predictions",
+      "nms_embedded": false,
+      "required_postprocessing": [
+        "decode",
+        "confidence_filter",
+        "class_aware_nms",
+        "scale_to_source_image"
+      ]
+    },
+    "adapter_contract": {
+      "format": "N_x_6",
+      "fields": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "confidence",
+        "class_id"
+      ],
+      "box_format": "normalized_xyxy",
+      "box_range": [
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "export": {
+    "environment": "ephemeral_unprivileged_offline_sandbox",
+    "artifact_format": "onnx",
+    "artifact_path": "models/REPLACE_WITH_LOCAL_ARTIFACT.onnx",
+    "artifact_sha256": "REPLACE_AFTER_EXPORT",
+    "exported_at_utc": "REPLACE_AFTER_EXPORT",
+    "onnx_opset": 12,
+    "tool_versions": {
+      "python": "REPLACE",
+      "torch": "REPLACE",
+      "onnx": "REPLACE",
+      "exporter_revision": "REPLACE"
+    }
+  },
+  "compatibility": {
+    "legacy_documented_environment": {
+      "python": "3.6+",
+      "pytorch": "1.6+",
+      "torchvision": "0.7+",
+      "cuda": "10.x",
+      "os": "Ubuntu 16.04 or 18.04"
+    },
+    "validated_runtime_targets": []
+  },
+  "validation": {
+    "golden_set_id": "REPLACE",
+    "sample_count": 0,
+    "class_id_match_rate": null,
+    "minimum_box_iou_vs_baseline": null,
+    "maximum_confidence_delta": null,
+    "deployment_domain_metrics": {},
+    "validated_at_utc": null
+  },
+  "governance": {
+    "software_license_review": "pending",
+    "dataset_rights_review": "pending",
+    "security_review": "pending",
+    "model_quality_review": "pending",
+    "production_approved": false,
+    "reviewer": null,
+    "reviewed_at_utc": null,
+    "notes": [
+      "Repository-level MIT license does not by itself resolve the embedded YOLOv5 provenance.",
+      "Upstream dataset documentation limits the data to academic exploration and cites third-party sources.",
+      "Model output is a candidate signal and cannot authorize payload release."
+    ]
+  }
+}
