@@ -100,6 +100,19 @@ class SafetyLimits:
     release_confirmation_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
+        numeric_limits = (
+            self.minimum_altitude_agl_m,
+            self.maximum_altitude_agl_m,
+            self.maximum_abs_roll_deg,
+            self.maximum_abs_pitch_deg,
+            self.maximum_ground_speed_mps,
+            self.person_exclusion_margin_normalized,
+            self.sensor_data_max_age_seconds,
+            self.authorization_ttl_seconds,
+            self.release_confirmation_timeout_seconds,
+        )
+        if not all(isfinite(value) for value in numeric_limits):
+            raise ConfigurationError("safety limits must be finite")
         if self.minimum_altitude_agl_m < 0:
             raise ConfigurationError("minimum altitude cannot be negative")
         if self.maximum_altitude_agl_m <= self.minimum_altitude_agl_m:
@@ -146,8 +159,6 @@ class MissionConfig:
             raise ConfigurationError("mission_id cannot be empty")
         if not self.target_classes:
             raise ConfigurationError("at least one target class is required")
-        if not self.payloads:
-            raise ConfigurationError("at least one payload slot is required")
         if not self.human_authorization_required:
             raise ConfigurationError("MVP requires human_authorization_required=true")
         if not 0.0 <= self.minimum_confidence <= 1.0:
@@ -186,6 +197,18 @@ class MissionConfig:
                 raise ConfigurationError(
                     "disposable platform requires completion_policy=terminate_after_first"
                 )
+
+    @property
+    def payload_installed(self) -> bool:
+        """Whether this flight configuration contains any task payload."""
+
+        return bool(self.payloads)
+
+    @property
+    def deployment_capable(self) -> bool:
+        """Whether the mission may enter the simulated deployment workflow."""
+
+        return self.payload_installed
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> MissionConfig:

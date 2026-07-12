@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from multidetect.config import CompletionPolicy, MissionConfig, PlatformMode
+from multidetect.config import CompletionPolicy, MissionConfig, PlatformMode, SafetyLimits
 from multidetect.domain import ConfigurationError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +28,36 @@ def test_payload_count_must_match() -> None:
 
     with pytest.raises(ConfigurationError, match="payload_count"):
         MissionConfig.from_mapping(raw)
+
+
+def test_patrol_config_allows_no_payload() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_patrol.demo.json")
+
+    assert config.payloads == ()
+    assert config.payload_installed is False
+    assert config.deployment_capable is False
+    assert config.require_thermal_corroboration is False
+
+
+def test_payload_demo_keeps_thermal_corroboration_gate() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_suppression.demo.json")
+
+    assert config.deployment_capable is True
+    assert config.require_thermal_corroboration is True
+
+
+def test_disposable_platform_still_requires_one_payload() -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text(encoding="utf-8"))
+    raw["platform_mode"] = "disposable"
+    raw["completion_policy"] = "terminate_after_first"
+
+    with pytest.raises(ConfigurationError, match="exactly one payload"):
+        MissionConfig.from_mapping(raw)
+
+
+def test_safety_limits_reject_nonfinite_values() -> None:
+    with pytest.raises(ConfigurationError, match="finite"):
+        SafetyLimits(maximum_altitude_agl_m=float("nan"))
 
 
 def test_offensive_payload_is_rejected() -> None:

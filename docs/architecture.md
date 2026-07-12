@@ -3,6 +3,15 @@
 Multi-Detect is deliberately split into evidence, decision, authorization and simulated effect
 layers. A component in an earlier layer cannot call a component in a later layer directly.
 
+The same aircraft software supports two configurations derived from the desired mission payload list. With no
+configured payload it runs `patrol_only`: confirmed tracks create deduplicated fire alerts and
+return directly to search without an authorization or payload path. With one or more approved
+payload slots it runs `deployment_capable` and retains the full safety, authorization and simulated
+interlock sequence. Zero inventory in a patrol configuration is therefore normal; zero remaining
+inventory in a deployment configuration requests return.
+
+Desired configuration is not physical evidence. A separate read-only payload inventory provider must report a supported protocol version, module identity, controller/interlock health, exact slot IDs and types, locked state, and healthy presence sensors. A missing, stale, changed or mismatched report prevents authorization and revokes an existing challenge. Replay uses an explicitly labelled configured-simulation provider; live mode defaults to unavailable unless the operator explicitly enables the FakePayloadPort simulation cycle.
+
 ```mermaid
 flowchart LR
     RGB[RGB detector adapter] --> Fusion[Perception fusion]
@@ -12,6 +21,8 @@ flowchart LR
     Tracker --> Ranker[Candidate ranker]
     Ranker --> Rules[Fail-closed safety rules]
     Telemetry[External telemetry snapshot] --> Rules
+    Inventory[Read-only payload inventory] --> Challenge
+    Inventory --> Recheck
     Rules --> Challenge[Authorization challenge]
     Challenge --> Operator[Human operator]
     Operator --> Recheck[Atomic safety recheck]
@@ -39,10 +50,11 @@ image-space heuristic with persistent geospatial target identity.
 
 ## MVP boundary
 
-The repository contains no live autopilot, actuator, GPIO, serial or MAVLink release path. The
-only payload endpoint is an in-memory fake used for deterministic replay and fault injection.
-Replacing that port requires a separate hazard analysis, authenticated protocol, independent
-hardware interlocks, SIL/HIL validation and operational approval.
+The repository contains no live autopilot command, actuator, GPIO, serial release or MAVLink
+release path. It can consume MAVLink telemetry read-only and it can process local/RTSP camera
+frames, but the only payload endpoint remains an in-memory fake used for deterministic replay and
+fault injection. Replacing that port requires a separate hazard analysis, authenticated protocol,
+independent hardware interlocks, SIL/HIL validation and operational approval.
 
 ## Candidate ranking
 

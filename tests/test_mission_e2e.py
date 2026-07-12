@@ -8,8 +8,12 @@ import pytest
 from multidetect.authorization import AuthorizationExpired, AuthorizationStatus
 from multidetect.config import MissionConfig
 from multidetect.domain import BoundingBox, Detection, MissionPhase, PayloadState, SensorKind
-from multidetect.mission import MissionController
+from multidetect.mission import MissionController, MissionOperationError
 from multidetect.payload import PayloadFeedbackError
+from multidetect.payload_inventory import (
+    ConfiguredSimulationPayloadInventoryProvider,
+    FailClosedPayloadInventoryProvider,
+)
 from multidetect.replay import load_jsonl_replay
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +68,102 @@ def test_replay_to_confirmed_simulated_release() -> None:
     assert controller.payload.get_slot("payload-1").state is PayloadState.RELEASE_CONFIRMED
     assert controller.payload.remaining_payload_count == 2
     assert controller.fake_payload_port.request_count == 1
+
+
+def test_patrol_only_mission_reports_fire_and_continues_searching() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_patrol.demo.json")
+    frames = load_jsonl_replay(ROOT / "examples/fire_mission_replay.jsonl")
+    controller = MissionController(config)
+    controller.launch(now_s=999.0)
+    controller.arrive_task_area(now_s=999.1)
+
+    alerts = []
+    for frame in frames:
+        outcome = controller.process_observation(frame, now_s=frame.captured_at_s)
+        alerts.extend(outcome.alerts)
+        assert outcome.challenge is None
+
+    status = controller.status()
+    assert len(alerts) == 1
+    assert alerts[0].label == "flame"
+    assert controller.state.phase is MissionPhase.SEARCHING
+    assert status.remaining_payload_count == 0
+    assert status.pending_challenge_id is None
+    assert status.payload_slots == ()
+    assert controller.fake_payload_port.request_count == 0
+    assert any(event.event_type == "alert.fire_confirmed" for event in controller.audit.events())
+
+
+def test_patrol_only_mission_deduplicates_recent_fire_alert() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_patrol.demo.json")
+    frames = load_jsonl_replay(ROOT / "examples/fire_mission_replay.jsonl")
+    controller = MissionController(config)
+    controller.launch(now_s=999.0)
+    controller.arrive_task_area(now_s=999.1)
+    for frame in frames:
+        controller.process_observation(frame, now_s=frame.captured_at_s)
+
+    repeated = replace(
+        frames[-1],
+        frame_id="frame-repeat",
+        captured_at_s=1003.5,
+    )
+    outcome = controller.process_observation(repeated, now_s=repeated.captured_at_s)
+
+    assert outcome.alerts == ()
+    assert controller.state.phase is MissionPhase.SEARCHING
+
+
+def test_live_deployment_config_cannot_authorize_unknown_payload_inventory() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_suppression.demo.json")
+    frames = load_jsonl_replay(ROOT / "examples/fire_mission_replay.jsonl")
+    controller = MissionController(
+        config,
+        payload_inventory_provider=FailClosedPayloadInventoryProvider(),
+    )
+    controller.launch(now_s=999.0)
+    controller.arrive_task_area(now_s=999.1)
+
+    outcome = None
+    for frame in frames:
+        outcome = controller.process_observation(frame, now_s=frame.captured_at_s)
+
+    assert outcome is not None
+    assert outcome.challenge is None
+    assert controller.state.phase is MissionPhase.SEARCHING
+    assert controller.status().payload_inventory_verified is False
+    assert controller.fake_payload_port.request_count == 0
+
+
+def test_payload_inventory_loss_invalidates_pending_authorization() -> None:
+    config = MissionConfig.from_json(ROOT / "configs/missions/fire_suppression.demo.json")
+
+    class _MutableInventory:
+        def __init__(self) -> None:
+            self.provider = ConfiguredSimulationPayloadInventoryProvider(config)
+
+        def snapshot(self, *, now_s: float):
+            return self.provider.snapshot(now_s=now_s)
+
+    inventory = _MutableInventory()
+    frames = load_jsonl_replay(ROOT / "examples/fire_mission_replay.jsonl")
+    controller = MissionController(config, payload_inventory_provider=inventory)
+    controller.launch(now_s=999.0)
+    controller.arrive_task_area(now_s=999.1)
+    challenge = reach_authorization_challenge(controller, frames)
+    inventory.provider = FailClosedPayloadInventoryProvider()
+
+    with pytest.raises(MissionOperationError, match="inventory"):
+        controller.approve_authorization(
+            challenge_id=challenge.challenge_id,
+            nonce=challenge.nonce,
+            operator_id="demo-operator",
+            now_s=1003.1,
+        )
+
+    assert controller.state.phase is MissionPhase.SEARCHING
+    assert controller.status().payload_inventory_verified is False
+    assert controller.fake_payload_port.request_count == 0
 
 
 def test_approval_expires_without_release() -> None:
@@ -349,9 +449,10 @@ def test_non_monotonic_timestamp_does_not_advance_state() -> None:
     config = MissionConfig.from_json(ROOT / "configs/missions/fire_suppression.demo.json")
     controller = MissionController(config)
     controller.launch(now_s=10.0)
+    event_count_after_launch = len(controller.audit)
 
     with pytest.raises(ValueError, match="monotonic"):
         controller.arrive_task_area(now_s=9.0)
 
     assert controller.state.phase is MissionPhase.NAVIGATING
-    assert len(controller.audit) == 1
+    assert len(controller.audit) == event_count_after_launch

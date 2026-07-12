@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import hypot
+from math import hypot, isfinite, nan
 from typing import Any
 
 
@@ -62,6 +62,8 @@ class BoundingBox:
 
     def __post_init__(self) -> None:
         values = (self.x1, self.y1, self.x2, self.y2)
+        if not all(isfinite(value) for value in values):
+            raise ValueError("bounding box coordinates must be finite")
         if any(value < 0.0 or value > 1.0 for value in values):
             raise ValueError("bounding box coordinates must be normalized to [0, 1]")
         if self.x2 <= self.x1 or self.y2 <= self.y1:
@@ -119,7 +121,7 @@ class Detection:
         normalized_label = self.label.strip().lower()
         if not normalized_label:
             raise ValueError("detection label cannot be empty")
-        if not 0.0 <= self.confidence <= 1.0:
+        if not isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0:
             raise ValueError("detection confidence must be in [0, 1]")
         object.__setattr__(self, "label", normalized_label)
 
@@ -137,6 +139,14 @@ class VehicleTelemetry:
     flight_mode_allows_deploy: bool | None
     release_zone_clear: bool | None
     person_detector_healthy: bool | None = None
+    latitude_deg: float = nan
+    longitude_deg: float = nan
+    heading_deg: float = nan
+    battery_remaining_pct: float = nan
+    satellites_visible: int | None = None
+    armed: bool | None = None
+    flight_mode: str | None = None
+    mission_sequence: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,8 +159,8 @@ class FrameObservation:
     def __post_init__(self) -> None:
         if not self.frame_id:
             raise ValueError("frame_id cannot be empty")
-        if self.captured_at_s < 0:
-            raise ValueError("captured_at_s cannot be negative")
+        if not isfinite(self.captured_at_s) or self.captured_at_s < 0:
+            raise ValueError("captured_at_s must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +183,24 @@ class TrackSnapshot:
     @property
     def duration_s(self) -> float:
         return max(0.0, self.last_seen_at_s - self.first_seen_at_s)
+
+
+@dataclass(frozen=True, slots=True)
+class FireAlert:
+    """A confirmed fire observation ready for delivery over a data link."""
+
+    alert_id: str
+    mission_id: str
+    target_id: str
+    target_revision: int
+    frame_id: str
+    label: str
+    confidence: float
+    bbox: BoundingBox
+    observed_at_s: float
+    aircraft_latitude_deg: float = nan
+    aircraft_longitude_deg: float = nan
+    aircraft_altitude_agl_m: float = nan
 
 
 @dataclass(frozen=True, slots=True)

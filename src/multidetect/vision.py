@@ -3,9 +3,10 @@ from __future__ import annotations
 import math
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from .adapters.fire_smoke_legacy import adapt_yolov5_detections
 from .domain import Detection
@@ -50,7 +51,9 @@ class CaptureConfig:
     height: int | None = None
     fps: float | None = None
     rtsp_transport: str = "tcp"
+    backend: str = "auto"
     reconnect_delay_seconds: float = 0.25
+    reconnect_attempts: int = 3
 
     def __post_init__(self) -> None:
         if self.width is not None and self.width <= 0:
@@ -61,12 +64,24 @@ class CaptureConfig:
             raise ValueError("capture fps must be positive")
         if self.rtsp_transport not in {"tcp", "udp"}:
             raise ValueError("rtsp_transport must be tcp or udp")
+        if self.backend not in {"auto", "dshow", "msmf", "ffmpeg"}:
+            raise ValueError("capture backend must be auto, dshow, msmf, or ffmpeg")
         if self.reconnect_delay_seconds < 0:
             raise ValueError("reconnect delay cannot be negative")
+        if self.reconnect_attempts < 0:
+            raise ValueError("reconnect attempts cannot be negative")
 
     @property
     def is_rtsp(self) -> bool:
         return isinstance(self.source, str) and self.source.lower().startswith("rtsp://")
+
+    @property
+    def redacted_source_description(self) -> str:
+        if self.is_rtsp:
+            return "RTSP source"
+        if isinstance(self.source, int):
+            return f"local camera index {self.source}"
+        return "local video source"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +100,11 @@ class OpenCVFrameSource:
         self.config = config
         self._capture: Any | None = None
         self._frame_index = 0
+        self._reconnect_count = 0
+
+    @property
+    def reconnect_count(self) -> int:
+        return self._reconnect_count
 
     def open(self) -> None:
         if self._capture is not None and self._capture.isOpened():
@@ -98,7 +118,20 @@ class OpenCVFrameSource:
             )
             capture = cv2.VideoCapture(self.config.source, cv2.CAP_FFMPEG)
         else:
-            capture = cv2.VideoCapture(self.config.source)
+            auto_backend = (
+                cv2.CAP_DSHOW
+                if self.config.backend == "auto"
+                and os.name == "nt"
+                and isinstance(self.config.source, int)
+                else cv2.CAP_ANY
+            )
+            backend = {
+                "auto": auto_backend,
+                "dshow": cv2.CAP_DSHOW,
+                "msmf": cv2.CAP_MSMF,
+                "ffmpeg": cv2.CAP_FFMPEG,
+            }[self.config.backend]
+            capture = cv2.VideoCapture(self.config.source, backend)
         if self.config.width is not None:
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.width)
         if self.config.height is not None:
@@ -110,7 +143,7 @@ class OpenCVFrameSource:
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not capture.isOpened():
             capture.release()
-            raise CameraReadError(f"unable to open video source: {self.config.source!r}")
+            raise CameraReadError(f"unable to open {self.config.redacted_source_description}")
         self._capture = capture
 
     def close(self) -> None:
@@ -119,18 +152,28 @@ class OpenCVFrameSource:
             capture.release()
 
     def read(self) -> CapturedFrame:
-        self.open()
-        assert self._capture is not None
-        ok, image = self._capture.read()
-        if not ok or image is None:
+        image = None
+        for attempt in range(self.config.reconnect_attempts + 1):
+            try:
+                self.open()
+            except CameraReadError:
+                ok = False
+            else:
+                assert self._capture is not None
+                ok, image = self._capture.read()
+            if ok and image is not None:
+                break
             self.close()
-            if self.config.reconnect_delay_seconds:
+            if attempt >= self.config.reconnect_attempts:
+                break
+            self._reconnect_count += 1
+            if self.config.reconnect_delay_seconds > 0:
                 time.sleep(self.config.reconnect_delay_seconds)
-            self.open()
-            assert self._capture is not None
-            ok, image = self._capture.read()
         if not ok or image is None:
-            raise CameraReadError(f"video source returned no frame: {self.config.source!r}")
+            raise CameraReadError(
+                f"{self.config.redacted_source_description} returned no frame after "
+                f"{self.config.reconnect_attempts} reconnect attempts"
+            )
         height, width = image.shape[:2]
         self._frame_index += 1
         return CapturedFrame(
@@ -179,6 +222,7 @@ class OnnxNx6Config:
     input_height: int | None = None
     confidence_threshold: float = 0.25
     providers: tuple[str, ...] = ()
+    trt_engine_cache_path: Path | None = None
     model_version: str | None = None
     output_coordinates: str = "letterbox_xyxy_px"
 
@@ -220,7 +264,29 @@ class OnnxNx6Detector:
                     "No requested ONNX Runtime provider is available; "
                     f"available={sorted(available)}"
                 )
-            session = ort.InferenceSession(str(config.model_path), providers=providers)
+            configured_providers: list[str | tuple[str, dict[str, str | bool]]] = []
+            for provider in providers:
+                if (
+                    provider == "TensorrtExecutionProvider"
+                    and self.config.trt_engine_cache_path is not None
+                ):
+                    cache_path = self.config.trt_engine_cache_path
+                    cache_path.mkdir(parents=True, exist_ok=True)
+                    configured_providers.append(
+                        (
+                            provider,
+                            {
+                                "trt_engine_cache_enable": True,
+                                "trt_engine_cache_path": str(cache_path),
+                            },
+                        )
+                    )
+                else:
+                    configured_providers.append(provider)
+            session = ort.InferenceSession(
+                str(config.model_path),
+                providers=configured_providers,
+            )
         self._session = session
         input_meta = self._session.get_inputs()[0]
         self._input_name = input_meta.name
@@ -247,7 +313,9 @@ class OnnxNx6Detector:
             model_version=self.config.model_version or self.config.model_path.name,
         )
 
-    def infer_nx6(self, image_bgr: Any) -> tuple[tuple[float, float, float, float, float, float], ...]:
+    def infer_nx6(
+        self, image_bgr: Any
+    ) -> tuple[tuple[float, float, float, float, float, float], ...]:
         tensor, transform = self._preprocess(image_bgr)
         outputs = self._session.run(None, {self._input_name: tensor})
         if not outputs:
@@ -292,7 +360,11 @@ class OnnxNx6Detector:
         scale = min(self._input_width / source_width, self._input_height / source_height)
         resized_width = max(1, round(source_width * scale))
         resized_height = max(1, round(source_height * scale))
-        resized = cv2.resize(image_bgr, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+        resized = cv2.resize(
+            image_bgr,
+            (resized_width, resized_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
         pad_x = (self._input_width - resized_width) / 2.0
         pad_y = (self._input_height - resized_height) / 2.0
         canvas = np.full((self._input_height, self._input_width, 3), 114, dtype=np.uint8)
@@ -341,4 +413,3 @@ class DetectorEnsemble:
             for label in detector.class_names
         }
         return set(label.strip().lower() for label in required_labels).issubset(available)
-

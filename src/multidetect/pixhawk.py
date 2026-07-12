@@ -44,6 +44,14 @@ class PixhawkReadOnlyTelemetryProvider:
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
         self._ground_speed_mps = float("nan")
+        self._latitude_deg = float("nan")
+        self._longitude_deg = float("nan")
+        self._heading_deg = float("nan")
+        self._battery_remaining_pct = float("nan")
+        self._satellites_visible: int | None = None
+        self._armed: bool | None = None
+        self._flight_mode: str | None = None
+        self._mission_sequence: int | None = None
 
     @property
     def is_read_only(self) -> bool:
@@ -81,6 +89,9 @@ class PixhawkReadOnlyTelemetryProvider:
             if message is None:
                 break
             self.ingest_message(message, received_at_s=now_s)
+        connection_mode = getattr(self._connection, "flightmode", None)
+        if isinstance(connection_mode, str) and connection_mode.strip():
+            self._flight_mode = connection_mode.strip()
         return VehicleTelemetry(
             altitude_agl_m=self._altitude_agl_m,
             roll_deg=self._roll_deg,
@@ -93,25 +104,57 @@ class PixhawkReadOnlyTelemetryProvider:
             flight_mode_allows_deploy=None,
             release_zone_clear=None,
             person_detector_healthy=None,
+            latitude_deg=self._latitude_deg,
+            longitude_deg=self._longitude_deg,
+            heading_deg=self._heading_deg,
+            battery_remaining_pct=self._battery_remaining_pct,
+            satellites_visible=self._satellites_visible,
+            armed=self._armed,
+            flight_mode=self._flight_mode,
+            mission_sequence=self._mission_sequence,
         )
 
     def ingest_message(self, message: Any, *, received_at_s: float | None = None) -> None:
         """Update the cache from a MAVLink-shaped message; useful for deterministic tests."""
 
         now_s = time.monotonic() if received_at_s is None else received_at_s
-        message_type = message.get_type() if hasattr(message, "get_type") else type(message).__name__
+        message_type = (
+            message.get_type() if hasattr(message, "get_type") else type(message).__name__
+        )
         if message_type == "HEARTBEAT":
             self._last_heartbeat_s = now_s
+            base_mode = getattr(message, "base_mode", None)
+            if base_mode is not None:
+                self._armed = bool(int(base_mode) & 128)
         elif message_type == "ATTITUDE":
             self._roll_deg = math.degrees(float(message.roll))
             self._pitch_deg = math.degrees(float(message.pitch))
         elif message_type == "GLOBAL_POSITION_INT":
             self._altitude_agl_m = float(message.relative_alt) / 1_000.0
             self._ground_speed_mps = math.hypot(float(message.vx), float(message.vy)) / 100.0
+            latitude = getattr(message, "lat", None)
+            longitude = getattr(message, "lon", None)
+            heading = getattr(message, "hdg", None)
+            if latitude is not None and longitude is not None:
+                self._latitude_deg = float(latitude) / 10_000_000.0
+                self._longitude_deg = float(longitude) / 10_000_000.0
+            if heading is not None and int(heading) != 65_535:
+                self._heading_deg = float(heading) / 100.0
             self._last_position_s = now_s
+        elif message_type == "SYS_STATUS":
+            remaining = getattr(message, "battery_remaining", None)
+            if remaining is not None and int(remaining) >= 0:
+                self._battery_remaining_pct = float(remaining)
+        elif message_type == "GPS_RAW_INT":
+            satellites = getattr(message, "satellites_visible", None)
+            if satellites is not None and int(satellites) != 255:
+                self._satellites_visible = int(satellites)
+        elif message_type == "MISSION_CURRENT":
+            sequence = getattr(message, "seq", None)
+            if sequence is not None and int(sequence) >= 0:
+                self._mission_sequence = int(sequence)
 
     def _is_fresh(self, timestamp_s: float | None, now_s: float) -> bool | None:
         if timestamp_s is None:
             return None
         return now_s - timestamp_s <= self.config.stale_after_seconds
-

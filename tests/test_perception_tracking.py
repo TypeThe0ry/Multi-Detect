@@ -43,6 +43,23 @@ def _flame(
     return Detection("flame", confidence, bbox)
 
 
+@pytest.mark.parametrize(
+    "values",
+    [
+        (float("nan"), 0.1, 0.2, 0.3),
+        (0.1, float("inf"), 0.2, 0.3),
+    ],
+)
+def test_bounding_box_rejects_nonfinite_coordinates(values) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        BoundingBox(*values)
+
+
+def test_detection_rejects_nonfinite_confidence() -> None:
+    with pytest.raises(ValueError, match="confidence"):
+        Detection("flame", float("nan"), _DEFAULT_FLAME_BOX)
+
+
 def test_darknet_center_box_is_normalized_and_fire_is_aliased() -> None:
     detection = adapt_darknet_detection(
         (b"fire", "90", (100, 50, 40, 20)),

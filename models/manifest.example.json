@@ -3,6 +3,7 @@
   "model_id": "fire-smoke-yolov5s-legacy-export",
   "model_version": "98b1fec0f82e-onnx-candidate-1",
   "status": "quarantined",
+  "model_role": "fire_candidate",
   "intended_use": "rgb_detection_candidate_generation_only",
   "prohibited_uses": [
     "payload_release_authorization",

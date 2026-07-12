@@ -16,6 +16,7 @@ dependencies = []
 dev = ["pytest>=8.0", "ruff>=0.6"]
 vision = ["numpy>=1.26", "opencv-python>=4.10", "onnxruntime>=1.18"]
 pixhawk = ["pymavlink>=2.4"]
+model-tools = ["onnx>=1.16,<2"]
 
 [project.scripts]
 multi-detect = "multidetect.cli:main"

@@ -41,4 +41,3 @@ def with_person_detector_health(
     """Attach independently configured safety-object detector health to a snapshot."""
 
     return replace(telemetry, person_detector_healthy=healthy)
-

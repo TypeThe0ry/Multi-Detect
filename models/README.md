@@ -49,6 +49,14 @@ Direct loading is prohibited in:
 The source checkpoint may only be opened in the quarantined export workflow
 below after its byte size and SHA-256 have been verified.
 
+The byte-only verification command never imports PyTorch or deserializes the checkpoint:
+
+```powershell
+multi-detect legacy-checkpoint-verify C:\isolated-staging\best.pt
+```
+
+It returns success only when both the audited size and SHA-256 match, while still reporting `safe_to_run_directly=false` and `requires_isolated_export=true`.
+
 ## Quarantined export workflow
 
 1. **Approve an evaluation ticket.** Record the intended non-release use,
@@ -88,6 +96,7 @@ below after its byte size and SHA-256 have been verified.
 
 Every candidate model must record at least:
 
+- explicit `model_role`: `fire_candidate` or `safety_object_evidence`
 - immutable source repository, commit, path, size, and SHA-256
 - source serialization format and isolation status
 - class mapping and preprocessing
@@ -101,6 +110,35 @@ Every candidate model must record at least:
 `minimum_confidence` in mission configuration is a policy threshold, not proof
 that model confidence is calibrated. Calibration evidence must be collected for
 each camera, altitude range, weather/lighting domain, and deployed artifact.
+
+After creating the local ONNX and replacing every placeholder in the manifest, bind the two with:
+
+For a new operator-supplied ONNX with known provenance, a quarantined starter manifest can be created without hand-editing the digest:
+
+```powershell
+multi-detect model-manifest-init --onnx-model models/fire-smoke-nms.onnx --out models/fire-smoke-nms.manifest.json --model-id fire-smoke-candidate --model-version candidate-v1 --source-description "REPLACE WITH TRAINING AND EXPORT PROVENANCE" --class-names fire,smoke --output-coordinates normalized_xyxy
+```
+
+An independently governed person/firefighter model must use a different role; class names alone do
+not make a model valid safety evidence:
+
+```powershell
+multi-detect model-manifest-init --onnx-model models/person-safety-nms.onnx --out models/person-safety-nms.manifest.json --model-id person-safety-candidate --model-version candidate-v1 --source-description "REPLACE WITH TRAINING AND EXPORT PROVENANCE" --model-role safety_object_evidence --class-names person,firefighter --output-coordinates normalized_xyxy
+multi-detect model-check --onnx-model models/person-safety-nms.onnx --model-manifest models/person-safety-nms.manifest.json --model-role safety_object_evidence --class-names person,firefighter --output-coordinates normalized_xyxy
+```
+
+The safety-object model still cannot authorize deployment or directly declare person clearance. It
+only supplies governed evidence to the independent fail-closed rules engine.
+
+The initializer always writes `status=quarantined`, `production_approved=false`, and empty validation metrics. It does not grant approval. Then bind and execute the runtime contract check with:
+
+```powershell
+multi-detect model-check --onnx-model models/fire-smoke-nms.onnx --model-manifest models/fire-smoke-nms.manifest.json --class-names fire,smoke
+```
+
+Use `--require-production-approved` for a production gate. `live-camera` accepts the corresponding `--model-manifest` and `--require-production-approved-models` flags. These checks verify identity and declared governance; they do not replace accuracy validation.
+
+The manifest `output.adapter_contract.box_format` is also binding. It must be either `normalized_xyxy` with `box_range: [0.0, 1.0]` or `letterbox_xyxy_px`, and it must match the runtime `--output-coordinates` option. A mismatch is rejected because it would silently place boxes at incorrect image locations.
 
 ## Legacy baseline reference
 

@@ -1,0 +1,33 @@
+{
+  "protocol_version": 1,
+  "module_id": "fire-payload-module-demo",
+  "sequence": 1,
+  "observed_at_s": 1000.0,
+  "source_id": "payload-hil-demo",
+  "controller_healthy": true,
+  "interlock_healthy": true,
+  "simulation_only": true,
+  "installed_slots": [
+    {
+      "slot_id": "payload-1",
+      "payload_type": "fire_suppression_agent",
+      "state": "locked",
+      "present": true,
+      "presence_sensor_healthy": true
+    },
+    {
+      "slot_id": "payload-2",
+      "payload_type": "fire_suppression_agent",
+      "state": "locked",
+      "present": true,
+      "presence_sensor_healthy": true
+    },
+    {
+      "slot_id": "payload-3",
+      "payload_type": "fire_suppression_agent",
+      "state": "locked",
+      "present": true,
+      "presence_sensor_healthy": true
+    }
+  ]
+}

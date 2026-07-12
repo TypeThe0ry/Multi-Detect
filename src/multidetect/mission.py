@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import threading
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from functools import wraps
@@ -19,6 +20,7 @@ from .domain import (
     AuthorizationChallenge,
     BoundingBox,
     DeploymentDecision,
+    FireAlert,
     FrameObservation,
     MissionPhase,
     PayloadState,
@@ -26,6 +28,13 @@ from .domain import (
     TrackSnapshot,
 )
 from .payload import FakePayloadPort, PayloadController, PayloadSlotSnapshot
+from .payload_inventory import (
+    ConfiguredSimulationPayloadInventoryProvider,
+    PayloadInventoryProvider,
+    PayloadInventoryVerification,
+    unavailable_inventory_verification,
+    verify_payload_inventory,
+)
 from .perception import fuse_rgb_thermal
 from .ranking import TargetRanker, TargetRiskAssessment
 from .safety import SafetyRuleEngine
@@ -52,6 +61,7 @@ class ObservationOutcome:
     tracks: tuple[TrackSnapshot, ...]
     decisions: tuple[DeploymentDecision, ...]
     challenge: AuthorizationChallenge | None
+    alerts: tuple[FireAlert, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +73,9 @@ class MissionStatus:
     active_release_id: str | None
     remaining_payload_count: int
     payload_slots: tuple[PayloadSlotSnapshot, ...]
+    payload_inventory_verified: bool
+    payload_inventory_source: str
+    payload_inventory_reasons: tuple[str, ...]
     fault_reason: str | None
 
 
@@ -84,6 +97,13 @@ class _ServedTargetRegion:
     served_at_s: float
 
 
+@dataclass(frozen=True, slots=True)
+class _ReportedTargetRegion:
+    label: str
+    bbox: BoundingBox
+    reported_at_s: float
+
+
 class MissionController:
     """Coordinates evidence, authorization and a simulation-only payload transaction.
 
@@ -91,7 +111,13 @@ class MissionController:
     accepts only ``FakePayloadPort``, making the MVP suitable for replay and fault tests.
     """
 
-    def __init__(self, config: MissionConfig) -> None:
+    def __init__(
+        self,
+        config: MissionConfig,
+        *,
+        audit_log: AuditLog | None = None,
+        payload_inventory_provider: PayloadInventoryProvider | None = None,
+    ) -> None:
         self.config = config
         self.state = MissionStateMachine()
         self.tracker = IoUMultiObjectTracker(config)
@@ -100,15 +126,25 @@ class MissionController:
         self.fake_payload_port = FakePayloadPort()
         self.payload = PayloadController(config, self.fake_payload_port)
         self.ranker = TargetRanker()
-        self.audit = AuditLog()
+        self.audit = audit_log if audit_log is not None else AuditLog()
+        self.payload_inventory_provider = (
+            payload_inventory_provider or ConfiguredSimulationPayloadInventoryProvider(config)
+        )
+        self._payload_inventory_verification = unavailable_inventory_verification(
+            source_id="not-sampled",
+            reason="payload inventory has not been sampled",
+        )
+        self._payload_inventory_fingerprint: tuple[object, ...] | None = None
         self._operation_lock = threading.RLock()
         self._context: _DeploymentContext | None = None
         self._served_target_regions: list[_ServedTargetRegion] = []
+        self._reported_target_regions: list[_ReportedTargetRegion] = []
         self._last_now_s: float | None = None
 
     @_serialized
     def launch(self, *, now_s: float) -> None:
         self._validate_now(now_s)
+        self._refresh_payload_inventory(now_s)
         self._transition("launch", now_s)
 
     @_serialized
@@ -136,15 +172,30 @@ class MissionController:
                 f"{self.state.phase.value}"
             )
         self._expire_authorization_if_needed(now_s)
-        if self.payload.faulted:
+        inventory = self._refresh_payload_inventory(now_s)
+        if (
+            self.config.deployment_capable
+            and not inventory.allowed
+            and self.state.phase
+            in {MissionPhase.AWAITING_AUTHORIZATION, MissionPhase.DEPLOYMENT_READY}
+        ):
+            self._invalidate_for_payload_inventory(now_s, inventory)
+        if self.config.deployment_capable and self.payload.faulted:
             self._transition("fault", now_s, reason=self.payload.fault_reason)
             raise MissionOperationError("payload controller is faulted")
-        if self.payload.remaining_payload_count == 0:
+        if self.config.deployment_capable and self.payload.remaining_payload_count == 0:
             self._transition("request_return", now_s, reason="payload inventory exhausted")
             return ObservationOutcome(self.state.phase, (), (), None)
 
         fused_frame = self._fuse_frame(frame)
         tracks = self.tracker.update(fused_frame)
+        if not self.config.deployment_capable:
+            return self._process_patrol_observation(
+                frame=fused_frame,
+                tracks=tracks,
+                now_s=now_s,
+                assessments=assessments,
+            )
         if self.state.phase in {
             MissionPhase.AWAITING_AUTHORIZATION,
             MissionPhase.DEPLOYMENT_READY,
@@ -232,6 +283,22 @@ class MissionController:
             self._transition("safety_invalidated", now_s)
             return ObservationOutcome(self.state.phase, tracks, decisions, None)
 
+        if not inventory.allowed:
+            self.audit.append(
+                "payload.inventory_denied_authorization",
+                now_s,
+                {
+                    "source_id": inventory.source_id,
+                    "reasons": inventory.reasons,
+                },
+            )
+            self._transition(
+                "safety_invalidated",
+                now_s,
+                reason="payload inventory is not independently verified",
+            )
+            return ObservationOutcome(self.state.phase, tracks, decisions, None)
+
         payload_slot_id = self._next_locked_payload_slot()
         if payload_slot_id is None:
             self._transition("fault", now_s, reason="no locked payload slot is available")
@@ -265,6 +332,79 @@ class MissionController:
         )
         return ObservationOutcome(self.state.phase, tracks, decisions, challenge)
 
+    def _process_patrol_observation(
+        self,
+        *,
+        frame: FrameObservation,
+        tracks: tuple[TrackSnapshot, ...],
+        now_s: float,
+        assessments: Mapping[str, TargetRiskAssessment] | None,
+    ) -> ObservationOutcome:
+        target_labels = set(self.config.target_classes)
+        candidates = tuple(
+            track
+            for track in tracks
+            if track.confirmed
+            and track.label in target_labels
+            and not self._is_recently_reported_target(track, now_s)
+        )
+        ranked = self.ranker.rank(candidates, assessments)
+        self.audit.append(
+            "perception.observation_evaluated",
+            now_s,
+            {
+                "frame_id": frame.frame_id,
+                "track_count": len(tracks),
+                "confirmed_candidate_count": len(candidates),
+                "alert_candidate_count": len(ranked),
+                "deployment_capable": False,
+            },
+        )
+        if not ranked:
+            return ObservationOutcome(self.state.phase, tracks, (), None)
+
+        self._transition("target_confirmed", now_s)
+        alerts = tuple(
+            FireAlert(
+                alert_id=str(uuid.uuid4()),
+                mission_id=self.config.mission_id,
+                target_id=item.track.track_id,
+                target_revision=item.track.revision,
+                frame_id=frame.frame_id,
+                label=item.track.label,
+                confidence=item.track.confidence_mean,
+                bbox=item.track.bbox,
+                observed_at_s=now_s,
+                aircraft_latitude_deg=frame.telemetry.latitude_deg,
+                aircraft_longitude_deg=frame.telemetry.longitude_deg,
+                aircraft_altitude_agl_m=frame.telemetry.altitude_agl_m,
+            )
+            for item in ranked
+        )
+        for item, alert in zip(ranked, alerts, strict=True):
+            self._reported_target_regions.append(
+                _ReportedTargetRegion(
+                    label=item.track.label,
+                    bbox=item.track.bbox,
+                    reported_at_s=now_s,
+                )
+            )
+            self.audit.append(
+                "alert.fire_confirmed",
+                now_s,
+                {
+                    "alert_id": alert.alert_id,
+                    "frame_id": alert.frame_id,
+                    "target_id": alert.target_id,
+                    "target_revision": alert.target_revision,
+                    "label": alert.label,
+                    "confidence": alert.confidence,
+                    "bbox": alert.bbox.rounded(),
+                },
+            )
+        self._transition("alert_reported", now_s)
+        return ObservationOutcome(self.state.phase, tracks, (), None, alerts)
+
     @_serialized
     def approve_authorization(
         self,
@@ -276,6 +416,10 @@ class MissionController:
     ) -> None:
         self._validate_now(now_s)
         context = self._require_context(MissionPhase.AWAITING_AUTHORIZATION)
+        inventory = self._refresh_payload_inventory(now_s)
+        if not inventory.allowed:
+            self._invalidate_for_payload_inventory(now_s, inventory)
+            raise MissionOperationError("payload inventory is not independently verified")
         if challenge_id != context.challenge.challenge_id:
             raise MissionOperationError("challenge does not match the active mission context")
         if self._expire_authorization_if_needed(now_s):
@@ -373,6 +517,10 @@ class MissionController:
     def request_simulated_deployment(self, *, now_s: float) -> str:
         self._validate_now(now_s)
         context = self._require_context(MissionPhase.DEPLOYMENT_READY)
+        inventory = self._refresh_payload_inventory(now_s)
+        if not inventory.allowed:
+            self._invalidate_for_payload_inventory(now_s, inventory)
+            raise MissionOperationError("payload inventory is not independently verified")
         if self._expire_authorization_if_needed(now_s):
             raise AuthorizationExpired("authorization challenge has expired")
         if context.authorization is None:
@@ -545,6 +693,9 @@ class MissionController:
             active_release_id=context.release_id if context else None,
             remaining_payload_count=self.payload.remaining_payload_count,
             payload_slots=self.payload.slots(),
+            payload_inventory_verified=self._payload_inventory_verification.allowed,
+            payload_inventory_source=self._payload_inventory_verification.source_id,
+            payload_inventory_reasons=self._payload_inventory_verification.reasons,
             fault_reason=self.payload.fault_reason,
         )
 
@@ -610,6 +761,76 @@ class MissionController:
     def _invalidate_before_release(self, now_s: float, reason: str) -> None:
         self.audit.append("safety.authorization_invalidated", now_s, {"reason": reason})
         self._transition("safety_invalidated", now_s, reason=reason)
+        self._context = None
+
+    def _refresh_payload_inventory(self, now_s: float) -> PayloadInventoryVerification:
+        try:
+            snapshot = self.payload_inventory_provider.snapshot(now_s=now_s)
+            verification = verify_payload_inventory(
+                self.config,
+                snapshot,
+                now_s=now_s,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            verification = unavailable_inventory_verification(
+                source_id="payload-inventory-provider-error",
+                reason=f"payload inventory provider failed: {type(exc).__name__}",
+            )
+        fingerprint: tuple[object, ...] = (
+            verification.allowed,
+            verification.source_id,
+            verification.reasons,
+            verification.simulation_only,
+        )
+        if fingerprint != self._payload_inventory_fingerprint:
+            self.audit.append(
+                "payload.inventory_evaluated",
+                now_s,
+                {
+                    "allowed": verification.allowed,
+                    "source_id": verification.source_id,
+                    "reasons": verification.reasons,
+                    "simulation_only": verification.simulation_only,
+                },
+            )
+            self._payload_inventory_fingerprint = fingerprint
+        self._payload_inventory_verification = verification
+        return verification
+
+    def _invalidate_for_payload_inventory(
+        self,
+        now_s: float,
+        verification: PayloadInventoryVerification,
+    ) -> None:
+        context = self._require_any_context()
+        previous_phase = self.state.phase
+        if previous_phase is MissionPhase.DEPLOYMENT_READY:
+            self.payload.lock(payload_slot_id=context.payload_slot_id)
+        elif previous_phase is MissionPhase.AWAITING_AUTHORIZATION:
+            try:
+                self.authorizations.deny(
+                    challenge_id=context.challenge.challenge_id,
+                    nonce=context.challenge.nonce,
+                    operator_id="system-payload-inventory",
+                    now_s=now_s,
+                )
+            except AuthorizationError:
+                pass
+        self.audit.append(
+            "payload.inventory_invalidated_authorization",
+            now_s,
+            {
+                "source_id": verification.source_id,
+                "reasons": verification.reasons,
+                "previous_phase": previous_phase.value,
+                "payload_relocked": previous_phase is MissionPhase.DEPLOYMENT_READY,
+            },
+        )
+        self._transition(
+            "safety_invalidated",
+            now_s,
+            reason="payload inventory changed or became unavailable",
+        )
         self._context = None
 
     def _invalidate_for_changed_observation(self, now_s: float) -> None:
@@ -802,6 +1023,22 @@ class MissionController:
                 or region.bbox.center_distance(track.bbox) <= 0.08
             )
             for region in self._served_target_regions
+        )
+
+    def _is_recently_reported_target(self, track: TrackSnapshot, now_s: float) -> bool:
+        cooldown = self.config.target_reengagement_cooldown_seconds
+        self._reported_target_regions = [
+            region
+            for region in self._reported_target_regions
+            if now_s - region.reported_at_s <= cooldown
+        ]
+        return any(
+            region.label == track.label
+            and (
+                region.bbox.iou(track.bbox) >= 0.25
+                or region.bbox.center_distance(track.bbox) <= 0.08
+            )
+            for region in self._reported_target_regions
         )
 
     def _transition(self, event: str, now_s: float, *, reason: str | None = None) -> None:

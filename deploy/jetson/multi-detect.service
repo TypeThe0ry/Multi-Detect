@@ -1,0 +1,32 @@
+[Unit]
+Description=Multi-Detect fire patrol perception service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=multidetect
+Group=multidetect
+SupplementaryGroups=dialout video
+WorkingDirectory=/opt/multi-detect
+EnvironmentFile=/etc/multi-detect/runtime.env
+ExecStart=/opt/multi-detect/.venv/bin/python -m multidetect live-camera /etc/multi-detect/fire-patrol.json --source-env CAMERA_SOURCE --rtsp-transport tcp --onnx-model ${FIRE_MODEL_PATH} --model-manifest ${FIRE_MODEL_MANIFEST} --class-names fire,smoke --output-coordinates normalized_xyxy --require-production-approved-models --provider TensorrtExecutionProvider --provider CUDAExecutionProvider --provider CPUExecutionProvider --trt-engine-cache /var/lib/multi-detect/trt-cache --pixhawk-endpoint ${PIXHAWK_ENDPOINT} --pixhawk-baud ${PIXHAWK_BAUD} --observe-pixhawk-lifecycle --task-area-mission-sequence ${TASK_AREA_MISSION_SEQUENCE} --allowed-auto-mode AUTO_MISSION --alert-udp-host ${ALERT_RECEIVER_HOST} --alert-udp-port ${ALERT_RECEIVER_PORT} --alert-hmac-key-env ALERT_HMAC_KEY --alert-sender-id ${ALERT_SENDER_ID} --alert-receiver-id ${ALERT_RECEIVER_ID} --alert-outbox /var/lib/multi-detect/fire-alerts.sqlite3 --audit-out /var/log/multi-detect/live.audit.jsonl --no-display
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+SuccessExitStatus=130
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/multi-detect /var/log/multi-detect
+
+[Install]
+WantedBy=multi-user.target

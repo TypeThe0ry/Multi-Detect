@@ -50,6 +50,8 @@ No published model card, calibration report, mAP table, false-positive rate,
 false-negative rate, thermal validation, or deployment-domain acceptance data
 was found in the pinned tree.
 
+The complete file tree at the pinned commit was rechecked during integration preparation. It contains historical ONNX conversion scripts, but no committed `.onnx`, TensorRT engine, or directly usable Darknet weight artifact. Therefore the application cannot obtain a safe runtime model merely by checking out that commit.
+
 ## Canonical interface mapping
 
 ### Legacy YOLOv5

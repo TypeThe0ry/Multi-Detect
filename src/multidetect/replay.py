@@ -24,6 +24,14 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         flight_mode_allows_deploy=_optional_bool(telemetry_raw.get("flight_mode_allows_deploy")),
         release_zone_clear=_optional_bool(telemetry_raw.get("release_zone_clear")),
         person_detector_healthy=_optional_bool(telemetry_raw.get("person_detector_healthy")),
+        latitude_deg=_optional_float(telemetry_raw.get("latitude_deg")),
+        longitude_deg=_optional_float(telemetry_raw.get("longitude_deg")),
+        heading_deg=_optional_float(telemetry_raw.get("heading_deg")),
+        battery_remaining_pct=_optional_float(telemetry_raw.get("battery_remaining_pct")),
+        satellites_visible=_optional_int(telemetry_raw.get("satellites_visible")),
+        armed=_optional_bool(telemetry_raw.get("armed")),
+        flight_mode=_optional_string(telemetry_raw.get("flight_mode")),
+        mission_sequence=_optional_int(telemetry_raw.get("mission_sequence")),
     )
     detections: list[Detection] = []
     for detection_raw in raw.get("detections", []):
@@ -80,3 +88,18 @@ def _optional_bool(value: Any) -> bool | None:
     if value is None or isinstance(value, bool):
         return value
     raise ValueError("telemetry health values must be true, false, or null")
+
+
+def _optional_float(value: Any) -> float:
+    return float("nan") if value is None else float(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    return None if value is None else int(value)
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None

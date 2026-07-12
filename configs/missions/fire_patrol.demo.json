@@ -1,0 +1,30 @@
+{
+  "mission_id": "fire-patrol-demo-001",
+  "mission_type": "fire_suppression",
+  "platform_mode": "multi_deployment",
+  "payload_count": 0,
+  "payloads": [],
+  "target_classes": ["flame", "hotspot"],
+  "human_authorization_required": true,
+  "minimum_confidence": 0.82,
+  "minimum_track_time_seconds": 3.0,
+  "minimum_track_observations": 4,
+  "maximum_track_gap_seconds": 1.2,
+  "target_reengagement_cooldown_seconds": 300.0,
+  "person_exclusion_enabled": true,
+  "person_labels": ["person", "firefighter"],
+  "require_thermal_corroboration": false,
+  "completion_policy": "continue_while_payload_available",
+  "ruleset_version": "safety-rules-v1",
+  "safety": {
+    "minimum_altitude_agl_m": 8.0,
+    "maximum_altitude_agl_m": 45.0,
+    "maximum_abs_roll_deg": 10.0,
+    "maximum_abs_pitch_deg": 10.0,
+    "maximum_ground_speed_mps": 2.5,
+    "person_exclusion_margin_normalized": 0.1,
+    "sensor_data_max_age_seconds": 1.0,
+    "authorization_ttl_seconds": 10.0,
+    "release_confirmation_timeout_seconds": 5.0
+  }
+}

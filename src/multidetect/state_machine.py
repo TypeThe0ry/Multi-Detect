@@ -31,6 +31,7 @@ _TRANSITIONS: dict[MissionPhase, dict[str, MissionPhase]] = {
         "fault": MissionPhase.FAULT,
     },
     MissionPhase.TARGET_CONFIRMED: {
+        "alert_reported": MissionPhase.SEARCHING,
         "authorization_requested": MissionPhase.AWAITING_AUTHORIZATION,
         "target_lost": MissionPhase.SEARCHING,
         "safety_invalidated": MissionPhase.SEARCHING,

@@ -4,9 +4,17 @@ Multi-Detect 是一个面向**非危险、非攻击性任务载荷**的安全优
 
 > **重要边界：本项目仅供 simulation-only 回放和软件测试。**
 >
-> 仓库没有真实飞控、航路规划、MAVLink/PX4/ArduPilot 接口、相机采集、GPIO/CAN/串口驱动或物理载荷执行器。`MissionController` 只接受内存中的 `FakePayloadPort`；CLI 中的“发射”和“抵达任务区”只是状态迁移，不代表无人机实际起飞或自主导航。请勿将本原型连接到真实释放机构。
+> 仓库现已支持本机/RTSP 摄像头、ONNX Nx6 推理以及 Pixhawk MAVLink **只读**遥测；仍然没有真实飞控命令、航路规划、模式切换、任务上传、GPIO/CAN/串口执行器或物理载荷释放接口。`MissionController` 只接受内存中的 `FakePayloadPort`；CLI 中的“发射”和“抵达任务区”只是状态迁移，不代表无人机实际起飞或自主导航。请勿将本原型连接到真实释放机构。
+
+G20、GR01、网口三体摄像头、Jetson 与 Pixhawk V6X 的推荐接线、触摸框选协议、
+本地视频叠加 UI 和安全载荷部署边界见
+[`docs/g20-gr01-integration.md`](docs/g20-gr01-integration.md)。
 
 当前示例聚焦火灾场景，但任务配置也表达救援物资、通信中继、环境/工业传感器、农业载荷和多点小包裹等非危险任务。配置层支持这些任务类型，不代表它们已经完成模型训练、硬件集成或现场验证。
+
+同一架飞机现在可以使用两种构型：`payloads: []` 表示未挂载、只巡检告警；配置一个或多个白名单载荷舱时，只表达期望构型。实时部署还必须由独立只读载荷清单确认模块身份、舱位、类型、锁定和存在传感器，未知或不匹配时可以继续巡检，但不能进入授权流程。分阶段实现与验收标准见 [实施路线图](docs/implementation-roadmap.md)。
+
+准备ONNX、Jetson、RTSP、Pixhawk和载荷HIL资料时，按 [集成输入清单](docs/integration-input-checklist.md) 分批提供即可；不要把摄像头密码、HMAC密钥或私钥提交到仓库。
 
 ## 已实现的软件回放闭环
 
@@ -45,6 +53,7 @@ flowchart LR
 - 独立编号舱位、单舱互锁、幂等 `release_id`、超时进入故障且不自动重试。
 - `RELEASED` 不等于成功；只有模拟执行报告与独立来源确认同时存在时，才进入 `RELEASE_CONFIRMED`。
 - 线程安全内存审计日志，以及 UTF-8 原子 JSONL 导出。
+- 告警支持SQLite持久化发件箱、HMAC-SHA256 UDP、关联ACK、有限重试、指数退避和接收端去重；真实数传电台仍需按 [告警数传说明](docs/data-link-alerts.md) 在选定链路上验证。
 
 ## 状态机
 
@@ -99,6 +108,51 @@ python -m pip install -e ".[dev]"
 
 CLI 每行输出一个 JSON 对象，所有输出都带有或继承 `simulation_only` 语义。
 
+### 0. 巡检构型：零载荷火情告警
+
+同一平台可以使用零载荷配置运行巡检任务。确认火情后生成一次去重告警，继续搜索；不会创建授权挑战，也不会访问载荷端口：
+
+```powershell
+multi-detect validate-config configs/missions/fire_patrol.demo.json
+multi-detect replay configs/missions/fire_patrol.demo.json examples/fire_mission_replay.jsonl
+```
+
+回放会输出 `fire_alert_confirmed`，最终保持 `phase=searching`、`payload_installed=false`、`fake_release_request_count=0`。`--simulate-authorized-cycle` 不能与零载荷配置一起使用。
+
+拿到后NMS ONNX模型后，先验证制品哈希、`Nx6` 输出契约、实际Provider和合成推理延迟：
+
+```powershell
+multi-detect model-check --onnx-model models/fire-smoke-nms.onnx --model-manifest models/fire-smoke-nms.manifest.json --class-names fire,smoke --output-coordinates normalized_xyxy
+```
+
+模型清单绑定实际制品SHA-256、模型版本、类别顺序、用途限制和批准状态；生产门禁增加 `--require-production-approved`。这仍不会验证模型准确率；准确率需要使用火灾、无火、烟雾、夕阳和反光等部署域数据集评估。
+
+火烟模型清单角色为 `fire_candidate`；人员/消防员模型必须单独声明
+`safety_object_evidence`。运行时会拒绝把火烟清单当作人员安全证据，安全对象模型本身
+也不能直接确认净空或授权部署。
+
+没有真实模型时，可生成一份**恒定输出、仅用于接口HIL**的 Nx6 ONNX，验证真实
+ONNX Runtime、摄像头、跟踪、告警和逐帧日志。它对每一帧都输出同一个 `flame` 框，
+不能用于任何火灾判断：
+
+```powershell
+python -m pip install -e ".[model-tools]"
+multi-detect synthetic-model-init --out-dir artifacts/synthetic-hil
+multi-detect live-camera configs/missions/fire_patrol.demo.json `
+  --source 0 `
+  --onnx-model artifacts/synthetic-hil/synthetic-fire-nx6-hil.onnx `
+  --model-manifest artifacts/synthetic-hil/synthetic-fire-nx6-hil.manifest.json `
+  --class-names fire,smoke --output-coordinates normalized_xyxy `
+  --allow-synthetic-hil-model --max-frames 120 --no-display
+```
+
+`live-camera` 必须显式提供 `--allow-synthetic-hil-model` 才会接受该清单；生产批准门禁
+永远拒绝它，Jetson systemd 服务也不包含这个开关。
+
+该路径已经与独立地面 `alert-udp-receiver` 进程完成本机回环：告警只有在收到关联签名
+ACK后才从飞端SQLite outbox标记为 `delivered`，地面SQLite按同一 `alert_id` 持久去重。
+命令与密钥处理见 [告警数传说明](docs/data-link-alerts.md)。
+
 ### 1. 校验任务配置
 
 ```powershell
@@ -106,6 +160,15 @@ multi-detect validate-config configs/missions/fire_suppression.demo.json
 ```
 
 成功时输出 `config_valid`；非法载荷、禁用人工授权、重复舱位或不合理安全阈值会使命令以非零状态退出。
+
+未挂载巡检构型：
+
+```powershell
+multi-detect validate-config configs/missions/fire_patrol.demo.json
+multi-detect replay configs/missions/fire_patrol.demo.json examples/fire_mission_replay.jsonl
+```
+
+确认火情后会输出 `fire_alert` 数据，不创建授权挑战、不调用仿真释放端口，并继续保持搜索状态。
 
 ### 2. 默认回放：停在人工授权
 
@@ -153,6 +216,54 @@ multi-detect replay configs/missions/fire_suppression_disposable.demo.json examp
 
 因此适配器只负责坐标、置信度、类别和元数据规范化，绝不负责授权、优先级、安全许可或载荷动作。详细审计见 [docs/upstream-baseline.md](docs/upstream-baseline.md) 和 [third_party/fire_smoke_legacy/README.md](third_party/fire_smoke_legacy/README.md)。
 
+## 实时摄像头、RTSP、Jetson 与 Pixhawk
+
+新增 `camera-check` 和 `live-camera` CLI：摄像头/RTSP → OpenCV → 严格 post-NMS `N×6` ONNX 输出 → 现有适配器 → 跟踪/规则/本地授权界面。实时态势窗口显示目标队列、事件、飞机位置、飞行遥测、相对航迹、告警送达状态与性能指标。火情告警携带的是飞机发现目标时的位置，不冒充未经相机标定和地形求交计算的火点坐标。Pixhawk 仅读取遥测，且未知的围栏、模式和投放区条件会保持拒绝。完整命令、Jetson Orin Nano provider 优先级和 V6X 接线/验证边界见 [实时部署说明](docs/live-camera-jetson.md)。
+
+真实巡航可启用 `--observe-pixhawk-lifecycle`：只有观察到健康链路/定位、已解锁、允许的自动模式和指定任务序号后才进入搜索；该模式不发送任何飞控消息。
+
+连接V6X后可先独立执行 `multi-detect pixhawk-check --endpoint <串口或UDP端点> --require-fresh-link`，无需摄像头和模型。该诊断只接收遥测，输出中固定声明发送消息数为零。
+
+带载荷的软件/HIL演示可显式启用 `--simulate-payload-cycle`，授权后按 `S` 完成一次 `FakePayloadPort` 仿真反馈闭环；该开关没有任何物理执行器路径，零载荷巡检配置会拒绝使用。
+
+载荷模块接入前可使用只读库存报告检查协议版本、模块身份、舱位类型、机械锁、总互锁和独立存在传感器；实时模式在没有可信载荷控制器证据时保持拒绝：
+
+```powershell
+multi-detect payload-inventory-check configs/missions/fire_suppression.demo.json examples/payload_inventory.demo.json --now-s 1000.5
+```
+
+部署域模型评估采用逐帧预测日志和严格帧ID对齐的标注数据：
+
+```powershell
+multi-detect evaluate-detections examples/evaluation_ground_truth.demo.jsonl examples/evaluation_predictions.demo.jsonl
+```
+
+该命令计算逐类别/总体精确率、召回率、误报、漏报和推理延迟；示例文件仅用于验证评估程序。
+
+G20 到 Jetson 的触摸框选链路可在没有无线电和飞控时运行完整回环。演示会依次模拟
+首个选择包丢失、首个 ACK 丢失、相同命令幂等重传以及跟踪状态返回；应用载荷和外层
+MAVLink2 `TUNNEL` 都经过认证，且不包含飞控写入或载荷控制：
+
+```powershell
+multi-detect operator-link-demo
+```
+
+交换机/GR01 上电后，可在 Jetson 运行只接受框选元数据的 UDP 诊断服务，在 G20 或
+同网段电脑运行选择客户端。两个密钥只从环境变量读取，命令不会回显密钥：
+
+```powershell
+multi-detect operator-udp-server --port 14580 `
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY `
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_KEY_HEX
+
+multi-detect operator-udp-select --host <JETSON_IP> --port 14580 `
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY `
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_KEY_HEX
+```
+
+这两个命令没有任务上传、模式切换、飞控命令或载荷接口，仅用于确认 GR01 双向 IP、
+签名 MAVLink2、框选校验和 ACK 延迟。
+
 ## 目录
 
 ```text
@@ -165,17 +276,33 @@ Multi-Detect/
 ├─ models/                    # 模型制品规范；不存放生产权重
 ├─ src/multidetect/
 │  ├─ adapters/               # 旧 Darknet / YOLOv5 输出适配
+│  ├─ alerts.py                # 告警信封、认证UDP/ACK与SQLite发件箱
+│  ├─ evaluation.py            # 逐帧预测日志与精确率/召回率离线评估
+│  ├─ model_manifest.py        # 模型哈希、类别、坐标契约与批准门禁
+│  ├─ operator_link.py         # G20框选与Jetson跟踪状态领域模型
+│  ├─ operator_protocol.py     # 128字节TUNNEL应用帧、HMAC与量化编解码
+│  ├─ operator_transport.py    # 有界ACK重试、幂等与冲突检测
+│  ├─ operator_mavlink.py      # 签名MAVLink2 TUNNEL封装与身份校验
+│  ├─ operator_udp.py          # GR01直连IP的安全框选/ACK诊断端点
+│  ├─ operator_protocol.py      # G20紧凑签名消息与TUNNEL载荷契约
+│  ├─ operator_transport.py     # 框选命令有限重试、幂等ACK与冲突拒绝
+│  ├─ operator_mavlink.py       # 定向MAVLink2 TUNNEL字节帧适配（无I/O）
 │  ├─ perception.py           # RGB/热像融合
 │  ├─ tracking.py             # IoU 多目标跟踪与确认
 │  ├─ ranking.py              # 只读候选排序
 │  ├─ safety.py               # 失败闭锁规则
 │  ├─ authorization.py        # 短时、单次、上下文绑定授权
 │  ├─ payload.py              # FakePayloadPort 与舱位互锁
+│  ├─ payload_inventory.py    # 只读载荷清单、HMAC/序号验证与失败闭锁
 │  ├─ state_machine.py        # 任务状态机
 │  ├─ mission.py              # 软件闭环编排
-│  ├─ audit.py                # 内存审计与原子 JSONL
+│  ├─ audit.py                # 有界内存、持续落盘与原子 JSONL 审计
 │  ├─ replay.py               # 回放输入解析和顺序校验
-│  └─ cli.py                  # validate-config / replay
+│  ├─ vision.py               # OpenCV 采集与 ONNX post-NMS Nx6 推理
+│  ├─ live.py                 # 本地授权界面与实时感知编排
+│  ├─ telemetry.py            # 失败闭锁与遥测 provider 抽象
+│  ├─ pixhawk.py              # Pixhawk MAVLink 只读遥测适配
+│  └─ cli.py                  # 配置、回放、摄像头、模型、评估与只读硬件诊断入口
 ├─ tests/                     # 单元、故障与端到端回放测试
 └─ third_party/               # 上游来源记录；不含上游制品
 ```
@@ -187,17 +314,17 @@ python -m pytest
 python -m ruff check .
 ```
 
-测试覆盖配置边界、坐标适配、融合、跟踪、排序、安全拒绝、授权绑定与并发消费、载荷互锁/幂等/反馈顺序、超时无重试、状态机、审计原子写入、CLI 和完整 FakePayloadPort 回放闭环。这些是软件测试，不是飞行测试、SIL/HIL 认证或安全适航证据。
+测试覆盖配置边界、坐标适配、融合、跟踪、排序、安全拒绝、授权绑定与并发消费、载荷互锁/幂等/反馈顺序、状态机、审计原子写入、签名 MAVLink2 框选链路、CLI 和完整 FakePayloadPort 回放闭环。这些是软件测试，不是飞行测试、SIL/HIL 认证或安全适航证据。
 
 ## 尚未实现
 
-- 真实无人机发射、起降、航路规划、避障、返航和飞控遥测接入。
-- Jetson 相机采集、维护中的检测/分割模型、实时推理和性能预算。
+- 真实无人机发射、起降、航路规划、避障、返航和任何飞控/执行器写入。
+- 生产级 Jetson 模型制品、热像同步、实时性能/功耗/热预算与部署域验证。
 - RGB/热像硬件时间同步、内外参标定和现场热学验证。
 - 真实人员/消防员/车辆/建筑/电力线/危险设施模型及部署域数据验证。
 - 物理载荷舱、GPIO/CAN/串口协议、执行器、电气互锁和真实反馈传感器。
-- 真实操作者界面、身份系统、角色权限、多人复核和远程链路。
-- 持久化事务数据库、断电恢复、跨进程事件 outbox 和远程审计存储；当前审计在显式导出前位于内存。
+- 生产级操作者身份系统、角色权限、多人复核和经过确认的远程数传协议；当前只有本地操作界面。
+- 完整任务事务数据库、授权断电恢复和远程审计存储；火情告警已有可选 SQLite outbox，但远端确认和有界退避仍未实现。
 - 多机协调、现场通信中继、地图服务、动态禁飞区和法规数据源。
 
 ## 任何生产或现场集成前
@@ -213,3 +340,5 @@ python -m ruff check .
 - 对真实飞控/载荷端口进行新的设计评审；当前 `PayloadController` 故意只接受 `FakePayloadPort`，不能把真实驱动“直接替换进去”。
 
 更多设计依据见 [架构说明](docs/architecture.md) 与 [MVP 安全边界](docs/safety-case.md)。
+
+Jetson目标机的无特权systemd模板、受限环境文件和部署前检查见 [Jetson部署模板](deploy/jetson/README.md)；接入所需模型、RTSP、Jetson、Pixhawk、数传和载荷控制器资料见 [集成输入清单](docs/integration-input-checklist.md)。
