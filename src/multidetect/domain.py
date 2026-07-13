@@ -51,6 +51,12 @@ class Verdict(StrEnum):
     UNKNOWN = "unknown"
 
 
+class DeploymentWindowStatus(StrEnum):
+    UNAVAILABLE = "unavailable"
+    WAIT = "wait"
+    READY = "ready"
+
+
 @dataclass(frozen=True, slots=True)
 class BoundingBox:
     """Normalized XYXY bounding box."""
@@ -211,6 +217,53 @@ class RuleCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class DeploymentWindowSolution:
+    """Advisory fixed-wing release window; never an actuator command."""
+
+    status: DeploymentWindowStatus
+    target_id: str
+    target_revision: int
+    calibration_id: str
+    evaluated_at_s: float
+    reasons: tuple[str, ...]
+    relative_bearing_deg: float | None = None
+    depression_angle_deg: float | None = None
+    estimated_ground_range_m: float | None = None
+    cross_track_error_m: float | None = None
+    along_track_error_m: float | None = None
+    payload_descent_time_s: float | None = None
+    release_lead_distance_m: float | None = None
+    advisory_only: bool = True
+    flight_control_enabled: bool = False
+    physical_release_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, DeploymentWindowStatus):
+            raise ValueError("deployment-window status is invalid")
+        if not self.target_id.strip() or not self.calibration_id.strip():
+            raise ValueError("deployment-window identifiers cannot be empty")
+        if self.target_revision < 0:
+            raise ValueError("deployment-window target revision cannot be negative")
+        if not isfinite(self.evaluated_at_s) or self.evaluated_at_s < 0.0:
+            raise ValueError("deployment-window evaluation time is invalid")
+        numeric_values = (
+            self.relative_bearing_deg,
+            self.depression_angle_deg,
+            self.estimated_ground_range_m,
+            self.cross_track_error_m,
+            self.along_track_error_m,
+            self.payload_descent_time_s,
+            self.release_lead_distance_m,
+        )
+        if any(value is not None and not isfinite(value) for value in numeric_values):
+            raise ValueError("deployment-window numeric values must be finite when present")
+        if not self.reasons or any(not reason.strip() for reason in self.reasons):
+            raise ValueError("deployment-window reasons cannot be empty")
+        if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
+            raise ValueError("deployment-window solution must remain advisory-only")
+
+
+@dataclass(frozen=True, slots=True)
 class DeploymentDecision:
     allowed: bool
     target_id: str
@@ -221,6 +274,7 @@ class DeploymentDecision:
     evaluated_at_s: float
     checks: tuple[RuleCheck, ...]
     priority_score: float = 0.0
+    deployment_window: DeploymentWindowSolution | None = None
 
     @property
     def denial_reasons(self) -> tuple[str, ...]:

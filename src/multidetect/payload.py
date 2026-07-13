@@ -75,6 +75,24 @@ class PayloadSlotSnapshot:
     failure_reason: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class PayloadReleaseBinding:
+    """Immutable authorization and scene identity bound to one simulated release."""
+
+    mission_id: str
+    release_id: str
+    payload_slot_id: str
+    payload_type: str
+    authorization_challenge_id: str
+    operator_id: str
+    target_id: str
+    target_revision: int
+    scene_digest: str
+    ruleset_version: str
+    requested_at_s: float
+    authorization_expires_at_s: float
+
+
 @dataclass(slots=True)
 class _PayloadSlotRecord:
     payload_slot_id: str
@@ -160,6 +178,37 @@ class PayloadController:
     def get_slot(self, payload_slot_id: str) -> PayloadSlotSnapshot:
         with self._lock:
             return self._snapshot(self._get_record(payload_slot_id))
+
+    def release_binding(self, release_id: str) -> PayloadReleaseBinding:
+        """Return the exact consumed authorization binding for a submitted release."""
+
+        if not release_id.strip():
+            raise ValueError("release_id cannot be empty")
+        with self._lock:
+            payload_slot_id = self._release_to_slot.get(release_id)
+            if payload_slot_id is None:
+                raise PayloadFeedbackError("unknown release_id")
+            record = self._get_record(payload_slot_id)
+            if record.release_id != release_id or record.requested_at_s is None:
+                raise PayloadFeedbackError("release record is incomplete")
+            if record.authorization is None:
+                raise PayloadFeedbackError("release authorization binding is unavailable")
+            challenge = record.authorization.challenge
+            grant = record.authorization.grant
+            return PayloadReleaseBinding(
+                mission_id=self._config.mission_id,
+                release_id=release_id,
+                payload_slot_id=record.payload_slot_id,
+                payload_type=record.payload_type,
+                authorization_challenge_id=challenge.challenge_id,
+                operator_id=grant.operator_id,
+                target_id=challenge.target_id,
+                target_revision=challenge.target_revision,
+                scene_digest=challenge.scene_digest,
+                ruleset_version=challenge.ruleset_version,
+                requested_at_s=record.requested_at_s,
+                authorization_expires_at_s=challenge.expires_at_s,
+            )
 
     def arm(
         self,
@@ -532,5 +581,6 @@ __all__ = [
     "PayloadController",
     "PayloadFeedbackError",
     "PayloadInterlockError",
+    "PayloadReleaseBinding",
     "PayloadSlotSnapshot",
 ]

@@ -13,12 +13,17 @@ from .operator_link import (
     VideoGeometry,
 )
 
+FIRE_CANDIDATE_TRACK_LABELS = frozenset(
+    {"fire", "flame", "smoke", "hotspot", "smoldering_area", "burned_area"}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TargetLockConfig:
     allowed_labels: frozenset[str]
     acquisition_timeout_s: float = 1.0
     lost_after_s: float = 0.75
+    reacquisition_timeout_s: float = 2.0
 
     def __post_init__(self) -> None:
         normalized = frozenset(
@@ -30,6 +35,8 @@ class TargetLockConfig:
             raise ValueError("acquisition_timeout_s must be finite and positive")
         if not isfinite(self.lost_after_s) or self.lost_after_s <= 0.0:
             raise ValueError("lost_after_s must be finite and positive")
+        if not isfinite(self.reacquisition_timeout_s) or self.reacquisition_timeout_s <= 0.0:
+            raise ValueError("reacquisition_timeout_s must be finite and positive")
         object.__setattr__(self, "allowed_labels", normalized)
 
 
@@ -43,6 +50,7 @@ class OperatorTargetLock:
         self._selection_bbox: BoundingBox | None = None
         self._acquisition_deadline_s: float | None = None
         self._active_track_id: str | None = None
+        self._last_bbox: BoundingBox | None = None
         self._sequence = 0
 
     @property
@@ -66,19 +74,23 @@ class OperatorTargetLock:
             raise ValueError("selection geometry does not match the target-lock geometry")
         self._command_id = command.command_id
         self._active_track_id = None
+        self._last_bbox = None
         if command.action is SelectionAction.CANCEL:
             self._selection_bbox = None
             self._acquisition_deadline_s = None
+            self._last_bbox = None
             return self._status(
                 state=TrackingState.CANCELLED,
                 frame_id=frame_id,
                 captured_at_s=now_s,
                 produced_at_s=now_s,
             )
-        assert command.bbox is not None
-        self._selection_bbox = command.bbox
+        selection_bbox = command.bbox
+        if selection_bbox is None:
+            raise ValueError("select and switch commands require a bounding box")
+        self._selection_bbox = selection_bbox
         self._acquisition_deadline_s = now_s + self.config.acquisition_timeout_s
-        candidate = self._associate(command.bbox, tracks)
+        candidate = self._associate(selection_bbox, tracks)
         if candidate is None:
             return self._status(
                 state=TrackingState.INITIALIZING,
@@ -86,11 +98,21 @@ class OperatorTargetLock:
                 captured_at_s=now_s,
                 produced_at_s=now_s,
                 target_id=f"pending:{command.command_id}",
-                bbox=command.bbox,
+                bbox=selection_bbox,
                 tracking_quality=0.0,
             )
         self._active_track_id = candidate.track_id
+        self._last_bbox = candidate.bbox
         return self._tracking_status(candidate, frame_id=frame_id, now_s=now_s)
+
+    def hint_bbox(self, bbox: BoundingBox, *, now_s: float) -> None:
+        """Move the detector reacquisition window using a visual-tracker estimate."""
+        self._validate_update(frame_id="bbox-hint", now_s=now_s)
+        if self._command_id is None or self._active_track_id is not None:
+            return
+        self._selection_bbox = bbox
+        self._last_bbox = bbox
+        self._acquisition_deadline_s = now_s + self.config.reacquisition_timeout_s
 
     def update(
         self,
@@ -111,14 +133,17 @@ class OperatorTargetLock:
             candidate = self._associate(self._selection_bbox, tracks)
             if candidate is not None:
                 self._active_track_id = candidate.track_id
+                self._last_bbox = candidate.bbox
                 return self._tracking_status(
                     candidate,
                     frame_id=frame_id,
                     now_s=produced_at_s,
                     captured_at_s=captured_at_s,
                 )
-            assert self._acquisition_deadline_s is not None
-            if produced_at_s <= self._acquisition_deadline_s:
+            acquisition_deadline_s = self._acquisition_deadline_s
+            if acquisition_deadline_s is None:
+                raise RuntimeError("target-lock acquisition deadline is not initialized")
+            if produced_at_s <= acquisition_deadline_s:
                 return self._status(
                     state=TrackingState.INITIALIZING,
                     frame_id=frame_id,
@@ -136,10 +161,12 @@ class OperatorTargetLock:
             )
             self._selection_bbox = None
             self._acquisition_deadline_s = None
+            self._last_bbox = None
             return status
 
         active = next((track for track in tracks if track.track_id == self._active_track_id), None)
         if active is None or produced_at_s - active.last_seen_at_s > self.config.lost_after_s:
+            reacquisition_bbox = self._last_bbox
             status = self._status(
                 state=TrackingState.LOST,
                 frame_id=frame_id,
@@ -148,9 +175,10 @@ class OperatorTargetLock:
                 target_id=self._active_track_id,
             )
             self._active_track_id = None
-            self._selection_bbox = None
-            self._acquisition_deadline_s = None
+            self._selection_bbox = reacquisition_bbox
+            self._acquisition_deadline_s = produced_at_s + self.config.reacquisition_timeout_s
             return status
+        self._last_bbox = active.bbox
         return self._tracking_status(
             active,
             frame_id=frame_id,
@@ -166,7 +194,7 @@ class OperatorTargetLock:
         candidates = []
         sx, sy = selection.center
         for track in tracks:
-            if track.label not in self.config.allowed_labels:
+            if track.label.strip().lower() not in self.config.allowed_labels:
                 continue
             tx, ty = track.bbox.center
             overlap = selection.iou(track.bbox)
@@ -228,11 +256,13 @@ class OperatorTargetLock:
         confidence: float | None = None,
         tracking_quality: float | None = None,
     ) -> TrackStatusMessage:
-        assert self._command_id is not None
+        command_id = self._command_id
+        if command_id is None:
+            raise RuntimeError("cannot emit target-lock status without a selection command")
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
         return TrackStatusMessage(
             status_id=str(uuid4()),
-            selection_command_id=self._command_id,
+            selection_command_id=command_id,
             sequence=self._sequence,
             geometry=self.geometry,
             state=state,
@@ -254,4 +284,4 @@ class OperatorTargetLock:
             raise ValueError("target-lock timestamp must be finite and non-negative")
 
 
-__all__ = ["OperatorTargetLock", "TargetLockConfig"]
+__all__ = ["FIRE_CANDIDATE_TRACK_LABELS", "OperatorTargetLock", "TargetLockConfig"]

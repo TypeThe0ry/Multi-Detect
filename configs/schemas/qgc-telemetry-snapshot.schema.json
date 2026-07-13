@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/qgc-telemetry-snapshot.schema.json",
+  "title": "Stationary QGroundControl telemetry comparison snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "hardware_model",
+    "firmware_version",
+    "captured_at_utc",
+    "airframe_stationary",
+    "fields"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "hardware_model": {"const": "Pixhawk V6X"},
+    "firmware_version": {"type": "string", "minLength": 1},
+    "captured_at_utc": {"type": "string", "format": "date-time"},
+    "airframe_stationary": {"const": true},
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latitude_deg",
+        "longitude_deg",
+        "altitude_agl_m",
+        "heading_deg",
+        "ground_speed_mps",
+        "roll_deg",
+        "pitch_deg",
+        "battery_remaining_pct",
+        "satellites_visible",
+        "armed",
+        "flight_mode",
+        "mission_sequence"
+      ],
+      "properties": {
+        "latitude_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+        "altitude_agl_m": {"type": "number"},
+        "heading_deg": {"type": "number", "minimum": 0, "maximum": 360},
+        "ground_speed_mps": {"type": "number", "minimum": 0},
+        "roll_deg": {"type": "number"},
+        "pitch_deg": {"type": "number"},
+        "battery_remaining_pct": {"type": "number", "minimum": 0, "maximum": 100},
+        "satellites_visible": {"type": "integer", "minimum": 0},
+        "armed": {"type": "boolean"},
+        "flight_mode": {"type": "string", "minLength": 1},
+        "mission_sequence": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -50,6 +50,7 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     snapshot = provider.snapshot(now_s=10.5)
 
     assert provider.is_read_only is True
+    assert provider.messages_transmitted == 0
     assert snapshot.altitude_agl_m == pytest.approx(12.345)
     assert snapshot.ground_speed_mps == pytest.approx(5.0)
     assert snapshot.latitude_deg == pytest.approx(31.123456)
@@ -78,3 +79,25 @@ def test_pixhawk_stale_data_and_fail_closed_defaults_do_not_clear_safety() -> No
     assert snapshot.link_healthy is False
     assert fail_closed.in_allowed_zone is None
     assert with_person_detector_health(fail_closed, healthy=True).person_detector_healthy is True
+
+
+def test_pixhawk_cached_snapshot_never_connects_or_receives() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("serial:unused"))
+    provider.ingest_message(_Message("HEARTBEAT"), received_at_s=10.0)
+    provider.ingest_message(
+        _Message("GLOBAL_POSITION_INT", relative_alt=0, vx=0, vy=0),
+        received_at_s=10.0,
+    )
+    provider.connect = lambda: pytest.fail("cached_snapshot must not connect")  # type: ignore[method-assign]
+
+    stale = provider.cached_snapshot(now_s=11.1)
+
+    assert stale.link_healthy is False
+    assert stale.position_healthy is False
+    assert provider.messages_transmitted == 0
+
+
+@pytest.mark.parametrize("stale_after_seconds", [float("nan"), float("inf"), True])
+def test_pixhawk_config_rejects_invalid_stale_timeout(stale_after_seconds: float) -> None:
+    with pytest.raises(ValueError, match="stale timeout"):
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550", stale_after_seconds=stale_after_seconds)

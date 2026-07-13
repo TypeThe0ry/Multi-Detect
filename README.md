@@ -129,7 +129,71 @@ multi-detect model-check --onnx-model models/fire-smoke-nms.onnx --model-manifes
 
 火烟模型清单角色为 `fire_candidate`；人员/消防员模型必须单独声明
 `safety_object_evidence`。运行时会拒绝把火烟清单当作人员安全证据，安全对象模型本身
-也不能直接确认净空或授权部署。
+也不能直接确认净空或授权部署。仅覆盖 `person` 类名但没有通过角色清单验证时，检测
+结果可以用于诊断显示，但 `person_detector_healthy` 保持 false，载荷流程失败闭锁。
+
+### 固定翼投放窗口软件 HIL
+
+固定翼构型不能沿用悬停平台接近零地速的安全条件。示例配置
+`configs/missions/fire_suppression_fixed_wing.demo.json` 增加了最小/最大地速门限，以及
+固定摄像头视场角、安装下视角和软件 HIL 下降时间模型。可用以下命令单独检查目标框
+当前处于窗口之前、窗口内还是已经越过窗口：
+
+```powershell
+multi-detect release-window-check `
+  configs/missions/fire_suppression_fixed_wing.demo.json `
+  --x1 0.45 --y1 0.40 --x2 0.55 --y2 0.50 `
+  --altitude-agl-m 40 --ground-speed-mps 18 --pitch-deg 0 --now-s 100
+```
+
+完整的软件 HIL 可继续运行固定翼回放。它必须先产生人工授权挑战，随后才允许测试操作员
+完成一次 `FakePayloadPort` 事务：
+
+```powershell
+multi-detect replay `
+  configs/missions/fire_suppression_fixed_wing.demo.json `
+  examples/fire_fixed_wing_hil_replay.jsonl `
+  --simulate-authorized-cycle --operator-id fixed-wing-hil-operator
+```
+
+输出包含相对方位、估算地面距离、横向偏差、载荷下降时间、投放提前距离和纵向窗口
+误差。该计算采用静风点质量近似，未包含风、地形、实测载荷气动和飞机响应；因此始终
+标记为 `advisory_only=true`、`flight_control_enabled=false`、
+`physical_release_enabled=false`。命令本身不运行完整安全规则、不创建人工授权，也不
+访问载荷端口。配置了该窗口的任务只有在完整状态机同时满足窗口、安全证据、载荷清单
+和人工授权后，才可能进入 `FakePayloadPort` 软件仿真。
+
+不运行模型训练或推理时，可用一条命令回归巡检、固定翼授权 HIL 和人员否决三条路径：
+
+```powershell
+python scripts/run_software_acceptance.py `
+  --out artifacts/evaluation/software-acceptance.json
+```
+
+独立载荷控制器的软件链路也可运行真实 localhost UDP/HMAC 回环。该命令完整经过固定翼
+安全规则和人工授权，但控制器只模拟惰性执行，`EXECUTED` 后仍要求使用另一把 HMAC 密钥、
+不同 sensor ID 的第二路独立确认：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\payload_mission_hil_loopback_demo.py
+```
+
+成功输出必须声明 `command_messages_sent=0`、`flight_control_enabled=false` 和
+`physical_release_enabled=false`，并包含 `independent_confirmation_authenticated=true` 与
+`controller_and_sensor_id_separated=true`。拒绝、超时或矛盾反馈全部进入闭锁故障，不会
+自动重试。独立传感器确认使用另一个只接收证据的 UDP 通道，Jetson 不经该通道发送任何
+执行命令。
+
+实时摄像头运行器也支持显式注入这一双通道周期，但必须同时使用
+`--simulate-payload-cycle --inert-payload-hil`，并从环境变量提供三把不同密钥。当前 CLI
+只允许 localhost 拆桨 HIL；默认不开启，Jetson 生产巡检服务模板也不包含这些参数。完整
+参数见 [实时摄像头与 Jetson 说明](docs/live-camera-jetson.md)。加入
+`--auto-simulate-payload-cycle` 后，G20 有效授权可自动启动同一个双通道惰性周期；缺少
+授权或任一安全条件时仍为零请求。
+
+验收器要求巡检模式只产生一次告警且零授权/零释放请求；载荷模式必须先出现
+`READY` 建议窗口和人工挑战，再完成恰好一次假端口事务；同样的窗口内加入人员框后
+必须零授权、零释放请求。输出始终声明模型训练、模型推理、飞控和物理释放均未执行。
 
 没有真实模型时，可生成一份**恒定输出、仅用于接口HIL**的 Nx6 ONNX，验证真实
 ONNX Runtime、摄像头、跟踪、告警和逐帧日志。它对每一帧都输出同一个 `flame` 框，
@@ -218,13 +282,22 @@ multi-detect replay configs/missions/fire_suppression_disposable.demo.json examp
 
 ## 实时摄像头、RTSP、Jetson 与 Pixhawk
 
-新增 `camera-check` 和 `live-camera` CLI：摄像头/RTSP → OpenCV → 严格 post-NMS `N×6` ONNX 输出 → 现有适配器 → 跟踪/规则/本地授权界面。实时态势窗口显示目标队列、事件、飞机位置、飞行遥测、相对航迹、告警送达状态与性能指标。火情告警携带的是飞机发现目标时的位置，不冒充未经相机标定和地形求交计算的火点坐标。Pixhawk 仅读取遥测，且未知的围栏、模式和投放区条件会保持拒绝。完整命令、Jetson Orin Nano provider 优先级和 V6X 接线/验证边界见 [实时部署说明](docs/live-camera-jetson.md)。
+新增 `camera-check` 和 `live-camera` CLI：摄像头/RTSP → OpenCV → 严格 post-NMS `N×6` ONNX 输出 → 现有适配器 → 跟踪/规则。显示端保持为单一摄像头画面，只叠加检测框、跟踪框、火情告警和少量状态文字；鼠标左键拖拽可框选或切换目标，右键或 `X` 取消锁定，`Q` 退出。框选只建立跟踪关系，不能授权或触发物理载荷。火情告警携带的是飞机发现目标时的位置，不冒充未经相机标定和地形求交计算的火点坐标。Pixhawk 仅读取遥测，且未知的围栏、模式和投放区条件会保持拒绝。完整命令、Jetson Orin Nano provider 优先级和 V6X 接线/验证边界见 [实时部署说明](docs/live-camera-jetson.md)。
 
 真实巡航可启用 `--observe-pixhawk-lifecycle`：只有观察到健康链路/定位、已解锁、允许的自动模式和指定任务序号后才进入搜索；该模式不发送任何飞控消息。
 
+载荷构型可选接入独立签名的区域安全文件 HIL。报告必须通过 HMAC，并绑定任务 ID、
+Pixhawk 新鲜位置、时间戳和单调序号；任何异常都会把允许区域、围栏健康和投放区净空恢复为
+未知，继续禁止授权。该桥接仍为只读验证，不增加飞控或实体投放接口，详见
+[实时部署说明](docs/live-camera-jetson.md#独立区域安全证据仅文件型-hil)。
+
 连接V6X后可先独立执行 `multi-detect pixhawk-check --endpoint <串口或UDP端点> --require-fresh-link`，无需摄像头和模型。该诊断只接收遥测，输出中固定声明发送消息数为零。
 
-带载荷的软件/HIL演示可显式启用 `--simulate-payload-cycle`，授权后按 `S` 完成一次 `FakePayloadPort` 仿真反馈闭环；该开关没有任何物理执行器路径，零载荷巡检配置会拒绝使用。
+带载荷的软件/HIL演示可显式启用 `--simulate-payload-cycle`，授权后按 `S` 完成一次
+`FakePayloadPort` 仿真反馈闭环。无人值守软件验收还可同时显式增加
+`--auto-simulate-payload-cycle`，在有效授权进入 `DEPLOYMENT_READY` 后自动执行一次仿真或
+认证惰性 HIL 周期。自动开关不能单独使用，不会绕过安全规则/授权，也没有物理执行器
+路径；零载荷巡检配置会拒绝使用。
 
 载荷模块接入前可使用只读库存报告检查协议版本、模块身份、舱位类型、机械锁、总互锁和独立存在传感器；实时模式在没有可信载荷控制器证据时保持拒绝：
 
@@ -241,18 +314,25 @@ multi-detect evaluate-detections examples/evaluation_ground_truth.demo.jsonl exa
 该命令计算逐类别/总体精确率、召回率、误报、漏报和推理延迟；示例文件仅用于验证评估程序。
 
 G20 到 Jetson 的触摸框选链路可在没有无线电和飞控时运行完整回环。演示会依次模拟
-首个选择包丢失、首个 ACK 丢失、相同命令幂等重传以及跟踪状态返回；应用载荷和外层
+首个选择包丢失、首个 ACK 丢失、相同命令幂等重传，以及跟踪/任务状态返回；应用载荷和外层
 MAVLink2 `TUNNEL` 都经过认证，且不包含飞控写入或载荷控制：
 
 ```powershell
 multi-detect operator-link-demo
 ```
 
+实时运行时，Jetson 还会向已建立的操作员会话发送独立的 89 字节只读任务状态包和
+86 字节安全规则状态包，供 G20 显示任务阶段、总体安全结论、逐规则
+`PASS/DENY/UNKNOWN`、授权显示态、载荷计数和固定翼 `WAIT/READY` 建议窗口。两个消息
+都没有授权、飞控或物理释放入口。另有独立的 105/115/50 字节授权 challenge、决定和
+ACK 契约：nonce 不离开 Jetson，决定必须绑定已发布快照并经双层认证；Jetson 应用决定
+时再次检查当前任务安全状态，成功也只进入 `DEPLOYMENT_READY`，不会直接请求释放。
+
 交换机/GR01 上电后，可在 Jetson 运行只接受框选元数据的 UDP 诊断服务，在 G20 或
 同网段电脑运行选择客户端。两个密钥只从环境变量读取，命令不会回显密钥：
 
 ```powershell
-multi-detect operator-udp-server --port 14580 `
+multi-detect operator-udp-server --bind-host 0.0.0.0 --port 14580 `
   --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY `
   --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_KEY_HEX
 
@@ -263,6 +343,26 @@ multi-detect operator-udp-select --host <JETSON_IP> --port 14580 `
 
 这两个命令没有任务上传、模式切换、飞控命令或载荷接口，仅用于确认 GR01 双向 IP、
 签名 MAVLink2、框选校验和 ACK 延迟。
+
+授权元数据可用显式协议 HIL 模式做第二阶段台架回环。Jetson 端必须额外声明
+`--authorization-hil` 并接收至少两个数据报；G20 端默认 `deny`，测试批准时必须明确写
+`--decision approve`：
+
+```powershell
+multi-detect operator-udp-server --bind-host 0.0.0.0 --port 14580 `
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY `
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_KEY_HEX `
+  --authorization-hil --max-datagrams 2
+
+multi-detect operator-udp-authorize --host <JETSON_IP> --port 14580 `
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY `
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_KEY_HEX `
+  --operator-id <BENCH_OPERATOR_ID> --decision approve
+```
+
+这里的 challenge 是诊断端生成的合成协议数据，不连接任务控制器；成功 ACK 固定声明
+`mission_state_changed=false`、`payload_release_requested=false`。实时任务中的同一协议由
+`LiveOperatorBridge` 接入，批准后也只进入 `DEPLOYMENT_READY`。
 
 ## 目录
 
@@ -293,6 +393,9 @@ Multi-Detect/
 │  ├─ safety.py               # 失败闭锁规则
 │  ├─ authorization.py        # 短时、单次、上下文绑定授权
 │  ├─ payload.py              # FakePayloadPort 与舱位互锁
+│  ├─ payload_hil_mission.py  # 授权任务到惰性控制器的失败闭锁 HIL 适配器
+│  ├─ payload_confirmation_hil.py # 独立舱位传感器认证与防重放确认
+│  ├─ payload_confirmation_udp.py # 独立确认只读 UDP HIL 通道
 │  ├─ payload_inventory.py    # 只读载荷清单、HMAC/序号验证与失败闭锁
 │  ├─ state_machine.py        # 任务状态机
 │  ├─ mission.py              # 软件闭环编排

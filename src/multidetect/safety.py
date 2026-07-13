@@ -6,8 +6,11 @@ import math
 from typing import Any
 
 from .config import MissionConfig
+from .deployment_planner import FixedWingReleaseWindowPlanner
 from .domain import (
     DeploymentDecision,
+    DeploymentWindowSolution,
+    DeploymentWindowStatus,
     FrameObservation,
     RuleCheck,
     TrackSnapshot,
@@ -21,6 +24,10 @@ def _canonical_float(value: float, digits: int = 5) -> float | str:
     if not math.isfinite(value):
         return "non-finite"
     return round(value, digits)
+
+
+def _canonical_optional_float(value: float | None) -> float | str | None:
+    return None if value is None else _canonical_float(value)
 
 
 def _check(rule_id: str, condition: bool | None, pass_reason: str, deny_reason: str) -> RuleCheck:
@@ -41,6 +48,14 @@ class SafetyRuleEngine:
 
     def __init__(self, config: MissionConfig) -> None:
         self._config = config
+        self._release_window_planner = (
+            FixedWingReleaseWindowPlanner(
+                config.fixed_wing_release_window,
+                allowed_target_labels=config.target_classes,
+            )
+            if config.fixed_wing_release_window is not None
+            else None
+        )
 
     @property
     def ruleset_version(self) -> str:
@@ -182,11 +197,19 @@ class SafetyRuleEngine:
             self._range_check(
                 "flight.ground_speed",
                 telemetry.ground_speed_mps,
-                0.0,
+                limits.minimum_ground_speed_mps,
                 limits.maximum_ground_speed_mps,
                 "ground speed",
             )
         )
+
+        deployment_window = (
+            self._release_window_planner.plan(track=track, frame=frame, now_s=now_s)
+            if self._release_window_planner is not None
+            else None
+        )
+        if deployment_window is not None:
+            checks.append(self._deployment_window_check(deployment_window))
 
         checks.append(
             _check(
@@ -227,13 +250,24 @@ class SafetyRuleEngine:
             target_id=track.track_id,
             target_revision=track.revision,
             frame_id=frame.frame_id,
-            scene_digest=self.scene_digest(track=track, frame=frame),
+            scene_digest=self.scene_digest(
+                track=track,
+                frame=frame,
+                deployment_window=deployment_window,
+            ),
             ruleset_version=self._config.ruleset_version,
             evaluated_at_s=now_s,
             checks=immutable_checks,
+            deployment_window=deployment_window,
         )
 
-    def scene_digest(self, *, track: TrackSnapshot, frame: FrameObservation) -> str:
+    def scene_digest(
+        self,
+        *,
+        track: TrackSnapshot,
+        frame: FrameObservation,
+        deployment_window: DeploymentWindowSolution | None = None,
+    ) -> str:
         """Hash safety-relevant state using a stable order and float quantization.
 
         Frame identifiers, wall-clock evaluation time and arbitrary detection
@@ -289,12 +323,65 @@ class SafetyRuleEngine:
                 "release_zone_clear": telemetry.release_zone_clear,
                 "roll_deg": _canonical_float(telemetry.roll_deg),
             },
+            "deployment_window": (
+                None
+                if deployment_window is None
+                else {
+                    "status": deployment_window.status.value,
+                    "calibration_id": deployment_window.calibration_id,
+                    "reasons": deployment_window.reasons,
+                    "relative_bearing_deg": _canonical_optional_float(
+                        deployment_window.relative_bearing_deg
+                    ),
+                    "depression_angle_deg": _canonical_optional_float(
+                        deployment_window.depression_angle_deg
+                    ),
+                    "estimated_ground_range_m": _canonical_optional_float(
+                        deployment_window.estimated_ground_range_m
+                    ),
+                    "cross_track_error_m": _canonical_optional_float(
+                        deployment_window.cross_track_error_m
+                    ),
+                    "along_track_error_m": _canonical_optional_float(
+                        deployment_window.along_track_error_m
+                    ),
+                    "payload_descent_time_s": _canonical_optional_float(
+                        deployment_window.payload_descent_time_s
+                    ),
+                    "release_lead_distance_m": _canonical_optional_float(
+                        deployment_window.release_lead_distance_m
+                    ),
+                    "advisory_only": deployment_window.advisory_only,
+                    "flight_control_enabled": deployment_window.flight_control_enabled,
+                    "physical_release_enabled": deployment_window.physical_release_enabled,
+                }
+            ),
             "detections": detections,
         }
         encoded = json.dumps(
             document, ensure_ascii=True, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _deployment_window_check(solution: DeploymentWindowSolution) -> RuleCheck:
+        if solution.status is DeploymentWindowStatus.READY:
+            return RuleCheck(
+                "deployment.fixed_wing_release_window",
+                Verdict.PASS,
+                "fixed-wing HIL release window is ready",
+            )
+        if solution.status is DeploymentWindowStatus.UNAVAILABLE:
+            return RuleCheck(
+                "deployment.fixed_wing_release_window",
+                Verdict.UNKNOWN,
+                f"fixed-wing HIL release window is unavailable: {', '.join(solution.reasons)}",
+            )
+        return RuleCheck(
+            "deployment.fixed_wing_release_window",
+            Verdict.DENY,
+            f"fixed-wing HIL release window is not ready: {', '.join(solution.reasons)}",
+        )
 
     def _freshness_check(
         self, rule_id: str, observed_at_s: float, now_s: float, description: str

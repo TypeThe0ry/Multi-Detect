@@ -9,9 +9,17 @@ from math import isfinite
 from typing import TypeAlias
 from uuid import UUID
 
-from .domain import BoundingBox
+from .domain import BoundingBox, DeploymentWindowStatus, MissionPhase, RuleCheck, Verdict
 from .operator_link import (
     OPERATOR_LINK_PROTOCOL_VERSION,
+    OPERATOR_SAFETY_RULE_IDS,
+    SAFETY_RULE_REGISTRY_VERSION,
+    AuthorizationChallengeStatusMessage,
+    AuthorizationDecision,
+    AuthorizationDecisionCommand,
+    AuthorizationDisplayState,
+    MissionStatusMessage,
+    SafetyStatusMessage,
     SelectionAction,
     TargetSelectionCommand,
     TrackingState,
@@ -28,6 +36,11 @@ _HEADER = struct.Struct(">2sBBBBIQH")
 _SELECTION = struct.Struct(">16s16sBIHHBHB4HBQ")
 _ACK = struct.Struct(">16sBBI")
 _TRACK = struct.Struct(">Q16sBIHHBBQB4HB16sBBQHhH")
+_MISSION_STATUS = struct.Struct(">QQBBBBHHBQBQBhHhhH")
+_SAFETY_STATUS = struct.Struct(">QQQBQIIIIB")
+_AUTHORIZATION_CHALLENGE = struct.Struct(">QQQQQQIQQB")
+_AUTHORIZATION_DECISION = struct.Struct(">QQQQQQQQIBQH")
+_AUTHORIZATION_ACK = struct.Struct(">QBBI")
 
 
 class OperatorProtocolError(ValueError):
@@ -38,6 +51,11 @@ class WireMessageType(IntEnum):
     TARGET_SELECTION = 1
     SELECTION_ACK = 2
     TRACK_STATUS = 3
+    MISSION_STATUS = 4
+    SAFETY_STATUS = 5
+    AUTHORIZATION_CHALLENGE = 6
+    AUTHORIZATION_DECISION = 7
+    AUTHORIZATION_ACK = 8
 
 
 class SelectionAckReason(IntEnum):
@@ -48,6 +66,17 @@ class SelectionAckReason(IntEnum):
     SEQUENCE_REJECTED = 4
     FUTURE_TIMESTAMP = 5
     COMMAND_ID_CONFLICT = 6
+    INVALID = 255
+
+
+class AuthorizationDecisionAckReason(IntEnum):
+    ACCEPTED = 0
+    NO_ACTIVE_CHALLENGE = 1
+    CHALLENGE_MISMATCH = 2
+    EXPIRED = 3
+    SEQUENCE_REJECTED = 4
+    COMMAND_TOKEN_CONFLICT = 5
+    ALREADY_DECIDED = 6
     INVALID = 255
 
 
@@ -68,7 +97,38 @@ class SelectionAck:
             raise ValueError("a rejected acknowledgement cannot use the ACCEPTED reason")
 
 
-OperatorMessage: TypeAlias = TargetSelectionCommand | SelectionAck | TrackStatusMessage
+@dataclass(frozen=True, slots=True)
+class AuthorizationDecisionAck:
+    command_token: int
+    accepted: bool
+    reason: AuthorizationDecisionAckReason
+    acknowledged_sequence: int
+
+    def __post_init__(self) -> None:
+        _bounded_uint(self.command_token, bits=64, field_name="authorization command token")
+        _bounded_uint(
+            self.acknowledged_sequence,
+            bits=32,
+            field_name="authorization acknowledged sequence",
+        )
+        if self.command_token == 0:
+            raise ValueError("authorization command token cannot be zero")
+        if self.accepted and self.reason is not AuthorizationDecisionAckReason.ACCEPTED:
+            raise ValueError("accepted authorization ACK must use ACCEPTED reason")
+        if not self.accepted and self.reason is AuthorizationDecisionAckReason.ACCEPTED:
+            raise ValueError("rejected authorization ACK cannot use ACCEPTED reason")
+
+
+OperatorMessage: TypeAlias = (
+    TargetSelectionCommand
+    | SelectionAck
+    | TrackStatusMessage
+    | MissionStatusMessage
+    | SafetyStatusMessage
+    | AuthorizationChallengeStatusMessage
+    | AuthorizationDecisionCommand
+    | AuthorizationDecisionAck
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +270,154 @@ class OperatorTunnelCodec:
             body=body,
         )
 
+    def encode_mission_status(self, status: MissionStatusMessage) -> bytes:
+        phase = list(MissionPhase).index(status.phase) + 1
+        release_window = {
+            None: 0,
+            DeploymentWindowStatus.UNAVAILABLE: 1,
+            DeploymentWindowStatus.WAIT: 2,
+            DeploymentWindowStatus.READY: 3,
+        }[status.release_window]
+        safety_allowed = {None: 0, False: 1, True: 2}[status.safety_allowed]
+        authorization = {
+            AuthorizationDisplayState.NONE: 0,
+            AuthorizationDisplayState.PENDING: 1,
+            AuthorizationDisplayState.APPROVED: 2,
+        }[status.authorization_state]
+        target_present = int(status.target_id is not None)
+        slot_present = int(status.active_payload_slot_id is not None)
+        body = _MISSION_STATUS.pack(
+            _hash64(status.status_id),
+            _hash64(status.mission_id),
+            phase,
+            release_window,
+            safety_allowed,
+            authorization,
+            status.remaining_payload_count,
+            status.total_payload_count,
+            target_present,
+            _hash64(status.target_id) if status.target_id else 0,
+            slot_present,
+            _hash64(status.active_payload_slot_id) if status.active_payload_slot_id else 0,
+            _encode_ratio(status.target_confidence),
+            _encode_bearing(status.relative_bearing_deg),
+            _encode_distance(status.estimated_range_m),
+            _encode_signed_distance(status.cross_track_error_m),
+            _encode_signed_distance(status.along_track_error_m),
+            _encode_distance(status.release_lead_distance_m),
+        )
+        return self._encode_frame(
+            WireMessageType.MISSION_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_safety_status(self, status: SafetyStatusMessage) -> bytes:
+        index_by_rule = {rule_id: index for index, rule_id in enumerate(OPERATOR_SAFETY_RULE_IDS)}
+        present_mask = pass_mask = deny_mask = unknown_mask = 0
+        for check in status.checks:
+            bit = 1 << index_by_rule[check.rule_id]
+            present_mask |= bit
+            if check.verdict is Verdict.PASS:
+                pass_mask |= bit
+            elif check.verdict is Verdict.DENY:
+                deny_mask |= bit
+            else:
+                unknown_mask |= bit
+        body = _SAFETY_STATUS.pack(
+            _hash64(status.status_id),
+            _hash64(status.mission_id),
+            _hash64(status.ruleset_version),
+            1,
+            _hash64(status.target_id),
+            present_mask,
+            pass_mask,
+            deny_mask,
+            unknown_mask,
+            status.registry_version,
+        )
+        return self._encode_frame(
+            WireMessageType.SAFETY_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_authorization_challenge(
+        self,
+        status: AuthorizationChallengeStatusMessage,
+    ) -> bytes:
+        body = _AUTHORIZATION_CHALLENGE.pack(
+            status.challenge_token,
+            status.mission_token,
+            status.target_token,
+            status.scene_token,
+            status.ruleset_token,
+            status.payload_slot_token,
+            status.target_revision,
+            _timestamp_ms(status.created_at_s),
+            _timestamp_ms(status.expires_at_s),
+            int(status.pending),
+        )
+        return self._encode_frame(
+            WireMessageType.AUTHORIZATION_CHALLENGE,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_authorization_decision(self, command: AuthorizationDecisionCommand) -> bytes:
+        decision = {
+            AuthorizationDecision.APPROVE: 1,
+            AuthorizationDecision.DENY: 2,
+        }[command.decision]
+        ttl_ms = _bounded_uint(
+            round((command.expires_at_s - command.issued_at_s) * 1000.0),
+            bits=16,
+            field_name="authorization decision TTL milliseconds",
+        )
+        body = _AUTHORIZATION_DECISION.pack(
+            command.command_token,
+            command.session_token,
+            command.challenge_token,
+            command.mission_token,
+            command.target_token,
+            command.scene_token,
+            command.ruleset_token,
+            command.payload_slot_token,
+            command.target_revision,
+            decision,
+            command.operator_token,
+            ttl_ms,
+        )
+        return self._encode_frame(
+            WireMessageType.AUTHORIZATION_DECISION,
+            sequence=command.sequence,
+            sent_at_s=command.issued_at_s,
+            body=body,
+        )
+
+    def encode_authorization_ack(
+        self,
+        acknowledgement: AuthorizationDecisionAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        body = _AUTHORIZATION_ACK.pack(
+            acknowledgement.command_token,
+            int(acknowledgement.accepted),
+            int(acknowledgement.reason),
+            acknowledgement.acknowledged_sequence,
+        )
+        return self._encode_frame(
+            WireMessageType.AUTHORIZATION_ACK,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+            body=body,
+        )
+
     def decode(self, payload: bytes) -> DecodedOperatorPacket:
         if len(payload) < _HEADER.size + AUTHENTICATION_TAG_BYTES:
             raise OperatorProtocolError("operator-link payload is truncated")
@@ -245,8 +453,34 @@ class OperatorTunnelCodec:
             message = self._decode_selection(body, sequence=sequence, sent_at_s=sent_at_s)
         elif message_type is WireMessageType.SELECTION_ACK:
             message = self._decode_ack(body)
-        else:
+        elif message_type is WireMessageType.TRACK_STATUS:
             message = self._decode_track(body, sequence=sequence, sent_at_s=sent_at_s)
+        elif message_type is WireMessageType.MISSION_STATUS:
+            message = self._decode_mission_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.SAFETY_STATUS:
+            message = self._decode_safety_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.AUTHORIZATION_CHALLENGE:
+            message = self._decode_authorization_challenge(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.AUTHORIZATION_DECISION:
+            message = self._decode_authorization_decision(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        else:
+            message = self._decode_authorization_ack(body)
         return DecodedOperatorPacket(message_type, sequence, sent_at_s, message)
 
     def _encode_frame(
@@ -410,6 +644,248 @@ class OperatorTunnelCodec:
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid track-status content: {exc}") from exc
 
+    def _decode_mission_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> MissionStatusMessage:
+        if len(body) != _MISSION_STATUS.size:
+            raise OperatorProtocolError("mission-status body has an invalid size")
+        (
+            status_hash,
+            mission_hash,
+            phase_value,
+            window_value,
+            safety_value,
+            authorization_value,
+            remaining_payloads,
+            total_payloads,
+            target_present,
+            target_hash,
+            slot_present,
+            slot_hash,
+            confidence,
+            bearing,
+            estimated_range,
+            cross_track,
+            along_track,
+            release_lead,
+        ) = _MISSION_STATUS.unpack(body)
+        phases = tuple(MissionPhase)
+        if not 1 <= phase_value <= len(phases):
+            raise OperatorProtocolError("mission-status phase is invalid")
+        release_window = {
+            0: None,
+            1: DeploymentWindowStatus.UNAVAILABLE,
+            2: DeploymentWindowStatus.WAIT,
+            3: DeploymentWindowStatus.READY,
+        }.get(window_value, ...)
+        if release_window is ...:
+            raise OperatorProtocolError("mission-status release window is invalid")
+        safety_allowed = {0: None, 1: False, 2: True}.get(safety_value, ...)
+        if safety_allowed is ...:
+            raise OperatorProtocolError("mission-status safety state is invalid")
+        authorization = {
+            0: AuthorizationDisplayState.NONE,
+            1: AuthorizationDisplayState.PENDING,
+            2: AuthorizationDisplayState.APPROVED,
+        }.get(authorization_value)
+        if authorization is None:
+            raise OperatorProtocolError("mission-status authorization state is invalid")
+        if target_present not in {0, 1} or slot_present not in {0, 1}:
+            raise OperatorProtocolError("mission-status presence flag is invalid")
+        try:
+            return MissionStatusMessage(
+                status_id=_hashed_identifier(status_hash),
+                sequence=sequence,
+                mission_id=_hashed_identifier(mission_hash),
+                phase=phases[phase_value - 1],
+                authorization_state=authorization,
+                release_window=release_window,
+                safety_allowed=safety_allowed,
+                remaining_payload_count=remaining_payloads,
+                total_payload_count=total_payloads,
+                target_id=_hashed_identifier(target_hash) if target_present else None,
+                active_payload_slot_id=(_hashed_identifier(slot_hash) if slot_present else None),
+                target_confidence=_decode_ratio(confidence),
+                relative_bearing_deg=_decode_bearing(bearing),
+                estimated_range_m=_decode_distance(estimated_range),
+                cross_track_error_m=_decode_signed_distance(cross_track),
+                along_track_error_m=_decode_signed_distance(along_track),
+                release_lead_distance_m=_decode_distance(release_lead),
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid mission-status content: {exc}") from exc
+
+    def _decode_safety_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> SafetyStatusMessage:
+        if len(body) != _SAFETY_STATUS.size:
+            raise OperatorProtocolError("safety-status body has an invalid size")
+        (
+            status_hash,
+            mission_hash,
+            ruleset_hash,
+            target_present,
+            target_hash,
+            present_mask,
+            pass_mask,
+            deny_mask,
+            unknown_mask,
+            registry_version,
+        ) = _SAFETY_STATUS.unpack(body)
+        if registry_version != SAFETY_RULE_REGISTRY_VERSION:
+            raise OperatorProtocolError("safety-status registry version is unsupported")
+        if target_present != 1:
+            raise OperatorProtocolError("safety-status target must be present")
+        verdict_union = pass_mask | deny_mask | unknown_mask
+        if verdict_union != present_mask:
+            raise OperatorProtocolError("safety-status verdict masks do not match present rules")
+        if (pass_mask & deny_mask) or (pass_mask & unknown_mask) or (deny_mask & unknown_mask):
+            raise OperatorProtocolError("safety-status verdict masks overlap")
+        if present_mask >> len(OPERATOR_SAFETY_RULE_IDS):
+            raise OperatorProtocolError("safety-status contains an unregistered rule bit")
+        checks: list[RuleCheck] = []
+        for index, rule_id in enumerate(OPERATOR_SAFETY_RULE_IDS):
+            bit = 1 << index
+            if not present_mask & bit:
+                continue
+            if pass_mask & bit:
+                verdict = Verdict.PASS
+            elif deny_mask & bit:
+                verdict = Verdict.DENY
+            else:
+                verdict = Verdict.UNKNOWN
+            checks.append(RuleCheck(rule_id, verdict, f"remote safety verdict: {verdict.value}"))
+        try:
+            return SafetyStatusMessage(
+                status_id=_hashed_identifier(status_hash),
+                sequence=sequence,
+                mission_id=_hashed_identifier(mission_hash),
+                target_id=_hashed_identifier(target_hash),
+                ruleset_version=_hashed_identifier(ruleset_hash),
+                checks=tuple(checks),
+                produced_at_s=sent_at_s,
+                registry_version=registry_version,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid safety-status content: {exc}") from exc
+
+    def _decode_authorization_challenge(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> AuthorizationChallengeStatusMessage:
+        if len(body) != _AUTHORIZATION_CHALLENGE.size:
+            raise OperatorProtocolError("authorization-challenge body has an invalid size")
+        (
+            challenge_token,
+            mission_token,
+            target_token,
+            scene_token,
+            ruleset_token,
+            slot_token,
+            target_revision,
+            created_ms,
+            expires_ms,
+            pending,
+        ) = _AUTHORIZATION_CHALLENGE.unpack(body)
+        if pending not in {0, 1}:
+            raise OperatorProtocolError("authorization-challenge pending flag is invalid")
+        try:
+            return AuthorizationChallengeStatusMessage(
+                challenge_token=challenge_token,
+                mission_token=mission_token,
+                target_token=target_token,
+                scene_token=scene_token,
+                ruleset_token=ruleset_token,
+                payload_slot_token=slot_token,
+                target_revision=target_revision,
+                created_at_s=created_ms / 1000.0,
+                expires_at_s=expires_ms / 1000.0,
+                sequence=sequence,
+                produced_at_s=sent_at_s,
+                pending=bool(pending),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid authorization challenge: {exc}") from exc
+
+    def _decode_authorization_decision(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> AuthorizationDecisionCommand:
+        if len(body) != _AUTHORIZATION_DECISION.size:
+            raise OperatorProtocolError("authorization-decision body has an invalid size")
+        (
+            command_token,
+            session_token,
+            challenge_token,
+            mission_token,
+            target_token,
+            scene_token,
+            ruleset_token,
+            slot_token,
+            target_revision,
+            decision_value,
+            operator_token,
+            ttl_ms,
+        ) = _AUTHORIZATION_DECISION.unpack(body)
+        decision = {
+            1: AuthorizationDecision.APPROVE,
+            2: AuthorizationDecision.DENY,
+        }.get(decision_value)
+        if decision is None:
+            raise OperatorProtocolError("authorization decision value is invalid")
+        try:
+            return AuthorizationDecisionCommand(
+                command_token=command_token,
+                session_token=session_token,
+                challenge_token=challenge_token,
+                mission_token=mission_token,
+                target_token=target_token,
+                scene_token=scene_token,
+                ruleset_token=ruleset_token,
+                payload_slot_token=slot_token,
+                target_revision=target_revision,
+                decision=decision,
+                operator_token=operator_token,
+                sequence=sequence,
+                issued_at_s=sent_at_s,
+                expires_at_s=sent_at_s + ttl_ms / 1000.0,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid authorization decision: {exc}") from exc
+
+    def _decode_authorization_ack(self, body: bytes) -> AuthorizationDecisionAck:
+        if len(body) != _AUTHORIZATION_ACK.size:
+            raise OperatorProtocolError("authorization-ack body has an invalid size")
+        command_token, accepted, reason_value, acknowledged_sequence = _AUTHORIZATION_ACK.unpack(
+            body
+        )
+        if accepted not in {0, 1}:
+            raise OperatorProtocolError("authorization-ack accepted flag is invalid")
+        try:
+            return AuthorizationDecisionAck(
+                command_token=command_token,
+                accepted=bool(accepted),
+                reason=AuthorizationDecisionAckReason(reason_value),
+                acknowledged_sequence=acknowledged_sequence,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid authorization acknowledgement: {exc}") from exc
+
     def _require_registered_stream(self, stream_id: str) -> None:
         registered = self._geometries.get(_hash32(stream_id))
         if registered is None or registered.stream_id != stream_id:
@@ -493,15 +969,37 @@ def _decode_bearing(value: int) -> float | None:
 def _encode_distance(value: float | None) -> int:
     if value is None:
         return 0xFFFF
-    return _bounded_uint(round(value * 10.0), bits=16, field_name="estimated range decimetres")
+    encoded = _bounded_uint(
+        round(value * 10.0),
+        bits=16,
+        field_name="distance decimetres",
+    )
+    if encoded == 0xFFFF:
+        raise ValueError("distance decimetres cannot use the reserved null value")
+    return encoded
 
 
 def _decode_distance(value: int) -> float | None:
     return None if value == 0xFFFF else value / 10.0
 
 
+def _encode_signed_distance(value: float | None) -> int:
+    if value is None:
+        return -32768
+    encoded = round(value * 10.0)
+    if not -32767 <= encoded <= 32767:
+        raise ValueError("signed distance decimetres does not fit the wire range")
+    return encoded
+
+
+def _decode_signed_distance(value: int) -> float | None:
+    return None if value == -32768 else value / 10.0
+
+
 __all__ = [
     "AUTHENTICATION_TAG_BYTES",
+    "AuthorizationDecisionAck",
+    "AuthorizationDecisionAckReason",
     "DecodedOperatorPacket",
     "MAX_TUNNEL_PAYLOAD_BYTES",
     "OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL",

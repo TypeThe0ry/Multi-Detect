@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/integration-evidence.schema.json",
+  "title": "Multi-Detect staged integration evidence bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundle_id", "aircraft_id", "records"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "aircraft_id": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "software_hil": {"$ref": "#/$defs/record"},
+        "rtsp_camera": {"$ref": "#/$defs/record"},
+        "jetson": {"$ref": "#/$defs/record"},
+        "pixhawk_v6x": {"$ref": "#/$defs/record"},
+        "gr01": {"$ref": "#/$defs/record"},
+        "inert_payload": {"$ref": "#/$defs/record"}
+      }
+    }
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "sha256"],
+      "properties": {
+        "artifact": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+      }
+    }
+  }
+}

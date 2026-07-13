@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from multidetect.domain import BoundingBox
 from multidetect.operator_link import (
+    AuthorizationChallengeStatusMessage,
+    AuthorizationDecision,
+    AuthorizationDecisionCommand,
+    AuthorizationDecisionCommandGuard,
     SelectionAction,
     SelectionCommandGuard,
     TargetSelectionCommand,
@@ -29,6 +35,43 @@ def _selection(**overrides: object) -> TargetSelectionCommand:
     }
     values.update(overrides)
     return TargetSelectionCommand(**values)
+
+
+def _challenge() -> AuthorizationChallengeStatusMessage:
+    return AuthorizationChallengeStatusMessage(
+        challenge_token=11,
+        mission_token=12,
+        target_token=13,
+        scene_token=14,
+        ruleset_token=15,
+        payload_slot_token=16,
+        target_revision=7,
+        created_at_s=100.0,
+        expires_at_s=110.0,
+        sequence=1,
+        produced_at_s=103.0,
+    )
+
+
+def _decision(**overrides: object) -> AuthorizationDecisionCommand:
+    values: dict[str, object] = {
+        "command_token": 101,
+        "session_token": 102,
+        "challenge_token": 11,
+        "mission_token": 12,
+        "target_token": 13,
+        "scene_token": 14,
+        "ruleset_token": 15,
+        "payload_slot_token": 16,
+        "target_revision": 7,
+        "decision": AuthorizationDecision.APPROVE,
+        "operator_token": 103,
+        "sequence": 2,
+        "issued_at_s": 103.1,
+        "expires_at_s": 105.1,
+    }
+    values.update(overrides)
+    return AuthorizationDecisionCommand(**values)
 
 
 def test_accepts_fresh_normalized_selection_once() -> None:
@@ -127,3 +170,82 @@ def test_active_track_status_requires_target_and_box() -> None:
             source_captured_at_s=100.15,
             produced_at_s=100.18,
         )
+
+
+def test_authorization_guard_requires_exact_active_challenge_and_is_idempotent() -> None:
+    guard = AuthorizationDecisionCommandGuard(clock_tolerance_s=0.0)
+    no_challenge = guard.evaluate(_decision(), received_at_s=103.2)
+    assert no_challenge.allowed is False
+    assert "no pending" in " ".join(no_challenge.reasons)
+
+    guard.set_active_challenge(_challenge())
+    command = _decision(command_token=201)
+    accepted = guard.evaluate(command, received_at_s=103.2)
+    duplicate = guard.evaluate(command, received_at_s=103.3)
+
+    assert accepted.allowed is True
+    assert accepted.duplicate is False
+    assert duplicate.allowed is True
+    assert duplicate.duplicate is True
+
+
+def test_authorization_guard_rejects_second_decision_and_changed_command_token_content() -> None:
+    guard = AuthorizationDecisionCommandGuard(clock_tolerance_s=0.0)
+    guard.set_active_challenge(_challenge())
+    original = _decision(command_token=301)
+    assert guard.evaluate(original, received_at_s=103.2).allowed is True
+
+    second = guard.evaluate(
+        _decision(command_token=302, sequence=3, decision=AuthorizationDecision.DENY),
+        received_at_s=103.3,
+    )
+    changed = guard.evaluate(
+        _decision(command_token=301, operator_token=999),
+        received_at_s=103.3,
+    )
+
+    assert second.allowed is False
+    assert "already has a decision" in " ".join(second.reasons)
+    assert changed.allowed is False
+    assert "different content" in " ".join(changed.reasons)
+
+
+def test_authorization_guard_accepts_recent_published_snapshot_for_same_challenge() -> None:
+    guard = AuthorizationDecisionCommandGuard(clock_tolerance_s=0.0)
+    original = _challenge()
+    guard.set_active_challenge(original)
+    guard.set_active_challenge(
+        replace(
+            original,
+            scene_token=140,
+            target_revision=8,
+            sequence=2,
+            produced_at_s=104.0,
+        )
+    )
+
+    acceptance = guard.evaluate(_decision(), received_at_s=103.2)
+
+    assert acceptance.allowed is True
+
+
+def test_authorization_guard_rejects_wrong_binding_stale_and_outliving_command() -> None:
+    guard = AuthorizationDecisionCommandGuard(clock_tolerance_s=0.0)
+    guard.set_active_challenge(_challenge())
+
+    result = guard.evaluate(
+        _decision(
+            command_token=401,
+            target_token=999,
+            issued_at_s=106.0,
+            expires_at_s=110.5,
+        ),
+        received_at_s=111.0,
+    )
+
+    assert result.allowed is False
+    reasons = " ".join(result.reasons)
+    assert "does not match" in reasons
+    assert "expired" in reasons
+    assert "outlives" in reasons
+    assert "stale" in reasons

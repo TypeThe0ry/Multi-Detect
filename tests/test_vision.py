@@ -6,17 +6,115 @@ import numpy as np
 import pytest
 
 import multidetect.vision as vision_module
-from multidetect.domain import BoundingBox
+from multidetect.domain import BoundingBox, Detection, SensorKind
 from multidetect.vision import (
+    BrightNeutralLightVetoFilter,
     CameraReadError,
     CaptureConfig,
+    ClassConfidenceFilter,
     DetectorEnsemble,
     LetterboxTransform,
     OnnxNx6Config,
     OnnxNx6Detector,
     OnnxOutputContractError,
     OpenCVFrameSource,
+    PersonOverlapVetoFilter,
+    TemporalDetectionFilter,
 )
+
+
+def test_class_confidence_filter_uses_stricter_flame_threshold() -> None:
+    class _Detector:
+        def detect(self, _image):
+            return (
+                Detection("flame", 0.24, BoundingBox(0.1, 0.1, 0.2, 0.2), SensorKind.RGB),
+                Detection("flame", 0.42, BoundingBox(0.2, 0.2, 0.3, 0.3), SensorKind.RGB),
+                Detection("smoke", 0.24, BoundingBox(0.3, 0.3, 0.4, 0.4), SensorKind.RGB),
+            )
+
+        def covers_labels(self, labels):
+            return set(labels).issubset({"flame", "smoke"})
+
+    filtered = ClassConfidenceFilter(_Detector(), {"flame": 0.35, "smoke": 0.20})
+
+    results = filtered.detect(object())
+
+    assert tuple((item.label, item.confidence) for item in results) == (
+        ("flame", 0.42),
+        ("smoke", 0.24),
+    )
+    assert filtered.covers_labels(("flame",)) is True
+
+
+def test_person_overlap_veto_suppresses_ambiguous_flame_but_keeps_person() -> None:
+    class _Detector:
+        def detect(self, _image):
+            return (
+                Detection("person", 0.9, BoundingBox(0.1, 0.1, 0.5, 0.9)),
+                Detection("flame", 0.8, BoundingBox(0.2, 0.2, 0.4, 0.6)),
+                Detection("smoke", 0.7, BoundingBox(0.7, 0.1, 0.9, 0.3)),
+            )
+
+        def covers_labels(self, _labels):
+            return True
+
+    filtered = PersonOverlapVetoFilter(_Detector())
+
+    results = filtered.detect(object())
+
+    assert tuple(item.label for item in results) == ("person", "smoke")
+
+
+def test_bright_neutral_light_veto_rejects_white_lamp_but_keeps_colored_flame() -> None:
+    class _Detector:
+        def detect(self, _image):
+            return (
+                Detection("flame", 0.8, BoundingBox(0.0, 0.0, 0.5, 1.0)),
+                Detection("flame", 0.8, BoundingBox(0.5, 0.0, 1.0, 1.0)),
+            )
+
+        def covers_labels(self, _labels):
+            return True
+
+    image = np.zeros((40, 80, 3), dtype=np.uint8)
+    image[:, :40] = (255, 255, 255)
+    image[:, 40:] = (0, 100, 255)
+    filtered = BrightNeutralLightVetoFilter(_Detector())
+
+    results = filtered.detect(image)
+
+    assert len(results) == 1
+    assert results[0].bbox == BoundingBox(0.5, 0.0, 1.0, 1.0)
+
+
+def test_temporal_filter_requires_three_spatially_consistent_fire_frames() -> None:
+    class _Detector:
+        def __init__(self):
+            self.frame = 0
+
+        def detect(self, _image):
+            self.frame += 1
+            return (
+                Detection("person", 0.9, BoundingBox(0.6, 0.1, 0.9, 0.9)),
+                Detection(
+                    "flame",
+                    0.8,
+                    BoundingBox(0.1 + self.frame * 0.001, 0.1, 0.3, 0.4),
+                ),
+            )
+
+        def covers_labels(self, _labels):
+            return True
+
+    filtered = TemporalDetectionFilter(
+        _Detector(),
+        labels=frozenset({"flame", "smoke"}),
+        minimum_consecutive_frames=3,
+    )
+
+    assert tuple(item.label for item in filtered.detect(object())) == ("person",)
+    assert tuple(item.label for item in filtered.detect(object())) == ("person",)
+    assert tuple(item.label for item in filtered.detect(object())) == ("person", "flame")
 
 
 class _Input:
@@ -118,6 +216,12 @@ def test_capture_config_identifies_rtsp_and_validates_transport() -> None:
         CaptureConfig(0, backend="v4l2")
     with pytest.raises(ValueError, match="reconnect attempts"):
         CaptureConfig(0, reconnect_attempts=-1)
+    with pytest.raises(ValueError, match="fps must be finite"):
+        CaptureConfig(0, fps=float("nan"))
+    with pytest.raises(ValueError, match="reconnect delay must be finite"):
+        CaptureConfig(0, reconnect_delay_seconds=float("inf"))
+    with pytest.raises(ValueError, match="source must be a camera index"):
+        CaptureConfig(True)
 
 
 class _Capture:
@@ -185,3 +289,16 @@ def test_rtsp_open_error_does_not_expose_credentials(monkeypatch) -> None:
     assert "RTSP source" in message
     assert "SECRET_USER" not in message
     assert "SECRET_PASSWORD" not in message
+
+
+def test_rtsp_open_restores_process_ffmpeg_options(monkeypatch) -> None:
+    image = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2 = _CV2([_Capture(image)])
+    monkeypatch.setattr(vision_module, "_require_cv2", lambda: cv2)
+    monkeypatch.setenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", "existing;value")
+    source = OpenCVFrameSource(CaptureConfig("rtsp://camera.invalid/stream"))
+
+    source.open()
+
+    assert vision_module.os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "existing;value"
+    source.close()

@@ -23,6 +23,10 @@ safe to operate.
     challenge; an armed simulated bay is relocked before any new challenge can be created.
 12. A recently served scene-local target region is suppressed for the configured cooldown even
     when the short-lived tracker identity is rebuilt.
+13. Authorization never invokes a payload request directly. The optional authorization-ready
+    automatic path exists only behind both explicit simulation flags and can call only the in-memory
+    fake port or the authenticated inert HIL coordinator; every request still performs the atomic
+    safety/inventory/authorization recheck and uncertain results are never automatically retried.
 
 ## Before any field integration
 
@@ -31,6 +35,10 @@ safe to operate.
 - Establish geofence, altitude and platform-envelope sources with freshness and integrity checks.
 - Add persistent event/outbox storage and test power-loss recovery at every transition.
 - Define authenticated, acknowledged and versioned device protocols with physical interlocks.
+- The current inert-load HIL codec and localhost UDP transport cover authentication, correlation,
+  expiry, monotonic sequence, idempotency, single-slot exclusion and independent confirmation, but
+  have no serial/CAN/GPIO/PWM/MAVLink actuator or physical output. A real controller must retain the
+  same bindings and add independently verified hardware interlocks.
 - Verify release confirmation using independent hardware evidence; visual evidence alone is
   insufficient.
 - Run scenario replay, software-in-the-loop, hardware-in-the-loop, environmental and human-factor

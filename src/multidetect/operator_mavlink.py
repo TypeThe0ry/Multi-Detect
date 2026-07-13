@@ -3,10 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .operator_link import TargetSelectionCommand, TrackStatusMessage
+from .operator_link import (
+    AuthorizationChallengeStatusMessage,
+    AuthorizationDecisionCommand,
+    MissionStatusMessage,
+    SafetyStatusMessage,
+    TargetSelectionCommand,
+    TrackStatusMessage,
+)
 from .operator_protocol import (
     MAX_TUNNEL_PAYLOAD_BYTES,
     OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
+    AuthorizationDecisionAck,
     DecodedOperatorPacket,
     OperatorProtocolError,
     OperatorTunnelCodec,
@@ -99,6 +107,40 @@ class OperatorMavlinkTunnelAdapter:
 
     def encode_track_status(self, status: TrackStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_track_status(status))
+
+    def encode_mission_status(self, status: MissionStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_mission_status(status))
+
+    def encode_safety_status(self, status: SafetyStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_safety_status(status))
+
+    def encode_authorization_challenge(
+        self,
+        status: AuthorizationChallengeStatusMessage,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_authorization_challenge(status)
+        )
+
+    def encode_authorization_decision(self, command: AuthorizationDecisionCommand) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_authorization_decision(command)
+        )
+
+    def encode_authorization_ack(
+        self,
+        acknowledgement: AuthorizationDecisionAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_authorization_ack(
+                acknowledgement,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        )
 
     def decode_frame(self, frame: bytes) -> DecodedOperatorPacket:
         return self.codec.decode(self.extract_authenticated_operator_payload(frame))

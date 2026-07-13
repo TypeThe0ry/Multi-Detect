@@ -14,7 +14,12 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-vision = ["numpy>=1.26", "opencv-python>=4.10", "onnxruntime>=1.18"]
+vision = ["numpy>=1.26", "opencv-contrib-python>=4.10", "onnxruntime>=1.18"]
+vision-gpu = [
+  "numpy>=1.26",
+  "opencv-contrib-python>=4.10",
+  "onnxruntime-gpu==1.22.0",
+]
 pixhawk = ["pymavlink>=2.4"]
 model-tools = ["onnx>=1.16,<2"]
 

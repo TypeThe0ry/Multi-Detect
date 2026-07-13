@@ -6,8 +6,17 @@ pytest.importorskip("pymavlink")
 
 from pymavlink.dialects.v20 import common as mavlink2
 
-from multidetect.domain import BoundingBox
+from multidetect.domain import (
+    BoundingBox,
+    DeploymentWindowStatus,
+    MissionPhase,
+    RuleCheck,
+    Verdict,
+)
 from multidetect.operator_link import (
+    AuthorizationDisplayState,
+    MissionStatusMessage,
+    SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
     TargetSelectionCommand,
@@ -114,6 +123,65 @@ def test_jetson_ack_and_tracking_status_round_trip_to_g20() -> None:
     assert decoded_status.message_type is WireMessageType.TRACK_STATUS
     assert isinstance(decoded_status.message, TrackStatusMessage)
     assert decoded_status.message.label == "flame"
+
+
+def test_jetson_mission_status_round_trip_to_g20_is_advisory_only() -> None:
+    jetson = _adapter(JETSON_ENDPOINT)
+    g20 = _adapter(G20_ENDPOINT)
+    status = MissionStatusMessage(
+        status_id=STATUS_ID,
+        sequence=9,
+        mission_id="fire-fixed-wing-demo",
+        phase=MissionPhase.DEPLOYMENT_READY,
+        authorization_state=AuthorizationDisplayState.APPROVED,
+        release_window=DeploymentWindowStatus.READY,
+        safety_allowed=True,
+        remaining_payload_count=3,
+        total_payload_count=4,
+        target_id="track-1",
+        active_payload_slot_id="payload-1",
+        target_confidence=0.91,
+        relative_bearing_deg=-2.0,
+        estimated_range_m=62.8,
+        cross_track_error_m=0.5,
+        along_track_error_m=0.1,
+        release_lead_distance_m=62.7,
+        produced_at_s=100.2,
+    )
+
+    decoded = g20.decode_frame(jetson.encode_mission_status(status))
+
+    assert decoded.message_type is WireMessageType.MISSION_STATUS
+    assert isinstance(decoded.message, MissionStatusMessage)
+    assert decoded.message.authorization_state is AuthorizationDisplayState.APPROVED
+    assert decoded.message.advisory_only is True
+    assert decoded.message.physical_release_enabled is False
+
+
+def test_jetson_safety_status_round_trip_to_g20_is_explanatory_only() -> None:
+    status = SafetyStatusMessage(
+        status_id="55555555-5555-4555-8555-555555555555",
+        sequence=10,
+        mission_id="fire-fixed-wing-demo",
+        target_id="track-1",
+        ruleset_version="rules-v1",
+        checks=(
+            RuleCheck("target.confirmed_track", Verdict.PASS, "confirmed"),
+            RuleCheck("navigation.geofence_health", Verdict.UNKNOWN, "unknown"),
+        ),
+        produced_at_s=100.3,
+    )
+
+    decoded = _adapter(G20_ENDPOINT).decode_frame(
+        _adapter(JETSON_ENDPOINT).encode_safety_status(status)
+    )
+
+    assert decoded.message_type is WireMessageType.SAFETY_STATUS
+    assert isinstance(decoded.message, SafetyStatusMessage)
+    assert decoded.message.pass_count == 1
+    assert decoded.message.unknown_count == 1
+    assert decoded.message.advisory_only is True
+    assert decoded.message.physical_release_enabled is False
 
 
 def test_operator_endpoint_rejects_unrelated_mavlink_message() -> None:

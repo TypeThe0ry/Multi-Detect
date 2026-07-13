@@ -4,8 +4,20 @@ import random
 
 import pytest
 
-from multidetect.domain import BoundingBox
+from multidetect.domain import (
+    BoundingBox,
+    DeploymentWindowStatus,
+    MissionPhase,
+    RuleCheck,
+    Verdict,
+)
 from multidetect.operator_link import (
+    AuthorizationChallengeStatusMessage,
+    AuthorizationDecision,
+    AuthorizationDecisionCommand,
+    AuthorizationDisplayState,
+    MissionStatusMessage,
+    SafetyStatusMessage,
     SelectionAction,
     TargetSelectionCommand,
     TrackingState,
@@ -14,6 +26,8 @@ from multidetect.operator_link import (
 )
 from multidetect.operator_protocol import (
     MAX_TUNNEL_PAYLOAD_BYTES,
+    AuthorizationDecisionAck,
+    AuthorizationDecisionAckReason,
     OperatorProtocolError,
     OperatorTunnelCodec,
     SelectionAck,
@@ -46,6 +60,41 @@ def _selection(**overrides: object) -> TargetSelectionCommand:
     }
     values.update(overrides)
     return TargetSelectionCommand(**values)
+
+
+def _authorization_challenge() -> AuthorizationChallengeStatusMessage:
+    return AuthorizationChallengeStatusMessage(
+        challenge_token=11,
+        mission_token=12,
+        target_token=13,
+        scene_token=14,
+        ruleset_token=15,
+        payload_slot_token=16,
+        target_revision=7,
+        created_at_s=1_000.0,
+        expires_at_s=1_010.0,
+        sequence=21,
+        produced_at_s=1_003.0,
+    )
+
+
+def _authorization_decision() -> AuthorizationDecisionCommand:
+    return AuthorizationDecisionCommand(
+        command_token=101,
+        session_token=102,
+        challenge_token=11,
+        mission_token=12,
+        target_token=13,
+        scene_token=14,
+        ruleset_token=15,
+        payload_slot_token=16,
+        target_revision=7,
+        decision=AuthorizationDecision.APPROVE,
+        operator_token=103,
+        sequence=22,
+        issued_at_s=1_003.1,
+        expires_at_s=1_005.1,
+    )
 
 
 def test_selection_round_trip_fits_tunnel_payload() -> None:
@@ -133,6 +182,190 @@ def test_track_status_round_trip_fits_worst_case_tunnel_frame() -> None:
     assert message.tracking_quality == pytest.approx(0.87, abs=1 / 254)
     assert message.relative_bearing_deg == pytest.approx(-4.2)
     assert message.estimated_range_m == pytest.approx(82.0)
+
+
+def test_mission_status_round_trip_is_compact_and_display_only() -> None:
+    codec = _codec()
+    status = MissionStatusMessage(
+        status_id=STATUS_ID,
+        sequence=100,
+        mission_id="fire-fixed-wing-demo",
+        phase=MissionPhase.AWAITING_AUTHORIZATION,
+        authorization_state=AuthorizationDisplayState.PENDING,
+        release_window=DeploymentWindowStatus.READY,
+        safety_allowed=True,
+        remaining_payload_count=3,
+        total_payload_count=4,
+        target_id="track-fire-7",
+        active_payload_slot_id="payload-2",
+        target_confidence=0.92,
+        relative_bearing_deg=-3.25,
+        estimated_range_m=62.8,
+        cross_track_error_m=-1.4,
+        along_track_error_m=0.1,
+        release_lead_distance_m=62.7,
+        produced_at_s=1_000.25,
+    )
+
+    encoded = codec.encode_mission_status(status)
+    decoded = codec.decode(encoded)
+
+    assert len(encoded) == 89
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.MISSION_STATUS
+    message = decoded.message
+    assert isinstance(message, MissionStatusMessage)
+    assert message.mission_id.startswith("hash64:")
+    assert message.phase is MissionPhase.AWAITING_AUTHORIZATION
+    assert message.authorization_state is AuthorizationDisplayState.PENDING
+    assert message.release_window is DeploymentWindowStatus.READY
+    assert message.safety_allowed is True
+    assert message.target_id is not None and message.target_id.startswith("hash64:")
+    assert message.target_confidence == pytest.approx(0.92, abs=1 / 254)
+    assert message.cross_track_error_m == pytest.approx(-1.4)
+    assert message.release_lead_distance_m == pytest.approx(62.7)
+    assert message.advisory_only is True
+    assert message.flight_control_enabled is False
+    assert message.physical_release_enabled is False
+
+
+def test_mission_status_rejects_any_control_capability() -> None:
+    values = dict(
+        status_id=STATUS_ID,
+        sequence=1,
+        mission_id="mission",
+        phase=MissionPhase.SEARCHING,
+        authorization_state=AuthorizationDisplayState.NONE,
+        release_window=None,
+        safety_allowed=None,
+        remaining_payload_count=0,
+        total_payload_count=0,
+        target_id=None,
+        active_payload_slot_id=None,
+        target_confidence=None,
+        relative_bearing_deg=None,
+        estimated_range_m=None,
+        cross_track_error_m=None,
+        along_track_error_m=None,
+        release_lead_distance_m=None,
+        produced_at_s=100.0,
+    )
+
+    with pytest.raises(ValueError, match="display-only"):
+        MissionStatusMessage(**values, physical_release_enabled=True)
+
+
+def test_safety_status_round_trip_carries_explanatory_rule_masks() -> None:
+    status = SafetyStatusMessage(
+        status_id=STATUS_ID,
+        sequence=101,
+        mission_id="fire-fixed-wing-demo",
+        target_id="track-fire-7",
+        ruleset_version="safety-rules-v1",
+        checks=(
+            RuleCheck("target.confirmed_track", Verdict.PASS, "confirmed"),
+            RuleCheck("navigation.allowed_zone", Verdict.UNKNOWN, "unavailable"),
+            RuleCheck("deployment.person_exclusion", Verdict.DENY, "person nearby"),
+        ),
+        produced_at_s=1_000.25,
+    )
+
+    encoded = _codec().encode_safety_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 86
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.SAFETY_STATUS
+    message = decoded.message
+    assert isinstance(message, SafetyStatusMessage)
+    assert message.target_id.startswith("hash64:")
+    assert message.ruleset_version.startswith("hash64:")
+    assert [(check.rule_id, check.verdict) for check in message.checks] == [
+        ("target.confirmed_track", Verdict.PASS),
+        ("navigation.allowed_zone", Verdict.UNKNOWN),
+        ("deployment.person_exclusion", Verdict.DENY),
+    ]
+    assert message.pass_count == 1
+    assert message.deny_count == 1
+    assert message.unknown_count == 1
+    assert message.allowed is False
+    assert message.advisory_only is True
+    assert message.flight_control_enabled is False
+    assert message.physical_release_enabled is False
+
+
+def test_safety_status_rejects_unregistered_duplicate_or_control_fields() -> None:
+    base = dict(
+        status_id=STATUS_ID,
+        sequence=1,
+        mission_id="mission",
+        target_id="target",
+        ruleset_version="rules-v1",
+        produced_at_s=100.0,
+    )
+    with pytest.raises(ValueError, match="not registered"):
+        SafetyStatusMessage(
+            **base,
+            checks=(RuleCheck("custom.rule", Verdict.PASS, "pass"),),
+        )
+    duplicate = RuleCheck("target.confirmed_track", Verdict.PASS, "pass")
+    with pytest.raises(ValueError, match="duplicated"):
+        SafetyStatusMessage(**base, checks=(duplicate, duplicate))
+    with pytest.raises(ValueError, match="display-only"):
+        SafetyStatusMessage(
+            **base,
+            checks=(duplicate,),
+            physical_release_enabled=True,
+        )
+
+
+def test_authorization_challenge_status_round_trip_fits_tunnel() -> None:
+    encoded = _codec().encode_authorization_challenge(_authorization_challenge())
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 105
+    assert decoded.message_type is WireMessageType.AUTHORIZATION_CHALLENGE
+    assert decoded.message == _authorization_challenge()
+
+
+def test_authorization_decision_round_trip_binds_every_challenge_token() -> None:
+    encoded = _codec().encode_authorization_decision(_authorization_decision())
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 115
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.AUTHORIZATION_DECISION
+    assert decoded.message == _authorization_decision()
+
+
+def test_authorization_ack_round_trip_is_correlated() -> None:
+    acknowledgement = AuthorizationDecisionAck(
+        command_token=101,
+        accepted=True,
+        reason=AuthorizationDecisionAckReason.ACCEPTED,
+        acknowledged_sequence=22,
+    )
+
+    encoded = _codec().encode_authorization_ack(
+        acknowledgement,
+        sequence=23,
+        sent_at_s=1_003.2,
+    )
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 50
+    assert decoded.message_type is WireMessageType.AUTHORIZATION_ACK
+    assert decoded.message == acknowledgement
+
+
+def test_authorization_command_mutation_is_rejected() -> None:
+    encoded = _codec().encode_authorization_decision(_authorization_decision())
+
+    for index in range(len(encoded)):
+        mutated = bytearray(encoded)
+        mutated[index] ^= 0x01
+        with pytest.raises(OperatorProtocolError):
+            _codec().decode(bytes(mutated))
 
 
 def test_authentication_rejects_single_byte_tampering() -> None:

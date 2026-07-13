@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "hardware_model": "Pixhawk V6X",
+  "firmware_version": "REPLACE_WITH_EXACT_QGC_VALUE",
+  "captured_at_utc": "REPLACE_WITH_CURRENT_UTC_TIMESTAMP",
+  "airframe_stationary": true,
+  "fields": {
+    "latitude_deg": 0.0,
+    "longitude_deg": 0.0,
+    "altitude_agl_m": 0.0,
+    "heading_deg": 0.0,
+    "ground_speed_mps": 0.0,
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "battery_remaining_pct": 0.0,
+    "satellites_visible": 0,
+    "armed": false,
+    "flight_mode": "REPLACE_WITH_QGC_VALUE",
+    "mission_sequence": 0
+  }
+}

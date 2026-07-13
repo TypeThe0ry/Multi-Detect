@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/inert-payload-bench-record.schema.json",
+  "title": "Authenticated inert payload hardware bench record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "message_type",
+    "bench_id",
+    "cycle_id",
+    "source_id",
+    "key_id",
+    "sequence",
+    "observed_at_utc",
+    "hardware_observed",
+    "simulation_only",
+    "inert_load",
+    "signature_hmac_sha256"
+  ],
+  "properties": {
+    "protocol_version": {"const": 1},
+    "message_type": {"enum": ["controller_cycle", "sensor_confirmation"]},
+    "bench_id": {"type": "string", "minLength": 1},
+    "cycle_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "key_id": {"type": "string", "minLength": 1},
+    "sequence": {"type": "integer", "minimum": 0},
+    "observed_at_utc": {"type": "string", "format": "date-time"},
+    "hardware_observed": {"const": true},
+    "simulation_only": {"const": false},
+    "inert_load": {"const": true},
+    "signature_hmac_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "status": {"enum": ["executed", "uncertain"]},
+    "controller_healthy": {"type": "boolean"},
+    "interlock_healthy": {"type": "boolean"},
+    "automatic_retry_count": {"type": "integer", "minimum": 0},
+    "firmware_version": {"type": "string", "minLength": 1},
+    "payload_absent": {"type": "boolean"},
+    "sensor_healthy": {"type": "boolean"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"message_type": {"const": "controller_cycle"}}},
+      "then": {
+        "required": [
+          "status",
+          "controller_healthy",
+          "interlock_healthy",
+          "automatic_retry_count",
+          "firmware_version"
+        ]
+      }
+    },
+    {
+      "if": {"properties": {"message_type": {"const": "sensor_confirmation"}}},
+      "then": {"required": ["payload_absent", "sensor_healthy"]}
+    }
+  ]
+}

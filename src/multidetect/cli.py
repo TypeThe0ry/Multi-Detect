@@ -23,8 +23,19 @@ from .alerts import (
     UdpAcknowledgedAlertTransport,
 )
 from .audit import AuditLog
+from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
-from .domain import BoundingBox, VehicleTelemetry
+from .deployment_planner import FixedWingReleaseWindowPlanner
+from .domain import (
+    BoundingBox,
+    DeploymentWindowStatus,
+    FrameObservation,
+    MissionPhase,
+    RuleCheck,
+    TrackSnapshot,
+    VehicleTelemetry,
+    Verdict,
+)
 from .evaluation import (
     JsonlPredictionWriter,
     evaluate_detections,
@@ -32,6 +43,9 @@ from .evaluation import (
     load_ground_truth_jsonl,
     load_prediction_jsonl,
 )
+from .gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from .integration_evidence import INTEGRATION_PROFILES, check_integration_evidence_bundle
+from .jetson_bench import JetsonVisionBenchConfig, run_jetson_vision_bench
 from .live import LiveMissionRunner, LiveRunConfig
 from .mission import MissionController
 from .model_manifest import (
@@ -45,12 +59,19 @@ from .model_manifest import (
 )
 from .operator_bridge import LiveOperatorBridge
 from .operator_link import (
+    AuthorizationChallengeStatusMessage,
+    AuthorizationDecision,
+    AuthorizationDecisionCommand,
+    AuthorizationDisplayState,
+    MissionStatusMessage,
+    SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
     TargetSelectionCommand,
     TrackingState,
     TrackStatusMessage,
     VideoGeometry,
+    operator_identifier_token,
 )
 from .operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter
 from .operator_protocol import (
@@ -58,9 +79,29 @@ from .operator_protocol import (
     OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
     OperatorTunnelCodec,
 )
-from .operator_tracking import OperatorTargetLock, TargetLockConfig
-from .operator_transport import SelectionCommandServer, SelectionRetryClient
-from .operator_udp import UdpOperatorSelectionClient, UdpOperatorSelectionServer
+from .operator_tracking import (
+    FIRE_CANDIDATE_TRACK_LABELS,
+    OperatorTargetLock,
+    TargetLockConfig,
+)
+from .operator_transport import (
+    SelectionCommandServer,
+    SelectionRetryClient,
+    ServerAuthorizationDecisionResult,
+    ServerSelectionResult,
+)
+from .operator_udp import (
+    UdpOperatorSelectionClient,
+    UdpOperatorSelectionServer,
+    UdpOperatorSessionClient,
+)
+from .payload_bench_evidence import check_inert_payload_hardware_bench
+from .payload_confirmation_hil import PayloadConfirmationHilCodec
+from .payload_confirmation_udp import UdpPayloadConfirmationHilReceiver
+from .payload_hil_cycle import InertPayloadHilCycleCoordinator
+from .payload_hil_mission import MissionPayloadHilAdapter
+from .payload_hil_protocol import PayloadHilCodec
+from .payload_hil_udp import UdpPayloadHilClient
 from .payload_inventory import (
     ConfiguredSimulationPayloadInventoryProvider,
     FailClosedPayloadInventoryProvider,
@@ -69,15 +110,36 @@ from .payload_inventory import (
     verify_payload_inventory,
 )
 from .pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
+from .pixhawk_bench import (
+    PixhawkBenchConfig,
+    load_qgc_telemetry_snapshot,
+    run_pixhawk_v6x_bench,
+)
 from .replay import load_jsonl_replay
 from .synthetic_model import create_synthetic_hil_model_bundle
-from .telemetry import FailClosedTelemetryProvider
+from .telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
 from .vision import (
+    BrightNeutralLightVetoFilter,
     CaptureConfig,
+    ClassConfidenceFilter,
     DetectorEnsemble,
     OnnxNx6Config,
     OnnxNx6Detector,
     OpenCVFrameSource,
+    PersonOverlapVetoFilter,
+    TemporalDetectionFilter,
+)
+from .zone_evidence import FileZoneEvidenceProvider
+
+COCO80_CLASS_NAMES = tuple(
+    "person,bicycle,car,motorcycle,airplane,bus,train,truck,boat,traffic light,fire hydrant,"
+    "stop sign,parking meter,bench,bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe,"
+    "backpack,umbrella,handbag,tie,suitcase,frisbee,skis,snowboard,sports ball,kite,"
+    "baseball bat,baseball glove,skateboard,surfboard,tennis racket,bottle,wine glass,cup,"
+    "fork,knife,spoon,bowl,banana,apple,sandwich,orange,broccoli,carrot,hot dog,pizza,donut,"
+    "cake,chair,couch,potted plant,bed,dining table,toilet,tv,laptop,mouse,remote,keyboard,"
+    "cell phone,microwave,oven,toaster,sink,refrigerator,book,clock,vase,scissors,teddy bear,"
+    "hair drier,toothbrush".split(",")
 )
 
 
@@ -90,6 +152,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate-config", help="validate a mission JSON file")
     validate.add_argument("config", type=Path)
+
+    release_window = subparsers.add_parser(
+        "release-window-check",
+        help="compute an advisory fixed-wing HIL release window without control output",
+    )
+    release_window.add_argument("config", type=Path)
+    release_window.add_argument("--x1", type=float, required=True)
+    release_window.add_argument("--y1", type=float, required=True)
+    release_window.add_argument("--x2", type=float, required=True)
+    release_window.add_argument("--y2", type=float, required=True)
+    release_window.add_argument("--altitude-agl-m", type=float, required=True)
+    release_window.add_argument("--ground-speed-mps", type=float, required=True)
+    release_window.add_argument("--pitch-deg", type=float, required=True)
+    release_window.add_argument("--label", default="flame")
+    release_window.add_argument("--target-id", default="hil-target")
+    release_window.add_argument("--target-revision", type=int, default=1)
+    release_window.add_argument("--now-s", type=float, default=0.0)
 
     replay = subparsers.add_parser("replay", help="run detections through the simulated loop")
     replay.add_argument("config", type=Path)
@@ -124,11 +203,40 @@ def build_parser() -> argparse.ArgumentParser:
     payload_check.add_argument("--hmac-key-env")
     payload_check.add_argument("--expected-key-id")
 
+    payload_bench = subparsers.add_parser(
+        "inert-payload-bench-check",
+        help="verify separately signed controller/sensor logs from an inert hardware bench",
+    )
+    payload_bench.add_argument("--controller-log", type=Path, required=True)
+    payload_bench.add_argument("--sensor-log", type=Path, required=True)
+    payload_bench.add_argument("--controller-hmac-key-env", required=True)
+    payload_bench.add_argument("--sensor-hmac-key-env", required=True)
+    payload_bench.add_argument("--bench-id", required=True)
+    payload_bench.add_argument("--controller-id", required=True)
+    payload_bench.add_argument("--sensor-id", required=True)
+    payload_bench.add_argument("--controller-key-id", required=True)
+    payload_bench.add_argument("--sensor-key-id", required=True)
+    payload_bench.add_argument("--minimum-confirmed-cycles", type=int, default=20)
+    payload_bench.add_argument("--maximum-age-hours", type=float, default=168.0)
+    payload_bench.add_argument("--inert-load-only", action="store_true")
+    payload_bench.add_argument("--people-excluded-from-test-area", action="store_true")
+    payload_bench.add_argument("--out", type=Path, required=True)
+
     camera_check = subparsers.add_parser(
         "camera-check", help="open a local/RTSP source, read one frame, and discard it"
     )
     _add_capture_arguments(camera_check)
     camera_check.add_argument("--frames", type=int, default=1)
+
+    camera_bench = subparsers.add_parser(
+        "camera-bench",
+        help="soak a local/RTSP camera and write redacted staged hardware evidence",
+    )
+    _add_capture_arguments(camera_bench)
+    camera_bench.add_argument("--minimum-frames", type=int, default=300)
+    camera_bench.add_argument("--minimum-duration-seconds", type=float, default=60.0)
+    camera_bench.add_argument("--maximum-duration-seconds", type=float, default=120.0)
+    camera_bench.add_argument("--out", type=Path, required=True)
 
     model_check = subparsers.add_parser(
         "model-check",
@@ -155,6 +263,30 @@ def build_parser() -> argparse.ArgumentParser:
     model_check.add_argument("--trt-engine-cache", type=Path)
     model_check.add_argument("--warmup-iterations", type=int, default=3)
     model_check.add_argument("--benchmark-iterations", type=int, default=20)
+
+    jetson_bench = subparsers.add_parser(
+        "jetson-vision-bench",
+        help="soak RTSP capture plus ONNX inference on Jetson and write hardware evidence",
+    )
+    _add_capture_arguments(jetson_bench)
+    jetson_bench.add_argument("--onnx-model", type=Path, required=True)
+    jetson_bench.add_argument("--model-manifest", type=Path, required=True)
+    jetson_bench.add_argument("--class-names", default="fire,smoke")
+    jetson_bench.add_argument("--input-width", type=int, default=640)
+    jetson_bench.add_argument("--input-height", type=int, default=640)
+    jetson_bench.add_argument("--confidence-threshold", type=float, default=0.10)
+    jetson_bench.add_argument(
+        "--output-coordinates",
+        choices=("letterbox_xyxy_px", "normalized_xyxy"),
+        default="normalized_xyxy",
+    )
+    jetson_bench.add_argument("--provider", action="append", default=[])
+    jetson_bench.add_argument("--trt-engine-cache", type=Path)
+    jetson_bench.add_argument("--minimum-frames", type=int, default=1000)
+    jetson_bench.add_argument("--minimum-duration-seconds", type=float, default=1800.0)
+    jetson_bench.add_argument("--maximum-duration-seconds", type=float, default=2100.0)
+    jetson_bench.add_argument("--maximum-temperature-c", type=float, default=95.0)
+    jetson_bench.add_argument("--out", type=Path, required=True)
 
     manifest_init = subparsers.add_parser(
         "model-manifest-init",
@@ -214,6 +346,28 @@ def build_parser() -> argparse.ArgumentParser:
     pixhawk_check.add_argument("--interval-seconds", type=float, default=0.2)
     pixhawk_check.add_argument("--require-fresh-link", action="store_true")
 
+    pixhawk_bench = subparsers.add_parser(
+        "pixhawk-v6x-bench",
+        help="compare read-only Pixhawk telemetry with a stationary QGC snapshot",
+    )
+    pixhawk_bench.add_argument("--endpoint", required=True)
+    pixhawk_bench.add_argument("--baud", type=int, default=57_600)
+    pixhawk_bench.add_argument("--qgc-snapshot", type=Path, required=True)
+    pixhawk_bench.add_argument("--minimum-samples", type=int, default=100)
+    pixhawk_bench.add_argument("--sample-interval-seconds", type=float, default=0.2)
+    pixhawk_bench.add_argument("--stale-after-seconds", type=float, default=1.0)
+    pixhawk_bench.add_argument("--maximum-qgc-age-seconds", type=float, default=120.0)
+    pixhawk_bench.add_argument("--out", type=Path, required=True)
+
+    evidence_check = subparsers.add_parser(
+        "integration-evidence-check",
+        help="verify hashed staged HIL/hardware evidence without granting production approval",
+    )
+    evidence_check.add_argument("bundle", type=Path)
+    evidence_check.add_argument("--profile", choices=tuple(INTEGRATION_PROFILES), required=True)
+    evidence_check.add_argument("--maximum-hardware-age-hours", type=float, default=168.0)
+    evidence_check.add_argument("--out", type=Path)
+
     alert_receiver = subparsers.add_parser(
         "alert-udp-receiver",
         help="receive authenticated fire alerts and return correlated UDP acknowledgements",
@@ -240,7 +394,7 @@ def build_parser() -> argparse.ArgumentParser:
         "operator-udp-server",
         help="run the Jetson-side signed selection/ACK UDP diagnostic endpoint",
     )
-    operator_server.add_argument("--bind-host", default="0.0.0.0")
+    operator_server.add_argument("--bind-host", default="127.0.0.1")
     operator_server.add_argument("--port", type=int, default=14_580)
     operator_server.add_argument("--operator-hmac-key-env", required=True)
     operator_server.add_argument("--mavlink-signing-key-hex-env", required=True)
@@ -254,6 +408,16 @@ def build_parser() -> argparse.ArgumentParser:
     operator_server.add_argument("--remote-component-id", type=int, default=190)
     operator_server.add_argument("--receive-timeout-seconds", type=float, default=30.0)
     operator_server.add_argument("--max-datagrams", type=int, default=1)
+    operator_server.add_argument("--exit-after-accepted-selections", type=int)
+    operator_server.add_argument(
+        "--authorization-hil",
+        action="store_true",
+        help=(
+            "after an accepted selection, publish one synthetic authorization challenge and "
+            "accept a signed approve/deny decision; protocol HIL only"
+        ),
+    )
+    operator_server.add_argument("--authorization-window-seconds", type=float, default=5.0)
 
     operator_client = subparsers.add_parser(
         "operator-udp-select",
@@ -274,11 +438,74 @@ def build_parser() -> argparse.ArgumentParser:
     operator_client.add_argument("--ttl-seconds", type=float, default=3.0)
     operator_client.add_argument("--retry-interval-seconds", type=float, default=0.25)
     operator_client.add_argument("--maximum-attempts", type=int, default=3)
+    operator_client.add_argument("--wait-track-status-seconds", type=float, default=0.0)
     operator_client.add_argument("--local-system-id", type=int, default=255)
     operator_client.add_argument("--local-component-id", type=int, default=190)
     operator_client.add_argument("--remote-system-id", type=int, default=1)
     operator_client.add_argument("--remote-component-id", type=int, default=191)
+
+    operator_authorize = subparsers.add_parser(
+        "operator-udp-authorize",
+        help=(
+            "select a diagnostic target, receive a signed synthetic challenge, and return one "
+            "bound approve/deny decision; never sends a payload or flight command"
+        ),
+    )
+    operator_authorize.add_argument("--host", required=True)
+    operator_authorize.add_argument("--port", type=int, default=14_580)
+    operator_authorize.add_argument("--operator-hmac-key-env", required=True)
+    operator_authorize.add_argument("--mavlink-signing-key-hex-env", required=True)
+    operator_authorize.add_argument("--stream-id", default="camera-main")
+    operator_authorize.add_argument("--width", type=int, default=1280)
+    operator_authorize.add_argument("--height", type=int, default=720)
+    operator_authorize.add_argument("--rotation", type=int, default=0)
+    operator_authorize.add_argument("--x1", type=float, default=0.32)
+    operator_authorize.add_argument("--y1", type=float, default=0.21)
+    operator_authorize.add_argument("--x2", type=float, default=0.61)
+    operator_authorize.add_argument("--y2", type=float, default=0.72)
+    operator_authorize.add_argument("--selection-ttl-seconds", type=float, default=3.0)
+    operator_authorize.add_argument("--authorization-ttl-seconds", type=float, default=2.0)
+    operator_authorize.add_argument("--authorization-timeout-seconds", type=float, default=5.0)
+    operator_authorize.add_argument("--retry-interval-seconds", type=float, default=0.25)
+    operator_authorize.add_argument("--maximum-attempts", type=int, default=3)
+    operator_authorize.add_argument(
+        "--decision",
+        choices=("approve", "deny"),
+        default="deny",
+        help="defaults to deny so approval must always be explicit",
+    )
+    operator_authorize.add_argument("--operator-id", required=True)
+    operator_authorize.add_argument("--local-system-id", type=int, default=255)
+    operator_authorize.add_argument("--local-component-id", type=int, default=190)
+    operator_authorize.add_argument("--remote-system-id", type=int, default=1)
+    operator_authorize.add_argument("--remote-component-id", type=int, default=191)
     alert_receiver.add_argument("--deduplication-db", type=Path)
+
+    gr01_bench = subparsers.add_parser(
+        "gr01-link-bench",
+        help="measure signed G20/Jetson UDP round trips through a GR01 or software baseline",
+    )
+    gr01_bench.add_argument("--host", required=True)
+    gr01_bench.add_argument("--port", type=int, default=14_580)
+    gr01_bench.add_argument("--operator-hmac-key-env", required=True)
+    gr01_bench.add_argument("--mavlink-signing-key-hex-env", required=True)
+    gr01_bench.add_argument("--stream-id", default="camera-main")
+    gr01_bench.add_argument("--width", type=int, default=1280)
+    gr01_bench.add_argument("--height", type=int, default=720)
+    gr01_bench.add_argument("--rotation", type=int, default=0)
+    gr01_bench.add_argument("--minimum-round-trips", type=int, default=100)
+    gr01_bench.add_argument("--command-ttl-seconds", type=float, default=3.0)
+    gr01_bench.add_argument("--retry-interval-seconds", type=float, default=0.5)
+    gr01_bench.add_argument("--maximum-attempts", type=int, default=3)
+    gr01_bench.add_argument("--maximum-packet-loss-rate", type=float, default=0.01)
+    gr01_bench.add_argument("--maximum-ack-latency-p95-ms", type=float, default=500.0)
+    gr01_bench.add_argument("--hardware-mode", action="store_true")
+    gr01_bench.add_argument("--hardware-id")
+    gr01_bench.add_argument("--local-system-id", type=int, default=255)
+    gr01_bench.add_argument("--local-component-id", type=int, default=190)
+    gr01_bench.add_argument("--remote-system-id", type=int, default=1)
+    gr01_bench.add_argument("--remote-component-id", type=int, default=191)
+    gr01_bench.add_argument("--out", type=Path, required=True)
 
     live = subparsers.add_parser(
         "live-camera",
@@ -298,9 +525,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicitly allow a constant-output synthetic model for local software HIL only",
     )
     live.add_argument("--safety-class-names", default="person,firefighter")
+    live.add_argument("--safety-model-coco80", action="store_true")
+    live.add_argument("--safety-confidence-threshold", type=float, default=0.30)
     live.add_argument("--input-width", type=int, default=640)
     live.add_argument("--input-height", type=int, default=640)
-    live.add_argument("--confidence-threshold", type=float, default=0.25)
+    live.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.10,
+        help=(
+            "candidate display/tracking threshold; mission confirmation still uses the higher "
+            "minimum_confidence from the mission config"
+        ),
+    )
+    live.add_argument("--flame-confidence-threshold", type=float, default=0.72)
+    live.add_argument("--smoke-confidence-threshold", type=float, default=0.60)
+    live.add_argument("--candidate-stability-frames", type=int, default=6)
+    live.add_argument("--person-veto-fire-coverage", type=float, default=0.40)
     live.add_argument(
         "--output-coordinates",
         choices=("letterbox_xyxy_px", "normalized_xyxy"),
@@ -333,12 +574,19 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--payload-inventory-report", type=Path)
     live.add_argument("--payload-inventory-hmac-key-env")
     live.add_argument("--payload-inventory-key-id")
+    live.add_argument("--zone-evidence-report", type=Path)
+    live.add_argument("--zone-evidence-hmac-key-env")
+    live.add_argument("--zone-evidence-key-id")
+    live.add_argument("--zone-evidence-max-position-delta-m", type=float, default=25.0)
     live.add_argument(
         "--operator-udp-port",
         type=int,
-        help="enable signed remote target selection/status metadata; never enables control",
+        help=(
+            "enable signed remote target selection/status/authorization metadata; never enables "
+            "flight commands or direct payload control"
+        ),
     )
-    live.add_argument("--operator-udp-bind-host", default="0.0.0.0")
+    live.add_argument("--operator-udp-bind-host", default="127.0.0.1")
     live.add_argument("--operator-hmac-key-env")
     live.add_argument("--mavlink-signing-key-hex-env")
     live.add_argument("--operator-stream-id", default="camera-main")
@@ -356,6 +604,37 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="enable operator-triggered FakePayloadPort HIL cycle; never controls hardware",
     )
+    live.add_argument(
+        "--auto-simulate-payload-cycle",
+        action="store_true",
+        help=(
+            "after a valid authorization reaches DEPLOYMENT_READY, automatically execute exactly "
+            "one simulated/inert HIL cycle; requires --simulate-payload-cycle"
+        ),
+    )
+    live.add_argument(
+        "--inert-payload-hil",
+        action="store_true",
+        help="route the explicit simulated cycle through two authenticated inert HIL channels",
+    )
+    live.add_argument("--payload-hil-controller-host", default="127.0.0.1")
+    live.add_argument("--payload-hil-controller-port", type=int)
+    live.add_argument("--payload-hil-controller-module-id")
+    live.add_argument("--payload-hil-request-key-env")
+    live.add_argument("--payload-hil-request-key-id")
+    live.add_argument("--payload-hil-result-key-env")
+    live.add_argument("--payload-hil-result-key-id")
+    live.add_argument("--payload-hil-response-timeout-seconds", type=float, default=0.5)
+    live.add_argument("--payload-hil-maximum-attempts", type=int, default=3)
+    live.add_argument("--payload-hil-request-ttl-seconds", type=float, default=1.0)
+    live.add_argument("--payload-hil-result-max-age-seconds", type=float, default=1.0)
+    live.add_argument("--payload-confirmation-bind-host", default="127.0.0.1")
+    live.add_argument("--payload-confirmation-port", type=int)
+    live.add_argument("--payload-confirmation-key-env")
+    live.add_argument("--payload-confirmation-key-id")
+    live.add_argument("--payload-confirmation-sensor-id", action="append", default=[])
+    live.add_argument("--payload-confirmation-timeout-seconds", type=float, default=2.0)
+    live.add_argument("--payload-confirmation-max-age-seconds", type=float, default=1.0)
     live.add_argument("--no-display", action="store_true")
     live.add_argument("--audit-out", type=Path)
     live.add_argument("--prediction-log-out", type=Path)
@@ -368,6 +647,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate-config":
             return _validate_config(args.config)
+        if args.command == "release-window-check":
+            return _release_window_check(args)
         if args.command == "replay":
             return _run_replay(
                 config_path=args.config,
@@ -378,12 +659,18 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "camera-check":
             return _camera_check(_capture_config_from_args(args), frame_count=args.frames)
+        if args.command == "camera-bench":
+            return _run_camera_bench(args)
         if args.command == "payload-inventory-check":
             return _payload_inventory_check(args)
+        if args.command == "inert-payload-bench-check":
+            return _run_inert_payload_bench_check(args)
         if args.command == "evaluate-detections":
             return _evaluate_detection_logs(args)
         if args.command == "model-check":
             return _run_model_check(args)
+        if args.command == "jetson-vision-bench":
+            return _run_jetson_vision_bench(args)
         if args.command == "model-manifest-init":
             return _run_model_manifest_init(args)
         if args.command == "synthetic-model-init":
@@ -392,6 +679,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_legacy_checkpoint_verify(args)
         if args.command == "pixhawk-check":
             return _run_pixhawk_check(args)
+        if args.command == "pixhawk-v6x-bench":
+            return _run_pixhawk_v6x_bench(args)
+        if args.command == "integration-evidence-check":
+            return _run_integration_evidence_check(args)
         if args.command == "alert-udp-receiver":
             return _run_alert_udp_receiver(args)
         if args.command == "operator-link-demo":
@@ -400,6 +691,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_operator_udp_server(args)
         if args.command == "operator-udp-select":
             return _run_operator_udp_select(args)
+        if args.command == "operator-udp-authorize":
+            return _run_operator_udp_authorize(args)
+        if args.command == "gr01-link-bench":
+            return _run_gr01_link_bench(args)
         if args.command == "live-camera":
             return _run_live_camera(args)
     except (OSError, ValueError, RuntimeError) as exc:
@@ -408,7 +703,17 @@ def main(argv: list[str] | None = None) -> int:
                 "event": "error",
                 "error_type": type(exc).__name__,
                 "message": str(exc),
-                "simulation_only": args.command != "live-camera",
+                "simulation_only": args.command
+                not in {
+                    "live-camera",
+                    "camera-check",
+                    "camera-bench",
+                    "jetson-vision-bench",
+                    "pixhawk-check",
+                    "pixhawk-v6x-bench",
+                    "gr01-link-bench",
+                    "inert-payload-bench-check",
+                },
                 "hardware_control_enabled": False,
             },
             stream=sys.stderr,
@@ -437,6 +742,19 @@ def _validate_config(path: Path) -> int:
         }
     )
     return 0
+
+
+def _run_integration_evidence_check(args: argparse.Namespace) -> int:
+    document = check_integration_evidence_bundle(
+        args.bundle,
+        profile=args.profile,
+        maximum_hardware_age_hours=args.maximum_hardware_age_hours,
+    )
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
 
 
 def _run_operator_link_demo() -> int:
@@ -600,11 +918,104 @@ def _run_operator_link_demo() -> int:
             "hardware_control_enabled": False,
         }
     )
+    mission_status = MissionStatusMessage(
+        status_id=str(UUID("44444444-4444-4444-8444-444444444444")),
+        sequence=2,
+        mission_id="fire-fixed-wing-demo",
+        phase=MissionPhase.AWAITING_AUTHORIZATION,
+        authorization_state=AuthorizationDisplayState.PENDING,
+        release_window=DeploymentWindowStatus.WAIT,
+        safety_allowed=False,
+        remaining_payload_count=4,
+        total_payload_count=4,
+        target_id="track-42",
+        active_payload_slot_id="payload-1",
+        target_confidence=0.91,
+        relative_bearing_deg=-4.2,
+        estimated_range_m=82.0,
+        cross_track_error_m=1.4,
+        along_track_error_m=19.3,
+        release_lead_distance_m=62.7,
+        produced_at_s=1_000.56,
+    )
+    encoded_mission_status = codec.encode_mission_status(mission_status)
+    mission_status_frame = jetson_mavlink.wrap_authenticated_operator_payload(
+        encoded_mission_status
+    )
+    received_mission_status = codec.decode(
+        g20_mavlink.extract_authenticated_operator_payload(mission_status_frame)
+    ).message
+    if not isinstance(received_mission_status, MissionStatusMessage):  # pragma: no cover
+        raise RuntimeError("operator-link demo returned the wrong mission-status type")
+    _emit(
+        {
+            "event": "g20_mission_status_received",
+            "phase": received_mission_status.phase.value,
+            "authorization_state": received_mission_status.authorization_state.value,
+            "release_window": (
+                received_mission_status.release_window.value
+                if received_mission_status.release_window is not None
+                else None
+            ),
+            "safety_allowed": received_mission_status.safety_allowed,
+            "payload_bytes": len(encoded_mission_status),
+            "mavlink_frame_bytes": len(mission_status_frame),
+            "advisory_only": received_mission_status.advisory_only,
+            "flight_control_enabled": received_mission_status.flight_control_enabled,
+            "physical_release_enabled": received_mission_status.physical_release_enabled,
+            "simulation_only": True,
+            "hardware_control_enabled": False,
+        }
+    )
+    safety_status = SafetyStatusMessage(
+        status_id=str(UUID("55555555-5555-4555-8555-555555555555")),
+        sequence=3,
+        mission_id="fire-fixed-wing-demo",
+        target_id="track-42",
+        ruleset_version="safety-rules-fixed-wing-hil-v1",
+        checks=(
+            RuleCheck("target.confirmed_track", Verdict.PASS, "confirmed"),
+            RuleCheck("navigation.allowed_zone", Verdict.UNKNOWN, "unknown"),
+            RuleCheck("deployment.person_exclusion", Verdict.DENY, "person nearby"),
+        ),
+        produced_at_s=1_000.57,
+    )
+    encoded_safety_status = codec.encode_safety_status(safety_status)
+    safety_status_frame = jetson_mavlink.wrap_authenticated_operator_payload(encoded_safety_status)
+    received_safety_status = codec.decode(
+        g20_mavlink.extract_authenticated_operator_payload(safety_status_frame)
+    ).message
+    if not isinstance(received_safety_status, SafetyStatusMessage):  # pragma: no cover
+        raise RuntimeError("operator-link demo returned the wrong safety-status type")
+    _emit(
+        {
+            "event": "g20_safety_status_received",
+            "target_id": received_safety_status.target_id,
+            "ruleset_version": received_safety_status.ruleset_version,
+            "pass_count": received_safety_status.pass_count,
+            "deny_count": received_safety_status.deny_count,
+            "unknown_count": received_safety_status.unknown_count,
+            "allowed": received_safety_status.allowed,
+            "checks": [
+                {"rule_id": check.rule_id, "verdict": check.verdict.value}
+                for check in received_safety_status.checks
+            ],
+            "payload_bytes": len(encoded_safety_status),
+            "mavlink_frame_bytes": len(safety_status_frame),
+            "advisory_only": received_safety_status.advisory_only,
+            "flight_control_enabled": received_safety_status.flight_control_enabled,
+            "physical_release_enabled": received_safety_status.physical_release_enabled,
+            "simulation_only": True,
+            "hardware_control_enabled": False,
+        }
+    )
     _emit(
         {
             "event": "operator_link_demo_finished",
             "selection_delivered": acknowledgement.accepted,
             "tracking_status_received": True,
+            "mission_status_received": True,
+            "safety_status_received": True,
             "physical_payload_interface_present": False,
             "autopilot_write_enabled": False,
             "simulation_only": True,
@@ -617,6 +1028,20 @@ def _run_operator_link_demo() -> int:
 def _run_operator_udp_server(args: argparse.Namespace) -> int:
     if args.max_datagrams <= 0:
         raise ValueError("--max-datagrams must be positive")
+    if args.exit_after_accepted_selections is not None and (
+        args.exit_after_accepted_selections <= 0
+        or args.exit_after_accepted_selections > args.max_datagrams
+    ):
+        raise ValueError(
+            "--exit-after-accepted-selections must be positive and no greater than max datagrams"
+        )
+    if args.authorization_hil and args.max_datagrams < 2:
+        raise ValueError("--authorization-hil requires --max-datagrams of at least 2")
+    if (
+        not math.isfinite(args.authorization_window_seconds)
+        or args.authorization_window_seconds <= 0.0
+    ):
+        raise ValueError("--authorization-window-seconds must be finite and positive")
     geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
     adapter = _operator_mavlink_adapter(
         geometry=geometry,
@@ -647,26 +1072,101 @@ def _run_operator_udp_server(args: argparse.Namespace) -> int:
             }
         )
         accepted_count = 0
+        accepted_selection_count = 0
+        unique_accepted_selection_count = 0
+        accepted_authorization_count = 0
+        challenge_published = False
+        datagram_count = 0
         for _ in range(args.max_datagrams):
             result, peer = server.serve_once()
+            datagram_count += 1
             accepted_count += int(result.acceptance.allowed)
-            _emit(
-                {
-                    "event": "operator_udp_selection_processed",
-                    "command_id": result.command.command_id,
-                    "accepted": result.acceptance.allowed,
-                    "reasons": list(result.acceptance.reasons),
-                    "duplicate": result.duplicate,
-                    "peer_host": peer[0],
-                    "peer_port": peer[1],
-                    "hardware_control_enabled": False,
-                }
-            )
+            if isinstance(result, ServerSelectionResult):
+                accepted_selection_count += int(result.acceptance.allowed)
+                unique_accepted_selection_count += int(
+                    result.acceptance.allowed and not result.duplicate
+                )
+                _emit(
+                    {
+                        "event": "operator_udp_selection_processed",
+                        "command_id": result.command.command_id,
+                        "accepted": result.acceptance.allowed,
+                        "reasons": list(result.acceptance.reasons),
+                        "duplicate": result.duplicate,
+                        "peer_host": peer[0],
+                        "peer_port": peer[1],
+                        "hardware_control_enabled": False,
+                    }
+                )
+                if (
+                    args.authorization_hil
+                    and result.acceptance.allowed
+                    and not result.duplicate
+                    and not challenge_published
+                ):
+                    now_s = time.time()
+                    challenge = AuthorizationChallengeStatusMessage(
+                        challenge_token=operator_identifier_token(str(uuid4())),
+                        mission_token=operator_identifier_token("diagnostic-fire-mission"),
+                        target_token=operator_identifier_token(result.command.command_id),
+                        scene_token=operator_identifier_token("diagnostic-scene-snapshot"),
+                        ruleset_token=operator_identifier_token("diagnostic-rules-v1"),
+                        payload_slot_token=operator_identifier_token("inert-hil-slot-1"),
+                        target_revision=1,
+                        created_at_s=now_s,
+                        expires_at_s=now_s + args.authorization_window_seconds,
+                        sequence=1,
+                        produced_at_s=now_s,
+                    )
+                    server.publish_authorization_challenge(challenge, peer=peer)
+                    challenge_published = True
+                    _emit(
+                        {
+                            "event": "operator_udp_authorization_challenge_published",
+                            "challenge_token": f"{challenge.challenge_token:016x}",
+                            "target_revision": challenge.target_revision,
+                            "expires_at_s": challenge.expires_at_s,
+                            "nonce_transmitted": False,
+                            "synthetic_protocol_hil": True,
+                            "payload_release_enabled": False,
+                            "hardware_control_enabled": False,
+                        }
+                    )
+            elif isinstance(result, ServerAuthorizationDecisionResult):
+                accepted_authorization_count += int(result.acceptance.allowed)
+                _emit(
+                    {
+                        "event": "operator_udp_authorization_decision_processed",
+                        "command_token": f"{result.command.command_token:016x}",
+                        "decision": result.command.decision.value,
+                        "operator_token": f"{result.command.operator_token:016x}",
+                        "accepted": result.acceptance.allowed,
+                        "reasons": list(result.acceptance.reasons),
+                        "duplicate": result.duplicate,
+                        "peer_host": peer[0],
+                        "peer_port": peer[1],
+                        "mission_state_changed": False,
+                        "payload_release_requested": False,
+                        "hardware_control_enabled": False,
+                    }
+                )
+            else:  # pragma: no cover - closed result union
+                raise RuntimeError("operator UDP server returned an unsupported result type")
+            if (
+                args.exit_after_accepted_selections is not None
+                and unique_accepted_selection_count >= args.exit_after_accepted_selections
+            ):
+                break
     _emit(
         {
             "event": "operator_udp_server_finished",
-            "datagram_count": args.max_datagrams,
+            "datagram_count": datagram_count,
             "accepted_count": accepted_count,
+            "accepted_selection_count": accepted_selection_count,
+            "unique_accepted_selection_count": unique_accepted_selection_count,
+            "accepted_authorization_count": accepted_authorization_count,
+            "authorization_hil": args.authorization_hil,
+            "payload_release_requested": False,
             "hardware_control_enabled": False,
         }
     )
@@ -696,13 +1196,30 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
         bbox=BoundingBox(args.x1, args.y1, args.x2, args.y2),
         displayed_frame_id="udp-diagnostic",
     )
-    receipt = UdpOperatorSelectionClient(
-        host=args.host,
-        port=args.port,
-        mavlink=adapter,
-        retry_interval_s=args.retry_interval_seconds,
-        maximum_attempts=args.maximum_attempts,
-    ).deliver(command)
+    if args.wait_track_status_seconds < 0.0:
+        raise ValueError("--wait-track-status-seconds cannot be negative")
+    remote_status = None
+    if args.wait_track_status_seconds > 0.0:
+        with UdpOperatorSessionClient(
+            host=args.host,
+            port=args.port,
+            mavlink=adapter,
+            retry_interval_s=args.retry_interval_seconds,
+            maximum_attempts=args.maximum_attempts,
+        ) as session:
+            receipt = session.deliver(command)
+            if receipt.acknowledgement.accepted:
+                remote_status = session.receive_track_status(
+                    timeout_s=args.wait_track_status_seconds
+                )
+    else:
+        receipt = UdpOperatorSelectionClient(
+            host=args.host,
+            port=args.port,
+            mavlink=adapter,
+            retry_interval_s=args.retry_interval_seconds,
+            maximum_attempts=args.maximum_attempts,
+        ).deliver(command)
     _emit(
         {
             "event": "operator_udp_selection_acknowledged",
@@ -716,7 +1233,165 @@ def _run_operator_udp_select(args: argparse.Namespace) -> int:
             "hardware_control_enabled": False,
         }
     )
+    if remote_status is not None:
+        _emit(
+            {
+                "event": "operator_udp_track_status_received",
+                "command_id": remote_status.selection_command_id,
+                "state": remote_status.state.value,
+                "target_id": remote_status.target_id,
+                "label": remote_status.label,
+                "confidence": remote_status.confidence,
+                "tracking_quality": remote_status.tracking_quality,
+                "bbox": remote_status.bbox.rounded() if remote_status.bbox else None,
+                "hardware_control_enabled": False,
+            }
+        )
     return 0 if receipt.acknowledgement.accepted else 1
+
+
+def _run_gr01_link_bench(args: argparse.Namespace) -> int:
+    geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
+    adapter = _operator_mavlink_adapter(
+        geometry=geometry,
+        operator_hmac_key_env=args.operator_hmac_key_env,
+        mavlink_signing_key_hex_env=args.mavlink_signing_key_hex_env,
+        local_system_id=args.local_system_id,
+        local_component_id=args.local_component_id,
+        remote_system_id=args.remote_system_id,
+        remote_component_id=args.remote_component_id,
+    )
+    config = Gr01BenchConfig(
+        minimum_round_trips=args.minimum_round_trips,
+        command_ttl_seconds=args.command_ttl_seconds,
+        maximum_packet_loss_rate=args.maximum_packet_loss_rate,
+        maximum_ack_latency_p95_ms=args.maximum_ack_latency_p95_ms,
+        hardware_mode=args.hardware_mode,
+        hardware_id=args.hardware_id,
+    )
+    with UdpOperatorSessionClient(
+        host=args.host,
+        port=args.port,
+        mavlink=adapter,
+        retry_interval_s=args.retry_interval_seconds,
+        maximum_attempts=args.maximum_attempts,
+    ) as session:
+        document = run_gr01_link_bench(session, geometry, config)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
+
+
+def _run_operator_udp_authorize(args: argparse.Namespace) -> int:
+    if args.authorization_timeout_seconds <= 0.0:
+        raise ValueError("--authorization-timeout-seconds must be positive")
+    if args.selection_ttl_seconds <= 0.0:
+        raise ValueError("--selection-ttl-seconds must be positive")
+    if args.authorization_ttl_seconds <= 0.0:
+        raise ValueError("--authorization-ttl-seconds must be positive")
+    geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
+    adapter = _operator_mavlink_adapter(
+        geometry=geometry,
+        operator_hmac_key_env=args.operator_hmac_key_env,
+        mavlink_signing_key_hex_env=args.mavlink_signing_key_hex_env,
+        local_system_id=args.local_system_id,
+        local_component_id=args.local_component_id,
+        remote_system_id=args.remote_system_id,
+        remote_component_id=args.remote_component_id,
+    )
+    issued_at_s = time.time()
+    session_token_text = str(uuid4())
+    selection = TargetSelectionCommand(
+        command_id=str(uuid4()),
+        session_id=session_token_text,
+        sequence=1,
+        action=SelectionAction.SELECT,
+        geometry=geometry,
+        issued_at_s=issued_at_s,
+        expires_at_s=issued_at_s + args.selection_ttl_seconds,
+        bbox=BoundingBox(args.x1, args.y1, args.x2, args.y2),
+        displayed_frame_id="udp-authorization-diagnostic",
+    )
+    with UdpOperatorSessionClient(
+        host=args.host,
+        port=args.port,
+        mavlink=adapter,
+        retry_interval_s=args.retry_interval_seconds,
+        maximum_attempts=args.maximum_attempts,
+    ) as session:
+        selection_receipt = session.deliver(selection)
+        _emit(
+            {
+                "event": "operator_udp_authorization_selection_acknowledged",
+                "command_id": selection.command_id,
+                "accepted": selection_receipt.acknowledgement.accepted,
+                "reason": selection_receipt.acknowledgement.reason.name.lower(),
+                "attempts": selection_receipt.attempts,
+                "elapsed_ms": selection_receipt.elapsed_s * 1000.0,
+                "hardware_control_enabled": False,
+            }
+        )
+        if not selection_receipt.acknowledgement.accepted:
+            return 1
+        challenge = session.receive_authorization_challenge(
+            timeout_s=args.authorization_timeout_seconds
+        )
+        _emit(
+            {
+                "event": "operator_udp_authorization_challenge_received",
+                "challenge_token": f"{challenge.challenge_token:016x}",
+                "target_revision": challenge.target_revision,
+                "expires_at_s": challenge.expires_at_s,
+                "nonce_received": False,
+                "hardware_control_enabled": False,
+            }
+        )
+        decision_issued_at_s = time.time()
+        decision_expires_at_s = min(
+            decision_issued_at_s + args.authorization_ttl_seconds,
+            challenge.expires_at_s,
+        )
+        if decision_expires_at_s <= decision_issued_at_s:
+            raise RuntimeError("authorization challenge expired before the decision was created")
+        decision = AuthorizationDecisionCommand(
+            command_token=operator_identifier_token(str(uuid4())),
+            session_token=operator_identifier_token(session_token_text),
+            challenge_token=challenge.challenge_token,
+            mission_token=challenge.mission_token,
+            target_token=challenge.target_token,
+            scene_token=challenge.scene_token,
+            ruleset_token=challenge.ruleset_token,
+            payload_slot_token=challenge.payload_slot_token,
+            target_revision=challenge.target_revision,
+            decision=(
+                AuthorizationDecision.APPROVE
+                if args.decision == "approve"
+                else AuthorizationDecision.DENY
+            ),
+            operator_token=operator_identifier_token(args.operator_id),
+            sequence=2,
+            issued_at_s=decision_issued_at_s,
+            expires_at_s=decision_expires_at_s,
+        )
+        decision_receipt = session.deliver_authorization_decision(decision)
+    _emit(
+        {
+            "event": "operator_udp_authorization_decision_acknowledged",
+            "command_token": f"{decision.command_token:016x}",
+            "decision": decision.decision.value,
+            "accepted": decision_receipt.acknowledgement.accepted,
+            "reason": decision_receipt.acknowledgement.reason.name.lower(),
+            "attempts": decision_receipt.attempts,
+            "elapsed_ms": decision_receipt.elapsed_s * 1000.0,
+            "protocol_hil_only": True,
+            "mission_state_changed": False,
+            "payload_release_requested": False,
+            "flight_command_enabled": False,
+            "hardware_control_enabled": False,
+        }
+    )
+    return 0 if decision_receipt.acknowledgement.accepted else 1
 
 
 def _operator_mavlink_adapter(
@@ -840,9 +1515,36 @@ def _required_alert_hmac_key_from_env(variable_name: str | None) -> bytes:
     if variable_name is None:
         raise ValueError("authenticated UDP alerts require --alert-hmac-key-env")
     key = _hmac_key_from_env(variable_name)
-    assert key is not None
+    if key is None:  # Kept explicit so validation is identical under ``python -O``.
+        raise RuntimeError("alert HMAC key lookup returned no key")
     if len(key) < 32:
         raise ValueError("alert HMAC key must contain at least 32 bytes")
+    return key
+
+
+def _required_zone_evidence_hmac_key_from_env(variable_name: str | None) -> bytes:
+    if variable_name is None:
+        raise ValueError("authenticated zone evidence requires --zone-evidence-hmac-key-env")
+    key = _hmac_key_from_env(variable_name)
+    if key is None:  # Kept explicit so validation is identical under ``python -O``.
+        raise RuntimeError("zone evidence HMAC key lookup returned no key")
+    if len(key) < 32:
+        raise ValueError("zone evidence HMAC key must contain at least 32 bytes")
+    return key
+
+
+def _required_payload_hil_hmac_key_from_env(
+    variable_name: str | None,
+    *,
+    purpose: str,
+) -> bytes:
+    if variable_name is None:
+        raise ValueError(f"payload HIL {purpose} requires an environment key option")
+    key = _hmac_key_from_env(variable_name)
+    if key is None:
+        raise RuntimeError(f"payload HIL {purpose} key lookup returned no key")
+    if len(key) < 32:
+        raise ValueError(f"payload HIL {purpose} key must contain at least 32 bytes")
     return key
 
 
@@ -916,7 +1618,8 @@ def _camera_check(capture_config: CaptureConfig, *, frame_count: int = 1) -> int
                     f"camera resolution changed during check: {expected_size} -> {size}"
                 )
         reconnect_count = source.reconnect_count
-    assert captured is not None
+    if captured is None:  # ``frame_count`` validation above should make this unreachable.
+        raise RuntimeError("camera check completed without capturing a frame")
     elapsed_s = max(time.perf_counter() - started_s, 1e-9)
     _emit(
         {
@@ -935,6 +1638,24 @@ def _camera_check(capture_config: CaptureConfig, *, frame_count: int = 1) -> int
         }
     )
     return 0
+
+
+def _run_camera_bench(args: argparse.Namespace) -> int:
+    capture_config = _capture_config_from_args(args)
+    bench_config = CameraBenchConfig(
+        minimum_frames=args.minimum_frames,
+        minimum_duration_seconds=args.minimum_duration_seconds,
+        maximum_duration_seconds=args.maximum_duration_seconds,
+    )
+    source = OpenCVFrameSource(capture_config)
+    try:
+        document = run_camera_bench(source, capture_config, bench_config)
+    finally:
+        source.close()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
 
 
 def _payload_inventory_check(args: argparse.Namespace) -> int:
@@ -958,6 +1679,105 @@ def _payload_inventory_check(args: argparse.Namespace) -> int:
         }
     )
     return 0 if verification.allowed else 1
+
+
+def _run_inert_payload_bench_check(args: argparse.Namespace) -> int:
+    controller_key = _hmac_key_from_env(args.controller_hmac_key_env)
+    sensor_key = _hmac_key_from_env(args.sensor_hmac_key_env)
+    if controller_key is None or len(controller_key) < 32:
+        raise ValueError("payload bench controller HMAC key must contain at least 32 bytes")
+    if sensor_key is None or len(sensor_key) < 32:
+        raise ValueError("payload bench sensor HMAC key must contain at least 32 bytes")
+    document = check_inert_payload_hardware_bench(
+        controller_log=args.controller_log,
+        sensor_log=args.sensor_log,
+        controller_hmac_key=controller_key,
+        sensor_hmac_key=sensor_key,
+        bench_id=args.bench_id,
+        controller_id=args.controller_id,
+        sensor_id=args.sensor_id,
+        controller_key_id=args.controller_key_id,
+        sensor_key_id=args.sensor_key_id,
+        inert_load_only=args.inert_load_only,
+        people_excluded_from_test_area=args.people_excluded_from_test_area,
+        minimum_confirmed_cycles=args.minimum_confirmed_cycles,
+        maximum_age_hours=args.maximum_age_hours,
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
+
+
+def _release_window_check(args: argparse.Namespace) -> int:
+    config = MissionConfig.from_json(args.config)
+    planner_config = config.fixed_wing_release_window
+    if planner_config is None:
+        raise ValueError("mission does not configure a fixed-wing HIL release window")
+    if args.target_revision < 0:
+        raise ValueError("target revision cannot be negative")
+    bbox = BoundingBox(args.x1, args.y1, args.x2, args.y2)
+    track = TrackSnapshot(
+        track_id=args.target_id,
+        revision=args.target_revision,
+        label=args.label,
+        bbox=bbox,
+        first_seen_at_s=args.now_s,
+        last_seen_at_s=args.now_s,
+        observation_count=1,
+        consecutive_observations=1,
+        confidence_floor=1.0,
+        confidence_mean=1.0,
+        maximum_gap_s=0.0,
+        area_growth_rate=0.0,
+        thermal_corroborated=False,
+        confirmed=False,
+    )
+    frame = FrameObservation(
+        frame_id="release-window-hil-frame",
+        captured_at_s=args.now_s,
+        detections=(),
+        telemetry=VehicleTelemetry(
+            altitude_agl_m=args.altitude_agl_m,
+            roll_deg=float("nan"),
+            pitch_deg=args.pitch_deg,
+            ground_speed_mps=args.ground_speed_mps,
+            in_allowed_zone=None,
+            geofence_healthy=None,
+            position_healthy=None,
+            link_healthy=None,
+            flight_mode_allows_deploy=None,
+            release_zone_clear=None,
+        ),
+    )
+    solution = FixedWingReleaseWindowPlanner(
+        planner_config,
+        allowed_target_labels=config.target_classes,
+    ).plan(track=track, frame=frame, now_s=args.now_s)
+    _emit(
+        {
+            "event": "fixed_wing_release_window_checked",
+            "mission_id": config.mission_id,
+            "target_id": solution.target_id,
+            "target_revision": solution.target_revision,
+            "status": solution.status.value,
+            "reasons": solution.reasons,
+            "calibration_id": solution.calibration_id,
+            "relative_bearing_deg": solution.relative_bearing_deg,
+            "depression_angle_deg": solution.depression_angle_deg,
+            "estimated_ground_range_m": solution.estimated_ground_range_m,
+            "cross_track_error_m": solution.cross_track_error_m,
+            "along_track_error_m": solution.along_track_error_m,
+            "payload_descent_time_s": solution.payload_descent_time_s,
+            "release_lead_distance_m": solution.release_lead_distance_m,
+            "advisory_only": solution.advisory_only,
+            "safety_rules_evaluated": False,
+            "authorization_created": False,
+            "flight_control_enabled": solution.flight_control_enabled,
+            "physical_release_enabled": solution.physical_release_enabled,
+        }
+    )
+    return 0
 
 
 def _evaluate_detection_logs(args: argparse.Namespace) -> int:
@@ -1045,6 +1865,59 @@ def _run_model_check(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def _run_jetson_vision_bench(args: argparse.Namespace) -> int:
+    class_names = _parse_class_names(args.class_names)
+    verified = _verify_optional_model_manifest(
+        manifest_path=args.model_manifest,
+        model_path=args.onnx_model,
+        class_names=class_names,
+        output_coordinates=args.output_coordinates,
+        require_production_approved=False,
+        expected_model_role="fire_candidate",
+    )
+    if verified is None:
+        raise RuntimeError("Jetson vision bench requires a verified model manifest")
+    detector = OnnxNx6Detector(
+        OnnxNx6Config(
+            model_path=args.onnx_model,
+            class_names=class_names,
+            input_width=args.input_width,
+            input_height=args.input_height,
+            confidence_threshold=args.confidence_threshold,
+            providers=tuple(args.provider),
+            trt_engine_cache_path=args.trt_engine_cache,
+            output_coordinates=args.output_coordinates,
+            model_version=verified.model_version,
+        )
+    )
+    capture_config = _capture_config_from_args(args)
+    bench_config = JetsonVisionBenchConfig(
+        minimum_frames=args.minimum_frames,
+        minimum_duration_seconds=args.minimum_duration_seconds,
+        maximum_duration_seconds=args.maximum_duration_seconds,
+        maximum_temperature_c=args.maximum_temperature_c,
+    )
+    source = OpenCVFrameSource(capture_config)
+    try:
+        document = run_jetson_vision_bench(source, detector, bench_config)
+    finally:
+        source.close()
+    document.update(
+        {
+            "model_sha256": _sha256_file(args.onnx_model),
+            "model_version": verified.model_version,
+            "model_role": verified.model_role,
+            "manifest_status": verified.status,
+            "manifest_production_approved": verified.production_approved,
+            "class_names": list(class_names),
+        }
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
 
 
 def _run_model_manifest_init(args: argparse.Namespace) -> int:
@@ -1168,11 +2041,38 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
             "fresh_position_sample_count": fresh_position_samples,
             "latest": _telemetry_document(latest),
             "read_only": provider.is_read_only,
-            "messages_transmitted": 0,
+            "messages_transmitted": provider.messages_transmitted,
             "hardware_control_enabled": False,
         }
     )
     return 0
+
+
+def _run_pixhawk_v6x_bench(args: argparse.Namespace) -> int:
+    qgc_snapshot = load_qgc_telemetry_snapshot(args.qgc_snapshot)
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            endpoint=args.endpoint,
+            baud=args.baud,
+            stale_after_seconds=args.stale_after_seconds,
+        )
+    )
+    try:
+        document = run_pixhawk_v6x_bench(
+            provider,
+            qgc_snapshot,
+            PixhawkBenchConfig(
+                minimum_samples=args.minimum_samples,
+                sample_interval_seconds=args.sample_interval_seconds,
+                maximum_qgc_age_seconds=args.maximum_qgc_age_seconds,
+            ),
+        )
+    finally:
+        provider.close()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    _emit(document)
+    return 0 if document["passed"] else 1
 
 
 def _run_alert_udp_receiver(args: argparse.Namespace) -> int:
@@ -1277,20 +2177,112 @@ def _alert_publisher_from_args(args: argparse.Namespace) -> AlertPublisher:
 
 def _run_live_camera(args: argparse.Namespace) -> int:
     config = MissionConfig.from_json(args.config)
+    zone_evidence_hmac_key: bytes | None = None
+    payload_hil_request_key: bytes | None = None
+    payload_hil_result_key: bytes | None = None
+    payload_confirmation_key: bytes | None = None
     if args.safety_model_manifest is not None and args.safety_onnx_model is None:
         raise ValueError("--safety-model-manifest requires --safety-onnx-model")
     if args.simulate_payload_cycle and args.payload_inventory_report is not None:
         raise ValueError(
             "--simulate-payload-cycle cannot be combined with --payload-inventory-report"
         )
+    if args.auto_simulate_payload_cycle and not args.simulate_payload_cycle:
+        raise ValueError("--auto-simulate-payload-cycle requires --simulate-payload-cycle")
     if args.payload_inventory_report is None and (
         args.payload_inventory_hmac_key_env is not None or args.payload_inventory_key_id is not None
     ):
         raise ValueError("payload inventory authentication options require a report path")
+    if args.zone_evidence_report is None and (
+        args.zone_evidence_hmac_key_env is not None or args.zone_evidence_key_id is not None
+    ):
+        raise ValueError("zone evidence authentication options require a report path")
+    if args.zone_evidence_report is not None:
+        if not args.pixhawk_endpoint:
+            raise ValueError("--zone-evidence-report requires --pixhawk-endpoint")
+        if not isinstance(args.zone_evidence_key_id, str) or not args.zone_evidence_key_id.strip():
+            raise ValueError("--zone-evidence-report requires --zone-evidence-key-id")
+        zone_evidence_hmac_key = _required_zone_evidence_hmac_key_from_env(
+            args.zone_evidence_hmac_key_env
+        )
     if args.simulate_payload_cycle and not config.deployment_capable:
         raise ValueError(
             "--simulate-payload-cycle requires a configuration with an installed payload"
         )
+    payload_hil_specific_options = (
+        args.payload_hil_controller_port,
+        args.payload_hil_controller_module_id,
+        args.payload_hil_request_key_env,
+        args.payload_hil_request_key_id,
+        args.payload_hil_result_key_env,
+        args.payload_hil_result_key_id,
+        args.payload_confirmation_port,
+        args.payload_confirmation_key_env,
+        args.payload_confirmation_key_id,
+        *args.payload_confirmation_sensor_id,
+    )
+    if not args.inert_payload_hil and any(
+        value is not None and value != "" for value in payload_hil_specific_options
+    ):
+        raise ValueError("payload HIL channel options require --inert-payload-hil")
+    if args.inert_payload_hil:
+        if not args.simulate_payload_cycle:
+            raise ValueError("--inert-payload-hil requires --simulate-payload-cycle")
+        required_hil_values = {
+            "--payload-hil-controller-port": args.payload_hil_controller_port,
+            "--payload-hil-controller-module-id": args.payload_hil_controller_module_id,
+            "--payload-hil-request-key-env": args.payload_hil_request_key_env,
+            "--payload-hil-request-key-id": args.payload_hil_request_key_id,
+            "--payload-hil-result-key-env": args.payload_hil_result_key_env,
+            "--payload-hil-result-key-id": args.payload_hil_result_key_id,
+            "--payload-confirmation-port": args.payload_confirmation_port,
+            "--payload-confirmation-key-env": args.payload_confirmation_key_env,
+            "--payload-confirmation-key-id": args.payload_confirmation_key_id,
+        }
+        missing = [name for name, value in required_hil_values.items() if value is None]
+        if missing:
+            raise ValueError("--inert-payload-hil requires " + ", ".join(missing))
+        if not 1 <= args.payload_hil_controller_port <= 65535:
+            raise ValueError("payload HIL controller port must be in [1, 65535]")
+        if not 1 <= args.payload_confirmation_port <= 65535:
+            raise ValueError("payload confirmation port must be in [1, 65535]")
+        if args.payload_hil_controller_host.strip().lower() not in {"127.0.0.1", "localhost"}:
+            raise ValueError("inert payload HIL controller must use a loopback host")
+        if args.payload_confirmation_bind_host.strip().lower() not in {
+            "127.0.0.1",
+            "localhost",
+        }:
+            raise ValueError("inert payload confirmation must bind to loopback")
+        if not args.payload_hil_controller_module_id.strip():
+            raise ValueError("payload HIL controller module ID cannot be empty")
+        if not args.payload_confirmation_sensor_id:
+            raise ValueError("--inert-payload-hil requires --payload-confirmation-sensor-id")
+        sensor_ids = frozenset(item.strip() for item in args.payload_confirmation_sensor_id)
+        if any(not item for item in sensor_ids):
+            raise ValueError("payload confirmation sensor IDs cannot be empty")
+        if args.payload_hil_controller_module_id.strip() in sensor_ids:
+            raise ValueError("payload controller and confirmation sensor IDs must differ")
+        payload_hil_request_key = _required_payload_hil_hmac_key_from_env(
+            args.payload_hil_request_key_env,
+            purpose="request",
+        )
+        payload_hil_result_key = _required_payload_hil_hmac_key_from_env(
+            args.payload_hil_result_key_env,
+            purpose="result",
+        )
+        payload_confirmation_key = _required_payload_hil_hmac_key_from_env(
+            args.payload_confirmation_key_env,
+            purpose="confirmation",
+        )
+        if len({payload_hil_request_key, payload_hil_result_key, payload_confirmation_key}) != 3:
+            raise ValueError("payload HIL request, result and confirmation keys must differ")
+        key_ids = {
+            args.payload_hil_request_key_id.strip(),
+            args.payload_hil_result_key_id.strip(),
+            args.payload_confirmation_key_id.strip(),
+        }
+        if "" in key_ids or len(key_ids) != 3:
+            raise ValueError("payload HIL request, result and confirmation key IDs must differ")
     if args.observe_pixhawk_lifecycle and not args.pixhawk_endpoint:
         raise ValueError("--observe-pixhawk-lifecycle requires --pixhawk-endpoint")
     if args.observe_pixhawk_lifecycle and args.task_area_mission_sequence is None:
@@ -1299,6 +2291,8 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         args.operator_hmac_key_env is not None or args.mavlink_signing_key_hex_env is not None
     ):
         raise ValueError("remote operator key options require --operator-udp-port")
+    if args.safety_model_coco80 and args.safety_onnx_model is None:
+        raise ValueError("--safety-model-coco80 requires --safety-onnx-model")
     providers = tuple(args.provider)
     class_names = _parse_class_names(args.class_names)
     verified_fire_model = _verify_optional_model_manifest(
@@ -1309,15 +2303,38 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         require_production_approved=args.require_production_approved_models,
         expected_model_role="fire_candidate",
     )
-    if verified_fire_model is not None and verified_fire_model.synthetic_hil_only:
-        if not args.allow_synthetic_hil_model:
-            raise ValueError(
-                "synthetic HIL model requires the explicit --allow-synthetic-hil-model flag"
-            )
-    elif args.allow_synthetic_hil_model:
+    verified_safety_model: VerifiedModelArtifact | None = None
+    safety_class_names: tuple[str, ...] | None = None
+    if args.safety_onnx_model is not None:
+        safety_class_names = (
+            COCO80_CLASS_NAMES
+            if args.safety_model_coco80
+            else _parse_class_names(args.safety_class_names)
+        )
+        verified_safety_model = _verify_optional_model_manifest(
+            manifest_path=args.safety_model_manifest,
+            model_path=args.safety_onnx_model,
+            class_names=safety_class_names,
+            output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
+            require_production_approved=args.require_production_approved_models,
+            expected_model_role="safety_object_evidence",
+        )
+    synthetic_models = tuple(
+        artifact
+        for artifact in (verified_fire_model, verified_safety_model)
+        if artifact is not None and artifact.synthetic_hil_only
+    )
+    if synthetic_models and not args.allow_synthetic_hil_model:
+        raise ValueError(
+            "synthetic HIL model requires the explicit --allow-synthetic-hil-model flag"
+        )
+    if args.allow_synthetic_hil_model and not synthetic_models:
         raise ValueError(
             "--allow-synthetic-hil-model requires a manifest marked synthetic_hil_only"
         )
+
+    # Load executable graph artifacts only after every supplied manifest has passed its role,
+    # hash, coordinate and optional production-approval gates.
     detectors = [
         OnnxNx6Detector(
             OnnxNx6Config(
@@ -1335,17 +2352,9 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             )
         )
     ]
-    verified_safety_model: VerifiedModelArtifact | None = None
     if args.safety_onnx_model is not None:
-        safety_class_names = _parse_class_names(args.safety_class_names)
-        verified_safety_model = _verify_optional_model_manifest(
-            manifest_path=args.safety_model_manifest,
-            model_path=args.safety_onnx_model,
-            class_names=safety_class_names,
-            output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
-            require_production_approved=args.require_production_approved_models,
-            expected_model_role="safety_object_evidence",
-        )
+        if safety_class_names is None:
+            raise RuntimeError("safety model class names were not initialized")
         detectors.append(
             OnnxNx6Detector(
                 OnnxNx6Config(
@@ -1353,7 +2362,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     class_names=safety_class_names,
                     input_width=args.input_width,
                     input_height=args.input_height,
-                    confidence_threshold=args.confidence_threshold,
+                    confidence_threshold=args.safety_confidence_threshold,
                     providers=providers,
                     trt_engine_cache_path=args.trt_engine_cache,
                     output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
@@ -1365,7 +2374,32 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 )
             )
         )
-    detector = DetectorEnsemble(detectors)
+    detector: Any = ClassConfidenceFilter(
+        DetectorEnsemble(detectors),
+        {
+            "fire": args.flame_confidence_threshold,
+            "flame": args.flame_confidence_threshold,
+            "smoke": args.smoke_confidence_threshold,
+            "person": args.safety_confidence_threshold,
+            "firefighter": args.safety_confidence_threshold,
+        },
+        default_threshold=None,
+    )
+    detector = BrightNeutralLightVetoFilter(detector)
+    if args.safety_onnx_model is not None:
+        detector = PersonOverlapVetoFilter(
+            detector,
+            minimum_fire_coverage=args.person_veto_fire_coverage,
+        )
+    detector = TemporalDetectionFilter(
+        detector,
+        labels=FIRE_CANDIDATE_TRACK_LABELS,
+        minimum_consecutive_frames=args.candidate_stability_frames,
+    )
+    person_safety_model_coverage = detector.covers_labels(config.person_labels)
+    person_safety_evidence_qualified = (
+        person_safety_model_coverage and verified_safety_model is not None
+    )
     telemetry = (
         PixhawkReadOnlyTelemetryProvider(
             PixhawkReadOnlyConfig(endpoint=args.pixhawk_endpoint, baud=args.pixhawk_baud)
@@ -1373,6 +2407,20 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.pixhawk_endpoint
         else FailClosedTelemetryProvider()
     )
+    if args.zone_evidence_report is not None:
+        if zone_evidence_hmac_key is None or args.zone_evidence_key_id is None:
+            raise RuntimeError("zone evidence authentication was not initialized")
+        telemetry = AuthenticatedZoneTelemetryProvider(
+            telemetry,
+            FileZoneEvidenceProvider(
+                args.zone_evidence_report,
+                hmac_key=zone_evidence_hmac_key,
+                expected_key_id=args.zone_evidence_key_id,
+            ),
+            mission_id=config.mission_id,
+            maximum_age_s=config.safety.sensor_data_max_age_seconds,
+            maximum_position_delta_m=args.zone_evidence_max_position_delta_m,
+        )
     audit_log = (
         AuditLog(
             stream_path=args.audit_out,
@@ -1442,12 +2490,72 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             OperatorTargetLock(
                 operator_geometry,
                 TargetLockConfig(
-                    frozenset(config.target_classes),
+                    frozenset(config.target_classes) | FIRE_CANDIDATE_TRACK_LABELS,
                     acquisition_timeout_s=args.operator_acquisition_timeout_seconds,
                     lost_after_s=args.operator_lost_after_seconds,
                 ),
             ),
         )
+    payload_hil_cycle = None
+    if args.inert_payload_hil:
+        if (
+            payload_hil_request_key is None
+            or payload_hil_result_key is None
+            or payload_confirmation_key is None
+            or args.payload_hil_controller_port is None
+            or args.payload_confirmation_port is None
+            or args.payload_hil_controller_module_id is None
+            or args.payload_hil_request_key_id is None
+            or args.payload_hil_result_key_id is None
+            or args.payload_confirmation_key_id is None
+        ):
+            raise RuntimeError("payload HIL configuration was not initialized")
+        request_codec = PayloadHilCodec(
+            hmac_key=payload_hil_request_key,
+            expected_key_id=args.payload_hil_request_key_id,
+        )
+        result_codec = PayloadHilCodec(
+            hmac_key=payload_hil_result_key,
+            expected_key_id=args.payload_hil_result_key_id,
+        )
+        confirmation_codec = PayloadConfirmationHilCodec(
+            hmac_key=payload_confirmation_key,
+            expected_key_id=args.payload_confirmation_key_id,
+        )
+        confirmation_receiver = UdpPayloadConfirmationHilReceiver(
+            bind_host=args.payload_confirmation_bind_host,
+            port=args.payload_confirmation_port,
+        )
+        try:
+            payload_hil_cycle = InertPayloadHilCycleCoordinator(
+                mission=controller,
+                controller_adapter=MissionPayloadHilAdapter(
+                    mission=controller,
+                    client=UdpPayloadHilClient(
+                        host=args.payload_hil_controller_host,
+                        port=args.payload_hil_controller_port,
+                        request_codec=request_codec,
+                        result_codec=result_codec,
+                        response_timeout_s=args.payload_hil_response_timeout_seconds,
+                        maximum_attempts=args.payload_hil_maximum_attempts,
+                    ),
+                    module_id=args.payload_hil_controller_module_id,
+                    request_key_id=args.payload_hil_request_key_id,
+                    request_ttl_s=args.payload_hil_request_ttl_seconds,
+                    maximum_result_age_s=args.payload_hil_result_max_age_seconds,
+                ),
+                confirmation_receiver=confirmation_receiver,
+                confirmation_codec=confirmation_codec,
+                controller_module_id=args.payload_hil_controller_module_id,
+                allowed_confirmation_sensor_ids=frozenset(
+                    item.strip() for item in args.payload_confirmation_sensor_id
+                ),
+                confirmation_timeout_s=args.payload_confirmation_timeout_seconds,
+                confirmation_maximum_age_s=args.payload_confirmation_max_age_seconds,
+            )
+        except Exception:
+            confirmation_receiver.close()
+            raise
     runner = LiveMissionRunner(
         mission=controller,
         frame_source=OpenCVFrameSource(_capture_config_from_args(args)),
@@ -1457,6 +2565,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         alert_outbox=alert_outbox,
         prediction_writer=prediction_writer,
         operator_bridge=operator_bridge,
+        payload_hil_cycle=payload_hil_cycle,
         config=LiveRunConfig(
             operator_id=args.operator_id,
             max_frames=args.max_frames,
@@ -1464,6 +2573,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             alert_banner_seconds=args.alert_banner_seconds,
             performance_window_frames=args.performance_window_frames,
             simulate_payload_cycle=args.simulate_payload_cycle,
+            auto_simulate_payload_cycle=args.auto_simulate_payload_cycle,
             observe_pixhawk_lifecycle=args.observe_pixhawk_lifecycle,
             task_area_mission_sequence=args.task_area_mission_sequence,
             allowed_auto_modes=(
@@ -1471,6 +2581,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 if args.allowed_auto_mode
                 else ("AUTO", "MISSION", "AUTO_MISSION")
             ),
+            person_safety_evidence_qualified=person_safety_evidence_qualified,
         ),
     )
     _emit(
@@ -1478,11 +2589,14 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "event": "live_camera_started",
             "model_providers": [provider for item in detectors for provider in item.provider_names],
             "pixhawk_read_only": bool(args.pixhawk_endpoint),
+            "zone_evidence_enabled": args.zone_evidence_report is not None,
+            "zone_evidence_control_enabled": False,
             "mission_lifecycle": (
                 "pixhawk_observed" if args.observe_pixhawk_lifecycle else "immediate_simulation"
             ),
             "physical_release_supported": False,
-            "person_safety_model_coverage": detector.covers_labels(config.person_labels),
+            "person_safety_model_coverage": person_safety_model_coverage,
+            "person_safety_evidence_qualified": person_safety_evidence_qualified,
             "fire_model_manifest_validated": verified_fire_model is not None,
             "fire_model_role": (
                 verified_fire_model.model_role if verified_fire_model is not None else "unverified"
@@ -1510,7 +2624,14 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 "authenticated_udp" if args.alert_udp_host is not None else "json_lines"
             ),
             "remote_operator_udp_enabled": operator_bridge is not None,
-            "remote_operator_control_enabled": False,
+            "remote_operator_authorization_enabled": (
+                operator_bridge is not None and config.deployment_capable
+            ),
+            "remote_operator_flight_control_enabled": False,
+            "remote_operator_direct_payload_control_enabled": False,
+            "inert_payload_hil_enabled": payload_hil_cycle is not None,
+            "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
+            "payload_hil_physical_release_enabled": False,
         }
     )
     try:
@@ -1538,12 +2659,18 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "camera_reconnect_count": result.camera_reconnect_count,
             "alerts_retried": result.retried_alert_count,
             "simulated_payload_cycles": result.simulated_payload_cycle_count,
+            "local_selections": result.local_selection_count,
+            "local_tracking_statuses": result.local_tracking_status_count,
             "remote_selections": result.remote_selection_count,
             "remote_tracking_statuses": result.remote_tracking_status_count,
+            "remote_mission_statuses": result.remote_mission_status_count,
+            "remote_safety_statuses": result.remote_safety_status_count,
             "remote_transport_errors": result.remote_transport_error_count,
             "audit_written": args.audit_out is not None,
             "prediction_log_written": args.prediction_log_out is not None,
             "physical_release_supported": False,
+            "inert_payload_hil_enabled": payload_hil_cycle is not None,
+            "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
         }
     )
     return 0
@@ -1595,6 +2722,34 @@ def _run_replay(
                         "allowed": decision.allowed,
                         "priority_score": decision.priority_score,
                         "denial_reasons": decision.denial_reasons,
+                        "deployment_window": (
+                            None
+                            if decision.deployment_window is None
+                            else {
+                                "status": decision.deployment_window.status.value,
+                                "reasons": decision.deployment_window.reasons,
+                                "calibration_id": decision.deployment_window.calibration_id,
+                                "relative_bearing_deg": (
+                                    decision.deployment_window.relative_bearing_deg
+                                ),
+                                "cross_track_error_m": (
+                                    decision.deployment_window.cross_track_error_m
+                                ),
+                                "along_track_error_m": (
+                                    decision.deployment_window.along_track_error_m
+                                ),
+                                "release_lead_distance_m": (
+                                    decision.deployment_window.release_lead_distance_m
+                                ),
+                                "advisory_only": decision.deployment_window.advisory_only,
+                                "flight_control_enabled": (
+                                    decision.deployment_window.flight_control_enabled
+                                ),
+                                "physical_release_enabled": (
+                                    decision.deployment_window.physical_release_enabled
+                                ),
+                            }
+                        ),
                     }
                     for decision in outcome.decisions
                 ],

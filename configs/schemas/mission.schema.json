@@ -73,6 +73,7 @@
         "maximum_altitude_agl_m": {"type": "number", "exclusiveMinimum": 0},
         "maximum_abs_roll_deg": {"type": "number", "exclusiveMinimum": 0},
         "maximum_abs_pitch_deg": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_ground_speed_mps": {"type": "number", "minimum": 0},
         "maximum_ground_speed_mps": {"type": "number", "minimum": 0},
         "person_exclusion_margin_normalized": {
           "type": "number",
@@ -85,6 +86,55 @@
           "type": "number",
           "exclusiveMinimum": 0
         }
+      }
+    },
+    "fixed_wing_release_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calibration_id",
+        "camera_horizontal_fov_deg",
+        "camera_vertical_fov_deg",
+        "camera_mount_down_angle_deg",
+        "payload_descent_time_factor",
+        "command_to_release_latency_seconds",
+        "maximum_cross_track_error_m",
+        "release_window_half_length_m",
+        "hil_only"
+      ],
+      "properties": {
+        "calibration_id": {"type": "string", "minLength": 1},
+        "camera_horizontal_fov_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180
+        },
+        "camera_vertical_fov_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180
+        },
+        "camera_mount_down_angle_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 90
+        },
+        "payload_descent_time_factor": {"type": "number", "exclusiveMinimum": 0},
+        "command_to_release_latency_seconds": {"type": "number", "minimum": 0},
+        "maximum_cross_track_error_m": {"type": "number", "exclusiveMinimum": 0},
+        "release_window_half_length_m": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_depression_angle_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 90
+        },
+        "maximum_depression_angle_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 90
+        },
+        "gravity_mps2": {"type": "number", "exclusiveMinimum": 0},
+        "hil_only": {"const": true}
       }
     }
   }

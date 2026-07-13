@@ -363,8 +363,10 @@ class AuthenticatedUdpAlertReceiver:
 
     def receive(self) -> ReceivedAuthenticatedAlert:
         self.open()
-        assert self._channel is not None
-        encoded, peer = self._channel.recvfrom(_MAX_UDP_PACKET_BYTES + 1)
+        channel = self._channel
+        if channel is None:  # Defensive guard for optimized Python and unusual subclasses.
+            raise RuntimeError("UDP alert receiver failed to open")
+        encoded, peer = channel.recvfrom(_MAX_UDP_PACKET_BYTES + 1)
         request = _verify_signed_document(_decode_udp_document(encoded), self.hmac_key)
         _validate_packet_header(
             request,
@@ -405,7 +407,7 @@ class AuthenticatedUdpAlertReceiver:
             },
             self.hmac_key,
         )
-        self._channel.sendto(_canonical_json_bytes(acknowledgement), peer)
+        channel.sendto(_canonical_json_bytes(acknowledgement), peer)
         return ReceivedAuthenticatedAlert(
             document=payload,
             sender_id=self.expected_sender_id,

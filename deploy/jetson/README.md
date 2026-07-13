@@ -38,19 +38,44 @@ root with mode `0600`, and never paste its contents into logs or issue reports. 
 supplementary groups if the target baseboard uses different device ownership.
 
 ```bash
-/opt/multi-detect/.venv/bin/python -m multidetect model-check \
-  --onnx-model /opt/multi-detect/models/fire-smoke-nms.onnx \
-  --model-manifest /opt/multi-detect/models/fire-smoke-nms.manifest.json \
-  --class-names fire,smoke --output-coordinates normalized_xyxy \
+sudo /opt/multi-detect/.venv/bin/python \
+  /opt/multi-detect/scripts/jetson_static_preflight.py \
+  /etc/multi-detect/fire-patrol.json /etc/multi-detect/runtime.env \
+  --verify-model-files --out /var/log/multi-detect/static-preflight.json
+
+sudo -s
+set -a
+source /etc/multi-detect/runtime.env
+set +a
+
+runuser --preserve-environment -u multidetect -- \
+  /opt/multi-detect/.venv/bin/python -m multidetect model-check \
+  --onnx-model "${FIRE_MODEL_PATH}" \
+  --model-manifest "${FIRE_MODEL_MANIFEST}" \
+  --class-names "${FIRE_MODEL_CLASS_NAMES}" \
+  --output-coordinates "${FIRE_MODEL_OUTPUT_COORDINATES}" \
   --require-production-approved --provider TensorrtExecutionProvider \
   --provider CUDAExecutionProvider --provider CPUExecutionProvider
 
-/opt/multi-detect/.venv/bin/python -m multidetect camera-check \
+runuser --preserve-environment -u multidetect -- \
+  /opt/multi-detect/.venv/bin/python -m multidetect camera-check \
   --source-env CAMERA_SOURCE --frames 120
 
-/opt/multi-detect/.venv/bin/python -m multidetect pixhawk-check \
+runuser --preserve-environment -u multidetect -- \
+  /opt/multi-detect/.venv/bin/python -m multidetect pixhawk-check \
   --endpoint /dev/ttyTHS1 --baud 57600 --samples 20 --require-fresh-link
+
+exit
 ```
+
+The static preflight does not open RTSP, ONNX Runtime or MAVLink. It validates the patrol-only
+mission boundary, redacts both RTSP credentials and the alert HMAC key, checks model class/coordinate
+settings against the production-approved manifest, and validates serial/network endpoint syntax.
+`FIRE_MODEL_CLASS_NAMES` and `FIRE_MODEL_OUTPUT_COORDINATES` must match the selected artifact; do not
+copy values from a different export.
+The candidate floor, per-class thresholds and consecutive-frame count are also explicit environment
+values. Preflight rejects a class threshold below the detector floor or above the mission confirmation
+threshold, and rejects a stability count weaker than `minimum_track_observations`.
 
 Compare the Pixhawk output with QGroundControl before starting the service. Then review the full
 expanded command and sandbox:
@@ -65,7 +90,9 @@ journalctl -u multi-detect.service -f
 
 Only enable automatic startup after RTSP reconnect, model-provider selection, telemetry freshness,
 thermal behavior, disk growth and controlled stop/restart have been measured on the target unit.
-The service contains no `--simulate-payload-cycle` option and no actuator transport.
+The service contains no `--simulate-payload-cycle`, `--auto-simulate-payload-cycle` or
+`--inert-payload-hil` option and no actuator transport. Keep the patrol service separate from the
+explicit localhost-only, propeller-off HIL command documented in `docs/live-camera-jetson.md`.
 
 The service passes only the environment-variable name in its process arguments; the RTSP URI stays
 in the mode-0600 environment file. Application camera errors are redacted, but OpenCV/FFmpeg is an

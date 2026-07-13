@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "class_names": ["Fire", "smoke"],
+  "sources": [
+    {
+      "id": "local-7414",
+      "root": "森林火灾 检测 7000多   数据集",
+      "license": "provenance-review-pending",
+      "train_repeat": 2,
+      "splits": [
+        {"role": "train", "images": "images/train", "labels": "labels/train"},
+        {"role": "val", "images": "images/val", "labels": "labels/val"},
+        {"role": "test", "images": "images/test", "labels": "labels/test"}
+      ]
+    },
+    {
+      "id": "local-hardneg-v1",
+      "root": "artifacts/hard-negative-mining/20260712-212229",
+      "license": "locally-captured",
+      "train_repeat": 4,
+      "splits": [
+        {"role": "train", "images": "images/train", "labels": "labels/train"},
+        {"role": "external_local_v1", "images": "images/holdout", "labels": "labels/holdout"}
+      ]
+    },
+    {
+      "id": "local-hardneg-v2",
+      "root": "artifacts/hard-negative-mining/20260712-220350-v2",
+      "license": "locally-captured",
+      "train_repeat": 8,
+      "splits": [
+        {"role": "train", "images": "images", "labels": "labels"}
+      ]
+    },
+    {
+      "id": "zenodo-indoor-v1",
+      "root": "artifacts/external-data/zenodo-indoor-fire-smoke-v1/extracted/Indoor Fire Smoke",
+      "license": "CC-BY-4.0",
+      "train_repeat": 2,
+      "splits": [
+        {"role": "train", "images": "train/images", "labels": "train/labels"},
+        {"role": "val", "images": "valid/images", "labels": "valid/labels"},
+        {"role": "external_indoor", "images": "test/images", "labels": "test/labels"}
+      ]
+    },
+    {
+      "id": "dfire-cc0-repaired",
+      "root": "artifacts/datasets/dfire-cc0-repaired",
+      "license": "CC0-1.0",
+      "train_repeat": 1,
+      "splits": [
+        {"role": "train", "images": "images/train", "labels": "labels/train"},
+        {"role": "external_dfire", "images": "images/test", "labels": "labels/test"}
+      ]
+    }
+  ]
+}

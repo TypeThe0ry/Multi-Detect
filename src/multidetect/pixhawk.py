@@ -21,10 +21,16 @@ class PixhawkReadOnlyConfig:
     stale_after_seconds: float = 1.0
 
     def __post_init__(self) -> None:
-        if not self.endpoint.strip():
+        if not isinstance(self.endpoint, str) or not self.endpoint.strip():
             raise ValueError("Pixhawk endpoint cannot be empty")
-        if self.baud <= 0 or self.stale_after_seconds <= 0:
-            raise ValueError("Pixhawk baud and stale timeout must be positive")
+        if isinstance(self.baud, bool) or not isinstance(self.baud, int) or self.baud <= 0:
+            raise ValueError("Pixhawk baud must be a positive integer")
+        if (
+            isinstance(self.stale_after_seconds, bool)
+            or not math.isfinite(self.stale_after_seconds)
+            or self.stale_after_seconds <= 0
+        ):
+            raise ValueError("Pixhawk stale timeout must be finite and positive")
 
 
 class PixhawkReadOnlyTelemetryProvider:
@@ -57,6 +63,12 @@ class PixhawkReadOnlyTelemetryProvider:
     def is_read_only(self) -> bool:
         return True
 
+    @property
+    def messages_transmitted(self) -> int:
+        """The provider has no send path; expose the invariant for integration evidence."""
+
+        return 0
+
     def connect(self) -> None:
         if self._connection is not None:
             return
@@ -83,15 +95,24 @@ class PixhawkReadOnlyTelemetryProvider:
         if not math.isfinite(now_s) or now_s < 0:
             raise ValueError("now_s must be a finite non-negative number")
         self.connect()
-        assert self._connection is not None
+        connection = self._connection
+        if connection is None:  # Defensive guard for optimized Python and unusual subclasses.
+            raise RuntimeError("Pixhawk connection failed to initialize")
         for _ in range(64):
-            message = self._connection.recv_match(blocking=False)
+            message = connection.recv_match(blocking=False)
             if message is None:
                 break
             self.ingest_message(message, received_at_s=now_s)
-        connection_mode = getattr(self._connection, "flightmode", None)
+        connection_mode = getattr(connection, "flightmode", None)
         if isinstance(connection_mode, str) and connection_mode.strip():
             self._flight_mode = connection_mode.strip()
+        return self.cached_snapshot(now_s=now_s)
+
+    def cached_snapshot(self, *, now_s: float) -> VehicleTelemetry:
+        """Return cached telemetry without opening, reconnecting, receiving, or transmitting."""
+
+        if not math.isfinite(now_s) or now_s < 0:
+            raise ValueError("now_s must be a finite non-negative number")
         return VehicleTelemetry(
             altitude_agl_m=self._altitude_agl_m,
             roll_deg=self._roll_deg,

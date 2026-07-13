@@ -27,7 +27,12 @@ from .domain import (
     SensorKind,
     TrackSnapshot,
 )
-from .payload import FakePayloadPort, PayloadController, PayloadSlotSnapshot
+from .payload import (
+    FakePayloadPort,
+    PayloadController,
+    PayloadReleaseBinding,
+    PayloadSlotSnapshot,
+)
 from .payload_inventory import (
     ConfiguredSimulationPayloadInventoryProvider,
     PayloadInventoryProvider,
@@ -258,6 +263,28 @@ class MissionController:
                 "eligible_candidate_count": sum(decision.allowed for decision in decisions),
                 "recently_served_suppressed_count": len(suppressed_recently_served),
                 "candidate_scores": score_by_target,
+                "deployment_windows": {
+                    decision.target_id: {
+                        "status": decision.deployment_window.status.value,
+                        "reasons": decision.deployment_window.reasons,
+                        "calibration_id": decision.deployment_window.calibration_id,
+                        "relative_bearing_deg": decision.deployment_window.relative_bearing_deg,
+                        "cross_track_error_m": decision.deployment_window.cross_track_error_m,
+                        "along_track_error_m": decision.deployment_window.along_track_error_m,
+                        "release_lead_distance_m": (
+                            decision.deployment_window.release_lead_distance_m
+                        ),
+                        "advisory_only": decision.deployment_window.advisory_only,
+                        "flight_control_enabled": (
+                            decision.deployment_window.flight_control_enabled
+                        ),
+                        "physical_release_enabled": (
+                            decision.deployment_window.physical_release_enabled
+                        ),
+                    }
+                    for decision in decisions
+                    if decision.deployment_window is not None
+                },
             },
         )
         if not candidates:
@@ -592,6 +619,73 @@ class MissionController:
         )
         if snapshot.state is PayloadState.RELEASE_CONFIRMED:
             self._finish_confirmed_release(now_s)
+
+    @_serialized
+    def payload_release_binding(self, *, release_id: str) -> PayloadReleaseBinding:
+        """Expose the immutable binding needed by an explicit inert HIL adapter."""
+
+        if self.state.phase not in {MissionPhase.DEPLOYING, MissionPhase.VERIFYING_RELEASE}:
+            raise MissionOperationError("mission has no active release transaction")
+        context = self._require_any_context()
+        if context.release_id != release_id:
+            raise MissionOperationError("release does not match the active mission context")
+        return self.payload.release_binding(release_id)
+
+    @_serialized
+    def report_simulated_failure(
+        self,
+        *,
+        release_id: str,
+        reason: str,
+        now_s: float,
+        uncertain: bool = True,
+    ) -> None:
+        """Fail closed on authenticated HIL rejection, failure or transport uncertainty."""
+
+        self._validate_now(now_s)
+        if not reason.strip():
+            raise ValueError("failure reason cannot be empty")
+        if self.state.phase not in {MissionPhase.DEPLOYING, MissionPhase.VERIFYING_RELEASE}:
+            raise MissionOperationError("mission is not awaiting release feedback")
+        context = self._require_any_context()
+        previous_phase = self.state.phase
+        failure_event = (
+            "deployment_failed" if previous_phase is MissionPhase.DEPLOYING else "release_failed"
+        )
+        try:
+            self.payload.fail_release(
+                release_id=release_id,
+                payload_slot_id=context.payload_slot_id,
+                reason=reason.strip(),
+                uncertain=uncertain,
+            )
+        except Exception as exc:
+            self.audit.append(
+                "payload.failure_feedback_rejected",
+                now_s,
+                {
+                    "release_id": release_id,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            self._transition(
+                failure_event,
+                now_s,
+                reason=f"failure feedback rejected: {type(exc).__name__}",
+            )
+            raise
+        self._transition(failure_event, now_s, reason=reason.strip())
+        self.audit.append(
+            "payload.simulated_release_failed",
+            now_s,
+            {
+                "release_id": release_id,
+                "payload_slot_id": context.payload_slot_id,
+                "reason": reason.strip(),
+                "uncertain_release": uncertain,
+                "automatic_retry": False,
+            },
+        )
 
     @_serialized
     def report_independent_confirmation(

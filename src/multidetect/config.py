@@ -1,14 +1,47 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
 from .domain import ConfigurationError
+
+
+def _require_string(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigurationError(f"{field_name} must be a non-empty string")
+    return value.strip()
+
+
+def _require_bool(value: object, field_name: str) -> bool:
+    if type(value) is not bool:
+        raise ConfigurationError(f"{field_name} must be a boolean")
+    return value
+
+
+def _require_real(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ConfigurationError(f"{field_name} must be a number")
+    return float(value)
+
+
+def _require_int(value: object, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigurationError(f"{field_name} must be an integer")
+    return value
+
+
+def _require_string_sequence(value: object, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise ConfigurationError(f"{field_name} must be an array of non-empty strings")
+    return tuple(
+        _require_string(item, f"{field_name}[{index}]").lower() for index, item in enumerate(value)
+    )
 
 
 class MissionType(StrEnum):
@@ -81,10 +114,8 @@ class PayloadSpec:
     payload_type: str
 
     def __post_init__(self) -> None:
-        if not self.slot_id.strip():
-            raise ConfigurationError("payload slot_id cannot be empty")
-        if not self.payload_type.strip():
-            raise ConfigurationError("payload_type cannot be empty")
+        _require_string(self.slot_id, "payload slot_id")
+        _require_string(self.payload_type, "payload_type")
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +124,7 @@ class SafetyLimits:
     maximum_altitude_agl_m: float = 60.0
     maximum_abs_roll_deg: float = 12.0
     maximum_abs_pitch_deg: float = 12.0
+    minimum_ground_speed_mps: float = 0.0
     maximum_ground_speed_mps: float = 3.0
     person_exclusion_margin_normalized: float = 0.08
     sensor_data_max_age_seconds: float = 1.0
@@ -105,12 +137,15 @@ class SafetyLimits:
             self.maximum_altitude_agl_m,
             self.maximum_abs_roll_deg,
             self.maximum_abs_pitch_deg,
+            self.minimum_ground_speed_mps,
             self.maximum_ground_speed_mps,
             self.person_exclusion_margin_normalized,
             self.sensor_data_max_age_seconds,
             self.authorization_ttl_seconds,
             self.release_confirmation_timeout_seconds,
         )
+        if any(isinstance(value, bool) or not isinstance(value, Real) for value in numeric_limits):
+            raise ConfigurationError("safety limits must be numbers")
         if not all(isfinite(value) for value in numeric_limits):
             raise ConfigurationError("safety limits must be finite")
         if self.minimum_altitude_agl_m < 0:
@@ -119,8 +154,10 @@ class SafetyLimits:
             raise ConfigurationError("maximum altitude must exceed minimum altitude")
         if self.maximum_abs_roll_deg <= 0 or self.maximum_abs_pitch_deg <= 0:
             raise ConfigurationError("attitude limits must be positive")
-        if self.maximum_ground_speed_mps < 0:
-            raise ConfigurationError("ground speed limit cannot be negative")
+        if self.minimum_ground_speed_mps < 0:
+            raise ConfigurationError("minimum ground speed cannot be negative")
+        if self.maximum_ground_speed_mps < self.minimum_ground_speed_mps:
+            raise ConfigurationError("maximum ground speed must not be below minimum ground speed")
         if not 0 <= self.person_exclusion_margin_normalized <= 0.5:
             raise ConfigurationError("person exclusion margin must be in [0, 0.5]")
         if (
@@ -132,6 +169,64 @@ class SafetyLimits:
             <= 0
         ):
             raise ConfigurationError("timeouts must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class FixedWingReleaseWindowConfig:
+    """Still-air point-mass release-window model for software HIL only."""
+
+    calibration_id: str
+    camera_horizontal_fov_deg: float
+    camera_vertical_fov_deg: float
+    camera_mount_down_angle_deg: float
+    payload_descent_time_factor: float
+    command_to_release_latency_seconds: float
+    maximum_cross_track_error_m: float
+    release_window_half_length_m: float
+    minimum_depression_angle_deg: float = 5.0
+    maximum_depression_angle_deg: float = 85.0
+    gravity_mps2: float = 9.80665
+    hil_only: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.calibration_id.strip():
+            raise ConfigurationError("fixed-wing release-window calibration_id cannot be empty")
+        values = (
+            self.camera_horizontal_fov_deg,
+            self.camera_vertical_fov_deg,
+            self.camera_mount_down_angle_deg,
+            self.payload_descent_time_factor,
+            self.command_to_release_latency_seconds,
+            self.maximum_cross_track_error_m,
+            self.release_window_half_length_m,
+            self.minimum_depression_angle_deg,
+            self.maximum_depression_angle_deg,
+            self.gravity_mps2,
+        )
+        if not all(isfinite(value) for value in values):
+            raise ConfigurationError("fixed-wing release-window values must be finite")
+        if not 0.0 < self.camera_horizontal_fov_deg < 180.0:
+            raise ConfigurationError("camera horizontal FOV must be in (0, 180) degrees")
+        if not 0.0 < self.camera_vertical_fov_deg < 180.0:
+            raise ConfigurationError("camera vertical FOV must be in (0, 180) degrees")
+        if not 0.0 < self.camera_mount_down_angle_deg < 90.0:
+            raise ConfigurationError("camera mount down angle must be in (0, 90) degrees")
+        if self.payload_descent_time_factor <= 0.0:
+            raise ConfigurationError("payload descent time factor must be positive")
+        if self.command_to_release_latency_seconds < 0.0:
+            raise ConfigurationError("command-to-release latency cannot be negative")
+        if self.maximum_cross_track_error_m <= 0.0:
+            raise ConfigurationError("maximum cross-track error must be positive")
+        if self.release_window_half_length_m <= 0.0:
+            raise ConfigurationError("release window half-length must be positive")
+        if not (0.0 < self.minimum_depression_angle_deg < self.maximum_depression_angle_deg < 90.0):
+            raise ConfigurationError(
+                "depression-angle limits must satisfy 0 < minimum < maximum < 90"
+            )
+        if self.gravity_mps2 <= 0.0:
+            raise ConfigurationError("gravity must be positive")
+        if not self.hil_only:
+            raise ConfigurationError("fixed-wing release-window model is restricted to HIL")
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,16 +246,58 @@ class MissionConfig:
     require_thermal_corroboration: bool = True
     completion_policy: CompletionPolicy = CompletionPolicy.CONTINUE_WHILE_PAYLOAD_AVAILABLE
     safety: SafetyLimits = field(default_factory=SafetyLimits)
+    fixed_wing_release_window: FixedWingReleaseWindowConfig | None = None
     person_labels: tuple[str, ...] = ("person", "firefighter")
     ruleset_version: str = "safety-rules-v1"
 
     def __post_init__(self) -> None:
-        if not self.mission_id.strip():
-            raise ConfigurationError("mission_id cannot be empty")
+        _require_string(self.mission_id, "mission_id")
+        _require_string(self.ruleset_version, "ruleset_version")
+        if not isinstance(self.mission_type, MissionType):
+            raise ConfigurationError("mission_type must be a supported mission type")
+        if not isinstance(self.platform_mode, PlatformMode):
+            raise ConfigurationError("platform_mode must be a supported platform mode")
+        if not isinstance(self.completion_policy, CompletionPolicy):
+            raise ConfigurationError("completion_policy must be a supported policy")
+        if not isinstance(self.safety, SafetyLimits):
+            raise ConfigurationError("safety must be a SafetyLimits object")
+        if self.fixed_wing_release_window is not None and not isinstance(
+            self.fixed_wing_release_window, FixedWingReleaseWindowConfig
+        ):
+            raise ConfigurationError(
+                "fixed_wing_release_window must be a FixedWingReleaseWindowConfig object"
+            )
+        if any(not isinstance(payload, PayloadSpec) for payload in self.payloads):
+            raise ConfigurationError("payloads must contain PayloadSpec objects")
         if not self.target_classes:
             raise ConfigurationError("at least one target class is required")
-        if not self.human_authorization_required:
+        normalized_target_classes = tuple(
+            _require_string(label, f"target_classes[{index}]").lower()
+            for index, label in enumerate(self.target_classes)
+        )
+        normalized_person_labels = tuple(
+            _require_string(label, f"person_labels[{index}]").lower()
+            for index, label in enumerate(self.person_labels)
+        )
+        object.__setattr__(self, "target_classes", normalized_target_classes)
+        object.__setattr__(self, "person_labels", normalized_person_labels)
+        _require_bool(self.human_authorization_required, "human_authorization_required")
+        _require_bool(self.person_exclusion_enabled, "person_exclusion_enabled")
+        _require_bool(self.require_thermal_corroboration, "require_thermal_corroboration")
+        if self.human_authorization_required is not True:
             raise ConfigurationError("MVP requires human_authorization_required=true")
+        if self.person_exclusion_enabled and not self.person_labels:
+            raise ConfigurationError(
+                "person_labels cannot be empty when person exclusion is enabled"
+            )
+        numeric_values = (
+            self.minimum_confidence,
+            self.minimum_track_time_seconds,
+            self.maximum_track_gap_seconds,
+            self.target_reengagement_cooldown_seconds,
+        )
+        if any(isinstance(value, bool) or not isinstance(value, Real) for value in numeric_values):
+            raise ConfigurationError("mission numeric settings must be numbers")
         if not 0.0 <= self.minimum_confidence <= 1.0:
             raise ConfigurationError("minimum_confidence must be in [0, 1]")
         track_timing = (
@@ -176,6 +313,10 @@ class MissionConfig:
             or self.target_reengagement_cooldown_seconds <= 0
         ):
             raise ConfigurationError("track timing values are invalid")
+        if isinstance(self.minimum_track_observations, bool) or not isinstance(
+            self.minimum_track_observations, int
+        ):
+            raise ConfigurationError("minimum_track_observations must be an integer")
         if self.minimum_track_observations < 2:
             raise ConfigurationError("minimum_track_observations must be at least 2")
         slot_ids = [payload.slot_id for payload in self.payloads]
@@ -189,6 +330,15 @@ class MissionConfig:
             if payload.payload_type not in allowed:
                 raise ConfigurationError(
                     f"payload {payload.payload_type!r} is not allowed for {self.mission_type.value}"
+                )
+        if self.fixed_wing_release_window is not None:
+            if self.mission_type is not MissionType.FIRE_SUPPRESSION:
+                raise ConfigurationError(
+                    "fixed_wing_release_window is only supported for fire_suppression"
+                )
+            if not self.payloads:
+                raise ConfigurationError(
+                    "fixed_wing_release_window requires an installed fire-suppression payload"
                 )
         if self.platform_mode is PlatformMode.DISPOSABLE:
             if len(self.payloads) != 1:
@@ -212,40 +362,119 @@ class MissionConfig:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> MissionConfig:
+        if not isinstance(raw, Mapping):
+            raise ConfigurationError("mission configuration must be an object")
+        required_keys = {
+            "mission_id",
+            "mission_type",
+            "platform_mode",
+            "payloads",
+            "target_classes",
+            "human_authorization_required",
+        }
+        allowed_keys = required_keys | {
+            "payload_count",
+            "minimum_confidence",
+            "minimum_track_time_seconds",
+            "minimum_track_observations",
+            "maximum_track_gap_seconds",
+            "target_reengagement_cooldown_seconds",
+            "person_exclusion_enabled",
+            "person_labels",
+            "require_thermal_corroboration",
+            "completion_policy",
+            "ruleset_version",
+            "safety",
+            "fixed_wing_release_window",
+        }
+        missing_keys = sorted(required_keys - raw.keys())
+        if missing_keys:
+            raise ConfigurationError(f"missing required configuration key: {missing_keys[0]}")
+        extra_keys = sorted(str(key) for key in raw.keys() - allowed_keys)
+        if extra_keys:
+            raise ConfigurationError(f"unknown configuration key: {extra_keys[0]}")
+
         payload_items = raw.get("payloads")
-        if payload_items is None:
-            raise ConfigurationError("payloads is required")
-        payloads = tuple(PayloadSpec(**item) for item in payload_items)
+        if not isinstance(payload_items, Sequence) or isinstance(
+            payload_items, (str, bytes, bytearray)
+        ):
+            raise ConfigurationError("payloads must be an array")
+        payloads_list: list[PayloadSpec] = []
+        for index, item in enumerate(payload_items):
+            if not isinstance(item, Mapping):
+                raise ConfigurationError(f"payloads[{index}] must be an object")
+            try:
+                payloads_list.append(PayloadSpec(**dict(item)))
+            except (TypeError, ValueError) as exc:
+                if isinstance(exc, ConfigurationError):
+                    raise
+                raise ConfigurationError(f"payloads[{index}]: {exc}") from exc
+        payloads = tuple(payloads_list)
         declared_count = raw.get("payload_count")
-        if declared_count is not None and declared_count != len(payloads):
-            raise ConfigurationError("payload_count does not match payloads")
-        safety = SafetyLimits(**raw.get("safety", {}))
+        if declared_count is not None:
+            declared_count = _require_int(declared_count, "payload_count")
+            if declared_count < 0:
+                raise ConfigurationError("payload_count cannot be negative")
+            if declared_count != len(payloads):
+                raise ConfigurationError("payload_count does not match payloads")
+        safety_raw = raw.get("safety", {})
+        if not isinstance(safety_raw, Mapping):
+            raise ConfigurationError("safety must be an object")
+        release_window_raw = raw.get("fixed_wing_release_window")
+        if release_window_raw is not None and not isinstance(release_window_raw, Mapping):
+            raise ConfigurationError("fixed_wing_release_window must be an object")
         try:
+            safety = SafetyLimits(**dict(safety_raw))
+            release_window = (
+                FixedWingReleaseWindowConfig(**dict(release_window_raw))
+                if release_window_raw is not None
+                else None
+            )
             return cls(
-                mission_id=str(raw["mission_id"]),
-                mission_type=MissionType(raw["mission_type"]),
-                platform_mode=PlatformMode(raw.get("platform_mode", "multi_deployment")),
+                mission_id=_require_string(raw["mission_id"], "mission_id"),
+                mission_type=MissionType(_require_string(raw["mission_type"], "mission_type")),
+                platform_mode=PlatformMode(_require_string(raw["platform_mode"], "platform_mode")),
                 payloads=payloads,
-                target_classes=tuple(label.lower() for label in raw["target_classes"]),
-                human_authorization_required=raw.get("human_authorization_required", True),
-                minimum_confidence=float(raw.get("minimum_confidence", 0.82)),
-                minimum_track_time_seconds=float(raw.get("minimum_track_time_seconds", 3.0)),
-                minimum_track_observations=int(raw.get("minimum_track_observations", 4)),
-                maximum_track_gap_seconds=float(raw.get("maximum_track_gap_seconds", 1.0)),
-                target_reengagement_cooldown_seconds=float(
-                    raw.get("target_reengagement_cooldown_seconds", 300.0)
+                target_classes=_require_string_sequence(raw["target_classes"], "target_classes"),
+                human_authorization_required=_require_bool(
+                    raw["human_authorization_required"], "human_authorization_required"
                 ),
-                person_exclusion_enabled=bool(raw.get("person_exclusion_enabled", True)),
-                require_thermal_corroboration=bool(raw.get("require_thermal_corroboration", True)),
+                minimum_confidence=_require_real(
+                    raw.get("minimum_confidence", 0.82), "minimum_confidence"
+                ),
+                minimum_track_time_seconds=_require_real(
+                    raw.get("minimum_track_time_seconds", 3.0),
+                    "minimum_track_time_seconds",
+                ),
+                minimum_track_observations=_require_int(
+                    raw.get("minimum_track_observations", 4), "minimum_track_observations"
+                ),
+                maximum_track_gap_seconds=_require_real(
+                    raw.get("maximum_track_gap_seconds", 1.0), "maximum_track_gap_seconds"
+                ),
+                target_reengagement_cooldown_seconds=_require_real(
+                    raw.get("target_reengagement_cooldown_seconds", 300.0),
+                    "target_reengagement_cooldown_seconds",
+                ),
+                person_exclusion_enabled=_require_bool(
+                    raw.get("person_exclusion_enabled", True), "person_exclusion_enabled"
+                ),
+                require_thermal_corroboration=_require_bool(
+                    raw.get("require_thermal_corroboration", True),
+                    "require_thermal_corroboration",
+                ),
                 completion_policy=CompletionPolicy(
                     raw.get("completion_policy", "continue_while_payload_available")
                 ),
                 safety=safety,
-                person_labels=tuple(raw.get("person_labels", ("person", "firefighter"))),
-                ruleset_version=str(raw.get("ruleset_version", "safety-rules-v1")),
+                fixed_wing_release_window=release_window,
+                person_labels=_require_string_sequence(
+                    raw.get("person_labels", ("person", "firefighter")), "person_labels"
+                ),
+                ruleset_version=_require_string(
+                    raw.get("ruleset_version", "safety-rules-v1"), "ruleset_version"
+                ),
             )
-        except KeyError as exc:
-            raise ConfigurationError(f"missing required configuration key: {exc.args[0]}") from exc
         except (TypeError, ValueError) as exc:
             if isinstance(exc, ConfigurationError):
                 raise
@@ -253,8 +482,13 @@ class MissionConfig:
 
     @classmethod
     def from_json(cls, path: str | Path) -> MissionConfig:
-        with Path(path).open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+        try:
+            with Path(path).open("r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except json.JSONDecodeError as exc:
+            raise ConfigurationError(
+                f"invalid mission configuration JSON at line {exc.lineno}, column {exc.colno}"
+            ) from exc
         if not isinstance(raw, dict):
             raise ConfigurationError("mission configuration must be a JSON object")
         return cls.from_mapping(raw)

@@ -4,12 +4,17 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.venv-train/
 venv/
 dist/
 build/
 artifacts/
+/tmp/dataset-audit/
+/yolo*.pt
 models/*.engine
 models/*.onnx
 models/*.pt
 models/*.weights
 
+# Keep the local multi-gigabyte training corpus out of normal Git operations.
+森林火灾 检测 7000多   数据集/

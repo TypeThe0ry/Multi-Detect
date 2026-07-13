@@ -52,9 +52,12 @@ image-space heuristic with persistent geospatial target identity.
 
 The repository contains no live autopilot command, actuator, GPIO, serial release or MAVLink
 release path. It can consume MAVLink telemetry read-only and it can process local/RTSP camera
-frames, but the only payload endpoint remains an in-memory fake used for deterministic replay and
-fault injection. Replacing that port requires a separate hazard analysis, authenticated protocol,
-independent hardware interlocks, SIL/HIL validation and operational approval.
+frames, but the only mission-connected payload endpoint remains an in-memory fake used for
+deterministic replay and fault injection. A separate authenticated request/result codec and
+localhost UDP fault-injection transport now define and exercise the future inert-load HIL boundary,
+but they are intentionally not connected to the mission controller or a real device. Replacing the
+fake port still requires a separate hazard analysis, independently reviewed transport and hardware
+interlocks, SIL/HIL validation and operational approval.
 
 ## Candidate ranking
 

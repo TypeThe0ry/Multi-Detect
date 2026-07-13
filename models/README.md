@@ -129,6 +129,10 @@ multi-detect model-check --onnx-model models/person-safety-nms.onnx --model-mani
 
 The safety-object model still cannot authorize deployment or directly declare person clearance. It
 only supplies governed evidence to the independent fail-closed rules engine.
+All supplied fire and safety manifests are verified before either ONNX graph is loaded. A safety
+model without a verified `safety_object_evidence` manifest may still be inspected with offline
+tools, but live mission telemetry keeps `person_detector_healthy=false` regardless of its class
+names.
 
 The initializer always writes `status=quarantined`, `production_approved=false`, and empty validation metrics. It does not grant approval. Then bind and execute the runtime contract check with:
 

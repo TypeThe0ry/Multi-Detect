@@ -2,6 +2,37 @@
 
 按以下顺序准备即可，不需要一次提供全部硬件。密码、HMAC密钥、私钥和完整RTSP凭据不要粘贴到聊天、Git或审计文件中。
 
+## 分阶段证据门禁
+
+每一阶段都把原始验收结果保存为 JSON，再用 SHA-256 绑定到证据包。检查器会读取并重新
+验证原始结果中的事件类型、硬件/仿真声明、最低样本量、关键失败闭锁指标和时间新鲜度，
+不会只相信证据包里写了“通过”。
+
+当前支持的递进档位：
+
+| 档位 | 必须具备的证据 |
+| --- | --- |
+| `software_hil` | 本机组合软件 HIL |
+| `vision_bench` | 软件 HIL + 真实 RTSP 摄像头 + Jetson Orin Nano |
+| `airframe_bench` | 上述全部 + Pixhawk V6X + GR01 |
+| `inert_payload_bench` | 上述全部 + 无危险物惰性载荷台架 |
+
+验证现有软件 HIL 示例：
+
+```powershell
+.\.venv\Scripts\python.exe -m multidetect integration-evidence-check `
+  examples\integration_evidence.software_hil.json `
+  --profile software_hil `
+  --out artifacts\evaluation\integration-evidence-software-hil.json
+```
+
+证据包格式由
+[`integration-evidence.schema.json`](../configs/schemas/integration-evidence.schema.json) 定义。
+硬件档位默认拒绝超过 168 小时的证据，可用 `--maximum-hardware-age-hours` 收紧。软件 HIL
+文件即使复制到硬件记录中，也会因事件类型、`hardware_observed` 和 `simulation_only` 不符
+而失败。任何档位通过后，检查结果仍固定为 `production_approved=false` 和
+`physical_release_approved=false`；它只是集成台架阶段门禁，不是适航、现场或实体投放批准。
+
 ## A. 第一批：恢复真实视觉检测
 
 ### A1. 火烟ONNX模型
@@ -98,6 +129,23 @@ python3 -m multidetect camera-check \
   --frames 300
 ```
 
+单次读帧检查通过后，生成可供 `vision_bench` 门禁读取的持续台架证据：
+
+```bash
+python3 -m multidetect camera-bench \
+  --source-env MULTIDETECT_RTSP_URI \
+  --rtsp-transport tcp \
+  --minimum-frames 300 \
+  --minimum-duration-seconds 60 \
+  --maximum-duration-seconds 120 \
+  --out artifacts/evaluation/rtsp-camera-bench.json
+```
+
+该命令持续到帧数和时长两个条件都满足，记录分辨率稳定性、平均 FPS、P50/P95 读帧
+延迟、重连次数和失败次数。证据文件不包含 URI、主机、用户名或密码；断流、分辨率变化、
+超时或未取得任何帧都会失败闭锁。本机 `--source 0` 可以验证采集代码，但产生的是
+`local_camera_bench_passed`，不能满足必须为真实 RTSP 的硬件档位。
+
 ## B. 第二批：Jetson Orin Nano
 
 在Jetson仓库目录运行：
@@ -114,6 +162,32 @@ bash scripts/collect_jetson_info.sh > artifacts/jetson-info.txt
 - 可用电源电压、持续功率和散热方式。
 - 计划使用原生系统还是NVIDIA容器。
 - 期望巡航时长和允许的Jetson功耗模式。
+
+完成短 RTSP 检查后，用当前候选模型执行30分钟采集+推理浸泡：
+
+```bash
+python3 -m multidetect jetson-vision-bench \
+  --source-env MULTIDETECT_RTSP_URI \
+  --rtsp-transport tcp \
+  --onnx-model artifacts/training/hardneg-snapshots/v5-local-calibrated/best.onnx \
+  --model-manifest artifacts/training/hardneg-snapshots/v5-local-calibrated/best.manifest.json \
+  --class-names flame,smoke \
+  --output-coordinates letterbox_xyxy_px \
+  --provider TensorrtExecutionProvider \
+  --provider CUDAExecutionProvider \
+  --provider CPUExecutionProvider \
+  --trt-engine-cache /var/lib/multi-detect/trt-cache \
+  --minimum-frames 1000 \
+  --minimum-duration-seconds 1800 \
+  --maximum-duration-seconds 2100 \
+  --maximum-temperature-c 95 \
+  --out artifacts/evaluation/jetson-orin-nano-bench.json
+```
+
+该命令从 `/proc/device-tree/model` 识别设备，从 Linux thermal zones 采集温度，并记录实际
+ONNX Runtime provider。设备不是 Jetson Orin Nano、首选 provider 回退到 CPU、温度不可读或
+超过上限、推理异常、断流、分辨率变化以及浸泡未达标均会失败。它不显示或保存图像，不记录
+RTSP URI，也不启用飞控或载荷接口。
 
 ## C. 第三批：Pixhawk V6X只读接入
 
@@ -138,6 +212,48 @@ python3 -m multidetect pixhawk-check \
 
 该阶段不上传任务、不切换模式、不发送心跳或飞控命令。需要把结果与QGroundControl逐字段核对。
 
+短检查通过后，复制
+[`qgc_telemetry_snapshot.template.json`](../examples/qgc_telemetry_snapshot.template.json)，在机体静止、
+桨叶拆除且不解锁的台架状态下，填写 QGC 同一时段显示的经纬度、相对高度、航向、地速、
+横滚、俯仰、电池、卫星数、解锁状态、模式和任务序号。时间戳必须是当前 UTC，格式由
+[`qgc-telemetry-snapshot.schema.json`](../configs/schemas/qgc-telemetry-snapshot.schema.json) 定义。
+然后执行：
+
+```bash
+python3 -m multidetect pixhawk-v6x-bench \
+  --endpoint /dev/ttyTHS1 \
+  --baud 57600 \
+  --qgc-snapshot artifacts/qgc-v6x-current.json \
+  --minimum-samples 100 \
+  --sample-interval-seconds 0.2 \
+  --stale-after-seconds 1.0 \
+  --maximum-qgc-age-seconds 120 \
+  --out artifacts/evaluation/pixhawk-v6x-bench.json
+```
+
+通过条件包括：100份连续新鲜的心跳+位置样本、所有 QGC 字段在固定容差内、提供器保持
+只读、`messages_transmitted_by_jetson=0`，以及在不接收新消息的情况下缓存超过 stale
+时限后 `link_healthy` 和 `position_healthy` 同时变为 false。该检查不发送心跳、参数请求、
+任务、模式、命令或执行器消息；真实断电/拔线和 Pixhawk 自身 failsafe 仍应在后续有人监护的
+硬件测试中单独验证。
+
+### C2. 独立区域安全源 HIL
+
+Pixhawk 通用遥测不会自动证明允许区域、围栏健康或投放区净空。先准备一个运行在 Jetson
+同一主机上的受信任只读桥接进程，提供：
+
+- 区域源唯一 ID、协议版本和 HMAC key ID。
+- 与任务配置完全一致的 mission ID。
+- 来自当前 Pixhawk 位置附近的经纬度，默认最大偏差 25 米。
+- Jetson 单调时钟时间戳和严格递增序号。
+- `in_allowed_zone`、`geofence_healthy`、`release_zone_clear` 三个独立布尔条件。
+- 原子文件替换，避免程序读取到半写入 JSON。
+
+实时接入参数和签名 JSON 结构见
+[`live-camera-jetson.md`](live-camera-jetson.md#独立区域安全证据仅文件型-hil)。先注入篡改、
+过期、位置偏差、错误任务、序号回退和文件消失故障，确认全部回到未知并禁止授权。真实硬件
+区域源仍需单独验证时钟映射、密钥保护和传输故障，不能把此文件 HIL 视为现场批准。
+
 ## D. 第四批：数传告警
 
 需要决定接收端协议：
@@ -151,6 +267,48 @@ python3 -m multidetect pixhawk-check \
 持久化去重。它们已通过本机真实UDP socket测试，但仍不代表GR01实际链路可用。台架
 阶段按 [`data-link-alerts.md`](data-link-alerts.md) 同时运行飞端和地面端，测量双向连通、
 时延、丢包、MTU、断链恢复和时钟偏差；如果设备只提供串口，再单独实现有界分帧适配。
+
+定制 QGC 还需确认视频 Item 使用 `PreserveAspectFit` 还是 `PreserveAspectCrop`、视频实际
+绘制矩形、Android 屏幕旋转和安全区域 inset。使用
+`scripts/g20_viewport_mapping_demo.py` 的固定向量先验证 QML 变换，再连接触摸命令；屏幕
+黑边中的触摸不能生成目标框。
+
+GR01 签名元数据链路使用两端相同的应用 HMAC 密钥和 MAVLink2 签名密钥。密钥只通过
+环境变量注入。先在 Jetson 端运行服务端：
+
+```bash
+python3 -m multidetect operator-udp-server \
+  --bind-host 0.0.0.0 \
+  --port 14580 \
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_HMAC \
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_SIGNING_KEY \
+  --max-datagrams 300 \
+  --exit-after-accepted-selections 100 \
+  --receive-timeout-seconds 30
+```
+
+再从 GR01 地面侧可运行 Python 的测试机或厂商 SDK 测试环境发起：
+
+```bash
+python3 -m multidetect gr01-link-bench \
+  --host JETSON_GR01_NETWORK_IP \
+  --port 14580 \
+  --operator-hmac-key-env MULTIDETECT_OPERATOR_HMAC \
+  --mavlink-signing-key-hex-env MULTIDETECT_MAVLINK_SIGNING_KEY \
+  --minimum-round-trips 100 \
+  --retry-interval-seconds 0.5 \
+  --maximum-attempts 3 \
+  --maximum-packet-loss-rate 0.01 \
+  --maximum-ack-latency-p95-ms 500 \
+  --hardware-mode \
+  --hardware-id REPLACE_WITH_GR01_SERIAL_OR_ASSET_ID \
+  --out artifacts/evaluation/gr01-bench.json
+```
+
+`--hardware-mode` 会拒绝 localhost/回环地址。通过结果必须包含100次已接受往返、双向 IP、
+应用 HMAC、MAVLink2 签名、丢包率不超过1%和 ACK P95不超过500 ms。本机直连不加
+`--hardware-mode` 时只会生成 `gr01_software_baseline_bench_passed`，不能满足
+`airframe_bench`。
 
 ## E. 第五批：独立载荷控制器HIL
 
@@ -175,6 +333,17 @@ python3 -m multidetect payload-inventory-check \
 ```
 
 只有只读状态、认证、防重放、故障注入和惰性载荷台架验证完成后，才能另行评审真实非危险灭火载荷接口。
+
+请求/反馈消息的任务、授权、目标、舱位、时间、序号、HMAC 和状态迁移约束已经在
+[`payload-controller-hil-protocol.md`](payload-controller-hil-protocol.md) 中定义。下一步
+需要控制器团队确认这些字段能否由固件持久化，并选择串口、CAN 或独立 IP 传输；在该选择
+完成前，协议不会连接任务状态机或任何实体端口。
+
+当控制器和独立传感器能够分别导出签名 JSONL 后，按
+[`payload-controller-hil-protocol.md`](payload-controller-hil-protocol.md#惰性硬件台架只读验收)
+运行 `inert-payload-bench-check`。它要求20次已执行+独立离舱确认，并额外要求一次不确定
+结果且零自动重试的故障注入；工具只验证日志，不向控制器发送任何命令。通过结果才可作为
+`inert_payload_bench` 的载荷记录，但仍不是实体灭火弹投放或现场运行批准。
 
 ## 最小交付包
 

@@ -102,3 +102,66 @@ def test_disposable_demo_config_loads() -> None:
     assert config.platform_mode is PlatformMode.DISPOSABLE
     assert len(config.payloads) == 1
     assert config.completion_policy is CompletionPolicy.TERMINATE_AFTER_FIRST
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("human_authorization_required", "false"),
+        ("person_exclusion_enabled", "false"),
+        ("require_thermal_corroboration", 1),
+    ],
+)
+def test_boolean_configuration_values_are_strict(field_name: str, invalid_value: object) -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text())
+    raw[field_name] = invalid_value
+
+    with pytest.raises(ConfigurationError, match=field_name):
+        MissionConfig.from_mapping(raw)
+
+
+def test_target_classes_must_be_an_array_not_a_string() -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text())
+    raw["target_classes"] = "flame"
+
+    with pytest.raises(ConfigurationError, match="target_classes must be an array"):
+        MissionConfig.from_mapping(raw)
+
+
+def test_fractional_track_observation_count_is_rejected() -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text())
+    raw["minimum_track_observations"] = 4.9
+
+    with pytest.raises(ConfigurationError, match="minimum_track_observations must be an integer"):
+        MissionConfig.from_mapping(raw)
+
+
+def test_schema_required_and_unknown_keys_are_enforced() -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text())
+    del raw["platform_mode"]
+
+    with pytest.raises(
+        ConfigurationError, match="missing required configuration key: platform_mode"
+    ):
+        MissionConfig.from_mapping(raw)
+
+    raw["platform_mode"] = "multi_deployment"
+    raw["unexpected"] = True
+    with pytest.raises(ConfigurationError, match="unknown configuration key: unexpected"):
+        MissionConfig.from_mapping(raw)
+
+
+def test_person_exclusion_requires_at_least_one_person_label() -> None:
+    raw = json.loads((ROOT / "configs/missions/fire_patrol.demo.json").read_text())
+    raw["person_labels"] = []
+
+    with pytest.raises(ConfigurationError, match="person_labels cannot be empty"):
+        MissionConfig.from_mapping(raw)
+
+
+def test_invalid_json_is_reported_as_configuration_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "invalid.json"
+    config_path.write_text('{"mission_id":', encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="invalid mission configuration JSON"):
+        MissionConfig.from_json(config_path)

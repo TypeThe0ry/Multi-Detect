@@ -56,20 +56,36 @@ class CaptureConfig:
     reconnect_attempts: int = 3
 
     def __post_init__(self) -> None:
-        if self.width is not None and self.width <= 0:
+        if isinstance(self.source, bool) or not isinstance(self.source, (int, str)):
+            raise ValueError("capture source must be a camera index or path/URL")
+        if self.width is not None and (
+            isinstance(self.width, bool) or not isinstance(self.width, int) or self.width <= 0
+        ):
             raise ValueError("capture width must be positive")
-        if self.height is not None and self.height <= 0:
+        if self.height is not None and (
+            isinstance(self.height, bool) or not isinstance(self.height, int) or self.height <= 0
+        ):
             raise ValueError("capture height must be positive")
-        if self.fps is not None and self.fps <= 0:
-            raise ValueError("capture fps must be positive")
+        if self.fps is not None and (
+            isinstance(self.fps, bool) or not math.isfinite(self.fps) or self.fps <= 0
+        ):
+            raise ValueError("capture fps must be finite and positive")
         if self.rtsp_transport not in {"tcp", "udp"}:
             raise ValueError("rtsp_transport must be tcp or udp")
         if self.backend not in {"auto", "dshow", "msmf", "ffmpeg"}:
             raise ValueError("capture backend must be auto, dshow, msmf, or ffmpeg")
-        if self.reconnect_delay_seconds < 0:
-            raise ValueError("reconnect delay cannot be negative")
-        if self.reconnect_attempts < 0:
-            raise ValueError("reconnect attempts cannot be negative")
+        if (
+            isinstance(self.reconnect_delay_seconds, bool)
+            or not math.isfinite(self.reconnect_delay_seconds)
+            or self.reconnect_delay_seconds < 0
+        ):
+            raise ValueError("reconnect delay must be finite and non-negative")
+        if (
+            isinstance(self.reconnect_attempts, bool)
+            or not isinstance(self.reconnect_attempts, int)
+            or self.reconnect_attempts < 0
+        ):
+            raise ValueError("reconnect attempts must be a non-negative integer")
 
     @property
     def is_rtsp(self) -> bool:
@@ -113,10 +129,16 @@ class OpenCVFrameSource:
         if self.config.is_rtsp:
             # FFmpeg options are read while opening the stream. Keep only transport
             # policy here; credentials stay inside the supplied RTSP URI.
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-                f"rtsp_transport;{self.config.rtsp_transport}"
-            )
-            capture = cv2.VideoCapture(self.config.source, cv2.CAP_FFMPEG)
+            option_name = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
+            previous_options = os.environ.get(option_name)
+            os.environ[option_name] = f"rtsp_transport;{self.config.rtsp_transport}"
+            try:
+                capture = cv2.VideoCapture(self.config.source, cv2.CAP_FFMPEG)
+            finally:
+                if previous_options is None:
+                    os.environ.pop(option_name, None)
+                else:
+                    os.environ[option_name] = previous_options
         else:
             auto_backend = (
                 cv2.CAP_DSHOW
@@ -159,8 +181,10 @@ class OpenCVFrameSource:
             except CameraReadError:
                 ok = False
             else:
-                assert self._capture is not None
-                ok, image = self._capture.read()
+                capture = self._capture
+                if capture is None:  # Defensive guard for optimized Python and subclasses.
+                    raise CameraReadError("camera source failed to initialize")
+                ok, image = capture.read()
             if ok and image is not None:
                 break
             self.close()
@@ -413,3 +437,234 @@ class DetectorEnsemble:
             for label in detector.class_names
         }
         return set(label.strip().lower() for label in required_labels).issubset(available)
+
+
+class ClassConfidenceFilter:
+    """Applies class-specific candidate thresholds after Nx6 adaptation."""
+
+    def __init__(
+        self,
+        detector: Any,
+        thresholds: dict[str, float],
+        *,
+        default_threshold: float | None = 0.0,
+    ) -> None:
+        normalized: dict[str, float] = {}
+        for label, threshold in thresholds.items():
+            key = label.strip().lower()
+            if not key:
+                raise ValueError("class confidence threshold label cannot be empty")
+            if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+                raise ValueError("class confidence thresholds must be in [0, 1]")
+            normalized[key] = threshold
+        self.detector = detector
+        self.thresholds = normalized
+        if default_threshold is not None and (
+            not math.isfinite(default_threshold) or not 0.0 <= default_threshold <= 1.0
+        ):
+            raise ValueError("default_threshold must be in [0, 1] or None")
+        self.default_threshold = default_threshold
+
+    def detect(self, image_bgr: Any) -> tuple[Detection, ...]:
+        kept: list[Detection] = []
+        for detection in self.detector.detect(image_bgr):
+            threshold = self.thresholds.get(detection.label.strip().lower(), self.default_threshold)
+            if threshold is not None and detection.confidence >= threshold:
+                kept.append(detection)
+        return tuple(kept)
+
+    def covers_labels(self, required_labels: Sequence[str]) -> bool:
+        return self.detector.covers_labels(required_labels)
+
+
+class BrightNeutralLightVetoFilter:
+    """Rejects compact white lamps/reflections that lack flame-like color texture."""
+
+    def __init__(
+        self,
+        detector: Any,
+        *,
+        labels: frozenset[str] = frozenset({"fire", "flame"}),
+        minimum_bright_neutral_fraction: float = 0.20,
+        maximum_colorful_fraction: float = 0.02,
+        bright_value_threshold: int = 235,
+        neutral_saturation_threshold: int = 35,
+        colorful_saturation_threshold: int = 80,
+    ) -> None:
+        for name, value in (
+            ("minimum_bright_neutral_fraction", minimum_bright_neutral_fraction),
+            ("maximum_colorful_fraction", maximum_colorful_fraction),
+        ):
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
+        self.detector = detector
+        self.labels = frozenset(label.strip().lower() for label in labels)
+        self.minimum_bright_neutral_fraction = minimum_bright_neutral_fraction
+        self.maximum_colorful_fraction = maximum_colorful_fraction
+        self.bright_value_threshold = bright_value_threshold
+        self.neutral_saturation_threshold = neutral_saturation_threshold
+        self.colorful_saturation_threshold = colorful_saturation_threshold
+
+    def detect(self, image_bgr: Any) -> tuple[Detection, ...]:
+        detections = self.detector.detect(image_bgr)
+        if not detections:
+            return detections
+        cv2 = _require_cv2()
+        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+        height, width = image_bgr.shape[:2]
+        kept: list[Detection] = []
+        for detection in detections:
+            if detection.label not in self.labels:
+                kept.append(detection)
+                continue
+            x1 = max(0, min(width - 1, round(detection.bbox.x1 * width)))
+            y1 = max(0, min(height - 1, round(detection.bbox.y1 * height)))
+            x2 = max(x1 + 1, min(width, round(detection.bbox.x2 * width)))
+            y2 = max(y1 + 1, min(height, round(detection.bbox.y2 * height)))
+            roi = hsv[y1:y2, x1:x2]
+            saturation = roi[:, :, 1]
+            value = roi[:, :, 2]
+            bright_neutral_fraction = float(
+                (
+                    (value >= self.bright_value_threshold)
+                    & (saturation <= self.neutral_saturation_threshold)
+                ).mean()
+            )
+            colorful_fraction = float((saturation >= self.colorful_saturation_threshold).mean())
+            is_neutral_light = (
+                bright_neutral_fraction >= self.minimum_bright_neutral_fraction
+                and colorful_fraction <= self.maximum_colorful_fraction
+            )
+            if not is_neutral_light:
+                kept.append(detection)
+        return tuple(kept)
+
+    def covers_labels(self, required_labels: Sequence[str]) -> bool:
+        return self.detector.covers_labels(required_labels)
+
+
+class PersonOverlapVetoFilter:
+    """Suppresses ambiguous fire candidates substantially covered by a detected person."""
+
+    def __init__(
+        self,
+        detector: Any,
+        *,
+        fire_labels: frozenset[str] = frozenset({"fire", "flame", "smoke"}),
+        person_labels: frozenset[str] = frozenset({"person", "firefighter"}),
+        minimum_fire_coverage: float = 0.4,
+        person_margin: float = 0.02,
+    ) -> None:
+        if not 0.0 <= minimum_fire_coverage <= 1.0:
+            raise ValueError("minimum_fire_coverage must be in [0, 1]")
+        if not math.isfinite(person_margin) or person_margin < 0.0:
+            raise ValueError("person_margin must be finite and non-negative")
+        self.detector = detector
+        self.fire_labels = frozenset(label.strip().lower() for label in fire_labels)
+        self.person_labels = frozenset(label.strip().lower() for label in person_labels)
+        self.minimum_fire_coverage = minimum_fire_coverage
+        self.person_margin = person_margin
+
+    def detect(self, image_bgr: Any) -> tuple[Detection, ...]:
+        detections = self.detector.detect(image_bgr)
+        people = tuple(
+            detection.bbox.expanded(self.person_margin)
+            for detection in detections
+            if detection.label in self.person_labels
+        )
+        if not people:
+            return detections
+        return tuple(
+            detection
+            for detection in detections
+            if detection.label not in self.fire_labels
+            or not any(
+                self._coverage(detection.bbox, person_bbox) >= self.minimum_fire_coverage
+                for person_bbox in people
+            )
+        )
+
+    def covers_labels(self, required_labels: Sequence[str]) -> bool:
+        return self.detector.covers_labels(required_labels)
+
+    @staticmethod
+    def _coverage(candidate: Any, person: Any) -> float:
+        x1 = max(candidate.x1, person.x1)
+        y1 = max(candidate.y1, person.y1)
+        x2 = min(candidate.x2, person.x2)
+        y2 = min(candidate.y2, person.y2)
+        intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        return intersection / candidate.area if candidate.area > 0.0 else 0.0
+
+
+@dataclass(slots=True)
+class _TemporalCandidate:
+    detection: Detection
+    consecutive_frames: int
+    missed_frames: int = 0
+
+
+class TemporalDetectionFilter:
+    """Requires selected classes to remain spatially stable for consecutive frames."""
+
+    def __init__(
+        self,
+        detector: Any,
+        *,
+        labels: frozenset[str],
+        minimum_consecutive_frames: int = 3,
+        iou_threshold: float = 0.25,
+        maximum_missed_frames: int = 1,
+    ) -> None:
+        if minimum_consecutive_frames <= 0:
+            raise ValueError("minimum_consecutive_frames must be positive")
+        if not 0.0 < iou_threshold <= 1.0:
+            raise ValueError("iou_threshold must be in (0, 1]")
+        if maximum_missed_frames < 0:
+            raise ValueError("maximum_missed_frames cannot be negative")
+        self.detector = detector
+        self.labels = frozenset(label.strip().lower() for label in labels)
+        self.minimum_consecutive_frames = minimum_consecutive_frames
+        self.iou_threshold = iou_threshold
+        self.maximum_missed_frames = maximum_missed_frames
+        self._candidates: list[_TemporalCandidate] = []
+
+    def detect(self, image_bgr: Any) -> tuple[Detection, ...]:
+        detections = self.detector.detect(image_bgr)
+        immediate = [detection for detection in detections if detection.label not in self.labels]
+        filtered = sorted(
+            (detection for detection in detections if detection.label in self.labels),
+            key=lambda detection: detection.confidence,
+            reverse=True,
+        )
+        unmatched = set(range(len(self._candidates)))
+        next_candidates: list[_TemporalCandidate] = []
+        stable: list[Detection] = []
+        for detection in filtered:
+            matches = [
+                (self._candidates[index].detection.bbox.iou(detection.bbox), index)
+                for index in unmatched
+                if self._candidates[index].detection.label == detection.label
+            ]
+            overlap, index = max(matches, default=(0.0, -1))
+            if index >= 0 and overlap >= self.iou_threshold:
+                unmatched.remove(index)
+                state = _TemporalCandidate(
+                    detection,
+                    self._candidates[index].consecutive_frames + 1,
+                )
+            else:
+                state = _TemporalCandidate(detection, 1)
+            next_candidates.append(state)
+            if state.consecutive_frames >= self.minimum_consecutive_frames:
+                stable.append(detection)
+        for index in unmatched:
+            state = self._candidates[index]
+            state.missed_frames += 1
+            if state.missed_frames <= self.maximum_missed_frames:
+                next_candidates.append(state)
+        self._candidates = next_candidates
+        return tuple(immediate + stable)
+
+    def covers_labels(self, required_labels: Sequence[str]) -> bool:
+        return self.detector.covers_labels(required_labels)
