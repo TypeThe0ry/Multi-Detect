@@ -12,6 +12,7 @@ from multidetect.alerts import (
     AlertAuthenticationError,
     AlertDeliveryReceipt,
     AuthenticatedUdpAlertReceiver,
+    InMemoryAlertDeduplicationStore,
     JsonLineAlertPublisher,
     LoopbackAcknowledgedAlertTransport,
     RecordingAlertPublisher,
@@ -159,6 +160,37 @@ def test_outbox_prunes_only_old_delivered_alerts(tmp_path) -> None:
     outbox.close()
 
 
+@pytest.mark.parametrize("invalid_keep", [True, -1, 1.5])
+def test_outbox_rejects_invalid_automatic_delivered_retention(
+    tmp_path,
+    invalid_keep,
+) -> None:
+    with pytest.raises(ValueError, match="keep_latest_delivered"):
+        SqliteAlertOutbox(
+            tmp_path / "alerts.sqlite3",
+            keep_latest_delivered=invalid_keep,
+        )
+
+
+def test_outbox_automatically_bounds_delivered_rows_without_pruning_pending(tmp_path) -> None:
+    outbox = SqliteAlertOutbox(
+        tmp_path / "alerts.sqlite3",
+        keep_latest_delivered=2,
+    )
+    alerts = tuple(replace(fire_alert(), alert_id=f"alert-{index}") for index in range(4))
+    for index, alert in enumerate(alerts[:3]):
+        outbox.enqueue(alert)
+        outbox.mark_delivered(alert.alert_id, delivered_at_s=float(index))
+    outbox.enqueue(alerts[3])
+
+    with pytest.raises(KeyError):
+        outbox.attempt_count("alert-0")
+    assert outbox.attempt_count("alert-1") == 1
+    assert outbox.attempt_count("alert-2") == 1
+    assert outbox.pending_alerts() == (alerts[3],)
+    outbox.close()
+
+
 def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
     key = b"test-only-alert-key-material-32-bytes-minimum"
     received = []
@@ -289,4 +321,51 @@ def test_ground_receiver_deduplication_persists_across_restart(tmp_path) -> None
     assert reopened.check_and_record("alert-1", payload_hash, received_at_unix_s=101.0) is True
     with pytest.raises(AlertAuthenticationError, match="different content"):
         reopened.check_and_record("alert-1", "b" * 64, received_at_unix_s=102.0)
+    reopened.close()
+
+
+@pytest.mark.parametrize("invalid_capacity", [True, 0, -1, 1.5])
+def test_in_memory_and_receiver_deduplication_reject_invalid_capacity(
+    invalid_capacity,
+) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        InMemoryAlertDeduplicationStore(capacity=invalid_capacity)
+    with pytest.raises(ValueError, match="positive integer"):
+        AuthenticatedUdpAlertReceiver(
+            bind_host="127.0.0.1",
+            port=0,
+            hmac_key=b"test-only-alert-key-material-32-bytes-minimum",
+            receiver_id="ground-1",
+            expected_sender_id="aircraft-1",
+            deduplication_capacity=invalid_capacity,
+        )
+
+
+@pytest.mark.parametrize("invalid_capacity", [True, 0, -1, 1.5])
+def test_ground_receiver_deduplication_rejects_invalid_capacity(
+    tmp_path,
+    invalid_capacity,
+) -> None:
+    with pytest.raises(ValueError, match="capacity"):
+        SqliteAlertDeduplicationStore(
+            tmp_path / "received-alerts.sqlite3",
+            capacity=invalid_capacity,
+        )
+
+
+def test_ground_receiver_persistent_deduplication_has_bounded_capacity(tmp_path) -> None:
+    path = tmp_path / "received-alerts.sqlite3"
+    payload_hash = "a" * 64
+    store = SqliteAlertDeduplicationStore(path, capacity=2)
+
+    assert store.check_and_record("alert-1", payload_hash, received_at_unix_s=100.0) is False
+    assert store.check_and_record("alert-2", payload_hash, received_at_unix_s=101.0) is False
+    assert store.check_and_record("alert-3", payload_hash, received_at_unix_s=102.0) is False
+    assert store.record_count == 2
+    assert store.check_and_record("alert-2", payload_hash, received_at_unix_s=103.0) is True
+    store.close()
+
+    reopened = SqliteAlertDeduplicationStore(path, capacity=1)
+    assert reopened.record_count == 1
+    assert reopened.check_and_record("alert-2", payload_hash, received_at_unix_s=104.0) is True
     reopened.close()

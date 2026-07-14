@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +10,7 @@ import pytest
 
 import multidetect.cli as cli_module
 from multidetect.cli import main
+from multidetect.compat import UTC
 from multidetect.domain import VehicleTelemetry
 from multidetect.pixhawk_bench import (
     PixhawkBenchConfig,

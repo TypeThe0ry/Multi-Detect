@@ -20,6 +20,8 @@ def test_example_jetson_profile_passes_static_placeholder_check_without_leaking(
     assert report["valid"] is True
     assert report["mission_capability"] == "patrol_only"
     assert report["model_class_names"] == ("flame", "smoke")
+    assert report["model_artifact_kind"] == "tensorrt_engine"
+    assert report["provider_fallback_order"] == ["TensorrtExecutionProvider"]
     assert report["model_output_coordinates"] == "letterbox_xyxy_px"
     assert report["candidate_confidence_floor"] == 0.10
     assert report["flame_candidate_threshold"] == 0.72
@@ -27,6 +29,11 @@ def test_example_jetson_profile_passes_static_placeholder_check_without_leaking(
     assert report["candidate_stability_frames"] == 6
     assert report["mission_minimum_confidence"] == 0.82
     assert report["pixhawk_read_only"] is True
+    assert report["pixhawk_hardware_profile"] == "holybro_pixhawk_jetson_baseboard"
+    assert report["pixhawk_expected_system_id"] == 1
+    assert report["pixhawk_expected_autopilot"] == "px4"
+    assert report["pixhawk_expected_vehicle_type"] == "fixed_wing"
+    assert report["pixhawk_operational_state_required"] is True
     assert report["camera_opened"] is False
     assert report["model_loaded"] is False
     assert report["pixhawk_opened"] is False
@@ -96,3 +103,101 @@ def test_jetson_profile_rejects_thresholds_that_bypass_the_runtime_contract(
     assert any(
         "cannot be below mission minimum_track_observations" in error for error in report["errors"]
     )
+
+
+def test_jetson_profile_rejects_unsupported_baseboard_endpoint(tmp_path: Path) -> None:
+    source = (ROOT / "deploy/jetson/runtime.env.example").read_text(encoding="utf-8")
+    environment = tmp_path / "runtime.env"
+    environment.write_text(
+        source.replace("PIXHAWK_ENDPOINT=udp:0.0.0.0:14550", "PIXHAWK_ENDPOINT=/dev/ttyTHS2"),
+        encoding="utf-8",
+    )
+
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        environment,
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is False
+    assert any("requires PIXHAWK_ENDPOINT to be one of" in item for item in report["errors"])
+
+
+def test_jetson_profile_rejects_baseboard_uart_baud_mismatch(tmp_path: Path) -> None:
+    source = (ROOT / "deploy/jetson/runtime.env.example").read_text(encoding="utf-8")
+    environment = tmp_path / "runtime.env"
+    environment.write_text(
+        source.replace(
+            "PIXHAWK_ENDPOINT=udp:0.0.0.0:14550", "PIXHAWK_ENDPOINT=/dev/ttyTHS1"
+        ).replace("PIXHAWK_BAUD=921600", "PIXHAWK_BAUD=57600"),
+        encoding="utf-8",
+    )
+
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        environment,
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is False
+    assert any("requires PIXHAWK_BAUD=921600" in item for item in report["errors"])
+
+
+def test_jetson_profile_rejects_invalid_pixhawk_identity_expectations(tmp_path: Path) -> None:
+    source = (ROOT / "deploy/jetson/runtime.env.example").read_text(encoding="utf-8")
+    environment = tmp_path / "runtime.env"
+    environment.write_text(
+        source.replace("PIXHAWK_SYSTEM_ID=1", "PIXHAWK_SYSTEM_ID=0")
+        .replace("PIXHAWK_EXPECTED_AUTOPILOT=px4", "PIXHAWK_EXPECTED_AUTOPILOT=unknown")
+        .replace(
+            "PIXHAWK_EXPECTED_VEHICLE_TYPE=fixed_wing",
+            "PIXHAWK_EXPECTED_VEHICLE_TYPE=generic",
+        ),
+        encoding="utf-8",
+    )
+
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        environment,
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is False
+    assert any("PIXHAWK_SYSTEM_ID must be in" in item for item in report["errors"])
+    assert any("PIXHAWK_EXPECTED_AUTOPILOT" in item for item in report["errors"])
+    assert any("PIXHAWK_EXPECTED_VEHICLE_TYPE" in item for item in report["errors"])
+
+
+def test_jetson_profile_accepts_onnx_and_rejects_unknown_model_artifacts(
+    tmp_path: Path,
+) -> None:
+    source = (ROOT / "deploy/jetson/runtime.env.example").read_text(encoding="utf-8")
+    environment = tmp_path / "runtime.env"
+    environment.write_text(
+        source.replace("fire-smoke-nms.engine", "fire-smoke-nms.onnx"),
+        encoding="utf-8",
+    )
+
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        environment,
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is True
+    assert report["model_artifact_kind"] == "onnx"
+    assert report["provider_fallback_order"][-1] == "CPUExecutionProvider"
+
+    environment.write_text(
+        source.replace("fire-smoke-nms.engine", "fire-smoke-nms.pt"),
+        encoding="utf-8",
+    )
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        environment,
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is False
+    assert report["model_artifact_kind"] == "invalid"
+    assert any("ONNX or TensorRT engine" in item for item in report["errors"])

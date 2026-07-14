@@ -13,7 +13,7 @@
 | 档位 | 必须具备的证据 |
 | --- | --- |
 | `software_hil` | 本机组合软件 HIL |
-| `vision_bench` | 软件 HIL + 真实 RTSP 摄像头 + Jetson Orin Nano |
+| `vision_bench` | 软件 HIL + 真实 RTSP 摄像头 + Jetson Orin NX/Nano |
 | `airframe_bench` | 上述全部 + Pixhawk V6X + GR01 |
 | `inert_payload_bench` | 上述全部 + 无危险物惰性载荷台架 |
 
@@ -146,7 +146,7 @@ python3 -m multidetect camera-bench \
 超时或未取得任何帧都会失败闭锁。本机 `--source 0` 可以验证采集代码，但产生的是
 `local_camera_bench_passed`，不能满足必须为真实 RTSP 的硬件档位。
 
-## B. 第二批：Jetson Orin Nano
+## B. 第二批：Jetson Orin NX/Nano
 
 在Jetson仓库目录运行：
 
@@ -168,49 +168,146 @@ bash scripts/collect_jetson_info.sh > artifacts/jetson-info.txt
 ```bash
 python3 -m multidetect jetson-vision-bench \
   --source-env MULTIDETECT_RTSP_URI \
-  --rtsp-transport tcp \
-  --onnx-model artifacts/training/hardneg-snapshots/v5-local-calibrated/best.onnx \
-  --model-manifest artifacts/training/hardneg-snapshots/v5-local-calibrated/best.manifest.json \
+  --rtsp-transport tcp --rtsp-codec h265 \
+  --backend gstreamer --gstreamer-hardware-decode --gstreamer-latency-ms 100 \
+  --onnx-model models/fire-smoke-nms.engine \
+  --model-manifest models/fire-smoke-nms.engine.manifest.json \
   --class-names flame,smoke \
   --output-coordinates letterbox_xyxy_px \
-  --provider TensorrtExecutionProvider \
-  --provider CUDAExecutionProvider \
-  --provider CPUExecutionProvider \
-  --trt-engine-cache /var/lib/multi-detect/trt-cache \
   --minimum-frames 1000 \
   --minimum-duration-seconds 1800 \
   --maximum-duration-seconds 2100 \
   --maximum-temperature-c 95 \
-  --out artifacts/evaluation/jetson-orin-nano-bench.json
+  --out artifacts/evaluation/jetson-orin-bench.json
 ```
 
 该命令从 `/proc/device-tree/model` 识别设备，从 Linux thermal zones 采集温度，并记录实际
-ONNX Runtime provider。设备不是 Jetson Orin Nano、首选 provider 回退到 CPU、温度不可读或
+ONNX Runtime provider。设备不是受支持的 Jetson Orin NX/Nano、首选 provider 回退到 CPU、温度不可读或
 超过上限、推理异常、断流、分辨率变化以及浸泡未达标均会失败。它不显示或保存图像，不记录
 RTSP URI，也不启用飞控或载荷接口。
+
+2026-07-14 的 Orin NX + 三体 H.265 RTSP + TensorRT 8.6 实测通过：30分钟处理44,967帧，
+0次重连、0次采集失败、0次推理失败，推理 P95 29.90 ms，最高温52.72°C。证据文件为
+`artifacts/evaluation/jetson-orin-soak-20260714T0014.json`。这只批准运行时稳定性；模型清单
+仍为隔离状态且未批准生产使用，因此不能据此开启真实告警或载荷路径。
 
 ## C. 第三批：Pixhawk V6X只读接入
 
 准备：
 
 - PX4或ArduPilot，以及准确固件版本。
-- Jetson连接到哪个TELEM端口。
-- 串口设备名，例如 `/dev/ttyTHS1` 或 `/dev/serial/by-id/...`。
-- 波特率，常见起点为57600，但必须以飞控配置为准。
-- QGroundControl中对应端口和MAVLink配置。
-- 接线电平、TX/RX交叉、公共地和供电方案。
+- Holybro Pixhawk Jetson Baseboard 并行提供内部 Ethernet、`UART1 <-> TELEM2` 和 CAN。
+- 当前实机主链路：Jetson `192.168.0.1/24` 接收 V6X `192.168.0.3` 发往
+  `192.168.0.255:14550` 的 MAVLink 2 广播。
+- 串口后备链路：`/dev/ttyTHS1:921600`，须先在 QGC 配置 TELEM2 MAVLink 实例。
+- 本载板无需外接 Jetson-飞控数据线，但 Jetson 与飞控仍需分别供电。
 
 先只运行：
 
 ```bash
 python3 -m multidetect pixhawk-check \
-  --endpoint /dev/ttyTHS1 \
-  --baud 57600 \
-  --samples 20 \
-  --require-fresh-link
+  --endpoint udp:0.0.0.0:14550 \
+  --baud 921600 \
+  --samples 50 \
+  --expected-system-id 1 \
+  --expected-autopilot px4 \
+  --expected-vehicle-type fixed_wing \
+  --require-operational-state \
+  --require-fresh-link \
+  --require-fresh-position
 ```
 
-该阶段不上传任务、不切换模式、不发送心跳或飞控命令。需要把结果与QGroundControl逐字段核对。
+该阶段不上传任务、不切换模式、不发送心跳或飞控命令。命令会分别报告底层心跳新鲜度与
+资格门禁：收到广播但机型为 `GENERIC`、状态为 `UNINIT`、SYSID 不符或没有全局位置时仍
+返回失败。需要把结果与 QGroundControl 逐字段核对。
+
+真实 V6X 配置前可先运行官方 PX4 固定翼 SIH 的软件只读验收：
+
+```powershell
+.\scripts\run_px4_sitl_readonly_acceptance.ps1
+```
+
+它固定官方镜像 digest，使用独立 UDP `14650`，验证固定翼身份、位置/链路新鲜度、持续
+火情候选不能绕过未解锁/飞行模式门禁，以及停止 SITL 后必须失败闭锁；所有 Pixhawk 发送
+计数均须为0。运行证据位于
+`artifacts/evaluation/px4-fixed-wing-sitl-readonly-acceptance-*.json`。当前镜像是
+`v1.18.0-beta1` 且固定翼 SIH 仅作软件测试，不能替代取得真实 V6X 固件版本、QGC 逐字段
+对比和有人监护的静止台架验收。
+
+需要同时验证正向巡检门禁时，可显式增加 `-IncludeInContainerArmedPatrolHil`。它只在脚本
+新建的一次性 PX4 容器内部 arm/LOITER/disarm，Multi-Detect 仍保持零发送；该测试不包含
+AUTO 航线、真实飞行或载荷能力。
+
+### C1. 明确授权后的参数备份
+
+`pixhawk-check` 和 Live 遥测路径保持完全被动。参数备份是另一条主动读取路径，只有拆桨、
+断开电机/载荷并获得现场授权后才能使用；它发送一条 `PARAM_REQUEST_LIST`，但没有
+`PARAM_SET`、飞行命令、任务上传或执行器发送接口。PX4 的经典参数协议使用 bytewise
+编码，因此必须显式声明，不能把整数的浮点载体误当成参数值：
+
+```bash
+python3 -m multidetect pixhawk-param-backup \
+  --endpoint udpout:192.168.0.3:14550 \
+  --baud 921600 \
+  --target-system-id 1 \
+  --target-component-id 1 \
+  --parameter-encoding bytewise \
+  --timeout-seconds 60 \
+  --idle-timeout-seconds 3 \
+  --minimum-parameters 100 \
+  --out artifacts/pixhawk/v6x-parameters-before-config.json \
+  --acknowledge-active-read-request
+```
+
+文件已存在时命令会在联网前拒绝执行；只有显式 `--force` 才覆盖。完整备份要求收到飞控
+声明的全部索引，并同时保存解码值、4 字节原始值、参数类型、PX4 参数哈希和规范化列表
+SHA-256。丢包、数量不一致、来源 SYSID/COMPID 不符、重复索引变化或不支持的类型都会写出
+`passed=false` 的部分证据并返回失败。localhost 真实 pymavlink UDP HIL 证据位于
+`artifacts/evaluation/pixhawk-param-backup-localhost-hil.json`。
+
+2026-07-14 已通过 GR01 TCP 对真实 V6X 执行一次授权的只读备份：1102/1102 项完整回传，
+PX4 参数哈希 `a67025ae`，规范化列表 SHA-256
+`7a81c46f4aa3e365cdd9e217fffb1d7ab0168e3592733c0007eaab2e4a98daa0`；主动读取请求1条，
+`PARAM_SET`、飞行命令、任务和执行器消息均为0。快照位于
+`artifacts/evaluation/v6x-parameters-readonly-20260714.json`，离线校验位于同名
+`.verify.json`。实测 `SER_TEL1_BAUD=115200`、`COM_DL_LOSS_T=10`、`NAV_DLL_ACT=0`，没有
+执行任何参数修改。当前 QGC 元数据要求 `COM_DL_LOSS_T` 至少5秒；数值1是
+`NAV_DLL_ACT` 的保持动作枚举，而不是有效的1秒超时。编码规则依据
+[MAVLink Parameter Protocol](https://mavlink.io/en/services/parameter.html)。
+
+可直接对已验证快照做链路拓扑审计，不再连接飞控：
+
+```bash
+python3 -m multidetect pixhawk-link-audit \
+  artifacts/evaluation/v6x-parameters-readonly-20260714.json \
+  --out artifacts/evaluation/v6x-link-topology-audit-20260714.json
+```
+
+当前证据确认 `MAV_0_CONFIG=101` 对应 GR01 使用的 TELEM1，波特率115200；
+`MAV_2_CONFIG=1000` 对应板载 Ethernet，广播/本地/远端端口均为14550；
+`MAV_1_CONFIG=0` 表明可选 TELEM2 后备链路尚未配置。因此 Jetson 主链路不使用115200，
+UDP 命令里的 `--baud` 也不生效。审计只证明参数组合一致，不证明网线、射频或串口物理连通。
+
+备份完成后先离线验证。配置前后各生成一份新快照，再用允许列表比较；默认允许列表为空，
+因此任何变化都会返回失败。`--require-change` 同时把参数加入允许列表，并要求它必须发生：
+
+```bash
+python3 -m multidetect pixhawk-param-verify \
+  artifacts/pixhawk/v6x-parameters-before-config.json \
+  --out artifacts/pixhawk/v6x-parameters-before-config.verify.json
+
+python3 -m multidetect pixhawk-param-diff \
+  artifacts/pixhawk/v6x-parameters-before-config.json \
+  artifacts/pixhawk/v6x-parameters-after-config.json \
+  --allow-change SYS_AUTOSTART \
+  --require-change SYS_AUTOCONFIG \
+  --out artifacts/pixhawk/v6x-parameters-config.diff.json
+```
+
+两条命令完全离线且 `messages_transmitted=0`。它们会验证严格 schema、完整索引、bytewise
+解码值、原始字节、零写入不变量和参数列表 SHA-256，并分别报告新增、删除、值/类型变化及
+索引移动。文件内 SHA-256 只能证明自洽，不能防止攻击者同时重写内容和哈希；需要对抗性
+证据时，仍须把备份及报告交给外部签名/只写存储封存。
 
 短检查通过后，复制
 [`qgc_telemetry_snapshot.template.json`](../examples/qgc_telemetry_snapshot.template.json)，在机体静止、
@@ -221,8 +318,8 @@ python3 -m multidetect pixhawk-check \
 
 ```bash
 python3 -m multidetect pixhawk-v6x-bench \
-  --endpoint /dev/ttyTHS1 \
-  --baud 57600 \
+  --endpoint udp:0.0.0.0:14550 \
+  --baud 921600 \
   --qgc-snapshot artifacts/qgc-v6x-current.json \
   --minimum-samples 100 \
   --sample-interval-seconds 0.2 \

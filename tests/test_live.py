@@ -24,6 +24,7 @@ from multidetect.config import MissionConfig
 from multidetect.domain import BoundingBox, Detection, MissionPhase, SensorKind, VehicleTelemetry
 from multidetect.evaluation import JsonlPredictionWriter, load_prediction_jsonl
 from multidetect.live import LiveMissionRunner, LiveRunConfig, OpenCVAuthorizationUI
+from multidetect.manual_tracking import OpenCVManualTargetTracker
 from multidetect.mission import MissionController
 from multidetect.operator_bridge import LiveOperatorBridge
 from multidetect.operator_link import (
@@ -121,6 +122,25 @@ class _Detector:
 
     def covers_labels(self, _labels) -> bool:
         return False
+
+
+class _StableManualTrackerBackend:
+    def __init__(self) -> None:
+        self._bbox = (0.0, 0.0, 1.0, 1.0)
+
+    def init(self, _image, bbox) -> bool:
+        self._bbox = tuple(float(value) for value in bbox)
+        return True
+
+    def update(self, _image):
+        return True, self._bbox
+
+
+def _stable_manual_tracker(geometry: VideoGeometry) -> OpenCVManualTargetTracker:
+    return OpenCVManualTargetTracker(
+        geometry,
+        tracker_factory=_StableManualTrackerBackend,
+    )
 
 
 class _FailingPublisher:
@@ -249,12 +269,45 @@ def test_live_patrol_delivers_confirmed_alert_without_payload() -> None:
     assert result.alert_delivery_count == 1
     assert result.alert_delivery_failure_count == 0
     assert result.average_fps > 0
+    assert result.steady_source_fps > 0
+    assert result.steady_processing_fps > 0
+    assert result.startup_to_first_frame_seconds >= 0
     assert result.capture_latency_p95_ms >= 0
+    assert result.frame_age_at_inference_p95_ms >= 0
     assert result.inference_latency_p95_ms >= 0
     assert result.camera_reconnect_count == 0
+    assert result.capture_queue_high_watermark == 0
+    assert result.capture_queue_backpressure_count == 0
+    assert result.captured_frame_count == 4
     assert len(publisher.alerts()) == 1
     assert source.opened is True
     assert source.closed is True
+
+
+def test_live_runner_keeps_capture_and_mission_event_clocks_separate() -> None:
+    class _PrefetchedFrameSource(_FrameSource):
+        def read(self) -> CapturedFrame:
+            self._next += 1
+            return CapturedFrame(
+                frame_id=f"prefetched-{self._next}",
+                captured_at_s=float(self._next),
+                image_bgr=object(),
+                width=640,
+                height=480,
+            )
+
+    runner = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_PrefetchedFrameSource(4),
+        detector=_Detector(),
+        telemetry_provider=FailClosedTelemetryProvider(),
+        config=LiveRunConfig(max_frames=4, display=False),
+    )
+
+    result = runner.run()
+
+    assert result.processed_frames == 4
+    assert result.alert_delivery_count == 1
 
 
 def test_live_runner_connects_remote_selection_to_continuous_track_status() -> None:
@@ -312,6 +365,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
             geometry,
             TargetLockConfig(frozenset(_payload_config().target_classes)),
         ),
+        manual_tracker_factory=_stable_manual_tracker,
     )
     mission = MissionController(_payload_config())
     result = LiveMissionRunner(
@@ -345,6 +399,106 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
     assert any(
         event.event_type == "operator.remote_safety_status" for event in mission.audit.events()
     )
+
+
+def test_remote_manual_tracking_without_detections_cannot_create_mission_events() -> None:
+    geometry = VideoGeometry("camera-main", 640, 480)
+
+    class _NoDetectionDetector:
+        def detect(self, _image) -> tuple[Detection, ...]:
+            return ()
+
+        def covers_labels(self, _labels) -> bool:
+            return False
+
+    class _Backend:
+        def __init__(self) -> None:
+            self.updates = [
+                (True, (72.0, 52.0, 256.0, 192.0)),
+                (True, (80.0, 56.0, 256.0, 192.0)),
+                (True, (88.0, 60.0, 256.0, 192.0)),
+            ]
+
+        def init(self, _image, _bbox) -> bool:
+            return True
+
+        def update(self, _image):
+            return self.updates.pop(0)
+
+    class _Transport:
+        def __init__(self) -> None:
+            self.commands = deque(
+                [
+                    (
+                        TargetSelectionCommand(
+                            command_id="77777777-7777-4777-8777-777777777777",
+                            session_id="88888888-8888-4888-8888-888888888888",
+                            sequence=1,
+                            action=SelectionAction.SELECT,
+                            geometry=geometry,
+                            issued_at_s=100.0,
+                            expires_at_s=103.0,
+                            bbox=BoundingBox(0.1, 0.1, 0.5, 0.5),
+                        ),
+                        ("192.168.144.11", 14580),
+                    )
+                ]
+            )
+            self.published = []
+
+        def start_background(self) -> None:
+            pass
+
+        def poll_selection(self):
+            return self.commands.popleft() if self.commands else None
+
+        def poll_error(self):
+            return None
+
+        def publish_track_status(self, status, *, peer) -> None:
+            self.published.append((status, peer))
+
+        def publish_mission_status(self, _status, *, peer) -> None:
+            del peer
+
+        def publish_safety_status(self, _status, *, peer) -> None:
+            del peer
+
+        def close(self) -> None:
+            pass
+
+    backend = _Backend()
+    transport = _Transport()
+    mission = MissionController(_patrol_config())
+    publisher = RecordingAlertPublisher()
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(4),
+        detector=_NoDetectionDetector(),
+        telemetry_provider=FailClosedTelemetryProvider(),
+        config=LiveRunConfig(max_frames=4, display=False),
+        alert_publisher=publisher,
+        operator_bridge=LiveOperatorBridge(
+            transport,
+            OperatorTargetLock(
+                geometry,
+                TargetLockConfig(frozenset(_patrol_config().target_classes)),
+            ),
+            manual_tracker_factory=lambda current_geometry: OpenCVManualTargetTracker(
+                current_geometry,
+                tracker_factory=lambda: backend,
+            ),
+        ),
+    ).run()
+
+    assert result.remote_selection_count == 1
+    assert result.remote_tracking_status_count == 4
+    assert all(status.label == "manual" for status, _peer in transport.published)
+    assert result.alert_delivery_count == 0
+    assert result.authorization_count == 0
+    assert mission.fake_payload_port.request_count == 0
+    assert mission.status().phase is MissionPhase.SEARCHING
+    assert publisher.alerts() == ()
 
 
 def test_live_runner_closes_pixhawk_remote_authorization_and_two_channel_hil(
@@ -571,6 +725,7 @@ def test_live_runner_closes_pixhawk_remote_authorization_and_two_channel_hil(
                     geometry,
                     TargetLockConfig(frozenset(_payload_config().target_classes)),
                 ),
+                manual_tracker_factory=_stable_manual_tracker,
             ),
             payload_hil_cycle=payload_cycle,
         ).run()
@@ -734,6 +889,7 @@ def test_pixhawk_link_loss_invalidates_remote_authorization_before_auto_hil() ->
                 geometry,
                 TargetLockConfig(frozenset(_payload_config().target_classes)),
             ),
+            manual_tracker_factory=_stable_manual_tracker,
         ),
     ).run()
 
@@ -749,6 +905,27 @@ def test_pixhawk_link_loss_invalidates_remote_authorization_before_auto_hil() ->
 
 def test_live_camera_mouse_selection_uses_continuous_target_lock(monkeypatch) -> None:
     geometry = VideoGeometry("local-camera", 640, 480)
+
+    class _Backend:
+        def __init__(self) -> None:
+            self.initial_bbox = None
+            self.update_count = 0
+
+        def init(self, _image, bbox) -> bool:
+            self.initial_bbox = bbox
+            return True
+
+        def update(self, _image):
+            self.update_count += 1
+            return True, (128.0, 96.0, 128.0, 144.0)
+
+    backend = _Backend()
+
+    def _manual_tracker(geometry):
+        return OpenCVManualTargetTracker(
+            geometry,
+            tracker_factory=lambda: backend,
+        )
 
     class _SelectionUI:
         statuses = []
@@ -780,6 +957,7 @@ def test_live_camera_mouse_selection_uses_continuous_target_lock(monkeypatch) ->
             pass
 
     monkeypatch.setattr(live_module, "OpenCVAuthorizationUI", _SelectionUI)
+    monkeypatch.setattr(live_module, "OpenCVManualTargetTracker", _manual_tracker)
     mission = MissionController(_patrol_config())
     result = LiveMissionRunner(
         mission=mission,
@@ -794,9 +972,94 @@ def test_live_camera_mouse_selection_uses_continuous_target_lock(monkeypatch) ->
     assert len(_SelectionUI.statuses) == 3
     assert all(status.state is TrackingState.TRACKING for status in _SelectionUI.statuses)
     assert {status.target_id for status in _SelectionUI.statuses} == {"track-000001"}
+    assert backend.initial_bbox == (128, 96, 128, 144)
+    assert backend.update_count == 2
     assert any(
         event.event_type == "operator.local_target_selection" for event in mission.audit.events()
     )
+
+
+def test_live_camera_shadow_tracker_takes_over_detector_dropout(monkeypatch) -> None:
+    geometry = VideoGeometry("local-camera", 640, 480)
+
+    class _DropoutDetector(_Detector):
+        def __init__(self) -> None:
+            self._frame = 0
+
+        def detect(self, image) -> tuple[Detection, ...]:
+            self._frame += 1
+            return super().detect(image) if self._frame == 1 else ()
+
+    class _Backend:
+        def init(self, _image, _bbox) -> bool:
+            return True
+
+        def update(self, _image):
+            return True, (160.0, 110.0, 128.0, 144.0)
+
+    backend = _Backend()
+
+    def _manual_tracker(current_geometry):
+        return OpenCVManualTargetTracker(
+            current_geometry,
+            tracker_factory=lambda: backend,
+        )
+
+    def _fast_loss_config(allowed_labels):
+        return TargetLockConfig(
+            allowed_labels,
+            lost_after_s=1e-9,
+        )
+
+    class _SelectionUI:
+        statuses = []
+
+        def __init__(self) -> None:
+            self.sent = False
+
+        def consume_target_command(self, captured, *, now_s):
+            if self.sent:
+                return None
+            self.sent = True
+            return TargetSelectionCommand(
+                command_id="99999999-9999-4999-8999-999999999999",
+                session_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                sequence=1,
+                action=SelectionAction.SELECT,
+                geometry=geometry,
+                issued_at_s=now_s,
+                expires_at_s=now_s + 3.0,
+                bbox=BoundingBox(0.15, 0.15, 0.45, 0.55),
+                displayed_frame_id=captured.frame_id,
+            )
+
+        def render(self, _captured, **state):
+            self.statuses.append(state["local_track_status"])
+            return None
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(live_module, "OpenCVAuthorizationUI", _SelectionUI)
+    monkeypatch.setattr(live_module, "OpenCVManualTargetTracker", _manual_tracker)
+    monkeypatch.setattr(live_module, "TargetLockConfig", _fast_loss_config)
+    mission = MissionController(_patrol_config())
+
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(2),
+        detector=_DropoutDetector(),
+        telemetry_provider=FailClosedTelemetryProvider(),
+        config=LiveRunConfig(max_frames=2, display=True),
+    ).run()
+
+    assert result.local_selection_count == 1
+    assert result.local_tracking_status_count == 2
+    assert _SelectionUI.statuses[0].label == "flame"
+    assert _SelectionUI.statuses[1].state is TrackingState.TRACKING
+    assert _SelectionUI.statuses[1].label == "manual"
+    assert _SelectionUI.statuses[1].bbox == BoundingBox(0.25, 110 / 480, 0.45, 254 / 480)
+    assert mission.fake_payload_port.request_count == 0
 
 
 def test_camera_view_converts_drag_switch_and_right_click_cancel_to_commands() -> None:

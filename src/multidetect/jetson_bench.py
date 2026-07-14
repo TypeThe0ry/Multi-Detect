@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import math
 import time
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .compat import UTC
 from .vision import CameraReadError
 
 GPU_PROVIDERS = frozenset({"TensorrtExecutionProvider", "CUDAExecutionProvider"})
+SUPPORTED_JETSON_MODELS = frozenset({"Jetson Orin Nano", "Jetson Orin NX"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,18 +61,22 @@ def run_jetson_vision_bench(
     """Run capture and inference together while collecting fail-closed Jetson evidence."""
 
     raw_model = device_model_reader().strip().replace("\x00", "")
-    device_model = "Jetson Orin Nano" if "jetson orin nano" in raw_model.lower() else "unknown"
+    device_model = normalize_jetson_device_model(raw_model)
     providers = tuple(str(item) for item in getattr(detector, "provider_names", ()))
     active_provider = providers[0] if providers else None
     reasons: list[str] = []
-    if device_model != "Jetson Orin Nano":
-        reasons.append("system model is not recognized as Jetson Orin Nano")
+    if device_model not in SUPPORTED_JETSON_MODELS:
+        reasons.append("system model is not a supported Jetson Orin NX/Nano")
     if active_provider not in GPU_PROVIDERS:
         reasons.append("TensorRT or CUDA inference provider is not active")
 
     started_s = clock()
     processed_frames = 0
     detection_count = 0
+    frames_with_raw_candidates = 0
+    raw_candidates_by_class: Counter[str] = Counter()
+    raw_candidate_confidences: defaultdict[str, list[float]] = defaultdict(list)
+    raw_candidate_areas: defaultdict[str, list[float]] = defaultdict(list)
     failed_reads = 0
     inference_failures = 0
     inference_latencies_ms: list[float] = []
@@ -116,6 +123,13 @@ def run_jetson_vision_bench(
         inference_latencies_ms.append(max(0.0, (clock() - inference_started_s) * 1_000.0))
         processed_frames += 1
         detection_count += len(detections)
+        if detections:
+            frames_with_raw_candidates += 1
+        for detection in detections:
+            label = str(detection.label)
+            raw_candidates_by_class[label] += 1
+            raw_candidate_confidences[label].append(float(detection.confidence))
+            raw_candidate_areas[label].append(float(detection.bbox.area))
 
     duration_s = max(0.0, clock() - started_s)
     maximum_temperature = max(temperature_samples) if temperature_samples else None
@@ -136,9 +150,9 @@ def run_jetson_vision_bench(
         raise ValueError("Jetson bench observation time must include a timezone")
     width, height = expected_size if expected_size is not None else (None, None)
     return {
-        "event": f"jetson_orin_nano_bench_{'passed' if passed else 'failed'}",
+        "event": f"jetson_orin_bench_{'passed' if passed else 'failed'}",
         "observed_at_utc": timestamp.astimezone(UTC).isoformat(),
-        "hardware_observed": device_model == "Jetson Orin Nano" and processed_frames > 0,
+        "hardware_observed": device_model in SUPPORTED_JETSON_MODELS and processed_frames > 0,
         "simulation_only": False,
         "passed": passed,
         "reasons": reasons,
@@ -148,6 +162,22 @@ def run_jetson_vision_bench(
         "available_inference_providers": list(providers),
         "processed_frames": processed_frames,
         "detections_processed": detection_count,
+        "frames_with_raw_candidates": frames_with_raw_candidates,
+        "raw_candidate_frame_rate": (
+            frames_with_raw_candidates / processed_frames if processed_frames else None
+        ),
+        "raw_candidates_by_class": dict(sorted(raw_candidates_by_class.items())),
+        "raw_candidate_statistics_by_class": {
+            label: {
+                "count": raw_candidates_by_class[label],
+                "confidence_p50": _percentile(raw_candidate_confidences[label], 0.50),
+                "confidence_p95": _percentile(raw_candidate_confidences[label], 0.95),
+                "confidence_max": max(raw_candidate_confidences[label]),
+                "bbox_area_p50": _percentile(raw_candidate_areas[label], 0.50),
+                "bbox_area_p95": _percentile(raw_candidate_areas[label], 0.95),
+            }
+            for label in sorted(raw_candidates_by_class)
+        },
         "soak_duration_seconds": duration_s,
         "minimum_frames": config.minimum_frames,
         "minimum_duration_seconds": config.minimum_duration_seconds,
@@ -178,6 +208,17 @@ def read_jetson_device_model(path: Path = Path("/proc/device-tree/model")) -> st
         return ""
 
 
+def normalize_jetson_device_model(raw_model: str) -> str:
+    """Return the supported Orin module family without trusting arbitrary Jetson text."""
+
+    normalized = raw_model.strip().replace("\x00", "").lower()
+    if "jetson orin nx" in normalized:
+        return "Jetson Orin NX"
+    if "jetson orin nano" in normalized:
+        return "Jetson Orin Nano"
+    return "unknown"
+
+
 def read_temperatures_c(root: Path = Path("/sys/class/thermal")) -> tuple[float, ...]:
     values: list[float] = []
     try:
@@ -187,7 +228,12 @@ def read_temperatures_c(root: Path = Path("/sys/class/thermal")) -> tuple[float,
     for path in paths:
         try:
             raw = float(path.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
+        # Some Jetson thermal zones transiently return EAGAIN. Python's
+        # TextIOWrapper can surface that sysfs behavior as a TypeError from
+        # the incremental decoder instead of the underlying BlockingIOError.
+        # Skip only that sensor; the bench still fails closed if no readable
+        # temperature remains.
+        except (OSError, TypeError, ValueError):
             continue
         value = raw / 1_000.0 if abs(raw) >= 1_000 else raw
         if math.isfinite(value):
@@ -209,7 +255,9 @@ def _percentile(values: list[float], quantile: float) -> float | None:
 
 __all__ = [
     "GPU_PROVIDERS",
+    "SUPPORTED_JETSON_MODELS",
     "JetsonVisionBenchConfig",
+    "normalize_jetson_device_model",
     "read_jetson_device_model",
     "read_temperatures_c",
     "run_jetson_vision_bench",

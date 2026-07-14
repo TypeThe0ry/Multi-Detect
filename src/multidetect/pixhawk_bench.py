@@ -5,10 +5,11 @@ import math
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .compat import UTC
 from .domain import VehicleTelemetry
 
 
@@ -128,9 +129,7 @@ def run_pixhawk_v6x_bench(
     if latest is not None and sample_times and fresh_sample_count > 0:
         stale_after = float(provider.config.stale_after_seconds)
         stale = provider.cached_snapshot(now_s=sample_times[-1] + stale_after + 0.001)
-        link_loss_fail_closed = (
-            stale.link_healthy is False and stale.position_healthy is False
-        )
+        link_loss_fail_closed = stale.link_healthy is False and stale.position_healthy is False
     if not link_loss_fail_closed:
         reasons.append("cached telemetry did not fail closed after the stale timeout")
 

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from multidetect.cli import main
+from multidetect.compat import UTC
 from multidetect.integration_evidence import check_integration_evidence_bundle
 
 NOW = datetime(2026, 7, 13, 12, 0, tzinfo=UTC)
@@ -77,9 +78,7 @@ def test_hardware_profile_fails_when_hardware_records_are_missing(tmp_path: Path
 
     assert result["passed"] is False
     assert result["gates"]["software_hil"]["passed"] is True
-    assert result["gates"]["rtsp_camera"]["reasons"] == [
-        "required evidence record is missing"
-    ]
+    assert result["gates"]["rtsp_camera"]["reasons"] == ["required evidence record is missing"]
     assert result["gates"]["jetson"]["passed"] is False
 
 
@@ -189,9 +188,9 @@ def test_complete_inert_payload_profile_passes_without_production_approval(
             "resolution_stable": True,
             "credentials_recorded": False,
         },
-        "jetson": _hardware_artifact("jetson_orin_nano_bench_passed")
+        "jetson": _hardware_artifact("jetson_orin_bench_passed")
         | {
-            "device_model": "Jetson Orin Nano",
+            "device_model": "Jetson Orin NX",
             "active_inference_provider": "TensorrtExecutionProvider",
             "soak_duration_seconds": 1800,
             "processed_frames": 1000,

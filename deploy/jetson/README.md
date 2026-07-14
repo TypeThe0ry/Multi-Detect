@@ -1,8 +1,31 @@
-# Jetson Orin Nano deployment template
+# Jetson Orin NX/Nano deployment template
 
 This directory packages the current read-only flight integration and perception service. It does
 not add a flight-command or physical payload interface. The service intentionally uses the
 zero-payload patrol configuration and requires a production-approved model manifest.
+
+The L4T 36.3 / JetPack 6.0 target uses the system Python 3.10 runtime so NVIDIA's multimedia and
+TensorRT Python packages remain ABI-aligned. For a first bench install, copy the repository to the
+Jetson and run the auditable bootstrap script locally so the sudo password never enters a log:
+
+```bash
+cd ~/Multi-Detect
+sudo bash scripts/bootstrap_jetson_orin.sh \
+  --date-utc '2026-07-13 06:00:00 UTC'
+```
+
+Replace the timestamp with the current UTC time. The script configures only a temporary bench
+gateway, installs the JetPack runtime, GStreamer hardware decoder, Python/OpenCV, a CPU ONNX
+validation baseline and the read-only MAVLink dependency. It deliberately does not enable this
+service, configure a flight mode, transmit MAVLink, or expose a payload interface. Validate the
+CPU path first; qualify a JetPack-compatible native TensorRT path separately before treating GPU
+evidence as available.
+
+The aircraft service itself must use a target-built TensorRT 8.6 `.engine`/`.plan` artifact. The
+direct engine adapter avoids silently treating the CPU-only ONNX Runtime wheel commonly available
+on Jetson as GPU evidence. The serialized engine and its manifest are a matched pair: copy both to
+the generic paths in `runtime.env`, and never reuse an engine built for another Jetson model,
+TensorRT release or CUDA stack.
 
 ## Device layout
 
@@ -54,8 +77,7 @@ runuser --preserve-environment -u multidetect -- \
   --model-manifest "${FIRE_MODEL_MANIFEST}" \
   --class-names "${FIRE_MODEL_CLASS_NAMES}" \
   --output-coordinates "${FIRE_MODEL_OUTPUT_COORDINATES}" \
-  --require-production-approved --provider TensorrtExecutionProvider \
-  --provider CUDAExecutionProvider --provider CPUExecutionProvider
+  --require-production-approved
 
 runuser --preserve-environment -u multidetect -- \
   /opt/multi-detect/.venv/bin/python -m multidetect camera-check \
@@ -63,7 +85,10 @@ runuser --preserve-environment -u multidetect -- \
 
 runuser --preserve-environment -u multidetect -- \
   /opt/multi-detect/.venv/bin/python -m multidetect pixhawk-check \
-  --endpoint /dev/ttyTHS1 --baud 57600 --samples 20 --require-fresh-link
+  --endpoint udp:0.0.0.0:14550 --baud 921600 --samples 20 \
+  --expected-system-id 1 --expected-autopilot px4 \
+  --expected-vehicle-type fixed_wing --require-operational-state \
+  --require-fresh-link --require-fresh-position
 
 exit
 ```
@@ -77,8 +102,32 @@ The candidate floor, per-class thresholds and consecutive-frame count are also e
 values. Preflight rejects a class threshold below the detector floor or above the mission confirmation
 threshold, and rejects a stability count weaker than `minimum_track_observations`.
 
-Compare the Pixhawk output with QGroundControl before starting the service. Then review the full
-expanded command and sandbox:
+An engine whose manifest is `quarantined` or has `production_approved=false` must fail the command
+above and must not be used by the systemd service. It may only be exercised in an explicitly
+bounded, no-display bench run without `--require-production-approved-models`; retain the audit and
+prediction JSONL from that run, and keep `payload_count=0` with all payload/HIL options absent.
+
+The Holybro Pixhawk Jetson Baseboard exposes three board-internal paths between the Jetson and
+V6X: Ethernet, `UART1 <-> TELEM2`, and CAN. This aircraft currently uses the verified Ethernet
+path: V6X `192.168.0.3` broadcasts MAVLink 2 to `192.168.0.255:14550`. Keep the aircraft-facing
+Jetson address `192.168.144.20/24` and add `192.168.0.1/24` as a second address on `eth0`:
+
+```bash
+connection="$(nmcli -g GENERAL.CONNECTION device show eth0)"
+sudo nmcli connection modify "$connection" +ipv4.addresses 192.168.0.1/24
+sudo nmcli device reapply eth0
+```
+
+Because PX4 sends a subnet broadcast, the read-only receiver binds `udp:0.0.0.0:14550` rather
+than one specific local address. The UART remains a supported fallback at `/dev/ttyTHS1:921600`
+after PX4 TELEM2 is configured; it is not the current primary path. Pixhawk and Jetson power rails
+remain separate even though all three data paths are board-internal. Compare the output with
+QGroundControl before starting the service. Then review the full expanded command and sandbox:
+
+The qualification command distinguishes a live transport from a flight-ready controller. It fails
+closed unless SYSID 1 identifies PX4, reports `MAV_TYPE_FIXED_WING`, reaches `STANDBY` or `ACTIVE`,
+and supplies fresh global position. `GENERIC`, `UNINIT`, a different SYSID, or a GCS/companion
+heartbeat cannot satisfy the gate.
 
 ```bash
 systemd-analyze verify /etc/systemd/system/multi-detect.service

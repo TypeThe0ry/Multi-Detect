@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "bundle_id": "local-software-hil-2026-07-13",
+  "bundle_id": "local-software-hil-2026-07-14",
   "aircraft_id": "development-aircraft",
   "records": {
     "software_hil": {
       "artifact": "../artifacts/evaluation/combined-flight-stack-software-hil-acceptance.json",
-      "sha256": "f6a27f81998553b0d2b1d83e94193fad0041247c0b334875e3f75cd94f121395"
+      "sha256": "5d0eb53b6d68baeaab5ebcd5128352bf8b50e073798e2e47c398f9cfaa9c9fd0"
     }
   }
 }

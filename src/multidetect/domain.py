@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import StrEnum
 from math import hypot, isfinite, nan
 from typing import Any
+
+from .compat import StrEnum
 
 
 class ConfigurationError(ValueError):

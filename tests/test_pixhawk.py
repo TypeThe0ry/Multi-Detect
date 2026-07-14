@@ -1,18 +1,40 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from multidetect.pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
+from multidetect.pixhawk import (
+    PixhawkDiscoveryError,
+    PixhawkReadOnlyConfig,
+    PixhawkReadOnlyTelemetryProvider,
+    resolve_pixhawk_endpoint,
+)
 from multidetect.telemetry import FailClosedTelemetryProvider, with_person_detector_health
 
 
 class _Message:
-    def __init__(self, name: str, **values: float) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        source_system_id: int | None = None,
+        source_component_id: int | None = None,
+        **values: object,
+    ) -> None:
         self._name = name
+        self._source_system_id = source_system_id
+        self._source_component_id = source_component_id
         self.__dict__.update(values)
 
     def get_type(self) -> str:
         return self._name
+
+    def get_srcSystem(self) -> int | None:
+        return self._source_system_id
+
+    def get_srcComponent(self) -> int | None:
+        return self._source_component_id
 
 
 class _NoMessageConnection:
@@ -101,3 +123,199 @@ def test_pixhawk_cached_snapshot_never_connects_or_receives() -> None:
 def test_pixhawk_config_rejects_invalid_stale_timeout(stale_after_seconds: float) -> None:
     with pytest.raises(ValueError, match="stale timeout"):
         PixhawkReadOnlyConfig("udp:127.0.0.1:14550", stale_after_seconds=stale_after_seconds)
+
+
+def test_pixhawk_qualification_rejects_wrong_source_generic_and_uninitialized() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:0.0.0.0:14550",
+            expected_system_id=1,
+            expected_autopilot_id=12,
+            expected_vehicle_type_id=1,
+            require_operational_state=True,
+        )
+    )
+    provider._connection = _NoMessageConnection()
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=2,
+            source_component_id=1,
+            autopilot=12,
+            type=1,
+            system_status=4,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=1,
+            source_component_id=190,
+            autopilot=8,
+            type=18,
+            system_status=4,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=1,
+            source_component_id=1,
+            autopilot=12,
+            type=0,
+            system_status=0,
+            mavlink_version=3,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+
+    snapshot = provider.snapshot(now_s=10.5)
+    identity = provider.heartbeat_identity.to_document()
+
+    assert provider.transport_link_healthy(now_s=10.5) is True
+    assert snapshot.link_healthy is False
+    assert provider.qualification.passed is False
+    assert "vehicle type mismatch" in " ".join(provider.qualification.reasons)
+    assert "MAV_STATE_UNINIT" in " ".join(provider.qualification.reasons)
+    assert identity["autopilot_name"] == "MAV_AUTOPILOT_PX4"
+    assert identity["vehicle_type_name"] == "MAV_TYPE_GENERIC"
+    assert identity["system_status_name"] == "MAV_STATE_UNINIT"
+    assert provider.rejected_system_messages == 1
+    assert provider.ignored_non_autopilot_heartbeats == 1
+
+
+def test_pixhawk_qualification_accepts_expected_operational_fixed_wing() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:0.0.0.0:14550",
+            expected_system_id=1,
+            expected_autopilot_id=12,
+            expected_vehicle_type_id=1,
+            require_operational_state=True,
+        )
+    )
+    provider._connection = _NoMessageConnection()
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=1,
+            source_component_id=1,
+            autopilot=12,
+            type=1,
+            system_status=3,
+            mavlink_version=3,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+
+    snapshot = provider.snapshot(now_s=10.5)
+
+    assert snapshot.link_healthy is True
+    assert provider.qualification.passed is True
+    assert provider.messages_received == 1
+    assert provider.message_type_counts == {"HEARTBEAT": 1}
+
+
+def test_diagnostics_separates_transport_health_from_task_qualification() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:0.0.0.0:14550",
+            expected_system_id=1,
+            expected_autopilot_id=12,
+            expected_vehicle_type_id=1,
+            require_operational_state=True,
+        )
+    )
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=1,
+            source_component_id=1,
+            autopilot=12,
+            type=0,
+            system_status=0,
+            mavlink_version=3,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+
+    document = provider.diagnostics(now_s=10.1)
+
+    assert document["transport_link_healthy"] is True
+    assert document["qualified_link_healthy"] is False
+    assert document["position_healthy"] is None
+    assert document["heartbeat_identity"]["autopilot_name"] == "MAV_AUTOPILOT_PX4"
+    assert document["qualification"]["passed"] is False
+    assert document["messages_received"] == 1
+    assert document["messages_transmitted"] == 0
+    assert document["hardware_control_enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"expected_system_id": 0},
+        {"expected_system_id": 256},
+        {"expected_autopilot_id": True},
+        {"expected_vehicle_type_id": -1},
+        {"require_operational_state": 1},
+    ],
+)
+def test_pixhawk_config_rejects_invalid_qualification_settings(
+    changes: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match="Pixhawk"):
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550", **changes)  # type: ignore[arg-type]
+
+
+def test_pixhawk_auto_discovery_prefers_stable_identifier(tmp_path: Path) -> None:
+    by_id = tmp_path / "by-id"
+    devices = tmp_path / "dev"
+    by_id.mkdir()
+    devices.mkdir()
+    stable = by_id / "usb-ArduPilot_Pixhawk6X_1234-if00"
+    stable.write_bytes(b"")
+    (devices / "ttyACM0").write_bytes(b"")
+
+    assert resolve_pixhawk_endpoint("auto", by_id_dir=by_id, device_dir=devices) == str(stable)
+
+
+def test_pixhawk_auto_discovery_allows_one_acm_fallback(tmp_path: Path) -> None:
+    by_id = tmp_path / "by-id"
+    devices = tmp_path / "dev"
+    by_id.mkdir()
+    devices.mkdir()
+    acm = devices / "ttyACM0"
+    acm.write_bytes(b"")
+
+    assert resolve_pixhawk_endpoint("auto", by_id_dir=by_id, device_dir=devices) == str(acm)
+
+
+def test_pixhawk_auto_discovery_rejects_ambiguous_devices(tmp_path: Path) -> None:
+    by_id = tmp_path / "by-id"
+    devices = tmp_path / "dev"
+    by_id.mkdir()
+    devices.mkdir()
+    (devices / "ttyACM0").write_bytes(b"")
+    (devices / "ttyACM1").write_bytes(b"")
+
+    with pytest.raises(PixhawkDiscoveryError, match="multiple /dev/ttyACM"):
+        resolve_pixhawk_endpoint("auto", by_id_dir=by_id, device_dir=devices)
+
+
+def test_pixhawk_explicit_endpoint_is_not_probed(tmp_path: Path) -> None:
+    assert (
+        resolve_pixhawk_endpoint(
+            "/dev/ttyTHS1",
+            by_id_dir=tmp_path / "missing",
+            device_dir=tmp_path / "missing",
+        )
+        == "/dev/ttyTHS1"
+    )

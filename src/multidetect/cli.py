@@ -109,17 +109,33 @@ from .payload_inventory import (
     load_payload_inventory_snapshot,
     verify_payload_inventory,
 )
-from .pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
+from .pixhawk import (
+    PIXHAWK_AUTOPILOT_IDS,
+    PIXHAWK_VEHICLE_TYPE_IDS,
+    PixhawkReadOnlyConfig,
+    PixhawkReadOnlyTelemetryProvider,
+)
 from .pixhawk_bench import (
     PixhawkBenchConfig,
     load_qgc_telemetry_snapshot,
     run_pixhawk_v6x_bench,
+)
+from .pixhawk_link_audit import V6XLinkAuditExpectations, audit_v6x_link_topology
+from .pixhawk_parameters import (
+    PixhawkParameterBackupClient,
+    PixhawkParameterBackupConfig,
+    compare_pixhawk_parameter_snapshots,
+    load_verified_pixhawk_parameter_snapshot,
+    write_pixhawk_parameter_diff,
+    write_pixhawk_parameter_report,
+    write_pixhawk_parameter_snapshot,
 )
 from .replay import load_jsonl_replay
 from .synthetic_model import create_synthetic_hil_model_bundle
 from .telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
 from .vision import (
     BrightNeutralLightVetoFilter,
+    BufferedFrameSource,
     CaptureConfig,
     ClassConfidenceFilter,
     DetectorEnsemble,
@@ -242,7 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
         "model-check",
         help="validate a post-NMS ONNX Nx6 contract and benchmark synthetic inference",
     )
-    model_check.add_argument("--onnx-model", type=Path, required=True)
+    model_check.add_argument(
+        "--onnx-model",
+        type=Path,
+        required=True,
+        help="post-NMS ONNX model or Jetson TensorRT .engine/.plan artifact",
+    )
     model_check.add_argument("--model-manifest", type=Path)
     model_check.add_argument(
         "--model-role",
@@ -269,7 +290,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="soak RTSP capture plus ONNX inference on Jetson and write hardware evidence",
     )
     _add_capture_arguments(jetson_bench)
-    jetson_bench.add_argument("--onnx-model", type=Path, required=True)
+    jetson_bench.add_argument(
+        "--onnx-model",
+        type=Path,
+        required=True,
+        help="post-NMS ONNX model or Jetson TensorRT .engine/.plan artifact",
+    )
     jetson_bench.add_argument("--model-manifest", type=Path, required=True)
     jetson_bench.add_argument("--class-names", default="fire,smoke")
     jetson_bench.add_argument("--input-width", type=int, default=640)
@@ -340,11 +366,91 @@ def build_parser() -> argparse.ArgumentParser:
         "pixhawk-check",
         help="sample a Pixhawk MAVLink link read-only; never transmits commands or requests",
     )
-    pixhawk_check.add_argument("--endpoint", required=True)
+    pixhawk_check.add_argument(
+        "--endpoint",
+        required=True,
+        help="serial/network endpoint, or auto for fail-closed USB discovery",
+    )
     pixhawk_check.add_argument("--baud", type=int, default=57_600)
     pixhawk_check.add_argument("--samples", type=int, default=10)
     pixhawk_check.add_argument("--interval-seconds", type=float, default=0.2)
     pixhawk_check.add_argument("--require-fresh-link", action="store_true")
+    pixhawk_check.add_argument("--require-fresh-position", action="store_true")
+    pixhawk_check.add_argument("--expected-system-id", type=int)
+    pixhawk_check.add_argument(
+        "--expected-autopilot",
+        choices=tuple(sorted(PIXHAWK_AUTOPILOT_IDS)),
+    )
+    pixhawk_check.add_argument(
+        "--expected-vehicle-type",
+        choices=tuple(sorted(PIXHAWK_VEHICLE_TYPE_IDS)),
+    )
+    pixhawk_check.add_argument("--require-operational-state", action="store_true")
+
+    pixhawk_parameters = subparsers.add_parser(
+        "pixhawk-param-backup",
+        help=(
+            "send one explicitly acknowledged PARAM_REQUEST_LIST and atomically back up "
+            "returned values; never writes parameters or sends flight commands"
+        ),
+    )
+    pixhawk_parameters.add_argument("--endpoint", required=True)
+    pixhawk_parameters.add_argument("--baud", type=int, default=57_600)
+    pixhawk_parameters.add_argument("--target-system-id", type=int, required=True)
+    pixhawk_parameters.add_argument("--target-component-id", type=int, default=1)
+    pixhawk_parameters.add_argument(
+        "--parameter-encoding",
+        choices=("bytewise", "c_cast"),
+        required=True,
+        help="PX4 uses bytewise; choose c_cast only for an autopilot known to use C casting",
+    )
+    pixhawk_parameters.add_argument("--timeout-seconds", type=float, default=60.0)
+    pixhawk_parameters.add_argument("--idle-timeout-seconds", type=float, default=3.0)
+    pixhawk_parameters.add_argument("--minimum-parameters", type=int, default=100)
+    pixhawk_parameters.add_argument("--out", type=Path, required=True)
+    pixhawk_parameters.add_argument("--force", action="store_true")
+    pixhawk_parameters.add_argument(
+        "--acknowledge-active-read-request",
+        action="store_true",
+        help=(
+            "required acknowledgement that this command transmits exactly one active "
+            "parameter-list read request"
+        ),
+    )
+
+    pixhawk_parameter_verify = subparsers.add_parser(
+        "pixhawk-param-verify",
+        help="offline-verify a complete parameter backup and its self-consistency hash",
+    )
+    pixhawk_parameter_verify.add_argument("snapshot", type=Path)
+    pixhawk_parameter_verify.add_argument("--out", type=Path)
+    pixhawk_parameter_verify.add_argument("--force", action="store_true")
+
+    pixhawk_parameter_diff = subparsers.add_parser(
+        "pixhawk-param-diff",
+        help="offline-compare two verified backups and reject unlisted parameter changes",
+    )
+    pixhawk_parameter_diff.add_argument("before", type=Path)
+    pixhawk_parameter_diff.add_argument("after", type=Path)
+    pixhawk_parameter_diff.add_argument("--allow-change", action="append", default=[])
+    pixhawk_parameter_diff.add_argument("--require-change", action="append", default=[])
+    pixhawk_parameter_diff.add_argument("--out", type=Path, required=True)
+    pixhawk_parameter_diff.add_argument("--force", action="store_true")
+
+    pixhawk_link_audit = subparsers.add_parser(
+        "pixhawk-link-audit",
+        help=(
+            "offline-audit independent GR01/TELEM1, Jetson/Ethernet and optional "
+            "Jetson/TELEM2 link configuration from a verified PX4 parameter backup"
+        ),
+    )
+    pixhawk_link_audit.add_argument("snapshot", type=Path)
+    pixhawk_link_audit.add_argument("--gr01-telem1-baud", type=int, default=115_200)
+    pixhawk_link_audit.add_argument("--jetson-telem2-baud", type=int, default=921_600)
+    pixhawk_link_audit.add_argument("--ethernet-udp-port", type=int, default=14_550)
+    pixhawk_link_audit.add_argument("--require-uart-fallback", action="store_true")
+    pixhawk_link_audit.add_argument("--out", type=Path)
+    pixhawk_link_audit.add_argument("--force", action="store_true")
 
     pixhawk_bench = subparsers.add_parser(
         "pixhawk-v6x-bench",
@@ -480,6 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
     operator_authorize.add_argument("--remote-system-id", type=int, default=1)
     operator_authorize.add_argument("--remote-component-id", type=int, default=191)
     alert_receiver.add_argument("--deduplication-db", type=Path)
+    alert_receiver.add_argument("--deduplication-capacity", type=int, default=10_000)
 
     gr01_bench = subparsers.add_parser(
         "gr01-link-bench",
@@ -513,7 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("config", type=Path)
     _add_capture_arguments(live)
-    live.add_argument("--onnx-model", type=Path, required=True)
+    live.add_argument(
+        "--onnx-model",
+        type=Path,
+        required=True,
+        help="post-NMS ONNX model or Jetson TensorRT .engine/.plan artifact",
+    )
     live.add_argument("--model-manifest", type=Path)
     live.add_argument("--class-names", default="fire,smoke")
     live.add_argument("--safety-onnx-model", type=Path)
@@ -555,6 +667,16 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--trt-engine-cache", type=Path)
     live.add_argument("--pixhawk-endpoint")
     live.add_argument("--pixhawk-baud", type=int, default=57_600)
+    live.add_argument("--pixhawk-system-id", type=int)
+    live.add_argument(
+        "--pixhawk-expected-autopilot",
+        choices=tuple(sorted(PIXHAWK_AUTOPILOT_IDS)),
+    )
+    live.add_argument(
+        "--pixhawk-expected-vehicle-type",
+        choices=tuple(sorted(PIXHAWK_VEHICLE_TYPE_IDS)),
+    )
+    live.add_argument("--require-pixhawk-operational-state", action="store_true")
     live.add_argument("--observe-pixhawk-lifecycle", action="store_true")
     live.add_argument("--task-area-mission-sequence", type=int)
     live.add_argument("--allowed-auto-mode", action="append", default=[])
@@ -562,6 +684,20 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--max-frames", type=int)
     live.add_argument("--alert-banner-seconds", type=float, default=5.0)
     live.add_argument("--performance-window-frames", type=int, default=600)
+    live.add_argument(
+        "--warmup-iterations",
+        type=int,
+        default=1,
+        help="initialize each model provider before opening the live camera",
+    )
+    live.add_argument(
+        "--capture-queue-frames",
+        type=int,
+        default=4,
+        help=(
+            "ordered capture FIFO capacity; 0 restores sequential capture/inference for diagnostics"
+        ),
+    )
     live.add_argument("--alert-outbox", type=Path)
     live.add_argument("--alert-udp-host")
     live.add_argument("--alert-udp-port", type=int, default=14_600)
@@ -679,6 +815,14 @@ def main(argv: list[str] | None = None) -> int:
             return _run_legacy_checkpoint_verify(args)
         if args.command == "pixhawk-check":
             return _run_pixhawk_check(args)
+        if args.command == "pixhawk-param-backup":
+            return _run_pixhawk_param_backup(args)
+        if args.command == "pixhawk-param-verify":
+            return _run_pixhawk_param_verify(args)
+        if args.command == "pixhawk-param-diff":
+            return _run_pixhawk_param_diff(args)
+        if args.command == "pixhawk-link-audit":
+            return _run_pixhawk_link_audit(args)
         if args.command == "pixhawk-v6x-bench":
             return _run_pixhawk_v6x_bench(args)
         if args.command == "integration-evidence-check":
@@ -710,6 +854,9 @@ def main(argv: list[str] | None = None) -> int:
                     "camera-bench",
                     "jetson-vision-bench",
                     "pixhawk-check",
+                    "pixhawk-param-backup",
+                    "pixhawk-param-verify",
+                    "pixhawk-param-diff",
                     "pixhawk-v6x-bench",
                     "gr01-link-bench",
                     "inert-payload-bench-check",
@@ -1457,7 +1604,14 @@ def _add_capture_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--height", type=int)
     parser.add_argument("--fps", type=float)
     parser.add_argument("--rtsp-transport", choices=("tcp", "udp"), default="tcp")
-    parser.add_argument("--backend", choices=("auto", "dshow", "msmf", "ffmpeg"), default="auto")
+    parser.add_argument("--rtsp-codec", choices=("h264", "h265"), default="h265")
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "dshow", "msmf", "ffmpeg", "gstreamer"),
+        default="auto",
+    )
+    parser.add_argument("--gstreamer-hardware-decode", action="store_true")
+    parser.add_argument("--gstreamer-latency-ms", type=int, default=100)
     parser.add_argument("--reconnect-attempts", type=int, default=3)
     parser.add_argument("--reconnect-delay-seconds", type=float, default=0.25)
 
@@ -1473,7 +1627,10 @@ def _capture_config_from_args(args: argparse.Namespace) -> CaptureConfig:
         height=args.height,
         fps=args.fps,
         rtsp_transport=args.rtsp_transport,
+        rtsp_codec=args.rtsp_codec,
         backend=args.backend,
+        gstreamer_hardware_decode=args.gstreamer_hardware_decode,
+        gstreamer_latency_ms=args.gstreamer_latency_ms,
         reconnect_attempts=args.reconnect_attempts,
         reconnect_delay_seconds=args.reconnect_delay_seconds,
     )
@@ -2016,12 +2173,28 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
     if not math.isfinite(args.interval_seconds) or args.interval_seconds < 0:
         raise ValueError("pixhawk-check interval must be a finite non-negative number")
     provider = PixhawkReadOnlyTelemetryProvider(
-        PixhawkReadOnlyConfig(endpoint=args.endpoint, baud=args.baud)
+        PixhawkReadOnlyConfig(
+            endpoint=args.endpoint,
+            baud=args.baud,
+            expected_system_id=args.expected_system_id,
+            expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS.get(args.expected_autopilot),
+            expected_vehicle_type_id=PIXHAWK_VEHICLE_TYPE_IDS.get(args.expected_vehicle_type),
+            require_operational_state=args.require_operational_state,
+        )
     )
     snapshots = []
+    fresh_transport_link_samples = 0
     try:
         for index in range(args.samples):
-            snapshots.append(provider.snapshot(now_s=time.monotonic()))
+            now_s = time.monotonic()
+            snapshot = provider.snapshot(now_s=now_s)
+            snapshots.append(snapshot)
+            transport_health = getattr(provider, "transport_link_healthy", None)
+            if callable(transport_health):
+                transport_fresh = transport_health(now_s=now_s)
+            else:
+                transport_fresh = snapshot.link_healthy
+            fresh_transport_link_samples += transport_fresh is True
             if index + 1 < args.samples and args.interval_seconds > 0:
                 time.sleep(args.interval_seconds)
     finally:
@@ -2029,23 +2202,168 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
     latest = snapshots[-1]
     fresh_link_samples = sum(snapshot.link_healthy is True for snapshot in snapshots)
     fresh_position_samples = sum(snapshot.position_healthy is True for snapshot in snapshots)
-    if args.require_fresh_link and fresh_link_samples == 0:
-        raise RuntimeError("Pixhawk link produced no fresh heartbeat during the check")
+    identity = getattr(provider, "heartbeat_identity", None)
+    identity_document = (
+        identity.to_document()
+        if identity is not None and callable(getattr(identity, "to_document", None))
+        else None
+    )
+    qualification = getattr(provider, "qualification", None)
+    qualification_document = (
+        qualification.to_document()
+        if qualification is not None and callable(getattr(qualification, "to_document", None))
+        else {"required": False, "passed": None, "reasons": ()}
+    )
+    gate_failures: list[str] = []
+    if args.require_fresh_link and fresh_transport_link_samples == 0:
+        gate_failures.append("no fresh autopilot heartbeat was received")
+    if args.require_fresh_position and fresh_position_samples == 0:
+        gate_failures.append("no fresh global position was received")
+    if qualification_document["required"] and qualification_document["passed"] is not True:
+        gate_failures.extend(str(item) for item in qualification_document["reasons"])
+    gate_passed = not gate_failures
     _emit(
         {
             "event": "pixhawk_read_only_check_finished",
-            "endpoint": args.endpoint,
+            "endpoint": getattr(provider, "resolved_endpoint", None) or args.endpoint,
+            "configured_endpoint": args.endpoint,
             "baud": args.baud,
             "sample_count": len(snapshots),
             "fresh_link_sample_count": fresh_link_samples,
+            "fresh_transport_link_sample_count": fresh_transport_link_samples,
             "fresh_position_sample_count": fresh_position_samples,
+            "heartbeat_identity": identity_document,
+            "qualification": qualification_document,
+            "requirements": {
+                "fresh_link": args.require_fresh_link,
+                "fresh_position": args.require_fresh_position,
+                "expected_system_id": args.expected_system_id,
+                "expected_autopilot": args.expected_autopilot,
+                "expected_vehicle_type": args.expected_vehicle_type,
+                "operational_state": args.require_operational_state,
+            },
+            "gate_passed": gate_passed,
+            "gate_failures": gate_failures,
+            "messages_received": getattr(provider, "messages_received", None),
+            "rejected_system_messages": getattr(
+                provider,
+                "rejected_system_messages",
+                None,
+            ),
+            "ignored_non_autopilot_heartbeats": getattr(
+                provider,
+                "ignored_non_autopilot_heartbeats",
+                None,
+            ),
+            "message_type_counts": getattr(provider, "message_type_counts", None),
             "latest": _telemetry_document(latest),
             "read_only": provider.is_read_only,
             "messages_transmitted": provider.messages_transmitted,
             "hardware_control_enabled": False,
         }
     )
+    return 0 if gate_passed else 1
+
+
+def _run_pixhawk_param_backup(args: argparse.Namespace) -> int:
+    if not args.acknowledge_active_read_request:
+        raise ValueError(
+            "pixhawk-param-backup requires --acknowledge-active-read-request; "
+            "no MAVLink request was sent"
+        )
+    if args.out.exists() and not args.force:
+        raise FileExistsError(f"Pixhawk parameter backup already exists: {args.out}")
+    client = PixhawkParameterBackupClient(
+        PixhawkParameterBackupConfig(
+            endpoint=args.endpoint,
+            parameter_encoding=args.parameter_encoding,
+            active_read_request_acknowledged=args.acknowledge_active_read_request,
+            baud=args.baud,
+            target_system_id=args.target_system_id,
+            target_component_id=args.target_component_id,
+            timeout_seconds=args.timeout_seconds,
+            idle_timeout_seconds=args.idle_timeout_seconds,
+            minimum_parameters=args.minimum_parameters,
+        )
+    )
+    try:
+        snapshot = client.capture()
+    finally:
+        client.close()
+    write_pixhawk_parameter_snapshot(args.out, snapshot, force=args.force)
+    document = snapshot.to_document()
+    document["output_path"] = str(args.out.resolve())
+    _emit(document)
+    return 0 if snapshot.passed else 1
+
+
+def _run_pixhawk_param_verify(args: argparse.Namespace) -> int:
+    if args.out is not None and args.out.exists() and not args.force:
+        raise FileExistsError(f"Pixhawk parameter verification report already exists: {args.out}")
+    snapshot = load_verified_pixhawk_parameter_snapshot(args.snapshot)
+    document: dict[str, object] = {
+        "schema_version": 1,
+        "event": "pixhawk_parameter_backup_verified",
+        "snapshot_path": str(args.snapshot.resolve()),
+        "parameter_encoding": snapshot.parameter_encoding,
+        "target_system_id": snapshot.target_system_id,
+        "target_component_id": snapshot.target_component_id,
+        "parameter_count": len(snapshot.parameters),
+        "parameter_list_sha256": snapshot.parameter_list_sha256,
+        "self_consistency_hash_verified": True,
+        "cryptographically_authenticated": False,
+        "complete": snapshot.complete,
+        "passed": snapshot.passed,
+        "messages_transmitted": 0,
+        "hardware_control_enabled": False,
+    }
+    if args.out is not None:
+        write_pixhawk_parameter_report(args.out, document, force=args.force)
+        document["output_path"] = str(args.out.resolve())
+    _emit(document)
     return 0
+
+
+def _run_pixhawk_param_diff(args: argparse.Namespace) -> int:
+    if args.out.exists() and not args.force:
+        raise FileExistsError(f"Pixhawk parameter diff already exists: {args.out}")
+    before = load_verified_pixhawk_parameter_snapshot(args.before)
+    after = load_verified_pixhawk_parameter_snapshot(args.after)
+    required_changes = frozenset(args.require_change)
+    allowed_changes = frozenset((*args.allow_change, *required_changes))
+    document = compare_pixhawk_parameter_snapshots(
+        before,
+        after,
+        allowed_changes=allowed_changes,
+        required_changes=required_changes,
+    )
+    document["before_path"] = str(args.before.resolve())
+    document["after_path"] = str(args.after.resolve())
+    write_pixhawk_parameter_diff(args.out, document, force=args.force)
+    document["output_path"] = str(args.out.resolve())
+    _emit(document)
+    return 0 if document["gate_passed"] else 1
+
+
+def _run_pixhawk_link_audit(args: argparse.Namespace) -> int:
+    if args.out is not None and args.out.exists() and not args.force:
+        raise FileExistsError(f"Pixhawk link audit already exists: {args.out}")
+    snapshot = load_verified_pixhawk_parameter_snapshot(args.snapshot)
+    document = audit_v6x_link_topology(
+        snapshot,
+        V6XLinkAuditExpectations(
+            gr01_telem1_baud=args.gr01_telem1_baud,
+            jetson_uart_telem2_baud=args.jetson_telem2_baud,
+            ethernet_udp_port=args.ethernet_udp_port,
+            require_uart_fallback=args.require_uart_fallback,
+        ),
+    )
+    document["snapshot_path"] = str(args.snapshot.resolve())
+    if args.out is not None:
+        write_pixhawk_parameter_report(args.out, document, force=args.force)
+        document["output_path"] = str(args.out.resolve())
+    _emit(document)
+    return 0 if document["gate_passed"] else 1
 
 
 def _run_pixhawk_v6x_bench(args: argparse.Namespace) -> int:
@@ -2080,11 +2398,16 @@ def _run_alert_udp_receiver(args: argparse.Namespace) -> int:
         raise ValueError("maximum received message count must be positive")
     if args.max_rejected_packets < 0:
         raise ValueError("maximum rejected packet count cannot be negative")
+    if args.deduplication_capacity <= 0:
+        raise ValueError("deduplication capacity must be positive")
     key = _required_alert_hmac_key_from_env(args.hmac_key_env)
     received_count = 0
     rejected_count = 0
     deduplication_store = (
-        SqliteAlertDeduplicationStore(args.deduplication_db)
+        SqliteAlertDeduplicationStore(
+            args.deduplication_db,
+            capacity=args.deduplication_capacity,
+        )
         if args.deduplication_db is not None
         else None
     )
@@ -2097,6 +2420,7 @@ def _run_alert_udp_receiver(args: argparse.Namespace) -> int:
             expected_sender_id=args.expected_sender_id,
             receive_timeout_seconds=args.receive_timeout_seconds,
             maximum_clock_skew_seconds=args.maximum_clock_skew_seconds,
+            deduplication_capacity=args.deduplication_capacity,
             deduplication_store=deduplication_store,
         ) as receiver:
             _emit(
@@ -2108,6 +2432,7 @@ def _run_alert_udp_receiver(args: argparse.Namespace) -> int:
                     "expected_sender_id": args.expected_sender_id,
                     "authenticated": True,
                     "persistent_deduplication": deduplication_store is not None,
+                    "deduplication_capacity": args.deduplication_capacity,
                     "hardware_control_enabled": False,
                 }
             )
@@ -2177,6 +2502,18 @@ def _alert_publisher_from_args(args: argparse.Namespace) -> AlertPublisher:
 
 def _run_live_camera(args: argparse.Namespace) -> int:
     config = MissionConfig.from_json(args.config)
+    if not 0 <= args.capture_queue_frames <= 256:
+        raise ValueError("--capture-queue-frames must be between 0 and 256")
+    if not 0 <= args.warmup_iterations <= 100:
+        raise ValueError("--warmup-iterations must be between 0 and 100")
+    if args.onnx_model.suffix.lower() in {".engine", ".plan"} and args.model_manifest is None:
+        raise ValueError("TensorRT fire model requires a hash-bound --model-manifest")
+    if (
+        args.safety_onnx_model is not None
+        and args.safety_onnx_model.suffix.lower() in {".engine", ".plan"}
+        and args.safety_model_manifest is None
+    ):
+        raise ValueError("TensorRT safety model requires a hash-bound --safety-model-manifest")
     zone_evidence_hmac_key: bytes | None = None
     payload_hil_request_key: bytes | None = None
     payload_hil_result_key: bytes | None = None
@@ -2287,6 +2624,21 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         raise ValueError("--observe-pixhawk-lifecycle requires --pixhawk-endpoint")
     if args.observe_pixhawk_lifecycle and args.task_area_mission_sequence is None:
         raise ValueError("--observe-pixhawk-lifecycle requires --task-area-mission-sequence")
+    if args.observe_pixhawk_lifecycle:
+        required_qualification_options = {
+            "--pixhawk-system-id": args.pixhawk_system_id,
+            "--pixhawk-expected-autopilot": args.pixhawk_expected_autopilot,
+            "--pixhawk-expected-vehicle-type": args.pixhawk_expected_vehicle_type,
+        }
+        missing_qualification_options = [
+            name for name, value in required_qualification_options.items() if value is None
+        ]
+        if not args.require_pixhawk_operational_state:
+            missing_qualification_options.append("--require-pixhawk-operational-state")
+        if missing_qualification_options:
+            raise ValueError(
+                "--observe-pixhawk-lifecycle requires " + ", ".join(missing_qualification_options)
+            )
     if args.operator_udp_port is None and (
         args.operator_hmac_key_env is not None or args.mavlink_signing_key_hex_env is not None
     ):
@@ -2374,6 +2726,8 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 )
             )
         )
+    for model_detector in detectors:
+        model_detector.warmup(iterations=args.warmup_iterations)
     detector: Any = ClassConfidenceFilter(
         DetectorEnsemble(detectors),
         {
@@ -2400,13 +2754,23 @@ def _run_live_camera(args: argparse.Namespace) -> int:
     person_safety_evidence_qualified = (
         person_safety_model_coverage and verified_safety_model is not None
     )
-    telemetry = (
+    pixhawk_telemetry = (
         PixhawkReadOnlyTelemetryProvider(
-            PixhawkReadOnlyConfig(endpoint=args.pixhawk_endpoint, baud=args.pixhawk_baud)
+            PixhawkReadOnlyConfig(
+                endpoint=args.pixhawk_endpoint,
+                baud=args.pixhawk_baud,
+                expected_system_id=args.pixhawk_system_id,
+                expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS.get(args.pixhawk_expected_autopilot),
+                expected_vehicle_type_id=PIXHAWK_VEHICLE_TYPE_IDS.get(
+                    args.pixhawk_expected_vehicle_type
+                ),
+                require_operational_state=args.require_pixhawk_operational_state,
+            )
         )
         if args.pixhawk_endpoint
-        else FailClosedTelemetryProvider()
+        else None
     )
+    telemetry = pixhawk_telemetry or FailClosedTelemetryProvider()
     if args.zone_evidence_report is not None:
         if zone_evidence_hmac_key is None or args.zone_evidence_key_id is None:
             raise RuntimeError("zone evidence authentication was not initialized")
@@ -2556,9 +2920,15 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         except Exception:
             confirmation_receiver.close()
             raise
+    capture_source = OpenCVFrameSource(_capture_config_from_args(args))
+    frame_source = (
+        BufferedFrameSource(capture_source, capacity=args.capture_queue_frames)
+        if args.capture_queue_frames > 0
+        else capture_source
+    )
     runner = LiveMissionRunner(
         mission=controller,
-        frame_source=OpenCVFrameSource(_capture_config_from_args(args)),
+        frame_source=frame_source,
         detector=detector,
         telemetry_provider=telemetry,
         alert_publisher=alert_publisher,
@@ -2632,10 +3002,23 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "inert_payload_hil_enabled": payload_hil_cycle is not None,
             "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
             "payload_hil_physical_release_enabled": False,
+            "capture_queue_frames": args.capture_queue_frames,
+            "capture_queue_intentional_drop_policy": "none",
+            "model_warmup_iterations": args.warmup_iterations,
         }
     )
+    pixhawk_diagnostics: dict[str, object] | None = None
     try:
         result = runner.run()
+        if pixhawk_telemetry is not None:
+            diagnostics_at_s = time.monotonic()
+            pixhawk_diagnostics = pixhawk_telemetry.diagnostics(now_s=diagnostics_at_s)
+            if audit_log is not None:
+                audit_log.append(
+                    "live.pixhawk_read_only_summary",
+                    diagnostics_at_s,
+                    pixhawk_diagnostics,
+                )
     finally:
         if alert_outbox is not None:
             alert_outbox.close()
@@ -2652,11 +3035,19 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "alerts_delivered": result.alert_delivery_count,
             "alert_delivery_failures": result.alert_delivery_failure_count,
             "average_fps": result.average_fps,
+            "steady_source_fps": result.steady_source_fps,
+            "steady_processing_fps": result.steady_processing_fps,
+            "startup_to_first_frame_seconds": result.startup_to_first_frame_seconds,
             "capture_latency_p50_ms": result.capture_latency_p50_ms,
             "capture_latency_p95_ms": result.capture_latency_p95_ms,
+            "frame_age_at_inference_p50_ms": result.frame_age_at_inference_p50_ms,
+            "frame_age_at_inference_p95_ms": result.frame_age_at_inference_p95_ms,
             "inference_latency_p50_ms": result.inference_latency_p50_ms,
             "inference_latency_p95_ms": result.inference_latency_p95_ms,
             "camera_reconnect_count": result.camera_reconnect_count,
+            "capture_queue_high_watermark": result.capture_queue_high_watermark,
+            "capture_queue_backpressure_count": result.capture_queue_backpressure_count,
+            "captured_frame_count": result.captured_frame_count,
             "alerts_retried": result.retried_alert_count,
             "simulated_payload_cycles": result.simulated_payload_cycle_count,
             "local_selections": result.local_selection_count,
@@ -2671,6 +3062,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "physical_release_supported": False,
             "inert_payload_hil_enabled": payload_hil_cycle is not None,
             "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
+            "pixhawk": pixhawk_diagnostics,
         }
     )
     return 0

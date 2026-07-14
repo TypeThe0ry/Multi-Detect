@@ -132,8 +132,8 @@ class ReceivedAuthenticatedAlert:
 
 class InMemoryAlertDeduplicationStore:
     def __init__(self, *, capacity: int = 10_000) -> None:
-        if capacity <= 0:
-            raise ValueError("deduplication capacity must be positive")
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+            raise ValueError("deduplication capacity must be a positive integer")
         self.capacity = capacity
         self._delivered_hashes: OrderedDict[str, str] = OrderedDict()
         self._lock = RLock()
@@ -157,8 +157,11 @@ class InMemoryAlertDeduplicationStore:
 class SqliteAlertDeduplicationStore:
     """Persistent ground-side alert-ID deduplication across receiver restarts."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, capacity: int = 10_000) -> None:
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+            raise ValueError("deduplication capacity must be a positive integer")
         self.path = Path(path)
+        self.capacity = capacity
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(self.path, check_same_thread=False)
         self._connection.execute("PRAGMA journal_mode=WAL")
@@ -174,6 +177,7 @@ class SqliteAlertDeduplicationStore:
             )
             """
         )
+        self._prune_to_capacity_locked()
         self._connection.commit()
         self._lock = RLock()
 
@@ -199,6 +203,7 @@ class SqliteAlertDeduplicationStore:
                     """,
                     (alert_id, payload_sha256, received_at_unix_s, received_at_unix_s),
                 )
+                self._prune_to_capacity_locked()
                 return False
             if str(row[0]) != payload_sha256:
                 raise AlertAuthenticationError("alert identifier was reused with different content")
@@ -211,6 +216,28 @@ class SqliteAlertDeduplicationStore:
                 (received_at_unix_s, alert_id),
             )
             return True
+
+    @property
+    def record_count(self) -> int:
+        with self._lock:
+            row = self._connection.execute("SELECT COUNT(*) FROM received_alerts").fetchone()
+        if row is None:
+            raise RuntimeError("failed to count received alert records")
+        return int(row[0])
+
+    def _prune_to_capacity_locked(self) -> int:
+        cursor = self._connection.execute(
+            """
+            DELETE FROM received_alerts
+            WHERE alert_id IN (
+                SELECT alert_id FROM received_alerts
+                ORDER BY last_received_at_unix_s DESC, alert_id DESC
+                LIMIT -1 OFFSET ?
+            )
+            """,
+            (self.capacity,),
+        )
+        return max(0, cursor.rowcount)
 
     def close(self) -> None:
         with self._lock:
@@ -328,8 +355,12 @@ class AuthenticatedUdpAlertReceiver:
             raise ValueError("receive timeout must be finite and positive")
         if not math.isfinite(maximum_clock_skew_seconds) or maximum_clock_skew_seconds <= 0:
             raise ValueError("maximum clock skew must be finite and positive")
-        if deduplication_capacity <= 0:
-            raise ValueError("deduplication capacity must be positive")
+        if (
+            isinstance(deduplication_capacity, bool)
+            or not isinstance(deduplication_capacity, int)
+            or deduplication_capacity <= 0
+        ):
+            raise ValueError("deduplication capacity must be a positive integer")
         self.bind_host = bind_host
         self.port = port
         self.hmac_key = hmac_key
@@ -581,8 +612,20 @@ class JsonLineAlertPublisher:
 class SqliteAlertOutbox:
     """Durable at-least-once alert queue for a later acknowledged data link."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        keep_latest_delivered: int | None = 10_000,
+    ) -> None:
+        if keep_latest_delivered is not None and (
+            isinstance(keep_latest_delivered, bool)
+            or not isinstance(keep_latest_delivered, int)
+            or keep_latest_delivered < 0
+        ):
+            raise ValueError("keep_latest_delivered must be a non-negative integer or None")
         self.path = Path(path)
+        self.keep_latest_delivered = keep_latest_delivered
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(self.path)
         self._connection.execute("PRAGMA journal_mode=WAL")
@@ -633,6 +676,8 @@ class SqliteAlertOutbox:
             )
             if cursor.rowcount != 1:
                 raise KeyError(f"pending alert not found: {alert_id}")
+            if self.keep_latest_delivered is not None:
+                self._prune_delivered_locked(self.keep_latest_delivered)
 
     def mark_failed(self, alert_id: str, *, error_type: str) -> None:
         with self._lock, self._connection:
@@ -673,22 +718,25 @@ class SqliteAlertOutbox:
         return int(row[0])
 
     def prune_delivered(self, *, keep_latest: int = 10_000) -> int:
-        if keep_latest < 0:
-            raise ValueError("keep_latest cannot be negative")
+        if isinstance(keep_latest, bool) or not isinstance(keep_latest, int) or keep_latest < 0:
+            raise ValueError("keep_latest must be a non-negative integer")
         with self._lock, self._connection:
-            cursor = self._connection.execute(
-                """
-                DELETE FROM alert_outbox
-                WHERE alert_id IN (
-                    SELECT alert_id FROM alert_outbox
-                    WHERE status = 'delivered'
-                    ORDER BY delivered_at_s DESC, alert_id DESC
-                    LIMIT -1 OFFSET ?
-                )
-                """,
-                (keep_latest,),
+            return self._prune_delivered_locked(keep_latest)
+
+    def _prune_delivered_locked(self, keep_latest: int) -> int:
+        cursor = self._connection.execute(
+            """
+            DELETE FROM alert_outbox
+            WHERE alert_id IN (
+                SELECT alert_id FROM alert_outbox
+                WHERE status = 'delivered'
+                ORDER BY delivered_at_s DESC, alert_id DESC
+                LIMIT -1 OFFSET ?
             )
-            return max(0, cursor.rowcount)
+            """,
+            (keep_latest,),
+        )
+        return max(0, cursor.rowcount)
 
     def close(self) -> None:
         with self._lock:

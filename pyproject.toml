@@ -7,7 +7,7 @@ name = "multi-detect"
 version = "0.1.0"
 description = "Safety-first mission orchestration prototype for non-hazardous UAV payload deployment"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Multi-Detect contributors" }]
 dependencies = []
@@ -20,7 +20,9 @@ vision-gpu = [
   "opencv-contrib-python>=4.10",
   "onnxruntime-gpu==1.22.0",
 ]
-pixhawk = ["pymavlink>=2.4"]
+pixhawk = ["pymavlink>=2.4", "pyserial>=3.5"]
+security = ["PyNaCl>=1.5"]
+jetson = ["cuda-python==12.2.1"]
 model-tools = ["onnx>=1.16,<2"]
 
 [project.scripts]
@@ -36,7 +38,7 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

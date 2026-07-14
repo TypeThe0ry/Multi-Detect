@@ -58,6 +58,9 @@ section "multidetect"
 if [ -f pyproject.toml ] && [ -d src/multidetect ]; then
   safe_command "camera_help" python3 -m multidetect camera-check --help
   safe_command "pixhawk_help" python3 -m multidetect pixhawk-check --help
+  safe_command "pixhawk_param_backup_help" python3 -m multidetect pixhawk-param-backup --help
+  safe_command "pixhawk_param_verify_help" python3 -m multidetect pixhawk-param-verify --help
+  safe_command "pixhawk_param_diff_help" python3 -m multidetect pixhawk-param-diff --help
 else
   printf 'workspace: Multi-Detect repository not detected in current directory\n'
 fi

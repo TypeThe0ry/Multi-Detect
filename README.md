@@ -163,7 +163,11 @@ multi-detect replay `
 访问载荷端口。配置了该窗口的任务只有在完整状态机同时满足窗口、安全证据、载荷清单
 和人工授权后，才可能进入 `FakePayloadPort` 软件仿真。
 
-不运行模型训练或推理时，可用一条命令回归巡检、固定翼授权 HIL 和人员否决三条路径：
+不运行模型训练或推理时，可用一条命令回归巡检、固定翼授权 HIL、人员否决和手动框选
+持续跟踪四条路径。跟踪验收覆盖检测器暂未给出目标时由独立单目标跟踪器先跟随框移动、
+把移动框提示给检测器、检测恢复后关联火情轨迹、丢失、新 track ID 重捕获以及重捕获超时
+拒绝；远程框选还会经过视频几何、TTL、会话序号和防重放门禁，同一命令重复到达不会
+重置跟踪。框选不会被当作载荷授权：
 
 ```powershell
 python scripts/run_software_acceptance.py `
@@ -282,7 +286,7 @@ multi-detect replay configs/missions/fire_suppression_disposable.demo.json examp
 
 ## 实时摄像头、RTSP、Jetson 与 Pixhawk
 
-新增 `camera-check` 和 `live-camera` CLI：摄像头/RTSP → OpenCV → 严格 post-NMS `N×6` ONNX 输出 → 现有适配器 → 跟踪/规则。显示端保持为单一摄像头画面，只叠加检测框、跟踪框、火情告警和少量状态文字；鼠标左键拖拽可框选或切换目标，右键或 `X` 取消锁定，`Q` 退出。框选只建立跟踪关系，不能授权或触发物理载荷。火情告警携带的是飞机发现目标时的位置，不冒充未经相机标定和地形求交计算的火点坐标。Pixhawk 仅读取遥测，且未知的围栏、模式和投放区条件会保持拒绝。完整命令、Jetson Orin Nano provider 优先级和 V6X 接线/验证边界见 [实时部署说明](docs/live-camera-jetson.md)。
+新增 `camera-check` 和 `live-camera` CLI：摄像头/RTSP → OpenCV → 严格 post-NMS `N×6` ONNX 输出 → 现有适配器 → 跟踪/规则。显示端保持为单一摄像头画面，只叠加检测框、跟踪框、火情告警和少量状态文字；鼠标左键拖拽可框选或切换目标，右键或 `X` 取消锁定，`Q` 退出。框选只建立跟踪关系，不能授权或触发物理载荷。火情告警携带的是飞机发现目标时的位置，不冒充未经相机标定和地形求交计算的火点坐标。Pixhawk 仅读取遥测，且未知的围栏、模式和投放区条件会保持拒绝。完整命令、Jetson Orin NX/Nano provider 优先级和 V6X 接线/验证边界见 [实时部署说明](docs/live-camera-jetson.md)。
 
 真实巡航可启用 `--observe-pixhawk-lifecycle`：只有观察到健康链路/定位、已解锁、允许的自动模式和指定任务序号后才进入搜索；该模式不发送任何飞控消息。
 
@@ -292,6 +296,77 @@ Pixhawk 新鲜位置、时间戳和单调序号；任何异常都会把允许区
 [实时部署说明](docs/live-camera-jetson.md#独立区域安全证据仅文件型-hil)。
 
 连接V6X后可先独立执行 `multi-detect pixhawk-check --endpoint <串口或UDP端点> --require-fresh-link`，无需摄像头和模型。该诊断只接收遥测，输出中固定声明发送消息数为零。
+
+已取得参数备份时，可在完全离线状态执行
+`multi-detect pixhawk-link-audit <snapshot.json>`。它把 GR01↔V6X 的
+`TELEM1/115200`、Jetson↔V6X 的板载 Ethernet/UDP 14550 主链路，以及可选的
+`UART1↔TELEM2/921600` 备链路分开审计，避免把三个接口混成一个“波特率问题”。该命令
+不打开 MAVLink、不读取或写入飞控；真实链路仍需拆桨台架验证。
+
+Windows + Docker Desktop 可先运行官方 PX4 固定翼 SIH 的全自动只读验收。脚本使用独立
+UDP `14650`，拒绝占用地面站 `14550`，验证固定翼身份、新鲜链路/位置、停止仿真后的
+失败闭锁，并用恒定火情候选模型确认未解锁 `LOITER` 无法越过任务生命周期门禁：
+
+```powershell
+.\scripts\run_px4_sitl_readonly_acceptance.ps1
+```
+
+脚本固定到 `px4io/px4-sitl` 的 SHA-256 digest，自动清理自己创建的容器并在
+`artifacts/evaluation/px4-fixed-wing-sitl-readonly-acceptance-*.json` 留下证据。当前镜像对应
+PX4 `v1.18.0-beta1`；SIH 和恒定输出 ONNX 只证明软件接口与失败闭锁顺序，不代表真实 V6X
+固件、气动、发射、风场、载荷或现场安全验证。
+
+可显式增加 `-IncludeInContainerArmedPatrolHil`，仅在脚本刚创建的一次性 Docker PX4 内
+执行 `arm → auto:loiter → disarm`，验证正向巡检生命周期和一次去重告警。Multi-Detect
+仍发送0条 MAVLink，真实 V6X 不接触；这个 LOITER 测试不冒充 AUTO 航线验收。
+
+完整的固定翼 AUTO 任务和数传失联动作也有各自的一次性 SITL 验收入口：
+
+```powershell
+.\scripts\run_px4_sitl_auto_mission_acceptance.ps1
+.\scripts\run_px4_sitl_datalink_loss_acceptance.ps1
+```
+
+数传失联脚本先在健康 GCS 心跳下上传三点 HIL 航线并进入 `MISSION`，随后只在带固定名称、
+标签和镜像 digest 的一次性容器内设置 `COM_DL_LOSS_T=5`、`NAV_DLL_ACT=1`。这里 5 秒是
+当前 PX4/QGC 元数据允许的最小值；`COM_DL_LOSS_T=1` 无效，且 `NAV_DLL_ACT=1` 表示
+Hold，不表示1秒。2026-07-14 的实跑观察到
+`MISSION → GCS loss → LOITER/Hold → GCS reconnect → LOITER/Hold`；重连只清除丢链标志，
+不会在没有操作者模式命令时自动恢复任务。Multi-Detect 三次遥测检查均发送0条 MAVLink，
+物理载荷动作0，真实 V6X 未接触，`14550` 所有权未变化。证据写入
+`artifacts/evaluation/px4-fixed-wing-sitl-datalink-loss-acceptance-*.json`。真实 V6X
+参数仍是只读备份中的 `COM_DL_LOSS_T=10`、`NAV_DLL_ACT=0`，本验收不会修改它们。
+
+桌面自定义 QGC 与真实 PX4 SITL、Jetson `1/191` 元数据模拟器的并发闭环可用以下入口：
+
+```powershell
+.\scripts\run_px4_sitl_qgc_operator_acceptance.ps1
+```
+
+脚本使用 `--isolated-hil`、独立 UDP `14667/14668/14669/18570` 和一次性固定翼容器；
+QGC 必须等到 PX4 `initialConnectComplete` 后才开始框选、跟踪、安全状态、挑战绑定授权和
+ACK 闭环。路由器只放行参数/任务读取、只读 MAVLink FTP 和 `RUN_PREARM_CHECKS` 状态诊断；
+`SYSTEM_TIME`、未知命令、参数写入、任务上传、解锁、模式、执行器和载荷命令均不转发。
+2026-07-14 的完整验收中 QGC 正常退出，认证消息 6 类、真实 PX4 心跳 11 个、Jetson
+伪造飞控心跳 0、未知 PX4 写入 0、物理载荷动作 0，且 `14550` 所有权和崩溃转储均未变化。
+
+Windows 定制地面站必须从 QGC 的 `cmake --install` 产物运行，不能直接分发只有 EXE 的
+`Release` 目录。当前完整运行入口是相邻仓库
+`QGroundControl-MultiDetect/build-multidetect-release/staging/bin/MultiDetectGCS.exe`，本机
+只读 GR01 启动器会优先选择它。2026-07-14 的部署版 DLL 闭包、隔离冷启动和精简 NSIS
+安装器验证结果记录在
+`artifacts/evaluation/custom-qgc-windows-release-20260714T032337Z.json`；安装器仍未签名。
+Android ARM64 台架 APK 也已构建并通过包名、ABI、v3 签名、对齐、23 项单元测试和零错误
+release lint 验证，证据为
+`artifacts/evaluation/custom-qgc-android-g20-20260714T043822Z.json`。当前没有 ADB 设备，
+因此 G20 实机安装、1920x1200 渲染、H.265/RTSP 和触摸坐标仍是下一道门禁。
+证据为 `artifacts/evaluation/px4-sitl-qgc-operator-acceptance-20260714T010821Z-229772.json`
+（SHA-256 `011ECB0EE71B3893B950BAB32E6726C58D673E747552CF88F32C2BC821BB045C`）。
+
+拆桨并获得现场授权后，`pixhawk-param-backup` 可通过一次显式确认的主动列表读取保存配置前
+参数快照；它与零发送遥测路径分离，没有参数写入或飞行控制接口。PX4 bytewise 编码、完整性
+门禁、离线备份校验/白名单差异和 localhost UDP HIL 证据见
+[接入清单](docs/integration-input-checklist.md#c1-明确授权后的参数备份)。
 
 带载荷的软件/HIL演示可显式启用 `--simulate-payload-cycle`，授权后按 `S` 完成一次
 `FakePayloadPort` 仿真反馈闭环。无人值守软件验收还可同时显式增加
@@ -374,6 +449,7 @@ Multi-Detect/
 ├─ docs/                      # 架构、安全边界和上游审计
 ├─ examples/                  # 严格有序的 JSONL 回放帧
 ├─ models/                    # 模型制品规范；不存放生产权重
+├─ scripts/                   # 软件验收、数据准备与只读 PX4 SITL 工具
 ├─ src/multidetect/
 │  ├─ adapters/               # 旧 Darknet / YOLOv5 输出适配
 │  ├─ alerts.py                # 告警信封、认证UDP/ACK与SQLite发件箱

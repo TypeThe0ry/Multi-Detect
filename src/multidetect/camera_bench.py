@@ -4,9 +4,10 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
+from .compat import UTC
 from .vision import CameraReadError, CaptureConfig
 
 

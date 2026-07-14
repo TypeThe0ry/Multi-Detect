@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from types import SimpleNamespace
 
+from multidetect.compat import UTC
 from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
 from multidetect.operator_link import VideoGeometry
 from multidetect.operator_protocol import SelectionAck, SelectionAckReason

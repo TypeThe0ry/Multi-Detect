@@ -11,6 +11,7 @@ from multidetect.domain import (
     TrackSnapshot,
     Verdict,
 )
+from multidetect.manual_tracking import OpenCVManualTargetTracker
 from multidetect.operator_bridge import LiveOperatorBridge
 from multidetect.operator_link import (
     AuthorizationChallengeStatusMessage,
@@ -221,6 +222,191 @@ def test_bridge_consumes_selection_and_publishes_continuous_tracking_status() ->
     assert transport.mission_published == [(_mission_status(), PEER)]
     assert selected.published_safety_statuses == (_safety_status(),)
     assert transport.safety_published == [(_safety_status(), PEER)]
+
+
+def test_bridge_uses_manual_tracking_until_detector_reacquires_remote_selection() -> None:
+    class _Backend:
+        def __init__(self) -> None:
+            self.updates = [
+                (True, (448.0, 180.0, 384.0, 360.0)),
+                (True, (456.0, 184.0, 384.0, 360.0)),
+            ]
+
+        def init(self, _image, _bbox) -> bool:
+            return True
+
+        def update(self, _image):
+            return self.updates.pop(0)
+
+    backend = _Backend()
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = LiveOperatorBridge(
+        transport,
+        OperatorTargetLock(
+            GEOMETRY,
+            TargetLockConfig(frozenset({"flame", "smoke"})),
+        ),
+        manual_tracker_factory=lambda geometry: OpenCVManualTargetTracker(
+            geometry,
+            tracker_factory=lambda: backend,
+        ),
+    )
+    image = object()
+    bridge.start()
+
+    selected = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        image_bgr=image,
+    )
+    moved = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-101",
+        captured_at_s=100.1,
+        produced_at_s=100.11,
+        image_bgr=image,
+    )
+    detector_reacquired = bridge.process_frame(
+        tracks=(_track(BoundingBox(0.40, 0.30, 0.60, 0.70), last_seen_at_s=100.2),),
+        frame_id="frame-102",
+        captured_at_s=100.2,
+        produced_at_s=100.21,
+        image_bgr=image,
+    )
+    bridge.close()
+
+    assert selected.published_statuses[0].state is TrackingState.TRACKING
+    assert selected.published_statuses[0].label == "manual"
+    assert moved.published_statuses[0].state is TrackingState.TRACKING
+    assert moved.published_statuses[0].bbox == BoundingBox(0.35, 0.25, 0.65, 0.75)
+    assert detector_reacquired.published_statuses[0].state is TrackingState.TRACKING
+    assert detector_reacquired.published_statuses[0].label == "flame"
+    assert detector_reacquired.published_statuses[0].target_id == "track-fire"
+
+
+def test_bridge_keeps_shadow_manual_tracker_ready_when_detector_loses_target() -> None:
+    class _Backend:
+        def __init__(self) -> None:
+            self.initial_bbox = None
+
+        def init(self, _image, bbox) -> bool:
+            self.initial_bbox = bbox
+            return True
+
+        def update(self, _image):
+            return True, (448.0, 180.0, 384.0, 360.0)
+
+    backend = _Backend()
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = LiveOperatorBridge(
+        transport,
+        OperatorTargetLock(
+            GEOMETRY,
+            TargetLockConfig(frozenset({"flame", "smoke"})),
+        ),
+        manual_tracker_factory=lambda geometry: OpenCVManualTargetTracker(
+            geometry,
+            tracker_factory=lambda: backend,
+        ),
+    )
+    image = object()
+    bridge.start()
+
+    selected_by_detector = bridge.process_frame(
+        tracks=(_track(BoundingBox(0.40, 0.30, 0.58, 0.68), last_seen_at_s=100.0),),
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        image_bgr=image,
+    )
+    continued_by_manual_tracker = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-101",
+        captured_at_s=100.1,
+        produced_at_s=100.11,
+        image_bgr=image,
+    )
+    bridge.close()
+
+    assert selected_by_detector.published_statuses[0].label == "flame"
+    assert backend.initial_bbox == (512, 216, 230, 274)
+    assert continued_by_manual_tracker.published_statuses[0].state is TrackingState.TRACKING
+    assert continued_by_manual_tracker.published_statuses[0].label == "manual"
+    assert continued_by_manual_tracker.published_statuses[0].bbox == BoundingBox(
+        0.35, 0.25, 0.65, 0.75
+    )
+
+
+def test_bridge_reseeds_expired_shadow_tracker_from_healthy_detector_track() -> None:
+    class _FailingBackend:
+        def init(self, _image, _bbox) -> bool:
+            return True
+
+        def update(self, _image):
+            return False, (0.0, 0.0, 0.0, 0.0)
+
+    class _RecoveredBackend:
+        def init(self, _image, _bbox) -> bool:
+            return True
+
+        def update(self, _image):
+            return True, (448.0, 180.0, 384.0, 360.0)
+
+    backends = iter((_FailingBackend(), _RecoveredBackend()))
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = LiveOperatorBridge(
+        transport,
+        OperatorTargetLock(
+            GEOMETRY,
+            TargetLockConfig(frozenset({"flame", "smoke"})),
+        ),
+        manual_tracker_factory=lambda geometry: OpenCVManualTargetTracker(
+            geometry,
+            tracker_factory=lambda: next(backends),
+        ),
+    )
+    image = object()
+    healthy_track = _track(BoundingBox(0.40, 0.30, 0.58, 0.68), last_seen_at_s=100.0)
+    bridge.start()
+
+    bridge.process_frame(
+        tracks=(healthy_track,),
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        image_bgr=image,
+    )
+    bridge.process_frame(
+        tracks=(healthy_track,),
+        frame_id="frame-101",
+        captured_at_s=100.1,
+        produced_at_s=100.11,
+        image_bgr=image,
+    )
+    reseeded = bridge.process_frame(
+        tracks=(_track(BoundingBox(0.41, 0.31, 0.59, 0.69), last_seen_at_s=102.2),),
+        frame_id="frame-102",
+        captured_at_s=102.2,
+        produced_at_s=102.21,
+        image_bgr=image,
+    )
+    handoff = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-103",
+        captured_at_s=102.3,
+        produced_at_s=102.31,
+        image_bgr=image,
+    )
+    bridge.close()
+
+    assert reseeded.published_statuses[0].label == "flame"
+    assert handoff.published_statuses[0].state is TrackingState.TRACKING
+    assert handoff.published_statuses[0].label == "manual"
 
 
 def test_bridge_reports_transport_error_without_exposing_a_control_path() -> None:

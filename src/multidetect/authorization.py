@@ -6,8 +6,8 @@ import secrets
 import threading
 import uuid
 from dataclasses import dataclass, replace
-from enum import StrEnum
 
+from .compat import StrEnum
 from .config import MissionConfig
 from .domain import AuthorizationChallenge, AuthorizationGrant, DeploymentDecision
 

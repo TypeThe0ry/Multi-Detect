@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 import multidetect.cli as cli_module
 from multidetect.cli import main
+from multidetect.compat import UTC
 from multidetect.payload_bench_evidence import (
     check_inert_payload_hardware_bench,
     sign_payload_bench_message,
@@ -84,9 +85,7 @@ def _logs(tmp_path: Path, *, confirmed_cycles: int = 20, include_uncertain: bool
     controller_path.write_text(
         "".join(json.dumps(item) + "\n" for item in controller), encoding="utf-8"
     )
-    sensor_path.write_text(
-        "".join(json.dumps(item) + "\n" for item in sensor), encoding="utf-8"
-    )
+    sensor_path.write_text("".join(json.dumps(item) + "\n" for item in sensor), encoding="utf-8")
     return controller_path, sensor_path
 
 
@@ -164,9 +163,7 @@ def test_payload_bench_requires_operator_inert_and_people_exclusion_declarations
     assert "people exclusion" in " ".join(result["reasons"])
 
 
-def test_payload_bench_cli_writes_hardware_evidence(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
+def test_payload_bench_cli_writes_hardware_evidence(tmp_path: Path, monkeypatch, capsys) -> None:
     controller, sensor = _logs(tmp_path)
     output = tmp_path / "evidence.json"
     monkeypatch.setenv("CONTROLLER_BENCH_KEY", CONTROLLER_KEY.decode())

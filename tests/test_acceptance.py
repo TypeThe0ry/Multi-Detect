@@ -30,6 +30,23 @@ def test_software_acceptance_covers_both_modes_and_person_veto() -> None:
     }
     assert report["person_veto"]["authorization_challenges"] == 0
     assert report["person_veto"]["fake_release_requests"] == 0
+    assert report["manual_target_tracking"] == {
+        "selected_state": "tracking",
+        "selected_label": "flame",
+        "person_track_ignored": True,
+        "continuous_update_state": "tracking",
+        "lost_state": "lost",
+        "reacquired_state": "tracking",
+        "reacquired_with_new_track_id": True,
+        "reacquisition_timeout_state": "rejected",
+        "manual_tracker_state_without_detection": "tracking",
+        "manual_tracker_bbox_changed": True,
+        "detector_initial_state": "initializing",
+        "detector_reacquired_after_manual_hint": "tracking",
+        "selection_guard_accepted": True,
+        "selection_replay_rejected": True,
+        "selection_is_payload_authorization": False,
+    }
     assert report["flight_control_enabled"] is False
     assert report["physical_release_enabled"] is False
     assert report["model_training_executed"] is False

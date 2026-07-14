@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from multidetect.domain import BoundingBox
 from multidetect.manual_tracking import OpenCVManualTargetTracker
 from multidetect.operator_link import (
@@ -8,6 +10,7 @@ from multidetect.operator_link import (
     TrackingState,
     VideoGeometry,
 )
+from multidetect.vision import VisionDependencyError
 
 
 class _Tracker:
@@ -137,3 +140,58 @@ def test_manual_tracker_reinitializes_after_bounded_reacquisition() -> None:
     assert reacquired.bbox == BoundingBox(0.2, 0.2, 0.6, 0.6)
     assert reacquired.tracking_quality == 0.8
     assert second.initialized_with == (image, (128, 96, 256, 192))
+
+
+def test_manual_tracker_normalizes_opaque_backend_initialization_error() -> None:
+    class _OpaqueBackendError(Exception):
+        pass
+
+    class _FailingTracker:
+        def init(self, _image, _bbox):
+            raise _OpaqueBackendError("third-party backend detail")
+
+    tracker = OpenCVManualTargetTracker(
+        VideoGeometry("local-camera", 640, 480),
+        tracker_factory=_FailingTracker,
+    )
+
+    with pytest.raises(VisionDependencyError, match="initialization failed"):
+        tracker.apply_command(
+            _command(SelectionAction.SELECT, bbox=BoundingBox(0.1, 0.1, 0.5, 0.5)),
+            image_bgr=object(),
+            frame_id="frame-1",
+            now_s=10.0,
+        )
+
+    assert tracker.active is False
+
+
+def test_manual_tracker_normalizes_opaque_backend_update_error() -> None:
+    class _OpaqueBackendError(Exception):
+        pass
+
+    class _FailingTracker:
+        def init(self, _image, _bbox):
+            return True
+
+        def update(self, _image):
+            raise _OpaqueBackendError("third-party backend detail")
+
+    tracker = OpenCVManualTargetTracker(
+        VideoGeometry("local-camera", 640, 480),
+        tracker_factory=_FailingTracker,
+    )
+    tracker.apply_command(
+        _command(SelectionAction.SELECT, bbox=BoundingBox(0.1, 0.1, 0.5, 0.5)),
+        image_bgr=object(),
+        frame_id="frame-1",
+        now_s=10.0,
+    )
+
+    with pytest.raises(VisionDependencyError, match="update failed"):
+        tracker.update(
+            image_bgr=object(),
+            frame_id="frame-2",
+            captured_at_s=10.1,
+            produced_at_s=10.1,
+        )

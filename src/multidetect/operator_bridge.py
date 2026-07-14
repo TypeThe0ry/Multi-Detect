@@ -1,17 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from math import isfinite
-from typing import Protocol
+from typing import Any, Protocol
 
 from .domain import TrackSnapshot
+from .manual_tracking import OpenCVManualTargetTracker
 from .operator_link import (
     AuthorizationChallengeStatusMessage,
     AuthorizationDecisionCommand,
     MissionStatusMessage,
     SafetyStatusMessage,
+    SelectionAction,
     TargetSelectionCommand,
+    TrackingState,
     TrackStatusMessage,
+    VideoGeometry,
 )
 from .operator_tracking import OperatorTargetLock
 
@@ -87,6 +92,7 @@ class LiveOperatorBridge:
         maximum_commands_per_frame: int = 8,
         maximum_errors_per_frame: int = 8,
         mission_status_heartbeat_s: float = 1.0,
+        manual_tracker_factory: Callable[[VideoGeometry], Any] | None = None,
     ) -> None:
         if maximum_commands_per_frame <= 0 or maximum_errors_per_frame <= 0:
             raise ValueError("operator bridge per-frame limits must be positive")
@@ -97,6 +103,10 @@ class LiveOperatorBridge:
         self.maximum_commands_per_frame = maximum_commands_per_frame
         self.maximum_errors_per_frame = maximum_errors_per_frame
         self.mission_status_heartbeat_s = mission_status_heartbeat_s
+        self._manual_tracker_factory = manual_tracker_factory or OpenCVManualTargetTracker
+        self._manual_tracker: Any | None = None
+        self._manual_tracker_unavailable = False
+        self._active_selection_command: TargetSelectionCommand | None = None
         self._active_peer: OperatorPeer | None = None
         self._last_mission_status_fingerprint: tuple[object, ...] | None = None
         self._last_mission_status_at_s: float | None = None
@@ -122,6 +132,7 @@ class LiveOperatorBridge:
         mission_status: MissionStatusMessage | None = None,
         safety_status: SafetyStatusMessage | None = None,
         authorization_challenge: AuthorizationChallengeStatusMessage | None = None,
+        image_bgr: Any | None = None,
     ) -> OperatorBridgeResult:
         if not self._started:
             raise RuntimeError("live operator bridge has not been started")
@@ -141,12 +152,65 @@ class LiveOperatorBridge:
             self._last_safety_status_at_s = None
             self._last_authorization_challenge_fingerprint = None
             self._last_authorization_challenge_at_s = None
-            status = self.target_lock.apply_command(
+            detector_status = self.target_lock.apply_command(
                 command,
                 tracks=tracks,
                 frame_id=frame_id,
                 now_s=produced_at_s,
             )
+            status = detector_status
+            if command.action is SelectionAction.CANCEL:
+                self._active_selection_command = None
+                if self._manual_tracker is not None:
+                    try:
+                        self._manual_tracker.apply_command(
+                            command,
+                            image_bgr=image_bgr if image_bgr is not None else object(),
+                            frame_id=frame_id,
+                            now_s=produced_at_s,
+                        )
+                    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                        errors.append(f"ManualTracker{type(exc).__name__}")
+                self._manual_tracker = None
+                self._manual_tracker_unavailable = False
+            elif image_bgr is not None:
+                self._active_selection_command = command
+                self._manual_tracker_unavailable = False
+                try:
+                    manual_command = command
+                    if (
+                        detector_status.state is TrackingState.TRACKING
+                        and detector_status.bbox is not None
+                    ):
+                        # The operator rectangle can be intentionally broad.  Once the
+                        # detector has associated it with a target, seed the shadow
+                        # tracker from the tighter detector box so it is ready for a
+                        # clean handoff if detector observations disappear.
+                        manual_command = replace(command, bbox=detector_status.bbox)
+                    manual_tracker = self._manual_tracker_factory(manual_command.geometry)
+                    manual_status = manual_tracker.apply_command(
+                        manual_command,
+                        image_bgr=image_bgr,
+                        frame_id=frame_id,
+                        now_s=produced_at_s,
+                    )
+                    if manual_status.state in {
+                        TrackingState.TRACKING,
+                        TrackingState.INITIALIZING,
+                    }:
+                        self._manual_tracker = manual_tracker
+                        if detector_status.state is not TrackingState.TRACKING:
+                            status = manual_status
+                    else:
+                        self._manual_tracker = None
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    self._manual_tracker = None
+                    self._manual_tracker_unavailable = True
+                    errors.append(f"ManualTracker{type(exc).__name__}")
+            else:
+                self._active_selection_command = command
+                self._manual_tracker = None
+                self._manual_tracker_unavailable = False
             if self._publish(status, peer, errors):
                 statuses.append(status)
         set_challenge = getattr(self.transport, "set_authorization_challenge", None)
@@ -170,12 +234,68 @@ class LiveOperatorBridge:
                     continue
                 accepted_authorization_decisions.append((command, peer))
         if accepted_commands == 0 and self._active_peer is not None:
-            status = self.target_lock.update(
+            detector_status = self.target_lock.update(
                 tracks=tracks,
                 frame_id=frame_id,
                 captured_at_s=captured_at_s,
                 produced_at_s=produced_at_s,
             )
+            status = detector_status
+            manual_status = None
+            if self._manual_tracker is not None and image_bgr is not None:
+                try:
+                    manual_status = self._manual_tracker.update(
+                        image_bgr=image_bgr,
+                        frame_id=frame_id,
+                        captured_at_s=captured_at_s,
+                        produced_at_s=produced_at_s,
+                    )
+                    if manual_status is not None and manual_status.state is TrackingState.LOST:
+                        self._manual_tracker = None
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    self._manual_tracker = None
+                    self._manual_tracker_unavailable = True
+                    errors.append(f"ManualTracker{type(exc).__name__}")
+            detector_tracking = (
+                detector_status is not None and detector_status.state is TrackingState.TRACKING
+            )
+            if (
+                detector_tracking
+                and self._manual_tracker is None
+                and not self._manual_tracker_unavailable
+                and self._active_selection_command is not None
+                and detector_status is not None
+                and detector_status.bbox is not None
+                and image_bgr is not None
+            ):
+                try:
+                    shadow_command = replace(
+                        self._active_selection_command,
+                        bbox=detector_status.bbox,
+                    )
+                    manual_tracker = self._manual_tracker_factory(shadow_command.geometry)
+                    shadow_status = manual_tracker.apply_command(
+                        shadow_command,
+                        image_bgr=image_bgr,
+                        frame_id=frame_id,
+                        now_s=produced_at_s,
+                    )
+                    if shadow_status.state is TrackingState.TRACKING:
+                        self._manual_tracker = manual_tracker
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    self._manual_tracker = None
+                    self._manual_tracker_unavailable = True
+                    errors.append(f"ManualTracker{type(exc).__name__}")
+            if not detector_tracking and manual_status is not None:
+                status = manual_status
+                if manual_status.bbox is not None and manual_status.state in {
+                    TrackingState.TRACKING,
+                    TrackingState.INITIALIZING,
+                }:
+                    self.target_lock.hint_bbox(
+                        manual_status.bbox,
+                        now_s=produced_at_s,
+                    )
             if status is not None and self._publish(status, self._active_peer, errors):
                 statuses.append(status)
         published_mission_statuses: tuple[MissionStatusMessage, ...] = ()
@@ -232,6 +352,9 @@ class LiveOperatorBridge:
     def close(self) -> None:
         if self._started:
             self.transport.close()
+            self._manual_tracker = None
+            self._active_selection_command = None
+            self._manual_tracker_unavailable = False
             self._started = False
 
     def _publish(

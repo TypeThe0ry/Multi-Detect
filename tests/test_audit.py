@@ -9,7 +9,7 @@ import pytest
 
 from multidetect.audit import AuditLog
 from multidetect.config import MissionConfig
-from multidetect.mission import MissionController
+from multidetect.mission import DEFAULT_MISSION_AUDIT_MEMORY_EVENTS, MissionController
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -144,3 +144,11 @@ def test_mission_preserves_an_empty_injected_streaming_audit_log(tmp_path) -> No
         "mission.transition",
         "mission.transition",
     ]
+
+
+def test_mission_default_audit_log_has_bounded_memory() -> None:
+    mission = MissionController(
+        MissionConfig.from_json(ROOT / "configs/missions/fire_patrol.demo.json")
+    )
+
+    assert mission.audit.max_in_memory_events == DEFAULT_MISSION_AUDIT_MEMORY_EVENTS

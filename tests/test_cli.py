@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,11 @@ from multidetect.domain import VehicleTelemetry
 from multidetect.model_manifest import (
     create_candidate_model_manifest,
     write_candidate_model_manifest,
+)
+from multidetect.pixhawk_parameters import (
+    PixhawkParameterRecord,
+    PixhawkParameterSnapshot,
+    write_pixhawk_parameter_snapshot,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -648,9 +654,403 @@ def test_pixhawk_check_reports_read_only_telemetry(monkeypatch, capsys) -> None:
     result = parsed_stdout(capsys)[-1]
     assert result["event"] == "pixhawk_read_only_check_finished"
     assert result["fresh_link_sample_count"] == 3
+    assert result["fresh_transport_link_sample_count"] == 3
     assert result["latest"]["flight_mode"] == "AUTO"
+    assert result["gate_passed"] is True
     assert result["messages_transmitted"] == 0
     assert result["hardware_control_enabled"] is False
+
+
+def test_pixhawk_check_reports_identity_gate_failures(monkeypatch, capsys) -> None:
+    class _Document:
+        def __init__(self, document: dict[str, object]) -> None:
+            self.document = document
+
+        def to_document(self) -> dict[str, object]:
+            return self.document
+
+    class _Provider:
+        is_read_only = True
+        messages_transmitted = 0
+        messages_received = 20
+        rejected_system_messages = 0
+        ignored_non_autopilot_heartbeats = 0
+        message_type_counts = {"HEARTBEAT": 2, "ATTITUDE": 18}
+        heartbeat_identity = _Document(
+            {
+                "source_system_id": 1,
+                "autopilot_id": 12,
+                "autopilot_name": "MAV_AUTOPILOT_PX4",
+                "vehicle_type_id": 0,
+                "vehicle_type_name": "MAV_TYPE_GENERIC",
+                "system_status_id": 0,
+                "system_status_name": "MAV_STATE_UNINIT",
+            }
+        )
+        qualification = _Document(
+            {
+                "required": True,
+                "passed": False,
+                "reasons": (
+                    "vehicle type mismatch: expected=1, actual=0",
+                    "system status is not operational: MAV_STATE_UNINIT",
+                ),
+            }
+        )
+
+        def __init__(self, config) -> None:
+            self.config = config
+
+        def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+            return VehicleTelemetry(
+                altitude_agl_m=float("nan"),
+                roll_deg=0.0,
+                pitch_deg=0.0,
+                ground_speed_mps=float("nan"),
+                in_allowed_zone=None,
+                geofence_healthy=None,
+                position_healthy=None,
+                link_healthy=False,
+                flight_mode_allows_deploy=None,
+                release_zone_clear=None,
+                armed=False,
+                flight_mode="LOITER",
+            )
+
+        def transport_link_healthy(self, *, now_s: float) -> bool:
+            return True
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli_module, "PixhawkReadOnlyTelemetryProvider", _Provider)
+
+    assert (
+        main(
+            [
+                "pixhawk-check",
+                "--endpoint",
+                "udp:0.0.0.0:14550",
+                "--samples",
+                "2",
+                "--interval-seconds",
+                "0",
+                "--require-fresh-link",
+                "--require-fresh-position",
+                "--expected-system-id",
+                "1",
+                "--expected-autopilot",
+                "px4",
+                "--expected-vehicle-type",
+                "fixed_wing",
+                "--require-operational-state",
+            ]
+        )
+        == 1
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert result["fresh_transport_link_sample_count"] == 2
+    assert result["fresh_link_sample_count"] == 0
+    assert result["fresh_position_sample_count"] == 0
+    assert result["gate_passed"] is False
+    assert "no fresh global position was received" in result["gate_failures"]
+    assert any("vehicle type mismatch" in item for item in result["gate_failures"])
+    assert result["heartbeat_identity"]["autopilot_name"] == "MAV_AUTOPILOT_PX4"
+
+
+def test_pixhawk_parameter_backup_requires_explicit_active_read_acknowledgement(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    constructed = []
+
+    class _Client:
+        def __init__(self, config) -> None:
+            constructed.append(config)
+
+    monkeypatch.setattr(cli_module, "PixhawkParameterBackupClient", _Client)
+
+    assert (
+        main(
+            [
+                "pixhawk-param-backup",
+                "--endpoint",
+                "udpout:127.0.0.1:14550",
+                "--target-system-id",
+                "1",
+                "--parameter-encoding",
+                "bytewise",
+                "--out",
+                str(tmp_path / "parameters.json"),
+            ]
+        )
+        == 1
+    )
+
+    error = json.loads(capsys.readouterr().err)
+    assert "--acknowledge-active-read-request" in error["message"]
+    assert "no MAVLink request was sent" in error["message"]
+    assert constructed == []
+
+
+def test_pixhawk_parameter_backup_writes_explicit_read_only_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    clients = []
+
+    class _Snapshot:
+        passed = True
+
+        def to_document(self) -> dict[str, object]:
+            return {
+                "event": "pixhawk_parameter_backup_completed",
+                "complete": True,
+                "passed": True,
+                "messages_transmitted": 1,
+                "parameter_write_messages_transmitted": 0,
+                "flight_command_messages_transmitted": 0,
+                "parameters": [],
+            }
+
+    class _Client:
+        def __init__(self, config) -> None:
+            self.config = config
+            self.closed = False
+            clients.append(self)
+
+        def capture(self):
+            return _Snapshot()
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(cli_module, "PixhawkParameterBackupClient", _Client)
+    output = tmp_path / "parameters.json"
+
+    assert (
+        main(
+            [
+                "pixhawk-param-backup",
+                "--endpoint",
+                "udpout:127.0.0.1:14550",
+                "--target-system-id",
+                "1",
+                "--parameter-encoding",
+                "bytewise",
+                "--minimum-parameters",
+                "1",
+                "--out",
+                str(output),
+                "--acknowledge-active-read-request",
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    assert clients[0].closed is True
+    assert clients[0].config.target_system_id == 1
+    assert result["messages_transmitted"] == 1
+    assert result["parameter_write_messages_transmitted"] == 0
+    assert persisted["flight_command_messages_transmitted"] == 0
+
+
+def test_pixhawk_parameter_verify_and_diff_are_offline_and_fail_closed(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def write_snapshot(path: Path, value: float) -> None:
+        raw_value_hex = struct.pack("<f", value).hex()
+        write_pixhawk_parameter_snapshot(
+            path,
+            PixhawkParameterSnapshot(
+                captured_at_utc="2026-07-13T00:00:00+00:00",
+                configured_endpoint="udpout:127.0.0.1:14550",
+                resolved_endpoint="udpout:127.0.0.1:14550",
+                parameter_encoding="c_cast",
+                target_system_id=1,
+                target_component_id=1,
+                duration_seconds=0.1,
+                expected_parameter_count=1,
+                received_parameter_count=1,
+                rejected_source_message_count=0,
+                invalid_parameter_message_count=0,
+                active_read_requests_transmitted=1,
+                px4_parameter_hash_raw_hex=None,
+                parameters=(
+                    PixhawkParameterRecord(
+                        name="PARAM_A",
+                        value=value,
+                        raw_value_hex=raw_value_hex,
+                        parameter_type=9,
+                        index=0,
+                    ),
+                ),
+                complete=True,
+                passed=True,
+                failure_reasons=(),
+            ),
+        )
+
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    verify_report = tmp_path / "verify.json"
+    rejected_diff = tmp_path / "rejected-diff.json"
+    accepted_diff = tmp_path / "accepted-diff.json"
+    write_snapshot(before, 1.0)
+    write_snapshot(after, 2.0)
+
+    assert (
+        main(
+            [
+                "pixhawk-param-verify",
+                str(before),
+                "--out",
+                str(verify_report),
+            ]
+        )
+        == 0
+    )
+    verified = parsed_stdout(capsys)[-1]
+    assert verified["self_consistency_hash_verified"] is True
+    assert verified["cryptographically_authenticated"] is False
+    assert verified["messages_transmitted"] == 0
+
+    assert (
+        main(
+            [
+                "pixhawk-param-diff",
+                str(before),
+                str(after),
+                "--out",
+                str(rejected_diff),
+            ]
+        )
+        == 1
+    )
+    rejected = parsed_stdout(capsys)[-1]
+    assert rejected["gate_passed"] is False
+    assert rejected["unexpected_change_names"] == ["PARAM_A"]
+    assert rejected["messages_transmitted"] == 0
+
+    assert (
+        main(
+            [
+                "pixhawk-param-diff",
+                str(before),
+                str(after),
+                "--allow-change",
+                "PARAM_A",
+                "--require-change",
+                "PARAM_A",
+                "--out",
+                str(accepted_diff),
+            ]
+        )
+        == 0
+    )
+    accepted = parsed_stdout(capsys)[-1]
+    persisted = json.loads(accepted_diff.read_text(encoding="utf-8"))
+    assert accepted["gate_passed"] is True
+    assert persisted["observed_change_names"] == ["PARAM_A"]
+    assert persisted["hardware_control_enabled"] is False
+
+
+def test_pixhawk_link_audit_is_offline_and_separates_transport_roles(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    values = {
+        "MAV_0_CONFIG": 101,
+        "MAV_0_MODE": 0,
+        "MAV_0_RATE": 1200,
+        "MAV_0_FORWARD": 1,
+        "MAV_1_CONFIG": 0,
+        "MAV_2_CONFIG": 1000,
+        "MAV_2_MODE": 0,
+        "MAV_2_RATE": 100000,
+        "MAV_2_FORWARD": 0,
+        "MAV_2_BROADCAST": 1,
+        "MAV_2_REMOTE_PRT": 14550,
+        "MAV_2_UDP_PRT": 14550,
+        "SER_TEL1_BAUD": 115200,
+    }
+    parameters = tuple(
+        PixhawkParameterRecord(
+            name=name,
+            value=value,
+            raw_value_hex=struct.pack("<i", value).hex(),
+            parameter_type=6,
+            index=index,
+        )
+        for index, (name, value) in enumerate(values.items())
+    )
+    snapshot = tmp_path / "parameters.json"
+    report = tmp_path / "link-audit.json"
+    write_pixhawk_parameter_snapshot(
+        snapshot,
+        PixhawkParameterSnapshot(
+            captured_at_utc="2026-07-14T00:00:00+00:00",
+            configured_endpoint="tcp:192.168.144.11:5760",
+            resolved_endpoint="tcp:192.168.144.11:5760",
+            parameter_encoding="bytewise",
+            target_system_id=1,
+            target_component_id=1,
+            duration_seconds=1.0,
+            expected_parameter_count=len(parameters),
+            received_parameter_count=len(parameters),
+            rejected_source_message_count=0,
+            invalid_parameter_message_count=0,
+            active_read_requests_transmitted=1,
+            px4_parameter_hash_raw_hex=None,
+            parameters=parameters,
+            complete=True,
+            passed=True,
+            failure_reasons=(),
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "pixhawk-link-audit",
+                str(snapshot),
+                "--out",
+                str(report),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    persisted = json.loads(report.read_text(encoding="utf-8"))
+    assert result["event"] == "pixhawk_v6x_link_topology_audited"
+    assert result["links"]["gr01_v6x_telem1"]["configured_baud"] == 115200
+    assert result["links"]["jetson_v6x_primary"]["baud_applies"] is False
+    assert result["uart_fallback_ready"] is False
+    assert result["gate_passed"] is True
+    assert persisted["messages_transmitted"] == 0
+    assert persisted["parameter_write_messages_transmitted"] == 0
+    assert persisted["hardware_contacted"] is False
+
+    assert (
+        main(
+            [
+                "pixhawk-link-audit",
+                str(snapshot),
+                "--require-uart-fallback",
+            ]
+        )
+        == 1
+    )
+    required = parsed_stdout(capsys)[-1]
+    assert required["primary_configuration_passed"] is True
+    assert required["gate_passed"] is False
 
 
 def test_live_patrol_rejects_payload_cycle_flag(monkeypatch, capsys) -> None:
@@ -678,6 +1078,23 @@ def test_live_patrol_rejects_payload_cycle_flag(monkeypatch, capsys) -> None:
 
     error = json.loads(capsys.readouterr().err)
     assert "installed payload" in error["message"]
+
+
+def test_live_tensorrt_engine_requires_hash_bound_manifest(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "fire.engine",
+            ]
+        )
+        == 1
+    )
+
+    error = json.loads(capsys.readouterr().err)
+    assert "hash-bound --model-manifest" in error["message"]
 
 
 def test_live_auto_payload_hil_requires_explicit_simulation_flag(capsys) -> None:
@@ -806,6 +1223,31 @@ def test_live_observed_lifecycle_requires_pixhawk_endpoint(capsys) -> None:
 
     error = json.loads(capsys.readouterr().err)
     assert "requires --pixhawk-endpoint" in error["message"]
+
+
+def test_live_observed_lifecycle_requires_flight_controller_identity_gate(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--pixhawk-endpoint",
+                "udp:0.0.0.0:14550",
+                "--observe-pixhawk-lifecycle",
+                "--task-area-mission-sequence",
+                "2",
+            ]
+        )
+        == 1
+    )
+
+    error = json.loads(capsys.readouterr().err)
+    assert "requires --pixhawk-system-id" in error["message"]
+    assert "--pixhawk-expected-autopilot" in error["message"]
+    assert "--pixhawk-expected-vehicle-type" in error["message"]
+    assert "--require-pixhawk-operational-state" in error["message"]
 
 
 def test_live_zone_evidence_requires_report_pixhawk_and_authentication(monkeypatch, capsys) -> None:

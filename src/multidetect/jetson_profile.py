@@ -26,12 +26,25 @@ _REQUIRED_KEYS = frozenset(
         "FIRE_FLAME_CONFIDENCE_THRESHOLD",
         "FIRE_SMOKE_CONFIDENCE_THRESHOLD",
         "FIRE_CANDIDATE_STABILITY_FRAMES",
+        "PIXHAWK_HARDWARE_PROFILE",
         "PIXHAWK_ENDPOINT",
         "PIXHAWK_BAUD",
+        "PIXHAWK_SYSTEM_ID",
+        "PIXHAWK_EXPECTED_AUTOPILOT",
+        "PIXHAWK_EXPECTED_VEHICLE_TYPE",
         "TASK_AREA_MISSION_SEQUENCE",
     }
 )
 _PLACEHOLDER_MARKERS = ("REPLACE_", "USER:PASSWORD", "CAMERA_HOST", "192.0.2.1")
+_PIXHAWK_HARDWARE_PROFILES = {
+    "holybro_pixhawk_jetson_baseboard": {
+        # The carrier exposes both links internally. This aircraft currently emits
+        # PX4 MAVLink 2 as a subnet broadcast on the Ethernet path; THS1 remains a
+        # valid fallback after TELEM2 is configured on the flight controller.
+        "udp:0.0.0.0:14550": None,
+        "/dev/ttyTHS1": 921_600,
+    },
+}
 
 
 def load_environment_file(path: Path) -> dict[str, str]:
@@ -61,7 +74,7 @@ def jetson_static_preflight(
     allow_placeholders: bool = False,
     verify_model_files: bool = False,
 ) -> dict[str, Any]:
-    """Validate deployment wiring without opening camera, ONNX runtime or MAVLink."""
+    """Validate deployment wiring without opening camera, inference runtime or MAVLink."""
 
     mission = MissionConfig.from_json(mission_path)
     values = load_environment_file(environment_path)
@@ -106,8 +119,13 @@ def jetson_static_preflight(
         errors.append("FIRE_MODEL_OUTPUT_COORDINATES is unsupported")
     model_path = Path(values.get("FIRE_MODEL_PATH", ""))
     manifest_path = Path(values.get("FIRE_MODEL_MANIFEST", ""))
-    if model_path.suffix.lower() != ".onnx":
-        errors.append("FIRE_MODEL_PATH must name an ONNX file")
+    model_suffix = model_path.suffix.lower()
+    model_artifact_kind = {
+        ".engine": "tensorrt_engine",
+        ".onnx": "onnx",
+    }.get(model_suffix, "invalid")
+    if model_artifact_kind == "invalid":
+        errors.append("FIRE_MODEL_PATH must name an ONNX or TensorRT engine file")
     if manifest_path.suffix.lower() != ".json":
         errors.append("FIRE_MODEL_MANIFEST must name a JSON file")
     confidence_floor = _real(
@@ -150,6 +168,7 @@ def jetson_static_preflight(
             "FIRE_CANDIDATE_STABILITY_FRAMES cannot be below mission minimum_track_observations"
         )
 
+    pixhawk_hardware_profile = values.get("PIXHAWK_HARDWARE_PROFILE", "").strip()
     endpoint = values.get("PIXHAWK_ENDPOINT", "")
     endpoint_kind = _endpoint_kind(endpoint)
     if endpoint_kind == "invalid":
@@ -157,6 +176,33 @@ def jetson_static_preflight(
     baud = _integer(values.get("PIXHAWK_BAUD"), "PIXHAWK_BAUD", errors)
     if baud is not None and baud <= 0:
         errors.append("PIXHAWK_BAUD must be positive")
+    pixhawk_system_id = _integer(
+        values.get("PIXHAWK_SYSTEM_ID"),
+        "PIXHAWK_SYSTEM_ID",
+        errors,
+    )
+    if pixhawk_system_id is not None and not 1 <= pixhawk_system_id <= 255:
+        errors.append("PIXHAWK_SYSTEM_ID must be in [1, 255]")
+    expected_autopilot = values.get("PIXHAWK_EXPECTED_AUTOPILOT", "").strip()
+    if expected_autopilot not in {"ardupilot", "px4"}:
+        errors.append("PIXHAWK_EXPECTED_AUTOPILOT must be ardupilot or px4")
+    expected_vehicle_type = values.get("PIXHAWK_EXPECTED_VEHICLE_TYPE", "").strip()
+    if expected_vehicle_type != "fixed_wing":
+        errors.append("PIXHAWK_EXPECTED_VEHICLE_TYPE must be fixed_wing")
+    expected_pixhawk_links = _PIXHAWK_HARDWARE_PROFILES.get(pixhawk_hardware_profile)
+    if pixhawk_hardware_profile and expected_pixhawk_links is None:
+        errors.append("PIXHAWK_HARDWARE_PROFILE is unsupported")
+    elif expected_pixhawk_links is not None:
+        if endpoint not in expected_pixhawk_links:
+            supported = ", ".join(sorted(expected_pixhawk_links))
+            errors.append(
+                f"{pixhawk_hardware_profile} requires PIXHAWK_ENDPOINT to be one of: {supported}"
+            )
+        expected_baud = expected_pixhawk_links.get(endpoint)
+        if expected_baud is not None and baud is not None and baud != expected_baud:
+            errors.append(
+                f"{pixhawk_hardware_profile} requires PIXHAWK_BAUD={expected_baud} for {endpoint}"
+            )
     sequence = _integer(
         values.get("TASK_AREA_MISSION_SEQUENCE"),
         "TASK_AREA_MISSION_SEQUENCE",
@@ -195,6 +241,7 @@ def jetson_static_preflight(
         "alert_hmac_configured": bool(hmac_key) and not hmac_placeholder,
         "alert_secret_redacted": True,
         "model_class_names": class_names,
+        "model_artifact_kind": model_artifact_kind,
         "model_output_coordinates": output_coordinates,
         "candidate_confidence_floor": confidence_floor,
         "flame_candidate_threshold": flame_threshold,
@@ -204,12 +251,21 @@ def jetson_static_preflight(
         "model_files_verified": model_verified,
         "model_production_approved": production_approved,
         "pixhawk_endpoint_kind": endpoint_kind,
+        "pixhawk_hardware_profile": pixhawk_hardware_profile,
+        "pixhawk_expected_system_id": pixhawk_system_id,
+        "pixhawk_expected_autopilot": expected_autopilot,
+        "pixhawk_expected_vehicle_type": expected_vehicle_type,
+        "pixhawk_operational_state_required": True,
         "pixhawk_read_only": True,
-        "provider_fallback_order": [
-            "TensorrtExecutionProvider",
-            "CUDAExecutionProvider",
-            "CPUExecutionProvider",
-        ],
+        "provider_fallback_order": (
+            ["TensorrtExecutionProvider"]
+            if model_artifact_kind == "tensorrt_engine"
+            else [
+                "TensorrtExecutionProvider",
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+        ),
         "camera_opened": False,
         "model_loaded": False,
         "pixhawk_opened": False,

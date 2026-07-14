@@ -4,9 +4,11 @@ import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .compat import UTC
 
 INTEGRATION_EVIDENCE_SCHEMA_VERSION = 1
 
@@ -30,10 +32,11 @@ INTEGRATION_PROFILES: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_EXPECTED_EVENTS = {
+_EXPECTED_EVENTS: dict[str, str | frozenset[str]] = {
     "software_hil": "combined_flight_stack_software_hil_passed",
     "rtsp_camera": "rtsp_camera_bench_passed",
-    "jetson": "jetson_orin_nano_bench_passed",
+    # Accept the original Nano-specific event for existing schema-v1 evidence bundles.
+    "jetson": frozenset({"jetson_orin_bench_passed", "jetson_orin_nano_bench_passed"}),
     "pixhawk_v6x": "pixhawk_v6x_bench_passed",
     "gr01": "gr01_bench_passed",
     "inert_payload": "inert_payload_hardware_bench_passed",
@@ -123,7 +126,13 @@ def _check_record(
     except ValueError as exc:
         reasons.append(str(exc))
         return _gate_result(False, reasons, artifact_path, actual_sha256)
-    if artifact.get("event") != _EXPECTED_EVENTS[gate]:
+    expected_events = _EXPECTED_EVENTS[gate]
+    event_matches = (
+        artifact.get("event") == expected_events
+        if isinstance(expected_events, str)
+        else artifact.get("event") in expected_events
+    )
+    if not event_matches:
         reasons.append("artifact event does not match the requested gate")
     validator = _GATE_VALIDATORS[gate]
     reasons.extend(validator(artifact))
@@ -171,8 +180,8 @@ def _rtsp_reasons(artifact: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _jetson_reasons(artifact: Mapping[str, Any]) -> tuple[str, ...]:
     reasons = _hardware_common_reasons(artifact)
-    if artifact.get("device_model") != "Jetson Orin Nano":
-        reasons.append("device model is not Jetson Orin Nano")
+    if artifact.get("device_model") not in {"Jetson Orin Nano", "Jetson Orin NX"}:
+        reasons.append("device model is not a supported Jetson Orin NX/Nano")
     if artifact.get("active_inference_provider") not in {
         "TensorrtExecutionProvider",
         "CUDAExecutionProvider",

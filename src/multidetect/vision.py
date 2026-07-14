@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 import os
+import queue
+import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .adapters.fire_smoke_legacy import adapt_yolov5_detections
 from .domain import Detection
@@ -51,7 +53,10 @@ class CaptureConfig:
     height: int | None = None
     fps: float | None = None
     rtsp_transport: str = "tcp"
+    rtsp_codec: str = "h265"
     backend: str = "auto"
+    gstreamer_hardware_decode: bool = False
+    gstreamer_latency_ms: int = 100
     reconnect_delay_seconds: float = 0.25
     reconnect_attempts: int = 3
 
@@ -72,8 +77,20 @@ class CaptureConfig:
             raise ValueError("capture fps must be finite and positive")
         if self.rtsp_transport not in {"tcp", "udp"}:
             raise ValueError("rtsp_transport must be tcp or udp")
-        if self.backend not in {"auto", "dshow", "msmf", "ffmpeg"}:
-            raise ValueError("capture backend must be auto, dshow, msmf, or ffmpeg")
+        if self.rtsp_codec not in {"h264", "h265"}:
+            raise ValueError("rtsp_codec must be h264 or h265")
+        if self.backend not in {"auto", "dshow", "msmf", "ffmpeg", "gstreamer"}:
+            raise ValueError("capture backend must be auto, dshow, msmf, ffmpeg, or gstreamer")
+        if self.backend == "gstreamer" and not self.is_rtsp:
+            raise ValueError("gstreamer capture backend currently requires an RTSP source")
+        if self.gstreamer_hardware_decode and self.backend != "gstreamer":
+            raise ValueError("gstreamer hardware decode requires the gstreamer backend")
+        if (
+            isinstance(self.gstreamer_latency_ms, bool)
+            or not isinstance(self.gstreamer_latency_ms, int)
+            or self.gstreamer_latency_ms < 0
+        ):
+            raise ValueError("gstreamer latency must be a non-negative integer")
         if (
             isinstance(self.reconnect_delay_seconds, bool)
             or not math.isfinite(self.reconnect_delay_seconds)
@@ -109,6 +126,16 @@ class CapturedFrame:
     height: int
 
 
+class FrameSource(Protocol):
+    """Small camera-source boundary used by the live mission loop."""
+
+    def open(self) -> None: ...
+
+    def read(self) -> CapturedFrame: ...
+
+    def close(self) -> None: ...
+
+
 class OpenCVFrameSource:
     """Low-latency local-device or RTSP reader with a one-frame capture buffer."""
 
@@ -126,7 +153,10 @@ class OpenCVFrameSource:
         if self._capture is not None and self._capture.isOpened():
             return
         cv2 = _require_cv2()
-        if self.config.is_rtsp:
+        if self.config.is_rtsp and self.config.backend == "gstreamer":
+            pipeline = _build_gstreamer_rtsp_pipeline(self.config)
+            capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        elif self.config.is_rtsp:
             # FFmpeg options are read while opening the stream. Keep only transport
             # policy here; credentials stay inside the supplied RTSP URI.
             option_name = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
@@ -152,17 +182,20 @@ class OpenCVFrameSource:
                 "dshow": cv2.CAP_DSHOW,
                 "msmf": cv2.CAP_MSMF,
                 "ffmpeg": cv2.CAP_FFMPEG,
+                "gstreamer": cv2.CAP_GSTREAMER,
             }[self.config.backend]
             capture = cv2.VideoCapture(self.config.source, backend)
-        if self.config.width is not None:
-            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.width)
-        if self.config.height is not None:
-            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.height)
-        if self.config.fps is not None:
-            capture.set(cv2.CAP_PROP_FPS, self.config.fps)
-        # A bounded buffer drops stale frames rather than accumulating latency. Some
-        # backends ignore this setting, so the live runner still processes one frame at a time.
-        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        gstreamer_rtsp = self.config.is_rtsp and self.config.backend == "gstreamer"
+        if not gstreamer_rtsp:
+            if self.config.width is not None:
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.width)
+            if self.config.height is not None:
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.height)
+            if self.config.fps is not None:
+                capture.set(cv2.CAP_PROP_FPS, self.config.fps)
+            # The GStreamer RTSP pipeline already owns its caps and bounded appsink.
+            # Calling set() after it starts can renegotiate and halt the live stream.
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not capture.isOpened():
             capture.release()
             raise CameraReadError(f"unable to open {self.config.redacted_source_description}")
@@ -214,6 +247,202 @@ class OpenCVFrameSource:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+class BufferedFrameSource:
+    """Capture frames on a dedicated thread into a bounded, ordered FIFO.
+
+    The producer blocks when the FIFO is full instead of intentionally discarding
+    an older frame. ``backpressure_count`` makes sustained overload observable;
+    upstream RTSP components can still discard data when their own latency bounds
+    are exceeded, so a non-zero value must be treated as a real-time capacity warning.
+    """
+
+    def __init__(
+        self,
+        source: FrameSource,
+        *,
+        capacity: int = 4,
+        startup_timeout_seconds: float = 15.0,
+        read_timeout_seconds: float = 5.0,
+    ) -> None:
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+            raise ValueError("capture queue capacity must be a positive integer")
+        if not math.isfinite(startup_timeout_seconds) or startup_timeout_seconds <= 0:
+            raise ValueError("capture startup timeout must be finite and positive")
+        if not math.isfinite(read_timeout_seconds) or read_timeout_seconds <= 0:
+            raise ValueError("capture read timeout must be finite and positive")
+        self._source = source
+        self.capacity = capacity
+        self.startup_timeout_seconds = startup_timeout_seconds
+        self.read_timeout_seconds = read_timeout_seconds
+        self._frames: queue.Queue[CapturedFrame] = queue.Queue(maxsize=capacity)
+        self._stop = threading.Event()
+        self._ready = threading.Event()
+        self._worker: threading.Thread | None = None
+        self._failure: BaseException | None = None
+        self._metrics_lock = threading.Lock()
+        self._captured_frame_count = 0
+        self._delivered_frame_count = 0
+        self._queue_high_watermark = 0
+        self._backpressure_count = 0
+
+    @property
+    def reconnect_count(self) -> int:
+        return int(getattr(self._source, "reconnect_count", 0))
+
+    @property
+    def captured_frame_count(self) -> int:
+        with self._metrics_lock:
+            return self._captured_frame_count
+
+    @property
+    def delivered_frame_count(self) -> int:
+        with self._metrics_lock:
+            return self._delivered_frame_count
+
+    @property
+    def queue_high_watermark(self) -> int:
+        with self._metrics_lock:
+            return self._queue_high_watermark
+
+    @property
+    def backpressure_count(self) -> int:
+        with self._metrics_lock:
+            return self._backpressure_count
+
+    def open(self) -> None:
+        if self._worker is not None and self._worker.is_alive():
+            return
+        self._frames = queue.Queue(maxsize=self.capacity)
+        self._stop.clear()
+        self._ready.clear()
+        self._failure = None
+        with self._metrics_lock:
+            self._captured_frame_count = 0
+            self._delivered_frame_count = 0
+            self._queue_high_watermark = 0
+            self._backpressure_count = 0
+        self._worker = threading.Thread(
+            target=self._capture_loop,
+            name="multi-detect-camera-capture",
+            daemon=True,
+        )
+        self._worker.start()
+        if not self._ready.wait(self.startup_timeout_seconds):
+            self.close()
+            raise CameraReadError("buffered camera source did not start before its timeout")
+        if self._failure is not None:
+            failure = self._failure
+            self.close()
+            raise CameraReadError(
+                f"buffered camera source failed to start: {type(failure).__name__}"
+            ) from failure
+
+    def read(self) -> CapturedFrame:
+        self.open()
+        deadline = time.monotonic() + self.read_timeout_seconds
+        while True:
+            try:
+                frame = self._frames.get(timeout=min(0.05, max(0.001, deadline - time.monotonic())))
+            except queue.Empty:
+                if self._failure is not None and self._frames.empty():
+                    raise CameraReadError(
+                        f"buffered camera worker stopped after {type(self._failure).__name__}"
+                    ) from self._failure
+                if time.monotonic() >= deadline:
+                    raise CameraReadError(
+                        "buffered camera source returned no frame before timeout"
+                    ) from None
+                continue
+            with self._metrics_lock:
+                self._delivered_frame_count += 1
+            return frame
+
+    def close(self) -> None:
+        self._stop.set()
+        worker = self._worker
+        if worker is None:
+            self._source.close()
+            return
+        worker.join(timeout=min(2.0, self.read_timeout_seconds))
+        if worker.is_alive():
+            # A backend can occasionally block inside capture.read(). Releasing it
+            # is the only bounded shutdown path; OpenCVFrameSource.close is idempotent.
+            self._source.close()
+            worker.join(timeout=1.0)
+        self._worker = None
+
+    def _capture_loop(self) -> None:
+        try:
+            self._source.open()
+        except BaseException as exc:  # The failure is re-raised on the caller thread.
+            self._failure = exc
+            self._ready.set()
+            return
+        self._ready.set()
+        try:
+            while not self._stop.is_set():
+                try:
+                    frame = self._source.read()
+                except BaseException as exc:  # The failure is re-raised on the caller thread.
+                    self._failure = exc
+                    return
+                with self._metrics_lock:
+                    self._captured_frame_count += 1
+                encountered_backpressure = False
+                while not self._stop.is_set():
+                    try:
+                        self._frames.put(frame, timeout=0.05)
+                    except queue.Full:
+                        if not encountered_backpressure:
+                            with self._metrics_lock:
+                                self._backpressure_count += 1
+                            encountered_backpressure = True
+                        continue
+                    with self._metrics_lock:
+                        self._queue_high_watermark = max(
+                            self._queue_high_watermark,
+                            self._frames.qsize(),
+                        )
+                    break
+        finally:
+            self._source.close()
+
+    def __enter__(self) -> BufferedFrameSource:
+        self.open()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
+def _build_gstreamer_rtsp_pipeline(config: CaptureConfig) -> str:
+    if not config.is_rtsp or not isinstance(config.source, str):
+        raise ValueError("GStreamer RTSP pipeline requires an RTSP source")
+    if any(ord(character) < 32 for character in config.source):
+        raise ValueError("RTSP source cannot contain control characters")
+    quoted_source = '"' + config.source.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    codec = config.rtsp_codec
+    depayloader = f"rtp{codec}depay"
+    parser = f"{codec}parse"
+    if config.gstreamer_hardware_decode:
+        if codec == "h265":
+            parser = (
+                "h265parse config-interval=-1 ! video/x-h265,stream-format=byte-stream,alignment=au"
+            )
+        decode_chain = (
+            "nvv4l2decoder ! nvvidconv ! video/x-raw,format=BGRx ! "
+            "videoconvert ! video/x-raw,format=BGR"
+        )
+    else:
+        decode_chain = f"avdec_{codec} ! videoconvert ! video/x-raw,format=BGR"
+    return (
+        f"rtspsrc location={quoted_source} protocols={config.rtsp_transport} "
+        f"latency={config.gstreamer_latency_ms} drop-on-latency=true ! "
+        f"{depayloader} ! {parser} ! {decode_chain} ! "
+        "appsink drop=true max-buffers=1 sync=false"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,47 +499,52 @@ class OnnxNx6Detector:
         self.config = config
         self._np = _require_numpy()
         if session is None:
-            try:
-                import onnxruntime as ort
-            except ImportError as exc:  # pragma: no cover - dependency-specific.
-                raise VisionDependencyError(
-                    "Install ONNX Runtime: pip install -e '.[vision]'"
-                ) from exc
-            available = set(ort.get_available_providers())
-            requested = self.config.providers or (
-                "TensorrtExecutionProvider",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            )
-            providers = [provider for provider in requested if provider in available]
-            if not providers:
-                raise VisionDependencyError(
-                    "No requested ONNX Runtime provider is available; "
-                    f"available={sorted(available)}"
+            if config.model_path.suffix.lower() in {".engine", ".plan"}:
+                from .tensorrt_session import TensorRtNx6Session
+
+                session = TensorRtNx6Session(config.model_path)
+            else:
+                try:
+                    import onnxruntime as ort
+                except ImportError as exc:  # pragma: no cover - dependency-specific.
+                    raise VisionDependencyError(
+                        "Install ONNX Runtime: pip install -e '.[vision]'"
+                    ) from exc
+                available = set(ort.get_available_providers())
+                requested = self.config.providers or (
+                    "TensorrtExecutionProvider",
+                    "CUDAExecutionProvider",
+                    "CPUExecutionProvider",
                 )
-            configured_providers: list[str | tuple[str, dict[str, str | bool]]] = []
-            for provider in providers:
-                if (
-                    provider == "TensorrtExecutionProvider"
-                    and self.config.trt_engine_cache_path is not None
-                ):
-                    cache_path = self.config.trt_engine_cache_path
-                    cache_path.mkdir(parents=True, exist_ok=True)
-                    configured_providers.append(
-                        (
-                            provider,
-                            {
-                                "trt_engine_cache_enable": True,
-                                "trt_engine_cache_path": str(cache_path),
-                            },
-                        )
+                providers = [provider for provider in requested if provider in available]
+                if not providers:
+                    raise VisionDependencyError(
+                        "No requested ONNX Runtime provider is available; "
+                        f"available={sorted(available)}"
                     )
-                else:
-                    configured_providers.append(provider)
-            session = ort.InferenceSession(
-                str(config.model_path),
-                providers=configured_providers,
-            )
+                configured_providers: list[str | tuple[str, dict[str, str | bool]]] = []
+                for provider in providers:
+                    if (
+                        provider == "TensorrtExecutionProvider"
+                        and self.config.trt_engine_cache_path is not None
+                    ):
+                        cache_path = self.config.trt_engine_cache_path
+                        cache_path.mkdir(parents=True, exist_ok=True)
+                        configured_providers.append(
+                            (
+                                provider,
+                                {
+                                    "trt_engine_cache_enable": True,
+                                    "trt_engine_cache_path": str(cache_path),
+                                },
+                            )
+                        )
+                    else:
+                        configured_providers.append(provider)
+                session = ort.InferenceSession(
+                    str(config.model_path),
+                    providers=configured_providers,
+                )
         self._session = session
         input_meta = self._session.get_inputs()[0]
         self._input_name = input_meta.name
@@ -336,6 +570,21 @@ class OnnxNx6Detector:
             class_names=self.config.class_names,
             model_version=self.config.model_version or self.config.model_path.name,
         )
+
+    def warmup(self, *, iterations: int = 1) -> None:
+        """Initialize the execution provider before live capture starts."""
+
+        if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 0:
+            raise ValueError("warmup iterations must be a non-negative integer")
+        tensor = self._np.zeros(
+            (1, 3, self._input_height, self._input_width),
+            dtype=self._np.float32,
+        )
+        for _ in range(iterations):
+            outputs = self._session.run(None, {self._input_name: tensor})
+            if not outputs:
+                raise OnnxOutputContractError("ONNX session returned no outputs during warmup")
+            self._as_nx6_rows(outputs[0])
 
     def infer_nx6(
         self, image_bgr: Any

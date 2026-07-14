@@ -71,8 +71,18 @@ class OpenCVManualTargetTracker:
         selection_bbox = command.bbox
         if selection_bbox is None:
             raise ValueError("select and switch commands require a bounding box")
-        tracker = self._tracker_factory()
-        initialized = tracker.init(image_bgr, self._normalized_to_pixel_xywh(selection_bbox))
+        tracker = self._dependency_call("creation", self._tracker_factory)
+        try:
+            initialized = self._dependency_call(
+                "initialization",
+                lambda: tracker.init(
+                    image_bgr,
+                    self._normalized_to_pixel_xywh(selection_bbox),
+                ),
+            )
+        except VisionDependencyError:
+            self._clear_target()
+            raise
         if initialized is False:
             self._clear_target()
             return self._status(
@@ -84,7 +94,14 @@ class OpenCVManualTargetTracker:
         self._tracker = tracker
         self._target_id = f"manual-{command.command_id[:8]}"
         self._last_bbox = selection_bbox
-        self._template_gray = self._extract_template(image_bgr, selection_bbox)
+        try:
+            self._template_gray = self._dependency_call(
+                "template extraction",
+                lambda: self._extract_template(image_bgr, selection_bbox),
+            )
+        except VisionDependencyError:
+            self._clear_target()
+            raise
         self._lost_since_s = None
         return self._tracking_status(
             bbox=selection_bbox,
@@ -109,7 +126,14 @@ class OpenCVManualTargetTracker:
 
         bbox = None
         if self._tracker is not None:
-            tracked, pixel_bbox = self._tracker.update(image_bgr)
+            try:
+                tracked, pixel_bbox = self._dependency_call(
+                    "update",
+                    lambda: self._tracker.update(image_bgr),
+                )
+            except VisionDependencyError:
+                self._tracker = None
+                raise
             if tracked:
                 bbox = self._pixel_xywh_to_normalized(pixel_bbox)
         if bbox is not None:
@@ -125,11 +149,20 @@ class OpenCVManualTargetTracker:
         self._tracker = None
         if self._lost_since_s is None:
             self._lost_since_s = produced_at_s
-        reacquired = self._reacquire_from_template(image_bgr)
+        reacquired = self._dependency_call(
+            "template reacquisition",
+            lambda: self._reacquire_from_template(image_bgr),
+        )
         if reacquired is not None:
             bbox, score = reacquired
-            tracker = self._tracker_factory()
-            initialized = tracker.init(image_bgr, self._normalized_to_pixel_xywh(bbox))
+            tracker = self._dependency_call("creation", self._tracker_factory)
+            initialized = self._dependency_call(
+                "reinitialization",
+                lambda: tracker.init(
+                    image_bgr,
+                    self._normalized_to_pixel_xywh(bbox),
+                ),
+            )
             if initialized is not False:
                 self._tracker = tracker
                 self._last_bbox = bbox
@@ -300,6 +333,16 @@ class OpenCVManualTargetTracker:
             if callable(creator):
                 return creator()
         raise VisionDependencyError("no supported OpenCV single-object tracker is available")
+
+    @staticmethod
+    def _dependency_call(operation: str, callback: Callable[[], Any]) -> Any:
+        """Normalize opaque OpenCV/backend exceptions at the vision boundary."""
+        try:
+            return callback()
+        except VisionDependencyError:
+            raise
+        except Exception as exc:
+            raise VisionDependencyError(f"OpenCV manual tracker {operation} failed") from exc
 
     @staticmethod
     def _require_cv2() -> Any:

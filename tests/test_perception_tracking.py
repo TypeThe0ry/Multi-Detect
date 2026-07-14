@@ -147,6 +147,27 @@ def test_duplicate_and_out_of_order_frames_are_rejected() -> None:
         tracker.update_detections(frame_id="frame-2", captured_at_s=0.5, detections=(_flame(),))
 
 
+@pytest.mark.parametrize("invalid_size", [True, 0, -1, 1.5])
+def test_frame_id_history_size_must_be_a_positive_integer(invalid_size) -> None:
+    with pytest.raises(ValueError, match="frame_id_history_size"):
+        IoUMultiObjectTracker(
+            _mission_config(),
+            frame_id_history_size=invalid_size,
+        )
+
+
+def test_recent_frame_id_duplicate_detection_has_bounded_memory() -> None:
+    tracker = IoUMultiObjectTracker(_mission_config(), frame_id_history_size=2)
+
+    tracker.update_detections(frame_id="frame-1", captured_at_s=1.0, detections=(_flame(),))
+    tracker.update_detections(frame_id="frame-2", captured_at_s=2.0, detections=(_flame(),))
+    tracker.update_detections(frame_id="frame-3", captured_at_s=3.0, detections=(_flame(),))
+
+    assert tracker.remembered_frame_id_count == 2
+    with pytest.raises(FrameOrderError, match="duplicate"):
+        tracker.update_detections(frame_id="frame-2", captured_at_s=4.0, detections=(_flame(),))
+
+
 def test_gap_beyond_limit_rebuilds_track_identity() -> None:
     tracker = IoUMultiObjectTracker(_mission_config(maximum_track_gap_seconds=0.5))
     (first,) = tracker.update_detections(

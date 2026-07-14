@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -102,15 +103,33 @@ class _TrackState:
 class IoUMultiObjectTracker:
     """Small deterministic IoU tracker with fail-closed confirmation rules."""
 
-    def __init__(self, config: MissionConfig, *, iou_threshold: float = 0.3) -> None:
+    def __init__(
+        self,
+        config: MissionConfig,
+        *,
+        iou_threshold: float = 0.3,
+        frame_id_history_size: int = 4096,
+    ) -> None:
         if not 0.0 < iou_threshold <= 1.0:
             raise ValueError("iou_threshold must be in (0, 1]")
+        if (
+            isinstance(frame_id_history_size, bool)
+            or not isinstance(frame_id_history_size, int)
+            or frame_id_history_size <= 0
+        ):
+            raise ValueError("frame_id_history_size must be a positive integer")
         self._config = config
         self._iou_threshold = iou_threshold
+        self._frame_id_history_size = frame_id_history_size
         self._tracks: dict[str, _TrackState] = {}
         self._seen_frame_ids: set[str] = set()
+        self._frame_id_history: deque[str] = deque()
         self._last_frame_time_s: float | None = None
         self._next_track_number = 1
+
+    @property
+    def remembered_frame_id_count(self) -> int:
+        return len(self._frame_id_history)
 
     def update(self, observation: FrameObservation) -> tuple[TrackSnapshot, ...]:
         """Process one strictly ordered frame and return all active tracks."""
@@ -138,6 +157,10 @@ class IoUMultiObjectTracker:
             raise FrameOrderError("frame timestamps must be strictly increasing")
 
         self._seen_frame_ids.add(frame_id)
+        self._frame_id_history.append(frame_id)
+        if len(self._frame_id_history) > self._frame_id_history_size:
+            expired_frame_id = self._frame_id_history.popleft()
+            self._seen_frame_ids.remove(expired_frame_id)
         self._last_frame_time_s = captured_at_s
 
         # A gap beyond the configured limit ends identity continuity before any

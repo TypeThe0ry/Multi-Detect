@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
 
@@ -47,7 +47,7 @@ from .telemetry import (
     with_observed_flight_mode_permission,
     with_person_detector_health,
 )
-from .vision import CapturedFrame, DetectorEnsemble, OpenCVFrameSource, VisionDependencyError
+from .vision import CapturedFrame, DetectorEnsemble, FrameSource, VisionDependencyError
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,11 +108,19 @@ class LiveRunResult:
     alert_delivery_count: int
     alert_delivery_failure_count: int
     average_fps: float
+    steady_source_fps: float
+    steady_processing_fps: float
+    startup_to_first_frame_seconds: float
     capture_latency_p50_ms: float
     capture_latency_p95_ms: float
+    frame_age_at_inference_p50_ms: float
+    frame_age_at_inference_p95_ms: float
     inference_latency_p50_ms: float
     inference_latency_p95_ms: float
     camera_reconnect_count: int
+    capture_queue_high_watermark: int
+    capture_queue_backpressure_count: int
+    captured_frame_count: int
     retried_alert_count: int
     simulated_payload_cycle_count: int
     local_selection_count: int
@@ -442,7 +450,7 @@ class LiveMissionRunner:
         self,
         *,
         mission: MissionController,
-        frame_source: OpenCVFrameSource,
+        frame_source: FrameSource,
         detector: DetectorEnsemble,
         telemetry_provider: TelemetryProvider,
         config: LiveRunConfig,
@@ -490,10 +498,20 @@ class LiveMissionRunner:
         latest_alert_delivery_status: str | None = None
         recent_events: deque[str] = deque(maxlen=8)
         capture_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
+        frame_age_at_inference_ms: deque[float] = deque(
+            maxlen=self.config.performance_window_frames
+        )
         inference_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
         run_started_s = time.monotonic()
+        first_captured_at_s: float | None = None
+        last_captured_at_s: float | None = None
+        first_processed_at_s: float | None = None
+        last_processed_at_s: float | None = None
+        first_frame_received_at_s: float | None = None
         local_target_lock: OperatorTargetLock | None = None
         local_manual_tracker: OpenCVManualTargetTracker | None = None
+        local_manual_tracker_unavailable = False
+        local_active_selection_command: TargetSelectionCommand | None = None
         local_track_status: TrackStatusMessage | None = None
 
         def deliver_alert(alert: FireAlert, *, delivered_at_s: float, retry: bool) -> None:
@@ -574,13 +592,22 @@ class LiveMissionRunner:
                     )
                     raise
                 capture_latency_ms.append((time.perf_counter() - capture_started_s) * 1_000.0)
+                frame_received_at_s = time.monotonic()
+                if first_frame_received_at_s is None:
+                    first_frame_received_at_s = frame_received_at_s
+                if first_captured_at_s is None:
+                    first_captured_at_s = captured.captured_at_s
+                last_captured_at_s = captured.captured_at_s
                 inference_started_s = time.perf_counter()
+                frame_age_at_inference_ms.append(
+                    max(0.0, time.monotonic() - captured.captured_at_s) * 1_000.0
+                )
                 try:
                     detections = self.detector.detect(captured.image_bgr)
                 except (OSError, RuntimeError, TypeError, ValueError) as exc:
                     self.mission.audit.append(
                         "perception.inference_failed",
-                        captured.captured_at_s,
+                        time.monotonic(),
                         {"error_type": type(exc).__name__, "frame_id": captured.frame_id},
                     )
                     raise
@@ -593,7 +620,8 @@ class LiveMissionRunner:
                         detections=detections,
                         inference_latency_ms=inference_elapsed_ms,
                     )
-                telemetry = self.telemetry_provider.snapshot(now_s=captured.captured_at_s)
+                frame_event_at_s = time.monotonic()
+                telemetry = self.telemetry_provider.snapshot(now_s=frame_event_at_s)
                 telemetry = with_person_detector_health(
                     telemetry,
                     healthy=(
@@ -608,7 +636,7 @@ class LiveMissionRunner:
                     )
                     self._advance_observed_pixhawk_lifecycle(
                         telemetry=telemetry,
-                        now_s=captured.captured_at_s,
+                        now_s=frame_event_at_s,
                     )
                 observation = FrameObservation(
                     frame_id=captured.frame_id,
@@ -623,7 +651,7 @@ class LiveMissionRunner:
                 }:
                     outcome = self.mission.process_observation(
                         observation,
-                        now_s=captured.captured_at_s,
+                        now_s=frame_event_at_s,
                     )
                 else:
                     outcome = ObservationOutcome(
@@ -637,7 +665,7 @@ class LiveMissionRunner:
                         self.alert_outbox.enqueue(alert)
                     deliver_alert(
                         alert,
-                        delivered_at_s=captured.captured_at_s,
+                        delivered_at_s=time.monotonic(),
                         retry=False,
                     )
                 remote_authorization_handled = False
@@ -646,7 +674,7 @@ class LiveMissionRunner:
                         remote_mission_status_sequence + 1
                     ) & 0xFFFFFFFF
                     remote_safety_status_sequence = (remote_safety_status_sequence + 1) & 0xFFFFFFFF
-                    produced_at_s = max(captured.captured_at_s, time.monotonic())
+                    produced_at_s = time.monotonic()
                     authorization_challenge_message = None
                     if outcome.challenge is not None:
                         remote_authorization_challenge_sequence = (
@@ -657,7 +685,7 @@ class LiveMissionRunner:
                                 challenge=outcome.challenge,
                                 sequence=remote_authorization_challenge_sequence,
                                 produced_at_s=time.time(),
-                                challenge_clock_now_s=captured.captured_at_s,
+                                challenge_clock_now_s=time.monotonic(),
                             )
                         )
                     current_mission_status = self.mission.status()
@@ -680,6 +708,7 @@ class LiveMissionRunner:
                         frame_id=captured.frame_id,
                         captured_at_s=captured.captured_at_s,
                         produced_at_s=produced_at_s,
+                        image_bgr=captured.image_bgr,
                         mission_status=mission_status_message,
                         safety_status=safety_status_message,
                         authorization_challenge=authorization_challenge_message,
@@ -706,7 +735,7 @@ class LiveMissionRunner:
                         ):
                             self.mission.audit.append(
                                 "operator.remote_authorization_rejected",
-                                captured.captured_at_s,
+                                time.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -743,7 +772,7 @@ class LiveMissionRunner:
                         except (RuntimeError, ValueError) as exc:
                             self.mission.audit.append(
                                 "operator.remote_authorization_rejected",
-                                captured.captured_at_s,
+                                time.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -759,7 +788,7 @@ class LiveMissionRunner:
                             remote_authorization_handled = True
                             self.mission.audit.append(
                                 "operator.remote_authorization_applied",
-                                captured.captured_at_s,
+                                time.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -772,7 +801,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_statuses:
                         self.mission.audit.append(
                             "operator.remote_tracking_status",
-                            captured.captured_at_s,
+                            time.monotonic(),
                             {
                                 "selection_command_id": remote_status.selection_command_id,
                                 "state": remote_status.state.value,
@@ -783,7 +812,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_mission_statuses:
                         self.mission.audit.append(
                             "operator.remote_mission_status",
-                            captured.captured_at_s,
+                            time.monotonic(),
                             {
                                 "phase": remote_status.phase.value,
                                 "authorization_state": (remote_status.authorization_state.value),
@@ -800,7 +829,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_safety_statuses:
                         self.mission.audit.append(
                             "operator.remote_safety_status",
-                            captured.captured_at_s,
+                            time.monotonic(),
                             {
                                 "target_id": remote_status.target_id,
                                 "ruleset_version": remote_status.ruleset_version,
@@ -816,7 +845,7 @@ class LiveMissionRunner:
                     for error_type in bridge_result.transport_errors:
                         self.mission.audit.append(
                             "operator.remote_transport_error",
-                            captured.captured_at_s,
+                            time.monotonic(),
                             {
                                 "error_type": error_type,
                                 "hardware_control_enabled": False,
@@ -825,8 +854,9 @@ class LiveMissionRunner:
                         recent_events.append(f"REMOTE LINK ERROR {error_type}")
                 if ui is not None:
                     consume_target_command = getattr(ui, "consume_target_command", None)
+                    local_operator_now_s = time.monotonic()
                     local_command = (
-                        consume_target_command(captured, now_s=captured.captured_at_s)
+                        consume_target_command(captured, now_s=local_operator_now_s)
                         if callable(consume_target_command)
                         else None
                     )
@@ -842,43 +872,72 @@ class LiveMissionRunner:
                                     | FIRE_CANDIDATE_TRACK_LABELS,
                                 ),
                             )
-                            local_manual_tracker = OpenCVManualTargetTracker(local_command.geometry)
+                            local_manual_tracker = None
+                            local_manual_tracker_unavailable = False
+                            local_active_selection_command = None
                         detector_lock_status = local_target_lock.apply_command(
                             local_command,
                             tracks=outcome.tracks,
                             frame_id=captured.frame_id,
-                            now_s=captured.captured_at_s,
+                            now_s=local_operator_now_s,
                         )
-                        if local_manual_tracker is None:
-                            raise RuntimeError("manual target tracker failed to initialize")
-                        if (
-                            local_command.action is SelectionAction.CANCEL
-                            or detector_lock_status.state is TrackingState.TRACKING
-                        ):
+                        if local_command.action is SelectionAction.CANCEL:
+                            local_active_selection_command = None
                             local_track_status = detector_lock_status
-                            if local_command.action is SelectionAction.CANCEL:
+                            if local_manual_tracker is not None:
                                 local_manual_tracker.apply_command(
                                     local_command,
                                     image_bgr=captured.image_bgr,
                                     frame_id=captured.frame_id,
-                                    now_s=captured.captured_at_s,
+                                    now_s=local_operator_now_s,
                                 )
-                            else:
-                                local_manual_tracker = OpenCVManualTargetTracker(
-                                    local_command.geometry
-                                )
+                            local_manual_tracker = None
+                            local_manual_tracker_unavailable = False
                         else:
-                            local_track_status = local_manual_tracker.apply_command(
-                                local_command,
-                                image_bgr=captured.image_bgr,
-                                frame_id=captured.frame_id,
-                                now_s=captured.captured_at_s,
+                            local_active_selection_command = local_command
+                            local_manual_tracker_unavailable = False
+                            manual_command = local_command
+                            if (
+                                detector_lock_status.state is TrackingState.TRACKING
+                                and detector_lock_status.bbox is not None
+                            ):
+                                manual_command = replace(
+                                    local_command,
+                                    bbox=detector_lock_status.bbox,
+                                )
+                            try:
+                                local_manual_tracker = OpenCVManualTargetTracker(
+                                    manual_command.geometry
+                                )
+                                manual_status = local_manual_tracker.apply_command(
+                                    manual_command,
+                                    image_bgr=captured.image_bgr,
+                                    frame_id=captured.frame_id,
+                                    now_s=local_operator_now_s,
+                                )
+                            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                                local_manual_tracker = None
+                                local_manual_tracker_unavailable = True
+                                self.mission.audit.append(
+                                    "operator.local_manual_tracker_failed",
+                                    time.monotonic(),
+                                    {"error_type": type(exc).__name__},
+                                )
+                                recent_events.append(f"LOCAL TRACKER ERROR {type(exc).__name__}")
+                                manual_status = detector_lock_status
+                            if local_manual_tracker is not None and not local_manual_tracker.active:
+                                local_manual_tracker = None
+                                local_manual_tracker_unavailable = True
+                            local_track_status = (
+                                detector_lock_status
+                                if detector_lock_status.state is TrackingState.TRACKING
+                                else manual_status
                             )
                         local_selections += 1
                         local_tracking_statuses += 1
                         self.mission.audit.append(
                             "operator.local_target_selection",
-                            captured.captured_at_s,
+                            time.monotonic(),
                             {
                                 "action": local_command.action.value,
                                 "state": local_track_status.state.value,
@@ -893,21 +952,68 @@ class LiveMissionRunner:
                             captured_at_s=captured.captured_at_s,
                             produced_at_s=max(captured.captured_at_s, time.monotonic()),
                         )
+                        manual_status = None
+                        if local_manual_tracker is not None and local_manual_tracker.active:
+                            try:
+                                manual_status = local_manual_tracker.update(
+                                    image_bgr=captured.image_bgr,
+                                    frame_id=captured.frame_id,
+                                    captured_at_s=captured.captured_at_s,
+                                    produced_at_s=max(
+                                        captured.captured_at_s,
+                                        time.monotonic(),
+                                    ),
+                                )
+                            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                                local_manual_tracker = None
+                                local_manual_tracker_unavailable = True
+                                self.mission.audit.append(
+                                    "operator.local_manual_tracker_failed",
+                                    time.monotonic(),
+                                    {"error_type": type(exc).__name__},
+                                )
+                                recent_events.append(f"LOCAL TRACKER ERROR {type(exc).__name__}")
                         if (
                             detector_lock_status is not None
                             and detector_lock_status.state is TrackingState.TRACKING
                         ):
                             local_track_status = detector_lock_status
-                            local_manual_tracker = OpenCVManualTargetTracker(
-                                local_target_lock.geometry
-                            )
-                        elif local_manual_tracker is not None and local_manual_tracker.active:
-                            local_track_status = local_manual_tracker.update(
-                                image_bgr=captured.image_bgr,
-                                frame_id=captured.frame_id,
-                                captured_at_s=captured.captured_at_s,
-                                produced_at_s=max(captured.captured_at_s, time.monotonic()),
-                            )
+                            if (
+                                (local_manual_tracker is None or not local_manual_tracker.active)
+                                and not local_manual_tracker_unavailable
+                                and local_active_selection_command is not None
+                                and detector_lock_status.bbox is not None
+                            ):
+                                try:
+                                    shadow_command = replace(
+                                        local_active_selection_command,
+                                        bbox=detector_lock_status.bbox,
+                                    )
+                                    local_manual_tracker = OpenCVManualTargetTracker(
+                                        shadow_command.geometry
+                                    )
+                                    shadow_status = local_manual_tracker.apply_command(
+                                        shadow_command,
+                                        image_bgr=captured.image_bgr,
+                                        frame_id=captured.frame_id,
+                                        now_s=time.monotonic(),
+                                    )
+                                    if shadow_status.state is not TrackingState.TRACKING:
+                                        local_manual_tracker = None
+                                        local_manual_tracker_unavailable = True
+                                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                                    local_manual_tracker = None
+                                    local_manual_tracker_unavailable = True
+                                    self.mission.audit.append(
+                                        "operator.local_manual_tracker_failed",
+                                        time.monotonic(),
+                                        {"error_type": type(exc).__name__},
+                                    )
+                                    recent_events.append(
+                                        f"LOCAL TRACKER ERROR {type(exc).__name__}"
+                                    )
+                        elif manual_status is not None:
+                            local_track_status = manual_status
                             if (
                                 local_track_status is not None
                                 and local_track_status.bbox is not None
@@ -923,13 +1029,17 @@ class LiveMissionRunner:
                         if local_track_status is not None:
                             local_tracking_statuses += 1
                 processed += 1
+                processed_at_s = time.monotonic()
+                if first_processed_at_s is None:
+                    first_processed_at_s = processed_at_s
+                last_processed_at_s = processed_at_s
                 status = self.mission.status()
                 elapsed_s = max(time.monotonic() - run_started_s, 1e-9)
                 fps = processed / elapsed_s
                 visible_alerts = (
                     (latest_alert,)
                     if latest_alert is not None
-                    and captured.captured_at_s - latest_alert.observed_at_s
+                    and time.monotonic() - latest_alert.observed_at_s
                     <= self.config.alert_banner_seconds
                     else ()
                 )
@@ -973,7 +1083,7 @@ class LiveMissionRunner:
                 if action == "ack_alert" and latest_alert is not None:
                     self.mission.audit.append(
                         "alert.operator_acknowledged",
-                        captured.captured_at_s,
+                        time.monotonic(),
                         {"alert_id": latest_alert.alert_id},
                     )
                     recent_events.append(f"ALERT {latest_alert.target_id} ACKNOWLEDGED")
@@ -1071,11 +1181,33 @@ class LiveMissionRunner:
             alert_delivery_count=alert_deliveries,
             alert_delivery_failure_count=alert_delivery_failures,
             average_fps=processed / max(time.monotonic() - run_started_s, 1e-9),
+            steady_source_fps=_interval_rate(
+                processed,
+                first_captured_at_s,
+                last_captured_at_s,
+            ),
+            steady_processing_fps=_interval_rate(
+                processed,
+                first_processed_at_s,
+                last_processed_at_s,
+            ),
+            startup_to_first_frame_seconds=(
+                max(0.0, first_frame_received_at_s - run_started_s)
+                if first_frame_received_at_s is not None
+                else 0.0
+            ),
             capture_latency_p50_ms=_percentile(capture_latency_ms, 0.50),
             capture_latency_p95_ms=_percentile(capture_latency_ms, 0.95),
+            frame_age_at_inference_p50_ms=_percentile(frame_age_at_inference_ms, 0.50),
+            frame_age_at_inference_p95_ms=_percentile(frame_age_at_inference_ms, 0.95),
             inference_latency_p50_ms=_percentile(inference_latency_ms, 0.50),
             inference_latency_p95_ms=_percentile(inference_latency_ms, 0.95),
             camera_reconnect_count=int(getattr(self.frame_source, "reconnect_count", 0)),
+            capture_queue_high_watermark=int(getattr(self.frame_source, "queue_high_watermark", 0)),
+            capture_queue_backpressure_count=int(
+                getattr(self.frame_source, "backpressure_count", 0)
+            ),
+            captured_frame_count=int(getattr(self.frame_source, "captured_frame_count", processed)),
             retried_alert_count=retried_alert_count,
             simulated_payload_cycle_count=simulated_payload_cycles,
             local_selection_count=local_selections,
@@ -1092,11 +1224,19 @@ class LiveMissionRunner:
             {
                 "processed_frames": result.processed_frames,
                 "average_fps": result.average_fps,
+                "steady_source_fps": result.steady_source_fps,
+                "steady_processing_fps": result.steady_processing_fps,
+                "startup_to_first_frame_seconds": result.startup_to_first_frame_seconds,
                 "capture_latency_p50_ms": result.capture_latency_p50_ms,
                 "capture_latency_p95_ms": result.capture_latency_p95_ms,
+                "frame_age_at_inference_p50_ms": result.frame_age_at_inference_p50_ms,
+                "frame_age_at_inference_p95_ms": result.frame_age_at_inference_p95_ms,
                 "inference_latency_p50_ms": result.inference_latency_p50_ms,
                 "inference_latency_p95_ms": result.inference_latency_p95_ms,
                 "camera_reconnect_count": result.camera_reconnect_count,
+                "capture_queue_high_watermark": result.capture_queue_high_watermark,
+                "capture_queue_backpressure_count": result.capture_queue_backpressure_count,
+                "captured_frame_count": result.captured_frame_count,
                 "retried_alert_count": result.retried_alert_count,
                 "simulated_payload_cycle_count": result.simulated_payload_cycle_count,
                 "local_selection_count": result.local_selection_count,
@@ -1194,3 +1334,13 @@ def _percentile(values: deque[float], quantile: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, math.ceil(quantile * len(ordered)) - 1))
     return ordered[index]
+
+
+def _interval_rate(
+    count: int,
+    first_at_s: float | None,
+    last_at_s: float | None,
+) -> float:
+    if count < 2 or first_at_s is None or last_at_s is None:
+        return 0.0
+    return (count - 1) / max(last_at_s - first_at_s, 1e-9)

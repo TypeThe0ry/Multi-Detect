@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +10,7 @@ import pytest
 import multidetect.cli as cli_module
 from multidetect.camera_bench import CameraBenchConfig, run_camera_bench
 from multidetect.cli import main
+from multidetect.compat import UTC
 from multidetect.vision import CameraReadError, CaptureConfig
 
 OBSERVED_AT = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
@@ -210,6 +211,4 @@ def test_camera_bench_cli_writes_redacted_evidence_from_source_env(
     }
     assert json.loads(output.read_text(encoding="utf-8"))["passed"] is True
     assert "SECRET_USER" not in captured.out + captured.err + output.read_text(encoding="utf-8")
-    assert "SECRET_PASSWORD" not in captured.out + captured.err + output.read_text(
-        encoding="utf-8"
-    )
+    assert "SECRET_PASSWORD" not in captured.out + captured.err + output.read_text(encoding="utf-8")

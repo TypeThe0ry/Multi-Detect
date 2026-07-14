@@ -5,8 +5,9 @@ import hmac
 import json
 import math
 from dataclasses import asdict, dataclass
-from enum import StrEnum
 from typing import Any
+
+from .compat import StrEnum
 
 PAYLOAD_HIL_PROTOCOL_VERSION = 1
 PAYLOAD_HIL_MAX_MESSAGE_BYTES = 4096

@@ -51,6 +51,8 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Show an immediate fire-confirmed banner.
 - [x] Add a persistent event list, target queue, telemetry strip and map-ready position panel.
 - [x] Add alert acknowledgement and visible delivery failure state.
+- [x] Keep camera buffering and duplicate-frame history bounded so a long patrol cannot accumulate
+  an unbounded image queue or frame-ID set; frame timestamps remain strictly increasing.
 
 ### 3. Data-link software boundary
 
@@ -58,6 +60,7 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Provide recording and JSON Lines publishers for tests and local integration.
 - [x] Audit successful and failed live alert delivery attempts.
 - [x] Add an optional SQLite outbox that persists before send and retries pending alerts after restart.
+- [x] Bound delivered outbox retention transactionally while never pruning pending or failed alerts.
 - [x] Stream live audit events to disk with fsync while bounding the in-memory event window.
 - [x] Add correlated receiver ACK validation and bounded exponential retry/backoff with a loopback HIL transport.
 - [x] Add an HMAC-SHA256 authenticated UDP sender/receiver with signed correlation, timestamp checks and persistent receiver deduplication.
@@ -114,7 +117,25 @@ Exit criteria: representative RTSP video runs for the required mission duration 
 - [x] Decode geographic position, relative altitude, attitude, speed, heading, battery, satellite count, armed state, flight mode and mission sequence.
 - [x] Display link/position freshness, aircraft coordinates and a relative aircraft trail in the live console.
 - [x] Add a standalone `pixhawk-check` sampler that proves the diagnostic path transmits zero messages.
+- [x] Add a separate, single-use `pixhawk-param-backup` path that requires explicit acknowledgement,
+  sends exactly one `PARAM_REQUEST_LIST`, preserves PX4 bytewise integer values and raw wire bytes,
+  rejects incomplete lists, and has no parameter-write, command, mission or actuator send path. Its
+  real pymavlink localhost UDP HIL passed; it has not been run against the real V6X.
+- [x] Add strict offline `pixhawk-param-verify` and `pixhawk-param-diff` commands. Verification
+  rejects schema/invariant/value/hash tampering; diff denies every unlisted change by default and can
+  require named expected changes. Both transmit zero messages and explicitly state that the embedded
+  list hash is self-consistency evidence, not cryptographic authentication. The explicitly
+  authorized real-V6X read completed 1102/1102 parameters with one request, zero writes and zero
+  flight/mission/actuator messages; the real parameters were not changed.
+- [x] Add an offline `pixhawk-link-audit` that separates GR01/TELEM1 at 115200 from the
+  Jetson/V6X board-internal Ethernet primary path and the optional UART1/TELEM2 921600 fallback.
+  The real snapshot passes both required primary configurations; TELEM2 is reported as disabled,
+  optional and not physically verified. The audit opens no transport and sends zero messages.
 - [x] Add a read-only mission-lifecycle gate: wait for fresh link/position, armed state, approved auto mode and configured mission sequence before entering search.
+- [x] Verify the board-internal Ethernet path on the real V6X: `192.168.0.3:14550` produced only
+  MAVLink 2 from system/component `1:1`; the project receiver matched PX4 fixed-wing identity and
+  transmitted zero messages. The current `UNINIT` state and absent global position remain correctly
+  blocked as flight-readiness issues rather than being misreported as a link failure.
 - [ ] Compare every displayed field and freshness transition with QGroundControl on the real V6X link.
 - [x] Add a read-only, HMAC-authenticated file HIL contract for allowed-area, geofence-health and release-zone-clear evidence, bound to mission ID, fresh Pixhawk position, timestamp and monotonic sequence; every validation failure restores unknown predicates.
 - [ ] Replace the file HIL bridge with independently validated real geofence, allowed-area and deployment-zone evidence; generic telemetry must not imply permission.
@@ -128,7 +149,27 @@ Exit criteria: representative RTSP video runs for the required mission duration 
   authorization, automatic authenticated inert-controller feedback and a separate independent
   confirmation UDP channel. Jetson transmitted zero Pixhawk messages; camera/model and all hardware
   remained simulated.
-- [ ] Validate the full patrol application with ArduPlane SITL before considering any command path.
+- [x] Run the official PX4 fixed-wing SIH/SITL process through the strict passive receiver and the
+  real local-camera Live path. A constant flame-candidate HIL model produced 85 candidate frames,
+  while unarmed `LOITER` remained in `standby` with zero authorization, payload and transmitted
+  MAVLink events; stopping SITL made the fresh-link gate fail closed. The run is repeatable with
+  `scripts/run_px4_sitl_readonly_acceptance.ps1` on isolated UDP 14650.
+- [x] Add an explicit, Docker-confined positive patrol option. It arms only the newly created SITL
+  process, permits `LOITER` for gate-plumbing HIL, observes `standby -> navigating -> searching`,
+  emits one deduplicated patrol alert, creates no authorization/payload action and disarms before
+  cleanup; Multi-Detect still transmits zero MAVLink messages. It is not an AUTO mission test.
+- [x] Exercise the complete observed lifecycle through an armed PX4 AUTO mission in an owned,
+  disposable software-only SITL container. Mission upload, parameter overrides, arm and mode
+  changes are confined to that container; Multi-Detect remains receive-only and observes Mission
+  sequence progress, movement and one patrol alert with zero authorization or payload action.
+- [x] Validate PX4 datalink-loss Hold behavior in the same strict container boundary. With a
+  loopback-only GCS heartbeat and SITL-only `COM_DL_LOSS_T=5`, `NAV_DLL_ACT=1`, the fixed-wing
+  transition was `MISSION -> LOITER`; heartbeat recovery cleared `gcs_connection_lost` but retained
+  LOITER until an explicit operator mode change. Protected UDP 14550 was unchanged, Multi-Detect
+  transmitted zero MAVLink messages and no real V6X or payload controller was contacted.
+- [ ] Repeat the AUTO mission and datalink-loss acceptances with a PX4 SITL build exactly matched to
+  the real V6X firmware. The current pinned `v1.18.0-beta1` SIH evidence is interface/failsafe
+  evidence only and does not validate real airframe behavior.
 
 Exit criteria: loss or staleness of required telemetry is visible and prevents deployment readiness without affecting Pixhawk failsafes.
 
@@ -185,11 +226,28 @@ Exit criteria: every uncertain or inconsistent condition stays locked, no automa
   confinement, full published-snapshot binding, bounded retry, replay protection, one decision per
   challenge and a final current-safety recheck; approval only advances mission state and never
   requests physical release.
+- [x] Add a native QGC custom-build source skeleton with raw-video-local target overlay, explicit
+  touch-selection mode, patrol/payload display modes, tracking/safety/authorization panels and a
+  deterministic software-only UI simulator. Compile-time and QML invariants keep flight-control
+  writes and physical release disabled.
+- [x] Compile and run the custom desktop QGC source against the pinned Qt/MSVC toolchain. A concurrent
+  isolated HIL with real PX4 fixed-wing SITL and a metadata-only Jetson component completed target
+  selection, tracking/safety state, challenge-bound approval and ACK with QGC exit code 0. The strict
+  router forwarded only read/status traffic and kept flight, parameter, mission, actuator and payload
+  writes disabled.
+- [ ] Visually validate the 1280x720-to-1920x1200 viewport vector and all UI transitions on a real
+  1920x1200 G20-class render; the deterministic transform tests and desktop HIL do not replace this.
 - [ ] Implement and bench-test the authorization drawer in the custom Android QGC build with an
-  explicit operator identity, evidence review, approve/deny confirmation and link-loss behavior.
+  explicit operator identity, evidence review, approve/deny confirmation and link-loss behavior. The
+  ARM64 APK now contains the drawer and passes host tests/lint; real G20 interaction remains pending.
 - [ ] Validate actual bidirectional routing over GR01 direct IP or, if required, the V6X fallback path.
-- [ ] Build the Android QGC custom Fly View overlay and validate coordinate transforms.
-- [ ] If direct IP is unavailable, validate targeted `TUNNEL` routing in ArduPlane SITL and V6X.
+- [ ] Install the built Android ARM64 QGC custom Fly View overlay on G20 and validate the 1920x1200
+  coordinate transforms, H.265/RTSP path and touch behavior. Package/ABI/signature/static validation
+  is complete; no ADB device was present for the real-device gate.
+- [x] Validate targeted operator `TUNNEL` isolation in PX4 fixed-wing SITL: QGC `255/190` metadata for
+  Jetson `1/191` remained local to the operator loop and was never forwarded into PX4.
+- [ ] Repeat the targeted routing check on an actuator-disconnected real V6X only if GR01 direct IP is
+  unavailable; keep all control and payload writes disabled.
 
 The detailed topology, UI proposal and acceptance sequence are in
 [`g20-gr01-integration.md`](g20-gr01-integration.md).

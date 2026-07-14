@@ -12,9 +12,14 @@ flight commands, mission changes, authorization decisions, or payload-control me
 - Packets outside the configured clock-skew window are rejected.
 - The receiver remembers delivered alert IDs. An exact retransmission is acknowledged as a
   duplicate; reuse of an alert ID with different content is rejected. The optional SQLite store
-  preserves this decision across receiver restarts.
+  preserves this decision across receiver restarts. Both the memory and SQLite stores retain a
+  configurable, bounded window (10,000 IDs by default) so long-running ground stations do not grow
+  without limit; downstream consumers must still use `alert_id` as their own idempotency key.
 - The aircraft SQLite outbox records an alert before transmission and marks it delivered only after
   a valid correlated acknowledgement.
+- The outbox automatically retains only the latest 10,000 delivered rows in the same transaction
+  that marks delivery. Pending or failed rows are never removed by this retention policy; callers
+  may choose another non-negative limit or disable automatic pruning explicitly.
 - Retries and acknowledgement waits are bounded. Delivery failure does not affect Pixhawk or call
   any payload interface.
 
@@ -38,6 +43,7 @@ multi-detect alert-udp-receiver `
   --hmac-key-env MULTIDETECT_ALERT_KEY `
   --receiver-id ground-station-1 --expected-sender-id aircraft-1 `
   --deduplication-db artifacts/received-fire-alerts.sqlite3 `
+  --deduplication-capacity 10000 `
   --max-messages 1 --receive-timeout-seconds 60
 ```
 

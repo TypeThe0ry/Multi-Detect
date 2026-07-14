@@ -4,9 +4,10 @@ import argparse
 import hashlib
 import json
 import os
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
+from multidetect.compat import UTC
 from multidetect.vision import CaptureConfig, OnnxNx6Config, OnnxNx6Detector, OpenCVFrameSource
 
 

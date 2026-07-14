@@ -4,10 +4,11 @@ import ipaddress
 import math
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from .compat import UTC
 from .domain import BoundingBox
 from .operator_link import SelectionAction, TargetSelectionCommand, VideoGeometry
 from .operator_transport import SelectionDeliveryTimeout

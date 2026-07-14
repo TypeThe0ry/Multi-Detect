@@ -87,6 +87,10 @@ def test_real_pymavlink_udp_loopback_maps_fields_and_becomes_stale() -> None:
         PixhawkReadOnlyConfig(
             f"udpin:127.0.0.1:{port}",
             stale_after_seconds=0.25,
+            expected_system_id=1,
+            expected_autopilot_id=mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA,
+            expected_vehicle_type_id=mavutil.mavlink.MAV_TYPE_FIXED_WING,
+            require_operational_state=True,
         )
     )
     receiver.snapshot(now_s=time.monotonic())  # Bind before the first UDP datagram is emitted.
@@ -111,6 +115,10 @@ def test_real_pymavlink_udp_loopback_maps_fields_and_becomes_stale() -> None:
         latest = receiver.snapshot(now_s=time.monotonic())
         assert latest.link_healthy is True
         assert latest.position_healthy is True
+        assert receiver.qualification.passed is True
+        assert receiver.heartbeat_identity.to_document()["vehicle_type_name"] == (
+            "MAV_TYPE_FIXED_WING"
+        )
         assert latest.latitude_deg == pytest.approx(31.123456)
         assert latest.longitude_deg == pytest.approx(121.654321)
         assert latest.altitude_agl_m == pytest.approx(42.5)

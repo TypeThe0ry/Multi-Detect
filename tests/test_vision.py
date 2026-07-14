@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import multidetect.tensorrt_session as tensorrt_session_module
 import multidetect.vision as vision_module
 from multidetect.domain import BoundingBox, Detection, SensorKind
 from multidetect.vision import (
@@ -163,6 +165,43 @@ def test_post_nms_nx6_is_adapted_to_canonical_detection() -> None:
     assert model.provider_names == ("CPUExecutionProvider",)
 
 
+def test_detector_warmup_initializes_provider_with_static_input() -> None:
+    model = detector(np.empty((1, 0, 6), dtype=np.float32))
+
+    model.warmup(iterations=2)
+
+    received = model._session.received
+    assert received is not None
+    assert received["images"].shape == (1, 3, 640, 640)
+    assert received["images"].dtype == np.float32
+
+
+def test_tensor_engine_path_uses_direct_tensorrt_session(monkeypatch) -> None:
+    created: list[Path] = []
+
+    class _TensorRtSession(_Session):
+        def __init__(self, path: Path) -> None:
+            created.append(path)
+            super().__init__(np.empty((1, 0, 6), dtype=np.float32))
+
+        def get_providers(self):
+            return ["TensorrtExecutionProvider"]
+
+    monkeypatch.setattr(tensorrt_session_module, "TensorRtNx6Session", _TensorRtSession)
+    model = OnnxNx6Detector(
+        OnnxNx6Config(
+            model_path=Path("fire.engine"),
+            class_names=("fire", "smoke"),
+            input_width=640,
+            input_height=640,
+        )
+    )
+
+    assert created == [Path("fire.engine")]
+    assert model.provider_names == ("TensorrtExecutionProvider",)
+    assert model.detect(np.zeros((640, 640, 3), dtype=np.uint8)) == ()
+
+
 def test_confidence_filter_runs_before_legacy_adapter() -> None:
     model = detector(np.array([[64, 128, 320, 512, 0.2, 0]], dtype=np.float32), threshold=0.25)
 
@@ -210,10 +249,19 @@ def test_ensemble_reports_person_safety_class_coverage() -> None:
 def test_capture_config_identifies_rtsp_and_validates_transport() -> None:
     assert CaptureConfig("rtsp://camera/live").is_rtsp is True
     assert CaptureConfig(0).is_rtsp is False
+    assert CaptureConfig("rtsp://camera/live", backend="gstreamer").rtsp_codec == "h265"
     with pytest.raises(ValueError, match="rtsp_transport"):
         CaptureConfig(0, rtsp_transport="srt")
     with pytest.raises(ValueError, match="backend"):
         CaptureConfig(0, backend="v4l2")
+    with pytest.raises(ValueError, match="requires an RTSP source"):
+        CaptureConfig(0, backend="gstreamer")
+    with pytest.raises(ValueError, match="hardware decode requires"):
+        CaptureConfig("rtsp://camera/live", gstreamer_hardware_decode=True)
+    with pytest.raises(ValueError, match="rtsp_codec"):
+        CaptureConfig("rtsp://camera/live", rtsp_codec="vp9")
+    with pytest.raises(ValueError, match="gstreamer latency"):
+        CaptureConfig("rtsp://camera/live", gstreamer_latency_ms=-1)
     with pytest.raises(ValueError, match="reconnect attempts"):
         CaptureConfig(0, reconnect_attempts=-1)
     with pytest.raises(ValueError, match="fps must be finite"):
@@ -228,11 +276,13 @@ class _Capture:
     def __init__(self, image) -> None:
         self.image = image
         self.released = False
+        self.set_calls: list[tuple[object, object]] = []
 
     def isOpened(self) -> bool:
         return not self.released
 
-    def set(self, _key, _value) -> bool:
+    def set(self, key, value) -> bool:
+        self.set_calls.append((key, value))
         return True
 
     def read(self):
@@ -247,6 +297,7 @@ class _CV2:
     CAP_DSHOW = 1
     CAP_MSMF = 2
     CAP_FFMPEG = 3
+    CAP_GSTREAMER = 8
     CAP_PROP_FRAME_WIDTH = 4
     CAP_PROP_FRAME_HEIGHT = 5
     CAP_PROP_FPS = 6
@@ -254,8 +305,10 @@ class _CV2:
 
     def __init__(self, captures: list[_Capture]) -> None:
         self.captures = captures
+        self.calls: list[tuple[object, int]] = []
 
-    def VideoCapture(self, _source, _backend):
+    def VideoCapture(self, source, backend):
+        self.calls.append((source, backend))
         return self.captures.pop(0)
 
 
@@ -301,4 +354,111 @@ def test_rtsp_open_restores_process_ffmpeg_options(monkeypatch) -> None:
     source.open()
 
     assert vision_module.os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "existing;value"
+    source.close()
+
+
+def test_rtsp_gstreamer_h265_hardware_pipeline_is_bounded(monkeypatch) -> None:
+    image = np.zeros((720, 1280, 3), dtype=np.uint8)
+    cv2 = _CV2([_Capture(image)])
+    monkeypatch.setattr(vision_module, "_require_cv2", lambda: cv2)
+    source = OpenCVFrameSource(
+        CaptureConfig(
+            "rtsp://camera.invalid/stream=0",
+            backend="gstreamer",
+            rtsp_codec="h265",
+            gstreamer_hardware_decode=True,
+            gstreamer_latency_ms=80,
+        )
+    )
+
+    frame = source.read()
+
+    pipeline, backend = cv2.calls[0]
+    assert backend == cv2.CAP_GSTREAMER
+    assert "protocols=tcp" in pipeline
+    assert "latency=80" in pipeline
+    assert (
+        "rtph265depay ! h265parse config-interval=-1 ! "
+        "video/x-h265,stream-format=byte-stream,alignment=au ! nvv4l2decoder" in pipeline
+    )
+    assert "appsink drop=true max-buffers=1 sync=false" in pipeline
+    assert source._capture is not None
+    assert source._capture.set_calls == []
+    assert frame.width == 1280
+    assert frame.height == 720
+    source.close()
+
+
+def test_rtsp_gstreamer_software_pipeline_rejects_control_characters(monkeypatch) -> None:
+    cv2 = _CV2([_Capture(None)])
+    monkeypatch.setattr(vision_module, "_require_cv2", lambda: cv2)
+    source = OpenCVFrameSource(
+        CaptureConfig("rtsp://camera.invalid/stream\nattack", backend="gstreamer")
+    )
+
+    with pytest.raises(ValueError, match="control characters"):
+        source.open()
+
+
+def test_buffered_frame_source_preserves_fifo_order_and_reports_backpressure() -> None:
+    class _FastSource:
+        reconnect_count = 2
+
+        def __init__(self) -> None:
+            self.index = 0
+            self.closed = False
+
+        def open(self) -> None:
+            pass
+
+        def read(self):
+            self.index += 1
+            return vision_module.CapturedFrame(
+                frame_id=f"frame-{self.index}",
+                captured_at_s=time.monotonic(),
+                image_bgr=None,
+                width=640,
+                height=480,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    inner = _FastSource()
+    source = vision_module.BufferedFrameSource(inner, capacity=2)
+    source.open()
+    deadline = time.monotonic() + 1.0
+    while source.backpressure_count == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    frames = [source.read(), source.read(), source.read()]
+    source.close()
+
+    assert [frame.frame_id for frame in frames] == ["frame-1", "frame-2", "frame-3"]
+    assert source.reconnect_count == 2
+    assert source.queue_high_watermark == 2
+    assert source.backpressure_count >= 1
+    assert source.captured_frame_count >= 3
+    assert source.delivered_frame_count == 3
+    assert inner.closed is True
+
+
+def test_buffered_frame_source_propagates_worker_failure_without_secret_text() -> None:
+    class _FailingSource:
+        def open(self) -> None:
+            pass
+
+        def read(self):
+            raise RuntimeError("SECRET camera address")
+
+        def close(self) -> None:
+            pass
+
+    source = vision_module.BufferedFrameSource(_FailingSource(), capacity=2)
+
+    with pytest.raises(CameraReadError) as captured_error:
+        source.read()
+
+    assert "RuntimeError" in str(captured_error.value)
+    assert "SECRET" not in str(captured_error.value)
     source.close()

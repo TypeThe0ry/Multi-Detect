@@ -109,6 +109,10 @@ class AuditLog:
             mode = "a" if stream_append else "w"
             self._stream = self._stream_path.open(mode, encoding="utf-8", newline="\n")
 
+    @property
+    def max_in_memory_events(self) -> int | None:
+        return self._events.maxlen
+
     def append(
         self,
         event_type: str,

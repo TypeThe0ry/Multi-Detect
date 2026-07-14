@@ -46,6 +46,8 @@ from .safety import SafetyRuleEngine
 from .state_machine import MissionStateMachine
 from .tracking import IoUMultiObjectTracker
 
+DEFAULT_MISSION_AUDIT_MEMORY_EVENTS = 10_000
+
 
 class MissionOperationError(RuntimeError):
     """Raised when an operator action is invalid for the current mission state."""
@@ -131,7 +133,11 @@ class MissionController:
         self.fake_payload_port = FakePayloadPort()
         self.payload = PayloadController(config, self.fake_payload_port)
         self.ranker = TargetRanker()
-        self.audit = audit_log if audit_log is not None else AuditLog()
+        self.audit = (
+            audit_log
+            if audit_log is not None
+            else AuditLog(max_in_memory_events=DEFAULT_MISSION_AUDIT_MEMORY_EVENTS)
+        )
         self.payload_inventory_provider = (
             payload_inventory_provider or ConfiguredSimulationPayloadInventoryProvider(config)
         )
@@ -1186,6 +1192,7 @@ class MissionController:
 
 
 __all__ = [
+    "DEFAULT_MISSION_AUDIT_MEMORY_EVENTS",
     "MissionController",
     "MissionOperationError",
     "MissionStatus",

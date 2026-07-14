@@ -6,9 +6,11 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .compat import UTC
 
 PAYLOAD_BENCH_PROTOCOL_VERSION = 1
 

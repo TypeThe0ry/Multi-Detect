@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 from collections import deque
 from dataclasses import dataclass
-from enum import StrEnum
 from math import isfinite
 
+from .compat import StrEnum
 from .domain import BoundingBox, DeploymentWindowStatus, MissionPhase, RuleCheck, Verdict
 
 OPERATOR_LINK_PROTOCOL_VERSION = 1
