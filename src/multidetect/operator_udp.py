@@ -4,25 +4,45 @@ import socket
 import time
 from collections import deque
 from dataclasses import dataclass
+from math import isfinite
 from queue import Empty, SimpleQueue
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 
 from .operator_link import (
+    ApproachChallengeStatusMessage,
+    ApproachConfirmationAcceptance,
+    ApproachConfirmationCommand,
+    ApproachConfirmationCommandGuard,
+    ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecisionAcceptance,
     AuthorizationDecisionCommand,
     AuthorizationDecisionCommandGuard,
     MissionStatusMessage,
+    PatrolStatusMessage,
+    PayloadTargetChallengeStatusMessage,
+    PayloadTargetConfirmationAcceptance,
+    PayloadTargetConfirmationCommand,
+    PayloadTargetConfirmationCommandGuard,
+    PayloadTargetStatusMessage,
+    RangeStatusMessage,
+    ReleaseStatusMessage,
     SafetyStatusMessage,
+    SceneContextStatusMessage,
     SelectionCommandGuard,
+    TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
 )
 from .operator_mavlink import OperatorMavlinkTunnelAdapter
 from .operator_protocol import (
+    ApproachConfirmationAck,
+    ApproachConfirmationAckReason,
     AuthorizationDecisionAck,
     AuthorizationDecisionAckReason,
     OperatorProtocolError,
+    PayloadTargetConfirmationAck,
+    PayloadTargetConfirmationAckReason,
     SelectionAck,
     WireMessageType,
 )
@@ -56,6 +76,38 @@ class UdpAuthorizationDecisionReceipt:
     remote: tuple[str, int]
 
 
+@dataclass(frozen=True, slots=True)
+class UdpApproachConfirmationReceipt:
+    acknowledgement: ApproachConfirmationAck
+    attempts: int
+    elapsed_s: float
+    remote: tuple[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class UdpPayloadTargetConfirmationReceipt:
+    acknowledgement: PayloadTargetConfirmationAck
+    attempts: int
+    elapsed_s: float
+    remote: tuple[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ServerApproachConfirmationResult:
+    command: ApproachConfirmationCommand
+    acceptance: ApproachConfirmationAcceptance
+    acknowledgement_payload: bytes
+    duplicate: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ServerPayloadTargetConfirmationResult:
+    command: PayloadTargetConfirmationCommand
+    acceptance: PayloadTargetConfirmationAcceptance
+    acknowledgement_payload: bytes
+    duplicate: bool
+
+
 class UdpOperatorSelectionServer:
     """Jetson UDP endpoint for selection/status and challenge-bound decisions, never actuators."""
 
@@ -67,7 +119,10 @@ class UdpOperatorSelectionServer:
         mavlink: OperatorMavlinkTunnelAdapter,
         guard: SelectionCommandGuard,
         authorization_guard: AuthorizationDecisionCommandGuard | None = None,
+        approach_guard: ApproachConfirmationCommandGuard | None = None,
+        payload_target_guard: PayloadTargetConfirmationCommandGuard | None = None,
         receive_timeout_s: float | None = None,
+        metadata_peer_timeout_s: float = 3.0,
     ) -> None:
         if not bind_host.strip():
             raise ValueError("UDP bind host cannot be empty")
@@ -75,23 +130,39 @@ class UdpOperatorSelectionServer:
             raise ValueError("UDP port must be in [0, 65535]")
         if receive_timeout_s is not None and receive_timeout_s <= 0.0:
             raise ValueError("UDP receive timeout must be positive")
+        if not isfinite(metadata_peer_timeout_s) or metadata_peer_timeout_s <= 0.0:
+            raise ValueError("metadata peer timeout must be finite and positive")
         self.mavlink = mavlink
+        self.metadata_peer_timeout_s = metadata_peer_timeout_s
         self.selection_server = SelectionCommandServer(mavlink.codec, guard)
         self.authorization_guard = authorization_guard or AuthorizationDecisionCommandGuard()
         self.authorization_server = AuthorizationDecisionCommandServer(
             mavlink.codec,
             self.authorization_guard,
         )
+        self.approach_guard = approach_guard or ApproachConfirmationCommandGuard()
+        self.payload_target_guard = payload_target_guard or PayloadTargetConfirmationCommandGuard()
         self._channel = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._channel.settimeout(receive_timeout_s)
         self._channel.bind((bind_host, port))
         self._acknowledgement_sequence = 0
         self._authorization_peer: tuple[str, int] | None = None
+        self._approach_peer: tuple[str, int] | None = None
+        self._payload_target_peer: tuple[str, int] | None = None
+        self._metadata_peer: tuple[str, int] | None = None
+        self._metadata_peer_seen_at_s: float | None = None
+        self._metadata_peer_lock = Lock()
         self._accepted_commands: SimpleQueue[tuple[TargetSelectionCommand, tuple[str, int]]] = (
             SimpleQueue()
         )
         self._accepted_authorization_decisions: SimpleQueue[
             tuple[AuthorizationDecisionCommand, tuple[str, int]]
+        ] = SimpleQueue()
+        self._accepted_approach_confirmations: SimpleQueue[
+            tuple[ApproachConfirmationCommand, tuple[str, int]]
+        ] = SimpleQueue()
+        self._accepted_payload_target_confirmations: SimpleQueue[
+            tuple[PayloadTargetConfirmationCommand, tuple[str, int]]
         ] = SimpleQueue()
         self._background_errors: SimpleQueue[Exception] = SimpleQueue()
         self._stop_event = Event()
@@ -104,15 +175,34 @@ class UdpOperatorSelectionServer:
 
     def serve_once(
         self,
-    ) -> tuple[
-        ServerSelectionResult | ServerAuthorizationDecisionResult,
-        tuple[str, int],
-    ]:
+    ) -> (
+        tuple[
+            ServerSelectionResult
+            | ServerAuthorizationDecisionResult
+            | ServerApproachConfirmationResult
+            | ServerPayloadTargetConfirmationResult,
+            tuple[str, int],
+        ]
+        | None
+    ):
         frame, raw_peer = self._channel.recvfrom(MAX_OPERATOR_UDP_DATAGRAM_BYTES + 1)
         if len(frame) > MAX_OPERATOR_UDP_DATAGRAM_BYTES:
             raise ValueError("operator UDP datagram exceeds the diagnostic limit")
         peer = str(raw_peer[0]), int(raw_peer[1])
-        inner = self.mavlink.extract_authenticated_operator_payload(frame)
+        # QGroundControl emits a signed heartbeat on this direct link. Treat it
+        # as authenticated peer discovery so Jetson can publish DET candidates
+        # before the first manual selection command arrives.
+        datagram = self.mavlink.decode_authenticated_datagram(
+            frame,
+            ignore_unrelated_message=True,
+        )
+        inner = datagram.operator_payload
+        if inner is None:
+            if datagram.is_heartbeat:
+                self._register_metadata_peer(peer)
+            return None
+        # A valid signed+HMAC TUNNEL packet also refreshes the same peer lease.
+        self._register_metadata_peer(peer)
         packet = self.mavlink.codec.decode(inner)
         self._acknowledgement_sequence = (self._acknowledgement_sequence + 1) & 0xFFFFFFFF
         if packet.message_type is WireMessageType.TARGET_SELECTION:
@@ -151,9 +241,72 @@ class UdpOperatorSelectionServer:
                     received_at_s=time.time(),
                     acknowledgement_sequence=self._acknowledgement_sequence,
                 )
+        elif packet.message_type is WireMessageType.APPROACH_CONFIRMATION:
+            if not isinstance(packet.message, ApproachConfirmationCommand):
+                raise OperatorProtocolError("decoded approach confirmation has the wrong type")
+            if self._approach_peer is None or peer != self._approach_peer:
+                acceptance = ApproachConfirmationAcceptance(
+                    False,
+                    ("approach confirmation peer does not match the challenge recipient",),
+                )
+            else:
+                acceptance = self.approach_guard.evaluate(
+                    packet.message,
+                    received_at_s=time.time(),
+                )
+            reason = _approach_ack_reason(acceptance)
+            acknowledgement_payload = self.mavlink.codec.encode_approach_ack(
+                ApproachConfirmationAck(
+                    command_token=packet.message.command_token,
+                    accepted=acceptance.allowed,
+                    reason=reason,
+                    acknowledged_sequence=packet.message.sequence,
+                ),
+                sequence=self._acknowledgement_sequence,
+                sent_at_s=time.time(),
+            )
+            result = ServerApproachConfirmationResult(
+                packet.message,
+                acceptance,
+                acknowledgement_payload,
+                acceptance.duplicate,
+            )
+        elif packet.message_type is WireMessageType.PAYLOAD_TARGET_CONFIRMATION:
+            if not isinstance(packet.message, PayloadTargetConfirmationCommand):
+                raise OperatorProtocolError(
+                    "decoded payload target confirmation has the wrong type"
+                )
+            if self._payload_target_peer is None or peer != self._payload_target_peer:
+                acceptance = PayloadTargetConfirmationAcceptance(
+                    False,
+                    ("payload target confirmation peer does not match the challenge recipient",),
+                )
+            else:
+                acceptance = self.payload_target_guard.evaluate(
+                    packet.message,
+                    received_at_s=time.time(),
+                )
+            reason = _payload_target_ack_reason(acceptance)
+            acknowledgement_payload = self.mavlink.codec.encode_payload_target_ack(
+                PayloadTargetConfirmationAck(
+                    command_token=packet.message.command_token,
+                    accepted=acceptance.allowed,
+                    reason=reason,
+                    acknowledged_sequence=packet.message.sequence,
+                ),
+                sequence=self._acknowledgement_sequence,
+                sent_at_s=time.time(),
+            )
+            result = ServerPayloadTargetConfirmationResult(
+                packet.message,
+                acceptance,
+                acknowledgement_payload,
+                acceptance.duplicate,
+            )
         else:
             raise OperatorProtocolError(
-                "Jetson operator endpoint accepts only selection and authorization commands"
+                "Jetson operator endpoint accepts only selection, authorization "
+                "and bounded slide-confirmation commands"
             )
         acknowledgement = self.mavlink.wrap_authenticated_operator_payload(
             result.acknowledgement_payload
@@ -162,8 +315,12 @@ class UdpOperatorSelectionServer:
         if result.acceptance.allowed and not result.duplicate:
             if isinstance(result, ServerSelectionResult):
                 self._accepted_commands.put((result.command, peer))
-            else:
+            elif isinstance(result, ServerAuthorizationDecisionResult):
                 self._accepted_authorization_decisions.put((result.command, peer))
+            elif isinstance(result, ServerApproachConfirmationResult):
+                self._accepted_approach_confirmations.put((result.command, peer))
+            else:
+                self._accepted_payload_target_confirmations.put((result.command, peer))
         return result, peer
 
     def start_background(self) -> None:
@@ -184,11 +341,39 @@ class UdpOperatorSelectionServer:
         except Empty:
             return None
 
+    def active_metadata_peer(self) -> tuple[str, int] | None:
+        """Return the freshest authenticated QGC peer while its heartbeat lease is live."""
+
+        with self._metadata_peer_lock:
+            if self._metadata_peer is None or self._metadata_peer_seen_at_s is None:
+                return None
+            if time.monotonic() - self._metadata_peer_seen_at_s > self.metadata_peer_timeout_s:
+                self._metadata_peer = None
+                self._metadata_peer_seen_at_s = None
+                return None
+            return self._metadata_peer
+
     def poll_authorization_decision(
         self,
     ) -> tuple[AuthorizationDecisionCommand, tuple[str, int]] | None:
         try:
             return self._accepted_authorization_decisions.get_nowait()
+        except Empty:
+            return None
+
+    def poll_approach_confirmation(
+        self,
+    ) -> tuple[ApproachConfirmationCommand, tuple[str, int]] | None:
+        try:
+            return self._accepted_approach_confirmations.get_nowait()
+        except Empty:
+            return None
+
+    def poll_payload_target_confirmation(
+        self,
+    ) -> tuple[PayloadTargetConfirmationCommand, tuple[str, int]] | None:
+        try:
+            return self._accepted_payload_target_confirmations.get_nowait()
         except Empty:
             return None
 
@@ -199,6 +384,22 @@ class UdpOperatorSelectionServer:
         self.authorization_guard.set_active_challenge(status)
         if status is None:
             self._authorization_peer = None
+
+    def set_approach_challenge(
+        self,
+        status: ApproachChallengeStatusMessage | None,
+    ) -> None:
+        self.approach_guard.set_active_challenge(status)
+        if status is None:
+            self._approach_peer = None
+
+    def set_payload_target_challenge(
+        self,
+        status: PayloadTargetChallengeStatusMessage | None,
+    ) -> None:
+        self.payload_target_guard.set_active_challenge(status)
+        if status is None:
+            self._payload_target_peer = None
 
     def poll_error(self) -> Exception | None:
         try:
@@ -230,6 +431,82 @@ class UdpOperatorSelectionServer:
     ) -> None:
         self._channel.sendto(self.mavlink.encode_safety_status(status), peer)
 
+    def publish_patrol_status(
+        self,
+        status: PatrolStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_patrol_status(status), peer)
+
+    def publish_range_status(
+        self,
+        status: RangeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_range_status(status), peer)
+
+    def publish_release_status(
+        self,
+        status: ReleaseStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_release_status(status), peer)
+
+    def publish_approach_challenge(
+        self,
+        status: ApproachChallengeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self.approach_guard.set_active_challenge(status)
+        self._approach_peer = peer
+        self._channel.sendto(self.mavlink.encode_approach_challenge(status), peer)
+
+    def publish_approach_status(
+        self,
+        status: ApproachStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_approach_status(status), peer)
+
+    def publish_payload_target_challenge(
+        self,
+        status: PayloadTargetChallengeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self.payload_target_guard.set_active_challenge(status)
+        self._payload_target_peer = peer
+        self._channel.sendto(self.mavlink.encode_payload_target_challenge(status), peer)
+
+    def publish_payload_target_status(
+        self,
+        status: PayloadTargetStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_payload_target_status(status), peer)
+
+    def publish_target_pool_status(
+        self,
+        status: TargetPoolStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_target_pool_status(status), peer)
+
+    def publish_scene_context_status(
+        self,
+        status: SceneContextStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_scene_context_status(status), peer)
+
     def publish_authorization_challenge(
         self,
         status: AuthorizationChallengeStatusMessage,
@@ -239,6 +516,11 @@ class UdpOperatorSelectionServer:
         self.authorization_guard.set_active_challenge(status)
         self._authorization_peer = peer
         self._channel.sendto(self.mavlink.encode_authorization_challenge(status), peer)
+
+    def _register_metadata_peer(self, peer: tuple[str, int]) -> None:
+        with self._metadata_peer_lock:
+            self._metadata_peer = peer
+            self._metadata_peer_seen_at_s = time.monotonic()
 
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -321,11 +603,29 @@ class UdpOperatorSessionClient:
         self._last_status_sequence: int | None = None
         self._last_mission_status_sequence: int | None = None
         self._last_safety_status_sequence: int | None = None
+        self._last_patrol_status_sequence: int | None = None
+        self._last_range_status_sequence: int | None = None
+        self._last_release_status_sequence: int | None = None
+        self._last_approach_challenge_sequence: int | None = None
+        self._last_approach_status_sequence: int | None = None
+        self._last_payload_target_challenge_sequence: int | None = None
+        self._last_payload_target_status_sequence: int | None = None
+        self._last_target_pool_status_sequence: int | None = None
+        self._last_scene_context_status_sequence: int | None = None
         self._last_authorization_challenge_sequence: int | None = None
         self._pending_messages: dict[WireMessageType, deque[object]] = {
             WireMessageType.TRACK_STATUS: deque(maxlen=1),
             WireMessageType.MISSION_STATUS: deque(maxlen=1),
             WireMessageType.SAFETY_STATUS: deque(maxlen=1),
+            WireMessageType.PATROL_STATUS: deque(maxlen=1),
+            WireMessageType.RANGE_STATUS: deque(maxlen=1),
+            WireMessageType.RELEASE_STATUS: deque(maxlen=1),
+            WireMessageType.APPROACH_CHALLENGE: deque(maxlen=1),
+            WireMessageType.APPROACH_STATUS: deque(maxlen=1),
+            WireMessageType.PAYLOAD_TARGET_CHALLENGE: deque(maxlen=1),
+            WireMessageType.PAYLOAD_TARGET_STATUS: deque(maxlen=1),
+            WireMessageType.TARGET_POOL_STATUS: deque(maxlen=128),
+            WireMessageType.SCENE_CONTEXT_STATUS: deque(maxlen=128),
             WireMessageType.AUTHORIZATION_CHALLENGE: deque(maxlen=1),
         }
 
@@ -369,6 +669,15 @@ class UdpOperatorSessionClient:
             self._last_status_sequence = None
             self._last_mission_status_sequence = None
             self._last_safety_status_sequence = None
+            self._last_patrol_status_sequence = None
+            self._last_range_status_sequence = None
+            self._last_release_status_sequence = None
+            self._last_approach_challenge_sequence = None
+            self._last_approach_status_sequence = None
+            self._last_payload_target_challenge_sequence = None
+            self._last_payload_target_status_sequence = None
+            self._last_target_pool_status_sequence = None
+            self._last_scene_context_status_sequence = None
             self._last_authorization_challenge_sequence = None
         return UdpSelectionReceipt(
             acknowledgement,
@@ -420,6 +729,82 @@ class UdpOperatorSessionClient:
         return UdpAuthorizationDecisionReceipt(
             acknowledgement,
             delivery.attempts,
+            time.monotonic() - started_s,
+            self.remote,
+        )
+
+    def deliver_approach_confirmation(
+        self,
+        command: ApproachConfirmationCommand,
+    ) -> UdpApproachConfirmationReceipt:
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        started_s = time.monotonic()
+        attempts = 0
+        acknowledgement: ApproachConfirmationAck | None = None
+        for _ in range(self.maximum_attempts):
+            attempts += 1
+            self._channel.send(self.mavlink.encode_approach_confirmation(command))
+            deadline_s = time.monotonic() + self.retry_interval_s
+            while time.monotonic() < deadline_s:
+                try:
+                    _inner, packet = self._receive_packet(timeout_s=deadline_s - time.monotonic())
+                except TimeoutError:
+                    break
+                if packet.message_type is WireMessageType.APPROACH_ACK:
+                    if not isinstance(packet.message, ApproachConfirmationAck):
+                        raise OperatorProtocolError("decoded approach ACK has the wrong type")
+                    if packet.message.command_token != command.command_token:
+                        raise OperatorProtocolError("approach ACK command token does not match")
+                    acknowledgement = packet.message
+                    break
+                self._queue_status_packet(packet.message_type, packet.message)
+            if acknowledgement is not None:
+                break
+        if acknowledgement is None:
+            raise TimeoutError("approach confirmation acknowledgement timed out")
+        return UdpApproachConfirmationReceipt(
+            acknowledgement,
+            attempts,
+            time.monotonic() - started_s,
+            self.remote,
+        )
+
+    def deliver_payload_target_confirmation(
+        self,
+        command: PayloadTargetConfirmationCommand,
+    ) -> UdpPayloadTargetConfirmationReceipt:
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        started_s = time.monotonic()
+        attempts = 0
+        acknowledgement: PayloadTargetConfirmationAck | None = None
+        for _ in range(self.maximum_attempts):
+            attempts += 1
+            self._channel.send(self.mavlink.encode_payload_target_confirmation(command))
+            deadline_s = time.monotonic() + self.retry_interval_s
+            while time.monotonic() < deadline_s:
+                try:
+                    _inner, packet = self._receive_packet(timeout_s=deadline_s - time.monotonic())
+                except TimeoutError:
+                    break
+                if packet.message_type is WireMessageType.PAYLOAD_TARGET_ACK:
+                    if not isinstance(packet.message, PayloadTargetConfirmationAck):
+                        raise OperatorProtocolError("decoded payload target ACK has the wrong type")
+                    if packet.message.command_token != command.command_token:
+                        raise OperatorProtocolError(
+                            "payload target ACK command token does not match"
+                        )
+                    acknowledgement = packet.message
+                    break
+                self._queue_status_packet(packet.message_type, packet.message)
+            if acknowledgement is not None:
+                break
+        if acknowledgement is None:
+            raise TimeoutError("payload target confirmation acknowledgement timed out")
+        return UdpPayloadTargetConfirmationReceipt(
+            acknowledgement,
+            attempts,
             time.monotonic() - started_s,
             self.remote,
         )
@@ -494,6 +879,154 @@ class UdpOperatorSessionClient:
         self._last_safety_status_sequence = status.sequence
         return status
 
+    def receive_patrol_status(self, *, timeout_s: float) -> PatrolStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("patrol status timeout must be positive")
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        status = self._receive_message(WireMessageType.PATROL_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, PatrolStatusMessage):  # pragma: no cover - type narrowing
+            raise OperatorProtocolError("decoded patrol status has the wrong type")
+        if (
+            self._last_patrol_status_sequence is not None
+            and status.sequence <= self._last_patrol_status_sequence
+        ):
+            raise OperatorProtocolError("patrol status sequence is not newer")
+        self._last_patrol_status_sequence = status.sequence
+        return status
+
+    def receive_range_status(self, *, timeout_s: float) -> RangeStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("range status timeout must be positive")
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        status = self._receive_message(WireMessageType.RANGE_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, RangeStatusMessage):  # pragma: no cover - type narrowing
+            raise OperatorProtocolError("decoded range status has the wrong type")
+        if (
+            self._last_range_status_sequence is not None
+            and status.sequence <= self._last_range_status_sequence
+        ):
+            raise OperatorProtocolError("range status sequence is not newer")
+        self._last_range_status_sequence = status.sequence
+        return status
+
+    def receive_release_status(self, *, timeout_s: float) -> ReleaseStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("release status timeout must be positive")
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        status = self._receive_message(WireMessageType.RELEASE_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, ReleaseStatusMessage):
+            raise OperatorProtocolError("decoded release status has the wrong type")
+        if (
+            self._last_release_status_sequence is not None
+            and status.sequence <= self._last_release_status_sequence
+        ):
+            raise OperatorProtocolError("release status sequence is not newer")
+        self._last_release_status_sequence = status.sequence
+        return status
+
+    def receive_approach_challenge(
+        self,
+        *,
+        timeout_s: float,
+    ) -> ApproachChallengeStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("approach challenge timeout must be positive")
+        status = self._receive_message(WireMessageType.APPROACH_CHALLENGE, timeout_s=timeout_s)
+        if not isinstance(status, ApproachChallengeStatusMessage):
+            raise OperatorProtocolError("decoded approach challenge has the wrong type")
+        if (
+            self._last_approach_challenge_sequence is not None
+            and status.sequence <= self._last_approach_challenge_sequence
+        ):
+            raise OperatorProtocolError("approach challenge sequence is not newer")
+        self._last_approach_challenge_sequence = status.sequence
+        return status
+
+    def receive_approach_status(self, *, timeout_s: float) -> ApproachStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("approach status timeout must be positive")
+        status = self._receive_message(WireMessageType.APPROACH_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, ApproachStatusMessage):
+            raise OperatorProtocolError("decoded approach status has the wrong type")
+        if (
+            self._last_approach_status_sequence is not None
+            and status.sequence <= self._last_approach_status_sequence
+        ):
+            raise OperatorProtocolError("approach status sequence is not newer")
+        self._last_approach_status_sequence = status.sequence
+        return status
+
+    def receive_payload_target_challenge(
+        self,
+        *,
+        timeout_s: float,
+    ) -> PayloadTargetChallengeStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("payload target challenge timeout must be positive")
+        status = self._receive_message(
+            WireMessageType.PAYLOAD_TARGET_CHALLENGE,
+            timeout_s=timeout_s,
+        )
+        if not isinstance(status, PayloadTargetChallengeStatusMessage):
+            raise OperatorProtocolError("decoded payload target challenge has the wrong type")
+        if (
+            self._last_payload_target_challenge_sequence is not None
+            and status.sequence <= self._last_payload_target_challenge_sequence
+        ):
+            raise OperatorProtocolError("payload target challenge sequence is not newer")
+        self._last_payload_target_challenge_sequence = status.sequence
+        return status
+
+    def receive_payload_target_status(self, *, timeout_s: float) -> PayloadTargetStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("payload target status timeout must be positive")
+        status = self._receive_message(
+            WireMessageType.PAYLOAD_TARGET_STATUS,
+            timeout_s=timeout_s,
+        )
+        if not isinstance(status, PayloadTargetStatusMessage):
+            raise OperatorProtocolError("decoded payload target status has the wrong type")
+        if status.selection_command_id != self._active_command_id:
+            raise OperatorProtocolError("payload target status selection command ID does not match")
+        if (
+            self._last_payload_target_status_sequence is not None
+            and status.sequence <= self._last_payload_target_status_sequence
+        ):
+            raise OperatorProtocolError("payload target status sequence is not newer")
+        self._last_payload_target_status_sequence = status.sequence
+        return status
+
+    def receive_target_pool_status(self, *, timeout_s: float) -> TargetPoolStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("target-pool status timeout must be positive")
+        status = self._receive_message(WireMessageType.TARGET_POOL_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, TargetPoolStatusMessage):
+            raise OperatorProtocolError("decoded target-pool status has the wrong type")
+        if (
+            self._last_target_pool_status_sequence is not None
+            and status.sequence <= self._last_target_pool_status_sequence
+        ):
+            raise OperatorProtocolError("target-pool status sequence is not newer")
+        self._last_target_pool_status_sequence = status.sequence
+        return status
+
+    def receive_scene_context_status(self, *, timeout_s: float) -> SceneContextStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("scene-context status timeout must be positive")
+        status = self._receive_message(WireMessageType.SCENE_CONTEXT_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, SceneContextStatusMessage):
+            raise OperatorProtocolError("decoded scene-context status has the wrong type")
+        if (
+            self._last_scene_context_status_sequence is not None
+            and status.sequence <= self._last_scene_context_status_sequence
+        ):
+            raise OperatorProtocolError("scene-context status sequence is not newer")
+        self._last_scene_context_status_sequence = status.sequence
+        return status
+
     def _receive_packet(self, *, timeout_s: float):
         self._channel.settimeout(timeout_s)
         frame = self._channel.recv(MAX_OPERATOR_UDP_DATAGRAM_BYTES + 1)
@@ -544,11 +1077,57 @@ def _remote_address(host: str, port: int) -> tuple[str, int]:
     return host, port
 
 
+def _approach_ack_reason(
+    acceptance: ApproachConfirmationAcceptance,
+) -> ApproachConfirmationAckReason:
+    if acceptance.allowed:
+        return ApproachConfirmationAckReason.ACCEPTED
+    combined = " ".join(acceptance.reasons)
+    if "no active" in combined:
+        return ApproachConfirmationAckReason.NO_ACTIVE_CHALLENGE
+    if "does not match" in combined or "peer does not match" in combined:
+        return ApproachConfirmationAckReason.BINDING_MISMATCH
+    if "expired" in combined or "outlives" in combined or "stale" in combined:
+        return ApproachConfirmationAckReason.EXPIRED
+    if "sequence" in combined:
+        return ApproachConfirmationAckReason.SEQUENCE_REJECTED
+    if "token was reused" in combined:
+        return ApproachConfirmationAckReason.COMMAND_TOKEN_CONFLICT
+    if "slide evidence" in combined:
+        return ApproachConfirmationAckReason.INVALID_SLIDE
+    return ApproachConfirmationAckReason.INVALID
+
+
+def _payload_target_ack_reason(
+    acceptance: PayloadTargetConfirmationAcceptance,
+) -> PayloadTargetConfirmationAckReason:
+    if acceptance.allowed:
+        return PayloadTargetConfirmationAckReason.ACCEPTED
+    combined = " ".join(acceptance.reasons)
+    if "no active" in combined:
+        return PayloadTargetConfirmationAckReason.NO_ACTIVE_CHALLENGE
+    if "does not match" in combined or "peer does not match" in combined:
+        return PayloadTargetConfirmationAckReason.BINDING_MISMATCH
+    if "expired" in combined or "outlives" in combined or "stale" in combined:
+        return PayloadTargetConfirmationAckReason.EXPIRED
+    if "sequence" in combined:
+        return PayloadTargetConfirmationAckReason.SEQUENCE_REJECTED
+    if "token was reused" in combined:
+        return PayloadTargetConfirmationAckReason.COMMAND_TOKEN_CONFLICT
+    if "slide evidence" in combined:
+        return PayloadTargetConfirmationAckReason.INVALID_SLIDE
+    return PayloadTargetConfirmationAckReason.INVALID
+
+
 __all__ = [
     "MAX_OPERATOR_UDP_DATAGRAM_BYTES",
+    "ServerApproachConfirmationResult",
+    "ServerPayloadTargetConfirmationResult",
     "UdpOperatorSelectionClient",
     "UdpOperatorSelectionServer",
     "UdpOperatorSessionClient",
     "UdpAuthorizationDecisionReceipt",
+    "UdpApproachConfirmationReceipt",
+    "UdpPayloadTargetConfirmationReceipt",
     "UdpSelectionReceipt",
 ]

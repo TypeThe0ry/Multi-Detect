@@ -180,7 +180,7 @@ def test_camera_bench_cli_writes_redacted_evidence_from_source_env(
 
     output = tmp_path / "rtsp-evidence.json"
     monkeypatch.setenv("MULTIDETECT_TEST_RTSP", secret_uri)
-    monkeypatch.setattr(cli_module, "OpenCVFrameSource", _CliSource)
+    monkeypatch.setattr(cli_module, "frame_source_from_config", _CliSource)
     monkeypatch.setattr(cli_module, "run_camera_bench", fake_run)
 
     assert (

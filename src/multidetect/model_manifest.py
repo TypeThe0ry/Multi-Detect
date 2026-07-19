@@ -28,7 +28,8 @@ class VerifiedModelArtifact:
     production_approved: bool
     class_names: tuple[str, ...]
     intended_use: str
-    output_coordinates: str
+    output_coordinates: str | None
+    output_format: str
     synthetic_hil_only: bool
     model_role: str
 
@@ -86,6 +87,7 @@ def create_candidate_model_manifest(
     output_coordinates: str,
     source_description: str,
     model_role: str = "fire_candidate",
+    native_output_format: str = "post_nms_N_x_6",
 ) -> dict[str, Any]:
     artifact = Path(model_path)
     if not artifact.is_file():
@@ -98,9 +100,16 @@ def create_candidate_model_manifest(
         raise ModelManifestError("model input dimensions must be positive")
     if output_coordinates not in {"normalized_xyxy", "letterbox_xyxy_px"}:
         raise ModelManifestError("model output coordinates are unsupported")
+    if native_output_format not in {
+        "post_nms_N_x_6",
+        "ultralytics_raw_xywh_class_scores",
+    }:
+        raise ModelManifestError("model native output format is unsupported")
     intended_use_by_role = {
         "fire_candidate": "rgb_detection_candidate_generation_only",
+        "fire_verifier": "independent_rgb_fire_corroboration_only",
         "safety_object_evidence": "rgb_safety_object_evidence_generation_only",
+        "environment_risk_evidence": "rgb_environment_risk_evidence_generation_only",
     }
     if model_role not in intended_use_by_role:
         raise ModelManifestError("model role is unsupported")
@@ -148,10 +157,101 @@ def create_candidate_model_manifest(
         },
         "output": {
             "native_export": {
-                "format": "post_nms_N_x_6",
-                "nms_embedded": True,
+                "format": native_output_format,
+                "nms_embedded": native_output_format == "post_nms_N_x_6",
             },
             "adapter_contract": adapter_contract,
+        },
+        "export": {
+            "artifact_format": (
+                "tensorrt_engine" if artifact.suffix.lower() in {".engine", ".plan"} else "onnx"
+            ),
+            "artifact_path": artifact.name,
+            "artifact_sha256": sha256_file(artifact),
+            "tool_versions": {},
+        },
+        "validation": {
+            "sample_count": 0,
+            "deployment_domain_metrics": {},
+            "validated_at_utc": None,
+        },
+        "governance": {
+            "software_license_review": "pending",
+            "dataset_rights_review": "pending",
+            "security_review": "pending",
+            "model_quality_review": "pending",
+            "production_approved": False,
+            "reviewer": None,
+            "reviewed_at_utc": None,
+        },
+    }
+
+
+def create_semantic_context_model_manifest(
+    model_path: str | Path,
+    *,
+    model_id: str,
+    model_version: str,
+    class_names: tuple[str, ...],
+    input_width: int,
+    input_height: int,
+    output_name: str,
+    source_description: str,
+) -> dict[str, Any]:
+    artifact = Path(model_path)
+    if not artifact.is_file():
+        raise ModelManifestError(f"model artifact does not exist: {artifact}")
+    if not model_id.strip() or not model_version.strip() or not source_description.strip():
+        raise ModelManifestError("model ID, version and source description are required")
+    if not class_names or any(not name.strip() for name in class_names):
+        raise ModelManifestError("at least one non-empty semantic class name is required")
+    if input_width <= 0 or input_height <= 0 or not output_name.strip():
+        raise ModelManifestError("semantic model dimensions and output name are required")
+    return {
+        "schema_version": 1,
+        "model_id": model_id.strip(),
+        "model_version": model_version.strip(),
+        "status": "quarantined",
+        "model_role": "semantic_scene_context",
+        "intended_use": "rgb_semantic_scene_context_advisory_only",
+        "prohibited_uses": [
+            "payload_release_authorization",
+            "direct_payload_release",
+            "flight_control",
+            "person_safety_clearance",
+        ],
+        "source": {
+            "description": source_description.strip(),
+            "provenance_review": "pending",
+        },
+        "classes": [
+            {
+                "id": index,
+                "source_name": name.strip().lower(),
+                "canonical_label": name.strip().lower(),
+            }
+            for index, name in enumerate(class_names)
+        ],
+        "input": {
+            "sensor": "rgb",
+            "color_space": "RGB",
+            "tensor_layout": "NCHW",
+            "dtype": "float32",
+            "shape": [1, 3, input_height, input_width],
+            "resize": "stretch",
+        },
+        "output": {
+            "native_export": {
+                "name": output_name.strip(),
+                "format": "categorical_class_id_mask",
+            },
+            "adapter_contract": {
+                "format": "categorical_H_W_1",
+                "fields": ["class_id"],
+                "tensor_layout": "NHWC",
+                "shape": [1, input_height, input_width, 1],
+                "confidence_available": False,
+            },
         },
         "export": {
             "artifact_format": "onnx",
@@ -212,6 +312,8 @@ def verify_model_manifest(
     expected_class_names: tuple[str, ...] | None = None,
     expected_output_coordinates: str | None = None,
     expected_model_role: str | None = None,
+    expected_output_format: str | None = None,
+    expected_native_output_format: str | None = None,
     require_production_approved: bool = False,
 ) -> VerifiedModelArtifact:
     manifest_file = Path(manifest_path)
@@ -242,7 +344,10 @@ def verify_model_manifest(
         model_role = "fire_candidate"
     intended_use_by_role = {
         "fire_candidate": "rgb_detection_candidate_generation_only",
+        "fire_verifier": "independent_rgb_fire_corroboration_only",
         "safety_object_evidence": "rgb_safety_object_evidence_generation_only",
+        "environment_risk_evidence": "rgb_environment_risk_evidence_generation_only",
+        "semantic_scene_context": "rgb_semantic_scene_context_advisory_only",
     }
     if model_role not in intended_use_by_role:
         raise ModelManifestError("model manifest role is missing or unsupported")
@@ -282,24 +387,54 @@ def verify_model_manifest(
             )
 
     output = _required_mapping(raw, "output")
+    if expected_native_output_format is not None:
+        native_export = _required_mapping(output, "native_export")
+        native_output_format = _required_text(native_export, "format")
+        if native_output_format != expected_native_output_format:
+            raise ModelManifestError(
+                f"manifest native output format {native_output_format!r} does not match runtime "
+                f"{expected_native_output_format!r}"
+            )
     adapter = _required_mapping(output, "adapter_contract")
-    if adapter.get("format") != "N_x_6":
-        raise ModelManifestError("model adapter output must be N_x_6")
-    expected_fields = ["x1", "y1", "x2", "y2", "confidence", "class_id"]
-    if adapter.get("fields") != expected_fields:
-        raise ModelManifestError("model adapter fields do not match the strict Nx6 contract")
-    output_coordinates = _required_text(adapter, "box_format")
-    if output_coordinates not in {"normalized_xyxy", "letterbox_xyxy_px"}:
-        raise ModelManifestError("model adapter box_format is unsupported")
-    if output_coordinates == "normalized_xyxy" and adapter.get("box_range") != [0.0, 1.0]:
-        raise ModelManifestError("normalized model output requires box_range [0.0, 1.0]")
-    if (
-        expected_output_coordinates is not None
-        and output_coordinates != expected_output_coordinates
-    ):
+    output_format = _required_text(adapter, "format")
+    output_coordinates: str | None = None
+    if model_role == "semantic_scene_context":
+        if output_format != "categorical_H_W_1":
+            raise ModelManifestError("semantic model adapter output must be categorical_H_W_1")
+        if adapter.get("fields") != ["class_id"]:
+            raise ModelManifestError("semantic model adapter must expose only class_id")
+        if (
+            adapter.get("tensor_layout") != "NHWC"
+            or adapter.get("confidence_available") is not False
+        ):
+            raise ModelManifestError(
+                "semantic model adapter must be NHWC categorical output without confidence"
+            )
+        if expected_output_coordinates is not None:
+            raise ModelManifestError("semantic model output does not have box coordinates")
+    else:
+        if output_format != "N_x_6":
+            raise ModelManifestError("model adapter output must be N_x_6")
+        expected_fields = ["x1", "y1", "x2", "y2", "confidence", "class_id"]
+        if adapter.get("fields") != expected_fields:
+            raise ModelManifestError("model adapter fields do not match the strict Nx6 contract")
+        output_coordinates = _required_text(adapter, "box_format")
+        if output_coordinates not in {"normalized_xyxy", "letterbox_xyxy_px"}:
+            raise ModelManifestError("model adapter box_format is unsupported")
+        if output_coordinates == "normalized_xyxy" and adapter.get("box_range") != [0.0, 1.0]:
+            raise ModelManifestError("normalized model output requires box_range [0.0, 1.0]")
+        if (
+            expected_output_coordinates is not None
+            and output_coordinates != expected_output_coordinates
+        ):
+            raise ModelManifestError(
+                "manifest output coordinates "
+                f"{output_coordinates!r} do not match runtime {expected_output_coordinates!r}"
+            )
+    if expected_output_format is not None and output_format != expected_output_format:
         raise ModelManifestError(
-            "manifest output coordinates "
-            f"{output_coordinates!r} do not match runtime {expected_output_coordinates!r}"
+            f"manifest output format {output_format!r} does not match runtime "
+            f"{expected_output_format!r}"
         )
 
     export = _required_mapping(raw, "export")
@@ -327,6 +462,7 @@ def verify_model_manifest(
         class_names=class_names,
         intended_use=intended_use,
         output_coordinates=output_coordinates,
+        output_format=output_format,
         synthetic_hil_only=synthetic_hil_only,
         model_role=model_role,
     )
@@ -357,6 +493,7 @@ def _required_mapping(mapping: Mapping[str, Any], key: str) -> Mapping[str, Any]
 __all__ = [
     "CheckpointByteVerification",
     "create_candidate_model_manifest",
+    "create_semantic_context_model_manifest",
     "ModelManifestError",
     "PINNED_LEGACY_CHECKPOINT_SHA256",
     "PINNED_LEGACY_CHECKPOINT_SIZE_BYTES",

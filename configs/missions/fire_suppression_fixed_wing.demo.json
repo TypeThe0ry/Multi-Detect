@@ -6,7 +6,7 @@
   "payloads": [
     {"slot_id": "payload-1", "payload_type": "fire_suppression_agent"}
   ],
-  "target_classes": ["flame", "hotspot"],
+  "target_classes": ["flame"],
   "human_authorization_required": true,
   "minimum_confidence": 0.82,
   "minimum_track_time_seconds": 3.0,
@@ -15,9 +15,10 @@
   "target_reengagement_cooldown_seconds": 300.0,
   "person_exclusion_enabled": true,
   "person_labels": ["person", "firefighter"],
-  "require_thermal_corroboration": true,
+  "require_independent_rgb_corroboration": true,
+  "require_thermal_corroboration": false,
   "completion_policy": "continue_while_payload_available",
-  "ruleset_version": "safety-rules-fixed-wing-hil-v1",
+  "ruleset_version": "safety-rules-fixed-wing-hil-v2",
   "safety": {
     "minimum_altitude_agl_m": 25.0,
     "maximum_altitude_agl_m": 60.0,
@@ -31,7 +32,7 @@
     "release_confirmation_timeout_seconds": 5.0
   },
   "fixed_wing_release_window": {
-    "calibration_id": "software-hil-still-air-v1",
+    "calibration_id": "software-hil-synthetic-ballistic-v2",
     "camera_horizontal_fov_deg": 70.0,
     "camera_vertical_fov_deg": 50.0,
     "camera_mount_down_angle_deg": 35.0,
@@ -42,6 +43,25 @@
     "minimum_depression_angle_deg": 8.0,
     "maximum_depression_angle_deg": 80.0,
     "gravity_mps2": 9.80665,
+    "require_multimodal_range": true,
+    "maximum_range_age_s": 0.5,
+    "minimum_range_target_iou": 0.5,
+    "minimum_range_sensor_consistency": 0.65,
+    "payload_mass_kg": 0.55,
+    "payload_mass_sigma_kg": 0.03,
+    "drag_coefficient": 0.85,
+    "drag_coefficient_sigma": 0.10,
+    "reference_area_m2": 0.018,
+    "air_density_kg_m3": 1.225,
+    "wind_sigma_mps": 0.8,
+    "ground_velocity_sigma_mps": 0.4,
+    "altitude_sigma_m": 0.8,
+    "release_latency_sigma_s": 0.05,
+    "maximum_air_data_disagreement_mps": 4.0,
+    "maximum_error_ellipse_major_m": 12.0,
+    "maximum_error_ellipse_minor_m": 8.0,
+    "integration_step_seconds": 0.01,
+    "maximum_flight_time_seconds": 15.0,
     "hil_only": true
   }
 }

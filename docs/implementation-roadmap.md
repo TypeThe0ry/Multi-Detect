@@ -31,6 +31,15 @@
 - [x] Add `release-window-check` for geometry-only bench checks with explicit no-control output.
 - [x] Add a one-command software acceptance report covering patrol alert-only, authorized
   fixed-wing `FakePayloadPort` HIL and overlapping-person fail-closed behavior.
+- [x] Add a separate Mode-2 end-to-end acceptance that uses one authenticated, signed loopback
+  session for target selection, unique independently confirmed fire resolution, continuous-slide
+  confirmation, status return, separate authorization and exactly one simulated release. Verify
+  person/ordinary-vehicle exclusion, target-switch and timeout revocation, and person-entry veto
+  with no flight-control or physical payload interface.
+- [x] Add Mode-3 end-to-end signed HIL for both vehicle and person selections. Require a continuous
+  target-bound slide before centering/approach advice, and prove occlusion, loss, `AVOID`, `INVALID`,
+  target switch and old-confirmation replay enter or preserve a latched advisory abort with no
+  actuator interface.
 
 Acceptance evidence:
 
@@ -105,9 +114,15 @@ Phase 1 exit criteria:
 - [x] Add configurable RTSP/local-camera reconnect attempts without a stale-frame queue.
 - [x] Keep credential-bearing RTSP URIs out of service process arguments and redact them from application camera errors.
 - [x] Add multi-frame `camera-check` with FPS, capture P50/P95 and reconnect reporting; local 640×480/120-frame smoke test passed with zero reconnects.
-- Validate RTSP reconnect, end-to-end latency, dropped frames, thermal load and power budget on the target Jetson.
+- [x] Raise the Jetson soak gate to 60 minutes/54,000 frames with >=15 FPS, <=66.7 ms inference
+  P95 and a capture-queue high-watermark of at most one; the prior 30-minute artifact is retained
+  only as a baseline and no longer satisfies the verifier.
+- [x] Sample process RSS throughout the soak after a 60-second warmup; reject missing time-series
+  evidence or more than 256 MB robust start-to-end growth, and report the hourly regression slope.
+- Validate RTSP reconnect, end-to-end video-overlay latency, dropped frames, thermal load and power budget on the target Jetson.
 - [x] Show camera/model health and reconnect count; audit and stop on acquisition or inference failure instead of treating it as an empty scene.
-- Synchronize RGB and thermal evidence if a thermal camera is added.
+- Current sensor profile is RGB-only. Thermal synchronization is out of scope unless the hardware
+  is explicitly changed in a future revision.
 
 Exit criteria: representative RTSP video runs for the required mission duration with measured latency, temperature, power and reconnect behavior.
 
@@ -150,10 +165,10 @@ Exit criteria: representative RTSP video runs for the required mission duration 
   confirmation UDP channel. Jetson transmitted zero Pixhawk messages; camera/model and all hardware
   remained simulated.
 - [x] Run the official PX4 fixed-wing SIH/SITL process through the strict passive receiver and the
-  real local-camera Live path. A constant flame-candidate HIL model produced 85 candidate frames,
-  while unarmed `LOITER` remained in `standby` with zero authorization, payload and transmitted
-  MAVLink events; stopping SITL made the fresh-link gate fail closed. The run is repeatable with
-  `scripts/run_px4_sitl_readonly_acceptance.ps1` on isolated UDP 14650.
+  Live lifecycle path. The original run exercised a local camera; the repeatable script now fixes
+  the source to clock-paced `synthetic://patrol`, opens no local/network camera, and retains the same
+  unarmed `LOITER` fail-closed assertions with zero authorization, payload and transmitted MAVLink
+  events. Stopping SITL makes the fresh-link gate fail closed on isolated UDP 14650.
 - [x] Add an explicit, Docker-confined positive patrol option. It arms only the newly created SITL
   process, permits `LOITER` for gate-plumbing HIL, observes `standby -> navigating -> searching`,
   emits one deduplicated patrol alert, creates no authorization/payload action and disarms before
@@ -161,7 +176,15 @@ Exit criteria: representative RTSP video runs for the required mission duration 
 - [x] Exercise the complete observed lifecycle through an armed PX4 AUTO mission in an owned,
   disposable software-only SITL container. Mission upload, parameter overrides, arm and mode
   changes are confined to that container; Multi-Detect remains receive-only and observes Mission
-  sequence progress, movement and one patrol alert with zero authorization or payload action.
+  sequence progress, movement and one patrol alert with zero authorization or payload action. The
+  current no-camera run processes 900 deterministic frames at about 29.69 FPS with 900 target-pool,
+  short-term-tracking, patrol-advisory and monocular-avoidance updates; avoidance is valid after its
+  single warmup frame, capture backpressure is zero, and no camera device or URL is opened. The same
+  armed `MISSION` run now retains ten identities through
+  `DETECTED -> LOCKED -> TRACKING -> OCCLUDED -> REACQUIRING -> RECOVERED`, reaches LOST only after
+  the conservative branch, recovers the same ID with strong ReID in 0.15 s, retains the background
+  lock and emits only a human-confirmed return-observe advisory. The advice remains `DEGRADED`
+  because generic SITL telemetry does not prove geofence health; application MAVLink writes remain 0.
 - [x] Validate PX4 datalink-loss Hold behavior in the same strict container boundary. With a
   loopback-only GCS heartbeat and SITL-only `COM_DL_LOSS_T=5`, `NAV_DLL_ACT=1`, the fixed-wing
   transition was `MISSION -> LOITER`; heartbeat recovery cleared `gcs_connection_lost` but retained
@@ -226,6 +249,13 @@ Exit criteria: every uncertain or inconsistent condition stays locked, no automa
   confinement, full published-snapshot binding, bounded retry, replay protection, one decision per
   challenge and a final current-safety recheck; approval only advances mission state and never
   requests physical release.
+- [x] Add Mode-2 payload-target challenge/continuous-slide/ACK/status messages bound to both the
+  selected object and the independently confirmed fire aimpoint. Complete Python/UDP/QGC golden
+  vectors, a native QGC slider, Windows Release compilation, and Windows plus Jetson headless HIL;
+  real QGC-to-Jetson touch interaction remains a separate bench gate.
+- [x] Close the equivalent Mode-3 signed selection/slide/status loop for arbitrary tracked classes
+  and rerun it headlessly on Windows and Jetson Python 3.10. Keep all centering, approach and bounded
+  climb outputs advisory-only; real QGC touch and PX4 SITL flight behavior remain separate gates.
 - [x] Add a native QGC custom-build source skeleton with raw-video-local target overlay, explicit
   touch-selection mode, patrol/payload display modes, tracking/safety/authorization panels and a
   deterministic software-only UI simulator. Compile-time and QML invariants keep flight-control

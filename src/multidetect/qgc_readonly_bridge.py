@@ -201,6 +201,7 @@ class BridgeSummary:
     qgc_frames_blocked: int = 0
     qgc_udp_connection_resets: int = 0
     tcp_reconnects: int = 0
+    observer_frames_mirrored: int = 0
     qgc_message_ids: Counter[int] = field(default_factory=Counter)
     blocked_message_ids: Counter[int] = field(default_factory=Counter)
     blocked_command_ids: Counter[int] = field(default_factory=Counter)
@@ -213,6 +214,8 @@ class BridgeSummary:
         qgc_host: str,
         qgc_port: int,
         local_udp_port: int,
+        observer_udp_host: str | None,
+        observer_udp_port: int,
         autopilot_discarded_bytes: int,
         qgc_discarded_bytes: int,
     ) -> dict[str, object]:
@@ -224,6 +227,12 @@ class BridgeSummary:
                 "host": qgc_host,
                 "port": qgc_port,
                 "local_udp_port": local_udp_port,
+            },
+            "observer": {
+                "enabled": observer_udp_port > 0,
+                "host": observer_udp_host if observer_udp_port > 0 else None,
+                "port": observer_udp_port if observer_udp_port > 0 else None,
+                "frames_mirrored": self.observer_frames_mirrored,
             },
             "duration_seconds": round(elapsed, 3),
             "autopilot_frames_forwarded": self.autopilot_frames_forwarded,
@@ -252,11 +261,17 @@ def run_bridge(
     qgc_host: str,
     qgc_port: int,
     local_udp_port: int,
+    observer_udp_host: str = "127.0.0.1",
+    observer_udp_port: int = 0,
     duration_seconds: float,
     connect_timeout_seconds: float,
 ) -> dict[str, object]:
     if duration_seconds < 0:
         raise ValueError("duration_seconds cannot be negative")
+    if observer_udp_port < 0 or observer_udp_port > 65535:
+        raise ValueError("observer_udp_port must be zero or a valid UDP port")
+    if observer_udp_port > 0 and not observer_udp_host:
+        raise ValueError("observer_udp_host is required when observer mirroring is enabled")
     summary = BridgeSummary(started_monotonic_s=time.monotonic())
     autopilot_decoder = MavlinkFrameDecoder()
     qgc_decoder = MavlinkFrameDecoder()
@@ -286,6 +301,12 @@ def run_bridge(
                 for frame in autopilot_decoder.feed(chunk):
                     udp_socket.sendto(frame.encoded, (qgc_host, qgc_port))
                     summary.autopilot_frames_forwarded += 1
+                    if observer_udp_port > 0:
+                        udp_socket.sendto(
+                            frame.encoded,
+                            (observer_udp_host, observer_udp_port),
+                        )
+                        summary.observer_frames_mirrored += 1
             if udp_socket in readable:
                 received = _recv_qgc_datagram(udp_socket)
                 if received is None:
@@ -317,6 +338,8 @@ def run_bridge(
         qgc_host=qgc_host,
         qgc_port=qgc_port,
         local_udp_port=local_udp_port,
+        observer_udp_host=observer_udp_host,
+        observer_udp_port=observer_udp_port,
         autopilot_discarded_bytes=autopilot_decoder.discarded_bytes,
         qgc_discarded_bytes=qgc_decoder.discarded_bytes,
     )
@@ -344,6 +367,17 @@ def main() -> int:
     parser.add_argument("--qgc-port", type=int, default=14550)
     parser.add_argument("--local-udp-port", type=int, default=14560)
     parser.add_argument(
+        "--observer-udp-host",
+        default="127.0.0.1",
+        help="local-only host that receives a copy of autopilot telemetry",
+    )
+    parser.add_argument(
+        "--observer-udp-port",
+        type=int,
+        default=0,
+        help="zero disables the read-only telemetry mirror",
+    )
+    parser.add_argument(
         "--duration-seconds",
         type=float,
         default=0.0,
@@ -358,6 +392,8 @@ def main() -> int:
             qgc_host=args.qgc_host,
             qgc_port=args.qgc_port,
             local_udp_port=args.local_udp_port,
+            observer_udp_host=args.observer_udp_host,
+            observer_udp_port=args.observer_udp_port,
             duration_seconds=args.duration_seconds,
             connect_timeout_seconds=args.connect_timeout_seconds,
         )

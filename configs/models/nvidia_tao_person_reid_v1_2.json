@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "model_id": "nvidia-tao-reidentificationnet-v1.2",
+  "model_role": "person_reid",
+  "status": "candidate",
+  "source": "NVIDIA NGC ReIdentificationNet deployable_v1.2",
+  "artifact_filename": "resnet50_market1501_aicity156.onnx",
+  "artifact_sha256": "0e21d09278508ec835955f422a9fdd3cd59b2a6ecdef98d705f388f33cebac2b",
+  "input": {
+    "layout": "NCHW",
+    "color": "RGB",
+    "shape": ["batch", 3, 256, 128],
+    "pixel_mean": [0.485, 0.456, 0.406],
+    "pixel_std": [0.226, 0.226, 0.226]
+  },
+  "output": {
+    "name": "fc_pred",
+    "feature_size": 256,
+    "l2_normalization_required": true
+  },
+  "validated_labels": ["person", "firefighter"],
+  "prohibited_identity_labels": ["vehicle", "flame", "fire", "smoke", "hotspot"],
+  "limitations": [
+    "The NVIDIA model card describes person re-identification, not vehicle re-identification.",
+    "No ReID result grants payload authorization or flight-control authority.",
+    "Vehicle identity recovery requires a separately validated vehicle ReID model.",
+    "Fire and smoke tracks use motion and fire-specific temporal evidence, not person ReID."
+  ],
+  "production_approved": false,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false
+}

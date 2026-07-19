@@ -184,9 +184,22 @@ def test_real_udp_loopback_closes_authorized_fixed_wing_hil_path() -> None:
     )
     source_frames = load_jsonl_replay(ROOT / "examples/fire_fixed_wing_hil_replay.jsonl")
     base_s = time.monotonic() - 3.2
-    frames = tuple(
-        replace(frame, captured_at_s=base_s + index) for index, frame in enumerate(source_frames)
-    )
+    frames = []
+    for index, frame in enumerate(source_frames):
+        captured_at_s = base_s + index
+        frames.append(
+            replace(
+                frame,
+                captured_at_s=captured_at_s,
+                telemetry=replace(
+                    frame.telemetry,
+                    velocity_observed_at_s=captured_at_s,
+                    airspeed_observed_at_s=captured_at_s,
+                    wind_observed_at_s=captured_at_s,
+                ),
+            )
+        )
+    frames = tuple(frames)
     mission = MissionController(config)
     mission.launch(now_s=base_s - 2.0)
     mission.arrive_task_area(now_s=base_s - 1.0)

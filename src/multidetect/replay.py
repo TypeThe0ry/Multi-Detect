@@ -5,7 +5,9 @@ from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
+from .deployment_planner import PrimaryRangeEvidence
 from .domain import BoundingBox, Detection, FrameObservation, SensorKind, VehicleTelemetry
+from .multimodal_ranging import RangeSolution, RangeValidity
 
 _LABEL_ALIASES = {"fire": "flame"}
 
@@ -32,6 +34,14 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         armed=_optional_bool(telemetry_raw.get("armed")),
         flight_mode=_optional_string(telemetry_raw.get("flight_mode")),
         mission_sequence=_optional_int(telemetry_raw.get("mission_sequence")),
+        velocity_north_mps=_optional_float(telemetry_raw.get("velocity_north_mps")),
+        velocity_east_mps=_optional_float(telemetry_raw.get("velocity_east_mps")),
+        airspeed_mps=_optional_float(telemetry_raw.get("airspeed_mps")),
+        wind_north_mps=_optional_float(telemetry_raw.get("wind_north_mps")),
+        wind_east_mps=_optional_float(telemetry_raw.get("wind_east_mps")),
+        velocity_observed_at_s=_optional_float(telemetry_raw.get("velocity_observed_at_s")),
+        airspeed_observed_at_s=_optional_float(telemetry_raw.get("airspeed_observed_at_s")),
+        wind_observed_at_s=_optional_float(telemetry_raw.get("wind_observed_at_s")),
     )
     detections: list[Detection] = []
     for detection_raw in raw.get("detections", []):
@@ -60,6 +70,64 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
 def load_jsonl_replay(path: str | Path) -> tuple[FrameObservation, ...]:
     with Path(path).open("r", encoding="utf-8") as handle:
         return tuple(iter_jsonl_replay(handle))
+
+
+def primary_range_evidence_from_frame(
+    frame: FrameObservation,
+) -> PrimaryRangeEvidence | None:
+    """Decode explicit synthetic HIL range evidence from one replay detection."""
+
+    candidates = tuple(
+        detection
+        for detection in frame.detections
+        if "primary_range_evidence" in detection.metadata
+    )
+    if not candidates:
+        return None
+    if len(candidates) != 1:
+        raise ValueError("replay frame must contain at most one primary range evidence record")
+    detection = candidates[0]
+    raw = detection.metadata["primary_range_evidence"]
+    if not isinstance(raw, Mapping):
+        raise ValueError("primary range evidence must be an object")
+    validity = RangeValidity(str(raw["validity"]).strip().lower())
+    ground_range = _optional_number(raw.get("ground_range_m"))
+    ground_ci = _optional_interval(raw.get("ground_range_ci95_m"))
+    slant_range = _optional_number(raw.get("slant_range_m"))
+    slant_ci = _optional_interval(raw.get("slant_range_ci95_m"))
+    source_target_id = str(raw["source_target_id"])
+    solution = RangeSolution(
+        target_id=source_target_id,
+        frame_id=frame.frame_id,
+        calibration_id=str(raw["calibration_id"]),
+        evaluated_at_s=float(raw.get("evaluated_at_s", frame.captured_at_s)),
+        validity=validity,
+        reasons=_string_tuple(raw["reasons"], "range reasons"),
+        sources=_string_tuple(raw.get("sources", ()), "range sources"),
+        rejected_sources=_string_tuple(
+            raw.get("rejected_sources", ()),
+            "rejected range sources",
+        ),
+        slant_range_m=slant_range,
+        ground_range_m=ground_range,
+        slant_range_ci95_m=slant_ci,
+        ground_range_ci95_m=ground_ci,
+        relative_bearing_deg=_optional_number(raw.get("relative_bearing_deg")),
+        absolute_bearing_deg=_optional_number(raw.get("absolute_bearing_deg")),
+        bearing_sigma_deg=_optional_number(raw.get("bearing_sigma_deg")),
+        north_offset_m=_optional_number(raw.get("north_offset_m")),
+        east_offset_m=_optional_number(raw.get("east_offset_m")),
+        data_freshness_s=_optional_number(raw.get("data_freshness_s")),
+        sensor_consistency=float(raw.get("sensor_consistency", 0.0)),
+    )
+    return PrimaryRangeEvidence(
+        source_target_id=source_target_id,
+        source_frame_id=frame.frame_id,
+        source_captured_at_s=frame.captured_at_s,
+        source_label=detection.label,
+        source_bbox=detection.bbox,
+        solution=solution,
+    )
 
 
 def iter_jsonl_replay(lines: Iterable[str]) -> Iterator[FrameObservation]:
@@ -103,3 +171,21 @@ def _optional_string(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _optional_number(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
+def _optional_interval(value: Any) -> tuple[float, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ValueError("range confidence interval must contain two values")
+    return float(value[0]), float(value[1])
+
+
+def _string_tuple(value: Any, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{name} must be a string array")
+    return tuple(value)

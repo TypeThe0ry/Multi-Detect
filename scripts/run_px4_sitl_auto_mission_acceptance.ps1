@@ -1,8 +1,4 @@
 param(
-    [ValidatePattern("^\d+$")]
-    [string]$CameraSource = "0",
-    [ValidateSet("auto", "dshow", "msmf", "ffmpeg", "gstreamer")]
-    [string]$CameraBackend = "dshow",
     [ValidateRange(600, 1200)]
     [int]$LiveFrames = 900,
     [string]$EvidencePath = ""
@@ -16,6 +12,7 @@ $MissionUploader = Join-Path $Root "scripts\px4_sitl_mission_uploader.py"
 $MissionConfig = Join-Path $Root "configs\missions\fire_patrol.demo.json"
 $SyntheticModel = Join-Path $Root "artifacts\synthetic-hil\synthetic-fire-nx6-hil.onnx"
 $SyntheticManifest = Join-Path $Root "artifacts\synthetic-hil\synthetic-fire-nx6-hil.manifest.json"
+$SyntheticSource = "synthetic://patrol"
 $ImageReference = "px4io/px4-sitl@sha256:bab4270c4849b7027df4bd760c79d743d738c81d7830dde14c4cc5714f781216"
 $ImageReleaseContext = "v1.18.0-beta1"
 $ContainerName = "multidetect-px4-auto-mission-acceptance"
@@ -28,6 +25,7 @@ $AuditPath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-auto-mission-$Run
 $PredictionPath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-auto-mission-$RunId.predictions.jsonl"
 $LiveStdoutPath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-auto-mission-$RunId.stdout.jsonl"
 $LiveStderrPath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-auto-mission-$RunId.stderr.log"
+$PatrolReacquisitionEvidencePath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-patrol-reacquisition-$RunId.json"
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
     $EvidencePath = Join-Path $ArtifactDirectory "px4-fixed-wing-sitl-auto-mission-acceptance-$RunId.json"
 }
@@ -259,10 +257,12 @@ try {
         "multidetect.cli",
         "live-camera",
         $MissionConfig,
-        "--source", $CameraSource,
-        "--backend", $CameraBackend,
+        "--source", $SyntheticSource,
+        "--backend", "auto",
         "--width", "640",
         "--height", "480",
+        "--fps", "30",
+        "--capture-queue-frames", "1",
         "--onnx-model", $SyntheticModel,
         "--model-manifest", $SyntheticManifest,
         "--class-names", "fire,smoke",
@@ -277,6 +277,12 @@ try {
         "--observe-pixhawk-lifecycle",
         "--task-area-mission-sequence", "1",
         "--allowed-auto-mode", "MISSION",
+        "--unified-target-pool",
+        "--short-term-tracking",
+        "--short-term-analysis-width", "320",
+        "--patrol-advisory",
+        "--monocular-avoidance",
+        "--avoidance-analysis-width", "320",
         "--max-frames", "$LiveFrames",
         "--no-display",
         "--audit-out", $AuditPath,
@@ -356,6 +362,20 @@ try {
     Assert-True ($liveFinishedEvidence.authorizations -eq 0) "Patrol-only AUTO mission created an authorization."
     Assert-True ($liveFinishedEvidence.simulated_payload_cycles -eq 0) "Patrol-only AUTO mission ran a payload cycle."
     Assert-True ($liveFinishedEvidence.pixhawk.messages_transmitted -eq 0) "Multi-Detect transmitted MAVLink during AUTO mission observation."
+    Assert-True ($liveFinishedEvidence.unified_target_pool_updates -gt 0) "Unified target pool did not run during AUTO mission observation."
+    Assert-True ($liveFinishedEvidence.unified_target_pool_maximum_tracks -ge 1) "Unified target pool created no tracks."
+    Assert-True ($liveFinishedEvidence.unified_target_pool_errors -eq 0) "Unified target pool reported an error."
+    Assert-True ($liveFinishedEvidence.short_term_tracking_updates -gt 0) "Short-term tracker did not run during AUTO mission observation."
+    Assert-True ($liveFinishedEvidence.short_term_tracking_errors -eq 0) "Short-term tracker reported an error."
+    Assert-True ($liveFinishedEvidence.patrol_advisory_assessments -gt 0) "Patrol advisory did not run during AUTO mission observation."
+    Assert-True ($liveFinishedEvidence.patrol_advisory_errors -eq 0) "Patrol advisory reported an error."
+    Assert-True ($liveFinishedEvidence.monocular_avoidance_assessments -gt 0) "Monocular avoidance did not run during AUTO mission observation."
+    Assert-True ($liveFinishedEvidence.monocular_avoidance_invalid -lt $liveFinishedEvidence.monocular_avoidance_assessments) "Monocular avoidance never produced a valid advisory after warmup."
+    Assert-True ($liveFinishedEvidence.monocular_avoidance_errors -eq 0) "Monocular avoidance reported an error."
+    Assert-True ($liveFinishedEvidence.unified_target_pool_flight_control_enabled -eq $false) "Unified target pool enabled flight control."
+    Assert-True ($liveFinishedEvidence.short_term_tracking_flight_control_enabled -eq $false) "Short-term tracker enabled flight control."
+    Assert-True ($liveFinishedEvidence.patrol_advisory_flight_control_enabled -eq $false) "Patrol advisory enabled flight control."
+    Assert-True ($liveFinishedEvidence.monocular_avoidance_flight_control_enabled -eq $false) "Monocular avoidance enabled flight control."
 
     $auditRows = @(Get-Content -LiteralPath $AuditPath | ForEach-Object { $_ | ConvertFrom-Json })
     $predictionRows = @(
@@ -400,6 +420,30 @@ try {
     Assert-True ($confirmedAlertEvents.Count -eq 1) "AUTO mission audit did not contain one confirmed alert."
     Assert-True ($authorizationEvents.Count -eq 0) "AUTO mission patrol recorded an authorization event."
     Assert-True ($payloadActionEvents.Count -eq 0) "AUTO mission patrol recorded a payload action event."
+
+    $patrolReacquisition = Invoke-CapturedCommand -FilePath $Executable -ArgumentList @(
+        "patrol-reacquisition-sitl",
+        "--endpoint", "udpin:0.0.0.0:$SitlPort",
+        "--samples", "50",
+        "--interval-seconds", "0.1",
+        "--acknowledge-owned-disposable-sitl",
+        "--out", $PatrolReacquisitionEvidencePath
+    )
+    Assert-True ($patrolReacquisition.ExitCode -eq 0) "Patrol reacquisition SITL failed: $($patrolReacquisition.Lines -join ' ')"
+    $patrolReacquisitionEvidence = Get-JsonEvent `
+        -Lines $patrolReacquisition.Lines `
+        -Event "patrol_reacquisition_sitl_acceptance_completed"
+    Assert-True ($patrolReacquisitionEvidence.passed -eq $true) "Patrol reacquisition SITL did not pass."
+    Assert-True ($patrolReacquisitionEvidence.scenario.track_count -ge 10) "Patrol reacquisition SITL retained fewer than ten tracks."
+    Assert-True (($patrolReacquisitionEvidence.scenario.state_sequence -join ",") -eq "detected,locked,tracking,occluded,reacquiring,recovered") "Patrol reacquisition state sequence is incomplete."
+    Assert-True (($patrolReacquisitionEvidence.scenario.lost_branch_state_sequence -join ",") -eq "tracking,occluded,reacquiring,lost") "Patrol LOST branch did not fail conservatively."
+    Assert-True ($patrolReacquisitionEvidence.scenario.same_identity_after_short_occlusion -eq $true) "Short occlusion changed target identity."
+    Assert-True ($patrolReacquisitionEvidence.scenario.same_identity_after_lost_reid -eq $true) "Strong ReID did not restore the original identity."
+    Assert-True ($patrolReacquisitionEvidence.scenario.background_lock_retained -eq $true) "Background target lock was lost."
+    Assert-True ($patrolReacquisitionEvidence.scenario.return_to_observe.advisory_only -eq $true) "Return-to-observe output is not advisory-only."
+    Assert-True ($patrolReacquisitionEvidence.scenario.return_to_observe.flight_control_enabled -eq $false) "Return-to-observe enabled flight control."
+    Assert-True ($patrolReacquisitionEvidence.scope.application_mavlink_messages_transmitted -eq 0) "Patrol reacquisition transmitted MAVLink."
+    Assert-True ($patrolReacquisitionEvidence.scope.camera_opened -eq $false) "Patrol reacquisition opened a camera."
 
     $finalCheck = Invoke-CapturedCommand -FilePath $Executable -ArgumentList @(
         "pixhawk-check",
@@ -455,6 +499,9 @@ try {
             real_v6x_contacted = $false
             real_payload_control_enabled = $false
             synthetic_model_accuracy_claim = $false
+            deterministic_synthetic_frames = $true
+            local_camera_contacted = $false
+            network_camera_contacted = $false
             auto_mission_lifecycle_only = $true
             aerodynamic_validation = $false
         }
@@ -483,7 +530,9 @@ try {
             )
         }
         mission_upload = $uploadEvidence
+        patrol_reacquisition_sitl = $patrolReacquisitionEvidence
         live_patrol = [ordered]@{
+            source = "deterministic synthetic://patrol; no camera device or URL"
             requested_frames = $LiveFrames
             prediction_frames = $predictionRows.Count
             flame_candidate_frames = $flameCandidateFrames
@@ -492,6 +541,19 @@ try {
             confirmed_alert_events = $confirmedAlertEvents.Count
             authorization_events = $authorizationEvents.Count
             payload_action_events = $payloadActionEvents.Count
+            unified_target_pool_updates = $liveFinishedEvidence.unified_target_pool_updates
+            unified_target_pool_maximum_tracks = $liveFinishedEvidence.unified_target_pool_maximum_tracks
+            unified_target_pool_errors = $liveFinishedEvidence.unified_target_pool_errors
+            short_term_tracking_updates = $liveFinishedEvidence.short_term_tracking_updates
+            short_term_tracking_errors = $liveFinishedEvidence.short_term_tracking_errors
+            patrol_advisory_assessments = $liveFinishedEvidence.patrol_advisory_assessments
+            patrol_return_to_observe = $liveFinishedEvidence.patrol_return_to_observe
+            patrol_advisory_errors = $liveFinishedEvidence.patrol_advisory_errors
+            monocular_avoidance_assessments = $liveFinishedEvidence.monocular_avoidance_assessments
+            monocular_avoidance_invalid = $liveFinishedEvidence.monocular_avoidance_invalid
+            monocular_avoidance_caution = $liveFinishedEvidence.monocular_avoidance_caution
+            monocular_avoidance_avoid = $liveFinishedEvidence.monocular_avoidance_avoid
+            monocular_avoidance_errors = $liveFinishedEvidence.monocular_avoidance_errors
             started = $liveStartedEvidence
             fire_alert = $fireAlertEvidence
             finished = $liveFinishedEvidence
@@ -510,7 +572,17 @@ try {
             authorization_count = 0
             payload_action_count = 0
             multidetect_mavlink_messages_transmitted = 0
+            unified_target_pool_active = $true
+            short_term_tracking_active = $true
+            patrol_advisory_active = $true
+            monocular_avoidance_active = $true
+            all_advisory_flight_control_disabled = $true
+            patrol_reacquisition_track_count = $patrolReacquisitionEvidence.scenario.track_count
+            patrol_reacquisition_same_identity = $patrolReacquisitionEvidence.scenario.same_identity_after_lost_reid
+            return_to_observe_advisory_only = $patrolReacquisitionEvidence.scenario.return_to_observe.advisory_only
             protected_ground_station_port_unchanged = $groundStationPortUnchanged
+            local_camera_contacted = $false
+            network_camera_contacted = $false
             all_passed = $true
         }
         artifacts = [ordered]@{
@@ -518,12 +590,14 @@ try {
             predictions_jsonl = $PredictionPath
             live_stdout_jsonl = $LiveStdoutPath
             live_stderr_log = $LiveStderrPath
+            patrol_reacquisition_sitl_json = $PatrolReacquisitionEvidencePath
         }
         limitations = @(
             "The mission uses 3-5 m HIL-only altitudes and modified parameters solely to exercise lifecycle gates.",
             "The mission intentionally omits a fixed-wing landing pattern and sets MIS_TKO_LAND_REQ=1 only inside the disposable container.",
             "PX4 fixed-wing SIH is experimental and this run is not aerodynamic, launch, landing, wind, terrain or field-safety evidence.",
             "The constant-output ONNX artifact proves interface ordering only and makes no fire-detection accuracy claim.",
+            "The visual source is a clock-paced deterministic in-memory scene; no local or network camera is opened.",
             "Mission upload, parameter overrides, arming and mode changes are confined to the owned disposable Docker container; Multi-Detect remains receive-only.",
             "No real V6X, actuator, radio or payload controller is contacted."
         )
@@ -558,6 +632,7 @@ try {
         protected_ground_station_port_unchanged = $groundStationPortUnchanged
         real_v6x_contacted = $false
         hardware_control_enabled = $false
+        local_camera_contacted = $false
     } | ConvertTo-Json -Compress
 }
 finally {

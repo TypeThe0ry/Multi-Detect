@@ -89,6 +89,11 @@ class JsonlPredictionWriter:
                     "bbox": detection.bbox.rounded(),
                     "sensor": detection.sensor.value,
                     "model_version": detection.model_version,
+                    **(
+                        {"diagnostics": diagnostics}
+                        if (diagnostics := fire_rgb_diagnostics(detection))
+                        else {}
+                    ),
                 }
                 for detection in detections
             ],
@@ -114,6 +119,36 @@ class JsonlPredictionWriter:
             self._handle.flush()
             os.fsync(self._handle.fileno())
             self._handle.close()
+
+
+_FIRE_RGB_DIAGNOSTIC_FIELDS = (
+    "fire_rgb_bright_neutral_fraction",
+    "fire_rgb_colorful_fraction",
+    "fire_rgb_warm_fraction",
+    "fire_rgb_bright_warm_fraction",
+    "fire_rgb_bbox_aspect_ratio",
+)
+
+
+def fire_rgb_diagnostics(detection: Detection) -> dict[str, float]:
+    """Return the bounded scalar fire-review evidence safe for prediction JSONL.
+
+    Detection metadata can include arbitrary application objects.  Keep logs
+    deterministic and pixel-free by exporting only the explicit finite RGB
+    fields written by :class:`BrightNeutralLightVetoFilter`.
+    """
+
+    if detection.label.strip().lower() not in {"fire", "flame", "smoke"}:
+        return {}
+    result: dict[str, float] = {}
+    for field in _FIRE_RGB_DIAGNOSTIC_FIELDS:
+        value = detection.metadata.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        normalized = float(value)
+        if math.isfinite(normalized):
+            result[field] = normalized
+    return result
 
 
 def load_ground_truth_jsonl(path: str | Path) -> tuple[GroundTruthFrame, ...]:

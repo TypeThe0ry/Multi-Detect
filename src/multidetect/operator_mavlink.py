@@ -1,29 +1,54 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from .operator_link import (
+    ApproachChallengeStatusMessage,
+    ApproachConfirmationCommand,
+    ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecisionCommand,
     MissionStatusMessage,
+    PatrolStatusMessage,
+    PayloadTargetChallengeStatusMessage,
+    PayloadTargetConfirmationCommand,
+    PayloadTargetStatusMessage,
+    RangeStatusMessage,
+    ReleaseStatusMessage,
     SafetyStatusMessage,
+    SceneContextStatusMessage,
+    TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
 )
 from .operator_protocol import (
     MAX_TUNNEL_PAYLOAD_BYTES,
     OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
+    ApproachConfirmationAck,
     AuthorizationDecisionAck,
     DecodedOperatorPacket,
     OperatorProtocolError,
     OperatorTunnelCodec,
+    PayloadTargetConfirmationAck,
     SelectionAck,
 )
 
 
 class OperatorMavlinkDependencyError(RuntimeError):
     """Raised when the optional MAVLink integration dependency is unavailable."""
+
+
+_MAVLINK_SIGNING_EPOCH_UNIX_S = 1_420_070_400
+_MAVLINK_SIGNING_TICKS_PER_SECOND = 100_000
+
+
+def _current_signing_timestamp() -> int:
+    return max(
+        1,
+        int((time.time() - _MAVLINK_SIGNING_EPOCH_UNIX_S) * _MAVLINK_SIGNING_TICKS_PER_SECOND),
+    )
 
 
 def _require_mavlink2() -> Any:
@@ -62,6 +87,15 @@ class OperatorMavlinkEndpoint:
             _component_id(value, field_name=name)
         if not 32_768 <= self.payload_type <= 65_535:
             raise ValueError("operator TUNNEL payload_type must be in the experimental range")
+
+
+@dataclass(frozen=True, slots=True)
+class AuthenticatedMavlinkDatagram:
+    """One fully authenticated MAVLink datagram from the configured operator endpoint."""
+
+    message_id: int
+    operator_payload: bytes | None
+    is_heartbeat: bool
 
 
 class OperatorMavlinkTunnelAdapter:
@@ -114,6 +148,89 @@ class OperatorMavlinkTunnelAdapter:
     def encode_safety_status(self, status: SafetyStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_safety_status(status))
 
+    def encode_patrol_status(self, status: PatrolStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_patrol_status(status))
+
+    def encode_range_status(self, status: RangeStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_range_status(status))
+
+    def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_release_status(status))
+
+    def encode_approach_challenge(self, status: ApproachChallengeStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_approach_challenge(status)
+        )
+
+    def encode_approach_confirmation(self, command: ApproachConfirmationCommand) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_approach_confirmation(command)
+        )
+
+    def encode_approach_ack(
+        self,
+        acknowledgement: ApproachConfirmationAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_approach_ack(
+                acknowledgement,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        )
+
+    def encode_approach_status(self, status: ApproachStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_approach_status(status))
+
+    def encode_target_pool_status(self, status: TargetPoolStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_target_pool_status(status)
+        )
+
+    def encode_scene_context_status(self, status: SceneContextStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_scene_context_status(status)
+        )
+
+    def encode_payload_target_challenge(
+        self,
+        status: PayloadTargetChallengeStatusMessage,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_payload_target_challenge(status)
+        )
+
+    def encode_payload_target_confirmation(
+        self,
+        command: PayloadTargetConfirmationCommand,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_payload_target_confirmation(command)
+        )
+
+    def encode_payload_target_ack(
+        self,
+        acknowledgement: PayloadTargetConfirmationAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_payload_target_ack(
+                acknowledgement,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        )
+
+    def encode_payload_target_status(self, status: PayloadTargetStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_payload_target_status(status)
+        )
+
     def encode_authorization_challenge(
         self,
         status: AuthorizationChallengeStatusMessage,
@@ -143,9 +260,29 @@ class OperatorMavlinkTunnelAdapter:
         )
 
     def decode_frame(self, frame: bytes) -> DecodedOperatorPacket:
-        return self.codec.decode(self.extract_authenticated_operator_payload(frame))
+        payload = self.extract_authenticated_operator_payload(frame)
+        if payload is None:
+            # The strict decode path never opts into unrelated-message filtering.
+            raise OperatorProtocolError("operator MAVLink payload is unavailable")
+        return self.codec.decode(payload)
 
-    def extract_authenticated_operator_payload(self, frame: bytes) -> bytes:
+    def extract_authenticated_operator_payload(
+        self,
+        frame: bytes,
+        *,
+        ignore_unrelated_message: bool = False,
+    ) -> bytes | None:
+        return self.decode_authenticated_datagram(
+            frame,
+            ignore_unrelated_message=ignore_unrelated_message,
+        ).operator_payload
+
+    def decode_authenticated_datagram(
+        self,
+        frame: bytes,
+        *,
+        ignore_unrelated_message: bool = False,
+    ) -> AuthenticatedMavlinkDatagram:
         if not frame:
             raise OperatorProtocolError("MAVLink frame is empty")
         mavlink2 = _require_mavlink2()
@@ -160,14 +297,25 @@ class OperatorMavlinkTunnelAdapter:
         message = messages[0]
         if len(message.get_msgbuf()) != len(frame):
             raise OperatorProtocolError("MAVLink frame contains trailing or unrelated bytes")
-        if message.get_msgId() != mavlink2.MAVLINK_MSG_ID_TUNNEL:
-            raise OperatorProtocolError("operator endpoint accepts only MAVLink TUNNEL messages")
+        message_id = int(message.get_msgId())
+        # Authentication and endpoint identity are checked before an unrelated
+        # message may be ignored. This lets the UDP server use QGC's normal
+        # signed HEARTBEAT as peer discovery without accepting an unsigned or
+        # spoofed source as a metadata recipient.
         if not message.get_signed():
             raise OperatorProtocolError("unsigned MAVLink operator frames are not allowed")
         if message.get_srcSystem() != self.endpoint.remote_system_id:
-            raise OperatorProtocolError("MAVLink TUNNEL source system does not match")
+            raise OperatorProtocolError("MAVLink operator source system does not match")
         if message.get_srcComponent() != self.endpoint.remote_component_id:
-            raise OperatorProtocolError("MAVLink TUNNEL source component does not match")
+            raise OperatorProtocolError("MAVLink operator source component does not match")
+        if message_id != mavlink2.MAVLINK_MSG_ID_TUNNEL:
+            if ignore_unrelated_message:
+                return AuthenticatedMavlinkDatagram(
+                    message_id=message_id,
+                    operator_payload=None,
+                    is_heartbeat=message_id == mavlink2.MAVLINK_MSG_ID_HEARTBEAT,
+                )
+            raise OperatorProtocolError("operator endpoint accepts only MAVLink TUNNEL messages")
         if message.target_system != self.endpoint.local_system_id:
             raise OperatorProtocolError("MAVLink TUNNEL target system does not match")
         if message.target_component != self.endpoint.local_component_id:
@@ -180,7 +328,11 @@ class OperatorMavlinkTunnelAdapter:
         payload = bytes(message.payload[:payload_length])
         # Authenticate and structurally validate before returning the application payload.
         self.codec.decode(payload)
-        return payload
+        return AuthenticatedMavlinkDatagram(
+            message_id=message_id,
+            operator_payload=payload,
+            is_heartbeat=False,
+        )
 
     def wrap_authenticated_operator_payload(self, payload: bytes) -> bytes:
         if not 1 <= len(payload) <= MAX_TUNNEL_PAYLOAD_BYTES:
@@ -196,10 +348,20 @@ class OperatorMavlinkTunnelAdapter:
             len(payload),
             padded,
         )
+        # pymavlink only increments its signing timestamp by one per packet. A
+        # long-running, low-rate process would therefore drift far behind wall
+        # time and a newly connected QGC would reject the stream as stale. Catch
+        # up before every signature while retaining pymavlink's monotonic value
+        # if the clock moves backwards.
+        self._serializer.signing.timestamp = max(
+            self._serializer.signing.timestamp,
+            _current_signing_timestamp(),
+        )
         return bytes(message.pack(self._serializer, force_mavlink1=False))
 
 
 __all__ = [
+    "AuthenticatedMavlinkDatagram",
     "OperatorMavlinkDependencyError",
     "OperatorMavlinkEndpoint",
     "OperatorMavlinkTunnelAdapter",

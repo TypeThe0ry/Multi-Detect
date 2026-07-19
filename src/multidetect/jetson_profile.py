@@ -163,10 +163,14 @@ def jetson_static_preflight(
         "FIRE_CANDIDATE_STABILITY_FRAMES",
         errors,
     )
-    if stability_frames is not None and stability_frames < mission.minimum_track_observations:
-        errors.append(
-            "FIRE_CANDIDATE_STABILITY_FRAMES cannot be below mission minimum_track_observations"
-        )
+    # This is the detector-side temporal evidence gate, not the unified target
+    # track confirmation count.  A candidate can legitimately clear a short
+    # three-frame visual filter and then still require the mission's longer
+    # ``minimum_track_observations`` before a target is confirmed.  Coupling the
+    # two values made the runtime profile reject that layered design and forced
+    # needless fire-candidate latency on non-stationary public-video evidence.
+    if stability_frames is not None and stability_frames <= 0:
+        errors.append("FIRE_CANDIDATE_STABILITY_FRAMES must be positive")
 
     pixhawk_hardware_profile = values.get("PIXHAWK_HARDWARE_PROFILE", "").strip()
     endpoint = values.get("PIXHAWK_ENDPOINT", "")

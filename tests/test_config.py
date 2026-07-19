@@ -36,14 +36,17 @@ def test_patrol_config_allows_no_payload() -> None:
     assert config.payloads == ()
     assert config.payload_installed is False
     assert config.deployment_capable is False
+    assert config.require_independent_rgb_corroboration is False
     assert config.require_thermal_corroboration is False
 
 
-def test_payload_demo_keeps_thermal_corroboration_gate() -> None:
+def test_payload_demo_uses_rgb_only_independent_corroboration_gate() -> None:
     config = MissionConfig.from_json(ROOT / "configs/missions/fire_suppression.demo.json")
 
     assert config.deployment_capable is True
-    assert config.require_thermal_corroboration is True
+    assert config.target_classes == ("flame",)
+    assert config.require_independent_rgb_corroboration is True
+    assert config.require_thermal_corroboration is False
 
 
 def test_disposable_platform_still_requires_one_payload() -> None:
@@ -109,6 +112,7 @@ def test_disposable_demo_config_loads() -> None:
     [
         ("human_authorization_required", "false"),
         ("person_exclusion_enabled", "false"),
+        ("require_independent_rgb_corroboration", 1),
         ("require_thermal_corroboration", 1),
     ],
 )

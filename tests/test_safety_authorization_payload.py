@@ -64,6 +64,7 @@ def make_track(**changes: object) -> TrackSnapshot:
         area_growth_rate=0.01,
         thermal_corroborated=True,
         confirmed=True,
+        independent_rgb_corroborated=True,
     )
     return replace(track, **changes)
 
@@ -223,7 +224,10 @@ def test_any_navigation_or_flight_failure_denies(
         ({"confirmed": False}, "target.confirmed_track"),
         ({"label": "vehicle"}, "target.allowed_class"),
         ({"confidence_floor": 0.81}, "target.minimum_confidence"),
-        ({"thermal_corroborated": False}, "sensor.thermal_consistency"),
+        (
+            {"independent_rgb_corroborated": False},
+            "sensor.independent_rgb_fire_consistency",
+        ),
     ),
 )
 def test_target_evidence_is_fail_closed(changes: dict[str, object], rule_id: str) -> None:
@@ -231,6 +235,18 @@ def test_target_evidence_is_fail_closed(changes: dict[str, object], rule_id: str
 
     assert decision.allowed is False
     assert check_for(decision, rule_id).verdict is Verdict.DENY
+
+
+def test_legacy_thermal_gate_is_only_present_when_explicitly_enabled() -> None:
+    rgb_only = make_decision()
+    assert all(check.rule_id != "sensor.thermal_consistency" for check in rgb_only.checks)
+
+    thermal_required = replace(make_config(), require_thermal_corroboration=True)
+    denied = make_decision(
+        thermal_required,
+        track=make_track(thermal_corroborated=False),
+    )
+    assert check_for(denied, "sensor.thermal_consistency").verdict is Verdict.DENY
 
 
 def test_stale_frame_and_stale_track_each_deny() -> None:

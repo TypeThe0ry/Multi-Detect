@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "model_id": "openvino-vehicle-reid-0001",
+  "model_role": "vehicle_reid",
+  "status": "candidate",
+  "source": "Intel Open Model Zoo vehicle-reid-0001 public ONNX release 2022.1",
+  "source_url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/public/2022.1/vehicle-reid-0001/osnet_ain_x1_0_vehicle_reid.onnx",
+  "artifact_filename": "osnet_ain_x1_0_vehicle_reid.onnx",
+  "artifact_size_bytes": 8836743,
+  "artifact_sha384": "0515ce72f653c39780d5b87dfed7255d396dd2b1e8b6e91fbaacdfad1da189166343157273c02f3b0fede3050ef7abb7",
+  "license": "MIT",
+  "input": {
+    "layout": "NCHW",
+    "color": "RGB",
+    "shape": ["batch", 3, 208, 208],
+    "range": "0..255 float32"
+  },
+  "output": {
+    "name": "output",
+    "feature_size": 512,
+    "l2_normalization_required": true
+  },
+  "validated_labels": ["vehicle", "car", "bus", "truck"],
+  "prohibited_identity_labels": [
+    "person",
+    "firefighter",
+    "motorcycle",
+    "bicycle",
+    "flame",
+    "fire",
+    "smoke",
+    "hotspot"
+  ],
+  "published_metrics": {
+    "dataset": "VeRi-776",
+    "rank_1_percent": 96.31,
+    "map_percent": 85.15,
+    "occlusion_supported": true,
+    "maximum_documented_occlusion_fraction": 0.5
+  },
+  "limitations": [
+    "Published metrics are upstream evidence and have not yet been reproduced on this camera domain.",
+    "Vehicle and person embeddings occupy different feature spaces and must never be compared.",
+    "Motorcycles and bicycles are not enabled for identity recovery by this candidate.",
+    "No ReID result grants payload authorization or flight-control authority.",
+    "TensorRT engine build and long-running Jetson latency validation remain pending."
+  ],
+  "production_approved": false,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false
+}

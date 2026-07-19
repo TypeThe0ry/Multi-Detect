@@ -1,0 +1,56 @@
+{
+  "event": "px4_airspeed_live_trigger",
+  "captured_at_utc": "2026-07-16T09:26:36.228461+00:00",
+  "duration_s": 900.0205583999923,
+  "identity": {
+    "system_id": 1,
+    "component_id": 1,
+    "armed": false
+  },
+  "baseline_pressure_pa": 11.047086119651794,
+  "trigger_threshold_delta_pa": 20.0,
+  "trigger": null,
+  "timed_out": true,
+  "message_counts": {
+    "PING": 90,
+    "ATTITUDE_QUATERNION": 3011,
+    "SCALED_PRESSURE": 6021,
+    "COMMAND_ACK": 72,
+    "VFR_HUD": 3011,
+    "ATTITUDE": 4515,
+    "MISSION_CURRENT": 896,
+    "RC_CHANNELS": 1505,
+    "GPS_RAW_INT": 1505,
+    "ATTITUDE_TARGET": 602,
+    "HEARTBEAT": 900,
+    "ALTITUDE": 301,
+    "UNKNOWN_436": 151,
+    "ESTIMATOR_STATUS": 151,
+    "EXTENDED_SYS_STATE": 301,
+    "UNKNOWN_441": 301,
+    "LOCAL_POSITION_NED": 301,
+    "OPEN_DRONE_ID_LOCATION": 301,
+    "UNKNOWN_380": 301,
+    "UNKNOWN_8": 301,
+    "SYS_STATUS": 301,
+    "UNKNOWN_411": 299,
+    "VIBRATION": 30,
+    "AUTOPILOT_VERSION": 2,
+    "UNKNOWN_435": 52,
+    "UNKNOWN_397": 2,
+    "STATUSTEXT": 2,
+    "UNKNOWN_410": 14,
+    "PARAM_VALUE": 2,
+    "MISSION_COUNT": 6
+  },
+  "differential_pressure_pa": {
+    "count": 6021,
+    "min": -1.5783606097102165,
+    "max": 23.67253452539444
+  },
+  "airspeed_mps": {
+    "count": 3011,
+    "min": -2.926248550415039,
+    "max": 6.791076183319092
+  }
+}

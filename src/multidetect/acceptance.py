@@ -29,6 +29,7 @@ from .operator_link import (
 from .operator_status import build_authorization_challenge_status_message
 from .operator_tracking import OperatorTargetLock, TargetLockConfig
 from .replay import load_jsonl_replay
+from .unified_acceptance import run_unified_tracking_acceptance
 
 
 def run_software_acceptance(project_root: Path) -> dict[str, Any]:
@@ -318,6 +319,8 @@ def run_software_acceptance(project_root: Path) -> dict[str, Any]:
     ):
         raise RuntimeError("manual target tracking acceptance path failed")
 
+    unified_tracking = run_unified_tracking_acceptance()
+
     return {
         "event": "software_acceptance_passed",
         "patrol_only": {
@@ -363,6 +366,7 @@ def run_software_acceptance(project_root: Path) -> dict[str, Any]:
             "selection_replay_rejected": not selection_replay.allowed,
             "selection_is_payload_authorization": False,
         },
+        "unified_tracking": unified_tracking,
         "flight_control_enabled": False,
         "physical_release_enabled": False,
         "model_training_executed": False,

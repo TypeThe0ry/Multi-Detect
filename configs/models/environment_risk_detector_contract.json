@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "model_id": "environment-risk-detector-unselected",
+  "model_role": "environment_risk_evidence",
+  "status": "required_not_supplied",
+  "required_labels": [
+    "power_line",
+    "flammable_tank"
+  ],
+  "reserved_labels_forbidden": [
+    "fire",
+    "flame",
+    "smoke",
+    "hotspot",
+    "person",
+    "firefighter",
+    "car",
+    "bus",
+    "truck",
+    "vehicle"
+  ],
+  "runtime_contract": {
+    "input_layout": "NCHW",
+    "input_color": "RGB",
+    "output_format": "post_nms_Nx6",
+    "output_fields": [
+      "x1",
+      "y1",
+      "x2",
+      "y2",
+      "confidence",
+      "class_id"
+    ],
+    "output_coordinates": "letterbox_xyxy_px"
+  },
+  "acceptance_required": [
+    "immutable source artifact digest and dataset/license provenance",
+    "deployment-domain per-class precision and recall",
+    "thin power-line recall at operational resolution",
+    "oriented storage-tank detection and conservative metadata-box policy",
+    "target-Orin TensorRT latency and 60-minute soak",
+    "false-positive review against fire, smoke, people and vehicles"
+  ],
+  "production_approved": false,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false,
+  "notes": [
+    "This contract does not claim that an environment model has been selected or deployed.",
+    "Environment detections are metadata and risk evidence only.",
+    "Road and building context use the separate categorical semantic-context contract.",
+    "A missing environment model must remain visible as a coverage gap."
+  ]
+}

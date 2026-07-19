@@ -15,6 +15,7 @@ from multidetect.jetson_bench import (
     JetsonVisionBenchConfig,
     normalize_jetson_device_model,
     read_jetson_device_model,
+    read_process_rss_mb,
     read_temperatures_c,
     run_jetson_vision_bench,
 )
@@ -164,6 +165,73 @@ def test_jetson_bench_fails_when_temperature_exceeds_limit() -> None:
     assert "Jetson temperature exceeded the configured limit" in result["reasons"]
 
 
+def test_jetson_bench_fails_low_rate_and_unbounded_capture_queue() -> None:
+    class _BackloggedSource(_Source):
+        queue_high_watermark = 2
+        backpressure_count = 7
+        captured_frame_count = 8
+
+    result = run_jetson_vision_bench(
+        _BackloggedSource(frame_count=1),
+        _Detector(),
+        JetsonVisionBenchConfig(
+            minimum_frames=1,
+            minimum_duration_seconds=0,
+            maximum_duration_seconds=3,
+            minimum_processing_fps=15,
+            maximum_inference_latency_p95_ms=200,
+            maximum_capture_queue_high_watermark=1,
+        ),
+        device_model_reader=lambda: "NVIDIA Jetson Orin NX",
+        temperature_reader=lambda: (55.0,),
+        clock=_StepClock(step=0.1),
+        observed_at=_observed_at,
+    )
+
+    assert result["passed"] is False
+    assert result["processing_fps"] < 15
+    assert result["capture_queue_high_watermark"] == 2
+    assert result["capture_queue_bounded"] is False
+    assert "processing FPS fell below the configured minimum" in result["reasons"]
+    assert "capture queue high watermark exceeded the bounded-latency limit" in result["reasons"]
+
+
+def test_jetson_bench_rejects_sustained_process_memory_growth() -> None:
+    rss_value = 100.0
+
+    def _growing_rss() -> float:
+        nonlocal rss_value
+        rss_value += 50.0
+        return rss_value
+
+    result = run_jetson_vision_bench(
+        _Source(frame_count=10),
+        _Detector(),
+        JetsonVisionBenchConfig(
+            minimum_frames=1,
+            minimum_duration_seconds=0.1,
+            maximum_duration_seconds=1,
+            minimum_processing_fps=1,
+            maximum_inference_latency_p95_ms=200,
+            maximum_memory_growth_mb=1,
+            memory_warmup_seconds=0,
+            temperature_sample_interval_seconds=0.01,
+        ),
+        device_model_reader=lambda: "NVIDIA Jetson Orin NX",
+        temperature_reader=lambda: (55.0,),
+        process_rss_reader=_growing_rss,
+        clock=_StepClock(step=0.01),
+        observed_at=_observed_at,
+    )
+
+    assert result["passed"] is False
+    assert result["memory_sample_count"] >= 2
+    assert result["process_rss_growth_mb"] > 1
+    assert result["process_rss_slope_mb_per_hour"] > 0
+    assert result["memory_growth_bounded"] is False
+    assert "process RSS sustained growth exceeded the configured limit" in result["reasons"]
+
+
 def test_jetson_device_and_temperature_readers_handle_sysfs(tmp_path: Path) -> None:
     model = tmp_path / "model"
     model.write_text("NVIDIA Jetson Orin Nano\x00", encoding="utf-8")
@@ -177,6 +245,10 @@ def test_jetson_device_and_temperature_readers_handle_sysfs(tmp_path: Path) -> N
 
     assert "Jetson Orin Nano" in read_jetson_device_model(model)
     assert read_temperatures_c(thermal) == (62.5, 54.5)
+
+    status = tmp_path / "status"
+    status.write_text("Name:\tpython3\nVmRSS:\t204800 kB\n", encoding="utf-8")
+    assert read_process_rss_mb(status) == 200.0
 
 
 def test_jetson_temperature_reader_skips_transiently_unavailable_zone(
@@ -237,7 +309,7 @@ def test_jetson_bench_cli_writes_bound_evidence(tmp_path: Path, monkeypatch, cap
 
     monkeypatch.setattr(cli_module, "_verify_optional_model_manifest", lambda **_kwargs: verified)
     monkeypatch.setattr(cli_module, "OnnxNx6Detector", _CliDetector)
-    monkeypatch.setattr(cli_module, "OpenCVFrameSource", _CliSource)
+    monkeypatch.setattr(cli_module, "frame_source_from_config", _CliSource)
     monkeypatch.setattr(
         cli_module,
         "run_jetson_vision_bench",

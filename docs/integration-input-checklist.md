@@ -163,7 +163,7 @@ bash scripts/collect_jetson_info.sh > artifacts/jetson-info.txt
 - 计划使用原生系统还是NVIDIA容器。
 - 期望巡航时长和允许的Jetson功耗模式。
 
-完成短 RTSP 检查后，用当前候选模型执行30分钟采集+推理浸泡：
+完成短 RTSP 检查后，用当前候选模型执行60分钟采集+推理浸泡：
 
 ```bash
 python3 -m multidetect jetson-vision-bench \
@@ -174,22 +174,29 @@ python3 -m multidetect jetson-vision-bench \
   --model-manifest models/fire-smoke-nms.engine.manifest.json \
   --class-names flame,smoke \
   --output-coordinates letterbox_xyxy_px \
-  --minimum-frames 1000 \
-  --minimum-duration-seconds 1800 \
-  --maximum-duration-seconds 2100 \
+  --minimum-frames 54000 \
+  --minimum-duration-seconds 3600 \
+  --maximum-duration-seconds 3900 \
   --maximum-temperature-c 95 \
+  --minimum-processing-fps 15 \
+  --maximum-inference-latency-p95-ms 66.7 \
+  --maximum-capture-queue-high-watermark 1 \
+  --maximum-memory-growth-mb 256 \
+  --memory-warmup-seconds 60 \
   --out artifacts/evaluation/jetson-orin-bench.json
 ```
 
 该命令从 `/proc/device-tree/model` 识别设备，从 Linux thermal zones 采集温度，并记录实际
 ONNX Runtime provider。设备不是受支持的 Jetson Orin NX/Nano、首选 provider 回退到 CPU、温度不可读或
-超过上限、推理异常、断流、分辨率变化以及浸泡未达标均会失败。它不显示或保存图像，不记录
+超过上限、处理速率低于 15 FPS、推理 P95 超过 66.7 ms、捕获队列高水位超过 1、预热后
+进程 RSS 首尾稳健增长超过 256 MB、缺少 RSS 时间序列、推理异常、断流、分辨率变化以及
+浸泡未达标均会失败。报告同时记录 RSS 起点、终点、峰值和每小时线性趋势。它不显示或保存图像，不记录
 RTSP URI，也不启用飞控或载荷接口。
 
-2026-07-14 的 Orin NX + 三体 H.265 RTSP + TensorRT 8.6 实测通过：30分钟处理44,967帧，
+2026-07-14 的 Orin NX + 三体 H.265 RTSP + TensorRT 8.6 旧基线：30分钟处理44,967帧，
 0次重连、0次采集失败、0次推理失败，推理 P95 29.90 ms，最高温52.72°C。证据文件为
-`artifacts/evaluation/jetson-orin-soak-20260714T0014.json`。这只批准运行时稳定性；模型清单
-仍为隔离状态且未批准生产使用，因此不能据此开启真实告警或载荷路径。
+`artifacts/evaluation/jetson-orin-soak-20260714T0014.json`。它不满足当前 60 分钟门禁，只能作为
+性能基线；模型清单仍为隔离状态且未批准生产使用，因此不能据此开启真实告警或载荷路径。
 
 ## C. 第三批：Pixhawk V6X只读接入
 
@@ -350,6 +357,53 @@ Pixhawk 通用遥测不会自动证明允许区域、围栏健康或投放区净
 [`live-camera-jetson.md`](live-camera-jetson.md#独立区域安全证据仅文件型-hil)。先注入篡改、
 过期、位置偏差、错误任务、序号回退和文件消失故障，确认全部回到未知并禁止授权。真实硬件
 区域源仍需单独验证时钟映射、密钥保护和传输故障，不能把此文件 HIL 视为现场批准。
+
+### C3. 摄像头内参与安装外参标定
+
+多模态测距不得由厂商水平视场角反推内参。三体摄像头中每一个实际使用的镜头、RTSP 码流
+分辨率、数字裁切、变焦或对焦档位都视为独立相机，必须分别标定。先生成 7×5、方格 40 mm、
+标记 20 mm 的 ChArUco 板：
+
+```bash
+python3 -m multidetect.camera_calibration board \
+  --output artifacts/calibration/charuco-7x5-40mm-20mm.png \
+  --width-px 4200 \
+  --margin-px 0
+```
+
+打印后板体有效尺寸必须实测为 280×200 mm；打印缩放必须关闭。固定摄像头最终焦距、分辨率、
+编码裁切和安装结构后，采集至少 30 张原始帧，覆盖画面四角和中央、远近尺度及左右/上下倾斜，
+不能使用经过 QGC 二次缩放或截图的画面。安装俯仰、偏航、滚转角和视轴测量不确定度必须由
+安装测量显式提供：
+
+```powershell
+$env:MULTIDETECT_CALIBRATION_CAMERA = "rtsp://192.168.144.108:554/stream=0"
+.\.venv\Scripts\python.exe scripts\capture_charuco_calibration.py `
+  --source-env MULTIDETECT_CALIBRATION_CAMERA `
+  --output-dir artifacts\calibration\camera-main-frames `
+  --report-out artifacts\calibration\camera-main-capture.json `
+  --target-frames 30 --maximum-seconds 300
+```
+
+采集器只落盘角点数量、清晰度、板体面积和视角差异均通过的原始帧；RTSP URI 不写入报告。
+
+```bash
+python3 -m multidetect.camera_calibration calibrate \
+  --images artifacts/calibration/camera-main-frames \
+  --calibration-id camera-main-1280x720-fixed-v1 \
+  --mount-pitch-down-deg REPLACE_ME \
+  --mount-yaw-right-deg REPLACE_ME \
+  --mount-roll-clockwise-deg REPLACE_ME \
+  --boresight-sigma-deg REPLACE_ME \
+  --calibration-out artifacts/calibration/camera-main-v1.json \
+  --report-out artifacts/calibration/camera-main-v1.report.json
+```
+
+工具使用 OpenCV ChArUco 检测和 `calibrateCameraExtended`，并强制检查至少 20 个有效视图、
+角点空间覆盖、板体面积、远近尺度变化、倾斜跨度、RMS、最差单帧误差、焦距标准差、焦距
+物理域和主点位置。报告无论成功失败都会写出；只有全部门禁通过才写出可供
+`RANGING_CALIBRATION_PATH` 使用的严格 schema-v1 标定文件。通过内参门禁不等于挂载外参或
+绝对距离已验收，仍需地面控制点或激光测距做独立交叉验证。
 
 ## D. 第四批：数传告警
 

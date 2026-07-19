@@ -16,6 +16,7 @@ from .authorization import (
     ConsumedAuthorization,
 )
 from .config import CompletionPolicy, MissionConfig
+from .deployment_planner import PrimaryRangeEvidence
 from .domain import (
     AuthorizationChallenge,
     BoundingBox,
@@ -40,6 +41,7 @@ from .payload_inventory import (
     unavailable_inventory_verification,
     verify_payload_inventory,
 )
+from .payload_target_gate import PayloadTargetIntent
 from .perception import fuse_rgb_thermal
 from .ranking import TargetRanker, TargetRiskAssessment
 from .safety import SafetyRuleEngine
@@ -93,6 +95,8 @@ class _DeploymentContext:
     decision: DeploymentDecision
     payload_slot_id: str
     challenge: AuthorizationChallenge
+    ranging_evidence: PrimaryRangeEvidence | None = None
+    payload_target_intent: PayloadTargetIntent | None = None
     authorization: ConsumedAuthorization | None = None
     release_id: str | None = None
 
@@ -170,8 +174,30 @@ class MissionController:
         *,
         now_s: float,
         assessments: Mapping[str, TargetRiskAssessment] | None = None,
+        primary_range_evidence: PrimaryRangeEvidence | None = None,
+        payload_target_intent: PayloadTargetIntent | None = None,
+        require_payload_target_intent: bool = False,
     ) -> ObservationOutcome:
         self._validate_now(now_s)
+        if require_payload_target_intent and not self.config.deployment_capable:
+            raise ValueError("payload target intent cannot gate a patrol-only mission")
+        if payload_target_intent is not None and not require_payload_target_intent:
+            raise ValueError("payload target intent requires the explicit fail-closed gate")
+        valid_payload_target_intent = bool(
+            payload_target_intent is not None and payload_target_intent.valid_at(now_s)
+        )
+        resolved_range_evidence = primary_range_evidence
+        if (
+            resolved_range_evidence is None
+            and self.config.fixed_wing_release_window is not None
+            and self.config.fixed_wing_release_window.require_multimodal_range
+        ):
+            # Replay-only evidence is explicit inside one detection's metadata.
+            # Live production frames pass a separately constructed binding and
+            # never depend on this compatibility path.
+            from .replay import primary_range_evidence_from_frame
+
+            resolved_range_evidence = primary_range_evidence_from_frame(frame)
         allowed_input_phases = {
             MissionPhase.SEARCHING,
             MissionPhase.AWAITING_AUTHORIZATION,
@@ -211,24 +237,36 @@ class MissionController:
             MissionPhase.AWAITING_AUTHORIZATION,
             MissionPhase.DEPLOYMENT_READY,
         }:
-            refreshed_decision = self._refresh_active_context_if_equivalent(
-                tracks=tracks,
-                frame=fused_frame,
-                now_s=now_s,
-            )
-            if refreshed_decision is not None:
-                context = self._require_any_context()
-                return ObservationOutcome(
-                    self.state.phase,
-                    tracks,
-                    (refreshed_decision,),
-                    (
-                        context.challenge
-                        if self.state.phase is MissionPhase.AWAITING_AUTHORIZATION
-                        else None
-                    ),
+            if require_payload_target_intent and (
+                not valid_payload_target_intent
+                or self._context is None
+                or self._context.track.track_id != payload_target_intent.aimpoint_target_id
+                or self._context.payload_target_intent != payload_target_intent
+            ):
+                self._invalidate_for_changed_observation(now_s)
+            if self.state.phase in {
+                MissionPhase.AWAITING_AUTHORIZATION,
+                MissionPhase.DEPLOYMENT_READY,
+            }:
+                refreshed_decision = self._refresh_active_context_if_equivalent(
+                    tracks=tracks,
+                    frame=fused_frame,
+                    now_s=now_s,
+                    ranging_evidence=resolved_range_evidence,
                 )
-            self._invalidate_for_changed_observation(now_s)
+                if refreshed_decision is not None:
+                    context = self._require_any_context()
+                    return ObservationOutcome(
+                        self.state.phase,
+                        tracks,
+                        (refreshed_decision,),
+                        (
+                            context.challenge
+                            if self.state.phase is MissionPhase.AWAITING_AUTHORIZATION
+                            else None
+                        ),
+                    )
+                self._invalidate_for_changed_observation(now_s)
         target_labels = set(self.config.target_classes)
         suppressed_recently_served = tuple(
             track
@@ -243,6 +281,14 @@ class MissionController:
             if track.confirmed
             and track.label in target_labels
             and not self._is_recently_served_target(track, now_s)
+            and (
+                not require_payload_target_intent
+                or (
+                    valid_payload_target_intent
+                    and payload_target_intent is not None
+                    and track.track_id == payload_target_intent.aimpoint_target_id
+                )
+            )
         )
         ranked = self.ranker.rank(candidates, assessments)
         score_by_target = {item.track.track_id: item.score for item in ranked}
@@ -254,6 +300,7 @@ class MissionController:
                     track=track_by_target[item.track.track_id],
                     frame=fused_frame,
                     now_s=now_s,
+                    ranging_evidence=resolved_range_evidence,
                 ),
                 priority_score=item.score,
             )
@@ -268,6 +315,13 @@ class MissionController:
                 "confirmed_candidate_count": len(candidates),
                 "eligible_candidate_count": sum(decision.allowed for decision in decisions),
                 "recently_served_suppressed_count": len(suppressed_recently_served),
+                "payload_target_intent_required": require_payload_target_intent,
+                "payload_target_intent_valid": valid_payload_target_intent,
+                "payload_target_aimpoint_id": (
+                    payload_target_intent.aimpoint_target_id
+                    if payload_target_intent is not None
+                    else None
+                ),
                 "candidate_scores": score_by_target,
                 "deployment_windows": {
                     decision.target_id: {
@@ -348,6 +402,8 @@ class MissionController:
             decision=selected,
             payload_slot_id=payload_slot_id,
             challenge=challenge,
+            ranging_evidence=resolved_range_evidence,
+            payload_target_intent=payload_target_intent,
         )
         self._transition("authorization_requested", now_s)
         self.audit.append(
@@ -449,6 +505,11 @@ class MissionController:
     ) -> None:
         self._validate_now(now_s)
         context = self._require_context(MissionPhase.AWAITING_AUTHORIZATION)
+        if context.payload_target_intent is not None and not context.payload_target_intent.valid_at(
+            now_s
+        ):
+            self._invalidate_before_release(now_s, "payload target slide confirmation expired")
+            raise MissionOperationError("payload target slide confirmation expired")
         inventory = self._refresh_payload_inventory(now_s)
         if not inventory.allowed:
             self._invalidate_for_payload_inventory(now_s, inventory)
@@ -461,6 +522,7 @@ class MissionController:
             track=context.track,
             frame=context.frame,
             now_s=now_s,
+            ranging_evidence=context.ranging_evidence,
         )
         if not self._decision_matches_challenge(current_decision, context.challenge):
             self._invalidate_before_release(now_s, "safety evidence changed before approval")
@@ -562,6 +624,7 @@ class MissionController:
             track=context.track,
             frame=context.frame,
             now_s=now_s,
+            ranging_evidence=context.ranging_evidence,
         )
         if not self._decision_matches_challenge(latest_decision, context.challenge):
             self.payload.lock(payload_slot_id=context.payload_slot_id)
@@ -972,6 +1035,7 @@ class MissionController:
         tracks: tuple[TrackSnapshot, ...],
         frame: FrameObservation,
         now_s: float,
+        ranging_evidence: PrimaryRangeEvidence | None,
     ) -> DeploymentDecision | None:
         context = self._require_any_context()
         current_track = next(
@@ -981,7 +1045,12 @@ class MissionController:
         if current_track is None:
             return None
         current_decision = replace(
-            self.rules.evaluate(track=current_track, frame=frame, now_s=now_s),
+            self.rules.evaluate(
+                track=current_track,
+                frame=frame,
+                now_s=now_s,
+                ranging_evidence=ranging_evidence,
+            ),
             priority_score=context.decision.priority_score,
         )
         if not self._safety_semantically_equivalent(
@@ -1029,6 +1098,7 @@ class MissionController:
         context.track = current_track
         context.frame = frame
         context.decision = current_decision
+        context.ranging_evidence = ranging_evidence
         context.challenge = refreshed_challenge
         self.audit.append(
             "authorization.live_safety_binding_refreshed",

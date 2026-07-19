@@ -25,7 +25,7 @@ README-only update was made later.
 | Smoldering and burned-area classes | None | Requires new licensed data and retraining. |
 | Person, firefighter, vehicle, building, power-line, or tank detection | None in the fire/smoke weights | Use separately governed safety-object models. |
 | Instance/semantic segmentation | None | Add an independently validated segmentation component. |
-| Thermal/RGB spatial corroboration | None | Add calibrated sensor registration and fusion. |
+| Independent RGB fire corroboration | None | Add a separately validated RGB verifier; current hardware has no thermal camera. |
 | Multi-object tracking | None | Consume normalized detections in a separate tracker. |
 | Deployment-zone and telemetry rules | None | Keep in the fail-closed safety rules engine. |
 | Human authorization | None | Keep in mission control with short-lived challenges. |
@@ -47,7 +47,7 @@ visual candidates to the rest of Multi-Detect.
 | [`yolov4/yolov4_to_onnx/onnx_to_trt7.py`](https://github.com/gengyanlei/fire-smoke-detect-yolov4/blob/98b1fec0f82e09d67ef5fc657a80eaf0b1450360/yolov4/yolov4_to_onnx/onnx_to_trt7.py) | Obsolete TensorRT 7 sample with missing imports/definitions; not reusable as-is. |
 
 No published model card, calibration report, mAP table, false-positive rate,
-false-negative rate, thermal validation, or deployment-domain acceptance data
+false-negative rate, independent-verifier validation, or deployment-domain acceptance data
 was found in the pinned tree.
 
 The complete file tree at the pinned commit was rechecked during integration preparation. It contains historical ONNX conversion scripts, but no committed `.onnx`, TensorRT engine, or directly usable Darknet weight artifact. Therefore the application cannot obtain a safe runtime model merely by checking out that commit.
@@ -98,7 +98,7 @@ RGB camera
   -> legacy-compatible decoder and normalization adapter
   -> Detection candidates
   -> tracker
-  -> independent thermal and safety-object corroboration
+  -> independent RGB fire and safety-object corroboration
   -> fail-closed safety rules
   -> operator authorization
   -> payload controller with interlocks and confirmation

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "model_id": "ultralytics-yolo26n-coco80-trt86-raw",
+  "model_version": "ultralytics-8.4.92-opset17-traditional-20260715",
+  "status": "target-build-candidate",
+  "source_checkpoint": "yolo26n.pt",
+  "source_checkpoint_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+  "artifact_filename": "yolo26n-traditional.onnx",
+  "artifact_sha256": "0e54c190865025af36c8e71ba1e7966fb4e11d7e07df9e9a2d1b4ec0999c119f",
+  "artifact_hash_source": "generated beside the export as yolo26n-traditional.onnx.sha256",
+  "license": "AGPL-3.0; production license review pending",
+  "input": {
+    "layout": "NCHW",
+    "color": "RGB",
+    "shape": [1, 3, 640, 640],
+    "resize": "letterbox"
+  },
+  "output": {
+    "name": "output0",
+    "shape": [1, 84, 8400],
+    "format": "ultralytics_raw_xywh_class_scores",
+    "embedded_nms": false,
+    "topk_nodes": 0,
+    "host_postprocess": "class-aware NMS"
+  },
+  "export": {
+    "opset": 17,
+    "end2end": false,
+    "nms": false,
+    "dynamic": false,
+    "simplify": true
+  },
+  "validated_labels": ["person", "airplane", "bicycle", "car", "motorcycle", "bus", "truck"],
+  "production_approved": false
+}

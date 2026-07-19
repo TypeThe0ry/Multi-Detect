@@ -31,7 +31,9 @@ safe to operate.
 ## Before any field integration
 
 - Replace demo detections with calibrated models covering both target and safety-object classes.
-- Validate RGB/thermal time synchronization and spatial registration.
+- Validate the primary RGB fire detector and an independently trained RGB fire verifier against
+  deployment-domain false positives, temporal continuity and spatial agreement. Reusing the same
+  output as both pieces of evidence is not independent corroboration.
 - Establish geofence, altitude and platform-envelope sources with freshness and integrity checks.
 - Add persistent event/outbox storage and test power-loss recovery at every transition.
 - Define authenticated, acknowledged and versioned device protocols with physical interlocks.

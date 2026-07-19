@@ -6,6 +6,7 @@ pytest.importorskip("pymavlink")
 
 from pymavlink.dialects.v20 import common as mavlink2
 
+from multidetect import operator_mavlink as operator_mavlink_module
 from multidetect.domain import (
     BoundingBox,
     DeploymentWindowStatus,
@@ -16,6 +17,7 @@ from multidetect.domain import (
 from multidetect.operator_link import (
     AuthorizationDisplayState,
     MissionStatusMessage,
+    PatrolStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
@@ -37,6 +39,8 @@ from multidetect.operator_protocol import (
     WireMessageType,
 )
 from multidetect.operator_transport import SelectionCommandServer, SelectionRetryClient
+from multidetect.patrol_advisory import AdvisoryValidity, PatrolPhase, ReturnObserveDirection
+from multidetect.unified_tracking import UnifiedTrackState
 
 KEY = b"operator-mavlink-test-key-at-least-32-bytes"
 MAVLINK_KEY = b"M" * 32
@@ -184,12 +188,79 @@ def test_jetson_safety_status_round_trip_to_g20_is_explanatory_only() -> None:
     assert decoded.message.physical_release_enabled is False
 
 
+def test_jetson_patrol_status_round_trip_to_g20_is_advisory_only() -> None:
+    status = PatrolStatusMessage(
+        status_id="66666666-6666-4666-8666-666666666666",
+        sequence=11,
+        mission_id="fire-patrol-demo",
+        phase=PatrolPhase.LOST,
+        primary_target_id="track-vehicle-1",
+        target_state=UnifiedTrackState.LOST,
+        bbox=BoundingBox(0.1, 0.2, 0.3, 0.5),
+        label="car",
+        confidence=0.86,
+        tracking_quality=0.2,
+        total_track_count=10,
+        locked_track_count=2,
+        source_frame_id="jetson-frame-8",
+        source_captured_at_s=100.2,
+        produced_at_s=100.3,
+        return_direction=ReturnObserveDirection.LEFT,
+        return_validity=AdvisoryValidity.VALID,
+        return_evidence_age_s=0.4,
+        estimated_minimum_turn_radius_m=75.0,
+    )
+
+    decoded = _adapter(G20_ENDPOINT).decode_frame(
+        _adapter(JETSON_ENDPOINT).encode_patrol_status(status)
+    )
+
+    assert decoded.message_type is WireMessageType.PATROL_STATUS
+    assert isinstance(decoded.message, PatrolStatusMessage)
+    assert decoded.message.total_track_count == 10
+    assert decoded.message.return_direction is ReturnObserveDirection.LEFT
+    assert decoded.message.advisory_only is True
+    assert decoded.message.flight_control_enabled is False
+
+
 def test_operator_endpoint_rejects_unrelated_mavlink_message() -> None:
     heartbeat = mavlink2.MAVLink_heartbeat_message(0, 0, 0, 0, 0, 3)
     frame = _signed_frame(heartbeat, source_system=255, source_component=190)
 
     with pytest.raises(OperatorProtocolError, match="only MAVLink TUNNEL"):
         _adapter(JETSON_ENDPOINT).decode_frame(frame)
+
+
+def test_operator_endpoint_authenticates_signed_heartbeat_for_peer_discovery() -> None:
+    heartbeat = mavlink2.MAVLink_heartbeat_message(6, 8, 0, 0, 3, 3)
+    frame = _signed_frame(heartbeat, source_system=255, source_component=190)
+
+    datagram = _adapter(JETSON_ENDPOINT).decode_authenticated_datagram(
+        frame,
+        ignore_unrelated_message=True,
+    )
+
+    assert datagram.is_heartbeat is True
+    assert datagram.message_id == mavlink2.MAVLINK_MSG_ID_HEARTBEAT
+    assert datagram.operator_payload is None
+
+
+def test_operator_peer_discovery_rejects_unsigned_or_wrong_source_heartbeat() -> None:
+    heartbeat = mavlink2.MAVLink_heartbeat_message(6, 8, 0, 0, 3, 3)
+    unsigned_serializer = mavlink2.MAVLink(None, srcSystem=255, srcComponent=190)
+    unsigned = bytes(heartbeat.pack(unsigned_serializer, force_mavlink1=False))
+    wrong_source = _signed_frame(heartbeat, source_system=254, source_component=190)
+
+    with pytest.raises(OperatorProtocolError, match="unsigned|Invalid signature"):
+        _adapter(JETSON_ENDPOINT).decode_authenticated_datagram(
+            unsigned,
+            ignore_unrelated_message=True,
+        )
+    with pytest.raises(OperatorProtocolError, match="source system"):
+        _adapter(JETSON_ENDPOINT).decode_authenticated_datagram(
+            wrong_source,
+            ignore_unrelated_message=True,
+        )
 
 
 def test_operator_endpoint_rejects_wrong_source_target_and_payload_type() -> None:
@@ -259,6 +330,25 @@ def test_operator_adapter_requires_a_full_mavlink_signing_key() -> None:
             signing_link_id=1,
             initial_signing_timestamp=1,
         )
+
+
+def test_outgoing_signing_timestamp_catches_up_to_wall_clock(monkeypatch) -> None:
+    wall_time_s = operator_mavlink_module._MAVLINK_SIGNING_EPOCH_UNIX_S + 12_345
+    monkeypatch.setattr(operator_mavlink_module.time, "time", lambda: wall_time_s)
+    sender = OperatorMavlinkTunnelAdapter(
+        OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,)),
+        G20_ENDPOINT,
+        signing_key=MAVLINK_KEY,
+        signing_link_id=G20_ENDPOINT.local_component_id,
+        initial_signing_timestamp=1,
+    )
+
+    first = sender.encode_selection(_selection())
+    second = sender.encode_selection(_selection())
+    expected = 12_345 * operator_mavlink_module._MAVLINK_SIGNING_TICKS_PER_SECOND
+
+    assert int.from_bytes(first[-12:-6], "little") == expected
+    assert int.from_bytes(second[-12:-6], "little") == expected + 1
 
 
 def test_mavlink_wrapper_composes_with_bounded_selection_ack_transport() -> None:

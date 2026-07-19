@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .config import MissionConfig
 from .domain import BoundingBox, Detection, FrameObservation, TrackSnapshot
+from .rgb_fire_corroboration import is_qualified_independent_rgb_fire_evidence
 
 
 class FrameOrderError(ValueError):
@@ -25,6 +26,7 @@ class _TrackState:
     confidence_floor: float
     confidence_total: float
     maximum_gap_s: float
+    independent_rgb_corroborated: bool
     thermal_corroborated: bool
     revision: int
 
@@ -47,6 +49,7 @@ class _TrackState:
             confidence_floor=detection.confidence,
             confidence_total=detection.confidence,
             maximum_gap_s=0.0,
+            independent_rgb_corroborated=is_qualified_independent_rgb_fire_evidence(detection),
             thermal_corroborated=bool(detection.metadata.get("thermal_corroborated", False)),
             revision=1,
         )
@@ -60,6 +63,9 @@ class _TrackState:
         self.confidence_floor = min(self.confidence_floor, detection.confidence)
         self.confidence_total += detection.confidence
         self.maximum_gap_s = max(self.maximum_gap_s, gap_s)
+        # Independent RGB corroboration is evidence from the latest observation.
+        # It must not remain sticky after the verifier stops agreeing.
+        self.independent_rgb_corroborated = is_qualified_independent_rgb_fire_evidence(detection)
         # Corroboration is evidence from the latest matched observation, not a
         # sticky historical capability. Losing current thermal agreement must
         # fail closed on the next safety evaluation.
@@ -68,6 +74,9 @@ class _TrackState:
 
     def snapshot(self, config: MissionConfig) -> TrackSnapshot:
         duration_s = max(0.0, self.last_seen_at_s - self.first_seen_at_s)
+        independent_rgb_ok = (
+            self.independent_rgb_corroborated or not config.require_independent_rgb_corroboration
+        )
         thermal_ok = self.thermal_corroborated or not config.require_thermal_corroboration
         confirmed = all(
             (
@@ -76,6 +85,7 @@ class _TrackState:
                 duration_s >= config.minimum_track_time_seconds,
                 self.confidence_floor >= config.minimum_confidence,
                 self.maximum_gap_s <= config.maximum_track_gap_seconds,
+                independent_rgb_ok,
                 thermal_ok,
             )
         )
@@ -97,6 +107,7 @@ class _TrackState:
             area_growth_rate=area_growth_rate,
             thermal_corroborated=self.thermal_corroborated,
             confirmed=confirmed,
+            independent_rgb_corroborated=self.independent_rgb_corroborated,
         )
 
 

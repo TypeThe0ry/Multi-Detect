@@ -24,9 +24,9 @@ def test_example_jetson_profile_passes_static_placeholder_check_without_leaking(
     assert report["provider_fallback_order"] == ["TensorrtExecutionProvider"]
     assert report["model_output_coordinates"] == "letterbox_xyxy_px"
     assert report["candidate_confidence_floor"] == 0.10
-    assert report["flame_candidate_threshold"] == 0.72
-    assert report["smoke_candidate_threshold"] == 0.60
-    assert report["candidate_stability_frames"] == 6
+    assert report["flame_candidate_threshold"] == 0.25
+    assert report["smoke_candidate_threshold"] == 0.30
+    assert report["candidate_stability_frames"] == 3
     assert report["mission_minimum_confidence"] == 0.82
     assert report["pixhawk_read_only"] is True
     assert report["pixhawk_hardware_profile"] == "holybro_pixhawk_jetson_baseboard"
@@ -78,14 +78,14 @@ def test_jetson_profile_rejects_thresholds_that_bypass_the_runtime_contract(
     environment.write_text(
         source.replace("FIRE_CONFIDENCE_THRESHOLD=0.10", "FIRE_CONFIDENCE_THRESHOLD=0.70")
         .replace(
-            "FIRE_SMOKE_CONFIDENCE_THRESHOLD=0.60",
+            "FIRE_SMOKE_CONFIDENCE_THRESHOLD=0.30",
             "FIRE_SMOKE_CONFIDENCE_THRESHOLD=0.50",
         )
         .replace(
-            "FIRE_FLAME_CONFIDENCE_THRESHOLD=0.72",
+            "FIRE_FLAME_CONFIDENCE_THRESHOLD=0.25",
             "FIRE_FLAME_CONFIDENCE_THRESHOLD=0.90",
         )
-        .replace("FIRE_CANDIDATE_STABILITY_FRAMES=6", "FIRE_CANDIDATE_STABILITY_FRAMES=2"),
+        .replace("FIRE_CANDIDATE_STABILITY_FRAMES=3", "FIRE_CANDIDATE_STABILITY_FRAMES=0"),
         encoding="utf-8",
     )
 
@@ -101,8 +101,21 @@ def test_jetson_profile_rejects_thresholds_that_bypass_the_runtime_contract(
         "cannot exceed the mission minimum_confidence" in error for error in report["errors"]
     )
     assert any(
-        "cannot be below mission minimum_track_observations" in error for error in report["errors"]
+        "FIRE_CANDIDATE_STABILITY_FRAMES must be positive" in error
+        for error in report["errors"]
     )
+
+
+def test_jetson_profile_keeps_candidate_and_track_confirmation_layers_separate() -> None:
+    report = jetson_static_preflight(
+        ROOT / "configs/missions/fire_patrol.demo.json",
+        ROOT / "deploy/jetson/runtime.env.example",
+        allow_placeholders=True,
+    )
+
+    assert report["valid"] is True
+    assert report["candidate_stability_frames"] == 3
+    assert report["candidate_stability_frames"] < 6
 
 
 def test_jetson_profile_rejects_unsupported_baseboard_endpoint(tmp_path: Path) -> None:

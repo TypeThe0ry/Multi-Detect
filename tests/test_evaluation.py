@@ -64,3 +64,42 @@ def test_prediction_writer_streams_every_processed_frame(tmp_path: Path) -> None
     assert record["inference_latency_ms"] == pytest.approx(12.5)
     assert record["detections"][0]["label"] == "flame"
     assert record["detections"][0]["bbox"] == [0.1, 0.2, 0.3, 0.4]
+
+
+def test_prediction_writer_exports_only_explicit_scalar_fire_rgb_diagnostics(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "predictions.jsonl"
+    writer = JsonlPredictionWriter(path)
+    writer.append(
+        frame_id="frame-1",
+        captured_at_s=10.0,
+        detections=(
+            Detection(
+                "flame",
+                0.9,
+                BoundingBox(0.1, 0.2, 0.3, 0.4),
+                metadata={
+                    "fire_rgb_warm_fraction": 0.7,
+                    "fire_rgb_bbox_aspect_ratio": 1.25,
+                    "unrelated": object(),
+                    "fire_rgb_colorful_fraction": float("nan"),
+                },
+            ),
+            Detection(
+                "person",
+                0.9,
+                BoundingBox(0.4, 0.2, 0.6, 0.8),
+                metadata={"fire_rgb_warm_fraction": 0.9},
+            ),
+        ),
+        inference_latency_ms=12.5,
+    )
+    writer.close()
+
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["detections"][0]["diagnostics"] == {
+        "fire_rgb_warm_fraction": 0.7,
+        "fire_rgb_bbox_aspect_ratio": 1.25,
+    }
+    assert "diagnostics" not in record["detections"][1]

@@ -58,6 +58,15 @@ class DeploymentWindowStatus(StrEnum):
     READY = "ready"
 
 
+class ReleaseTimingStatus(StrEnum):
+    """Read-only Mode 2 timing advice; never an actuator command."""
+
+    INVALID = "invalid"
+    TOO_EARLY = "too_early"
+    WINDOW = "window"
+    TOO_LATE = "too_late"
+
+
 @dataclass(frozen=True, slots=True)
 class BoundingBox:
     """Normalized XYXY bounding box."""
@@ -154,6 +163,16 @@ class VehicleTelemetry:
     armed: bool | None = None
     flight_mode: str | None = None
     mission_sequence: int | None = None
+    attitude_observed_at_s: float = nan
+    position_observed_at_s: float = nan
+    velocity_north_mps: float = nan
+    velocity_east_mps: float = nan
+    airspeed_mps: float = nan
+    wind_north_mps: float = nan
+    wind_east_mps: float = nan
+    velocity_observed_at_s: float = nan
+    airspeed_observed_at_s: float = nan
+    wind_observed_at_s: float = nan
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +205,7 @@ class TrackSnapshot:
     area_growth_rate: float
     thermal_corroborated: bool
     confirmed: bool
+    independent_rgb_corroborated: bool = False
 
     @property
     def duration_s(self) -> float:
@@ -234,6 +254,18 @@ class DeploymentWindowSolution:
     along_track_error_m: float | None = None
     payload_descent_time_s: float | None = None
     release_lead_distance_m: float | None = None
+    timing_status: ReleaseTimingStatus = ReleaseTimingStatus.INVALID
+    target_north_offset_m: float | None = None
+    target_east_offset_m: float | None = None
+    impact_north_offset_m: float | None = None
+    impact_east_offset_m: float | None = None
+    error_ellipse_major_m: float | None = None
+    error_ellipse_minor_m: float | None = None
+    error_ellipse_orientation_deg: float | None = None
+    ground_range_ci95_m: tuple[float, float] | None = None
+    range_target_id: str | None = None
+    range_frame_id: str | None = None
+    range_sensor_consistency: float | None = None
     advisory_only: bool = True
     flight_control_enabled: bool = False
     physical_release_enabled: bool = False
@@ -255,11 +287,49 @@ class DeploymentWindowSolution:
             self.along_track_error_m,
             self.payload_descent_time_s,
             self.release_lead_distance_m,
+            self.target_north_offset_m,
+            self.target_east_offset_m,
+            self.impact_north_offset_m,
+            self.impact_east_offset_m,
+            self.error_ellipse_major_m,
+            self.error_ellipse_minor_m,
+            self.error_ellipse_orientation_deg,
+            self.range_sensor_consistency,
         )
         if any(value is not None and not isfinite(value) for value in numeric_values):
             raise ValueError("deployment-window numeric values must be finite when present")
         if not self.reasons or any(not reason.strip() for reason in self.reasons):
             raise ValueError("deployment-window reasons cannot be empty")
+        if not isinstance(self.timing_status, ReleaseTimingStatus):
+            raise ValueError("deployment-window timing status is invalid")
+        if self.ground_range_ci95_m is not None and (
+            len(self.ground_range_ci95_m) != 2
+            or not all(isfinite(value) and value >= 0.0 for value in self.ground_range_ci95_m)
+            or self.ground_range_ci95_m[1] < self.ground_range_ci95_m[0]
+        ):
+            raise ValueError("deployment-window range confidence interval is invalid")
+        if (self.range_target_id is None) != (self.range_frame_id is None):
+            raise ValueError("deployment-window range binding must be complete")
+        if self.range_target_id is not None and (
+            not self.range_target_id.strip()
+            or not self.range_frame_id
+            or not self.range_frame_id.strip()
+        ):
+            raise ValueError("deployment-window range binding identifiers cannot be empty")
+        if self.range_sensor_consistency is not None and not (
+            0.0 <= self.range_sensor_consistency <= 1.0
+        ):
+            raise ValueError("deployment-window range consistency must be in [0, 1]")
+        if (
+            self.status is DeploymentWindowStatus.READY
+            and self.timing_status is not ReleaseTimingStatus.WINDOW
+        ):
+            raise ValueError("ready deployment window must use WINDOW timing status")
+        if (
+            self.timing_status is ReleaseTimingStatus.WINDOW
+            and self.status is not DeploymentWindowStatus.READY
+        ):
+            raise ValueError("WINDOW timing status requires a ready deployment window")
         if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
             raise ValueError("deployment-window solution must remain advisory-only")
 

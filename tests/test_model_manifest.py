@@ -8,6 +8,7 @@ import pytest
 from multidetect.model_manifest import (
     ModelManifestError,
     create_candidate_model_manifest,
+    create_semantic_context_model_manifest,
     sha256_file,
     verify_checkpoint_bytes,
     verify_model_manifest,
@@ -149,6 +150,47 @@ def test_candidate_manifest_initializer_binds_artifact_without_approving_it(
     assert document["validation"]["sample_count"] == 0
 
 
+def test_raw_yolo_manifest_declares_host_postprocessing_and_is_runtime_checked(
+    tmp_path: Path,
+) -> None:
+    engine = tmp_path / "common.engine"
+    engine.write_bytes(b"target-built-raw-yolo-engine")
+    document = create_candidate_model_manifest(
+        engine,
+        model_id="common-raw",
+        model_version="candidate-v1",
+        class_names=("person", "car"),
+        input_width=640,
+        input_height=640,
+        output_coordinates="letterbox_xyxy_px",
+        source_description="target-built TensorRT raw YOLO engine",
+        model_role="safety_object_evidence",
+        native_output_format="ultralytics_raw_xywh_class_scores",
+    )
+    manifest = write_candidate_model_manifest(tmp_path / "common.manifest.json", document)
+
+    assert document["output"]["native_export"] == {
+        "format": "ultralytics_raw_xywh_class_scores",
+        "nms_embedded": False,
+    }
+    assert document["export"]["artifact_format"] == "tensorrt_engine"
+    verified = verify_model_manifest(
+        manifest,
+        engine,
+        expected_class_names=("person", "car"),
+        expected_model_role="safety_object_evidence",
+        expected_native_output_format="ultralytics_raw_xywh_class_scores",
+    )
+    assert verified.output_format == "N_x_6"
+
+    with pytest.raises(ModelManifestError, match="native output format"):
+        verify_model_manifest(
+            manifest,
+            engine,
+            expected_native_output_format="post_nms_N_x_6",
+        )
+
+
 def test_safety_object_manifest_role_is_distinct_from_fire_candidate(tmp_path: Path) -> None:
     model = tmp_path / "person-safety.onnx"
     model.write_bytes(b"safety-object-candidate")
@@ -180,6 +222,102 @@ def test_safety_object_manifest_role_is_distinct_from_fire_candidate(tmp_path: P
             model,
             expected_model_role="fire_candidate",
         )
+
+
+def test_independent_rgb_fire_verifier_has_a_distinct_manifest_role(tmp_path: Path) -> None:
+    model = tmp_path / "rgb-fire-verifier.onnx"
+    model.write_bytes(b"independent-rgb-fire-verifier")
+    document = create_candidate_model_manifest(
+        model,
+        model_id="rgb-fire-verifier",
+        model_version="verifier-v1",
+        class_names=("fire", "smoke"),
+        input_width=640,
+        input_height=640,
+        output_coordinates="normalized_xyxy",
+        source_description="separately trained and governed RGB fire verifier",
+        model_role="fire_verifier",
+    )
+    manifest = write_candidate_model_manifest(tmp_path / "verifier.json", document)
+
+    verified = verify_model_manifest(
+        manifest,
+        model,
+        expected_class_names=("fire", "smoke"),
+        expected_model_role="fire_verifier",
+    )
+
+    assert verified.model_role == "fire_verifier"
+    assert verified.intended_use == "independent_rgb_fire_corroboration_only"
+    with pytest.raises(ModelManifestError, match="model role"):
+        verify_model_manifest(
+            manifest,
+            model,
+            expected_model_role="fire_candidate",
+        )
+
+
+def test_environment_risk_manifest_role_is_executable_not_just_declared(tmp_path: Path) -> None:
+    model = tmp_path / "environment.onnx"
+    model.write_bytes(b"environment-risk-candidate")
+    document = create_candidate_model_manifest(
+        model,
+        model_id="environment-risk",
+        model_version="candidate-v1",
+        class_names=("power_line", "flammable_tank"),
+        input_width=640,
+        input_height=640,
+        output_coordinates="normalized_xyxy",
+        source_description="separate environment evidence domain",
+        model_role="environment_risk_evidence",
+    )
+    manifest = write_candidate_model_manifest(tmp_path / "environment.json", document)
+
+    verified = verify_model_manifest(
+        manifest,
+        model,
+        expected_class_names=("power_line", "flammable_tank"),
+        expected_model_role="environment_risk_evidence",
+        expected_output_format="N_x_6",
+    )
+
+    assert verified.model_role == "environment_risk_evidence"
+    assert verified.output_format == "N_x_6"
+    assert verified.output_coordinates == "normalized_xyxy"
+
+
+def test_semantic_context_manifest_has_no_box_or_confidence_contract(tmp_path: Path) -> None:
+    model = tmp_path / "city.onnx"
+    model.write_bytes(b"categorical-semantic-context")
+    document = create_semantic_context_model_manifest(
+        model,
+        model_id="city-semsegformer",
+        model_version="deployable-onnx-v1",
+        class_names=("road", "building"),
+        input_width=1820,
+        input_height=1024,
+        output_name="output",
+        source_description="official categorical scene segmentation",
+    )
+    manifest = write_candidate_model_manifest(tmp_path / "semantic.json", document)
+
+    verified = verify_model_manifest(
+        manifest,
+        model,
+        expected_class_names=("road", "building"),
+        expected_model_role="semantic_scene_context",
+        expected_output_format="categorical_H_W_1",
+    )
+
+    assert verified.output_coordinates is None
+    assert verified.output_format == "categorical_H_W_1"
+    assert verified.intended_use == "rgb_semantic_scene_context_advisory_only"
+
+    document["output"]["adapter_contract"]["confidence_available"] = True
+    tampered = tmp_path / "semantic-tampered.json"
+    tampered.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ModelManifestError, match="without confidence"):
+        verify_model_manifest(tampered, model)
 
 
 def test_manifest_rejects_intended_use_that_does_not_match_role(tmp_path: Path) -> None:

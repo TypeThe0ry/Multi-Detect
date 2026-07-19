@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,9 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     provider._connection = _NoMessageConnection()  # Avoid an actual transport in the unit test.
     provider.ingest_message(_Message("HEARTBEAT", base_mode=128), received_at_s=10.0)
-    provider.ingest_message(_Message("ATTITUDE", roll=0.1, pitch=-0.2), received_at_s=10.0)
+    provider.ingest_message(
+        _Message("ATTITUDE", roll=0.1, pitch=-0.2, yaw=-0.5), received_at_s=10.0
+    )
     provider.ingest_message(
         _Message(
             "GLOBAL_POSITION_INT",
@@ -68,6 +71,11 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     provider.ingest_message(_Message("SYS_STATUS", battery_remaining=73), received_at_s=10.0)
     provider.ingest_message(_Message("GPS_RAW_INT", satellites_visible=17), received_at_s=10.0)
     provider.ingest_message(_Message("MISSION_CURRENT", seq=4), received_at_s=10.0)
+    provider.ingest_message(_Message("VFR_HUD", airspeed=16.5), received_at_s=10.1)
+    provider.ingest_message(
+        _Message("WIND_COV", wind_x=2.0, wind_y=-1.5),
+        received_at_s=10.2,
+    )
 
     snapshot = provider.snapshot(now_s=10.5)
 
@@ -83,10 +91,72 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     assert snapshot.armed is True
     assert snapshot.flight_mode == "AUTO"
     assert snapshot.mission_sequence == 4
+    assert snapshot.attitude_observed_at_s == 10.0
+    assert snapshot.position_observed_at_s == 10.0
+    assert snapshot.velocity_north_mps == pytest.approx(3.0)
+    assert snapshot.velocity_east_mps == pytest.approx(4.0)
+    assert snapshot.airspeed_mps == pytest.approx(16.5)
+    assert snapshot.wind_north_mps == pytest.approx(2.0)
+    assert snapshot.wind_east_mps == pytest.approx(-1.5)
+    assert snapshot.velocity_observed_at_s == 10.0
+    assert snapshot.airspeed_observed_at_s == 10.1
+    assert snapshot.wind_observed_at_s == 10.2
     assert snapshot.position_healthy is True
     assert snapshot.link_healthy is True
     assert snapshot.in_allowed_zone is None
     assert snapshot.release_zone_clear is None
+
+
+def test_pixhawk_attitude_yaw_fills_heading_when_gps_course_is_unavailable() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider._connection = _NoMessageConnection()
+    provider.ingest_message(
+        _Message("ATTITUDE", roll=0.0, pitch=0.0, yaw=-0.5), received_at_s=10.0
+    )
+    provider.ingest_message(
+        _Message(
+            "GLOBAL_POSITION_INT",
+            relative_alt=5_000,
+            vx=0,
+            vy=0,
+            lat=0,
+            lon=0,
+            hdg=65_535,
+        ),
+        received_at_s=10.0,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.1)
+
+    assert snapshot.heading_deg == pytest.approx(math.degrees(-0.5) % 360.0)
+
+
+def test_pixhawk_provider_caches_all_valid_rc_channels_for_override_detection() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550", expected_system_id=1)
+    )
+    values = {f"chan{index}_raw": 1500 for index in range(1, 19)}
+    values["chan4_raw"] = 1000
+    provider.ingest_message(
+        _Message(
+            "RC_CHANNELS",
+            source_system_id=1,
+            chancount=18,
+            **values,
+        ),
+        received_at_s=10.25,
+    )
+
+    sample = provider.rc_input_snapshot
+
+    assert sample is not None
+    assert sample.observed_at_s == 10.25
+    assert sample.valid_channel_count == 18
+    assert sample.channels_pwm[3] == 1000
+    diagnostics = provider.diagnostics(now_s=10.30)
+    assert diagnostics["rc_input_observed"] is True
+    assert diagnostics["rc_valid_channel_count"] == 18
+    assert diagnostics["rc_input_age_s"] == pytest.approx(0.05)
 
 
 def test_pixhawk_stale_data_and_fail_closed_defaults_do_not_clear_safety() -> None:

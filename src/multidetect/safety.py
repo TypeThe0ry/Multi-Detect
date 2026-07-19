@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from .config import MissionConfig
-from .deployment_planner import FixedWingReleaseWindowPlanner
+from .deployment_planner import FixedWingReleaseWindowPlanner, PrimaryRangeEvidence
 from .domain import (
     DeploymentDecision,
     DeploymentWindowSolution,
@@ -67,6 +67,7 @@ class SafetyRuleEngine:
         track: TrackSnapshot,
         frame: FrameObservation,
         now_s: float,
+        ranging_evidence: PrimaryRangeEvidence | None = None,
     ) -> DeploymentDecision:
         if not math.isfinite(now_s) or now_s < 0:
             raise ValueError("now_s must be a finite non-negative number")
@@ -204,7 +205,12 @@ class SafetyRuleEngine:
         )
 
         deployment_window = (
-            self._release_window_planner.plan(track=track, frame=frame, now_s=now_s)
+            self._release_window_planner.plan(
+                track=track,
+                frame=frame,
+                now_s=now_s,
+                ranging_evidence=ranging_evidence,
+            )
             if self._release_window_planner is not None
             else None
         )
@@ -230,16 +236,29 @@ class SafetyRuleEngine:
         checks.append(self._person_exclusion_check(track=track, frame=frame))
         checks.append(
             _check(
-                "sensor.thermal_consistency",
-                track.thermal_corroborated if self._config.require_thermal_corroboration else True,
+                "sensor.independent_rgb_fire_consistency",
                 (
-                    "thermal observation corroborates the target"
-                    if self._config.require_thermal_corroboration
-                    else "thermal corroboration is not required for this mission"
+                    track.independent_rgb_corroborated
+                    if self._config.require_independent_rgb_corroboration
+                    else True
                 ),
-                "thermal observation does not corroborate the target",
+                (
+                    "an independent RGB fire verifier corroborates the target"
+                    if self._config.require_independent_rgb_corroboration
+                    else "independent RGB fire corroboration is not required for this mission"
+                ),
+                "the independent RGB fire verifier does not corroborate the target",
             )
         )
+        if self._config.require_thermal_corroboration:
+            checks.append(
+                _check(
+                    "sensor.thermal_consistency",
+                    track.thermal_corroborated,
+                    "thermal observation corroborates the target",
+                    "thermal observation does not corroborate the target",
+                )
+            )
 
         immutable_checks = tuple(checks)
         allowed = bool(immutable_checks) and all(
@@ -308,6 +327,7 @@ class SafetyRuleEngine:
                 "id": track.track_id,
                 "label": track.label.strip().lower(),
                 "revision": track.revision,
+                "independent_rgb_corroborated": track.independent_rgb_corroborated,
                 "thermal_corroborated": track.thermal_corroborated,
             },
             "telemetry": {
@@ -315,6 +335,11 @@ class SafetyRuleEngine:
                 "flight_mode_allows_deploy": telemetry.flight_mode_allows_deploy,
                 "geofence_healthy": telemetry.geofence_healthy,
                 "ground_speed_mps": _canonical_float(telemetry.ground_speed_mps),
+                "velocity_north_mps": _canonical_float(telemetry.velocity_north_mps),
+                "velocity_east_mps": _canonical_float(telemetry.velocity_east_mps),
+                "airspeed_mps": _canonical_float(telemetry.airspeed_mps),
+                "wind_north_mps": _canonical_float(telemetry.wind_north_mps),
+                "wind_east_mps": _canonical_float(telemetry.wind_east_mps),
                 "in_allowed_zone": telemetry.in_allowed_zone,
                 "link_healthy": telemetry.link_healthy,
                 "pitch_deg": _canonical_float(telemetry.pitch_deg),
@@ -328,6 +353,7 @@ class SafetyRuleEngine:
                 if deployment_window is None
                 else {
                     "status": deployment_window.status.value,
+                    "timing_status": deployment_window.timing_status.value,
                     "calibration_id": deployment_window.calibration_id,
                     "reasons": deployment_window.reasons,
                     "relative_bearing_deg": _canonical_optional_float(
@@ -350,6 +376,40 @@ class SafetyRuleEngine:
                     ),
                     "release_lead_distance_m": _canonical_optional_float(
                         deployment_window.release_lead_distance_m
+                    ),
+                    "target_north_offset_m": _canonical_optional_float(
+                        deployment_window.target_north_offset_m
+                    ),
+                    "target_east_offset_m": _canonical_optional_float(
+                        deployment_window.target_east_offset_m
+                    ),
+                    "impact_north_offset_m": _canonical_optional_float(
+                        deployment_window.impact_north_offset_m
+                    ),
+                    "impact_east_offset_m": _canonical_optional_float(
+                        deployment_window.impact_east_offset_m
+                    ),
+                    "error_ellipse_major_m": _canonical_optional_float(
+                        deployment_window.error_ellipse_major_m
+                    ),
+                    "error_ellipse_minor_m": _canonical_optional_float(
+                        deployment_window.error_ellipse_minor_m
+                    ),
+                    "error_ellipse_orientation_deg": _canonical_optional_float(
+                        deployment_window.error_ellipse_orientation_deg
+                    ),
+                    "ground_range_ci95_m": (
+                        None
+                        if deployment_window.ground_range_ci95_m is None
+                        else tuple(
+                            _canonical_float(value)
+                            for value in deployment_window.ground_range_ci95_m
+                        )
+                    ),
+                    "range_target_id": deployment_window.range_target_id,
+                    "range_frame_id": deployment_window.range_frame_id,
+                    "range_sensor_consistency": _canonical_optional_float(
+                        deployment_window.range_sensor_consistency
                     ),
                     "advisory_only": deployment_window.advisory_only,
                     "flight_control_enabled": deployment_window.flight_control_enabled,

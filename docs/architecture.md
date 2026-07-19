@@ -14,8 +14,8 @@ Desired configuration is not physical evidence. A separate read-only payload inv
 
 ```mermaid
 flowchart LR
-    RGB[RGB detector adapter] --> Fusion[Perception fusion]
-    Thermal[Thermal detector adapter] --> Fusion
+    RGB[RGB fire detector adapter] --> Fusion[Perception evidence fusion]
+    RGBVerifier[Independent RGB fire verifier] --> Fusion
     SafetyObjects[Person and scene detections] --> Fusion
     Fusion --> Tracker[Multi-object tracker]
     Tracker --> Ranker[Candidate ranker]
@@ -35,9 +35,13 @@ flowchart LR
 ```
 
 The referenced legacy YOLO code is behind an adapter. Its output is treated as an untrusted
-candidate, never as an action. Tracking requires several observations over time. RGB/thermal
-corroboration, platform telemetry and person exclusion are evaluated with deny-overrides
+candidate, never as an action. Tracking requires several observations over time. Independent RGB
+fire corroboration, platform telemetry and person exclusion are evaluated with deny-overrides
 semantics: missing or stale evidence is a denial.
+
+The deployed sensor profile is RGB-only. No thermal camera, thermal detector or thermal hotspot
+claim is part of the current platform. Legacy thermal data types remain compatibility-only and are
+disabled by every current mission configuration.
 
 Authorization never freezes the safety view. While authorization is pending or the fake bay is
 armed, each live frame is tracked and evaluated again. If the target remains spatially continuous

@@ -1,0 +1,47 @@
+{
+  "event": "px4_airspeed_blow_response",
+  "captured_at_utc": "2026-07-16T09:01:17.274390+00:00",
+  "duration_s": 180.04648530000122,
+  "identity": {
+    "system_id": 1,
+    "component_id": 1,
+    "armed": false
+  },
+  "message_counts": {
+    "RC_CHANNELS": 302,
+    "GPS_RAW_INT": 301,
+    "SCALED_PRESSURE": 1204,
+    "COMMAND_ACK": 2,
+    "VFR_HUD": 602,
+    "ATTITUDE": 903,
+    "ATTITUDE_QUATERNION": 602,
+    "MISSION_CURRENT": 179,
+    "ATTITUDE_TARGET": 121,
+    "ALTITUDE": 60,
+    "EXTENDED_SYS_STATE": 60,
+    "UNKNOWN_441": 60,
+    "LOCAL_POSITION_NED": 60,
+    "OPEN_DRONE_ID_LOCATION": 60,
+    "UNKNOWN_380": 60,
+    "UNKNOWN_8": 60,
+    "HEARTBEAT": 180,
+    "SYS_STATUS": 60,
+    "UNKNOWN_411": 60,
+    "UNKNOWN_436": 30,
+    "ESTIMATOR_STATUS": 30,
+    "PING": 18,
+    "VIBRATION": 6
+  },
+  "differential_pressure_pa": {
+    "count": 1204,
+    "min": 2.630121633410454,
+    "max": 18.41192990541458
+  },
+  "airspeed_mps": {
+    "count": 602,
+    "min": -2.1342098712921143,
+    "max": 3.0310280323028564
+  },
+  "positive_response_detected": false,
+  "negative_response_detected": false
+}

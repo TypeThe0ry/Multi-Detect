@@ -43,6 +43,15 @@ def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
     assert 'MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID = "191"' in upper
     assert "AUTOPILOT_HEARTBEATS_SENT -EQ 0" in upper
     assert "PX4_AUTOPILOT_HEARTBEATS_FORWARDED -GT 0" in upper
+    assert "TARGET_POOL_PAGE_COUNT -EQ 2" in upper
+    assert "TARGET_POOL_TRACK_COUNT -EQ 3" in upper
+    assert "TRACKING_METADATA_PACKETS_SENT -EQ 30" in upper
+    assert "TRACKING_METADATA_RATE_HZ -GE 15" in upper
+    assert "TRACKINGMETADATAPACKETS -GE 30" in upper
+    assert "TRACKINGMETADATARATEHZ -GE 15.0" in upper
+    assert "TARGET-POOL SNAPSHOT COMPLETE REVISION=3 TRACKS=3 PAGES=2" in upper
+    assert "AUTHENTICATEDMETADATAPACKETS -GE 37" in upper
+    assert "PAGED_TARGET_POOL_ATOMICALLY_ASSEMBLED = $TRUE" in upper
     assert "SOFTWARE HIL REQUIRES THE --ISOLATED-HIL" in upper
     assert "GET-PROCESSUDPENDPOINTS" in upper
     assert 'GET-CMAKECACHEVALUE -PATH $QGCCMAKECACHE -NAME "QT6_DIR"' in upper
@@ -93,10 +102,10 @@ def test_native_probe_stderr_is_captured_without_bypassing_exit_code_checks() ->
     text = SCRIPT.read_text(encoding="utf-8")
     upper = text.upper()
 
-    assert '$PREVIOUSERRORACTIONPREFERENCE = $ERRORACTIONPREFERENCE' in upper
+    assert "$PREVIOUSERRORACTIONPREFERENCE = $ERRORACTIONPREFERENCE" in upper
     assert '$ERRORACTIONPREFERENCE = "CONTINUE"' in upper
-    assert '$EXITCODE = $LASTEXITCODE' in upper
-    assert '$ERRORACTIONPREFERENCE = $PREVIOUSERRORACTIONPREFERENCE' in upper
+    assert "$EXITCODE = $LASTEXITCODE" in upper
+    assert "$ERRORACTIONPREFERENCE = $PREVIOUSERRORACTIONPREFERENCE" in upper
 
 
 def test_hil_key_generation_supports_windows_powershell_and_zeroes_key_bytes() -> None:

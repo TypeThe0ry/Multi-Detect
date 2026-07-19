@@ -15,7 +15,9 @@ def test_demo_replay_loads_and_normalizes_fire_label() -> None:
 
     assert len(frames) == 4
     assert frames[0].detections[0].label == "flame"
-    assert frames[0].detections[1].sensor is SensorKind.THERMAL
+    assert len(frames[0].detections) == 1
+    assert frames[0].detections[0].sensor is SensorKind.RGB
+    assert frames[0].detections[0].metadata["independent_rgb_corroborated"] is True
 
 
 def test_replay_rejects_duplicate_frame() -> None:

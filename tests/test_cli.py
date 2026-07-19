@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import multidetect.cli as cli_module
+import multidetect.tracking_review as tracking_review_module
 from multidetect.cli import main
 from multidetect.domain import VehicleTelemetry
 from multidetect.model_manifest import (
@@ -21,6 +22,8 @@ from multidetect.pixhawk_parameters import (
     PixhawkParameterSnapshot,
     write_pixhawk_parameter_snapshot,
 )
+from multidetect.rtsp_evidence_recording import RtspEvidenceRecordingReport
+from multidetect.video_evidence import VideoEvidenceProbe
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/missions/fire_suppression.demo.json"
@@ -32,6 +35,8 @@ PAYLOAD_INVENTORY = ROOT / "examples/payload_inventory.demo.json"
 FAILED_PAYLOAD_INVENTORY = ROOT / "examples/payload_inventory.failed.demo.json"
 EVALUATION_GROUND_TRUTH = ROOT / "examples/evaluation_ground_truth.demo.jsonl"
 EVALUATION_PREDICTIONS = ROOT / "examples/evaluation_predictions.demo.jsonl"
+TRACKING_GROUND_TRUTH = ROOT / "examples/tracking_identity_ground_truth.demo.jsonl"
+TRACKING_PREDICTIONS = ROOT / "examples/tracking_identity_predictions.demo.jsonl"
 
 
 def parsed_stdout(capsys) -> list[dict]:
@@ -63,6 +68,384 @@ def test_operator_udp_listeners_default_to_loopback() -> None:
 
     assert server.bind_host == "127.0.0.1"
     assert live.operator_udp_bind_host == "127.0.0.1"
+    assert live.monocular_avoidance is False
+    assert live.avoidance_analysis_width == 640
+    assert live.unified_target_pool is False
+    assert live.unified_target_pool_maximum_tracks == 64
+    assert live.unified_target_pool_person_maximum_appearance_distance is None
+    assert live.unified_target_pool_person_strict_reid_distance is None
+    assert live.patrol_advisory is False
+    assert live.patrol_maximum_bank_angle_deg == 25.0
+    assert live.safety_priority_confidence_threshold == 0.25
+    assert live.safety_fallback_confidence_threshold == 0.35
+    assert live.fire_minimum_bright_warm_fraction == 0.0
+    assert live.safety_model_frame_stride == 1
+    assert live.safety_model_frame_phase == 0
+    assert live.safety_tile_columns == 1
+    assert live.safety_tile_rows == 1
+    assert live.safety_tile_fusion_iou_threshold == 0.30
+    assert live.safety_tile_confidence_threshold == 0.40
+    assert live.safety_tile_label_confidence_thresholds == "airplane=0.82"
+    assert live.safety_tile_maximum_box_area == 0.04
+    assert "person" in live.safety_tile_labels
+    assert "airplane" in live.safety_tile_labels
+    assert "car" in live.safety_tile_labels
+    assert live.priority_onnx_model is None
+    assert live.priority_input_width == 960
+    assert live.priority_input_height == 960
+    assert live.priority_confidence_threshold == 0.30
+    assert live.priority_person_confidence_threshold == 0.30
+    assert live.priority_vehicle_confidence_threshold == 0.60
+    assert live.priority_label_confidence_thresholds == "truck=0.80"
+    assert live.priority_vehicle_stability_frames == 3
+    assert live.priority_model_frame_stride == 1
+    assert live.priority_model_frame_phase == 0
+    assert "pedestrian=person" in live.priority_label_map
+    assert live.person_reid_onnx is None
+    assert live.person_reid_engine is None
+    assert live.vehicle_reid_onnx is None
+    assert live.vehicle_reid_engine is None
+    assert live.vehicle_reid_maximum_batch_size == 8
+    assert live.person_reid_frame_stride == 2
+    assert live.vehicle_reid_frame_stride == 2
+    assert live.reid_maximum_interval_seconds == 0.1
+    assert live.allow_nonrealtime_reid is False
+    assert live.short_term_tracking is False
+    assert live.short_term_analysis_width == 640
+    assert live.short_term_minimum_box_size_px == 12
+    assert live.short_term_frame_stride == 1
+    assert live.short_term_search_expansion == 2.5
+    assert live.short_term_occluded_search_multiplier == 1.5
+    assert live.short_term_reacquiring_search_multiplier == 2.0
+    assert live.short_term_maximum_search_expansion == 6.0
+    assert live.short_term_maximum_retained_template_age_seconds == 2.0
+    assert live.multimodal_ranging is False
+    assert live.ranging_calibration is None
+    assert live.environment_onnx_model is None
+    assert live.environment_model_manifest is None
+    assert live.environment_class_names == "power_line,flammable_tank"
+    assert live.environment_confidence_threshold == 0.40
+    assert live.semantic_context_onnx_model is None
+    assert live.semantic_context_model_manifest is None
+    assert live.semantic_context_engine is None
+    assert live.semantic_context_engine_provenance is None
+    assert live.semantic_context_minimum_interval_seconds == 0.5
+    assert live.semantic_context_maximum_age_seconds == 2.0
+    assert live.rgb_fire_verifier_model is None
+    assert live.rgb_fire_verifier_model_manifest is None
+    assert live.rgb_fire_verifier_confidence_threshold == 0.65
+    assert live.rgb_fire_verifier_minimum_iou == 0.30
+    assert live.identity_tracking_log_out is None
+    assert live.identity_tracking_session_id is None
+
+
+def test_live_independent_rgb_fire_verifier_cli_is_explicit() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "primary.onnx",
+            "--model-manifest",
+            "primary.json",
+            "--rgb-fire-verifier-model",
+            "verifier.engine",
+            "--rgb-fire-verifier-model-manifest",
+            "verifier.json",
+            "--rgb-fire-verifier-class-names",
+            "fire,smoke",
+            "--rgb-fire-verifier-confidence-threshold",
+            "0.70",
+            "--rgb-fire-verifier-minimum-iou",
+            "0.40",
+            "--rgb-fire-verifier-output-coordinates",
+            "normalized_xyxy",
+        ]
+    )
+
+    assert live.rgb_fire_verifier_model == Path("verifier.engine")
+    assert live.rgb_fire_verifier_model_manifest == Path("verifier.json")
+    assert live.rgb_fire_verifier_class_names == "fire,smoke"
+    assert live.rgb_fire_verifier_confidence_threshold == 0.70
+    assert live.rgb_fire_verifier_minimum_iou == 0.40
+    assert live.rgb_fire_verifier_output_coordinates == "normalized_xyxy"
+
+
+def test_live_monocular_avoidance_cli_remains_advisory_only() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--class-names",
+            "fire,smoke",
+            "--monocular-avoidance",
+            "--avoidance-avoid-ttc-seconds",
+            "1.25",
+        ]
+    )
+
+    assert live.monocular_avoidance is True
+    assert live.avoidance_avoid_ttc_seconds == 1.25
+
+
+def test_live_unified_target_pool_and_reid_cli_are_explicit() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--unified-target-pool",
+            "--unified-target-pool-maximum-tracks",
+            "32",
+            "--unified-target-pool-locked-reacquisition-seconds",
+            "6.0",
+            "--unified-target-pool-minimum-association-confidence",
+            "0.12",
+            "--unified-target-pool-priority-minimum-new-track-confidence",
+            "0.28",
+            "--unified-target-pool-minimum-new-track-confidence",
+            "0.40",
+            "--unified-target-pool-high-confidence-threshold",
+            "0.60",
+            "--unified-target-pool-person-maximum-appearance-distance",
+            "0.70",
+            "--unified-target-pool-person-strict-reid-distance",
+            "0.22",
+            "--unified-target-pool-kalman-process-noise",
+            "0.02",
+            "--unified-target-pool-kalman-measurement-noise",
+            "0.0002",
+            "--unified-target-pool-kalman-gate-sigma",
+            "3.5",
+            "--unified-target-pool-kalman-maximum-horizon-seconds",
+            "1.5",
+            "--patrol-advisory",
+            "--person-reid-onnx",
+            "person.onnx",
+            "--person-reid-engine",
+            "person.engine",
+            "--vehicle-reid-onnx",
+            "vehicle.onnx",
+            "--vehicle-reid-engine",
+            "vehicle.engine",
+            "--vehicle-reid-maximum-batch-size",
+            "4",
+            "--person-reid-frame-stride",
+            "3",
+            "--vehicle-reid-frame-stride",
+            "4",
+            "--reid-maximum-interval-seconds",
+            "0.2",
+        ]
+    )
+
+    assert live.unified_target_pool is True
+    assert live.unified_target_pool_maximum_tracks == 32
+    assert live.unified_target_pool_locked_reacquisition_seconds == 6.0
+    assert live.unified_target_pool_minimum_association_confidence == 0.12
+    assert live.unified_target_pool_priority_minimum_new_track_confidence == 0.28
+    assert live.unified_target_pool_minimum_new_track_confidence == 0.40
+    assert live.unified_target_pool_high_confidence_threshold == 0.60
+    assert live.unified_target_pool_person_maximum_appearance_distance == 0.70
+    assert live.unified_target_pool_person_strict_reid_distance == 0.22
+    assert live.unified_target_pool_kalman_process_noise == 0.02
+    assert live.unified_target_pool_kalman_measurement_noise == 0.0002
+    assert live.unified_target_pool_kalman_gate_sigma == 3.5
+    assert live.unified_target_pool_kalman_maximum_horizon_seconds == 1.5
+    assert live.patrol_advisory is True
+    assert live.person_reid_onnx == Path("person.onnx")
+    assert live.person_reid_engine == Path("person.engine")
+    assert live.vehicle_reid_onnx == Path("vehicle.onnx")
+    assert live.vehicle_reid_engine == Path("vehicle.engine")
+    assert live.vehicle_reid_maximum_batch_size == 4
+    assert live.person_reid_frame_stride == 3
+    assert live.vehicle_reid_frame_stride == 4
+    assert live.reid_maximum_interval_seconds == 0.2
+
+
+def test_live_short_term_tracking_cli_is_explicit_and_metadata_only() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--unified-target-pool",
+            "--short-term-tracking",
+            "--short-term-maximum-tracks",
+            "12",
+            "--short-term-search-expansion",
+            "2.25",
+            "--short-term-occluded-search-multiplier",
+            "1.75",
+            "--short-term-reacquiring-search-multiplier",
+            "2.25",
+            "--short-term-maximum-search-expansion",
+            "5.5",
+            "--short-term-maximum-retained-template-age-seconds",
+            "1.8",
+        ]
+    )
+
+    assert live.unified_target_pool is True
+    assert live.short_term_tracking is True
+    assert live.short_term_maximum_tracks == 12
+    assert live.short_term_search_expansion == 2.25
+    assert live.short_term_occluded_search_multiplier == 1.75
+    assert live.short_term_reacquiring_search_multiplier == 2.25
+    assert live.short_term_maximum_search_expansion == 5.5
+    assert live.short_term_maximum_retained_template_age_seconds == 1.8
+
+
+def test_live_multimodal_ranging_cli_is_explicit_and_read_only() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--pixhawk-endpoint",
+            "udp:0.0.0.0:14550",
+            "--unified-target-pool",
+            "--multimodal-ranging",
+            "--ranging-calibration",
+            "camera.json",
+            "--ranging-agl-sigma-m",
+            "2.0",
+        ]
+    )
+
+    assert live.multimodal_ranging is True
+    assert live.ranging_calibration == Path("camera.json")
+    assert live.ranging_agl_sigma_m == 2.0
+
+
+def test_live_fixed_wing_aim_control_cli_has_bounded_real_control_defaults() -> None:
+    parser = cli_module.build_parser()
+
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--fixed-wing-aim-control",
+            "--aim-prestream-setpoints",
+            "12",
+            "--aim-control-mode",
+            "OFFBOARD",
+            "--aim-return-mode",
+            "AUTO",
+        ]
+    )
+
+    assert live.fixed_wing_aim_control is True
+    assert live.aim_minimum_airspeed_mps == 12.0
+    assert live.aim_maximum_abs_roll_deg == 20.0
+    assert live.aim_maximum_abs_pitch_deg == 15.0
+    assert live.aim_prestream_setpoints == 12
+    assert live.aim_control_mode == "OFFBOARD"
+    assert live.aim_return_mode == "AUTO"
+    assert live.aim_rc_input_rate_hz == 20.0
+    assert live.aim_rc_input_maximum_age_seconds == 0.30
+    assert live.aim_rc_cancel_threshold_us == 50
+
+
+def test_live_fixed_wing_aim_control_requires_mode3_and_pixhawk(capsys) -> None:
+    base = ["live-camera", str(CONFIG), "--onnx-model", "model.onnx"]
+
+    assert main([*base, "--fixed-wing-aim-control"]) == 1
+    missing = json.loads(capsys.readouterr().err)["message"]
+    assert "--mode3-aim" in missing
+    assert "--pixhawk-endpoint" in missing
+
+
+def test_live_payload_target_hil_requires_explicit_safe_dependencies(capsys) -> None:
+    base = ["live-camera", str(CONFIG), "--onnx-model", "model.onnx"]
+
+    assert main([*base, "--payload-target-hil"]) == 1
+    missing = json.loads(capsys.readouterr().err)["message"]
+    assert "--operator-udp-port" in missing
+    assert "--unified-target-pool" in missing
+    assert "--rgb-fire-verifier-model" in missing
+
+    assert (
+        main(
+            [
+                *base,
+                "--operator-udp-port",
+                "14561",
+                "--unified-target-pool",
+                "--payload-target-hil",
+            ]
+        )
+        == 1
+    )
+    assert "requires --rgb-fire-verifier-model" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_mode2_payload_target_and_mode3_approach_hil_are_mutually_exclusive(capsys) -> None:
+    result = main(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--operator-udp-port",
+            "14561",
+            "--unified-target-pool",
+            "--rgb-fire-verifier-model",
+            "independent-fire.onnx",
+            "--payload-target-hil",
+            "--monocular-avoidance",
+            "--pixhawk-endpoint",
+            "udp:0.0.0.0:14550",
+            "--multimodal-ranging",
+            "--ranging-calibration",
+            "camera.json",
+            "--approach-hil",
+        ]
+    )
+
+    assert result == 1
+    assert "mutually exclusive" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_live_multimodal_ranging_requires_pool_pixhawk_and_calibration(capsys) -> None:
+    base = ["live-camera", str(CONFIG), "--onnx-model", "model.onnx"]
+
+    assert main([*base, "--multimodal-ranging"]) == 1
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+    assert main([*base, "--unified-target-pool", "--multimodal-ranging"]) == 1
+    assert "requires --pixhawk-endpoint" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                *base,
+                "--unified-target-pool",
+                "--pixhawk-endpoint",
+                "udp:0.0.0.0:14550",
+                "--multimodal-ranging",
+            ]
+        )
+        == 1
+    )
+    assert "requires --ranging-calibration" in json.loads(capsys.readouterr().err)["message"]
 
 
 def test_validate_config_command(capsys) -> None:
@@ -93,6 +476,32 @@ def test_release_window_check_is_advisory_only(capsys) -> None:
                 "18",
                 "--pitch-deg",
                 "0",
+                "--heading-deg",
+                "0",
+                "--velocity-north-mps",
+                "18",
+                "--velocity-east-mps",
+                "0",
+                "--airspeed-mps",
+                "16",
+                "--wind-north-mps",
+                "2",
+                "--wind-east-mps",
+                "0",
+                "--target-north-m",
+                "45.1",
+                "--target-east-m",
+                "0",
+                "--range-ci-low-m",
+                "44.5",
+                "--range-ci-high-m",
+                "45.7",
+                "--bearing-sigma-deg",
+                "0.5",
+                "--range-sensor-consistency",
+                "0.9",
+                "--range-calibration-id",
+                "camera-hil-v1",
                 "--now-s",
                 "100",
             ]
@@ -103,6 +512,8 @@ def test_release_window_check_is_advisory_only(capsys) -> None:
     output = parsed_stdout(capsys)[-1]
     assert output["event"] == "fixed_wing_release_window_checked"
     assert output["status"] == "ready"
+    assert output["timing_status"] == "window"
+    assert output["error_ellipse_major_m"] > 0.0
     assert output["advisory_only"] is True
     assert output["safety_rules_evaluated"] is False
     assert output["authorization_created"] is False
@@ -129,6 +540,32 @@ def test_release_window_check_rejects_patrol_config(capsys) -> None:
             "18",
             "--pitch-deg",
             "0",
+            "--heading-deg",
+            "0",
+            "--velocity-north-mps",
+            "18",
+            "--velocity-east-mps",
+            "0",
+            "--airspeed-mps",
+            "16",
+            "--wind-north-mps",
+            "2",
+            "--wind-east-mps",
+            "0",
+            "--target-north-m",
+            "45.1",
+            "--target-east-m",
+            "0",
+            "--range-ci-low-m",
+            "44.5",
+            "--range-ci-high-m",
+            "45.7",
+            "--bearing-sigma-deg",
+            "0.5",
+            "--range-sensor-consistency",
+            "0.9",
+            "--range-calibration-id",
+            "camera-hil-v1",
         ]
     )
 
@@ -264,7 +701,7 @@ def test_camera_check_can_soak_multiple_frames(monkeypatch, capsys) -> None:
                 frame_id=f"frame-{self.count}",
             )
 
-    monkeypatch.setattr(cli_module, "OpenCVFrameSource", _Source)
+    monkeypatch.setattr(cli_module, "frame_source_from_config", _Source)
 
     assert main(["camera-check", "--source", "0", "--frames", "3"]) == 0
 
@@ -284,6 +721,7 @@ def test_operator_link_demo_closes_selection_and_tracking_loop(capsys) -> None:
     tracking = next(item for item in output if item["event"] == "g20_track_status_received")
     mission = next(item for item in output if item["event"] == "g20_mission_status_received")
     safety = next(item for item in output if item["event"] == "g20_safety_status_received")
+    patrol = next(item for item in output if item["event"] == "g20_patrol_status_received")
     finished = output[-1]
 
     assert encoded["payload_bytes"] <= encoded["maximum_payload_bytes"] == 128
@@ -304,10 +742,20 @@ def test_operator_link_demo_closes_selection_and_tracking_loop(capsys) -> None:
     assert safety["unknown_count"] == 1
     assert safety["allowed"] is False
     assert safety["physical_release_enabled"] is False
+    assert patrol["payload_bytes"] == 110
+    assert patrol["phase"] == "lost"
+    assert patrol["target_state"] == "lost"
+    assert patrol["total_track_count"] == 10
+    assert patrol["locked_track_count"] == 2
+    assert patrol["return_direction"] == "left"
+    assert patrol["return_validity"] == "degraded"
+    assert patrol["advisory_only"] is True
+    assert patrol["flight_control_enabled"] is False
     assert finished["selection_delivered"] is True
     assert finished["tracking_status_received"] is True
     assert finished["mission_status_received"] is True
     assert finished["safety_status_received"] is True
+    assert finished["patrol_status_received"] is True
     assert finished["physical_payload_interface_present"] is False
     assert finished["autopilot_write_enabled"] is False
 
@@ -570,6 +1018,82 @@ def test_model_manifest_init_creates_quarantined_hash_bound_manifest(
     assert document["model_role"] == "fire_candidate"
     assert document["governance"]["production_approved"] is False
     assert document["export"]["artifact_sha256"] == result["model_sha256"]
+
+
+def test_model_manifest_init_records_raw_yolo_native_output(tmp_path: Path, capsys) -> None:
+    engine = tmp_path / "common.engine"
+    manifest = tmp_path / "common.manifest.json"
+    engine.write_bytes(b"raw-yolo-engine")
+
+    assert (
+        main(
+            [
+                "model-manifest-init",
+                "--onnx-model",
+                str(engine),
+                "--out",
+                str(manifest),
+                "--model-id",
+                "common-raw",
+                "--model-version",
+                "candidate-v1",
+                "--source-description",
+                "target-built raw engine",
+                "--model-role",
+                "safety_object_evidence",
+                "--class-names",
+                "person,car",
+                "--output-coordinates",
+                "letterbox_xyxy_px",
+                "--native-output-format",
+                "ultralytics_raw_xywh_class_scores",
+            ]
+        )
+        == 0
+    )
+
+    parsed_stdout(capsys)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    assert document["output"]["native_export"]["format"] == ("ultralytics_raw_xywh_class_scores")
+    assert document["output"]["native_export"]["nms_embedded"] is False
+
+
+def test_semantic_manifest_init_creates_categorical_advisory_contract(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    model = tmp_path / "city.onnx"
+    manifest = tmp_path / "city.manifest.json"
+    model.write_bytes(b"semantic-model")
+
+    assert (
+        main(
+            [
+                "semantic-model-manifest-init",
+                "--onnx-model",
+                str(model),
+                "--out",
+                str(manifest),
+                "--model-id",
+                "city-semsegformer",
+                "--model-version",
+                "deployable-onnx-v1",
+                "--source-description",
+                "official categorical model",
+            ]
+        )
+        == 0
+    )
+
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    created = parsed_stdout(capsys)[-1]
+    assert document["model_role"] == "semantic_scene_context"
+    assert document["output"]["adapter_contract"]["format"] == "categorical_H_W_1"
+    assert document["output"]["adapter_contract"]["confidence_available"] is False
+    assert len(document["classes"]) == 19
+    assert created["confidence_available"] is False
+    assert created["flight_control_enabled"] is False
+    assert created["physical_release_enabled"] is False
 
 
 def test_legacy_checkpoint_verify_only_checks_bytes(tmp_path: Path, capsys) -> None:
@@ -1097,6 +1621,276 @@ def test_live_tensorrt_engine_requires_hash_bound_manifest(capsys) -> None:
     assert "hash-bound --model-manifest" in error["message"]
 
 
+def test_live_person_reid_requires_target_pool_and_source_onnx(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--person-reid-onnx",
+                "person.onnx",
+            ]
+        )
+        == 1
+    )
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--unified-target-pool",
+                "--person-reid-engine",
+                "person.engine",
+            ]
+        )
+        == 1
+    )
+    assert "requires --person-reid-onnx" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_live_vehicle_reid_requires_target_pool_and_source_onnx(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--vehicle-reid-onnx",
+                "vehicle.onnx",
+            ]
+        )
+        == 1
+    )
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--unified-target-pool",
+                "--vehicle-reid-engine",
+                "vehicle.engine",
+            ]
+        )
+        == 1
+    )
+    assert "requires --vehicle-reid-onnx" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_live_reid_requires_tensorrt_unless_lab_override_is_explicit(capsys) -> None:
+    common = [
+        "live-camera",
+        str(PATROL_CONFIG),
+        "--onnx-model",
+        "unused.onnx",
+        "--unified-target-pool",
+    ]
+
+    assert main([*common, "--person-reid-onnx", "person.onnx"]) == 1
+    assert "requires --person-reid-engine" in json.loads(capsys.readouterr().err)["message"]
+
+    assert main([*common, "--vehicle-reid-onnx", "vehicle.onnx"]) == 1
+    assert "requires --vehicle-reid-engine" in json.loads(capsys.readouterr().err)["message"]
+
+    assert main([*common, "--allow-nonrealtime-reid"]) == 1
+    assert (
+        "requires a ReID ONNX without its TensorRT engine"
+        in json.loads(capsys.readouterr().err)["message"]
+    )
+
+    assert (
+        main(
+            [
+                *common,
+                "--person-reid-onnx",
+                "person.onnx",
+                "--person-reid-engine",
+                "person.engine",
+                "--allow-nonrealtime-reid",
+            ]
+        )
+        == 1
+    )
+    assert (
+        "requires a ReID ONNX without its TensorRT engine"
+        in json.loads(capsys.readouterr().err)["message"]
+    )
+
+
+def test_live_nonrealtime_reid_override_is_parse_visible() -> None:
+    args = cli_module.build_parser().parse_args(
+        [
+            "live-camera",
+            str(PATROL_CONFIG),
+            "--onnx-model",
+            "unused.onnx",
+            "--unified-target-pool",
+            "--person-reid-onnx",
+            "person.onnx",
+            "--allow-nonrealtime-reid",
+        ]
+    )
+
+    assert args.allow_nonrealtime_reid is True
+
+
+def test_live_vehicle_reid_batch_limit_is_validated(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--unified-target-pool",
+                "--vehicle-reid-maximum-batch-size",
+                "11",
+            ]
+        )
+        == 1
+    )
+    assert "must be between 1 and 10" in json.loads(capsys.readouterr().err)["message"]
+
+
+@pytest.mark.parametrize(
+    ("option", "value", "expected"),
+    [
+        ("--person-reid-frame-stride", "0", "between 1 and 30"),
+        ("--vehicle-reid-frame-stride", "31", "between 1 and 30"),
+        ("--reid-maximum-interval-seconds", "2.1", "between 0.01 and 2"),
+    ],
+)
+def test_live_reid_cadence_limits_are_validated(
+    option: str,
+    value: str,
+    expected: str,
+    capsys,
+) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                option,
+                value,
+            ]
+        )
+        == 1
+    )
+    assert expected in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_live_short_term_tracking_requires_target_pool(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--short-term-tracking",
+            ]
+        )
+        == 1
+    )
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_live_identity_tracking_log_requires_target_pool(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--identity-tracking-log-out",
+                "identity-tracks.jsonl",
+            ]
+        )
+        == 1
+    )
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--unified-target-pool",
+                "--identity-tracking-log-out",
+                "identity-tracks.jsonl",
+            ]
+        )
+        == 1
+    )
+    assert (
+        "requires --identity-tracking-session-id" in json.loads(capsys.readouterr().err)["message"]
+    )
+
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--unified-target-pool",
+                "--identity-tracking-session-id",
+                "12345678-1234-5678-9234-567812345678",
+            ]
+        )
+        == 1
+    )
+    assert "requires --identity-tracking-log-out" in json.loads(capsys.readouterr().err)["message"]
+
+    parsed = cli_module.build_parser().parse_args(
+        [
+            "live-camera",
+            str(PATROL_CONFIG),
+            "--onnx-model",
+            "unused.onnx",
+            "--unified-target-pool",
+            "--identity-tracking-log-out",
+            "identity-tracks.jsonl",
+            "--identity-tracking-session-id",
+            "12345678-1234-5678-9234-567812345678",
+        ]
+    )
+    assert parsed.identity_tracking_log_out == Path("identity-tracks.jsonl")
+    assert parsed.identity_tracking_session_id == "12345678-1234-5678-9234-567812345678"
+
+
+def test_live_patrol_advisory_requires_target_pool(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "unused.onnx",
+                "--patrol-advisory",
+            ]
+        )
+        == 1
+    )
+    assert "requires --unified-target-pool" in json.loads(capsys.readouterr().err)["message"]
+
+
 def test_live_auto_payload_hil_requires_explicit_simulation_flag(capsys) -> None:
     assert (
         main(
@@ -1379,6 +2173,118 @@ def test_live_rejects_fire_manifest_used_as_safety_object_model(
     assert constructed == []
 
 
+def test_live_rejects_wrong_role_or_protected_environment_labels(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    model = tmp_path / "candidate.onnx"
+    model.write_bytes(b"environment-role-gate")
+    wrong_manifest = write_candidate_model_manifest(
+        tmp_path / "wrong.manifest.json",
+        create_candidate_model_manifest(
+            model,
+            model_id="common-object-candidate",
+            model_version="v1",
+            class_names=("building", "road", "power_line", "flammable_tank"),
+            input_width=640,
+            input_height=640,
+            output_coordinates="normalized_xyxy",
+            source_description="test wrong environment role",
+            model_role="safety_object_evidence",
+        ),
+    )
+    monkeypatch.setattr(cli_module, "OnnxNx6Detector", lambda _config: None)
+
+    common = [
+        "live-camera",
+        str(PATROL_CONFIG),
+        "--onnx-model",
+        str(model),
+        "--environment-onnx-model",
+        str(model),
+        "--environment-output-coordinates",
+        "normalized_xyxy",
+    ]
+    assert main([*common, "--environment-model-manifest", str(wrong_manifest)]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert "safety_object_evidence" in error["message"]
+    assert "environment_risk_evidence" in error["message"]
+
+    assert main([*common, "--environment-class-names", "building,person"]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert "protected fire/person/vehicle domains" in error["message"]
+
+
+def test_live_requires_manifest_for_environment_tensorrt_engine(capsys) -> None:
+    assert (
+        main(
+            [
+                "live-camera",
+                str(PATROL_CONFIG),
+                "--onnx-model",
+                "fire.onnx",
+                "--environment-onnx-model",
+                "environment.engine",
+            ]
+        )
+        == 1
+    )
+    assert (
+        "hash-bound --environment-model-manifest" in json.loads(capsys.readouterr().err)["message"]
+    )
+
+
+def test_live_semantic_context_requires_bound_onnx_and_positive_timing(capsys) -> None:
+    base = ["live-camera", str(PATROL_CONFIG), "--onnx-model", "fire.onnx"]
+
+    assert main([*base, "--semantic-context-onnx-model", "city.onnx"]) == 1
+    assert "hash-bound" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                *base,
+                "--semantic-context-onnx-model",
+                "city.engine",
+                "--semantic-context-model-manifest",
+                "city.json",
+            ]
+        )
+        == 1
+    )
+    assert "requires an ONNX artifact" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                *base,
+                "--semantic-context-minimum-interval-seconds",
+                "0",
+            ]
+        )
+        == 1
+    )
+    assert "finite and positive" in json.loads(capsys.readouterr().err)["message"]
+
+    assert main([*base, "--semantic-context-engine", "city.engine"]) == 1
+    assert "must be supplied together" in json.loads(capsys.readouterr().err)["message"]
+
+    assert (
+        main(
+            [
+                *base,
+                "--semantic-context-engine",
+                "city.engine",
+                "--semantic-context-engine-provenance",
+                "city.provenance.json",
+            ]
+        )
+        == 1
+    )
+    assert (
+        "requires --semantic-context-onnx-model" in json.loads(capsys.readouterr().err)["message"]
+    )
+
+
 def test_payload_inventory_check_accepts_matching_hil_report(capsys) -> None:
     assert (
         main(
@@ -1435,3 +2341,603 @@ def test_evaluate_detections_command_reports_metrics(capsys) -> None:
     assert result["event"] == "detection_evaluation_completed"
     assert result["overall"]["precision"] == pytest.approx(0.5)
     assert result["overall"]["recall"] == pytest.approx(0.5)
+
+
+def test_evaluate_tracking_command_reports_identity_and_recovery_metrics(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "tracking-evaluation.json"
+    assert (
+        main(
+            [
+                "evaluate-tracking",
+                str(TRACKING_GROUND_TRUTH),
+                str(TRACKING_PREDICTIONS),
+                "--dataset-provenance",
+                "synthetic_demo",
+                "--minimum-idf1",
+                "0.9",
+                "--maximum-id-switch-count",
+                "0",
+                "--minimum-occlusion-recovery-rate",
+                "0.9",
+                "--minimum-out-of-frame-recovery-rate",
+                "0.9",
+                "--maximum-occlusion-recovery-p95-seconds",
+                "0.5",
+                "--maximum-out-of-frame-recovery-p95-seconds",
+                "2.0",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert result["event"] == "identity_tracking_evaluation_completed"
+    assert result["dataset_provenance"] == "synthetic_demo"
+    assert result["ground_truth_sha256"]
+    assert result["predictions_sha256"]
+    assert result["source_video_sha256"] is None
+    assert result["annotations_reviewed"] is False
+    assert result["deployment_domain_evidence_complete"] is False
+    assert result["acceptance_evaluated"] is True
+    assert result["passed"] is True
+    assert result["failure_reasons"] == []
+    assert result["overall"]["idf1"] == pytest.approx(1.0)
+    assert result["overall"]["id_switch_count"] == 0
+    assert result["occlusion_recovery"]["recovery_rate"] == pytest.approx(1.0)
+    assert result["out_of_frame_recovery"]["recovery_rate"] == pytest.approx(1.0)
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+
+
+def test_evaluate_tracking_command_returns_nonzero_when_identity_gate_fails(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    switched = tmp_path / "switched.jsonl"
+    records = [
+        json.loads(line) for line in TRACKING_PREDICTIONS.read_text(encoding="utf-8").splitlines()
+    ]
+    for frame_index in (3, 5):
+        records[frame_index]["tracks"][0]["track_id"] = "target-000099"
+    switched.write_text(
+        "\n".join(json.dumps(record, separators=(",", ":")) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "evaluate-tracking",
+                str(TRACKING_GROUND_TRUTH),
+                str(switched),
+                "--maximum-id-switch-count",
+                "0",
+            ]
+        )
+        == 2
+    )
+    result = parsed_stdout(capsys)[-1]
+    assert result["passed"] is False
+    assert result["overall"]["id_switch_count"] == 1
+    assert result["failure_reasons"] == ["identity switch count exceeds the configured maximum"]
+
+
+def test_unified_tracking_bench_is_hardware_free_and_writes_metrics(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "unified-tracking-bench.json"
+
+    assert (
+        main(
+            [
+                "unified-tracking-bench",
+                "--track-count",
+                "10",
+                "--benchmark-frames",
+                "60",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert result == written
+    assert result["event"] == "unified_tracking_core_benchmark_completed"
+    assert result["passed"] is True
+    assert result["track_count"] == 10
+    assert result["benchmark_frame_count"] == 60
+    assert result["measured_end_to_end_metadata_rate_hz"] >= 15.0
+    assert result["association_latency_p99_ms"] > 0.0
+    assert result["repeated_switch_latency_p95_ms"] <= 200.0
+    assert result["camera_opened"] is False
+    assert result["model_inference_executed"] is False
+    assert result["pixhawk_opened"] is False
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+def test_patrol_reacquisition_sitl_is_isolated_receive_only_and_camera_free(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    output = tmp_path / "patrol-reacquisition-sitl.json"
+
+    class _Qualification:
+        passed = True
+
+        @staticmethod
+        def to_document() -> dict[str, object]:
+            return {"required": True, "passed": True, "reasons": []}
+
+    class _Provider:
+        is_read_only = True
+        messages_transmitted = 0
+        qualification = _Qualification()
+
+        def __init__(self, config) -> None:
+            assert config.endpoint == "udpin:127.0.0.1:14652"
+
+        def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+            assert now_s > 0.0
+            return VehicleTelemetry(
+                altitude_agl_m=50.0,
+                roll_deg=0.0,
+                pitch_deg=0.0,
+                ground_speed_mps=20.0,
+                in_allowed_zone=None,
+                geofence_healthy=None,
+                position_healthy=True,
+                link_healthy=True,
+                flight_mode_allows_deploy=None,
+                release_zone_clear=None,
+                armed=True,
+                flight_mode="MISSION",
+                mission_sequence=2,
+            )
+
+        def diagnostics(self, *, now_s: float) -> dict[str, object]:
+            assert now_s > 0.0
+            return {
+                "configured_endpoint": "udpin:127.0.0.1:14652",
+                "read_only": True,
+                "messages_transmitted": 0,
+                "qualification": self.qualification.to_document(),
+            }
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli_module, "PixhawkReadOnlyTelemetryProvider", _Provider)
+
+    assert (
+        main(
+            [
+                "patrol-reacquisition-sitl",
+                "--endpoint",
+                "udpin:127.0.0.1:14652",
+                "--samples",
+                "2",
+                "--interval-seconds",
+                "0",
+                "--acknowledge-owned-disposable-sitl",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+    assert result["event"] == "patrol_reacquisition_sitl_acceptance_completed"
+    assert result["passed"] is True
+    assert all(result["requirements"].values())
+    assert result["scope"]["camera_opened"] is False
+    assert result["scope"]["network_camera_contacted"] is False
+    assert result["scope"]["application_mavlink_messages_transmitted"] == 0
+    assert result["scenario"]["track_count"] == 10
+    assert result["scenario"]["return_to_observe"]["validity"] == "degraded"
+    assert result["scenario"]["flight_control_enabled"] is False
+
+
+def test_patrol_reacquisition_sitl_requires_opt_in_and_refuses_qgc_port(capsys) -> None:
+    base = [
+        "patrol-reacquisition-sitl",
+        "--endpoint",
+        "udpin:0.0.0.0:14652",
+        "--out",
+        "unused.json",
+    ]
+    assert main(base) == 1
+    assert "acknowledge-owned-disposable-sitl" in json.loads(capsys.readouterr().err)["message"]
+
+    protected = [
+        "patrol-reacquisition-sitl",
+        "--endpoint",
+        "udpin:0.0.0.0:14550",
+        "--acknowledge-owned-disposable-sitl",
+        "--out",
+        "unused.json",
+    ]
+    assert main(protected) == 1
+    assert (
+        "refuses protected ground-station UDP 14550"
+        in json.loads(capsys.readouterr().err)["message"]
+    )
+
+
+def test_short_term_tracking_bench_exercises_image_recovery_without_hardware(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "short-term-image-bench.json"
+
+    assert (
+        main(
+            [
+                "short-term-tracking-bench",
+                "--benchmark-frames",
+                "60",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+    assert result["event"] == "short_term_image_tracking_benchmark_completed"
+    assert result["passed"] is True
+    assert result["track_count"] == 10
+    assert result["retained_template_recovery_hint_observed"] is True
+    assert result["recovered_same_track_id"] is True
+    assert result["recovery_s"] <= 0.5
+    assert result["processing_latency_p95_ms"] <= 66.7
+    assert result["processed_update_rate_hz"] == pytest.approx(15.0)
+    assert result["camera_opened"] is False
+    assert result["model_inference_executed"] is False
+    assert result["pixhawk_opened"] is False
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+def test_monocular_avoidance_bench_exercises_image_risk_without_hardware(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "monocular-avoidance-image-bench.json"
+
+    assert (
+        main(
+            [
+                "monocular-avoidance-bench",
+                "--benchmark-frames",
+                "60",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+    assert result["event"] == "monocular_avoidance_image_benchmark_completed"
+    assert result["passed"] is True
+    assert result["static_scene_state"] == "clear"
+    assert result["camera_translation_state"] == "clear"
+    assert result["approaching_obstacle_state"] == "avoid"
+    assert result["approaching_center_zone_state"] == "avoid"
+    assert result["stale_evidence_state"] == "invalid"
+    assert result["processing_latency_p95_ms"] <= 66.7
+    assert result["camera_opened"] is False
+    assert result["model_inference_executed"] is False
+    assert result["pixhawk_opened"] is False
+    assert result["all_outputs_advisory_only"] is True
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+def test_reid_onnx_cpu_bench_writes_domain_and_runtime_boundaries(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "reid-cpu-bench.json"
+
+    def _run(config):
+        assert config.person_count == 4
+        assert config.vehicle_count == 4
+        return {
+            "person_embedding_count": 4,
+            "vehicle_embedding_count": 4,
+            "identity_domains_disjoint": True,
+            "realtime_budget_passed": False,
+            "deployment_domain_accuracy_validated": False,
+            "target_tensorrt_runtime_validated": False,
+            "camera_opened": False,
+            "pixhawk_opened": False,
+            "flight_control_enabled": False,
+            "physical_release_enabled": False,
+        }
+
+    monkeypatch.setattr(cli_module, "run_reid_model_acceptance", _run)
+    assert (
+        main(
+            [
+                "reid-onnx-cpu-bench",
+                "--person-model",
+                str(tmp_path / "person.onnx"),
+                "--vehicle-model",
+                str(tmp_path / "vehicle.onnx"),
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+    assert result["event"] == "reid_onnx_cpu_benchmark_completed"
+    assert result["passed"] is True
+    assert result["identity_domains_disjoint"] is True
+    assert result["realtime_budget_passed"] is False
+    assert result["deployment_domain_accuracy_validated"] is False
+    assert result["target_tensorrt_runtime_validated"] is False
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+@pytest.mark.parametrize(("realtime_passed", "expected_exit"), ((True, 0), (False, 2)))
+def test_reid_tensorrt_bench_is_a_target_runtime_gate(
+    realtime_passed: bool,
+    expected_exit: int,
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "reid-tensorrt-bench.json"
+
+    def _run(config):
+        assert config.person_model_path == tmp_path / "person.onnx"
+        assert config.vehicle_model_path == tmp_path / "vehicle.onnx"
+        assert config.person_engine_path == tmp_path / "person.engine"
+        assert config.vehicle_engine_path == tmp_path / "vehicle.engine"
+        assert config.iterations == 20
+        return {
+            "target_tensorrt_runtime_validated": True,
+            "repeat_stability_validated": True,
+            "realtime_budget_passed": realtime_passed,
+            "identity_domains_disjoint": True,
+            "deployment_domain_accuracy_validated": False,
+            "camera_opened": False,
+            "pixhawk_opened": False,
+            "flight_control_enabled": False,
+            "physical_release_enabled": False,
+        }
+
+    monkeypatch.setattr(cli_module, "run_reid_tensorrt_acceptance", _run)
+    assert (
+        main(
+            [
+                "reid-tensorrt-bench",
+                "--person-model",
+                str(tmp_path / "person.onnx"),
+                "--vehicle-model",
+                str(tmp_path / "vehicle.onnx"),
+                "--person-engine",
+                str(tmp_path / "person.engine"),
+                "--vehicle-engine",
+                str(tmp_path / "vehicle.engine"),
+                "--out",
+                str(output),
+            ]
+        )
+        == expected_exit
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert json.loads(output.read_text(encoding="utf-8")) == result
+    assert result["event"] == "reid_tensorrt_benchmark_completed"
+    assert result["passed"] is realtime_passed
+    assert result["target_tensorrt_runtime_validated"] is True
+    assert result["deployment_domain_accuracy_validated"] is False
+    assert result["camera_opened"] is False
+    assert result["pixhawk_opened"] is False
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+def test_prepare_tracking_review_command_creates_unreviewed_hash_bound_bundle(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    session_id = "12345678-1234-5678-9234-567812345678"
+    predictions = tmp_path / "identity-tracks.jsonl"
+    prediction_records = [
+        json.loads(line) for line in TRACKING_PREDICTIONS.read_text(encoding="utf-8").splitlines()
+    ]
+    for record in prediction_records:
+        record["session_id"] = session_id
+    predictions.write_text(
+        "\n".join(json.dumps(record, separators=(",", ":")) for record in prediction_records)
+        + "\n",
+        encoding="utf-8",
+    )
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"source-video")
+    source_video_manifest = tmp_path / "source.manifest.json"
+    source_video_manifest.write_text(
+        json.dumps(
+            {
+                "event": "rtsp_tracking_evidence_recording_completed",
+                "schema_version": 2,
+                "session_id": session_id,
+                "source_uri_recorded": False,
+                "stream_copy_no_decode_or_reencode": True,
+                "output_sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "output_bytes": video.stat().st_size,
+                "started_at_monotonic_s": 0.0,
+                "ended_at_monotonic_s": 1.0,
+                "passed": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "review"
+    monkeypatch.setattr(
+        tracking_review_module,
+        "probe_video_evidence",
+        lambda path: VideoEvidenceProbe(
+            path=Path(path),
+            decoded_frame_count=12,
+            declared_frame_count=12,
+            fps=12.0,
+            width=1280,
+            height=720,
+            duration_s=1.0,
+            full_frame_scan_completed=True,
+            stable_dimensions=True,
+            passed=True,
+            failure_reasons=(),
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "prepare-tracking-review",
+                str(predictions),
+                str(video),
+                str(source_video_manifest),
+                str(output),
+            ]
+        )
+        == 0
+    )
+    result = parsed_stdout(capsys)[-1]
+    manifest = json.loads((output / "review-manifest.json").read_text(encoding="utf-8"))
+    assert result["event"] == "tracking_identity_review_bundle_prepared"
+    assert result["review_status"] == "pending"
+    assert result["annotations_reviewed"] is False
+    assert result["deployment_domain_evidence_complete"] is False
+    assert result["draft_is_evaluation_input"] is False
+    assert result["source_video_media_decoding_validated"] is True
+    assert result["source_video_track_timeline_coverage_validated"] is True
+    assert result["video_frame_alignment_reviewed"] is False
+    assert result["evidence_session_id"] == session_id
+    assert result["session_id_binding_validated"] is True
+    assert result["monotonic_recording_window_validated"] is True
+    assert result["source_video_sha256"] == manifest["source_video_sha256"]
+    assert result["predictions_sha256"] == manifest["predictions_sha256"]
+    assert result["manifest_path"] == str(output / "review-manifest.json")
+
+
+def test_record_rtsp_evidence_command_remains_stream_copy_and_control_free(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "recording.mkv"
+    manifest = tmp_path / "recording.manifest.json"
+    probe = VideoEvidenceProbe(
+        path=output,
+        decoded_frame_count=250,
+        declared_frame_count=250,
+        fps=25.0,
+        width=1280,
+        height=720,
+        duration_s=10.0,
+        full_frame_scan_completed=True,
+        stable_dimensions=True,
+        passed=True,
+        failure_reasons=(),
+    )
+    captured_configs = []
+
+    def fake_record(config):
+        captured_configs.append(config)
+        return RtspEvidenceRecordingReport(
+            session_id="12345678-1234-5678-9234-567812345678",
+            output_video=output,
+            manifest_out=manifest,
+            requested_duration_s=10.0,
+            actual_duration_s=10.1,
+            started_at_monotonic_s=100.0,
+            ended_at_monotonic_s=110.1,
+            output_bytes=1234,
+            output_sha256="a" * 64,
+            video_probe=probe,
+            eos_received=True,
+            passed=True,
+        )
+
+    monkeypatch.setattr(cli_module, "record_rtsp_evidence", fake_record)
+    assert (
+        main(
+            [
+                "record-rtsp-evidence",
+                "--source-env",
+                "CAMERA_SOURCE",
+                "--session-id",
+                "12345678-1234-5678-9234-567812345678",
+                "--out-video",
+                str(output),
+                "--manifest-out",
+                str(manifest),
+                "--duration-seconds",
+                "10",
+            ]
+        )
+        == 0
+    )
+    result = parsed_stdout(capsys)[-1]
+    assert captured_configs[0].source_env == "CAMERA_SOURCE"
+    assert captured_configs[0].session_id == "12345678-1234-5678-9234-567812345678"
+    assert result["source_uri_recorded"] is False
+    assert result["stream_copy_no_decode_or_reencode"] is True
+    assert result["passed"] is True
+    assert result["flight_control_enabled"] is False
+    assert result["physical_release_enabled"] is False
+
+
+def test_record_rtsp_evidence_missing_source_is_not_labeled_simulation(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("MISSING_CAMERA_SOURCE", raising=False)
+    assert (
+        main(
+            [
+                "record-rtsp-evidence",
+                "--source-env",
+                "MISSING_CAMERA_SOURCE",
+                "--session-id",
+                "12345678-1234-5678-9234-567812345678",
+                "--out-video",
+                str(tmp_path / "recording.mkv"),
+                "--manifest-out",
+                str(tmp_path / "manifest.json"),
+            ]
+        )
+        == 1
+    )
+    error = json.loads(capsys.readouterr().err)
+    assert error["simulation_only"] is False
+    assert error["hardware_control_enabled"] is False

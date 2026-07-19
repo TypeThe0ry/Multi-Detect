@@ -97,6 +97,32 @@ class PixhawkQualification:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class PixhawkRcInputSnapshot:
+    """One timestamped receiver input sample normalized to 18 PWM channels."""
+
+    observed_at_s: float
+    channels_pwm: tuple[int | None, ...]
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.observed_at_s) or self.observed_at_s < 0.0:
+            raise ValueError("RC input timestamp must be finite and non-negative")
+        if len(self.channels_pwm) != 18:
+            raise ValueError("RC input snapshot must contain exactly 18 channels")
+        valid = tuple(value for value in self.channels_pwm if value is not None)
+        if not valid:
+            raise ValueError("RC input snapshot must contain at least one valid channel")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or not 800 <= value <= 2200
+            for value in valid
+        ):
+            raise ValueError("RC input PWM values must be integers in [800, 2200]")
+
+    @property
+    def valid_channel_count(self) -> int:
+        return sum(value is not None for value in self.channels_pwm)
+
+
 def resolve_pixhawk_endpoint(
     endpoint: str,
     *,
@@ -195,11 +221,20 @@ class PixhawkReadOnlyTelemetryProvider:
         self._connection: Any | None = None
         self._resolved_endpoint: str | None = None
         self._last_heartbeat_s: float | None = None
+        self._last_attitude_s: float | None = None
         self._last_position_s: float | None = None
+        self._last_velocity_s: float | None = None
+        self._last_airspeed_s: float | None = None
+        self._last_wind_s: float | None = None
         self._altitude_agl_m = float("nan")
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
         self._ground_speed_mps = float("nan")
+        self._velocity_north_mps = float("nan")
+        self._velocity_east_mps = float("nan")
+        self._airspeed_mps = float("nan")
+        self._wind_north_mps = float("nan")
+        self._wind_east_mps = float("nan")
         self._latitude_deg = float("nan")
         self._longitude_deg = float("nan")
         self._heading_deg = float("nan")
@@ -214,6 +249,7 @@ class PixhawkReadOnlyTelemetryProvider:
         self._rejected_system_message_count = 0
         self._ignored_non_autopilot_heartbeat_count = 0
         self._message_type_counts: Counter[str] = Counter()
+        self._rc_input_snapshot: PixhawkRcInputSnapshot | None = None
 
     @property
     def is_read_only(self) -> bool:
@@ -248,6 +284,10 @@ class PixhawkReadOnlyTelemetryProvider:
     @property
     def message_type_counts(self) -> dict[str, int]:
         return dict(sorted(self._message_type_counts.items()))
+
+    @property
+    def rc_input_snapshot(self) -> PixhawkRcInputSnapshot | None:
+        return self._rc_input_snapshot
 
     @property
     def qualification(self) -> PixhawkQualification:
@@ -291,6 +331,7 @@ class PixhawkReadOnlyTelemetryProvider:
         """Return a cached, receive-only health report without opening the transport."""
 
         snapshot = self.cached_snapshot(now_s=now_s)
+        rc_input = self.rc_input_snapshot
         return {
             "configured_endpoint": self.config.endpoint,
             "resolved_endpoint": self.resolved_endpoint,
@@ -301,6 +342,13 @@ class PixhawkReadOnlyTelemetryProvider:
             "rejected_system_messages": self.rejected_system_messages,
             "ignored_non_autopilot_heartbeats": self.ignored_non_autopilot_heartbeats,
             "message_type_counts": self.message_type_counts,
+            "rc_input_observed": rc_input is not None,
+            "rc_input_age_s": (
+                max(0.0, now_s - rc_input.observed_at_s) if rc_input is not None else None
+            ),
+            "rc_valid_channel_count": (
+                rc_input.valid_channel_count if rc_input is not None else 0
+            ),
             "transport_link_healthy": self.transport_link_healthy(now_s=now_s),
             "qualified_link_healthy": snapshot.link_healthy,
             "position_healthy": snapshot.position_healthy,
@@ -381,6 +429,26 @@ class PixhawkReadOnlyTelemetryProvider:
             armed=self._armed,
             flight_mode=self._flight_mode,
             mission_sequence=self._mission_sequence,
+            attitude_observed_at_s=(
+                self._last_attitude_s if self._last_attitude_s is not None else float("nan")
+            ),
+            position_observed_at_s=(
+                self._last_position_s if self._last_position_s is not None else float("nan")
+            ),
+            velocity_north_mps=self._velocity_north_mps,
+            velocity_east_mps=self._velocity_east_mps,
+            airspeed_mps=self._airspeed_mps,
+            wind_north_mps=self._wind_north_mps,
+            wind_east_mps=self._wind_east_mps,
+            velocity_observed_at_s=(
+                self._last_velocity_s if self._last_velocity_s is not None else float("nan")
+            ),
+            airspeed_observed_at_s=(
+                self._last_airspeed_s if self._last_airspeed_s is not None else float("nan")
+            ),
+            wind_observed_at_s=(
+                self._last_wind_s if self._last_wind_s is not None else float("nan")
+            ),
         )
 
     def ingest_message(self, message: Any, *, received_at_s: float | None = None) -> None:
@@ -425,9 +493,18 @@ class PixhawkReadOnlyTelemetryProvider:
         elif message_type == "ATTITUDE":
             self._roll_deg = math.degrees(float(message.roll))
             self._pitch_deg = math.degrees(float(message.pitch))
+            yaw = getattr(message, "yaw", None)
+            if yaw is not None and math.isfinite(float(yaw)):
+                # GLOBAL_POSITION_INT.hdg is commonly unavailable indoors. The
+                # attitude quaternion/Euler stream still carries the estimator's
+                # yaw, which is the correct fallback for camera-ray projection.
+                self._heading_deg = math.degrees(float(yaw)) % 360.0
+            self._last_attitude_s = now_s
         elif message_type == "GLOBAL_POSITION_INT":
             self._altitude_agl_m = float(message.relative_alt) / 1_000.0
             self._ground_speed_mps = math.hypot(float(message.vx), float(message.vy)) / 100.0
+            self._velocity_north_mps = float(message.vx) / 100.0
+            self._velocity_east_mps = float(message.vy) / 100.0
             latitude = getattr(message, "lat", None)
             longitude = getattr(message, "lon", None)
             heading = getattr(message, "hdg", None)
@@ -437,6 +514,22 @@ class PixhawkReadOnlyTelemetryProvider:
             if heading is not None and int(heading) != 65_535:
                 self._heading_deg = float(heading) / 100.0
             self._last_position_s = now_s
+            self._last_velocity_s = now_s
+        elif message_type == "VFR_HUD":
+            airspeed = getattr(message, "airspeed", None)
+            if airspeed is not None and math.isfinite(float(airspeed)) and float(airspeed) >= 0.0:
+                self._airspeed_mps = float(airspeed)
+                self._last_airspeed_s = now_s
+        elif message_type == "WIND_COV":
+            wind_north = getattr(message, "wind_x", None)
+            wind_east = getattr(message, "wind_y", None)
+            if wind_north is not None and wind_east is not None:
+                north = float(wind_north)
+                east = float(wind_east)
+                if math.isfinite(north) and math.isfinite(east):
+                    self._wind_north_mps = north
+                    self._wind_east_mps = east
+                    self._last_wind_s = now_s
         elif message_type == "SYS_STATUS":
             remaining = getattr(message, "battery_remaining", None)
             if remaining is not None and int(remaining) >= 0:
@@ -449,6 +542,34 @@ class PixhawkReadOnlyTelemetryProvider:
             sequence = getattr(message, "seq", None)
             if sequence is not None and int(sequence) >= 0:
                 self._mission_sequence = int(sequence)
+        elif message_type == "RC_CHANNELS":
+            channel_count = _optional_int(getattr(message, "chancount", None))
+            channels = tuple(
+                _rc_pwm_value(getattr(message, f"chan{index}_raw", None))
+                if channel_count is None or index <= channel_count
+                else None
+                for index in range(1, 19)
+            )
+            if any(value is not None for value in channels):
+                self._rc_input_snapshot = PixhawkRcInputSnapshot(now_s, channels)
+        elif message_type == "RC_CHANNELS_RAW":
+            port = _optional_int(getattr(message, "port", None))
+            if port is not None and 0 <= port <= 2:
+                channels = list(
+                    self._rc_input_snapshot.channels_pwm
+                    if self._rc_input_snapshot is not None
+                    else (None,) * 18
+                )
+                offset = port * 8
+                for index in range(1, 9):
+                    target_index = offset + index - 1
+                    if target_index >= len(channels):
+                        break
+                    value = _rc_pwm_value(getattr(message, f"chan{index}_raw", None))
+                    if value is not None:
+                        channels[target_index] = value
+                if any(value is not None for value in channels):
+                    self._rc_input_snapshot = PixhawkRcInputSnapshot(now_s, tuple(channels))
 
     def _is_fresh(self, timestamp_s: float | None, now_s: float) -> bool | None:
         if timestamp_s is None:
@@ -463,6 +584,11 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _rc_pwm_value(value: object) -> int | None:
+    parsed = _optional_int(value)
+    return parsed if parsed is not None and 800 <= parsed <= 2200 else None
 
 
 def _message_source_id(message: Any, method_name: str, header_name: str) -> int | None:
@@ -489,6 +615,7 @@ __all__ = [
     "PixhawkDiscoveryError",
     "PixhawkHeartbeatIdentity",
     "PixhawkQualification",
+    "PixhawkRcInputSnapshot",
     "PixhawkReadOnlyConfig",
     "PixhawkReadOnlyTelemetryProvider",
     "resolve_pixhawk_endpoint",

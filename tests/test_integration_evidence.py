@@ -192,8 +192,15 @@ def test_complete_inert_payload_profile_passes_without_production_approval(
         | {
             "device_model": "Jetson Orin NX",
             "active_inference_provider": "TensorrtExecutionProvider",
-            "soak_duration_seconds": 1800,
-            "processed_frames": 1000,
+            "soak_duration_seconds": 3600,
+            "processed_frames": 54_000,
+            "processing_fps": 15,
+            "inference_latency_p95_ms": 60,
+            "capture_queue_high_watermark": 1,
+            "capture_queue_bounded": True,
+            "memory_sample_count": 3600,
+            "process_rss_growth_mb": 12.5,
+            "memory_growth_bounded": True,
             "maximum_temperature_c": 80,
         },
         "pixhawk_v6x": _hardware_artifact("pixhawk_v6x_bench_passed")

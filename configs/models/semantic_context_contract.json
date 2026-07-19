@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "model_id": "city-semsegformer-unselected-artifact",
+  "model_role": "semantic_scene_context",
+  "status": "official_onnx_downloaded_hash_verified_local_not_deployed",
+  "required_labels": ["road", "building"],
+  "full_class_order_source": "configs/models/citysemsegformer/labels.txt",
+  "runtime_contract": {
+    "input_layout": "NCHW",
+    "input_color": "RGB",
+    "input_shape": [1, 3, 1024, 1820],
+    "output_name": "output",
+    "output_format": "categorical_H_W_1",
+    "output_layout": "NHWC",
+    "output_shape": [1, 1024, 1820, 1],
+    "confidence_available": false,
+    "queue_capacity": 1,
+    "default_minimum_interval_seconds": 0.5,
+    "default_maximum_age_seconds": 2.0,
+    "native_tensorrt_session_implemented": true,
+    "tensorrt_engine_built": false,
+    "engine_provenance_required": true
+  },
+  "identity_policy": {
+    "target_pool_identity_authority": false,
+    "reid_enabled": false,
+    "box_confidence_synthesized": false
+  },
+  "acceptance_required": [
+    "official artifact digest and manifest binding",
+    "deployment-domain road and building IoU validation",
+    "target-Orin latency and thermal soak",
+    "bounded latest-frame queue with no accumulating backlog",
+    "QGC metadata freshness and stale-region removal"
+  ],
+  "production_approved": false,
+  "advisory_only": true,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false
+}

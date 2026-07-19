@@ -55,6 +55,58 @@ def test_multidetect_stays_receive_only_and_patrol_has_no_payload_path() -> None
     assert "REAL_V6X_CONTACTED = $FALSE" in upper
 
 
+def test_auto_mission_uses_only_the_clock_paced_synthetic_source() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert '$SYNTHETICSOURCE = "SYNTHETIC://PATROL"' in upper
+    assert '"--SOURCE", $SYNTHETICSOURCE' in upper
+    assert '"--FPS", "30"' in upper
+    assert "LOCAL_CAMERA_CONTACTED = $FALSE" in upper
+    assert "NETWORK_CAMERA_CONTACTED = $FALSE" in upper
+    assert "DSHOW" not in upper
+    assert "$CAMERASOURCE" not in upper
+
+
+def test_auto_mission_runs_tracking_patrol_and_avoidance_without_control() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    for option in (
+        '"--CAPTURE-QUEUE-FRAMES", "1"',
+        '"--UNIFIED-TARGET-POOL"',
+        '"--SHORT-TERM-TRACKING"',
+        '"--PATROL-ADVISORY"',
+        '"--MONOCULAR-AVOIDANCE"',
+    ):
+        assert option in upper
+    assert "UNIFIED_TARGET_POOL_UPDATES -GT 0" in upper
+    assert "SHORT_TERM_TRACKING_UPDATES -GT 0" in upper
+    assert "PATROL_ADVISORY_ASSESSMENTS -GT 0" in upper
+    assert "MONOCULAR_AVOIDANCE_ASSESSMENTS -GT 0" in upper
+    assert "MONOCULAR_AVOIDANCE_INVALID -LT" in upper
+    assert "UNIFIED_TARGET_POOL_FLIGHT_CONTROL_ENABLED -EQ $FALSE" in upper
+    assert "SHORT_TERM_TRACKING_FLIGHT_CONTROL_ENABLED -EQ $FALSE" in upper
+    assert "PATROL_ADVISORY_FLIGHT_CONTROL_ENABLED -EQ $FALSE" in upper
+    assert "MONOCULAR_AVOIDANCE_FLIGHT_CONTROL_ENABLED -EQ $FALSE" in upper
+
+
+def test_auto_mission_validates_lost_reid_and_return_observe_in_sitl() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert '"PATROL-REACQUISITION-SITL"' in upper
+    assert '"--ACKNOWLEDGE-OWNED-DISPOSABLE-SITL"' in upper
+    assert '"DETECTED,LOCKED,TRACKING,OCCLUDED,REACQUIRING,RECOVERED"' in upper
+    assert '"TRACKING,OCCLUDED,REACQUIRING,LOST"' in upper
+    assert "SAME_IDENTITY_AFTER_SHORT_OCCLUSION -EQ $TRUE" in upper
+    assert "SAME_IDENTITY_AFTER_LOST_REID -EQ $TRUE" in upper
+    assert "BACKGROUND_LOCK_RETAINED -EQ $TRUE" in upper
+    assert "RETURN_TO_OBSERVE.FLIGHT_CONTROL_ENABLED -EQ $FALSE" in upper
+    assert "APPLICATION_MAVLINK_MESSAGES_TRANSMITTED -EQ 0" in upper
+    assert "SCOPE.CAMERA_OPENED -EQ $FALSE" in upper
+
+
 def test_auto_mission_acceptance_proves_sequence_wait_and_safe_cleanup() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 

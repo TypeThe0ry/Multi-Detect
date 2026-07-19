@@ -9,23 +9,53 @@ from math import isfinite
 from typing import TypeAlias
 from uuid import UUID
 
-from .domain import BoundingBox, DeploymentWindowStatus, MissionPhase, RuleCheck, Verdict
+from .approach_hil import ApproachHilPhase
+from .domain import (
+    BoundingBox,
+    DeploymentWindowStatus,
+    MissionPhase,
+    ReleaseTimingStatus,
+    RuleCheck,
+    Verdict,
+)
+from .multimodal_ranging import RangeValidity
 from .operator_link import (
+    APPROACH_REASON_IDS,
     OPERATOR_LINK_PROTOCOL_VERSION,
     OPERATOR_SAFETY_RULE_IDS,
+    RANGING_REASON_IDS,
+    RANGING_SOURCE_IDS,
+    RELEASE_REASON_IDS,
     SAFETY_RULE_REGISTRY_VERSION,
+    ApproachChallengeStatusMessage,
+    ApproachConfirmationCommand,
+    ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecision,
     AuthorizationDecisionCommand,
     AuthorizationDisplayState,
     MissionStatusMessage,
+    PatrolStatusMessage,
+    PayloadTargetChallengeStatusMessage,
+    PayloadTargetConfirmationCommand,
+    PayloadTargetStatusMessage,
+    RangeStatusMessage,
+    ReleaseStatusMessage,
     SafetyStatusMessage,
+    SceneContextRegionEntry,
+    SceneContextState,
+    SceneContextStatusMessage,
     SelectionAction,
+    TargetPoolEntry,
+    TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackingState,
     TrackStatusMessage,
     VideoGeometry,
 )
+from .patrol_advisory import AdvisoryValidity, PatrolPhase, ReturnObserveDirection
+from .payload_target_gate import PayloadTargetEligibility
+from .unified_tracking import UnifiedTrackState
 
 MAX_TUNNEL_PAYLOAD_BYTES = 128
 OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL = 42_000
@@ -41,6 +71,21 @@ _SAFETY_STATUS = struct.Struct(">QQQBQIIIIB")
 _AUTHORIZATION_CHALLENGE = struct.Struct(">QQQQQQIQQB")
 _AUTHORIZATION_DECISION = struct.Struct(">QQQQQQQQIBQH")
 _AUTHORIZATION_ACK = struct.Struct(">QBBI")
+_PATROL_STATUS = struct.Struct(">QQBBBBBQ4HB16sBBHHQHHH")
+_RANGE_STATUS = struct.Struct(">QQQQBBIHH6HhHHiiHHB")
+_RELEASE_STATUS = struct.Struct(">QQQQBBI6i2Hh5HB")
+_APPROACH_CHALLENGE = struct.Struct(">QQI16sQQB")
+_APPROACH_CONFIRMATION = struct.Struct(">QQQQI16sHHBB")
+_APPROACH_ACK = struct.Struct(">QBBI")
+_APPROACH_STATUS = struct.Struct(">QIBI6hHHB")
+_TARGET_POOL_HEADER = struct.Struct(">IBBBB")
+_TARGET_POOL_ENTRY = struct.Struct(">QBB16sBB4HhHH")
+_SCENE_CONTEXT_HEADER = struct.Struct(">IQQBBBB")
+_SCENE_CONTEXT_ENTRY = struct.Struct(">B4H2H")
+_PAYLOAD_TARGET_CHALLENGE = struct.Struct(">QQIQI16sQQB")
+_PAYLOAD_TARGET_CONFIRMATION = struct.Struct(">QQQQIQI16sHHBB")
+_PAYLOAD_TARGET_ACK = struct.Struct(">QBBI")
+_PAYLOAD_TARGET_STATUS = struct.Struct(">16sQIQIBHB")
 
 
 class OperatorProtocolError(ValueError):
@@ -56,6 +101,19 @@ class WireMessageType(IntEnum):
     AUTHORIZATION_CHALLENGE = 6
     AUTHORIZATION_DECISION = 7
     AUTHORIZATION_ACK = 8
+    PATROL_STATUS = 9
+    RANGE_STATUS = 10
+    RELEASE_STATUS = 11
+    APPROACH_CHALLENGE = 12
+    APPROACH_CONFIRMATION = 13
+    APPROACH_ACK = 14
+    APPROACH_STATUS = 15
+    TARGET_POOL_STATUS = 16
+    SCENE_CONTEXT_STATUS = 17
+    PAYLOAD_TARGET_CHALLENGE = 18
+    PAYLOAD_TARGET_CONFIRMATION = 19
+    PAYLOAD_TARGET_ACK = 20
+    PAYLOAD_TARGET_STATUS = 21
 
 
 class SelectionAckReason(IntEnum):
@@ -77,6 +135,28 @@ class AuthorizationDecisionAckReason(IntEnum):
     SEQUENCE_REJECTED = 4
     COMMAND_TOKEN_CONFLICT = 5
     ALREADY_DECIDED = 6
+    INVALID = 255
+
+
+class ApproachConfirmationAckReason(IntEnum):
+    ACCEPTED = 0
+    NO_ACTIVE_CHALLENGE = 1
+    BINDING_MISMATCH = 2
+    EXPIRED = 3
+    SEQUENCE_REJECTED = 4
+    COMMAND_TOKEN_CONFLICT = 5
+    INVALID_SLIDE = 6
+    INVALID = 255
+
+
+class PayloadTargetConfirmationAckReason(IntEnum):
+    ACCEPTED = 0
+    NO_ACTIVE_CHALLENGE = 1
+    BINDING_MISMATCH = 2
+    EXPIRED = 3
+    SEQUENCE_REJECTED = 4
+    COMMAND_TOKEN_CONFLICT = 5
+    INVALID_SLIDE = 6
     INVALID = 255
 
 
@@ -119,6 +199,46 @@ class AuthorizationDecisionAck:
             raise ValueError("rejected authorization ACK cannot use ACCEPTED reason")
 
 
+@dataclass(frozen=True, slots=True)
+class ApproachConfirmationAck:
+    command_token: int
+    accepted: bool
+    reason: ApproachConfirmationAckReason
+    acknowledged_sequence: int
+
+    def __post_init__(self) -> None:
+        _bounded_uint(self.command_token, bits=64, field_name="approach command token")
+        _bounded_uint(
+            self.acknowledged_sequence,
+            bits=32,
+            field_name="approach acknowledged sequence",
+        )
+        if self.command_token == 0:
+            raise ValueError("approach command token cannot be zero")
+        if self.accepted != (self.reason is ApproachConfirmationAckReason.ACCEPTED):
+            raise ValueError("approach ACK acceptance and reason are inconsistent")
+
+
+@dataclass(frozen=True, slots=True)
+class PayloadTargetConfirmationAck:
+    command_token: int
+    accepted: bool
+    reason: PayloadTargetConfirmationAckReason
+    acknowledged_sequence: int
+
+    def __post_init__(self) -> None:
+        _bounded_uint(self.command_token, bits=64, field_name="payload target command token")
+        _bounded_uint(
+            self.acknowledged_sequence,
+            bits=32,
+            field_name="payload target acknowledged sequence",
+        )
+        if self.command_token == 0:
+            raise ValueError("payload target command token cannot be zero")
+        if self.accepted != (self.reason is PayloadTargetConfirmationAckReason.ACCEPTED):
+            raise ValueError("payload target ACK acceptance and reason are inconsistent")
+
+
 OperatorMessage: TypeAlias = (
     TargetSelectionCommand
     | SelectionAck
@@ -128,6 +248,19 @@ OperatorMessage: TypeAlias = (
     | AuthorizationChallengeStatusMessage
     | AuthorizationDecisionCommand
     | AuthorizationDecisionAck
+    | PatrolStatusMessage
+    | RangeStatusMessage
+    | ReleaseStatusMessage
+    | ApproachChallengeStatusMessage
+    | ApproachConfirmationCommand
+    | ApproachConfirmationAck
+    | ApproachStatusMessage
+    | TargetPoolStatusMessage
+    | SceneContextStatusMessage
+    | PayloadTargetChallengeStatusMessage
+    | PayloadTargetConfirmationCommand
+    | PayloadTargetConfirmationAck
+    | PayloadTargetStatusMessage
 )
 
 
@@ -163,6 +296,10 @@ class OperatorTunnelCodec:
             SelectionAction.SELECT: 1,
             SelectionAction.SWITCH: 2,
             SelectionAction.CANCEL: 3,
+            SelectionAction.SELECT_TRK: 4,
+            SelectionAction.PROMOTE_LCK: 5,
+            SelectionAction.DEMOTE_TRK: 6,
+            SelectionAction.CANCEL_TRK: 7,
         }[command.action]
         ttl_ms = _bounded_uint(
             round((command.expires_at_s - command.issued_at_s) * 1000.0),
@@ -344,6 +481,438 @@ class OperatorTunnelCodec:
             body=body,
         )
 
+    def encode_patrol_status(self, status: PatrolStatusMessage) -> bytes:
+        target_present = status.primary_target_id is not None
+        bbox_present = status.bbox is not None
+        return_present = status.return_direction is not None
+        flags = int(target_present) | (int(bbox_present) << 1) | (int(return_present) << 2)
+        bbox = _encode_bbox(status.bbox) if status.bbox is not None else (0, 0, 0, 0)
+        label = (status.label or "").encode("utf-8")
+        if len(label) > 16:
+            raise ValueError("patrol target label cannot exceed 16 UTF-8 bytes on the wire")
+        phase = list(PatrolPhase).index(status.phase) + 1
+        target_state = (
+            list(UnifiedTrackState).index(status.target_state) + 1
+            if status.target_state is not None
+            else 0
+        )
+        direction = {
+            None: 0,
+            ReturnObserveDirection.LEFT: 1,
+            ReturnObserveDirection.RIGHT: 2,
+            ReturnObserveDirection.ROUTE_REQUIRED: 3,
+        }[status.return_direction]
+        validity = {
+            None: 0,
+            AdvisoryValidity.VALID: 1,
+            AdvisoryValidity.DEGRADED: 2,
+            AdvisoryValidity.INVALID: 3,
+        }[status.return_validity]
+        source_age_ms = _bounded_uint(
+            round((status.produced_at_s - status.source_captured_at_s) * 1000.0),
+            bits=16,
+            field_name="patrol source frame age milliseconds",
+        )
+        body = _PATROL_STATUS.pack(
+            _hash64(status.status_id),
+            _hash64(status.mission_id),
+            phase,
+            target_state,
+            flags,
+            direction,
+            validity,
+            _hash64(status.primary_target_id) if status.primary_target_id else 0,
+            *bbox,
+            len(label),
+            label.ljust(16, b"\0"),
+            _encode_ratio(status.confidence),
+            _encode_ratio(status.tracking_quality),
+            status.total_track_count,
+            status.locked_track_count,
+            _hash64(status.source_frame_id),
+            source_age_ms,
+            _encode_duration(status.return_evidence_age_s),
+            _encode_distance(status.estimated_minimum_turn_radius_m),
+        )
+        return self._encode_frame(
+            WireMessageType.PATROL_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_range_status(self, status: RangeStatusMessage) -> bytes:
+        validity = {
+            RangeValidity.VALID: 1,
+            RangeValidity.DEGRADED: 2,
+            RangeValidity.INVALID: 3,
+        }[status.validity]
+        reason_mask = _registry_mask(status.reasons, RANGING_REASON_IDS, "ranging reason")
+        source_mask = _registry_mask(status.sources, RANGING_SOURCE_IDS, "ranging source")
+        rejected_source_mask = _registry_mask(
+            status.rejected_sources,
+            RANGING_SOURCE_IDS,
+            "rejected ranging source",
+        )
+        slant_ci = status.slant_range_ci95_m or (None, None)
+        ground_ci = status.ground_range_ci95_m or (None, None)
+        source_age_ms = _bounded_uint(
+            round((status.produced_at_s - status.source_captured_at_s) * 1000.0),
+            bits=16,
+            field_name="ranging source frame age milliseconds",
+        )
+        body = _RANGE_STATUS.pack(
+            _hash64(status.status_id),
+            _hash64(status.target_id),
+            _hash64(status.calibration_id),
+            _hash64(status.source_frame_id),
+            validity,
+            0,
+            reason_mask,
+            source_mask,
+            rejected_source_mask,
+            _encode_distance(status.slant_range_m),
+            _encode_distance(status.ground_range_m),
+            _encode_distance(slant_ci[0]),
+            _encode_distance(slant_ci[1]),
+            _encode_distance(ground_ci[0]),
+            _encode_distance(ground_ci[1]),
+            _encode_bearing(status.relative_bearing_deg),
+            _encode_unsigned_bearing(status.absolute_bearing_deg),
+            _encode_unsigned_centidegrees(status.bearing_sigma_deg),
+            _encode_signed_distance32(status.north_offset_m),
+            _encode_signed_distance32(status.east_offset_m),
+            source_age_ms,
+            _encode_duration(status.data_freshness_s),
+            _encode_ratio(status.sensor_consistency),
+        )
+        return self._encode_frame(
+            WireMessageType.RANGE_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
+        timing = {
+            ReleaseTimingStatus.INVALID: 1,
+            ReleaseTimingStatus.TOO_EARLY: 2,
+            ReleaseTimingStatus.WINDOW: 3,
+            ReleaseTimingStatus.TOO_LATE: 4,
+        }[status.timing_status]
+        binding_present = status.range_target_id is not None
+        range_ci = status.ground_range_ci95_m or (None, None)
+        body = _RELEASE_STATUS.pack(
+            _hash64(status.target_id),
+            _hash64(status.range_target_id) if status.range_target_id is not None else 0,
+            _hash64(status.range_frame_id) if status.range_frame_id is not None else 0,
+            _hash64(status.calibration_id),
+            timing,
+            int(binding_present),
+            _registry_mask(status.reasons, RELEASE_REASON_IDS, "release reason"),
+            _encode_signed_distance32(status.target_north_offset_m),
+            _encode_signed_distance32(status.target_east_offset_m),
+            _encode_signed_distance32(status.impact_north_offset_m),
+            _encode_signed_distance32(status.impact_east_offset_m),
+            _encode_signed_distance32(status.along_track_error_m),
+            _encode_signed_distance32(status.cross_track_error_m),
+            _encode_distance(status.error_ellipse_major_m),
+            _encode_distance(status.error_ellipse_minor_m),
+            _encode_bearing(status.error_ellipse_orientation_deg),
+            _encode_distance(status.estimated_ground_range_m),
+            _encode_distance(range_ci[0]),
+            _encode_distance(range_ci[1]),
+            _encode_duration(status.payload_descent_time_s),
+            _encode_distance(status.release_lead_distance_m),
+            _encode_ratio(status.range_sensor_consistency),
+        )
+        return self._encode_frame(
+            WireMessageType.RELEASE_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_approach_challenge(self, status: ApproachChallengeStatusMessage) -> bytes:
+        body = _APPROACH_CHALLENGE.pack(
+            status.challenge_token,
+            status.target_token,
+            status.target_revision,
+            _uuid_bytes(status.selection_command_id, field_name="selection_command_id"),
+            _timestamp_ms(status.issued_at_s),
+            _timestamp_ms(status.expires_at_s),
+            int(status.pending),
+        )
+        return self._encode_frame(
+            WireMessageType.APPROACH_CHALLENGE,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_approach_confirmation(self, command: ApproachConfirmationCommand) -> bytes:
+        ttl_ms = _bounded_uint(
+            round((command.expires_at_s - command.issued_at_s) * 1000.0),
+            bits=16,
+            field_name="approach confirmation TTL milliseconds",
+        )
+        duration_ms = _bounded_uint(
+            round(command.slide_duration_s * 1000.0),
+            bits=16,
+            field_name="approach slide duration milliseconds",
+        )
+        body = _APPROACH_CONFIRMATION.pack(
+            command.command_token,
+            command.session_token,
+            command.challenge_token,
+            command.target_token,
+            command.target_revision,
+            _uuid_bytes(command.selection_command_id, field_name="selection_command_id"),
+            ttl_ms,
+            duration_ms,
+            _encode_ratio(command.completion_fraction),
+            int(command.continuous),
+        )
+        return self._encode_frame(
+            WireMessageType.APPROACH_CONFIRMATION,
+            sequence=command.sequence,
+            sent_at_s=command.issued_at_s,
+            body=body,
+        )
+
+    def encode_approach_ack(
+        self,
+        acknowledgement: ApproachConfirmationAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        body = _APPROACH_ACK.pack(
+            acknowledgement.command_token,
+            int(acknowledgement.accepted),
+            int(acknowledgement.reason),
+            acknowledgement.acknowledged_sequence,
+        )
+        return self._encode_frame(
+            WireMessageType.APPROACH_ACK,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+            body=body,
+        )
+
+    def encode_approach_status(self, status: ApproachStatusMessage) -> bytes:
+        phases = list(ApproachHilPhase)
+        expiry_s = (
+            max(0.0, status.confirmation_expires_at_s - status.produced_at_s)
+            if status.confirmation_expires_at_s is not None
+            else None
+        )
+        body = _APPROACH_STATUS.pack(
+            _hash64(status.target_id) if status.target_id is not None else 0,
+            status.target_revision or 0,
+            phases.index(status.phase) + 1,
+            _registry_mask(status.reasons, APPROACH_REASON_IDS, "approach reason"),
+            _encode_bearing(status.yaw_error_deg),
+            _encode_bearing(status.pitch_error_deg),
+            _encode_bearing(status.yaw_advice_deg),
+            _encode_bearing(status.pitch_advice_deg),
+            _encode_bearing(status.bank_advice_deg),
+            _encode_bearing(status.climb_pitch_advice_deg),
+            _encode_distance(status.ground_range_m),
+            _encode_duration(expiry_s),
+            int(status.target_id is not None)
+            | (int(status.flight_control_enabled) << 1)
+            | (int(status.aim_control_active) << 2)
+            | (int(status.pilot_input_cancelled) << 3),
+        )
+        return self._encode_frame(
+            WireMessageType.APPROACH_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_payload_target_challenge(
+        self,
+        status: PayloadTargetChallengeStatusMessage,
+    ) -> bytes:
+        body = _PAYLOAD_TARGET_CHALLENGE.pack(
+            status.challenge_token,
+            status.selected_target_token,
+            status.selected_target_revision,
+            status.aimpoint_target_token,
+            status.aimpoint_target_revision,
+            _uuid_bytes(status.selection_command_id, field_name="selection_command_id"),
+            _timestamp_ms(status.issued_at_s),
+            _timestamp_ms(status.expires_at_s),
+            int(status.pending),
+        )
+        return self._encode_frame(
+            WireMessageType.PAYLOAD_TARGET_CHALLENGE,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_payload_target_confirmation(
+        self,
+        command: PayloadTargetConfirmationCommand,
+    ) -> bytes:
+        ttl_ms = _bounded_uint(
+            round((command.expires_at_s - command.issued_at_s) * 1000.0),
+            bits=16,
+            field_name="payload target confirmation TTL milliseconds",
+        )
+        duration_ms = _bounded_uint(
+            round(command.slide_duration_s * 1000.0),
+            bits=16,
+            field_name="payload target slide duration milliseconds",
+        )
+        body = _PAYLOAD_TARGET_CONFIRMATION.pack(
+            command.command_token,
+            command.session_token,
+            command.challenge_token,
+            command.selected_target_token,
+            command.selected_target_revision,
+            command.aimpoint_target_token,
+            command.aimpoint_target_revision,
+            _uuid_bytes(command.selection_command_id, field_name="selection_command_id"),
+            ttl_ms,
+            duration_ms,
+            _encode_ratio(command.completion_fraction),
+            int(command.continuous),
+        )
+        return self._encode_frame(
+            WireMessageType.PAYLOAD_TARGET_CONFIRMATION,
+            sequence=command.sequence,
+            sent_at_s=command.issued_at_s,
+            body=body,
+        )
+
+    def encode_payload_target_ack(
+        self,
+        acknowledgement: PayloadTargetConfirmationAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        body = _PAYLOAD_TARGET_ACK.pack(
+            acknowledgement.command_token,
+            int(acknowledgement.accepted),
+            int(acknowledgement.reason),
+            acknowledgement.acknowledged_sequence,
+        )
+        return self._encode_frame(
+            WireMessageType.PAYLOAD_TARGET_ACK,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+            body=body,
+        )
+
+    def encode_payload_target_status(self, status: PayloadTargetStatusMessage) -> bytes:
+        eligibility = list(PayloadTargetEligibility).index(status.eligibility) + 1
+        expiry_s = (
+            max(0.0, status.confirmation_expires_at_s - status.produced_at_s)
+            if status.confirmation_expires_at_s is not None
+            else None
+        )
+        flags = (
+            int(status.aimpoint_target_token is not None)
+            | (int(status.confirmation_pending) << 1)
+            | (int(status.confirmation_accepted) << 2)
+        )
+        body = _PAYLOAD_TARGET_STATUS.pack(
+            _uuid_bytes(status.selection_command_id, field_name="selection_command_id"),
+            status.selected_target_token,
+            status.selected_target_revision,
+            status.aimpoint_target_token or 0,
+            status.aimpoint_target_revision or 0,
+            eligibility,
+            _encode_duration(expiry_s),
+            flags,
+        )
+        return self._encode_frame(
+            WireMessageType.PAYLOAD_TARGET_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_target_pool_status(self, status: TargetPoolStatusMessage) -> bytes:
+        body = bytearray(
+            _TARGET_POOL_HEADER.pack(
+                status.pool_revision,
+                status.page_index,
+                status.page_count,
+                status.total_track_count,
+                len(status.entries),
+            )
+        )
+        states = list(UnifiedTrackState)
+        for entry in status.entries:
+            label = entry.label.encode("utf-8")
+            if len(label) > 16:
+                raise ValueError("target-pool label cannot exceed 16 UTF-8 bytes on the wire")
+            flags = (
+                int(entry.locked)
+                | (int(entry.primary) << 1)
+                | (int(entry.actionable) << 2)
+                | (int(entry.reid_confirmed) << 3)
+                | (int(entry.bbox is not None) << 4)
+                | (int(entry.operator_tracked) << 5)
+            )
+            bbox = _encode_bbox(entry.bbox) if entry.bbox is not None else (0, 0, 0, 0)
+            body.extend(
+                _TARGET_POOL_ENTRY.pack(
+                    _hash64(entry.target_id),
+                    states.index(entry.state) + 1,
+                    flags,
+                    label.ljust(16, b"\0"),
+                    _encode_ratio(entry.confidence),
+                    _encode_ratio(entry.tracking_quality),
+                    *bbox,
+                    _encode_bearing(entry.relative_bearing_deg),
+                    _encode_distance(entry.estimated_range_m),
+                    _encode_distance(entry.target_speed_mps),
+                )
+            )
+        return self._encode_frame(
+            WireMessageType.TARGET_POOL_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=bytes(body),
+        )
+
+    def encode_scene_context_status(self, status: SceneContextStatusMessage) -> bytes:
+        states = list(SceneContextState)
+        body = bytearray(
+            _SCENE_CONTEXT_HEADER.pack(
+                status.context_revision,
+                _hash64(status.source_frame_id),
+                _timestamp_ms(status.source_captured_at_s),
+                states.index(status.state) + 1,
+                status.page_index,
+                status.page_count,
+                status.total_region_count,
+            )
+        )
+        label_codes = {"road": 1, "building": 2}
+        for entry in status.entries:
+            body.extend(
+                _SCENE_CONTEXT_ENTRY.pack(
+                    label_codes[entry.label],
+                    *_encode_bbox(entry.bbox),
+                    round(entry.frame_area_fraction * 65535.0),
+                    round(entry.bbox_fill_fraction * 65535.0),
+                )
+            )
+        return self._encode_frame(
+            WireMessageType.SCENE_CONTEXT_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=bytes(body),
+        )
+
     def encode_authorization_challenge(
         self,
         status: AuthorizationChallengeStatusMessage,
@@ -479,8 +1048,64 @@ class OperatorTunnelCodec:
                 sequence=sequence,
                 sent_at_s=sent_at_s,
             )
-        else:
+        elif message_type is WireMessageType.AUTHORIZATION_ACK:
             message = self._decode_authorization_ack(body)
+        elif message_type is WireMessageType.PATROL_STATUS:
+            message = self._decode_patrol_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.RANGE_STATUS:
+            message = self._decode_range_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.RELEASE_STATUS:
+            message = self._decode_release_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.APPROACH_CHALLENGE:
+            message = self._decode_approach_challenge(body, sequence=sequence, sent_at_s=sent_at_s)
+        elif message_type is WireMessageType.APPROACH_CONFIRMATION:
+            message = self._decode_approach_confirmation(
+                body, sequence=sequence, sent_at_s=sent_at_s
+            )
+        elif message_type is WireMessageType.APPROACH_ACK:
+            message = self._decode_approach_ack(body)
+        elif message_type is WireMessageType.APPROACH_STATUS:
+            message = self._decode_approach_status(body, sequence=sequence, sent_at_s=sent_at_s)
+        elif message_type is WireMessageType.TARGET_POOL_STATUS:
+            message = self._decode_target_pool_status(body, sequence=sequence, sent_at_s=sent_at_s)
+        elif message_type is WireMessageType.SCENE_CONTEXT_STATUS:
+            message = self._decode_scene_context_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.PAYLOAD_TARGET_CHALLENGE:
+            message = self._decode_payload_target_challenge(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.PAYLOAD_TARGET_CONFIRMATION:
+            message = self._decode_payload_target_confirmation(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.PAYLOAD_TARGET_ACK:
+            message = self._decode_payload_target_ack(body)
+        else:
+            message = self._decode_payload_target_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
         return DecodedOperatorPacket(message_type, sequence, sent_at_s, message)
 
     def _encode_frame(
@@ -536,6 +1161,10 @@ class OperatorTunnelCodec:
             1: SelectionAction.SELECT,
             2: SelectionAction.SWITCH,
             3: SelectionAction.CANCEL,
+            4: SelectionAction.SELECT_TRK,
+            5: SelectionAction.PROMOTE_LCK,
+            6: SelectionAction.DEMOTE_TRK,
+            7: SelectionAction.CANCEL_TRK,
         }.get(action_value)
         if action is None:
             raise OperatorProtocolError("target-selection action is invalid")
@@ -886,6 +1515,723 @@ class OperatorTunnelCodec:
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid authorization acknowledgement: {exc}") from exc
 
+    def _decode_patrol_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> PatrolStatusMessage:
+        if len(body) != _PATROL_STATUS.size:
+            raise OperatorProtocolError("patrol-status body has an invalid size")
+        (
+            status_hash,
+            mission_hash,
+            phase_value,
+            target_state_value,
+            flags,
+            direction_value,
+            validity_value,
+            target_hash,
+            x1,
+            y1,
+            x2,
+            y2,
+            label_length,
+            label_bytes,
+            confidence,
+            quality,
+            total_tracks,
+            locked_tracks,
+            frame_hash,
+            frame_age_ms,
+            evidence_age,
+            turn_radius,
+        ) = _PATROL_STATUS.unpack(body)
+        if flags & ~0b111:
+            raise OperatorProtocolError("patrol-status flags contain unsupported bits")
+        target_present = bool(flags & 0b001)
+        bbox_present = bool(flags & 0b010)
+        return_present = bool(flags & 0b100)
+        phases = tuple(PatrolPhase)
+        states = tuple(UnifiedTrackState)
+        if not 1 <= phase_value <= len(phases):
+            raise OperatorProtocolError("patrol-status phase is invalid")
+        if not 0 <= target_state_value <= len(states):
+            raise OperatorProtocolError("patrol-status target state is invalid")
+        direction = {
+            0: None,
+            1: ReturnObserveDirection.LEFT,
+            2: ReturnObserveDirection.RIGHT,
+            3: ReturnObserveDirection.ROUTE_REQUIRED,
+        }.get(direction_value, ...)
+        validity = {
+            0: None,
+            1: AdvisoryValidity.VALID,
+            2: AdvisoryValidity.DEGRADED,
+            3: AdvisoryValidity.INVALID,
+        }.get(validity_value, ...)
+        if direction is ... or validity is ...:
+            raise OperatorProtocolError("patrol-status return advice is invalid")
+        if return_present != (direction is not None and validity is not None):
+            raise OperatorProtocolError("patrol-status return presence flag is inconsistent")
+        if label_length > len(label_bytes):
+            raise OperatorProtocolError("patrol-status label length is invalid")
+        try:
+            label = label_bytes[:label_length].decode("utf-8") or None
+        except UnicodeDecodeError as exc:
+            raise OperatorProtocolError("patrol-status label is not valid UTF-8") from exc
+        try:
+            return PatrolStatusMessage(
+                status_id=_hashed_identifier(status_hash),
+                sequence=sequence,
+                mission_id=_hashed_identifier(mission_hash),
+                phase=phases[phase_value - 1],
+                primary_target_id=_hashed_identifier(target_hash) if target_present else None,
+                target_state=(states[target_state_value - 1] if target_state_value else None),
+                bbox=_decode_bbox((x1, y1, x2, y2)) if bbox_present else None,
+                label=label,
+                confidence=_decode_ratio(confidence),
+                tracking_quality=_decode_ratio(quality),
+                total_track_count=total_tracks,
+                locked_track_count=locked_tracks,
+                source_frame_id=_hashed_identifier(frame_hash),
+                source_captured_at_s=sent_at_s - frame_age_ms / 1000.0,
+                produced_at_s=sent_at_s,
+                return_direction=direction,
+                return_validity=validity,
+                return_evidence_age_s=(_decode_duration(evidence_age) if return_present else None),
+                estimated_minimum_turn_radius_m=(
+                    _decode_distance(turn_radius) if return_present else None
+                ),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid patrol-status content: {exc}") from exc
+
+    def _decode_range_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> RangeStatusMessage:
+        if len(body) != _RANGE_STATUS.size:
+            raise OperatorProtocolError("range-status body has an invalid size")
+        (
+            status_hash,
+            target_hash,
+            calibration_hash,
+            frame_hash,
+            validity_value,
+            flags,
+            reason_mask,
+            source_mask,
+            rejected_source_mask,
+            slant_range,
+            ground_range,
+            slant_low,
+            slant_high,
+            ground_low,
+            ground_high,
+            relative_bearing,
+            absolute_bearing,
+            bearing_sigma,
+            north_offset,
+            east_offset,
+            frame_age_ms,
+            data_freshness,
+            consistency,
+        ) = _RANGE_STATUS.unpack(body)
+        if flags != 0:
+            raise OperatorProtocolError("range-status flags contain unsupported bits")
+        validity = {
+            1: RangeValidity.VALID,
+            2: RangeValidity.DEGRADED,
+            3: RangeValidity.INVALID,
+        }.get(validity_value)
+        if validity is None:
+            raise OperatorProtocolError("range-status validity is invalid")
+        decoded_consistency = _decode_ratio(consistency)
+        if decoded_consistency is None:
+            raise OperatorProtocolError("range-status consistency is unavailable")
+        try:
+            return RangeStatusMessage(
+                status_id=_hashed_identifier(status_hash),
+                sequence=sequence,
+                target_id=_hashed_identifier(target_hash),
+                calibration_id=_hashed_identifier(calibration_hash),
+                source_frame_id=_hashed_identifier(frame_hash),
+                source_captured_at_s=sent_at_s - frame_age_ms / 1000.0,
+                produced_at_s=sent_at_s,
+                validity=validity,
+                reasons=_decode_registry_mask(
+                    reason_mask,
+                    RANGING_REASON_IDS,
+                    "ranging reason",
+                ),
+                sources=_decode_registry_mask(
+                    source_mask,
+                    RANGING_SOURCE_IDS,
+                    "ranging source",
+                ),
+                rejected_sources=_decode_registry_mask(
+                    rejected_source_mask,
+                    RANGING_SOURCE_IDS,
+                    "rejected ranging source",
+                ),
+                slant_range_m=_decode_distance(slant_range),
+                ground_range_m=_decode_distance(ground_range),
+                slant_range_ci95_m=_decode_optional_interval(slant_low, slant_high),
+                ground_range_ci95_m=_decode_optional_interval(ground_low, ground_high),
+                relative_bearing_deg=_decode_bearing(relative_bearing),
+                absolute_bearing_deg=_decode_unsigned_bearing(absolute_bearing),
+                bearing_sigma_deg=_decode_unsigned_centidegrees(bearing_sigma),
+                north_offset_m=_decode_signed_distance32(north_offset),
+                east_offset_m=_decode_signed_distance32(east_offset),
+                data_freshness_s=_decode_duration(data_freshness),
+                sensor_consistency=decoded_consistency,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid range-status content: {exc}") from exc
+
+    def _decode_release_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> ReleaseStatusMessage:
+        if len(body) != _RELEASE_STATUS.size:
+            raise OperatorProtocolError("release-status body has an invalid size")
+        (
+            target_hash,
+            range_target_hash,
+            range_frame_hash,
+            calibration_hash,
+            timing_value,
+            flags,
+            reason_mask,
+            target_north,
+            target_east,
+            impact_north,
+            impact_east,
+            along_error,
+            cross_error,
+            ellipse_major,
+            ellipse_minor,
+            ellipse_orientation,
+            ground_range,
+            range_low,
+            range_high,
+            descent_time,
+            lead_distance,
+            consistency,
+        ) = _RELEASE_STATUS.unpack(body)
+        if flags & ~0x01:
+            raise OperatorProtocolError("release-status flags contain unsupported bits")
+        binding_present = bool(flags & 0x01)
+        if binding_present != bool(range_target_hash and range_frame_hash):
+            raise OperatorProtocolError("release-status range binding flags are inconsistent")
+        if not binding_present and (range_target_hash or range_frame_hash):
+            raise OperatorProtocolError("release-status absent binding contains identifiers")
+        timing = {
+            1: ReleaseTimingStatus.INVALID,
+            2: ReleaseTimingStatus.TOO_EARLY,
+            3: ReleaseTimingStatus.WINDOW,
+            4: ReleaseTimingStatus.TOO_LATE,
+        }.get(timing_value)
+        if timing is None:
+            raise OperatorProtocolError("release-status timing value is invalid")
+        try:
+            return ReleaseStatusMessage(
+                sequence=sequence,
+                target_id=_hashed_identifier(target_hash),
+                calibration_id=_hashed_identifier(calibration_hash),
+                produced_at_s=sent_at_s,
+                timing_status=timing,
+                reasons=_decode_registry_mask(reason_mask, RELEASE_REASON_IDS, "release reason"),
+                range_target_id=(
+                    _hashed_identifier(range_target_hash) if binding_present else None
+                ),
+                range_frame_id=(_hashed_identifier(range_frame_hash) if binding_present else None),
+                target_north_offset_m=_decode_signed_distance32(target_north),
+                target_east_offset_m=_decode_signed_distance32(target_east),
+                impact_north_offset_m=_decode_signed_distance32(impact_north),
+                impact_east_offset_m=_decode_signed_distance32(impact_east),
+                along_track_error_m=_decode_signed_distance32(along_error),
+                cross_track_error_m=_decode_signed_distance32(cross_error),
+                error_ellipse_major_m=_decode_distance(ellipse_major),
+                error_ellipse_minor_m=_decode_distance(ellipse_minor),
+                error_ellipse_orientation_deg=_decode_bearing(ellipse_orientation),
+                estimated_ground_range_m=_decode_distance(ground_range),
+                ground_range_ci95_m=_decode_optional_interval(range_low, range_high),
+                payload_descent_time_s=_decode_duration(descent_time),
+                release_lead_distance_m=_decode_distance(lead_distance),
+                range_sensor_consistency=_decode_ratio(consistency),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid release-status content: {exc}") from exc
+
+    def _decode_approach_challenge(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> ApproachChallengeStatusMessage:
+        if len(body) != _APPROACH_CHALLENGE.size:
+            raise OperatorProtocolError("approach-challenge body has an invalid size")
+        (
+            challenge_token,
+            target_token,
+            target_revision,
+            selection_id,
+            issued_ms,
+            expires_ms,
+            pending,
+        ) = _APPROACH_CHALLENGE.unpack(body)
+        if pending != 1:
+            raise OperatorProtocolError("approach challenge must be pending")
+        try:
+            return ApproachChallengeStatusMessage(
+                challenge_token=challenge_token,
+                target_token=target_token,
+                target_revision=target_revision,
+                selection_command_id=str(UUID(bytes=selection_id)),
+                issued_at_s=issued_ms / 1000.0,
+                expires_at_s=expires_ms / 1000.0,
+                sequence=sequence,
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid approach-challenge content: {exc}") from exc
+
+    def _decode_approach_confirmation(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> ApproachConfirmationCommand:
+        if len(body) != _APPROACH_CONFIRMATION.size:
+            raise OperatorProtocolError("approach-confirmation body has an invalid size")
+        (
+            command_token,
+            session_token,
+            challenge_token,
+            target_token,
+            target_revision,
+            selection_id,
+            ttl_ms,
+            duration_ms,
+            completion,
+            continuous,
+        ) = _APPROACH_CONFIRMATION.unpack(body)
+        decoded_completion = _decode_ratio(completion)
+        if ttl_ms == 0 or duration_ms == 0 or decoded_completion is None or continuous > 1:
+            raise OperatorProtocolError("approach-confirmation content is invalid")
+        try:
+            return ApproachConfirmationCommand(
+                command_token=command_token,
+                session_token=session_token,
+                challenge_token=challenge_token,
+                target_token=target_token,
+                target_revision=target_revision,
+                selection_command_id=str(UUID(bytes=selection_id)),
+                sequence=sequence,
+                issued_at_s=sent_at_s,
+                expires_at_s=sent_at_s + ttl_ms / 1000.0,
+                slide_duration_s=duration_ms / 1000.0,
+                completion_fraction=decoded_completion,
+                continuous=bool(continuous),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid approach-confirmation content: {exc}") from exc
+
+    def _decode_approach_ack(self, body: bytes) -> ApproachConfirmationAck:
+        if len(body) != _APPROACH_ACK.size:
+            raise OperatorProtocolError("approach-ack body has an invalid size")
+        command_token, accepted, reason_value, acknowledged_sequence = _APPROACH_ACK.unpack(body)
+        if accepted > 1:
+            raise OperatorProtocolError("approach-ack accepted flag is invalid")
+        try:
+            reason = ApproachConfirmationAckReason(reason_value)
+            return ApproachConfirmationAck(
+                command_token=command_token,
+                accepted=bool(accepted),
+                reason=reason,
+                acknowledged_sequence=acknowledged_sequence,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid approach-ack content: {exc}") from exc
+
+    def _decode_approach_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> ApproachStatusMessage:
+        if len(body) != _APPROACH_STATUS.size:
+            raise OperatorProtocolError("approach-status body has an invalid size")
+        (
+            target_hash,
+            target_revision,
+            phase_value,
+            reason_mask,
+            yaw_error,
+            pitch_error,
+            yaw_advice,
+            pitch_advice,
+            bank_advice,
+            climb_advice,
+            ground_range,
+            confirmation_ttl,
+            flags,
+        ) = _APPROACH_STATUS.unpack(body)
+        if flags & ~0x0F:
+            raise OperatorProtocolError("approach-status flags contain unsupported bits")
+        target_present = bool(flags & 0x01)
+        flight_control_enabled = bool(flags & 0x02)
+        aim_control_active = bool(flags & 0x04)
+        pilot_input_cancelled = bool(flags & 0x08)
+        if target_present != bool(target_hash):
+            raise OperatorProtocolError("approach-status target binding is inconsistent")
+        phases = list(ApproachHilPhase)
+        if not 1 <= phase_value <= len(phases):
+            raise OperatorProtocolError("approach-status phase is invalid")
+        expiry_delta_s = _decode_duration(confirmation_ttl)
+        try:
+            return ApproachStatusMessage(
+                sequence=sequence,
+                target_id=_hashed_identifier(target_hash) if target_present else None,
+                target_revision=target_revision if target_present else None,
+                phase=phases[phase_value - 1],
+                reasons=_decode_registry_mask(reason_mask, APPROACH_REASON_IDS, "approach reason"),
+                produced_at_s=sent_at_s,
+                yaw_error_deg=_decode_bearing(yaw_error),
+                pitch_error_deg=_decode_bearing(pitch_error),
+                yaw_advice_deg=_decode_bearing(yaw_advice),
+                pitch_advice_deg=_decode_bearing(pitch_advice),
+                bank_advice_deg=_decode_bearing(bank_advice),
+                climb_pitch_advice_deg=_decode_bearing(climb_advice),
+                ground_range_m=_decode_distance(ground_range),
+                confirmation_expires_at_s=(
+                    sent_at_s + expiry_delta_s if expiry_delta_s is not None else None
+                ),
+                advisory_only=not flight_control_enabled,
+                sitl_hil_only=not flight_control_enabled,
+                flight_control_enabled=flight_control_enabled,
+                aim_control_active=aim_control_active,
+                pilot_input_cancelled=pilot_input_cancelled,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid approach-status content: {exc}") from exc
+
+    def _decode_payload_target_challenge(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> PayloadTargetChallengeStatusMessage:
+        if len(body) != _PAYLOAD_TARGET_CHALLENGE.size:
+            raise OperatorProtocolError("payload-target-challenge body has an invalid size")
+        (
+            challenge_token,
+            selected_target_token,
+            selected_target_revision,
+            aimpoint_target_token,
+            aimpoint_target_revision,
+            selection_id,
+            issued_ms,
+            expires_ms,
+            pending,
+        ) = _PAYLOAD_TARGET_CHALLENGE.unpack(body)
+        if pending != 1:
+            raise OperatorProtocolError("payload target challenge must be pending")
+        try:
+            return PayloadTargetChallengeStatusMessage(
+                challenge_token=challenge_token,
+                selected_target_token=selected_target_token,
+                selected_target_revision=selected_target_revision,
+                aimpoint_target_token=aimpoint_target_token,
+                aimpoint_target_revision=aimpoint_target_revision,
+                selection_command_id=str(UUID(bytes=selection_id)),
+                issued_at_s=issued_ms / 1000.0,
+                expires_at_s=expires_ms / 1000.0,
+                sequence=sequence,
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid payload-target-challenge content: {exc}") from exc
+
+    def _decode_payload_target_confirmation(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> PayloadTargetConfirmationCommand:
+        if len(body) != _PAYLOAD_TARGET_CONFIRMATION.size:
+            raise OperatorProtocolError("payload-target-confirmation body has an invalid size")
+        (
+            command_token,
+            session_token,
+            challenge_token,
+            selected_target_token,
+            selected_target_revision,
+            aimpoint_target_token,
+            aimpoint_target_revision,
+            selection_id,
+            ttl_ms,
+            duration_ms,
+            completion,
+            continuous,
+        ) = _PAYLOAD_TARGET_CONFIRMATION.unpack(body)
+        decoded_completion = _decode_ratio(completion)
+        if ttl_ms == 0 or duration_ms == 0 or decoded_completion is None or continuous > 1:
+            raise OperatorProtocolError("payload-target-confirmation content is invalid")
+        try:
+            return PayloadTargetConfirmationCommand(
+                command_token=command_token,
+                session_token=session_token,
+                challenge_token=challenge_token,
+                selected_target_token=selected_target_token,
+                selected_target_revision=selected_target_revision,
+                aimpoint_target_token=aimpoint_target_token,
+                aimpoint_target_revision=aimpoint_target_revision,
+                selection_command_id=str(UUID(bytes=selection_id)),
+                sequence=sequence,
+                issued_at_s=sent_at_s,
+                expires_at_s=sent_at_s + ttl_ms / 1000.0,
+                slide_duration_s=duration_ms / 1000.0,
+                completion_fraction=decoded_completion,
+                continuous=bool(continuous),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(
+                f"invalid payload-target-confirmation content: {exc}"
+            ) from exc
+
+    def _decode_payload_target_ack(self, body: bytes) -> PayloadTargetConfirmationAck:
+        if len(body) != _PAYLOAD_TARGET_ACK.size:
+            raise OperatorProtocolError("payload-target-ack body has an invalid size")
+        command_token, accepted, reason_value, acknowledged_sequence = _PAYLOAD_TARGET_ACK.unpack(
+            body
+        )
+        if accepted > 1:
+            raise OperatorProtocolError("payload-target-ack accepted flag is invalid")
+        try:
+            reason = PayloadTargetConfirmationAckReason(reason_value)
+            return PayloadTargetConfirmationAck(
+                command_token=command_token,
+                accepted=bool(accepted),
+                reason=reason,
+                acknowledged_sequence=acknowledged_sequence,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid payload-target-ack content: {exc}") from exc
+
+    def _decode_payload_target_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> PayloadTargetStatusMessage:
+        if len(body) != _PAYLOAD_TARGET_STATUS.size:
+            raise OperatorProtocolError("payload-target-status body has an invalid size")
+        (
+            selection_id,
+            selected_target_token,
+            selected_target_revision,
+            aimpoint_target_token,
+            aimpoint_target_revision,
+            eligibility_value,
+            confirmation_ttl,
+            flags,
+        ) = _PAYLOAD_TARGET_STATUS.unpack(body)
+        if flags & ~0x07:
+            raise OperatorProtocolError("payload-target-status flags contain unsupported bits")
+        aimpoint_present = bool(flags & 0x01)
+        confirmation_pending = bool(flags & 0x02)
+        confirmation_accepted = bool(flags & 0x04)
+        if aimpoint_present != bool(aimpoint_target_token):
+            raise OperatorProtocolError("payload-target-status aimpoint binding is inconsistent")
+        eligibility_values = list(PayloadTargetEligibility)
+        if not 1 <= eligibility_value <= len(eligibility_values):
+            raise OperatorProtocolError("payload-target-status eligibility is invalid")
+        expiry_delta_s = _decode_duration(confirmation_ttl)
+        try:
+            return PayloadTargetStatusMessage(
+                sequence=sequence,
+                selection_command_id=str(UUID(bytes=selection_id)),
+                selected_target_token=selected_target_token,
+                selected_target_revision=selected_target_revision,
+                eligibility=eligibility_values[eligibility_value - 1],
+                produced_at_s=sent_at_s,
+                aimpoint_target_token=(aimpoint_target_token if aimpoint_present else None),
+                aimpoint_target_revision=(aimpoint_target_revision if aimpoint_present else None),
+                confirmation_pending=confirmation_pending,
+                confirmation_accepted=confirmation_accepted,
+                confirmation_expires_at_s=(
+                    sent_at_s + expiry_delta_s if expiry_delta_s is not None else None
+                ),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid payload-target-status content: {exc}") from exc
+
+    def _decode_target_pool_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> TargetPoolStatusMessage:
+        if len(body) < _TARGET_POOL_HEADER.size:
+            raise OperatorProtocolError("target-pool status body is truncated")
+        pool_revision, page_index, page_count, total_count, entry_count = (
+            _TARGET_POOL_HEADER.unpack_from(body)
+        )
+        expected_size = _TARGET_POOL_HEADER.size + entry_count * _TARGET_POOL_ENTRY.size
+        if entry_count not in {0, 1, 2} or len(body) != expected_size:
+            raise OperatorProtocolError("target-pool status entry count is invalid")
+        states = list(UnifiedTrackState)
+        entries: list[TargetPoolEntry] = []
+        offset = _TARGET_POOL_HEADER.size
+        for _ in range(entry_count):
+            (
+                target_hash,
+                state_value,
+                flags,
+                label_bytes,
+                confidence,
+                quality,
+                x1,
+                y1,
+                x2,
+                y2,
+                relative_bearing,
+                estimated_range,
+                target_speed,
+            ) = _TARGET_POOL_ENTRY.unpack_from(body, offset)
+            offset += _TARGET_POOL_ENTRY.size
+            if target_hash == 0 or not 1 <= state_value <= len(states) or flags & ~0x3F:
+                raise OperatorProtocolError("target-pool entry content is invalid")
+            bbox_present = bool(flags & 0x10)
+            if bbox_present and (x2 <= x1 or y2 <= y1):
+                raise OperatorProtocolError("target-pool entry bbox is invalid")
+            if not bbox_present and any((x1, y1, x2, y2)):
+                raise OperatorProtocolError("target-pool entry bbox padding is not zeroed")
+            terminator = label_bytes.find(b"\0")
+            label_payload = label_bytes if terminator < 0 else label_bytes[:terminator]
+            if terminator >= 0 and any(label_bytes[terminator:]):
+                raise OperatorProtocolError("target-pool label padding is not zeroed")
+            try:
+                label = label_payload.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise OperatorProtocolError("target-pool label is not valid UTF-8") from exc
+            decoded_confidence = _decode_ratio(confidence)
+            decoded_quality = _decode_ratio(quality)
+            if decoded_confidence is None or decoded_quality is None:
+                raise OperatorProtocolError("target-pool confidence is unavailable")
+            try:
+                entries.append(
+                    TargetPoolEntry(
+                        target_id=_hashed_identifier(target_hash),
+                        state=states[state_value - 1],
+                        label=label,
+                        confidence=decoded_confidence,
+                        tracking_quality=decoded_quality,
+                        locked=bool(flags & 0x01),
+                        primary=bool(flags & 0x02),
+                        actionable=bool(flags & 0x04),
+                        reid_confirmed=bool(flags & 0x08),
+                        operator_tracked=bool(flags & 0x20),
+                        bbox=_decode_bbox((x1, y1, x2, y2)) if bbox_present else None,
+                        relative_bearing_deg=_decode_bearing(relative_bearing),
+                        estimated_range_m=_decode_distance(estimated_range),
+                        target_speed_mps=_decode_distance(target_speed),
+                    )
+                )
+            except ValueError as exc:
+                raise OperatorProtocolError(f"invalid target-pool entry: {exc}") from exc
+        try:
+            return TargetPoolStatusMessage(
+                sequence=sequence,
+                pool_revision=pool_revision,
+                page_index=page_index,
+                page_count=page_count,
+                total_track_count=total_count,
+                entries=tuple(entries),
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid target-pool status: {exc}") from exc
+
+    def _decode_scene_context_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> SceneContextStatusMessage:
+        if len(body) < _SCENE_CONTEXT_HEADER.size:
+            raise OperatorProtocolError("scene-context status body is truncated")
+        (
+            context_revision,
+            source_frame_hash,
+            source_captured_ms,
+            state_value,
+            page_index,
+            page_count,
+            total_count,
+        ) = _SCENE_CONTEXT_HEADER.unpack_from(body)
+        entry_bytes = len(body) - _SCENE_CONTEXT_HEADER.size
+        if entry_bytes % _SCENE_CONTEXT_ENTRY.size:
+            raise OperatorProtocolError("scene-context status entry bytes are malformed")
+        entry_count = entry_bytes // _SCENE_CONTEXT_ENTRY.size
+        if entry_count not in {0, 1, 2} or source_frame_hash == 0:
+            raise OperatorProtocolError("scene-context status entry count or frame is invalid")
+        states = list(SceneContextState)
+        if not 1 <= state_value <= len(states):
+            raise OperatorProtocolError("scene-context state is invalid")
+        labels = {1: "road", 2: "building"}
+        entries: list[SceneContextRegionEntry] = []
+        offset = _SCENE_CONTEXT_HEADER.size
+        for _ in range(entry_count):
+            label_code, x1, y1, x2, y2, area, fill = _SCENE_CONTEXT_ENTRY.unpack_from(body, offset)
+            offset += _SCENE_CONTEXT_ENTRY.size
+            if label_code not in labels or area == 0 or fill == 0:
+                raise OperatorProtocolError("scene-context entry content is invalid")
+            try:
+                entries.append(
+                    SceneContextRegionEntry(
+                        label=labels[label_code],
+                        bbox=_decode_bbox((x1, y1, x2, y2)),
+                        frame_area_fraction=area / 65535.0,
+                        bbox_fill_fraction=fill / 65535.0,
+                    )
+                )
+            except ValueError as exc:
+                raise OperatorProtocolError(f"invalid scene-context entry: {exc}") from exc
+        try:
+            return SceneContextStatusMessage(
+                sequence=sequence,
+                context_revision=context_revision,
+                source_frame_id=_hashed_identifier(source_frame_hash),
+                source_captured_at_s=source_captured_ms / 1000.0,
+                state=states[state_value - 1],
+                page_index=page_index,
+                page_count=page_count,
+                total_region_count=total_count,
+                entries=tuple(entries),
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid scene-context status: {exc}") from exc
+
     def _require_registered_stream(self, stream_id: str) -> None:
         registered = self._geometries.get(_hash32(stream_id))
         if registered is None or registered.stream_id != stream_id:
@@ -966,6 +2312,35 @@ def _decode_bearing(value: int) -> float | None:
     return None if value == -32768 else value / 100.0
 
 
+def _encode_unsigned_bearing(value: float | None) -> int:
+    if value is None:
+        return 0xFFFF
+    if not isfinite(value) or not 0.0 <= value < 360.0:
+        raise ValueError("unsigned bearing must be in [0, 360)")
+    return _bounded_uint(round(value * 100.0), bits=16, field_name="unsigned bearing")
+
+
+def _decode_unsigned_bearing(value: int) -> float | None:
+    return None if value == 0xFFFF else value / 100.0
+
+
+def _encode_unsigned_centidegrees(value: float | None) -> int:
+    if value is None:
+        return 0xFFFF
+    encoded = _bounded_uint(
+        round(value * 100.0),
+        bits=16,
+        field_name="unsigned centidegrees",
+    )
+    if encoded == 0xFFFF:
+        raise ValueError("unsigned centidegrees cannot use the reserved null value")
+    return encoded
+
+
+def _decode_unsigned_centidegrees(value: int) -> float | None:
+    return None if value == 0xFFFF else value / 100.0
+
+
 def _encode_distance(value: float | None) -> int:
     if value is None:
         return 0xFFFF
@@ -983,6 +2358,23 @@ def _decode_distance(value: int) -> float | None:
     return None if value == 0xFFFF else value / 10.0
 
 
+def _encode_duration(value: float | None) -> int:
+    if value is None:
+        return 0xFFFF
+    encoded = _bounded_uint(
+        round(value * 10.0),
+        bits=16,
+        field_name="duration deciseconds",
+    )
+    if encoded == 0xFFFF:
+        raise ValueError("duration deciseconds cannot use the reserved null value")
+    return encoded
+
+
+def _decode_duration(value: int) -> float | None:
+    return None if value == 0xFFFF else value / 10.0
+
+
 def _encode_signed_distance(value: float | None) -> int:
     if value is None:
         return -32768
@@ -996,8 +2388,50 @@ def _decode_signed_distance(value: int) -> float | None:
     return None if value == -32768 else value / 10.0
 
 
+def _encode_signed_distance32(value: float | None) -> int:
+    if value is None:
+        return -(1 << 31)
+    encoded = round(value * 10.0)
+    if not -(1 << 31) + 1 <= encoded <= (1 << 31) - 1:
+        raise ValueError("signed distance decimetres does not fit the int32 wire range")
+    return encoded
+
+
+def _decode_signed_distance32(value: int) -> float | None:
+    return None if value == -(1 << 31) else value / 10.0
+
+
+def _decode_optional_interval(low: int, high: int) -> tuple[float, float] | None:
+    decoded = (_decode_distance(low), _decode_distance(high))
+    if decoded == (None, None):
+        return None
+    if any(value is None for value in decoded):
+        raise OperatorProtocolError("range-status confidence interval is partially absent")
+    return (float(decoded[0]), float(decoded[1]))
+
+
+def _registry_mask(values: tuple[str, ...], registry: tuple[str, ...], name: str) -> int:
+    index_by_value = {value: index for index, value in enumerate(registry)}
+    mask = 0
+    for value in values:
+        try:
+            index = index_by_value[value]
+        except KeyError as exc:
+            raise ValueError(f"{name} is not registered: {value}") from exc
+        mask |= 1 << index
+    return mask
+
+
+def _decode_registry_mask(mask: int, registry: tuple[str, ...], name: str) -> tuple[str, ...]:
+    if mask >> len(registry):
+        raise OperatorProtocolError(f"{name} mask contains unsupported bits")
+    return tuple(value for index, value in enumerate(registry) if mask & (1 << index))
+
+
 __all__ = [
     "AUTHENTICATION_TAG_BYTES",
+    "ApproachConfirmationAck",
+    "ApproachConfirmationAckReason",
     "AuthorizationDecisionAck",
     "AuthorizationDecisionAckReason",
     "DecodedOperatorPacket",
@@ -1005,6 +2439,8 @@ __all__ = [
     "OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL",
     "OperatorProtocolError",
     "OperatorTunnelCodec",
+    "PayloadTargetConfirmationAck",
+    "PayloadTargetConfirmationAckReason",
     "SelectionAck",
     "SelectionAckReason",
     "WireMessageType",

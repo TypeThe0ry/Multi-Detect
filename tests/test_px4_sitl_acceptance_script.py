@@ -40,6 +40,20 @@ def test_px4_sitl_acceptance_keeps_pixhawk_and_payload_paths_read_only() -> None
     assert "REMOVE-ITEM" not in upper
 
 
+def test_px4_sitl_acceptance_uses_no_local_or_network_camera() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert '$SYNTHETICSOURCE = "SYNTHETIC://PATROL"' in upper
+    assert upper.count('"--SOURCE", $SYNTHETICSOURCE') == 2
+    assert upper.count('"--BACKEND", "AUTO"') == 2
+    assert "LOCAL_CAMERA_CONTACTED = $FALSE" in upper
+    assert "NETWORK_CAMERA_CONTACTED = $FALSE" in upper
+    assert "DSHOW" not in upper
+    assert "$CAMERASOURCE" not in upper
+    assert "$CAMERABACKEND" not in upper
+
+
 def test_px4_sitl_acceptance_has_negative_freshness_and_owned_cleanup() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 

@@ -11,6 +11,7 @@ from multidetect.qgc_readonly_bridge import (
     MSG_PARAM_REQUEST_LIST,
     MSG_PARAM_SET,
     READ_ONLY_FTP_OPCODES,
+    BridgeSummary,
     MavlinkFrameDecoder,
     _recv_qgc_datagram,
     qgc_frame_is_read_only,
@@ -143,3 +144,27 @@ def test_launcher_prefers_the_standalone_custom_qgc_deployment() -> None:
     assert "bin\\MultiDetectGCS.exe" in launcher
     assert "[IO.Path]::GetFileNameWithoutExtension($QgcPath)" in launcher
     assert "-WorkingDirectory (Split-Path -Parent $QgcPath)" in launcher
+
+
+def test_bridge_summary_reports_read_only_observer_mirror() -> None:
+    summary = BridgeSummary(started_monotonic_s=0.0, observer_frames_mirrored=17)
+
+    report = summary.as_dict(
+        gr01_host="192.168.144.11",
+        gr01_port=5760,
+        qgc_host="127.0.0.1",
+        qgc_port=14550,
+        local_udp_port=14560,
+        observer_udp_host="127.0.0.1",
+        observer_udp_port=14562,
+        autopilot_discarded_bytes=0,
+        qgc_discarded_bytes=0,
+    )
+
+    assert report["observer"] == {
+        "enabled": True,
+        "host": "127.0.0.1",
+        "port": 14562,
+        "frames_mirrored": 17,
+    }
+    assert report["parameter_writes_allowed"] is False

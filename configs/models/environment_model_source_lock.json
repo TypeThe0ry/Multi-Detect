@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-07-14T21:35:00Z",
+  "selection_strategy": "separate scene segmentation, thin-line segmentation, and aerial OBB detection",
+  "sources": [
+    {
+      "role": "building_road_semantic_context",
+      "source": "NVIDIA NGC CitySemSegFormer deployable_onnx_v1.0",
+      "official_url": "https://catalog.ngc.nvidia.com/orgs/nvidia/tao/models/citysemsegformer",
+      "status": "official_onnx_downloaded_hash_verified_local_not_deployed",
+      "model_size_display_reported": "331.08 MB",
+      "local_ignored_artifact_path": "artifacts/model-research/citysemsegformer/citysemsegformer.onnx",
+      "artifact_size_bytes": 347158912,
+      "artifact_sha256": "94ace62e250ed0a3122a46df8573950510b60a90c1b511e53c40dbca2bea21fb",
+      "artifact_integrity_source": "NVIDIA NGC v2 file metadata",
+      "onnx_checker": "passed",
+      "input_shape_from_official_config": [1, 3, 1024, 1820],
+      "actual_onnx_input": {"name": "input", "shape": ["batch_size", 3, 1024, 1820]},
+      "actual_onnx_output": {"name": "output", "shape": ["batch_size", 1024, 1820, 1]},
+      "output_contract": "categorical HWC int64 mask [batch,H,W,1]",
+      "local_windows_cpu_sanity": {
+        "onnxruntime_load_seconds": 2.512,
+        "single_black_frame_inference_seconds": 6.929,
+        "adapter_region_count": 3,
+        "deployment_benchmark": false,
+        "note": "structure and execution sanity only; Orin TensorRT benchmark still required"
+      },
+      "jetson_staging": {
+        "path": "/home/jetson/Multi-Detect/models/environment/citysemsegformer/deployable_onnx_v1.0/citysemsegformer.onnx",
+        "sha256_verified": true,
+        "manifest_verified": true,
+        "onnxruntime_session_load_seconds": 6.248,
+        "onnxruntime_providers": ["AzureExecutionProvider", "CPUExecutionProvider"],
+        "realtime_enabled": false,
+        "reason": "native TensorRT engine and Orin benchmark are still required"
+      },
+      "selected_labels": ["road", "building"],
+      "metadata_files": [
+        {
+          "path": "configs/models/citysemsegformer/labels.txt",
+          "sha256": "48cab81b30ea4ee4f3b07ee136cb7e52c71de093d7bf834211ce29269ddfb196"
+        },
+        {
+          "path": "configs/models/citysemsegformer/nvinfer_config.txt",
+          "sha256": "9bea524ba789f7ec730f0bec1c3845b7a78dbb3109af5d71fcdbca2e0226427b"
+        }
+      ],
+      "runtime_policy": "low-rate scene context only until Orin latency is measured",
+      "production_approved": false
+    },
+    {
+      "role": "power_line_thin_structure_segmentation",
+      "source": "TTPLA official dataset and baselines",
+      "official_url": "https://github.com/R3ab/ttpla_dataset",
+      "source_commit": "72ddf48cfee6d25b89fa8063e4dcd44bad08cddb",
+      "license": "Apache-2.0 repository license; image provenance and deployment rights require dataset audit",
+      "status": "dataset_selected_model_training_not_started",
+      "selected_labels": ["power_line"],
+      "runtime_policy": "custom lightweight segmentation model; no generic box fallback",
+      "production_approved": false
+    },
+    {
+      "role": "storage_tank_aerial_obb",
+      "source": "DOTA storage-tank class with OpenMMLab MMRotate/RTMDet-OBB baseline",
+      "official_url": "https://github.com/open-mmlab/mmrotate",
+      "source_commit": "b030f38909fc431be7ecb90772ac30da9da29bcb",
+      "toolkit_license": "Apache-2.0",
+      "dataset_license": "review_required_before_download_or_training",
+      "status": "architecture_selected_dataset_license_pending",
+      "selected_labels": ["flammable_tank"],
+      "runtime_policy": "convert OBB to conservative axis-aligned metadata only after OBB NMS",
+      "production_approved": false
+    }
+  ],
+  "nvidia_reference_implementation": {
+    "official_url": "https://github.com/NVIDIA-AI-IOT/deepstream_tao_apps",
+    "source_commit": "a7a58dd399e247cb7d7d0c7e4e0d471686a51390"
+  },
+  "flight_control_enabled": false,
+  "physical_release_enabled": false
+}

@@ -6,7 +6,7 @@
   "payloads": [
     {"slot_id": "payload-1", "payload_type": "fire_suppression_agent"}
   ],
-  "target_classes": ["flame", "hotspot"],
+  "target_classes": ["flame"],
   "human_authorization_required": true,
   "minimum_confidence": 0.82,
   "minimum_track_time_seconds": 3.0,
@@ -15,7 +15,8 @@
   "target_reengagement_cooldown_seconds": 300.0,
   "person_exclusion_enabled": true,
   "person_labels": ["person", "firefighter"],
-  "require_thermal_corroboration": true,
+  "require_independent_rgb_corroboration": true,
+  "require_thermal_corroboration": false,
   "completion_policy": "terminate_after_first",
   "ruleset_version": "safety-rules-v1",
   "safety": {

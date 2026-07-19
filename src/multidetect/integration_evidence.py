@@ -187,8 +187,17 @@ def _jetson_reasons(artifact: Mapping[str, Any]) -> tuple[str, ...]:
         "CUDAExecutionProvider",
     }:
         reasons.append("Jetson GPU inference provider is not verified")
-    _require_metric(artifact, "soak_duration_seconds", minimum=1800, reasons=reasons)
-    _require_metric(artifact, "processed_frames", minimum=1000, reasons=reasons)
+    _require_metric(artifact, "soak_duration_seconds", minimum=3600, reasons=reasons)
+    _require_metric(artifact, "processed_frames", minimum=54_000, reasons=reasons)
+    _require_metric(artifact, "processing_fps", minimum=15, reasons=reasons)
+    _require_metric(artifact, "inference_latency_p95_ms", maximum=66.7, reasons=reasons)
+    _require_metric(artifact, "capture_queue_high_watermark", maximum=1, reasons=reasons)
+    if artifact.get("capture_queue_bounded") is not True:
+        reasons.append("Jetson capture queue boundedness is not verified")
+    _require_metric(artifact, "memory_sample_count", minimum=60, reasons=reasons)
+    _require_metric(artifact, "process_rss_growth_mb", maximum=256, reasons=reasons)
+    if artifact.get("memory_growth_bounded") is not True:
+        reasons.append("Jetson process RSS growth boundedness is not verified")
     _require_metric(artifact, "maximum_temperature_c", maximum=95, reasons=reasons)
     return tuple(reasons)
 

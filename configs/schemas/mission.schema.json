@@ -60,6 +60,7 @@
       "type": "array",
       "items": {"type": "string", "minLength": 1}
     },
+    "require_independent_rgb_corroboration": {"type": "boolean"},
     "require_thermal_corroboration": {"type": "boolean"},
     "completion_policy": {
       "enum": ["terminate_after_first", "continue_while_payload_available"]
@@ -134,6 +135,46 @@
           "exclusiveMaximum": 90
         },
         "gravity_mps2": {"type": "number", "exclusiveMinimum": 0},
+        "require_multimodal_range": {"type": "boolean"},
+        "maximum_range_age_s": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_range_target_iou": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "minimum_range_sensor_consistency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "payload_mass_kg": {"type": "number", "exclusiveMinimum": 0},
+        "payload_mass_sigma_kg": {"type": "number", "minimum": 0},
+        "drag_coefficient": {"type": "number", "exclusiveMinimum": 0},
+        "drag_coefficient_sigma": {"type": "number", "minimum": 0},
+        "reference_area_m2": {"type": "number", "exclusiveMinimum": 0},
+        "air_density_kg_m3": {"type": "number", "exclusiveMinimum": 0},
+        "wind_sigma_mps": {"type": "number", "minimum": 0},
+        "ground_velocity_sigma_mps": {"type": "number", "minimum": 0},
+        "altitude_sigma_m": {"type": "number", "minimum": 0},
+        "release_latency_sigma_s": {"type": "number", "minimum": 0},
+        "maximum_air_data_disagreement_mps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maximum_error_ellipse_major_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maximum_error_ellipse_minor_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "integration_step_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.05
+        },
+        "maximum_flight_time_seconds": {"type": "number", "exclusiveMinimum": 0},
         "hil_only": {"const": true}
       }
     }

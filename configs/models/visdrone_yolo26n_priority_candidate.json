@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "model_id": "yolo26n-visdrone-priority",
+  "model_role": "aerial_priority_object_evidence",
+  "status": "training-candidate",
+  "source_checkpoint": "yolo26n.pt",
+  "source_checkpoint_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+  "dataset": {
+    "name": "VisDrone2019-DET",
+    "official_repository": "https://github.com/VisDrone/VisDrone-Dataset",
+    "ultralytics_config": "VisDrone.yaml",
+    "purpose": "aerial small person and vehicle specialization"
+  },
+  "training": {
+    "epochs": 30,
+    "image_size": 960,
+    "batch": 4,
+    "seed": 0,
+    "deterministic": true
+  },
+  "runtime_label_map": [
+    "person",
+    "person",
+    "bicycle",
+    "car",
+    "car",
+    "truck",
+    "motorcycle",
+    "motorcycle",
+    "bus",
+    "motorcycle"
+  ],
+  "export_contract": {
+    "opset": 17,
+    "embedded_nms": false,
+    "topk_nodes": 0,
+    "postprocess": "class-aware host NMS"
+  },
+  "promotion_gates": [
+    "VisDrone validation metrics recorded",
+    "local held-out aerial false-positive review",
+    "raw ONNX structure and checksum verified",
+    "target Orin TensorRT latency and soak measured",
+    "camera-domain evidence reviewed"
+  ],
+  "production_approved": false,
+  "flight_control_enabled": false
+}

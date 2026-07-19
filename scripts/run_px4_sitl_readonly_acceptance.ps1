@@ -1,7 +1,4 @@
 param(
-    [string]$CameraSource = "0",
-    [ValidateSet("auto", "dshow", "msmf", "ffmpeg", "gstreamer")]
-    [string]$CameraBackend = "dshow",
     [ValidateRange(30, 600)]
     [int]$LiveFrames = 90,
     [switch]$IncludeInContainerArmedPatrolHil,
@@ -20,6 +17,7 @@ $MissionConfig = Join-Path $Root "configs\missions\fire_suppression_fixed_wing.d
 $PatrolMissionConfig = Join-Path $Root "configs\missions\fire_patrol.demo.json"
 $SyntheticModel = Join-Path $Root "artifacts\synthetic-hil\synthetic-fire-nx6-hil.onnx"
 $SyntheticManifest = Join-Path $Root "artifacts\synthetic-hil\synthetic-fire-nx6-hil.manifest.json"
+$SyntheticSource = "synthetic://patrol"
 $ImageReference = "px4io/px4-sitl@sha256:bab4270c4849b7027df4bd760c79d743d738c81d7830dde14c4cc5714f781216"
 $ImageReleaseContext = "v1.18.0-beta1"
 $ProtectedGroundStationPort = 14550
@@ -219,10 +217,11 @@ try {
     $live = Invoke-CapturedCommand -FilePath $Executable -ArgumentList @(
         "live-camera",
         $MissionConfig,
-        "--source", $CameraSource,
-        "--backend", $CameraBackend,
+        "--source", $SyntheticSource,
+        "--backend", "auto",
         "--width", "640",
         "--height", "480",
+        "--fps", "30",
         "--onnx-model", $SyntheticModel,
         "--model-manifest", $SyntheticManifest,
         "--class-names", "fire,smoke",
@@ -305,10 +304,11 @@ try {
         $positiveLive = Invoke-CapturedCommand -FilePath $Executable -ArgumentList @(
             "live-camera",
             $PatrolMissionConfig,
-            "--source", $CameraSource,
-            "--backend", $CameraBackend,
+            "--source", $SyntheticSource,
+            "--backend", "auto",
             "--width", "640",
             "--height", "480",
+            "--fps", "30",
             "--onnx-model", $SyntheticModel,
             "--model-manifest", $SyntheticManifest,
             "--class-names", "fire,smoke",
@@ -443,6 +443,9 @@ try {
             real_v6x_contacted = $false
             real_payload_control_enabled = $false
             synthetic_model_accuracy_claim = $false
+            deterministic_synthetic_frames = $true
+            local_camera_contacted = $false
+            network_camera_contacted = $false
             in_container_armed_patrol_hil_included = [bool]$IncludeInContainerArmedPatrolHil
         }
         host = [ordered]@{
@@ -464,6 +467,7 @@ try {
         }
         strict_receive_qualification = $strictCheck
         adversarial_fire_gate = [ordered]@{
+            source = "deterministic synthetic://patrol; no camera device or URL"
             model = "synthetic constant flame candidate HIL"
             model_is_operational_detector = $false
             requested_frames = $LiveFrames
@@ -494,6 +498,8 @@ try {
             optional_armed_patrol_alert_count = if ($IncludeInContainerArmedPatrolHil) { 1 } else { 0 }
             optional_armed_patrol_application_messages_transmitted = 0
             protected_ground_station_port_unchanged = $groundStationPortUnchanged
+            local_camera_contacted = $false
+            network_camera_contacted = $false
             all_passed = $true
         }
         artifacts = [ordered]@{
@@ -506,6 +512,7 @@ try {
             "The pinned image is a v1.18.0-beta1 software artifact and is not proof of the firmware installed on the real V6X.",
             "PX4 fixed-wing SIH is a software dynamics test, not an aerodynamic, launch, payload, wind, terrain or field-safety validation.",
             "The constant-output ONNX model tests interface and fail-closed ordering only; it makes no fire-detection accuracy claim.",
+            "The visual source is a clock-paced deterministic in-memory scene; no local or network camera is opened.",
             $simulatorCommandBoundary,
             "The optional armed LOITER patrol is a gate-plumbing HIL and is not an AUTO mission or route-execution acceptance."
         )
@@ -544,6 +551,7 @@ try {
         stopped_sitl_failed_freshness_gate = $true
         protected_ground_station_port_unchanged = $groundStationPortUnchanged
         hardware_control_enabled = $false
+        local_camera_contacted = $false
     } | ConvertTo-Json -Compress
 }
 finally {

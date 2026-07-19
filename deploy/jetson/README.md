@@ -154,3 +154,35 @@ The audit file appends across service restarts and gives each run a distinct `se
 archive it only between missions using an operations-approved procedure. The service deliberately
 does not enable `--prediction-log-out`; enable prediction logging only for bounded validation runs
 because it writes one record per processed frame.
+
+## Field Jetson service control
+
+The current field unit is named `multidetect-live.service` and uses the repository launcher at
+`/home/jetson/Multi-Detect/scripts/run_jetson_fire_patrol.sh`. Its boot target is
+`multi-user.target`, it waits for `network-online.target`, and it uses `Restart=always` with a
+five-second retry. Enable it once after installation and verify both boot registration and runtime
+state:
+
+```bash
+sudo systemctl enable multidetect-live.service
+systemctl is-enabled multidetect-live.service
+systemctl is-active multidetect-live.service
+```
+
+Use these manual operations during normal maintenance; they do not display the protected operator
+environment file:
+
+```bash
+sudo systemctl start multidetect-live.service
+sudo systemctl restart multidetect-live.service
+sudo systemctl stop multidetect-live.service
+systemctl --no-pager --full status multidetect-live.service
+journalctl -u multidetect-live.service -n 100 --no-pager
+journalctl -u multidetect-live.service -f
+```
+
+From the Windows repository root, the equivalent SSH wrapper is
+`./scripts/manage_jetson_service.ps1 -Action Status`. Replace `Status` with `Start`, `Stop`,
+`Restart`, `Enable`, `Disable`, or `Logs`; add `-Follow` to tail logs. It uses the
+`multidetect-jetson` SSH alias by default and asks for sudo only for an explicit state-changing
+operation.

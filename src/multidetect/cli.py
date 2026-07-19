@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from .aircraft_appearance import HandcraftedAircraftAppearanceEncoder
 from .alerts import (
     AlertAuthenticationError,
     AlertPublisher,
@@ -22,10 +23,17 @@ from .alerts import (
     SqliteAlertOutbox,
     UdpAcknowledgedAlertTransport,
 )
+from .appearance_reid import (
+    NVIDIA_TAO_REID_V1_2_SHA256,
+    OnnxPersonReIdConfig,
+    OnnxPersonReIdEncoder,
+)
+from .approach_hil import ApproachHilController
+from .approach_live import LiveApproachHilCoordinator
 from .audit import AuditLog
 from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
-from .deployment_planner import FixedWingReleaseWindowPlanner
+from .deployment_planner import FixedWingReleaseWindowPlanner, PrimaryRangeEvidence
 from .domain import (
     BoundingBox,
     DeploymentWindowStatus,
@@ -36,6 +44,7 @@ from .domain import (
     VehicleTelemetry,
     Verdict,
 )
+from .engine_provenance import verify_engine_provenance
 from .evaluation import (
     JsonlPredictionWriter,
     evaluate_detections,
@@ -43,19 +52,38 @@ from .evaluation import (
     load_ground_truth_jsonl,
     load_prediction_jsonl,
 )
+from .fixed_wing_aim_control import (
+    FixedWingAimConfig,
+    FixedWingAimController,
+    FixedWingAimExecutor,
+    PixhawkFlightControlConfig,
+    PixhawkFlightControlProvider,
+)
 from .gr01_bench import Gr01BenchConfig, run_gr01_link_bench
 from .integration_evidence import INTEGRATION_PROFILES, check_integration_evidence_bundle
 from .jetson_bench import JetsonVisionBenchConfig, run_jetson_vision_bench
-from .live import LiveMissionRunner, LiveRunConfig
+from .live import LiveMissionRunner, LiveRangingConfig, LiveRunConfig
 from .mission import MissionController
 from .model_manifest import (
     PINNED_LEGACY_CHECKPOINT_SHA256,
     PINNED_LEGACY_CHECKPOINT_SIZE_BYTES,
     VerifiedModelArtifact,
     create_candidate_model_manifest,
+    create_semantic_context_model_manifest,
     verify_checkpoint_bytes,
     verify_model_manifest,
     write_candidate_model_manifest,
+)
+from .monocular_acceptance import (
+    MonocularAvoidanceAcceptanceConfig,
+    run_monocular_avoidance_acceptance,
+)
+from .monocular_avoidance import MonocularAvoidanceConfig, OpenCVSparseFlowAvoidance
+from .multimodal_ranging import (
+    MultiModalRangingEngine,
+    RangeSolution,
+    RangeValidity,
+    load_camera_calibration,
 )
 from .operator_bridge import LiveOperatorBridge
 from .operator_link import (
@@ -64,6 +92,7 @@ from .operator_link import (
     AuthorizationDecisionCommand,
     AuthorizationDisplayState,
     MissionStatusMessage,
+    PatrolStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
@@ -95,6 +124,14 @@ from .operator_udp import (
     UdpOperatorSelectionServer,
     UdpOperatorSessionClient,
 )
+from .patrol_advisory import (
+    AdvisoryValidity,
+    PatrolAdvisoryConfig,
+    PatrolAdvisoryEngine,
+    PatrolPhase,
+    ReturnObserveDirection,
+)
+from .patrol_reacquisition_acceptance import run_patrol_reacquisition_acceptance
 from .payload_bench_evidence import check_inert_payload_hardware_bench
 from .payload_confirmation_hil import PayloadConfirmationHilCodec
 from .payload_confirmation_udp import UdpPayloadConfirmationHilReceiver
@@ -109,6 +146,7 @@ from .payload_inventory import (
     load_payload_inventory_snapshot,
     verify_payload_inventory,
 )
+from .payload_target_live import LivePayloadTargetCoordinator
 from .pixhawk import (
     PIXHAWK_AUTOPILOT_IDS,
     PIXHAWK_VEHICLE_TYPE_IDS,
@@ -130,20 +168,80 @@ from .pixhawk_parameters import (
     write_pixhawk_parameter_report,
     write_pixhawk_parameter_snapshot,
 )
-from .replay import load_jsonl_replay
+from .reid_acceptance import (
+    ReIdModelAcceptanceConfig,
+    ReIdTensorRtAcceptanceConfig,
+    run_reid_model_acceptance,
+    run_reid_tensorrt_acceptance,
+)
+from .replay import load_jsonl_replay, primary_range_evidence_from_frame
+from .rgb_fire_corroboration import (
+    IndependentRgbFireCorroborationConfig,
+    IndependentRgbFireCorroborator,
+)
+from .rtsp_evidence_recording import (
+    RtspEvidenceRecordingConfig,
+    record_rtsp_evidence,
+    rtsp_evidence_recording_document,
+)
+from .selection_target_pool import UnifiedSelectionTargetPool
+from .semantic_environment import (
+    CITYSEMSEGFORMER_LABELS,
+    AsyncSemanticContextRunner,
+    OnnxCategoricalSemanticContext,
+    OnnxSemanticContextConfig,
+)
+from .short_term_acceptance import (
+    ShortTermTrackingAcceptanceConfig,
+    run_short_term_tracking_acceptance,
+)
+from .short_term_tracking import OpenCVShortTermTargetTracker, ShortTermTrackingConfig
 from .synthetic_model import create_synthetic_hil_model_bundle
 from .telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
+from .tensorrt_session import TensorRtEmbeddingSession, TensorRtSemanticSession
+from .tracking_evaluation import (
+    IdentityTrackingEvaluationReport,
+    JsonlIdentityPredictionWriter,
+    evaluate_identity_tracking,
+    load_identity_ground_truth_jsonl,
+    load_identity_prediction_jsonl,
+    tracking_evaluation_document,
+)
+from .tracking_review import (
+    prepare_tracking_review_bundle,
+    tracking_review_bundle_document,
+)
+from .unified_acceptance import (
+    UnifiedTrackingAcceptanceConfig,
+    run_unified_tracking_acceptance,
+)
+from .unified_tracking import UnifiedTargetPool, UnifiedTargetPoolConfig, UnifiedTrackState
+from .vehicle_reid import (
+    OPENVINO_VEHICLE_REID_0001_SHA384,
+    OnnxVehicleReIdConfig,
+    OnnxVehicleReIdEncoder,
+)
 from .vision import (
     BrightNeutralLightVetoFilter,
     BufferedFrameSource,
     CaptureConfig,
     ClassConfidenceFilter,
     DetectorEnsemble,
+    FrameCadencedDetector,
+    LabelAllowListFilter,
+    LabelRemapDetector,
+    MultiSourceConfidenceFilter,
     OnnxNx6Config,
     OnnxNx6Detector,
-    OpenCVFrameSource,
+    OnnxRawYoloConfig,
+    OnnxRawYoloDetector,
     PersonOverlapVetoFilter,
+    SameLabelDetectionFusion,
     TemporalDetectionFilter,
+    TiledDetectionConfig,
+    TiledDetectionFusion,
+    VehicleFurnitureOverlapVetoFilter,
+    frame_source_from_config,
 )
 from .zone_evidence import FileZoneEvidenceProvider
 
@@ -156,6 +254,80 @@ COCO80_CLASS_NAMES = tuple(
     "cake,chair,couch,potted plant,bed,dining table,toilet,tv,laptop,mouse,remote,keyboard,"
     "cell phone,microwave,oven,toaster,sink,refrigerator,book,clock,vase,scissors,teddy bear,"
     "hair drier,toothbrush".split(",")
+)
+PRIORITY_DETECTION_CLASS_NAMES = (
+    "person",
+    "firefighter",
+    "airplane",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+)
+AIRCRAFT_DETECTION_CLASS_NAMES = frozenset({"airplane"})
+VEHICLE_DETECTION_CLASS_NAMES = frozenset(
+    label
+    for label in PRIORITY_DETECTION_CLASS_NAMES
+    if label not in {"person", "firefighter", *AIRCRAFT_DETECTION_CLASS_NAMES}
+)
+VEHICLE_TEMPORAL_LABEL_ALIASES = {
+    label: "vehicle"
+    for label in (
+        *VEHICLE_DETECTION_CLASS_NAMES,
+        "vehicle",
+        "van",
+        "motorbike",
+        "motor",
+        "tricycle",
+        "awning-tricycle",
+        "awning_tricycle",
+    )
+}
+ENVIRONMENT_RISK_CLASS_NAMES = (
+    "power_line",
+    "flammable_tank",
+)
+# Automatic UI candidates deliberately exclude indoor furniture and consumer
+# objects.  The common COCO detector still emits those labels upstream so the
+# vehicle/furniture veto can use them to reject false cars; manual operator
+# rectangles remain available for arbitrary objects.
+NON_SELECTABLE_AUTOMATIC_LABELS = frozenset(
+    {
+        "chair",
+        "couch",
+        "bed",
+        "dining table",
+        "toilet",
+        "tv",
+        "laptop",
+        "mouse",
+        "remote",
+        "keyboard",
+        "cell phone",
+        "potted plant",
+        "book",
+        "clock",
+        "vase",
+    }
+)
+VISDRONE_PRIORITY_CLASS_NAMES = (
+    "pedestrian",
+    "people",
+    "bicycle",
+    "car",
+    "van",
+    "truck",
+    "tricycle",
+    "awning-tricycle",
+    "bus",
+    "motor",
+)
+VISDRONE_PRIORITY_LABEL_MAP = (
+    "pedestrian=person,people=person,van=car,tricycle=motorcycle,"
+    "awning-tricycle=motorcycle,motor=motorcycle"
 )
 
 
@@ -181,6 +353,20 @@ def build_parser() -> argparse.ArgumentParser:
     release_window.add_argument("--altitude-agl-m", type=float, required=True)
     release_window.add_argument("--ground-speed-mps", type=float, required=True)
     release_window.add_argument("--pitch-deg", type=float, required=True)
+    release_window.add_argument("--heading-deg", type=float, required=True)
+    release_window.add_argument("--velocity-north-mps", type=float, required=True)
+    release_window.add_argument("--velocity-east-mps", type=float, required=True)
+    release_window.add_argument("--airspeed-mps", type=float, required=True)
+    release_window.add_argument("--wind-north-mps", type=float, required=True)
+    release_window.add_argument("--wind-east-mps", type=float, required=True)
+    release_window.add_argument("--target-north-m", type=float, required=True)
+    release_window.add_argument("--target-east-m", type=float, required=True)
+    release_window.add_argument("--range-ci-low-m", type=float, required=True)
+    release_window.add_argument("--range-ci-high-m", type=float, required=True)
+    release_window.add_argument("--bearing-sigma-deg", type=float, required=True)
+    release_window.add_argument("--range-sensor-consistency", type=float, required=True)
+    release_window.add_argument("--range-calibration-id", required=True)
+    release_window.add_argument("--range-target-id", default="hil-unified-target")
     release_window.add_argument("--label", default="flame")
     release_window.add_argument("--target-id", default="hil-target")
     release_window.add_argument("--target-revision", type=int, default=1)
@@ -216,6 +402,138 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation.add_argument("predictions", type=Path)
     evaluation.add_argument("--iou-threshold", type=float, default=0.5)
     evaluation.add_argument("--confidence-threshold", type=float, default=0.25)
+    tracking_evaluation = subparsers.add_parser(
+        "evaluate-tracking",
+        help="evaluate identity-annotated tracking JSONL without opening hardware",
+    )
+    tracking_evaluation.add_argument("ground_truth", type=Path)
+    tracking_evaluation.add_argument("predictions", type=Path)
+    tracking_evaluation.add_argument("--iou-threshold", type=float, default=0.5)
+    tracking_evaluation.add_argument("--confidence-threshold", type=float, default=0.1)
+    tracking_evaluation.add_argument("--maximum-timestamp-delta-seconds", type=float, default=0.05)
+    tracking_evaluation.add_argument(
+        "--maximum-occlusion-recovery-seconds", type=float, default=0.5
+    )
+    tracking_evaluation.add_argument(
+        "--maximum-out-of-frame-recovery-seconds", type=float, default=2.0
+    )
+    tracking_evaluation.add_argument(
+        "--dataset-provenance",
+        choices=("unverified", "synthetic_demo", "lab_recording", "deployment_recording"),
+        default="unverified",
+    )
+    tracking_evaluation.add_argument("--source-video", type=Path)
+    tracking_evaluation.add_argument("--annotations-reviewed", action="store_true")
+    tracking_evaluation.add_argument("--minimum-idf1", type=float)
+    tracking_evaluation.add_argument("--maximum-id-switch-count", type=int)
+    tracking_evaluation.add_argument("--minimum-occlusion-recovery-rate", type=float)
+    tracking_evaluation.add_argument("--minimum-out-of-frame-recovery-rate", type=float)
+    tracking_evaluation.add_argument("--maximum-occlusion-recovery-p95-seconds", type=float)
+    tracking_evaluation.add_argument("--maximum-out-of-frame-recovery-p95-seconds", type=float)
+    tracking_evaluation.add_argument("--out", type=Path)
+    unified_bench = subparsers.add_parser(
+        "unified-tracking-bench",
+        help="benchmark the metadata-only multi-target core without camera, models, or hardware",
+    )
+    unified_bench.add_argument("--track-count", type=int, default=10)
+    unified_bench.add_argument("--benchmark-frames", type=int, default=3000)
+    unified_bench.add_argument("--minimum-metadata-rate-hz", type=float, default=15.0)
+    unified_bench.add_argument("--maximum-switch-latency-ms", type=float, default=200.0)
+    unified_bench.add_argument("--maximum-short-occlusion-seconds", type=float, default=0.5)
+    unified_bench.add_argument("--maximum-reacquisition-seconds", type=float, default=2.0)
+    unified_bench.add_argument("--out", type=Path, required=True)
+    patrol_reacquisition_sitl = subparsers.add_parser(
+        "patrol-reacquisition-sitl",
+        help=(
+            "validate mode-1 occlusion, LOST, ReID recovery and revisit advice against an "
+            "owned isolated PX4 SITL telemetry stream; opens no camera and sends no MAVLink"
+        ),
+    )
+    patrol_reacquisition_sitl.add_argument("--endpoint", required=True)
+    patrol_reacquisition_sitl.add_argument("--baud", type=int, default=57_600)
+    patrol_reacquisition_sitl.add_argument("--samples", type=int, default=40)
+    patrol_reacquisition_sitl.add_argument("--interval-seconds", type=float, default=0.1)
+    patrol_reacquisition_sitl.add_argument(
+        "--acknowledge-owned-disposable-sitl",
+        action="store_true",
+    )
+    patrol_reacquisition_sitl.add_argument("--out", type=Path, required=True)
+    short_term_bench = subparsers.add_parser(
+        "short-term-tracking-bench",
+        help="benchmark image-level flow/template recovery without camera, models, or hardware",
+    )
+    short_term_bench.add_argument("--track-count", type=int, default=10)
+    short_term_bench.add_argument("--benchmark-frames", type=int, default=300)
+    short_term_bench.add_argument("--frame-rate-hz", type=float, default=30.0)
+    short_term_bench.add_argument("--analysis-width", type=int, default=320)
+    short_term_bench.add_argument("--frame-stride", type=int, default=2)
+    short_term_bench.add_argument(
+        "--maximum-processing-latency-p95-ms",
+        type=float,
+        default=66.7,
+    )
+    short_term_bench.add_argument("--minimum-end-to-end-rate-hz", type=float, default=15.0)
+    short_term_bench.add_argument("--maximum-recovery-seconds", type=float, default=0.5)
+    short_term_bench.add_argument("--out", type=Path, required=True)
+    avoidance_bench = subparsers.add_parser(
+        "monocular-avoidance-bench",
+        help="benchmark advisory-only OpenCV flow/RANSAC avoidance without hardware",
+    )
+    avoidance_bench.add_argument("--benchmark-frames", type=int, default=300)
+    avoidance_bench.add_argument("--frame-rate-hz", type=float, default=30.0)
+    avoidance_bench.add_argument("--analysis-width", type=int, default=320)
+    avoidance_bench.add_argument(
+        "--maximum-processing-latency-p95-ms",
+        type=float,
+        default=66.7,
+    )
+    avoidance_bench.add_argument("--minimum-end-to-end-rate-hz", type=float, default=15.0)
+    avoidance_bench.add_argument("--out", type=Path, required=True)
+    reid_bench = subparsers.add_parser(
+        "reid-onnx-cpu-bench",
+        help="validate pinned person/vehicle ReID ONNX models on CPU without hardware",
+    )
+    reid_bench.add_argument("--person-model", type=Path, required=True)
+    reid_bench.add_argument("--vehicle-model", type=Path, required=True)
+    reid_bench.add_argument("--person-count", type=int, default=4)
+    reid_bench.add_argument("--vehicle-count", type=int, default=4)
+    reid_bench.add_argument("--iterations", type=int, default=2)
+    reid_bench.add_argument("--realtime-frame-budget-ms", type=float, default=66.7)
+    reid_bench.add_argument("--out", type=Path, required=True)
+    reid_tensorrt_bench = subparsers.add_parser(
+        "reid-tensorrt-bench",
+        help="gate target-built person/vehicle ReID TensorRT engines without camera or Pixhawk",
+    )
+    reid_tensorrt_bench.add_argument("--person-model", type=Path, required=True)
+    reid_tensorrt_bench.add_argument("--vehicle-model", type=Path, required=True)
+    reid_tensorrt_bench.add_argument("--person-engine", type=Path, required=True)
+    reid_tensorrt_bench.add_argument("--vehicle-engine", type=Path, required=True)
+    reid_tensorrt_bench.add_argument("--person-count", type=int, default=4)
+    reid_tensorrt_bench.add_argument("--vehicle-count", type=int, default=4)
+    reid_tensorrt_bench.add_argument("--iterations", type=int, default=20)
+    reid_tensorrt_bench.add_argument("--realtime-frame-budget-ms", type=float, default=66.7)
+    reid_tensorrt_bench.add_argument("--out", type=Path, required=True)
+    tracking_review = subparsers.add_parser(
+        "prepare-tracking-review",
+        help="prepare a hash-bound, deliberately unreviewed identity annotation bundle",
+    )
+    tracking_review.add_argument("predictions", type=Path)
+    tracking_review.add_argument("source_video", type=Path)
+    tracking_review.add_argument("source_video_manifest", type=Path)
+    tracking_review.add_argument("output_directory", type=Path)
+    tracking_review.add_argument("--overwrite", action="store_true")
+    rtsp_recording = subparsers.add_parser(
+        "record-rtsp-evidence",
+        help="record credential-redacted H.265 RTSP stream-copy evidence without re-encoding",
+    )
+    rtsp_recording.add_argument("--source-env", required=True)
+    rtsp_recording.add_argument("--session-id", required=True)
+    rtsp_recording.add_argument("--out-video", type=Path, required=True)
+    rtsp_recording.add_argument("--manifest-out", type=Path, required=True)
+    rtsp_recording.add_argument("--duration-seconds", type=float, default=30.0)
+    rtsp_recording.add_argument("--latency-ms", type=int, default=100)
+    rtsp_recording.add_argument("--finalize-timeout-seconds", type=float, default=5.0)
+    rtsp_recording.add_argument("--overwrite", action="store_true")
     payload_check.add_argument("--hmac-key-env")
     payload_check.add_argument("--expected-key-id")
 
@@ -267,7 +585,12 @@ def build_parser() -> argparse.ArgumentParser:
     model_check.add_argument("--model-manifest", type=Path)
     model_check.add_argument(
         "--model-role",
-        choices=("fire_candidate", "safety_object_evidence"),
+        choices=(
+            "fire_candidate",
+            "fire_verifier",
+            "safety_object_evidence",
+            "environment_risk_evidence",
+        ),
         default="fire_candidate",
     )
     model_check.add_argument("--require-production-approved", action="store_true")
@@ -308,24 +631,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     jetson_bench.add_argument("--provider", action="append", default=[])
     jetson_bench.add_argument("--trt-engine-cache", type=Path)
-    jetson_bench.add_argument("--minimum-frames", type=int, default=1000)
-    jetson_bench.add_argument("--minimum-duration-seconds", type=float, default=1800.0)
-    jetson_bench.add_argument("--maximum-duration-seconds", type=float, default=2100.0)
+    jetson_bench.add_argument("--minimum-frames", type=int, default=54_000)
+    jetson_bench.add_argument("--minimum-duration-seconds", type=float, default=3600.0)
+    jetson_bench.add_argument("--maximum-duration-seconds", type=float, default=3900.0)
     jetson_bench.add_argument("--maximum-temperature-c", type=float, default=95.0)
+    jetson_bench.add_argument("--minimum-processing-fps", type=float, default=15.0)
+    jetson_bench.add_argument(
+        "--maximum-inference-latency-p95-ms",
+        type=float,
+        default=66.7,
+    )
+    jetson_bench.add_argument(
+        "--maximum-capture-queue-high-watermark",
+        type=int,
+        default=1,
+    )
+    jetson_bench.add_argument("--maximum-memory-growth-mb", type=float, default=256.0)
+    jetson_bench.add_argument("--memory-warmup-seconds", type=float, default=60.0)
     jetson_bench.add_argument("--out", type=Path, required=True)
 
     manifest_init = subparsers.add_parser(
         "model-manifest-init",
-        help="create a quarantined candidate manifest bound to a local ONNX artifact",
+        help="create a quarantined candidate manifest bound to a local model artifact",
     )
-    manifest_init.add_argument("--onnx-model", type=Path, required=True)
+    manifest_init.add_argument(
+        "--onnx-model",
+        "--model-artifact",
+        dest="onnx_model",
+        type=Path,
+        required=True,
+    )
     manifest_init.add_argument("--out", type=Path, required=True)
     manifest_init.add_argument("--model-id", required=True)
     manifest_init.add_argument("--model-version", required=True)
     manifest_init.add_argument("--source-description", required=True)
     manifest_init.add_argument(
         "--model-role",
-        choices=("fire_candidate", "safety_object_evidence"),
+        choices=(
+            "fire_candidate",
+            "fire_verifier",
+            "safety_object_evidence",
+            "environment_risk_evidence",
+        ),
         default="fire_candidate",
     )
     manifest_init.add_argument("--class-names", default="fire,smoke")
@@ -336,7 +683,26 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("letterbox_xyxy_px", "normalized_xyxy"),
         required=True,
     )
+    manifest_init.add_argument(
+        "--native-output-format",
+        choices=("post_nms_N_x_6", "ultralytics_raw_xywh_class_scores"),
+        default="post_nms_N_x_6",
+    )
     manifest_init.add_argument("--force", action="store_true")
+
+    semantic_manifest_init = subparsers.add_parser(
+        "semantic-model-manifest-init",
+        help="create a quarantined categorical semantic-context manifest bound to ONNX",
+    )
+    semantic_manifest_init.add_argument("--onnx-model", type=Path, required=True)
+    semantic_manifest_init.add_argument("--out", type=Path, required=True)
+    semantic_manifest_init.add_argument("--model-id", required=True)
+    semantic_manifest_init.add_argument("--model-version", required=True)
+    semantic_manifest_init.add_argument("--source-description", required=True)
+    semantic_manifest_init.add_argument("--input-width", type=int, default=1820)
+    semantic_manifest_init.add_argument("--input-height", type=int, default=1024)
+    semantic_manifest_init.add_argument("--output-name", default="output")
+    semantic_manifest_init.add_argument("--force", action="store_true")
 
     synthetic_model = subparsers.add_parser(
         "synthetic-model-init",
@@ -628,6 +994,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--model-manifest", type=Path)
     live.add_argument("--class-names", default="fire,smoke")
+    live.add_argument(
+        "--primary-model-frame-stride",
+        type=int,
+        default=1,
+        help=(
+            "run the primary fire/smoke detector every Nth camera frame; selected targets "
+            "retain visual continuity through the short-term tracker"
+        ),
+    )
+    live.add_argument("--primary-model-frame-phase", type=int, default=0)
+    live.add_argument(
+        "--rgb-fire-verifier-model",
+        type=Path,
+        help=(
+            "independent post-NMS RGB fire verifier ONNX/TensorRT model; its output only "
+            "corroborates primary fire boxes and never creates targets"
+        ),
+    )
+    live.add_argument("--rgb-fire-verifier-model-manifest", type=Path)
+    live.add_argument("--rgb-fire-verifier-class-names", default="fire,smoke")
+    live.add_argument("--rgb-fire-verifier-confidence-threshold", type=float, default=0.65)
+    live.add_argument("--rgb-fire-verifier-minimum-iou", type=float, default=0.30)
     live.add_argument("--safety-onnx-model", type=Path)
     live.add_argument("--safety-model-manifest", type=Path)
     live.add_argument("--require-production-approved-models", action="store_true")
@@ -638,7 +1026,111 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--safety-class-names", default="person,firefighter")
     live.add_argument("--safety-model-coco80", action="store_true")
+    live.add_argument(
+        "--safety-model-format",
+        choices=("post_nms_nx6", "ultralytics_raw"),
+        default="post_nms_nx6",
+        help=(
+            "use ultralytics_raw for an end2end=False, nms=False export; host-side NMS "
+            "avoids TensorRT 8.6 TopK incompatibilities"
+        ),
+    )
+    live.add_argument("--safety-model-iou-threshold", type=float, default=0.45)
+    live.add_argument("--safety-model-maximum-detections", type=int, default=300)
+    live.add_argument("--safety-model-frame-stride", type=int, default=1)
+    live.add_argument("--safety-model-frame-phase", type=int, default=0)
     live.add_argument("--safety-confidence-threshold", type=float, default=0.30)
+    live.add_argument("--safety-priority-confidence-threshold", type=float, default=0.25)
+    live.add_argument("--safety-fallback-confidence-threshold", type=float, default=0.35)
+    live.add_argument("--safety-tile-columns", type=int, default=1)
+    live.add_argument("--safety-tile-rows", type=int, default=1)
+    live.add_argument("--safety-tile-overlap", type=float, default=0.15)
+    live.add_argument("--safety-tile-scan-interval-frames", type=int, default=3)
+    live.add_argument("--safety-tile-fusion-iou-threshold", type=float, default=0.30)
+    live.add_argument("--safety-tile-confidence-threshold", type=float, default=0.40)
+    live.add_argument(
+        "--safety-tile-label-confidence-thresholds",
+        default="airplane=0.82",
+        help="comma-separated class=confidence overrides used only on tiled detections",
+    )
+    live.add_argument("--safety-tile-maximum-box-area", type=float, default=0.04)
+    live.add_argument(
+        "--safety-tile-labels",
+        default=",".join(PRIORITY_DETECTION_CLASS_NAMES),
+        help="comma-separated priority classes eligible for tiled small-object discovery",
+    )
+    live.add_argument("--priority-onnx-model", type=Path)
+    live.add_argument("--priority-model-manifest", type=Path)
+    live.add_argument("--priority-class-names", default=",".join(VISDRONE_PRIORITY_CLASS_NAMES))
+    live.add_argument("--priority-label-map", default=VISDRONE_PRIORITY_LABEL_MAP)
+    live.add_argument("--priority-input-width", type=int, default=960)
+    live.add_argument("--priority-input-height", type=int, default=960)
+    live.add_argument("--priority-confidence-threshold", type=float, default=0.30)
+    live.add_argument("--priority-person-confidence-threshold", type=float, default=0.30)
+    live.add_argument(
+        "--priority-vehicle-confidence-threshold",
+        type=float,
+        default=0.60,
+        help="minimum vehicle confidence across both common and priority detectors",
+    )
+    live.add_argument(
+        "--car-single-source-confidence-threshold",
+        type=float,
+        default=0.80,
+        help="minimum car confidence when common and priority detectors do not agree",
+    )
+    live.add_argument(
+        "--priority-label-confidence-thresholds",
+        default="truck=0.80",
+        help=(
+            "comma-separated source-label=confidence overrides applied by the "
+            "priority detector before runtime label remapping"
+        ),
+    )
+    live.add_argument(
+        "--priority-vehicle-stability-frames",
+        type=int,
+        default=3,
+        help="consecutive scheduled vehicle detections required before fusion",
+    )
+    live.add_argument("--priority-model-iou-threshold", type=float, default=0.45)
+    live.add_argument("--priority-model-maximum-detections", type=int, default=300)
+    live.add_argument("--priority-model-frame-stride", type=int, default=1)
+    live.add_argument("--priority-model-frame-phase", type=int, default=0)
+    live.add_argument(
+        "--lock-model-force-every-frame",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "force every matching learned detector on each LCK frame; disable to retain "
+            "scheduled detector cadence while the short-term tracker supplies visual continuity"
+        ),
+    )
+    live.add_argument("--environment-onnx-model", type=Path)
+    live.add_argument("--environment-model-manifest", type=Path)
+    live.add_argument(
+        "--environment-class-names",
+        default=",".join(ENVIRONMENT_RISK_CLASS_NAMES),
+    )
+    live.add_argument("--environment-confidence-threshold", type=float, default=0.40)
+    live.add_argument(
+        "--semantic-context-onnx-model",
+        type=Path,
+        help=(
+            "hash-manifest-bound categorical scene segmentation ONNX; runs on a bounded "
+            "low-rate worker and never enters target identity or control"
+        ),
+    )
+    live.add_argument("--semantic-context-model-manifest", type=Path)
+    live.add_argument("--semantic-context-engine", type=Path)
+    live.add_argument("--semantic-context-engine-provenance", type=Path)
+    live.add_argument(
+        "--semantic-context-trtexec",
+        type=Path,
+        default=Path("/usr/src/tensorrt/bin/trtexec"),
+    )
+    live.add_argument("--semantic-context-minimum-interval-seconds", type=float, default=0.5)
+    live.add_argument("--semantic-context-maximum-age-seconds", type=float, default=2.0)
     live.add_argument("--input-width", type=int, default=640)
     live.add_argument("--input-height", type=int, default=640)
     live.add_argument(
@@ -652,6 +1144,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--flame-confidence-threshold", type=float, default=0.72)
     live.add_argument("--smoke-confidence-threshold", type=float, default=0.60)
+    live.add_argument("--fire-minimum-bright-warm-fraction", type=float, default=0.0)
     live.add_argument("--candidate-stability-frames", type=int, default=6)
     live.add_argument("--person-veto-fire-coverage", type=float, default=0.40)
     live.add_argument(
@@ -661,6 +1154,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument(
         "--safety-output-coordinates",
+        choices=("letterbox_xyxy_px", "normalized_xyxy"),
+    )
+    live.add_argument(
+        "--rgb-fire-verifier-output-coordinates",
+        choices=("letterbox_xyxy_px", "normalized_xyxy"),
+    )
+    live.add_argument(
+        "--environment-output-coordinates",
         choices=("letterbox_xyxy_px", "normalized_xyxy"),
     )
     live.add_argument("--provider", action="append", default=[])
@@ -684,6 +1185,235 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--max-frames", type=int)
     live.add_argument("--alert-banner-seconds", type=float, default=5.0)
     live.add_argument("--performance-window-frames", type=int, default=600)
+    live.add_argument(
+        "--monocular-avoidance",
+        action="store_true",
+        help=(
+            "enable lightweight monocular collision-risk advisory; emits no flight-control "
+            "commands and provides no metric depth"
+        ),
+    )
+    live.add_argument("--avoidance-analysis-width", type=int, default=640)
+    live.add_argument("--avoidance-minimum-features", type=int, default=24)
+    live.add_argument("--avoidance-caution-ttc-seconds", type=float, default=3.0)
+    live.add_argument("--avoidance-avoid-ttc-seconds", type=float, default=1.5)
+    live.add_argument("--avoidance-maximum-data-age-seconds", type=float, default=0.25)
+    live.add_argument(
+        "--multimodal-ranging",
+        action="store_true",
+        help=(
+            "enable read-only primary-target ranging from an explicit camera calibration and "
+            "timestamped Pixhawk observations; never enables flight or payload control"
+        ),
+    )
+    live.add_argument(
+        "--mode3-aim",
+        "--approach-hil",
+        dest="approach_hil",
+        action="store_true",
+        help=(
+            "enable Mode-3 target-bound centering state and signed execution confirmation; "
+            "requires operator UDP, unified target pool, monocular avoidance and multimodal ranging"
+        ),
+    )
+    live.add_argument(
+        "--fixed-wing-aim-control",
+        action="store_true",
+        help="enable real Mode-3 LCK attitude-target control through the qualified Pixhawk link",
+    )
+    live.add_argument("--aim-maximum-target-age-seconds", type=float, default=0.30)
+    live.add_argument("--aim-maximum-attitude-age-seconds", type=float, default=0.50)
+    live.add_argument("--aim-minimum-airspeed-mps", type=float, default=12.0)
+    live.add_argument("--aim-minimum-altitude-agl-m", type=float, default=8.0)
+    live.add_argument("--aim-maximum-abs-roll-deg", type=float, default=20.0)
+    live.add_argument("--aim-maximum-abs-pitch-deg", type=float, default=15.0)
+    live.add_argument("--aim-maximum-roll-correction-deg", type=float, default=10.0)
+    live.add_argument("--aim-maximum-pitch-correction-deg", type=float, default=6.0)
+    live.add_argument("--aim-roll-gain", type=float, default=0.70)
+    live.add_argument("--aim-pitch-gain", type=float, default=0.70)
+    live.add_argument("--aim-maximum-roll-slew-deg-s", type=float, default=35.0)
+    live.add_argument("--aim-maximum-pitch-slew-deg-s", type=float, default=25.0)
+    live.add_argument("--aim-prestream-setpoints", type=int, default=10)
+    live.add_argument("--aim-control-mode", default="OFFBOARD")
+    live.add_argument("--aim-return-mode", default="AUTO")
+    live.add_argument("--aim-rc-input-rate-hz", type=float, default=20.0)
+    live.add_argument("--aim-rc-input-maximum-age-seconds", type=float, default=0.30)
+    live.add_argument("--aim-rc-cancel-threshold-us", type=int, default=50)
+    live.add_argument(
+        "--payload-target-hil",
+        action="store_true",
+        help=(
+            "enable Mode-2 fire-aimpoint resolution and target-bound continuous-slide "
+            "confirmation; gates authorization metadata but never enables physical release"
+        ),
+    )
+    live.add_argument(
+        "--ranging-calibration",
+        type=Path,
+        help="strict schema-v1 JSON camera intrinsics, distortion and installation calibration",
+    )
+    live.add_argument("--ranging-agl-sigma-m", type=float, default=1.5)
+    live.add_argument("--ranging-roll-sigma-deg", type=float, default=0.3)
+    live.add_argument("--ranging-pitch-sigma-deg", type=float, default=0.3)
+    live.add_argument("--ranging-heading-sigma-deg", type=float, default=1.0)
+    live.add_argument("--ranging-target-center-sigma-px", type=float, default=2.0)
+    live.add_argument(
+        "--unified-target-pool",
+        action="store_true",
+        help=(
+            "maintain a bounded metadata-only multi-target bank; this does not enable "
+            "flight control or physical payload output"
+        ),
+    )
+    live.add_argument("--unified-target-pool-maximum-tracks", type=int, default=64)
+    live.add_argument(
+        "--unified-target-pool-locked-reacquisition-seconds",
+        type=float,
+        default=5.0,
+        help=(
+            "retain an exclusive LCK identity in active reacquisition for this long; "
+            "normal DET/TRK tracks keep the shorter target-pool timeout"
+        ),
+    )
+    live.add_argument(
+        "--unified-target-pool-minimum-association-confidence",
+        type=float,
+        default=0.10,
+    )
+    live.add_argument(
+        "--unified-target-pool-priority-minimum-new-track-confidence",
+        type=float,
+        default=0.25,
+    )
+    live.add_argument(
+        "--unified-target-pool-minimum-new-track-confidence",
+        type=float,
+        default=0.35,
+    )
+    live.add_argument(
+        "--unified-target-pool-high-confidence-threshold",
+        type=float,
+        default=0.55,
+    )
+    live.add_argument(
+        "--unified-target-pool-person-maximum-appearance-distance",
+        type=float,
+        help=(
+            "optional person/firefighter ReID association gate; leaves vehicle and aircraft "
+            "appearance gates at their shared defaults"
+        ),
+    )
+    live.add_argument(
+        "--unified-target-pool-person-strict-reid-distance",
+        type=float,
+        help="optional person/firefighter strict ReID recovery gate",
+    )
+    live.add_argument("--unified-target-pool-kalman-process-noise", type=float, default=0.04)
+    live.add_argument(
+        "--unified-target-pool-kalman-measurement-noise",
+        type=float,
+        default=0.0004,
+    )
+    live.add_argument("--unified-target-pool-kalman-gate-sigma", type=float, default=4.0)
+    live.add_argument(
+        "--unified-target-pool-kalman-maximum-horizon-seconds",
+        type=float,
+        default=2.0,
+    )
+    live.add_argument(
+        "--patrol-advisory",
+        action="store_true",
+        help=(
+            "derive mode-1 patrol and return-to-observe metadata; emits no route or "
+            "flight-control commands"
+        ),
+    )
+    live.add_argument("--patrol-maximum-bank-angle-deg", type=float, default=25.0)
+    live.add_argument("--patrol-minimum-ground-speed-mps", type=float, default=5.0)
+    live.add_argument("--patrol-maximum-evidence-age-seconds", type=float, default=2.0)
+    live.add_argument(
+        "--person-reid-onnx",
+        type=Path,
+        help="hash-pinned NVIDIA TAO person ReID ONNX artifact",
+    )
+    live.add_argument(
+        "--person-reid-engine",
+        type=Path,
+        help="Jetson-built TensorRT engine for the pinned person ReID ONNX artifact",
+    )
+    live.add_argument("--person-reid-maximum-batch-size", type=int, default=10)
+    live.add_argument(
+        "--person-reid-frame-stride",
+        type=int,
+        default=2,
+        help="run person ReID every N frames while stable; recovery and time gates override it",
+    )
+    live.add_argument(
+        "--vehicle-reid-onnx",
+        type=Path,
+        help="hash-pinned OpenVINO vehicle-reid-0001 ONNX artifact",
+    )
+    live.add_argument(
+        "--vehicle-reid-engine",
+        type=Path,
+        help="Jetson-built TensorRT engine for the pinned vehicle ReID ONNX artifact",
+    )
+    live.add_argument("--vehicle-reid-maximum-batch-size", type=int, default=8)
+    live.add_argument(
+        "--vehicle-reid-frame-stride",
+        type=int,
+        default=2,
+        help="run vehicle ReID every N frames while stable; recovery and time gates override it",
+    )
+    live.add_argument(
+        "--reid-maximum-interval-seconds",
+        type=float,
+        default=0.1,
+        help="maximum wall-clock interval between enabled ReID passes",
+    )
+    live.add_argument(
+        "--allow-nonrealtime-reid",
+        action="store_true",
+        help=(
+            "lab-only override permitting ReID without TensorRT; runtime status remains "
+            "non-realtime and no deployment claim is allowed"
+        ),
+    )
+    live.add_argument(
+        "--short-term-tracking",
+        action="store_true",
+        help=(
+            "enable local optical-flow/template prediction hints; hints never count as "
+            "identity observations and never enable flight control"
+        ),
+    )
+    live.add_argument("--short-term-analysis-width", type=int, default=640)
+    live.add_argument("--short-term-maximum-tracks", type=int, default=16)
+    live.add_argument("--short-term-minimum-flow-points", type=int, default=6)
+    live.add_argument("--short-term-minimum-box-size-px", type=int, default=12)
+    live.add_argument("--short-term-frame-stride", type=int, default=1)
+    live.add_argument(
+        "--short-term-template-minimum-correlation",
+        type=float,
+        default=0.72,
+    )
+    live.add_argument("--short-term-search-expansion", type=float, default=2.5)
+    live.add_argument(
+        "--short-term-occluded-search-multiplier",
+        type=float,
+        default=1.5,
+    )
+    live.add_argument(
+        "--short-term-reacquiring-search-multiplier",
+        type=float,
+        default=2.0,
+    )
+    live.add_argument("--short-term-maximum-search-expansion", type=float, default=6.0)
+    live.add_argument(
+        "--short-term-maximum-retained-template-age-seconds",
+        type=float,
+        default=2.0,
+    )
     live.add_argument(
         "--warmup-iterations",
         type=int,
@@ -774,6 +1504,18 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--no-display", action="store_true")
     live.add_argument("--audit-out", type=Path)
     live.add_argument("--prediction-log-out", type=Path)
+    live.add_argument(
+        "--identity-tracking-log-out",
+        type=Path,
+        help=(
+            "write frame-aligned unified target IDs and states for offline identity evaluation; "
+            "requires --unified-target-pool"
+        ),
+    )
+    live.add_argument(
+        "--identity-tracking-session-id",
+        help="shared UUID binding the identity log to the matching RTSP evidence recording",
+    )
     return parser
 
 
@@ -803,12 +1545,32 @@ def main(argv: list[str] | None = None) -> int:
             return _run_inert_payload_bench_check(args)
         if args.command == "evaluate-detections":
             return _evaluate_detection_logs(args)
+        if args.command == "evaluate-tracking":
+            return _evaluate_tracking_logs(args)
+        if args.command == "unified-tracking-bench":
+            return _run_unified_tracking_bench(args)
+        if args.command == "patrol-reacquisition-sitl":
+            return _run_patrol_reacquisition_sitl(args)
+        if args.command == "short-term-tracking-bench":
+            return _run_short_term_tracking_bench(args)
+        if args.command == "monocular-avoidance-bench":
+            return _run_monocular_avoidance_bench(args)
+        if args.command == "reid-onnx-cpu-bench":
+            return _run_reid_onnx_cpu_bench(args)
+        if args.command == "reid-tensorrt-bench":
+            return _run_reid_tensorrt_bench(args)
+        if args.command == "prepare-tracking-review":
+            return _prepare_tracking_review(args)
+        if args.command == "record-rtsp-evidence":
+            return _record_rtsp_evidence(args)
         if args.command == "model-check":
             return _run_model_check(args)
         if args.command == "jetson-vision-bench":
             return _run_jetson_vision_bench(args)
         if args.command == "model-manifest-init":
             return _run_model_manifest_init(args)
+        if args.command == "semantic-model-manifest-init":
+            return _run_semantic_model_manifest_init(args)
         if args.command == "synthetic-model-init":
             return _run_synthetic_model_init(args)
         if args.command == "legacy-checkpoint-verify":
@@ -852,6 +1614,8 @@ def main(argv: list[str] | None = None) -> int:
                     "live-camera",
                     "camera-check",
                     "camera-bench",
+                    "record-rtsp-evidence",
+                    "reid-tensorrt-bench",
                     "jetson-vision-bench",
                     "pixhawk-check",
                     "pixhawk-param-backup",
@@ -1156,6 +1920,55 @@ def _run_operator_link_demo() -> int:
             "hardware_control_enabled": False,
         }
     )
+    patrol_status = PatrolStatusMessage(
+        status_id=str(UUID("66666666-6666-4666-8666-666666666666")),
+        sequence=4,
+        mission_id="fire-patrol-demo",
+        phase=PatrolPhase.LOST,
+        primary_target_id="track-42",
+        target_state=UnifiedTrackState.LOST,
+        bbox=BoundingBox(0.33, 0.22, 0.62, 0.73),
+        label="flame",
+        confidence=0.91,
+        tracking_quality=0.2,
+        total_track_count=10,
+        locked_track_count=2,
+        source_frame_id="jetson-frame-700",
+        source_captured_at_s=1_000.52,
+        produced_at_s=1_000.58,
+        return_direction=ReturnObserveDirection.LEFT,
+        return_validity=AdvisoryValidity.DEGRADED,
+        return_evidence_age_s=0.5,
+        estimated_minimum_turn_radius_m=75.0,
+    )
+    encoded_patrol_status = codec.encode_patrol_status(patrol_status)
+    patrol_status_frame = jetson_mavlink.wrap_authenticated_operator_payload(encoded_patrol_status)
+    received_patrol_status = codec.decode(
+        g20_mavlink.extract_authenticated_operator_payload(patrol_status_frame)
+    ).message
+    if not isinstance(received_patrol_status, PatrolStatusMessage):  # pragma: no cover
+        raise RuntimeError("operator-link demo returned the wrong patrol-status type")
+    _emit(
+        {
+            "event": "g20_patrol_status_received",
+            "phase": received_patrol_status.phase.value,
+            "target_state": (
+                received_patrol_status.target_state.value
+                if received_patrol_status.target_state is not None
+                else None
+            ),
+            "total_track_count": received_patrol_status.total_track_count,
+            "locked_track_count": received_patrol_status.locked_track_count,
+            "return_direction": received_patrol_status.return_direction.value,
+            "return_validity": received_patrol_status.return_validity.value,
+            "payload_bytes": len(encoded_patrol_status),
+            "mavlink_frame_bytes": len(patrol_status_frame),
+            "advisory_only": received_patrol_status.advisory_only,
+            "flight_control_enabled": received_patrol_status.flight_control_enabled,
+            "simulation_only": True,
+            "hardware_control_enabled": False,
+        }
+    )
     _emit(
         {
             "event": "operator_link_demo_finished",
@@ -1163,6 +1976,7 @@ def _run_operator_link_demo() -> int:
             "tracking_status_received": True,
             "mission_status_received": True,
             "safety_status_received": True,
+            "patrol_status_received": True,
             "physical_payload_interface_present": False,
             "autopilot_write_enabled": False,
             "simulation_only": True,
@@ -1656,6 +2470,43 @@ def _parse_class_names(raw: str) -> tuple[str, ...]:
     return labels
 
 
+def _parse_label_map(raw: str) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for entry in raw.split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if item.count("=") != 1:
+            raise ValueError("label map entries must use source=destination")
+        source, destination = (value.strip().lower() for value in item.split("=", 1))
+        if not source or not destination:
+            raise ValueError("label map entries cannot be empty")
+        mapping[source] = destination
+    return mapping
+
+
+def _parse_label_confidence_thresholds(raw: str) -> dict[str, float]:
+    thresholds: dict[str, float] = {}
+    for entry in raw.split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if item.count("=") != 1:
+            raise ValueError("tile confidence entries must use class=confidence")
+        raw_label, raw_value = (value.strip() for value in item.split("=", 1))
+        label = raw_label.lower()
+        if not label:
+            raise ValueError("tile confidence labels cannot be empty")
+        try:
+            threshold = float(raw_value)
+        except ValueError as exc:
+            raise ValueError("tile confidence values must be numeric") from exc
+        if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+            raise ValueError("tile confidence values must be in [0, 1]")
+        thresholds[label] = threshold
+    return thresholds
+
+
 def _hmac_key_from_env(variable_name: str | None) -> bytes | None:
     if variable_name is None:
         return None
@@ -1713,6 +2564,7 @@ def _verify_optional_model_manifest(
     output_coordinates: str,
     require_production_approved: bool,
     expected_model_role: str,
+    expected_native_output_format: str | None = None,
 ) -> VerifiedModelArtifact | None:
     if manifest_path is None:
         if require_production_approved:
@@ -1724,6 +2576,7 @@ def _verify_optional_model_manifest(
         expected_class_names=class_names,
         expected_output_coordinates=output_coordinates,
         expected_model_role=expected_model_role,
+        expected_native_output_format=expected_native_output_format,
         require_production_approved=require_production_approved,
     )
 
@@ -1760,7 +2613,7 @@ def _camera_check(capture_config: CaptureConfig, *, frame_count: int = 1) -> int
         raise ValueError("camera-check frame count must be positive")
     latencies_ms: list[float] = []
     started_s = time.perf_counter()
-    with OpenCVFrameSource(capture_config) as source:
+    with frame_source_from_config(capture_config) as source:
         captured = None
         expected_size: tuple[int, int] | None = None
         for _ in range(frame_count):
@@ -1781,7 +2634,13 @@ def _camera_check(capture_config: CaptureConfig, *, frame_count: int = 1) -> int
     _emit(
         {
             "event": "camera_frame_received",
-            "source_kind": "rtsp" if capture_config.is_rtsp else "local_device",
+            "source_kind": (
+                "synthetic"
+                if capture_config.is_synthetic
+                else "rtsp"
+                if capture_config.is_rtsp
+                else "local_device"
+            ),
             "width": captured.width,
             "height": captured.height,
             "frame_id": captured.frame_id,
@@ -1804,7 +2663,7 @@ def _run_camera_bench(args: argparse.Namespace) -> int:
         minimum_duration_seconds=args.minimum_duration_seconds,
         maximum_duration_seconds=args.maximum_duration_seconds,
     )
-    source = OpenCVFrameSource(capture_config)
+    source = frame_source_from_config(capture_config)
     try:
         document = run_camera_bench(source, capture_config, bench_config)
     finally:
@@ -1905,12 +2764,57 @@ def _release_window_check(args: argparse.Namespace) -> int:
             link_healthy=None,
             flight_mode_allows_deploy=None,
             release_zone_clear=None,
+            heading_deg=args.heading_deg,
+            velocity_north_mps=args.velocity_north_mps,
+            velocity_east_mps=args.velocity_east_mps,
+            airspeed_mps=args.airspeed_mps,
+            wind_north_mps=args.wind_north_mps,
+            wind_east_mps=args.wind_east_mps,
+            velocity_observed_at_s=args.now_s,
+            airspeed_observed_at_s=args.now_s,
+            wind_observed_at_s=args.now_s,
         ),
+    )
+    ground_range_m = math.hypot(args.target_north_m, args.target_east_m)
+    relative_bearing_deg = math.degrees(math.atan2(args.target_east_m, args.target_north_m))
+    range_solution = RangeSolution(
+        target_id=args.range_target_id,
+        frame_id=frame.frame_id,
+        calibration_id=args.range_calibration_id,
+        evaluated_at_s=args.now_s,
+        validity=RangeValidity.VALID,
+        reasons=("multimodal_range_consistent",),
+        sources=("camera_ground", "laser"),
+        rejected_sources=(),
+        slant_range_m=ground_range_m,
+        ground_range_m=ground_range_m,
+        slant_range_ci95_m=(args.range_ci_low_m, args.range_ci_high_m),
+        ground_range_ci95_m=(args.range_ci_low_m, args.range_ci_high_m),
+        relative_bearing_deg=relative_bearing_deg,
+        absolute_bearing_deg=(args.heading_deg + relative_bearing_deg) % 360.0,
+        bearing_sigma_deg=args.bearing_sigma_deg,
+        north_offset_m=args.target_north_m,
+        east_offset_m=args.target_east_m,
+        data_freshness_s=0.0,
+        sensor_consistency=args.range_sensor_consistency,
+    )
+    evidence = PrimaryRangeEvidence(
+        source_target_id=args.range_target_id,
+        source_frame_id=frame.frame_id,
+        source_captured_at_s=args.now_s,
+        source_label=track.label,
+        source_bbox=track.bbox,
+        solution=range_solution,
     )
     solution = FixedWingReleaseWindowPlanner(
         planner_config,
         allowed_target_labels=config.target_classes,
-    ).plan(track=track, frame=frame, now_s=args.now_s)
+    ).plan(
+        track=track,
+        frame=frame,
+        now_s=args.now_s,
+        ranging_evidence=evidence,
+    )
     _emit(
         {
             "event": "fixed_wing_release_window_checked",
@@ -1918,6 +2822,7 @@ def _release_window_check(args: argparse.Namespace) -> int:
             "target_id": solution.target_id,
             "target_revision": solution.target_revision,
             "status": solution.status.value,
+            "timing_status": solution.timing_status.value,
             "reasons": solution.reasons,
             "calibration_id": solution.calibration_id,
             "relative_bearing_deg": solution.relative_bearing_deg,
@@ -1927,6 +2832,17 @@ def _release_window_check(args: argparse.Namespace) -> int:
             "along_track_error_m": solution.along_track_error_m,
             "payload_descent_time_s": solution.payload_descent_time_s,
             "release_lead_distance_m": solution.release_lead_distance_m,
+            "target_north_offset_m": solution.target_north_offset_m,
+            "target_east_offset_m": solution.target_east_offset_m,
+            "impact_north_offset_m": solution.impact_north_offset_m,
+            "impact_east_offset_m": solution.impact_east_offset_m,
+            "error_ellipse_major_m": solution.error_ellipse_major_m,
+            "error_ellipse_minor_m": solution.error_ellipse_minor_m,
+            "error_ellipse_orientation_deg": solution.error_ellipse_orientation_deg,
+            "ground_range_ci95_m": solution.ground_range_ci95_m,
+            "range_target_id": solution.range_target_id,
+            "range_frame_id": solution.range_frame_id,
+            "range_sensor_consistency": solution.range_sensor_consistency,
             "advisory_only": solution.advisory_only,
             "safety_rules_evaluated": False,
             "authorization_created": False,
@@ -1951,6 +2867,415 @@ def _evaluate_detection_logs(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def _evaluate_tracking_logs(args: argparse.Namespace) -> int:
+    if args.source_video is not None and not args.source_video.is_file():
+        raise ValueError(f"tracking source video does not exist: {args.source_video}")
+    report = evaluate_identity_tracking(
+        load_identity_ground_truth_jsonl(args.ground_truth),
+        load_identity_prediction_jsonl(args.predictions),
+        iou_threshold=args.iou_threshold,
+        confidence_threshold=args.confidence_threshold,
+        maximum_timestamp_delta_s=args.maximum_timestamp_delta_seconds,
+        maximum_occlusion_recovery_s=args.maximum_occlusion_recovery_seconds,
+        maximum_out_of_frame_recovery_s=args.maximum_out_of_frame_recovery_seconds,
+    )
+    failure_reasons = _tracking_acceptance_failure_reasons(args, report)
+    acceptance_evaluated = any(
+        value is not None
+        for value in (
+            args.minimum_idf1,
+            args.maximum_id_switch_count,
+            args.minimum_occlusion_recovery_rate,
+            args.minimum_out_of_frame_recovery_rate,
+            args.maximum_occlusion_recovery_p95_seconds,
+            args.maximum_out_of_frame_recovery_p95_seconds,
+        )
+    )
+    document = {
+        "event": "identity_tracking_evaluation_completed",
+        "dataset_provenance": args.dataset_provenance,
+        "ground_truth_sha256": _sha256_file(args.ground_truth),
+        "predictions_sha256": _sha256_file(args.predictions),
+        "source_video_sha256": (
+            _sha256_file(args.source_video) if args.source_video is not None else None
+        ),
+        "annotations_reviewed": args.annotations_reviewed,
+        "deployment_domain_evidence_complete": (
+            args.dataset_provenance == "deployment_recording"
+            and args.source_video is not None
+            and args.annotations_reviewed
+        ),
+        "acceptance_evaluated": acceptance_evaluated,
+        "passed": (not failure_reasons if acceptance_evaluated else None),
+        "failure_reasons": failure_reasons,
+        **tracking_evaluation_document(report),
+    }
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    return 2 if failure_reasons else 0
+
+
+def _run_unified_tracking_bench(args: argparse.Namespace) -> int:
+    started_s = time.perf_counter()
+    report = run_unified_tracking_acceptance(
+        UnifiedTrackingAcceptanceConfig(
+            track_count=args.track_count,
+            benchmark_frames=args.benchmark_frames,
+            minimum_metadata_rate_hz=args.minimum_metadata_rate_hz,
+            maximum_switch_latency_ms=args.maximum_switch_latency_ms,
+            maximum_short_occlusion_s=args.maximum_short_occlusion_seconds,
+            maximum_reacquisition_s=args.maximum_reacquisition_seconds,
+        )
+    )
+    document = {
+        "event": "unified_tracking_core_benchmark_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "command_wall_time_s": time.perf_counter() - started_s,
+        "passed": True,
+        "camera_opened": False,
+        "model_inference_executed": False,
+        "pixhawk_opened": False,
+        "metadata_only": True,
+        **report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0
+
+
+def _run_patrol_reacquisition_sitl(args: argparse.Namespace) -> int:
+    if not args.acknowledge_owned_disposable_sitl:
+        raise ValueError("patrol-reacquisition-sitl requires --acknowledge-owned-disposable-sitl")
+    endpoint_match = re.fullmatch(
+        r"udpin:(?:0\.0\.0\.0|127\.0\.0\.1):(\d{1,5})",
+        args.endpoint,
+    )
+    if endpoint_match is None:
+        raise ValueError("patrol-reacquisition-sitl requires an isolated local udpin endpoint")
+    endpoint_port = int(endpoint_match.group(1))
+    if not 1 <= endpoint_port <= 65_535:
+        raise ValueError("patrol-reacquisition-sitl endpoint port is invalid")
+    if endpoint_port == 14_550:
+        raise ValueError("patrol-reacquisition-sitl refuses protected ground-station UDP 14550")
+    if args.samples <= 0:
+        raise ValueError("patrol-reacquisition-sitl samples must be positive")
+    if not math.isfinite(args.interval_seconds) or args.interval_seconds < 0.0:
+        raise ValueError("patrol-reacquisition-sitl interval must be a finite non-negative number")
+
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            endpoint=args.endpoint,
+            baud=args.baud,
+            expected_system_id=1,
+            expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS["px4"],
+            expected_vehicle_type_id=PIXHAWK_VEHICLE_TYPE_IDS["fixed_wing"],
+            require_operational_state=True,
+        )
+    )
+    snapshots: list[VehicleTelemetry] = []
+    try:
+        for index in range(args.samples):
+            snapshots.append(provider.snapshot(now_s=time.monotonic()))
+            if index + 1 < args.samples and args.interval_seconds > 0.0:
+                time.sleep(args.interval_seconds)
+        sampled_at_s = time.monotonic()
+        diagnostics = provider.diagnostics(now_s=sampled_at_s)
+    finally:
+        provider.close()
+    operational_snapshots = tuple(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.link_healthy is True
+        and snapshot.position_healthy is True
+        and snapshot.armed is True
+        and snapshot.flight_mode == "MISSION"
+        and math.isfinite(snapshot.ground_speed_mps)
+        and snapshot.ground_speed_mps >= 5.0
+    )
+    latest = operational_snapshots[-1] if operational_snapshots else snapshots[-1]
+    requirements = {
+        "qualified_px4_fixed_wing": provider.qualification.passed is True,
+        "fresh_link": latest.link_healthy is True,
+        "fresh_position": latest.position_healthy is True,
+        "armed": latest.armed is True,
+        "mission_mode": latest.flight_mode == "MISSION",
+        "ground_speed_at_least_5_mps": (
+            math.isfinite(latest.ground_speed_mps) and latest.ground_speed_mps >= 5.0
+        ),
+        "receive_only": provider.messages_transmitted == 0,
+    }
+    failed = tuple(name for name, passed in requirements.items() if not passed)
+    if failed:
+        raise RuntimeError(
+            "owned PX4 SITL telemetry did not satisfy patrol-reacquisition gates: "
+            + ", ".join(failed)
+        )
+
+    report = run_patrol_reacquisition_acceptance(latest)
+    document = {
+        "event": "patrol_reacquisition_sitl_acceptance_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "passed": True,
+        "scope": {
+            "owned_disposable_sitl_acknowledged": True,
+            "isolated_local_udp_port": endpoint_port,
+            "protected_ground_station_port_contacted": False,
+            "camera_opened": False,
+            "network_camera_contacted": False,
+            "model_inference_executed": False,
+            "application_mavlink_messages_transmitted": provider.messages_transmitted,
+            "flight_control_enabled": False,
+            "physical_release_enabled": False,
+        },
+        "requirements": requirements,
+        "pixhawk": {
+            **diagnostics,
+            "latest": _telemetry_document(latest),
+        },
+        "scenario": report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0
+
+
+def _run_short_term_tracking_bench(args: argparse.Namespace) -> int:
+    started_s = time.perf_counter()
+    report = run_short_term_tracking_acceptance(
+        ShortTermTrackingAcceptanceConfig(
+            track_count=args.track_count,
+            benchmark_frames=args.benchmark_frames,
+            frame_rate_hz=args.frame_rate_hz,
+            analysis_width=args.analysis_width,
+            frame_stride=args.frame_stride,
+            maximum_processing_latency_p95_ms=(args.maximum_processing_latency_p95_ms),
+            minimum_end_to_end_rate_hz=args.minimum_end_to_end_rate_hz,
+            maximum_recovery_s=args.maximum_recovery_seconds,
+        )
+    )
+    document = {
+        "event": "short_term_image_tracking_benchmark_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "command_wall_time_s": time.perf_counter() - started_s,
+        "passed": True,
+        **report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0
+
+
+def _run_monocular_avoidance_bench(args: argparse.Namespace) -> int:
+    started_s = time.perf_counter()
+    report = run_monocular_avoidance_acceptance(
+        MonocularAvoidanceAcceptanceConfig(
+            benchmark_frames=args.benchmark_frames,
+            frame_rate_hz=args.frame_rate_hz,
+            analysis_width=args.analysis_width,
+            maximum_processing_latency_p95_ms=(args.maximum_processing_latency_p95_ms),
+            minimum_end_to_end_rate_hz=args.minimum_end_to_end_rate_hz,
+        )
+    )
+    document = {
+        "event": "monocular_avoidance_image_benchmark_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "command_wall_time_s": time.perf_counter() - started_s,
+        "passed": True,
+        **report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0
+
+
+def _run_reid_onnx_cpu_bench(args: argparse.Namespace) -> int:
+    started_s = time.perf_counter()
+    report = run_reid_model_acceptance(
+        ReIdModelAcceptanceConfig(
+            person_model_path=args.person_model,
+            vehicle_model_path=args.vehicle_model,
+            person_count=args.person_count,
+            vehicle_count=args.vehicle_count,
+            iterations=args.iterations,
+            realtime_frame_budget_ms=args.realtime_frame_budget_ms,
+        )
+    )
+    document = {
+        "event": "reid_onnx_cpu_benchmark_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "command_wall_time_s": time.perf_counter() - started_s,
+        "passed": True,
+        **report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0
+
+
+def _run_reid_tensorrt_bench(args: argparse.Namespace) -> int:
+    started_s = time.perf_counter()
+    report = run_reid_tensorrt_acceptance(
+        ReIdTensorRtAcceptanceConfig(
+            person_model_path=args.person_model,
+            vehicle_model_path=args.vehicle_model,
+            person_engine_path=args.person_engine,
+            vehicle_engine_path=args.vehicle_engine,
+            person_count=args.person_count,
+            vehicle_count=args.vehicle_count,
+            iterations=args.iterations,
+            realtime_frame_budget_ms=args.realtime_frame_budget_ms,
+        )
+    )
+    passed = bool(
+        report["target_tensorrt_runtime_validated"]
+        and report["repeat_stability_validated"]
+        and report["realtime_budget_passed"]
+    )
+    document = {
+        "event": "reid_tensorrt_benchmark_completed",
+        "schema_version": 1,
+        "measured_at_unix_s": time.time(),
+        "command_wall_time_s": time.perf_counter() - started_s,
+        "passed": passed,
+        **report,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _emit(document)
+    return 0 if passed else 2
+
+
+def _prepare_tracking_review(args: argparse.Namespace) -> int:
+    report = prepare_tracking_review_bundle(
+        args.predictions,
+        args.source_video,
+        args.source_video_manifest,
+        args.output_directory,
+        overwrite=args.overwrite,
+    )
+    document = tracking_review_bundle_document(
+        report,
+        predictions_path=args.predictions,
+        source_video_path=args.source_video,
+        source_video_manifest_path=args.source_video_manifest,
+    )
+    document["manifest_path"] = str(report.manifest_path)
+    _emit(document)
+    return 0
+
+
+def _record_rtsp_evidence(args: argparse.Namespace) -> int:
+    report = record_rtsp_evidence(
+        RtspEvidenceRecordingConfig(
+            source_env=args.source_env,
+            session_id=args.session_id,
+            output_video=args.out_video,
+            manifest_out=args.manifest_out,
+            duration_s=args.duration_seconds,
+            latency_ms=args.latency_ms,
+            finalize_timeout_s=args.finalize_timeout_seconds,
+            overwrite=args.overwrite,
+        )
+    )
+    _emit(rtsp_evidence_recording_document(report))
+    return 0 if report.passed else 2
+
+
+def _tracking_acceptance_failure_reasons(
+    args: argparse.Namespace,
+    report: IdentityTrackingEvaluationReport,
+) -> list[str]:
+    probability_thresholds = (
+        ("minimum_idf1", args.minimum_idf1),
+        ("minimum_occlusion_recovery_rate", args.minimum_occlusion_recovery_rate),
+        ("minimum_out_of_frame_recovery_rate", args.minimum_out_of_frame_recovery_rate),
+    )
+    for name, value in probability_thresholds:
+        if value is not None and (not math.isfinite(value) or not 0.0 <= value <= 1.0):
+            raise ValueError(f"{name} must be finite and in [0, 1]")
+    if args.maximum_id_switch_count is not None and args.maximum_id_switch_count < 0:
+        raise ValueError("maximum_id_switch_count must be non-negative")
+    for name, value in (
+        (
+            "maximum_occlusion_recovery_p95_seconds",
+            args.maximum_occlusion_recovery_p95_seconds,
+        ),
+        (
+            "maximum_out_of_frame_recovery_p95_seconds",
+            args.maximum_out_of_frame_recovery_p95_seconds,
+        ),
+    ):
+        if value is not None and (not math.isfinite(value) or value < 0.0):
+            raise ValueError(f"{name} must be finite and non-negative")
+
+    failures: list[str] = []
+    if args.minimum_idf1 is not None and (
+        report.overall.idf1 is None or report.overall.idf1 < args.minimum_idf1
+    ):
+        failures.append("overall IDF1 is below the configured minimum")
+    if (
+        args.maximum_id_switch_count is not None
+        and report.overall.id_switch_count > args.maximum_id_switch_count
+    ):
+        failures.append("identity switch count exceeds the configured maximum")
+    for name, metrics, minimum_rate, maximum_p95 in (
+        (
+            "occlusion",
+            report.occlusion_recovery,
+            args.minimum_occlusion_recovery_rate,
+            args.maximum_occlusion_recovery_p95_seconds,
+        ),
+        (
+            "out-of-frame",
+            report.out_of_frame_recovery,
+            args.minimum_out_of_frame_recovery_rate,
+            args.maximum_out_of_frame_recovery_p95_seconds,
+        ),
+    ):
+        if minimum_rate is not None and (
+            metrics.recovery_rate is None or metrics.recovery_rate < minimum_rate
+        ):
+            failures.append(f"{name} recovery rate is below the configured minimum")
+        if maximum_p95 is not None and (
+            metrics.recovery_latency_p95_s is None or metrics.recovery_latency_p95_s > maximum_p95
+        ):
+            failures.append(f"{name} recovery P95 exceeds the configured maximum")
+    return failures
 
 
 def _run_model_check(args: argparse.Namespace) -> int:
@@ -2055,8 +3380,13 @@ def _run_jetson_vision_bench(args: argparse.Namespace) -> int:
         minimum_duration_seconds=args.minimum_duration_seconds,
         maximum_duration_seconds=args.maximum_duration_seconds,
         maximum_temperature_c=args.maximum_temperature_c,
+        minimum_processing_fps=args.minimum_processing_fps,
+        maximum_inference_latency_p95_ms=args.maximum_inference_latency_p95_ms,
+        maximum_capture_queue_high_watermark=args.maximum_capture_queue_high_watermark,
+        maximum_memory_growth_mb=args.maximum_memory_growth_mb,
+        memory_warmup_seconds=args.memory_warmup_seconds,
     )
-    source = OpenCVFrameSource(capture_config)
+    source = frame_source_from_config(capture_config)
     try:
         document = run_jetson_vision_bench(source, detector, bench_config)
     finally:
@@ -2088,6 +3418,7 @@ def _run_model_manifest_init(args: argparse.Namespace) -> int:
         output_coordinates=args.output_coordinates,
         source_description=args.source_description,
         model_role=args.model_role,
+        native_output_format=args.native_output_format,
     )
     destination = write_candidate_model_manifest(
         args.out,
@@ -2105,6 +3436,41 @@ def _run_model_manifest_init(args: argparse.Namespace) -> int:
             "production_approved": False,
             "accuracy_validated": False,
             "hardware_control_enabled": False,
+        }
+    )
+    return 0
+
+
+def _run_semantic_model_manifest_init(args: argparse.Namespace) -> int:
+    document = create_semantic_context_model_manifest(
+        args.onnx_model,
+        model_id=args.model_id,
+        model_version=args.model_version,
+        class_names=CITYSEMSEGFORMER_LABELS,
+        input_width=args.input_width,
+        input_height=args.input_height,
+        output_name=args.output_name,
+        source_description=args.source_description,
+    )
+    destination = write_candidate_model_manifest(
+        args.out,
+        document,
+        overwrite=args.force,
+    )
+    _emit(
+        {
+            "event": "semantic_context_model_manifest_created",
+            "manifest_path": str(destination.resolve()),
+            "model_path": str(args.onnx_model.resolve()),
+            "model_sha256": document["export"]["artifact_sha256"],
+            "status": "quarantined",
+            "model_role": "semantic_scene_context",
+            "output_format": "categorical_H_W_1",
+            "confidence_available": False,
+            "production_approved": False,
+            "advisory_only": True,
+            "flight_control_enabled": False,
+            "physical_release_enabled": False,
         }
     )
     return 0
@@ -2506,20 +3872,199 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         raise ValueError("--capture-queue-frames must be between 0 and 256")
     if not 0 <= args.warmup_iterations <= 100:
         raise ValueError("--warmup-iterations must be between 0 and 100")
+    if args.person_reid_onnx is not None and not args.unified_target_pool:
+        raise ValueError("--person-reid-onnx requires --unified-target-pool")
+    if args.person_reid_engine is not None and args.person_reid_onnx is None:
+        raise ValueError("--person-reid-engine requires --person-reid-onnx")
+    if (
+        args.person_reid_onnx is not None
+        and args.person_reid_engine is None
+        and not args.allow_nonrealtime_reid
+    ):
+        raise ValueError(
+            "live person ReID requires --person-reid-engine; "
+            "use --allow-nonrealtime-reid only for explicit lab experiments"
+        )
+    if args.vehicle_reid_onnx is not None and not args.unified_target_pool:
+        raise ValueError("--vehicle-reid-onnx requires --unified-target-pool")
+    if args.vehicle_reid_engine is not None and args.vehicle_reid_onnx is None:
+        raise ValueError("--vehicle-reid-engine requires --vehicle-reid-onnx")
+    if (
+        args.vehicle_reid_onnx is not None
+        and args.vehicle_reid_engine is None
+        and not args.allow_nonrealtime_reid
+    ):
+        raise ValueError(
+            "live vehicle ReID requires --vehicle-reid-engine; "
+            "use --allow-nonrealtime-reid only for explicit lab experiments"
+        )
+    if args.allow_nonrealtime_reid and not (
+        (args.person_reid_onnx is not None and args.person_reid_engine is None)
+        or (args.vehicle_reid_onnx is not None and args.vehicle_reid_engine is None)
+    ):
+        raise ValueError(
+            "--allow-nonrealtime-reid requires a ReID ONNX without its TensorRT engine"
+        )
+    if args.patrol_advisory and not args.unified_target_pool:
+        raise ValueError("--patrol-advisory requires --unified-target-pool")
+    if args.short_term_tracking and not args.unified_target_pool:
+        raise ValueError("--short-term-tracking requires --unified-target-pool")
+    if args.identity_tracking_log_out is not None and not args.unified_target_pool:
+        raise ValueError("--identity-tracking-log-out requires --unified-target-pool")
+    if args.identity_tracking_log_out is not None and args.identity_tracking_session_id is None:
+        raise ValueError("--identity-tracking-log-out requires --identity-tracking-session-id")
+    if args.identity_tracking_session_id is not None and args.identity_tracking_log_out is None:
+        raise ValueError("--identity-tracking-session-id requires --identity-tracking-log-out")
+    if args.multimodal_ranging:
+        if not args.unified_target_pool:
+            raise ValueError("--multimodal-ranging requires --unified-target-pool")
+        if not args.pixhawk_endpoint:
+            raise ValueError("--multimodal-ranging requires --pixhawk-endpoint")
+        if args.ranging_calibration is None:
+            raise ValueError("--multimodal-ranging requires --ranging-calibration")
+    elif args.ranging_calibration is not None:
+        raise ValueError("--ranging-calibration requires --multimodal-ranging")
+    if args.approach_hil:
+        missing = tuple(
+            option
+            for enabled, option in (
+                (args.operator_udp_port is not None, "--operator-udp-port"),
+                (args.unified_target_pool, "--unified-target-pool"),
+                (args.monocular_avoidance, "--monocular-avoidance"),
+                (args.multimodal_ranging, "--multimodal-ranging"),
+            )
+            if not enabled
+        )
+        if missing:
+            raise ValueError("--mode3-aim requires " + ", ".join(missing))
+    if args.fixed_wing_aim_control:
+        missing = tuple(
+            option
+            for enabled, option in (
+                (args.approach_hil, "--mode3-aim"),
+                (args.pixhawk_endpoint is not None, "--pixhawk-endpoint"),
+            )
+            if not enabled
+        )
+        if missing:
+            raise ValueError("--fixed-wing-aim-control requires " + ", ".join(missing))
+    if args.payload_target_hil:
+        missing = tuple(
+            option
+            for enabled, option in (
+                (args.operator_udp_port is not None, "--operator-udp-port"),
+                (args.unified_target_pool, "--unified-target-pool"),
+                (args.rgb_fire_verifier_model is not None, "--rgb-fire-verifier-model"),
+            )
+            if not enabled
+        )
+        if missing:
+            raise ValueError("--payload-target-hil requires " + ", ".join(missing))
+        if not config.deployment_capable:
+            raise ValueError("--payload-target-hil requires a deployment-capable mission")
+    if args.payload_target_hil and args.approach_hil:
+        raise ValueError(
+            "Mode-2 payload targeting and Mode-3 fixed-wing aiming are mutually exclusive"
+        )
+    if not 1 <= args.person_reid_maximum_batch_size <= 10:
+        raise ValueError("--person-reid-maximum-batch-size must be between 1 and 10")
+    if not 1 <= args.vehicle_reid_maximum_batch_size <= 10:
+        raise ValueError("--vehicle-reid-maximum-batch-size must be between 1 and 10")
+    if not 1 <= args.person_reid_frame_stride <= 30:
+        raise ValueError("--person-reid-frame-stride must be between 1 and 30")
+    if not 1 <= args.vehicle_reid_frame_stride <= 30:
+        raise ValueError("--vehicle-reid-frame-stride must be between 1 and 30")
+    if not math.isfinite(args.reid_maximum_interval_seconds) or not (
+        0.01 <= args.reid_maximum_interval_seconds <= 2.0
+    ):
+        raise ValueError("--reid-maximum-interval-seconds must be between 0.01 and 2 seconds")
     if args.onnx_model.suffix.lower() in {".engine", ".plan"} and args.model_manifest is None:
         raise ValueError("TensorRT fire model requires a hash-bound --model-manifest")
+    if args.rgb_fire_verifier_model is not None:
+        if args.rgb_fire_verifier_model_manifest is None:
+            raise ValueError(
+                "--rgb-fire-verifier-model requires a hash-bound --rgb-fire-verifier-model-manifest"
+            )
+        if args.model_manifest is None:
+            raise ValueError(
+                "independent RGB fire corroboration requires a hash-bound primary --model-manifest"
+            )
+    if args.rgb_fire_verifier_model_manifest is not None and args.rgb_fire_verifier_model is None:
+        raise ValueError("--rgb-fire-verifier-model-manifest requires --rgb-fire-verifier-model")
+    if not math.isfinite(args.rgb_fire_verifier_confidence_threshold) or not (
+        0.0 <= args.rgb_fire_verifier_confidence_threshold <= 1.0
+    ):
+        raise ValueError("--rgb-fire-verifier-confidence-threshold must be in [0, 1]")
+    if not math.isfinite(args.rgb_fire_verifier_minimum_iou) or not (
+        0.0 < args.rgb_fire_verifier_minimum_iou <= 1.0
+    ):
+        raise ValueError("--rgb-fire-verifier-minimum-iou must be in (0, 1]")
     if (
         args.safety_onnx_model is not None
         and args.safety_onnx_model.suffix.lower() in {".engine", ".plan"}
         and args.safety_model_manifest is None
     ):
         raise ValueError("TensorRT safety model requires a hash-bound --safety-model-manifest")
+    if (
+        args.priority_onnx_model is not None
+        and args.priority_onnx_model.suffix.lower() in {".engine", ".plan"}
+        and args.priority_model_manifest is None
+    ):
+        raise ValueError("TensorRT priority model requires a hash-bound --priority-model-manifest")
+    if (
+        args.environment_onnx_model is not None
+        and args.environment_onnx_model.suffix.lower() in {".engine", ".plan"}
+        and args.environment_model_manifest is None
+    ):
+        raise ValueError(
+            "TensorRT environment model requires a hash-bound --environment-model-manifest"
+        )
     zone_evidence_hmac_key: bytes | None = None
     payload_hil_request_key: bytes | None = None
     payload_hil_result_key: bytes | None = None
     payload_confirmation_key: bytes | None = None
     if args.safety_model_manifest is not None and args.safety_onnx_model is None:
         raise ValueError("--safety-model-manifest requires --safety-onnx-model")
+    if args.priority_model_manifest is not None and args.priority_onnx_model is None:
+        raise ValueError("--priority-model-manifest requires --priority-onnx-model")
+    if args.environment_model_manifest is not None and args.environment_onnx_model is None:
+        raise ValueError("--environment-model-manifest requires --environment-onnx-model")
+    if (
+        args.semantic_context_onnx_model is None
+        and args.semantic_context_model_manifest is not None
+    ):
+        raise ValueError("--semantic-context-model-manifest requires --semantic-context-onnx-model")
+    if (
+        args.semantic_context_onnx_model is not None
+        and args.semantic_context_model_manifest is None
+    ):
+        raise ValueError(
+            "--semantic-context-onnx-model requires a hash-bound --semantic-context-model-manifest"
+        )
+    if (
+        args.semantic_context_onnx_model is not None
+        and args.semantic_context_onnx_model.suffix.lower() != ".onnx"
+    ):
+        raise ValueError("semantic context currently requires an ONNX artifact")
+    if (args.semantic_context_engine is None) != (args.semantic_context_engine_provenance is None):
+        raise ValueError(
+            "--semantic-context-engine and --semantic-context-engine-provenance "
+            "must be supplied together"
+        )
+    if args.semantic_context_engine is not None and args.semantic_context_onnx_model is None:
+        raise ValueError("--semantic-context-engine requires --semantic-context-onnx-model")
+    for name, value in (
+        (
+            "--semantic-context-minimum-interval-seconds",
+            args.semantic_context_minimum_interval_seconds,
+        ),
+        (
+            "--semantic-context-maximum-age-seconds",
+            args.semantic_context_maximum_age_seconds,
+        ),
+    ):
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive")
     if args.simulate_payload_cycle and args.payload_inventory_report is not None:
         raise ValueError(
             "--simulate-payload-cycle cannot be combined with --payload-inventory-report"
@@ -2655,6 +4200,36 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         require_production_approved=args.require_production_approved_models,
         expected_model_role="fire_candidate",
     )
+    verified_rgb_fire_verifier: VerifiedModelArtifact | None = None
+    rgb_fire_verifier_class_names: tuple[str, ...] | None = None
+    if args.rgb_fire_verifier_model is not None:
+        rgb_fire_verifier_class_names = _parse_class_names(args.rgb_fire_verifier_class_names)
+        verified_rgb_fire_verifier = _verify_optional_model_manifest(
+            manifest_path=args.rgb_fire_verifier_model_manifest,
+            model_path=args.rgb_fire_verifier_model,
+            class_names=rgb_fire_verifier_class_names,
+            output_coordinates=(
+                args.rgb_fire_verifier_output_coordinates or args.output_coordinates
+            ),
+            require_production_approved=args.require_production_approved_models,
+            expected_model_role="fire_verifier",
+        )
+        if verified_fire_model is None or verified_rgb_fire_verifier is None:
+            raise RuntimeError("independent RGB fire model manifests were not verified")
+        if verified_fire_model.artifact_sha256 == verified_rgb_fire_verifier.artifact_sha256:
+            raise ValueError(
+                "primary fire detector and independent RGB verifier must use different artifacts"
+            )
+        verifier_labels = {
+            "flame" if label.strip().lower() == "fire" else label.strip().lower()
+            for label in rgb_fire_verifier_class_names
+        }
+        if config.require_independent_rgb_corroboration and not (
+            verifier_labels.intersection(config.target_classes)
+        ):
+            raise ValueError(
+                "independent RGB verifier does not cover any configured fire target class"
+            )
     verified_safety_model: VerifiedModelArtifact | None = None
     safety_class_names: tuple[str, ...] | None = None
     if args.safety_onnx_model is not None:
@@ -2670,10 +4245,104 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
             require_production_approved=args.require_production_approved_models,
             expected_model_role="safety_object_evidence",
+            expected_native_output_format=(
+                "ultralytics_raw_xywh_class_scores"
+                if args.safety_model_format == "ultralytics_raw"
+                else "post_nms_N_x_6"
+            ),
         )
+    verified_priority_model: VerifiedModelArtifact | None = None
+    priority_class_names: tuple[str, ...] | None = None
+    priority_label_map: dict[str, str] = {}
+    priority_label_confidence_overrides: dict[str, float] = {}
+    if args.priority_onnx_model is not None:
+        priority_class_names = _parse_class_names(args.priority_class_names)
+        priority_label_map = _parse_label_map(args.priority_label_map)
+        unknown_sources = set(priority_label_map).difference(
+            label.strip().lower() for label in priority_class_names
+        )
+        if unknown_sources:
+            raise ValueError(
+                "priority label map contains unknown source classes: "
+                + ", ".join(sorted(unknown_sources))
+            )
+        priority_label_confidence_overrides = _parse_label_confidence_thresholds(
+            args.priority_label_confidence_thresholds
+        )
+        unknown_override_labels = set(priority_label_confidence_overrides).difference(
+            label.strip().lower() for label in priority_class_names
+        )
+        if unknown_override_labels:
+            raise ValueError(
+                "priority label confidence overrides contain unknown source classes: "
+                + ", ".join(sorted(unknown_override_labels))
+            )
+        verified_priority_model = _verify_optional_model_manifest(
+            manifest_path=args.priority_model_manifest,
+            model_path=args.priority_onnx_model,
+            class_names=priority_class_names,
+            output_coordinates="letterbox_xyxy_px",
+            require_production_approved=args.require_production_approved_models,
+            expected_model_role="safety_object_evidence",
+            expected_native_output_format="ultralytics_raw_xywh_class_scores",
+        )
+    verified_environment_model: VerifiedModelArtifact | None = None
+    environment_class_names: tuple[str, ...] | None = None
+    if args.environment_onnx_model is not None:
+        environment_class_names = _parse_class_names(args.environment_class_names)
+        reserved_environment_labels = {
+            "fire",
+            "flame",
+            "smoke",
+            "hotspot",
+            "person",
+            "firefighter",
+            "car",
+            "bus",
+            "truck",
+            "vehicle",
+        }
+        conflicting = reserved_environment_labels.intersection(environment_class_names)
+        if conflicting:
+            raise ValueError(
+                "environment model labels overlap protected fire/person/vehicle domains: "
+                + ", ".join(sorted(conflicting))
+            )
+        verified_environment_model = _verify_optional_model_manifest(
+            manifest_path=args.environment_model_manifest,
+            model_path=args.environment_onnx_model,
+            class_names=environment_class_names,
+            output_coordinates=(args.environment_output_coordinates or args.output_coordinates),
+            require_production_approved=args.require_production_approved_models,
+            expected_model_role="environment_risk_evidence",
+        )
+    verified_semantic_context_model: VerifiedModelArtifact | None = None
+    if args.semantic_context_onnx_model is not None:
+        verified_semantic_context_model = verify_model_manifest(
+            args.semantic_context_model_manifest,
+            args.semantic_context_onnx_model,
+            expected_class_names=CITYSEMSEGFORMER_LABELS,
+            expected_model_role="semantic_scene_context",
+            expected_output_format="categorical_H_W_1",
+            require_production_approved=args.require_production_approved_models,
+        )
+        if args.semantic_context_engine is not None:
+            verify_engine_provenance(
+                provenance=args.semantic_context_engine_provenance,
+                engine=args.semantic_context_engine,
+                source_model=args.semantic_context_onnx_model,
+                trtexec=args.semantic_context_trtexec,
+            )
     synthetic_models = tuple(
         artifact
-        for artifact in (verified_fire_model, verified_safety_model)
+        for artifact in (
+            verified_fire_model,
+            verified_rgb_fire_verifier,
+            verified_safety_model,
+            verified_priority_model,
+            verified_environment_model,
+            verified_semantic_context_model,
+        )
         if artifact is not None and artifact.synthetic_hil_only
     )
     if synthetic_models and not args.allow_synthetic_hil_model:
@@ -2687,7 +4356,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
 
     # Load executable graph artifacts only after every supplied manifest has passed its role,
     # hash, coordinate and optional production-approval gates.
-    detectors = [
+    primary_detector = FrameCadencedDetector(
         OnnxNx6Detector(
             OnnxNx6Config(
                 model_path=args.onnx_model,
@@ -2702,19 +4371,96 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     verified_fire_model.model_version if verified_fire_model is not None else None
                 ),
             )
+        ),
+        frame_stride=args.primary_model_frame_stride,
+        frame_phase=args.primary_model_frame_phase,
+    )
+    detectors = [primary_detector]
+    rgb_fire_verifier = None
+    rgb_fire_corroborator = None
+    rgb_fire_verifier_evidence_qualified = False
+    if args.rgb_fire_verifier_model is not None:
+        if (
+            rgb_fire_verifier_class_names is None
+            or verified_fire_model is None
+            or verified_rgb_fire_verifier is None
+        ):
+            raise RuntimeError("independent RGB fire verifier was not initialized")
+        rgb_fire_verifier = OnnxNx6Detector(
+            OnnxNx6Config(
+                model_path=args.rgb_fire_verifier_model,
+                class_names=rgb_fire_verifier_class_names,
+                input_width=args.input_width,
+                input_height=args.input_height,
+                confidence_threshold=args.rgb_fire_verifier_confidence_threshold,
+                providers=providers,
+                trt_engine_cache_path=args.trt_engine_cache,
+                output_coordinates=(
+                    args.rgb_fire_verifier_output_coordinates or args.output_coordinates
+                ),
+                model_version=verified_rgb_fire_verifier.model_version,
+            )
         )
-    ]
+        rgb_fire_verifier.warmup(iterations=args.warmup_iterations)
+        rgb_fire_verifier_evidence_qualified = bool(
+            (
+                verified_fire_model.production_approved
+                and verified_rgb_fire_verifier.production_approved
+            )
+            or (
+                args.allow_synthetic_hil_model
+                and verified_fire_model.synthetic_hil_only
+                and verified_rgb_fire_verifier.synthetic_hil_only
+            )
+        )
+        rgb_fire_corroborator = IndependentRgbFireCorroborator(
+            IndependentRgbFireCorroborationConfig(
+                minimum_iou=args.rgb_fire_verifier_minimum_iou,
+                minimum_verifier_confidence=(args.rgb_fire_verifier_confidence_threshold),
+                evidence_qualified=rgb_fire_verifier_evidence_qualified,
+                primary_artifact_sha256=verified_fire_model.artifact_sha256,
+                verifier_artifact_sha256=(verified_rgb_fire_verifier.artifact_sha256),
+            )
+        )
     if args.safety_onnx_model is not None:
         if safety_class_names is None:
             raise RuntimeError("safety model class names were not initialized")
-        detectors.append(
-            OnnxNx6Detector(
+        priority_detection_labels = frozenset(
+            label.strip().lower() for label in _parse_class_names(args.safety_tile_labels)
+        )
+        safety_candidate_confidence = min(
+            args.safety_confidence_threshold,
+            args.safety_priority_confidence_threshold,
+            args.safety_fallback_confidence_threshold,
+            args.safety_tile_confidence_threshold,
+        )
+        if args.safety_model_format == "ultralytics_raw":
+            safety_detector = OnnxRawYoloDetector(
+                OnnxRawYoloConfig(
+                    model_path=args.safety_onnx_model,
+                    class_names=safety_class_names,
+                    input_width=args.input_width,
+                    input_height=args.input_height,
+                    confidence_threshold=safety_candidate_confidence,
+                    iou_threshold=args.safety_model_iou_threshold,
+                    maximum_detections=args.safety_model_maximum_detections,
+                    providers=providers,
+                    trt_engine_cache_path=args.trt_engine_cache,
+                    model_version=(
+                        verified_safety_model.model_version
+                        if verified_safety_model is not None
+                        else None
+                    ),
+                )
+            )
+        else:
+            safety_detector = OnnxNx6Detector(
                 OnnxNx6Config(
                     model_path=args.safety_onnx_model,
                     class_names=safety_class_names,
                     input_width=args.input_width,
                     input_height=args.input_height,
-                    confidence_threshold=args.safety_confidence_threshold,
+                    confidence_threshold=safety_candidate_confidence,
                     providers=providers,
                     trt_engine_cache_path=args.trt_engine_cache,
                     output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
@@ -2725,21 +4471,207 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     ),
                 )
             )
+        if args.safety_tile_columns * args.safety_tile_rows > 1:
+            safety_detector = TiledDetectionFusion(
+                safety_detector,
+                TiledDetectionConfig(
+                    columns=args.safety_tile_columns,
+                    rows=args.safety_tile_rows,
+                    overlap_fraction=args.safety_tile_overlap,
+                    scan_interval_frames=args.safety_tile_scan_interval_frames,
+                    fusion_iou_threshold=args.safety_tile_fusion_iou_threshold,
+                    tile_confidence_threshold=args.safety_tile_confidence_threshold,
+                    tile_confidence_by_label=_parse_label_confidence_thresholds(
+                        args.safety_tile_label_confidence_thresholds
+                    ),
+                    tile_labels=priority_detection_labels,
+                    maximum_tile_box_area=args.safety_tile_maximum_box_area,
+                    maximum_detections=args.safety_model_maximum_detections,
+                ),
+            )
+        # The common COCO detector also emits vehicle classes. Apply the same
+        # vehicle gate here as on the priority detector so a low-confidence shoe,
+        # chair leg, or reflection cannot bypass the priority-model threshold.
+        safety_detector = TemporalDetectionFilter(
+            safety_detector,
+            labels=VEHICLE_DETECTION_CLASS_NAMES,
+            minimum_consecutive_frames=args.priority_vehicle_stability_frames,
+            iou_threshold=0.25,
+            maximum_missed_frames=1,
+            label_aliases=VEHICLE_TEMPORAL_LABEL_ALIASES,
+        )
+        safety_detector = FrameCadencedDetector(
+            safety_detector,
+            frame_stride=args.safety_model_frame_stride,
+            frame_phase=args.safety_model_frame_phase,
+        )
+        detectors.append(safety_detector)
+    if args.priority_onnx_model is not None:
+        if priority_class_names is None:
+            raise RuntimeError("priority model class names were not initialized")
+        priority_source_thresholds = {
+            "pedestrian": args.priority_person_confidence_threshold,
+            "people": args.priority_person_confidence_threshold,
+            "bicycle": args.priority_vehicle_confidence_threshold,
+            "car": args.priority_vehicle_confidence_threshold,
+            "van": args.priority_vehicle_confidence_threshold,
+            "truck": args.priority_vehicle_confidence_threshold,
+            "tricycle": args.priority_vehicle_confidence_threshold,
+            "awning-tricycle": args.priority_vehicle_confidence_threshold,
+            "bus": args.priority_vehicle_confidence_threshold,
+            "motor": args.priority_vehicle_confidence_threshold,
+        }
+        priority_source_thresholds.update(priority_label_confidence_overrides)
+        priority_candidate_confidence = min(
+            args.priority_confidence_threshold,
+            args.priority_person_confidence_threshold,
+            args.priority_vehicle_confidence_threshold,
+            *priority_label_confidence_overrides.values(),
+        )
+        priority_detector = LabelRemapDetector(
+            ClassConfidenceFilter(
+                OnnxRawYoloDetector(
+                    OnnxRawYoloConfig(
+                        model_path=args.priority_onnx_model,
+                        class_names=priority_class_names,
+                        input_width=args.priority_input_width,
+                        input_height=args.priority_input_height,
+                        confidence_threshold=priority_candidate_confidence,
+                        iou_threshold=args.priority_model_iou_threshold,
+                        maximum_detections=args.priority_model_maximum_detections,
+                        providers=providers,
+                        trt_engine_cache_path=args.trt_engine_cache,
+                        model_version=(
+                            verified_priority_model.model_version
+                            if verified_priority_model is not None
+                            else None
+                        ),
+                    ),
+                ),
+                priority_source_thresholds,
+                default_threshold=args.priority_confidence_threshold,
+            ),
+            priority_label_map,
+            fusion_iou_threshold=args.priority_model_iou_threshold,
+        )
+        priority_detector = TemporalDetectionFilter(
+            priority_detector,
+            labels=frozenset({"bicycle", "car", "motorcycle", "bus", "truck"}),
+            minimum_consecutive_frames=args.priority_vehicle_stability_frames,
+            iou_threshold=0.25,
+            maximum_missed_frames=1,
+            label_aliases=VEHICLE_TEMPORAL_LABEL_ALIASES,
+        )
+        priority_detector = FrameCadencedDetector(
+            priority_detector,
+            frame_stride=args.priority_model_frame_stride,
+            frame_phase=args.priority_model_frame_phase,
+        )
+        detectors.append(priority_detector)
+    if args.environment_onnx_model is not None:
+        if environment_class_names is None:
+            raise RuntimeError("environment model class names were not initialized")
+        detectors.append(
+            OnnxNx6Detector(
+                OnnxNx6Config(
+                    model_path=args.environment_onnx_model,
+                    class_names=environment_class_names,
+                    input_width=args.input_width,
+                    input_height=args.input_height,
+                    confidence_threshold=args.environment_confidence_threshold,
+                    providers=providers,
+                    trt_engine_cache_path=args.trt_engine_cache,
+                    output_coordinates=(
+                        args.environment_output_coordinates or args.output_coordinates
+                    ),
+                    model_version=(
+                        verified_environment_model.model_version
+                        if verified_environment_model is not None
+                        else None
+                    ),
+                )
+            )
         )
     for model_detector in detectors:
         model_detector.warmup(iterations=args.warmup_iterations)
+    class_thresholds = {
+        "fire": args.flame_confidence_threshold,
+        "flame": args.flame_confidence_threshold,
+        "smoke": args.smoke_confidence_threshold,
+    }
+    if safety_class_names is not None:
+        priority_detection_labels = frozenset(
+            label.strip().lower() for label in _parse_class_names(args.safety_tile_labels)
+        )
+        for label in safety_class_names:
+            normalized_label = label.strip().lower()
+            threshold = (
+                max(
+                    args.safety_priority_confidence_threshold,
+                    args.priority_vehicle_confidence_threshold,
+                )
+                if normalized_label in VEHICLE_DETECTION_CLASS_NAMES
+                else args.safety_priority_confidence_threshold
+                if normalized_label in priority_detection_labels
+                else args.safety_fallback_confidence_threshold
+            )
+            class_thresholds.setdefault(normalized_label, threshold)
+    if environment_class_names is not None:
+        class_thresholds.update(
+            {
+                label.strip().lower(): args.environment_confidence_threshold
+                for label in environment_class_names
+            }
+        )
+    if priority_class_names is not None:
+        for label in priority_class_names:
+            source = label.strip().lower()
+            destination = priority_label_map.get(source, source)
+            class_thresholds.setdefault(destination, args.priority_confidence_threshold)
+    detector_ensemble: Any = DetectorEnsemble(
+        detectors,
+        force_locked_cadence=args.lock_model_force_every_frame,
+    )
+    if args.safety_onnx_model is not None and args.priority_onnx_model is not None:
+        detector_ensemble = MultiSourceConfidenceFilter(
+            detector_ensemble,
+            labels=frozenset({"car"}),
+            iou_threshold=args.priority_model_iou_threshold,
+            single_source_confidence=args.car_single_source_confidence_threshold,
+        )
+    fused_ensemble = SameLabelDetectionFusion(
+        detector_ensemble,
+        iou_threshold=args.priority_model_iou_threshold,
+        maximum_detections=max(
+            args.safety_model_maximum_detections,
+            args.priority_model_maximum_detections,
+        ),
+    )
     detector: Any = ClassConfidenceFilter(
-        DetectorEnsemble(detectors),
-        {
-            "fire": args.flame_confidence_threshold,
-            "flame": args.flame_confidence_threshold,
-            "smoke": args.smoke_confidence_threshold,
-            "person": args.safety_confidence_threshold,
-            "firefighter": args.safety_confidence_threshold,
-        },
+        fused_ensemble,
+        class_thresholds,
         default_threshold=None,
     )
-    detector = BrightNeutralLightVetoFilter(detector)
+    detector = VehicleFurnitureOverlapVetoFilter(detector)
+    automatic_candidate_labels = (
+        frozenset(
+            label.strip().lower()
+            for label in (
+                *FIRE_CANDIDATE_TRACK_LABELS,
+                *PRIORITY_DETECTION_CLASS_NAMES,
+                *ENVIRONMENT_RISK_CLASS_NAMES,
+                *config.target_classes,
+                *config.person_labels,
+            )
+            if label.strip()
+        )
+        - NON_SELECTABLE_AUTOMATIC_LABELS
+    )
+    detector = LabelAllowListFilter(detector, labels=automatic_candidate_labels)
+    detector = BrightNeutralLightVetoFilter(
+        detector,
+        minimum_bright_warm_fraction=args.fire_minimum_bright_warm_fraction,
+    )
     if args.safety_onnx_model is not None:
         detector = PersonOverlapVetoFilter(
             detector,
@@ -2749,25 +4681,66 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         detector,
         labels=FIRE_CANDIDATE_TRACK_LABELS,
         minimum_consecutive_frames=args.candidate_stability_frames,
+        # The legacy fire model alternates between `fire` and `flame`; contour
+        # flicker also makes strict box IoU unstable on a real RGB stream.
+        label_aliases={"fire": "flame"},
+        maximum_center_distance=0.10,
+        minimum_area_ratio=0.12,
+        # The primary detector can deliberately skip frames in the Jetson live
+        # profile. Preserve temporal fire evidence through those bounded gaps;
+        # only fresh inference frames increase the consecutive-hit count.
+        maximum_missed_frames=max(1, args.primary_model_frame_stride),
     )
     person_safety_model_coverage = detector.covers_labels(config.person_labels)
     person_safety_evidence_qualified = (
         person_safety_model_coverage and verified_safety_model is not None
     )
-    pixhawk_telemetry = (
-        PixhawkReadOnlyTelemetryProvider(
-            PixhawkReadOnlyConfig(
-                endpoint=args.pixhawk_endpoint,
-                baud=args.pixhawk_baud,
-                expected_system_id=args.pixhawk_system_id,
-                expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS.get(args.pixhawk_expected_autopilot),
-                expected_vehicle_type_id=PIXHAWK_VEHICLE_TYPE_IDS.get(
-                    args.pixhawk_expected_vehicle_type
-                ),
-                require_operational_state=args.require_pixhawk_operational_state,
-            )
+    environment_model_coverage = detector.covers_labels(ENVIRONMENT_RISK_CLASS_NAMES)
+    environment_evidence_qualified = (
+        environment_model_coverage and verified_environment_model is not None
+    )
+    pixhawk_config = (
+        PixhawkReadOnlyConfig(
+            endpoint=args.pixhawk_endpoint,
+            baud=args.pixhawk_baud,
+            expected_system_id=(
+                args.pixhawk_system_id
+                if args.pixhawk_system_id is not None
+                else 1
+                if args.fixed_wing_aim_control
+                else None
+            ),
+            expected_autopilot_id=(
+                PIXHAWK_AUTOPILOT_IDS.get(args.pixhawk_expected_autopilot)
+                if args.pixhawk_expected_autopilot is not None
+                else PIXHAWK_AUTOPILOT_IDS["px4"]
+                if args.fixed_wing_aim_control
+                else None
+            ),
+            expected_vehicle_type_id=(
+                PIXHAWK_VEHICLE_TYPE_IDS.get(args.pixhawk_expected_vehicle_type)
+                if args.pixhawk_expected_vehicle_type is not None
+                else (
+                    PIXHAWK_VEHICLE_TYPE_IDS["fixed_wing"] if args.fixed_wing_aim_control else None
+                )
+            ),
+            require_operational_state=(
+                args.require_pixhawk_operational_state or args.fixed_wing_aim_control
+            ),
         )
         if args.pixhawk_endpoint
+        else None
+    )
+    pixhawk_telemetry = (
+        PixhawkFlightControlProvider(
+            PixhawkFlightControlConfig(
+                pixhawk_config,
+                rc_input_rate_hz=args.aim_rc_input_rate_hz,
+            )
+        )
+        if args.fixed_wing_aim_control and pixhawk_config is not None
+        else PixhawkReadOnlyTelemetryProvider(pixhawk_config)
+        if pixhawk_config is not None
         else None
     )
     telemetry = pixhawk_telemetry or FailClosedTelemetryProvider()
@@ -2825,6 +4798,14 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.prediction_log_out is not None
         else None
     )
+    identity_prediction_writer = (
+        JsonlIdentityPredictionWriter(
+            args.identity_tracking_log_out,
+            session_id=args.identity_tracking_session_id,
+        )
+        if args.identity_tracking_log_out is not None
+        else None
+    )
     alert_publisher = _alert_publisher_from_args(args)
     operator_bridge = None
     if args.operator_udp_port is not None:
@@ -2854,7 +4835,9 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             OperatorTargetLock(
                 operator_geometry,
                 TargetLockConfig(
-                    frozenset(config.target_classes) | FIRE_CANDIDATE_TRACK_LABELS,
+                    frozenset(config.target_classes)
+                    | FIRE_CANDIDATE_TRACK_LABELS
+                    | frozenset(PRIORITY_DETECTION_CLASS_NAMES),
                     acquisition_timeout_s=args.operator_acquisition_timeout_seconds,
                     lost_after_s=args.operator_lost_after_seconds,
                 ),
@@ -2920,12 +4903,238 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         except Exception:
             confirmation_receiver.close()
             raise
-    capture_source = OpenCVFrameSource(_capture_config_from_args(args))
+    capture_source = frame_source_from_config(_capture_config_from_args(args))
     frame_source = (
         BufferedFrameSource(capture_source, capacity=args.capture_queue_frames)
         if args.capture_queue_frames > 0
         else capture_source
     )
+    monocular_avoidance = (
+        OpenCVSparseFlowAvoidance(
+            MonocularAvoidanceConfig(
+                minimum_feature_count=args.avoidance_minimum_features,
+                caution_ttc_s=args.avoidance_caution_ttc_seconds,
+                avoid_ttc_s=args.avoidance_avoid_ttc_seconds,
+                maximum_data_age_s=args.avoidance_maximum_data_age_seconds,
+                analysis_width=args.avoidance_analysis_width,
+            )
+        )
+        if args.monocular_avoidance
+        else None
+    )
+    semantic_context_runner = None
+    if args.semantic_context_onnx_model is not None:
+        semantic_context_session = (
+            TensorRtSemanticSession(args.semantic_context_engine)
+            if args.semantic_context_engine is not None
+            else None
+        )
+        try:
+            semantic_context_model = OnnxCategoricalSemanticContext(
+                OnnxSemanticContextConfig(
+                    args.semantic_context_onnx_model,
+                    providers=providers,
+                ),
+                session=semantic_context_session,
+            )
+            semantic_context_model.warmup()
+        except BaseException:
+            if semantic_context_session is not None:
+                semantic_context_session.close()
+            raise
+        semantic_context_runner = AsyncSemanticContextRunner(
+            semantic_context_model,
+            minimum_interval_s=args.semantic_context_minimum_interval_seconds,
+        )
+    unified_target_pool = (
+        UnifiedTargetPool(
+            UnifiedTargetPoolConfig(
+                maximum_tracks=args.unified_target_pool_maximum_tracks,
+                locked_reacquisition_timeout_s=(
+                    args.unified_target_pool_locked_reacquisition_seconds
+                ),
+                minimum_association_confidence=(
+                    args.unified_target_pool_minimum_association_confidence
+                ),
+                priority_minimum_new_track_confidence=(
+                    args.unified_target_pool_priority_minimum_new_track_confidence
+                ),
+                minimum_new_track_confidence=(
+                    args.unified_target_pool_minimum_new_track_confidence
+                ),
+                high_confidence_threshold=(args.unified_target_pool_high_confidence_threshold),
+                person_maximum_appearance_distance=(
+                    args.unified_target_pool_person_maximum_appearance_distance
+                ),
+                person_strict_reid_distance=(args.unified_target_pool_person_strict_reid_distance),
+                kalman_process_noise=args.unified_target_pool_kalman_process_noise,
+                kalman_measurement_noise=(args.unified_target_pool_kalman_measurement_noise),
+                kalman_gate_sigma=args.unified_target_pool_kalman_gate_sigma,
+                kalman_max_prediction_horizon_s=(
+                    args.unified_target_pool_kalman_maximum_horizon_seconds
+                ),
+            )
+        )
+        if args.unified_target_pool
+        else None
+    )
+    # Aircraft labels have no deployed ONNX ReID model.  The compact descriptor
+    # fills only that disjoint class domain and is used for LCK/LOST identity
+    # recovery without taking a GPU inference slot from the primary detector.
+    aircraft_appearance_encoder = (
+        HandcraftedAircraftAppearanceEncoder() if unified_target_pool is not None else None
+    )
+    ranging_engine = MultiModalRangingEngine() if args.multimodal_ranging else None
+    ranging_config = None
+    ranging_calibration_sha256 = None
+    if args.multimodal_ranging:
+        if args.ranging_calibration is None:  # Defensive guard for direct Namespace callers.
+            raise ValueError("--multimodal-ranging requires --ranging-calibration")
+        ranging_calibration = load_camera_calibration(args.ranging_calibration)
+        ranging_calibration_sha256 = _sha256_file(args.ranging_calibration)
+        ranging_config = LiveRangingConfig(
+            calibration=ranging_calibration,
+            altitude_agl_sigma_m=args.ranging_agl_sigma_m,
+            roll_sigma_deg=args.ranging_roll_sigma_deg,
+            pitch_sigma_deg=args.ranging_pitch_sigma_deg,
+            heading_sigma_deg=args.ranging_heading_sigma_deg,
+            target_center_sigma_px=args.ranging_target_center_sigma_px,
+        )
+    short_term_tracker = (
+        OpenCVShortTermTargetTracker(
+            ShortTermTrackingConfig(
+                analysis_width=args.short_term_analysis_width,
+                maximum_tracks=args.short_term_maximum_tracks,
+                minimum_flow_points=args.short_term_minimum_flow_points,
+                minimum_box_size_px=args.short_term_minimum_box_size_px,
+                frame_stride=args.short_term_frame_stride,
+                template_minimum_correlation=(args.short_term_template_minimum_correlation),
+                search_expansion=args.short_term_search_expansion,
+                occluded_search_multiplier=(args.short_term_occluded_search_multiplier),
+                reacquiring_search_multiplier=(args.short_term_reacquiring_search_multiplier),
+                maximum_search_expansion=args.short_term_maximum_search_expansion,
+                maximum_retained_template_age_s=(
+                    args.short_term_maximum_retained_template_age_seconds
+                ),
+            )
+        )
+        if args.short_term_tracking
+        else None
+    )
+    selection_target_pool = (
+        UnifiedSelectionTargetPool(unified_target_pool)
+        if unified_target_pool is not None and operator_bridge is not None
+        else None
+    )
+    approach_hil_coordinator = (
+        LiveApproachHilCoordinator(
+            controller=ApproachHilController(),
+            calibration=ranging_config.calibration,
+            flight_control_enabled=args.fixed_wing_aim_control,
+        )
+        if args.approach_hil and ranging_config is not None
+        else None
+    )
+    fixed_wing_aim_executor = (
+        FixedWingAimExecutor(
+            FixedWingAimController(
+                ranging_config.calibration,
+                FixedWingAimConfig(
+                    maximum_target_age_s=args.aim_maximum_target_age_seconds,
+                    maximum_attitude_age_s=args.aim_maximum_attitude_age_seconds,
+                    minimum_airspeed_mps=args.aim_minimum_airspeed_mps,
+                    minimum_altitude_agl_m=args.aim_minimum_altitude_agl_m,
+                    maximum_abs_roll_deg=args.aim_maximum_abs_roll_deg,
+                    maximum_abs_pitch_deg=args.aim_maximum_abs_pitch_deg,
+                    maximum_roll_correction_deg=args.aim_maximum_roll_correction_deg,
+                    maximum_pitch_correction_deg=args.aim_maximum_pitch_correction_deg,
+                    roll_gain=args.aim_roll_gain,
+                    pitch_gain=args.aim_pitch_gain,
+                    maximum_roll_slew_deg_s=args.aim_maximum_roll_slew_deg_s,
+                    maximum_pitch_slew_deg_s=args.aim_maximum_pitch_slew_deg_s,
+                    prestream_setpoints=args.aim_prestream_setpoints,
+                    control_mode=args.aim_control_mode,
+                    return_mode=args.aim_return_mode,
+                    rc_input_maximum_age_s=args.aim_rc_input_maximum_age_seconds,
+                    rc_cancel_threshold_us=args.aim_rc_cancel_threshold_us,
+                ),
+            ),
+            pixhawk_telemetry,
+        )
+        if (
+            args.fixed_wing_aim_control
+            and ranging_config is not None
+            and isinstance(pixhawk_telemetry, PixhawkFlightControlProvider)
+        )
+        else None
+    )
+    payload_target_coordinator = LivePayloadTargetCoordinator() if args.payload_target_hil else None
+    patrol_advisory_engine = (
+        PatrolAdvisoryEngine(
+            PatrolAdvisoryConfig(
+                maximum_bank_angle_deg=args.patrol_maximum_bank_angle_deg,
+                minimum_ground_speed_mps=args.patrol_minimum_ground_speed_mps,
+                maximum_evidence_age_s=args.patrol_maximum_evidence_age_seconds,
+            )
+        )
+        if args.patrol_advisory
+        else None
+    )
+    person_reid_session = None
+    person_reid_encoder = None
+    if args.person_reid_onnx is not None:
+        if _sha256_file(args.person_reid_onnx) != NVIDIA_TAO_REID_V1_2_SHA256:
+            raise ValueError("person ReID ONNX artifact does not match the pinned NVIDIA hash")
+        try:
+            if args.person_reid_engine is not None:
+                person_reid_session = TensorRtEmbeddingSession(
+                    args.person_reid_engine,
+                    maximum_batch_size=args.person_reid_maximum_batch_size,
+                )
+            person_reid_encoder = OnnxPersonReIdEncoder(
+                OnnxPersonReIdConfig(
+                    model_path=args.person_reid_onnx,
+                    maximum_batch_size=args.person_reid_maximum_batch_size,
+                    providers=providers,
+                ),
+                session=person_reid_session,
+            )
+            person_reid_encoder.warmup(batch_size=1)
+        except BaseException:
+            if person_reid_session is not None:
+                person_reid_session.close()
+            raise
+    vehicle_reid_session = None
+    vehicle_reid_encoder = None
+    if args.vehicle_reid_onnx is not None:
+        if _sha384_file(args.vehicle_reid_onnx) != OPENVINO_VEHICLE_REID_0001_SHA384:
+            if person_reid_session is not None:
+                person_reid_session.close()
+            raise ValueError("vehicle ReID ONNX artifact does not match the pinned OpenVINO hash")
+        try:
+            if args.vehicle_reid_engine is not None:
+                vehicle_reid_session = TensorRtEmbeddingSession(
+                    args.vehicle_reid_engine,
+                    maximum_batch_size=args.vehicle_reid_maximum_batch_size,
+                    input_height=208,
+                    input_width=208,
+                    feature_size=512,
+                )
+            vehicle_reid_encoder = OnnxVehicleReIdEncoder(
+                OnnxVehicleReIdConfig(
+                    model_path=args.vehicle_reid_onnx,
+                    maximum_batch_size=args.vehicle_reid_maximum_batch_size,
+                    providers=providers,
+                ),
+                session=vehicle_reid_session,
+            )
+            vehicle_reid_encoder.warmup(batch_size=1)
+        except BaseException:
+            if vehicle_reid_session is not None:
+                vehicle_reid_session.close()
+            if person_reid_session is not None:
+                person_reid_session.close()
+            raise
     runner = LiveMissionRunner(
         mission=controller,
         frame_source=frame_source,
@@ -2934,8 +5143,25 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         alert_publisher=alert_publisher,
         alert_outbox=alert_outbox,
         prediction_writer=prediction_writer,
+        identity_prediction_writer=identity_prediction_writer,
         operator_bridge=operator_bridge,
         payload_hil_cycle=payload_hil_cycle,
+        monocular_avoidance=monocular_avoidance,
+        unified_target_pool=unified_target_pool,
+        person_reid_encoder=person_reid_encoder,
+        vehicle_reid_encoder=vehicle_reid_encoder,
+        aircraft_appearance_encoder=aircraft_appearance_encoder,
+        patrol_advisory_engine=patrol_advisory_engine,
+        short_term_tracker=short_term_tracker,
+        selection_target_pool=selection_target_pool,
+        ranging_engine=ranging_engine,
+        ranging_config=ranging_config,
+        approach_hil_coordinator=approach_hil_coordinator,
+        fixed_wing_aim_executor=fixed_wing_aim_executor,
+        payload_target_coordinator=payload_target_coordinator,
+        semantic_context_runner=semantic_context_runner,
+        rgb_fire_verifier=rgb_fire_verifier,
+        rgb_fire_corroborator=rgb_fire_corroborator,
         config=LiveRunConfig(
             operator_id=args.operator_id,
             max_frames=args.max_frames,
@@ -2952,13 +5178,19 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 else ("AUTO", "MISSION", "AUTO_MISSION")
             ),
             person_safety_evidence_qualified=person_safety_evidence_qualified,
+            semantic_context_maximum_age_s=args.semantic_context_maximum_age_seconds,
+            person_reid_frame_stride=args.person_reid_frame_stride,
+            vehicle_reid_frame_stride=args.vehicle_reid_frame_stride,
+            reid_maximum_interval_s=args.reid_maximum_interval_seconds,
         ),
     )
     _emit(
         {
             "event": "live_camera_started",
             "model_providers": [provider for item in detectors for provider in item.provider_names],
-            "pixhawk_read_only": bool(args.pixhawk_endpoint),
+            "pixhawk_read_only": bool(args.pixhawk_endpoint) and not args.fixed_wing_aim_control,
+            "fixed_wing_aim_control_enabled": args.fixed_wing_aim_control,
+            "fixed_camera_observation": selection_target_pool is not None,
             "zone_evidence_enabled": args.zone_evidence_report is not None,
             "zone_evidence_control_enabled": False,
             "mission_lifecycle": (
@@ -2979,6 +5211,24 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "fire_model_synthetic_hil_only": (
                 verified_fire_model.synthetic_hil_only if verified_fire_model is not None else False
             ),
+            "rgb_fire_verifier_configured": rgb_fire_verifier is not None,
+            "rgb_fire_verifier_manifest_validated": (verified_rgb_fire_verifier is not None),
+            "rgb_fire_verifier_model_role": (
+                verified_rgb_fire_verifier.model_role
+                if verified_rgb_fire_verifier is not None
+                else "not_configured"
+            ),
+            "rgb_fire_verifier_production_approved": (
+                verified_rgb_fire_verifier.production_approved
+                if verified_rgb_fire_verifier is not None
+                else False
+            ),
+            "rgb_fire_verifier_evidence_qualified": (rgb_fire_verifier_evidence_qualified),
+            "rgb_fire_verifier_required_by_mission": (config.require_independent_rgb_corroboration),
+            "rgb_fire_verifier_minimum_iou": args.rgb_fire_verifier_minimum_iou,
+            "rgb_fire_verifier_output_creates_targets": False,
+            "rgb_fire_verifier_flight_control_enabled": False,
+            "rgb_fire_verifier_physical_release_enabled": False,
             "safety_model_manifest_validated": verified_safety_model is not None,
             "safety_model_role": (
                 verified_safety_model.model_role
@@ -2990,6 +5240,53 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 if verified_safety_model is not None
                 else False
             ),
+            "environment_model_manifest_validated": verified_environment_model is not None,
+            "environment_model_role": (
+                verified_environment_model.model_role
+                if verified_environment_model is not None
+                else "unverified"
+            ),
+            "environment_model_production_approved": (
+                verified_environment_model.production_approved
+                if verified_environment_model is not None
+                else False
+            ),
+            "environment_model_required_labels": list(ENVIRONMENT_RISK_CLASS_NAMES),
+            "environment_model_coverage": environment_model_coverage,
+            "environment_evidence_qualified": environment_evidence_qualified,
+            "environment_model_flight_control_enabled": False,
+            "environment_model_physical_release_enabled": False,
+            "semantic_context_enabled": semantic_context_runner is not None,
+            "semantic_context_model_manifest_validated": (
+                verified_semantic_context_model is not None
+            ),
+            "semantic_context_model_role": (
+                verified_semantic_context_model.model_role
+                if verified_semantic_context_model is not None
+                else "unverified"
+            ),
+            "semantic_context_model_production_approved": (
+                verified_semantic_context_model.production_approved
+                if verified_semantic_context_model is not None
+                else False
+            ),
+            "semantic_context_model_providers": (
+                list(semantic_context_model.provider_names)
+                if semantic_context_runner is not None
+                else []
+            ),
+            "semantic_context_tensorrt_engine_enabled": (args.semantic_context_engine is not None),
+            "semantic_context_engine_provenance_validated": (
+                args.semantic_context_engine_provenance is not None
+            ),
+            "semantic_context_minimum_interval_s": (args.semantic_context_minimum_interval_seconds),
+            "semantic_context_maximum_age_s": args.semantic_context_maximum_age_seconds,
+            "semantic_context_queue_capacity": 1,
+            "semantic_context_confidence_available": False,
+            "semantic_context_target_pool_identity_authority": False,
+            "semantic_context_advisory_only": True,
+            "semantic_context_flight_control_enabled": False,
+            "semantic_context_physical_release_enabled": False,
             "alert_transport": (
                 "authenticated_udp" if args.alert_udp_host is not None else "json_lines"
             ),
@@ -3005,6 +5302,143 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "capture_queue_frames": args.capture_queue_frames,
             "capture_queue_intentional_drop_policy": "none",
             "model_warmup_iterations": args.warmup_iterations,
+            "monocular_avoidance_enabled": monocular_avoidance is not None,
+            "monocular_avoidance_advisory_only": True,
+            "monocular_avoidance_metric_depth_available": False,
+            "monocular_avoidance_flight_control_enabled": False,
+            "unified_target_pool_enabled": unified_target_pool is not None,
+            "unified_target_pool_maximum_tracks": (
+                args.unified_target_pool_maximum_tracks if unified_target_pool is not None else 0
+            ),
+            "unified_target_pool_locked_reacquisition_seconds": (
+                args.unified_target_pool_locked_reacquisition_seconds
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_minimum_association_confidence": (
+                args.unified_target_pool_minimum_association_confidence
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_minimum_new_track_confidence": (
+                args.unified_target_pool_minimum_new_track_confidence
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_high_confidence_threshold": (
+                args.unified_target_pool_high_confidence_threshold
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_kalman_process_noise": (
+                args.unified_target_pool_kalman_process_noise
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_kalman_measurement_noise": (
+                args.unified_target_pool_kalman_measurement_noise
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_kalman_gate_sigma": (
+                args.unified_target_pool_kalman_gate_sigma
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_kalman_maximum_horizon_seconds": (
+                args.unified_target_pool_kalman_maximum_horizon_seconds
+                if unified_target_pool is not None
+                else None
+            ),
+            "unified_target_pool_metadata_only": True,
+            "unified_target_pool_flight_control_enabled": False,
+            "identity_tracking_log_enabled": identity_prediction_writer is not None,
+            "identity_tracking_session_id": args.identity_tracking_session_id,
+            "identity_tracking_log_contains_pixels": False,
+            "identity_tracking_log_flight_control_enabled": False,
+            "person_reid_enabled": person_reid_encoder is not None,
+            "person_reid_providers": (
+                list(person_reid_encoder.provider_names) if person_reid_encoder is not None else []
+            ),
+            "person_reid_allowed_labels": ["firefighter", "person"],
+            "person_reid_vehicle_identity_enabled": False,
+            "person_reid_frame_stride": args.person_reid_frame_stride,
+            "person_reid_frame_phase": 0,
+            "person_reid_runtime_class": (
+                "tensorrt"
+                if person_reid_encoder is not None and args.person_reid_engine is not None
+                else "onnx_nonrealtime"
+                if person_reid_encoder is not None
+                else "off"
+            ),
+            "vehicle_reid_enabled": vehicle_reid_encoder is not None,
+            "vehicle_reid_providers": (
+                list(vehicle_reid_encoder.provider_names)
+                if vehicle_reid_encoder is not None
+                else []
+            ),
+            "vehicle_reid_allowed_labels": ["bus", "car", "truck", "vehicle"],
+            "vehicle_reid_person_identity_enabled": False,
+            "vehicle_reid_motorcycle_identity_enabled": False,
+            "vehicle_reid_frame_stride": args.vehicle_reid_frame_stride,
+            "vehicle_reid_frame_phase": (1 if args.vehicle_reid_frame_stride > 1 else 0),
+            "reid_maximum_interval_seconds": args.reid_maximum_interval_seconds,
+            "reid_recovery_overrides_cadence": True,
+            "vehicle_reid_runtime_class": (
+                "tensorrt"
+                if vehicle_reid_encoder is not None and args.vehicle_reid_engine is not None
+                else "onnx_nonrealtime"
+                if vehicle_reid_encoder is not None
+                else "off"
+            ),
+            "reid_nonrealtime_override_enabled": args.allow_nonrealtime_reid,
+            "reid_realtime_admission_passed": (
+                (
+                    (person_reid_encoder is None or args.person_reid_engine is not None)
+                    and (vehicle_reid_encoder is None or args.vehicle_reid_engine is not None)
+                )
+                if person_reid_encoder is not None or vehicle_reid_encoder is not None
+                else None
+            ),
+            "reid_synchronous_inference": (
+                person_reid_encoder is not None or vehicle_reid_encoder is not None
+            ),
+            "reid_frame_backlog_risk_accepted": args.allow_nonrealtime_reid,
+            "reid_flight_control_enabled": False,
+            "patrol_advisory_enabled": patrol_advisory_engine is not None,
+            "patrol_advisory_operator_confirmation_required": True,
+            "patrol_advisory_sitl_validation_required": True,
+            "patrol_advisory_flight_control_enabled": False,
+            "short_term_tracking_enabled": short_term_tracker is not None,
+            "short_term_tracking_metadata_only": True,
+            "short_term_tracking_identity_authority": False,
+            "short_term_tracking_flight_control_enabled": False,
+            "selection_target_pool_enabled": selection_target_pool is not None,
+            "selection_target_pool_metadata_only": True,
+            "selection_target_pool_flight_control_enabled": False,
+            "multimodal_ranging_enabled": ranging_engine is not None,
+            "multimodal_ranging_calibration_id": (
+                ranging_config.calibration.calibration_id if ranging_config is not None else None
+            ),
+            "multimodal_ranging_calibration_sha256": ranging_calibration_sha256,
+            "multimodal_ranging_absolute_methods": (
+                ["camera_ground"] if ranging_engine is not None else []
+            ),
+            "multimodal_ranging_independent_direct_range_available": False,
+            "multimodal_ranging_valid_possible": False,
+            "multimodal_ranging_advisory_only": True,
+            "multimodal_ranging_flight_control_enabled": False,
+            "multimodal_ranging_physical_release_enabled": False,
+            "approach_hil_enabled": approach_hil_coordinator is not None,
+            "approach_hil_advisory_only": True,
+            "approach_hil_sitl_hil_only": True,
+            "approach_hil_flight_control_enabled": False,
+            "approach_hil_physical_release_enabled": False,
+            "payload_target_hil_enabled": payload_target_coordinator is not None,
+            "payload_target_hil_requires_selection": True,
+            "payload_target_hil_requires_continuous_slide": True,
+            "payload_target_hil_flight_control_enabled": False,
+            "payload_target_hil_physical_release_enabled": False,
         }
     )
     pixhawk_diagnostics: dict[str, object] | None = None
@@ -3020,12 +5454,18 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     pixhawk_diagnostics,
                 )
     finally:
+        if vehicle_reid_session is not None:
+            vehicle_reid_session.close()
+        if person_reid_session is not None:
+            person_reid_session.close()
         if alert_outbox is not None:
             alert_outbox.close()
         if audit_log is not None:
             audit_log.close()
         if prediction_writer is not None:
             prediction_writer.close()
+        if identity_prediction_writer is not None:
+            identity_prediction_writer.close()
     _emit(
         {
             "event": "live_camera_finished",
@@ -3044,6 +5484,29 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "frame_age_at_inference_p95_ms": result.frame_age_at_inference_p95_ms,
             "inference_latency_p50_ms": result.inference_latency_p50_ms,
             "inference_latency_p95_ms": result.inference_latency_p95_ms,
+            "rgb_fire_verifier_assessments": result.rgb_fire_verifier_assessment_count,
+            "rgb_fire_verifier_skipped_no_candidate_frames": (
+                result.rgb_fire_verifier_skipped_no_candidate_frame_count
+            ),
+            "rgb_fire_verifier_inferences": result.rgb_fire_verifier_inference_count,
+            "rgb_fire_verifier_failures": result.rgb_fire_verifier_failure_count,
+            "rgb_fire_verifier_unavailable_frames": (
+                result.rgb_fire_verifier_unavailable_frame_count
+            ),
+            "rgb_fire_verifier_unqualified_frames": (
+                result.rgb_fire_verifier_unqualified_frame_count
+            ),
+            "rgb_fire_verifier_corroborated_frames": (
+                result.rgb_fire_verifier_corroborated_frame_count
+            ),
+            "rgb_fire_verifier_corroborated_detections": (
+                result.rgb_fire_verifier_corroborated_detection_count
+            ),
+            "rgb_fire_verifier_latency_p50_ms": (result.rgb_fire_verifier_latency_p50_ms),
+            "rgb_fire_verifier_latency_p95_ms": (result.rgb_fire_verifier_latency_p95_ms),
+            "rgb_fire_verifier_output_creates_targets": False,
+            "rgb_fire_verifier_flight_control_enabled": False,
+            "rgb_fire_verifier_physical_release_enabled": False,
             "camera_reconnect_count": result.camera_reconnect_count,
             "capture_queue_high_watermark": result.capture_queue_high_watermark,
             "capture_queue_backpressure_count": result.capture_queue_backpressure_count,
@@ -3056,9 +5519,132 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "remote_tracking_statuses": result.remote_tracking_status_count,
             "remote_mission_statuses": result.remote_mission_status_count,
             "remote_safety_statuses": result.remote_safety_status_count,
+            "remote_patrol_statuses": result.remote_patrol_status_count,
+            "remote_range_statuses": result.remote_range_status_count,
+            "remote_release_statuses": result.remote_release_status_count,
+            "remote_approach_challenges": result.remote_approach_challenge_count,
+            "remote_approach_statuses": result.remote_approach_status_count,
+            "remote_target_pool_statuses": result.remote_target_pool_status_count,
+            "remote_scene_context_statuses": result.remote_scene_context_status_count,
+            "remote_approach_confirmations": result.remote_approach_confirmation_count,
+            "remote_payload_target_challenges": result.remote_payload_target_challenge_count,
+            "remote_payload_target_statuses": result.remote_payload_target_status_count,
+            "remote_payload_target_confirmations": (
+                result.remote_payload_target_confirmation_count
+            ),
+            "payload_target_errors": result.payload_target_error_count,
+            "approach_hil_aborts": result.approach_hil_abort_count,
+            "approach_hil_errors": result.approach_hil_error_count,
+            "approach_hil_advisory_only": True,
+            "approach_hil_flight_control_enabled": False,
+            "approach_hil_physical_release_enabled": False,
             "remote_transport_errors": result.remote_transport_error_count,
+            "monocular_avoidance_assessments": (result.monocular_avoidance_assessment_count),
+            "monocular_avoidance_invalid": result.monocular_avoidance_invalid_count,
+            "monocular_avoidance_caution": result.monocular_avoidance_caution_count,
+            "monocular_avoidance_avoid": result.monocular_avoidance_avoid_count,
+            "monocular_avoidance_errors": result.monocular_avoidance_error_count,
+            "monocular_avoidance_latency_p50_ms": (result.monocular_avoidance_latency_p50_ms),
+            "monocular_avoidance_latency_p95_ms": (result.monocular_avoidance_latency_p95_ms),
+            "monocular_avoidance_advisory_only": True,
+            "monocular_avoidance_flight_control_enabled": False,
+            "unified_target_pool_updates": result.unified_target_pool_update_count,
+            "unified_target_pool_errors": result.unified_target_pool_error_count,
+            "unified_target_pool_maximum_tracks": (result.unified_target_pool_maximum_track_count),
+            "unified_target_pool_created_tracks": (result.unified_target_pool_created_track_count),
+            "unified_target_pool_recovered_tracks": (
+                result.unified_target_pool_recovered_track_count
+            ),
+            "unified_target_pool_lost_tracks": result.unified_target_pool_lost_track_count,
+            "unified_target_pool_association_p50_ms": (
+                result.unified_target_pool_association_p50_ms
+            ),
+            "unified_target_pool_association_p95_ms": (
+                result.unified_target_pool_association_p95_ms
+            ),
+            "person_reid_failures": result.person_reid_failure_count,
+            "person_reid_inferences": result.person_reid_inference_count,
+            "person_reid_skipped_frames": result.person_reid_skipped_frame_count,
+            "person_reid_no_candidate_frames": (result.person_reid_no_candidate_frame_count),
+            "person_reid_forced_recoveries": result.person_reid_forced_recovery_count,
+            "person_reid_latency_p50_ms": result.person_reid_latency_p50_ms,
+            "person_reid_latency_p95_ms": result.person_reid_latency_p95_ms,
+            "vehicle_reid_failures": result.vehicle_reid_failure_count,
+            "vehicle_reid_inferences": result.vehicle_reid_inference_count,
+            "vehicle_reid_skipped_frames": result.vehicle_reid_skipped_frame_count,
+            "vehicle_reid_no_candidate_frames": (result.vehicle_reid_no_candidate_frame_count),
+            "vehicle_reid_forced_recoveries": result.vehicle_reid_forced_recovery_count,
+            "vehicle_reid_latency_p50_ms": result.vehicle_reid_latency_p50_ms,
+            "vehicle_reid_latency_p95_ms": result.vehicle_reid_latency_p95_ms,
+            "patrol_advisory_assessments": result.patrol_advisory_assessment_count,
+            "patrol_return_to_observe": result.patrol_return_to_observe_count,
+            "patrol_advisory_errors": result.patrol_advisory_error_count,
+            "patrol_advisory_flight_control_enabled": False,
+            "unified_target_pool_metadata_only": True,
+            "unified_target_pool_flight_control_enabled": False,
+            "short_term_tracking_updates": result.short_term_tracking_update_count,
+            "short_term_tracking_invalid": result.short_term_tracking_invalid_count,
+            "short_term_tracking_errors": result.short_term_tracking_error_count,
+            "short_term_tracking_optical_flow_hints": (
+                result.short_term_tracking_optical_flow_hint_count
+            ),
+            "short_term_tracking_template_hints": (result.short_term_tracking_template_hint_count),
+            "short_term_tracking_accepted_hints": (result.short_term_tracking_accepted_hint_count),
+            "short_term_tracking_rejected_hints": (result.short_term_tracking_rejected_hint_count),
+            "short_term_tracking_latency_p50_ms": (result.short_term_tracking_latency_p50_ms),
+            "short_term_tracking_latency_p95_ms": (result.short_term_tracking_latency_p95_ms),
+            "short_term_tracking_metadata_only": True,
+            "short_term_tracking_identity_authority": False,
+            "short_term_tracking_flight_control_enabled": False,
+            "selection_target_pool_syncs": result.selection_target_pool_sync_count,
+            "selection_target_pool_bindings": result.selection_target_pool_binding_count,
+            "selection_target_pool_pending": result.selection_target_pool_pending_count,
+            "selection_target_pool_cancels": result.selection_target_pool_cancel_count,
+            "selection_target_pool_errors": result.selection_target_pool_error_count,
+            "selection_target_pool_metadata_only": True,
+            "selection_target_pool_flight_control_enabled": False,
+            "multimodal_ranging_assessments": result.ranging_assessment_count,
+            "multimodal_ranging_valid": result.ranging_valid_count,
+            "multimodal_ranging_degraded": result.ranging_degraded_count,
+            "multimodal_ranging_invalid": result.ranging_invalid_count,
+            "multimodal_ranging_errors": result.ranging_error_count,
+            "multimodal_ranging_latency_p50_ms": result.ranging_latency_p50_ms,
+            "multimodal_ranging_latency_p95_ms": result.ranging_latency_p95_ms,
+            "multimodal_ranging_advisory_only": True,
+            "multimodal_ranging_flight_control_enabled": False,
+            "multimodal_ranging_physical_release_enabled": False,
+            "semantic_context_submitted_frames": (result.semantic_context_submitted_frame_count),
+            "semantic_context_interval_skipped_frames": (
+                result.semantic_context_interval_skipped_frame_count
+            ),
+            "semantic_context_replaced_pending_frames": (
+                result.semantic_context_replaced_pending_frame_count
+            ),
+            "semantic_context_valid_frames": result.semantic_context_valid_frame_count,
+            "semantic_context_invalid_frames": result.semantic_context_invalid_frame_count,
+            "semantic_context_submit_errors": result.semantic_context_submit_error_count,
+            "semantic_context_stale_count": result.semantic_context_stale_count,
+            "semantic_context_latency_p50_ms": result.semantic_context_latency_p50_ms,
+            "semantic_context_latency_p95_ms": result.semantic_context_latency_p95_ms,
+            "semantic_context_shutdown_clean": result.semantic_context_shutdown_clean,
+            "semantic_context_queue_capacity": 1,
+            "semantic_context_advisory_only": True,
+            "semantic_context_target_pool_identity_authority": False,
+            "semantic_context_flight_control_enabled": False,
+            "semantic_context_physical_release_enabled": False,
             "audit_written": args.audit_out is not None,
             "prediction_log_written": args.prediction_log_out is not None,
+            "identity_tracking_log_written": args.identity_tracking_log_out is not None,
+            "identity_tracking_session_id": args.identity_tracking_session_id,
+            "identity_tracking_log_frames": result.identity_tracking_log_frame_count,
+            "identity_tracking_log_errors": result.identity_tracking_log_error_count,
+            "identity_tracking_log_complete": (
+                args.identity_tracking_log_out is None
+                or (
+                    result.identity_tracking_log_frame_count == result.processed_frames
+                    and result.identity_tracking_log_error_count == 0
+                )
+            ),
             "physical_release_supported": False,
             "inert_payload_hil_enabled": payload_hil_cycle is not None,
             "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
@@ -3101,7 +5687,11 @@ def _run_replay(
         }
     )
     for frame in frames:
-        outcome = controller.process_observation(frame, now_s=frame.captured_at_s)
+        outcome = controller.process_observation(
+            frame,
+            now_s=frame.captured_at_s,
+            primary_range_evidence=primary_range_evidence_from_frame(frame),
+        )
         _emit(
             {
                 "event": "frame_evaluated",
@@ -3291,6 +5881,14 @@ def _emit(document: dict[str, Any], *, stream: Any = None) -> None:
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sha384_file(path: Path) -> str:
+    digest = hashlib.sha384()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)

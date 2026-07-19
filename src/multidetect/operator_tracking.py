@@ -14,7 +14,7 @@ from .operator_link import (
 )
 
 FIRE_CANDIDATE_TRACK_LABELS = frozenset(
-    {"fire", "flame", "smoke", "hotspot", "smoldering_area", "burned_area"}
+    {"fire", "flame", "smoke", "smoldering_area", "burned_area"}
 )
 
 
@@ -72,10 +72,9 @@ class OperatorTargetLock:
         self._validate_update(frame_id=frame_id, now_s=now_s)
         if command.geometry != self.geometry:
             raise ValueError("selection geometry does not match the target-lock geometry")
-        self._command_id = command.command_id
-        self._active_track_id = None
-        self._last_bbox = None
         if command.action is SelectionAction.CANCEL:
+            self._command_id = command.command_id
+            self._active_track_id = None
             self._selection_bbox = None
             self._acquisition_deadline_s = None
             self._last_bbox = None
@@ -85,6 +84,44 @@ class OperatorTargetLock:
                 captured_at_s=now_s,
                 produced_at_s=now_s,
             )
+        if command.action is SelectionAction.CANCEL_TRK:
+            selection_bbox = command.bbox
+            if selection_bbox is None:
+                raise ValueError("single-track cancel requires a bounding box")
+            candidate = self._associate(selection_bbox, tracks)
+            current_bbox = self._last_bbox or self._selection_bbox
+            cancels_active = (
+                candidate is not None and candidate.track_id == self._active_track_id
+            ) or (
+                current_bbox is not None and self._selection_matches(selection_bbox, current_bbox)
+            )
+            cancelled_target_id = (
+                candidate.track_id
+                if candidate is not None
+                else self._active_track_id if cancels_active else None
+            )
+            status = self._status(
+                state=TrackingState.CANCELLED,
+                frame_id=frame_id,
+                captured_at_s=now_s,
+                produced_at_s=now_s,
+                target_id=cancelled_target_id,
+                bbox=selection_bbox,
+                label=candidate.label if candidate is not None else None,
+                confidence=candidate.confidence_mean if candidate is not None else None,
+                tracking_quality=0.0,
+                command_id=command.command_id,
+            )
+            if cancels_active:
+                self._command_id = None
+                self._active_track_id = None
+                self._selection_bbox = None
+                self._acquisition_deadline_s = None
+                self._last_bbox = None
+            return status
+        self._command_id = command.command_id
+        self._active_track_id = None
+        self._last_bbox = None
         selection_bbox = command.bbox
         if selection_bbox is None:
             raise ValueError("select and switch commands require a bounding box")
@@ -216,6 +253,13 @@ class OperatorTargetLock:
             )
         return min(candidates)[-1] if candidates else None
 
+    @staticmethod
+    def _selection_matches(selection: BoundingBox, target: BoundingBox) -> bool:
+        if selection.iou(target) > 0.05:
+            return True
+        target_x, target_y = target.center
+        return selection.x1 <= target_x <= selection.x2 and selection.y1 <= target_y <= selection.y2
+
     def _tracking_status(
         self,
         track: TrackSnapshot,
@@ -255,14 +299,15 @@ class OperatorTargetLock:
         label: str | None = None,
         confidence: float | None = None,
         tracking_quality: float | None = None,
+        command_id: str | None = None,
     ) -> TrackStatusMessage:
-        command_id = self._command_id
-        if command_id is None:
+        correlated_command_id = command_id or self._command_id
+        if correlated_command_id is None:
             raise RuntimeError("cannot emit target-lock status without a selection command")
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
         return TrackStatusMessage(
             status_id=str(uuid4()),
-            selection_command_id=command_id,
+            selection_command_id=correlated_command_id,
             sequence=self._sequence,
             geometry=self.geometry,
             state=state,

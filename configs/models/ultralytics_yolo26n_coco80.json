@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "model_id": "ultralytics-yolo26n-coco80",
+  "model_version": "ultralytics-8.4.92-opset19-20260712",
+  "model_role": "safety_object_evidence",
+  "status": "candidate",
+  "source": "Ultralytics YOLO26n COCO80 checkpoint exported locally with Ultralytics 8.4.92",
+  "artifact_filename": "coco-yolo26n.onnx",
+  "artifact_sha256": "cd89b16b1497b4c1cda0b57404f6582f99aa3ba8b9bc3f79b3350a081528b85f",
+  "license": "AGPL-3.0; production license review pending",
+  "input": {
+    "layout": "NCHW",
+    "color": "RGB",
+    "shape": [1, 3, 640, 640],
+    "resize": "letterbox"
+  },
+  "output": {
+    "name": "output0",
+    "shape": [1, 300, 6],
+    "format": "post_nms_Nx6",
+    "fields": ["x1", "y1", "x2", "y2", "confidence", "class_id"]
+  },
+  "validated_labels": [
+    "person",
+    "airplane",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "truck",
+    "traffic light",
+    "fire hydrant"
+  ],
+  "missing_required_labels": ["power_line", "flammable_tank"],
+  "missing_semantic_context_labels": ["building", "road"],
+  "limitations": [
+    "COCO80 provides a baseline common-object detector, not complete environmental-risk coverage.",
+    "This model does not provide vehicle ReID embeddings or identity recovery by itself.",
+    "Person and vehicle detections are metadata and safety evidence only.",
+    "No detection grants payload authorization, flight-control authority, or person-safety clearance.",
+    "Deployment-domain accuracy, licensing, dataset rights, and TensorRT latency review remain pending."
+  ],
+  "production_approved": false,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false
+}

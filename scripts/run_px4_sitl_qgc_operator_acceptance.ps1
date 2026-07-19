@@ -503,6 +503,10 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($driverEvidence.autopilot_heartbeats_sent -eq 0) "Jetson HIL driver spoofed an autopilot heartbeat."
     Assert-True ($driverEvidence.jetson_component_heartbeats_sent -gt 0) "Jetson component 191 sent no presence heartbeat."
     Assert-True ($driverEvidence.real_v6x_contacted -eq $false) "Jetson HIL driver reported real V6X contact."
+    Assert-True ($driverEvidence.target_pool_page_count -eq 2) "Jetson HIL driver did not send both target-pool pages."
+    Assert-True ($driverEvidence.target_pool_track_count -eq 3) "Jetson HIL target-pool cardinality is wrong."
+    Assert-True ($driverEvidence.tracking_metadata_packets_sent -eq 30) "Jetson HIL did not send all tracking-rate samples."
+    Assert-True ($driverEvidence.tracking_metadata_rate_hz -ge 15) "Jetson HIL tracking metadata rate is below 15 Hz."
     Assert-True ($routerEvidence.px4_frames_forwarded -gt 0) "Router received no PX4 SITL telemetry."
     Assert-True ($routerEvidence.px4_autopilot_heartbeats_forwarded -gt 0) "Router received no PX4 autopilot heartbeat."
     Assert-True ($routerEvidence.px4_unexpected_system_frames_blocked -eq 0) "Router observed an unexpected PX4 source system."
@@ -521,6 +525,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($qgcLog -match "HIL target-selection metadata sent") "QGC log lacks target-selection transmission."
     Assert-True ($qgcLog -match "HIL PX4 initial connection ready") "QGC did not wait for PX4 initial connection readiness."
     Assert-True ($qgcLog -match "HIL authenticated message set complete") "QGC log lacks authenticated-loop completion."
+    Assert-True ($qgcLog -match "target-pool snapshot complete revision=3 tracks=3 pages=2") "QGC did not atomically assemble the paged target pool."
     Assert-True ($qgcLog -notmatch "rejected metadata:") "QGC rejected operator metadata during acceptance."
     $authenticatedSetMatch = [regex]::Match(
         $qgcLog,
@@ -528,7 +533,19 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     )
     Assert-True $authenticatedSetMatch.Success "QGC completion log lacks its authenticated packet count."
     $authenticatedMetadataPackets = [int]$authenticatedSetMatch.Groups[1].Value
-    Assert-True ($authenticatedMetadataPackets -ge 6) "QGC authenticated fewer than six required metadata packets."
+    $trackingMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=3 ").Count
+    $trackingRateMatch = [regex]::Match(
+        $qgcLog,
+        "tracking metadata rate samples=(\d+) hz=([0-9]+(?:\.[0-9]+)?)"
+    )
+    Assert-True $trackingRateMatch.Success "QGC log lacks its measured tracking metadata rate."
+    $trackingMetadataRateHz = [double]::Parse(
+        $trackingRateMatch.Groups[2].Value,
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    Assert-True ($trackingMetadataPackets -ge 30) "QGC authenticated fewer than 30 continuous tracking packets."
+    Assert-True ($trackingMetadataRateHz -ge 15.0) "QGC measured tracking metadata below 15 Hz."
+    Assert-True ($authenticatedMetadataPackets -ge 37) "QGC authenticated fewer than 37 required metadata packets."
 
     $protectedOwnersAfter = @(Get-UdpPortOwners -Port $ProtectedGroundStationPort)
     $protectedPortUnchanged = (
@@ -608,6 +625,9 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             jetson_autopilot_heartbeat_spoof_count = 0
             target_selection_completed = $true
             tracking_mission_safety_challenge_received = $true
+            paged_target_pool_atomically_assembled = $true
+            tracking_metadata_rate_hz = $trackingMetadataRateHz
+            tracking_metadata_packets_received_by_qgc = $trackingMetadataPackets
             challenge_bound_authorization_completed = $true
             qgc_forbidden_px4_messages = 0
             file_mutating_ftp_opcodes_forwarded = 0
