@@ -99,6 +99,11 @@ class UnifiedSelectionTargetPool:
         # newest rectangle to overwrite the preceding one.
         self._pending: dict[str, _PendingManualObservation] = {}
         self._command_to_track: dict[str, str] = {}
+        # CANCEL_TRK identifies an operator-selected track through its visible
+        # rectangle. Preserve the last emitted rectangle for those tracks so a
+        # delayed click can still be associated after a moving target changes
+        # its detector box.
+        self._tracked_last_bbox: dict[str, BoundingBox] = {}
         self._mapping_order: deque[str] = deque()
 
     @property
@@ -173,6 +178,11 @@ class UnifiedSelectionTargetPool:
         snapshots = self.target_pool.snapshots()
         existing_track_ids = {track.track_id for track in snapshots}
         self._tracked_track_ids.intersection_update(existing_track_ids)
+        self._tracked_last_bbox = {
+            track.track_id: track.bbox
+            for track in snapshots
+            if track.track_id in self._tracked_track_ids
+        }
         if self._active_track_id not in existing_track_ids:
             self._active_track_id = None
         pending_items = tuple(self._pending.values())
@@ -429,10 +439,12 @@ class UnifiedSelectionTargetPool:
             # identity for this exact operator command.  Remove only the superseded
             # identity; other independently selected TRK targets remain untouched.
             self._tracked_track_ids.discard(previous_track_id)
+            self._tracked_last_bbox.pop(previous_track_id, None)
         self._remember_mapping(command_id, candidate.track_id)
         self._active_command_id = command_id
         self._active_track_id = candidate.track_id
         self._tracked_track_ids.add(candidate.track_id)
+        self._tracked_last_bbox[candidate.track_id] = candidate.bbox
         return self._sync(bound_track_id=None if already_bound else candidate.track_id)
 
     def _promote(
@@ -561,10 +573,10 @@ class UnifiedSelectionTargetPool:
             bbox,
             preferred_label=None,
         )
+        if candidate is None or candidate.track_id not in self._tracked_track_ids:
+            candidate = self._tracked_cancel_candidate(bbox)
         if candidate is None:
-            return self._sync(reason="single-track cancel did not match a target-pool track")
-        if candidate.track_id not in self._tracked_track_ids:
-            return self._sync(reason="single-track cancel matched a target outside operator TRK")
+            return self._sync(reason="single-track cancel did not match an operator TRK")
 
         unlocked_id: str | None = None
         if candidate.locked:
@@ -574,6 +586,7 @@ class UnifiedSelectionTargetPool:
             except ValueError:
                 unlocked_id = None
         self._tracked_track_ids.discard(candidate.track_id)
+        self._tracked_last_bbox.pop(candidate.track_id, None)
         # A late singleton-status update for an individually cancelled target
         # must not resurrect its old operator command.  The remaining TRK
         # selections retain their own command-to-track mappings.
@@ -599,6 +612,42 @@ class UnifiedSelectionTargetPool:
             }
         return self._sync(unlocked_track_id=unlocked_id)
 
+    def _tracked_cancel_candidate(self, bbox: BoundingBox) -> UnifiedTrackSnapshot | None:
+        """Associate a delayed cancel with a current operator-owned target only.
+
+        The normal target-pool association remains the first choice.  This
+        fallback never considers an untracked detection, avoiding accidental
+        cancellation when a different object moves into the old rectangle.
+        """
+
+        snapshots = {
+            track.track_id: track
+            for track in self.target_pool.snapshots()
+            if track.state is not UnifiedTrackState.LOST
+        }
+        candidates: list[tuple[float, float, str, UnifiedTrackSnapshot]] = []
+        for track_id in self._tracked_track_ids:
+            track = snapshots.get(track_id)
+            previous_bbox = self._tracked_last_bbox.get(track_id)
+            if track is None or previous_bbox is None:
+                continue
+            overlap = bbox.iou(previous_bbox)
+            center_distance = hypot(
+                bbox.center[0] - previous_bbox.center[0],
+                bbox.center[1] - previous_bbox.center[1],
+            )
+            if overlap <= 0.01 and center_distance > 0.18:
+                continue
+            candidates.append((-overlap, center_distance, track_id, track))
+        if not candidates:
+            return None
+        candidates.sort()
+        if len(candidates) > 1:
+            first, second = candidates[:2]
+            if abs(first[0] - second[0]) <= 0.03 and abs(first[1] - second[1]) <= 0.04:
+                return None
+        return candidates[0][-1]
+
     def _begin_session(self, session_id: str, *, now_s: float) -> None:
         """Drop selections left by an older QGC process before accepting a new session."""
 
@@ -615,6 +664,7 @@ class UnifiedSelectionTargetPool:
         self._active_action = None
         self._pending.clear()
         self._tracked_track_ids.clear()
+        self._tracked_last_bbox.clear()
 
     def _snapshot_by_id(self, track_id: str) -> UnifiedTrackSnapshot | None:
         return next(

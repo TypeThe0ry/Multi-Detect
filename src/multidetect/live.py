@@ -2052,7 +2052,11 @@ class LiveMissionRunner:
                             self.mission.audit.append(
                                 "ranging.primary_target_solution",
                                 frame_event_at_s,
-                                _range_solution_details(latest_ranging_solution),
+                                _range_solution_details(
+                                    latest_ranging_solution,
+                                    telemetry=telemetry,
+                                    now_s=frame_event_at_s,
+                                ),
                             )
                     finally:
                         ranging_latency_ms.append(
@@ -4036,8 +4040,13 @@ def _invalid_live_range_solution(
     )
 
 
-def _range_solution_details(solution: RangeSolution) -> dict[str, object]:
-    return {
+def _range_solution_details(
+    solution: RangeSolution,
+    *,
+    telemetry: VehicleTelemetry | None = None,
+    now_s: float | None = None,
+) -> dict[str, object]:
+    details: dict[str, object] = {
         "target_id": solution.target_id,
         "frame_id": solution.frame_id,
         "calibration_id": solution.calibration_id,
@@ -4059,6 +4068,50 @@ def _range_solution_details(solution: RangeSolution) -> dict[str, object]:
         "advisory_only": True,
         "flight_control_enabled": False,
         "physical_release_enabled": False,
+    }
+    if telemetry is not None:
+        details["ranging_input"] = _ranging_input_details(telemetry, now_s=now_s)
+    return details
+
+
+def _ranging_input_details(
+    telemetry: VehicleTelemetry,
+    *,
+    now_s: float | None,
+) -> dict[str, object]:
+    """Compact evidence for a ``--`` range, without inventing metric output."""
+
+    def _sample(value: float, observed_at_s: float) -> dict[str, object]:
+        finite_value = math.isfinite(value)
+        finite_timestamp = math.isfinite(observed_at_s)
+        return {
+            "sample_available": finite_value and finite_timestamp,
+            "age_s": (
+                max(0.0, now_s - observed_at_s)
+                if now_s is not None and finite_timestamp
+                else None
+            ),
+        }
+
+    return {
+        "attitude": {
+            "roll_pitch_heading_available": all(
+                math.isfinite(value)
+                for value in (telemetry.roll_deg, telemetry.pitch_deg, telemetry.heading_deg)
+            ),
+            **_sample(telemetry.roll_deg, telemetry.attitude_observed_at_s),
+        },
+        "vertical": {
+            "altitude_agl_available": math.isfinite(telemetry.altitude_agl_m)
+            and telemetry.altitude_agl_m > 0.0,
+            "reference": telemetry.altitude_reference,
+            **_sample(telemetry.altitude_agl_m, telemetry.altitude_observed_at_s),
+        },
+        "position": _sample(telemetry.latitude_deg, telemetry.position_observed_at_s),
+        "local_position": _sample(
+            telemetry.local_down_m,
+            telemetry.local_position_observed_at_s,
+        ),
     }
 
 

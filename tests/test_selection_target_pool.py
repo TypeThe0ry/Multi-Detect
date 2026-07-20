@@ -544,6 +544,43 @@ def test_cancel_trk_removes_only_the_selected_target() -> None:
     assert coordinator.exclusive_high_rate is False
 
 
+def test_cancel_trk_accepts_a_recent_stale_box_for_the_same_operator_track() -> None:
+    old_box = BoundingBox(0.12, 0.20, 0.28, 0.50)
+    current_box = BoundingBox(0.20, 0.20, 0.36, 0.50)
+    pool = UnifiedTargetPool()
+    track_id = pool.update(
+        frame_id="frame-1",
+        captured_at_s=100.0,
+        observations=(_observation("person", old_box),),
+    ).tracks[0].track_id
+    coordinator = UnifiedSelectionTargetPool(pool)
+    select = _command(1, SelectionAction.SELECT_TRK, old_box)
+    coordinator.consume_bridge_result(
+        _bridge_result(
+            command=select,
+            status=_status(select, state=TrackingState.TRACKING, bbox=old_box, label="person"),
+        ),
+        now_s=100.1,
+    )
+
+    # The renderer can be one pool revision behind a moving target.  The normal
+    # association rejects this stale box at the configured IoU threshold, while
+    # the per-operator fallback still names the one selected track.
+    coordinator._tracked_last_bbox[track_id] = old_box  # noqa: SLF001 - focused state regression
+    pool.update(
+        frame_id="frame-2",
+        captured_at_s=100.2,
+        observations=(_observation("person", current_box),),
+    )
+    result = coordinator.consume_bridge_result(
+        _bridge_result(command=_command(2, SelectionAction.CANCEL_TRK, old_box)),
+        now_s=100.3,
+    )
+
+    assert result.tracked_track_ids == ()
+    assert coordinator.tracked_track_ids == ()
+
+
 def test_cancelled_trk_ignores_a_late_legacy_lost_status() -> None:
     first_box = BoundingBox(0.1, 0.2, 0.25, 0.5)
     second_box = BoundingBox(0.65, 0.2, 0.8, 0.5)
