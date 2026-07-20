@@ -1002,6 +1002,27 @@ def test_lck_route_overrides_detector_cadence_then_restores_configured_stride() 
     assert base.calls == 3
 
 
+def test_lck_route_can_keep_the_configured_detector_schedule() -> None:
+    class _Detector:
+        class_names = ("person",)
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def detect(self, _image):
+            self.calls += 1
+            return (Detection("person", 0.8, BoundingBox(0.1, 0.1, 0.2, 0.2)),)
+
+    base = _Detector()
+    cadenced = FrameCadencedDetector(base, frame_stride=3, frame_phase=0)
+    ensemble = DetectorEnsemble((cadenced,), force_locked_cadence=False)
+
+    ensemble.set_active_labels(("person",))
+    assert cadenced.force_every_frame is False
+    assert [bool(ensemble.detect(None)) for _ in range(4)] == [True, False, False, True]
+    assert base.calls == 2
+
+
 def test_capture_config_identifies_rtsp_and_validates_transport() -> None:
     assert CaptureConfig("rtsp://camera/live").is_rtsp is True
     assert CaptureConfig(0).is_rtsp is False

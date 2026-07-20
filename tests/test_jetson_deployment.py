@@ -82,6 +82,9 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert 'FIRE_FLAME_CONFIDENCE_THRESHOLD="${FIRE_FLAME_CONFIDENCE_THRESHOLD:-0.25}"' in launcher
     assert 'FIRE_SMOKE_CONFIDENCE_THRESHOLD="${FIRE_SMOKE_CONFIDENCE_THRESHOLD:-0.30}"' in launcher
     assert 'FIRE_CANDIDATE_STABILITY_FRAMES="${FIRE_CANDIDATE_STABILITY_FRAMES:-3}"' in launcher
+    assert 'PRIMARY_FIRE_MODEL_FRAME_STRIDE="${PRIMARY_FIRE_MODEL_FRAME_STRIDE:-2}"' in launcher
+    assert 'PRIMARY_FIRE_MODEL_FRAME_PHASE="${PRIMARY_FIRE_MODEL_FRAME_PHASE:-0}"' in launcher
+    assert 'LOCK_MODEL_FORCE_EVERY_FRAME="${LOCK_MODEL_FORCE_EVERY_FRAME:-0}"' in launcher
     assert 'MONOCULAR_AVOIDANCE_ENABLED="${MONOCULAR_AVOIDANCE_ENABLED:-1}"' in launcher
     assert 'UNIFIED_TARGET_POOL_ENABLED="${UNIFIED_TARGET_POOL_ENABLED:-1}"' in launcher
     assert "UNIFIED_TARGET_POOL_PRIORITY_MINIMUM_NEW_TRACK_CONFIDENCE" in launcher
@@ -97,6 +100,8 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert 'RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"' in launcher
     assert '--gstreamer-latency-ms "${GSTREAMER_LATENCY_MS}"' in launcher
     assert '--capture-queue-frames "${CAPTURE_QUEUE_FRAMES}"' in launcher
+    assert '--primary-model-frame-stride "${PRIMARY_FIRE_MODEL_FRAME_STRIDE}"' in launcher
+    assert '--primary-model-frame-phase "${PRIMARY_FIRE_MODEL_FRAME_PHASE}"' in launcher
     assert '--flame-confidence-threshold "${FIRE_FLAME_CONFIDENCE_THRESHOLD}"' in launcher
     assert '--smoke-confidence-threshold "${FIRE_SMOKE_CONFIDENCE_THRESHOLD}"' in launcher
     assert '--candidate-stability-frames "${FIRE_CANDIDATE_STABILITY_FRAMES}"' in launcher
@@ -144,6 +149,7 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert "COMMON_OBJECT_TILE_MAXIMUM_BOX_AREA" in launcher
     assert "COMMON_OBJECT_TILE_FUSION_IOU_THRESHOLD" in launcher
     assert '--safety-tile-labels "${COMMON_OBJECT_TILE_LABELS}"' in launcher
+    assert "--no-lock-model-force-every-frame" in launcher
     assert "COMMON_OBJECT_DETECTOR_ENABLED must be auto, 0 or 1" in launcher
     assert '--person-reid-engine "${PERSON_REID_ENGINE_PATH}"' in launcher
     assert '--person-reid-frame-stride "${PERSON_REID_FRAME_STRIDE:-2}"' in launcher
@@ -366,6 +372,7 @@ def test_jetson_launcher_autoloads_priority_object_detector() -> None:
     )
     assert '--priority-model-frame-stride "${PRIORITY_OBJECT_FRAME_STRIDE}"' in launcher
     assert '--priority-model-frame-phase "${PRIORITY_OBJECT_FRAME_PHASE}"' in launcher
+    assert 'PRIORITY_OBJECT_FRAME_STRIDE="${PRIORITY_OBJECT_FRAME_STRIDE:-8}"' in launcher
     assert "PRIORITY_OBJECT_DETECTOR_ENABLED must be auto, 0 or 1" in launcher
 
 

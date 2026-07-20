@@ -79,6 +79,9 @@ def test_operator_udp_listeners_default_to_loopback() -> None:
     assert live.safety_priority_confidence_threshold == 0.25
     assert live.safety_fallback_confidence_threshold == 0.35
     assert live.fire_minimum_bright_warm_fraction == 0.0
+    assert live.primary_model_frame_stride == 1
+    assert live.primary_model_frame_phase == 0
+    assert live.lock_model_force_every_frame is True
     assert live.safety_model_frame_stride == 1
     assert live.safety_model_frame_phase == 0
     assert live.safety_tile_columns == 1

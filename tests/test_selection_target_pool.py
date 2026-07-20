@@ -544,6 +544,56 @@ def test_cancel_trk_removes_only_the_selected_target() -> None:
     assert coordinator.exclusive_high_rate is False
 
 
+def test_cancelled_trk_ignores_a_late_legacy_lost_status() -> None:
+    first_box = BoundingBox(0.1, 0.2, 0.25, 0.5)
+    second_box = BoundingBox(0.65, 0.2, 0.8, 0.5)
+    pool = UnifiedTargetPool()
+    tracks = pool.update(
+        frame_id="frame-1",
+        captured_at_s=100.0,
+        observations=(
+            _observation("vehicle", first_box),
+            _observation("person", second_box),
+        ),
+    ).tracks
+    coordinator = UnifiedSelectionTargetPool(pool)
+    first_command = _command(1, SelectionAction.SELECT_TRK, first_box)
+    second_command = _command(2, SelectionAction.SELECT_TRK, second_box)
+    for command, label in ((first_command, "vehicle"), (second_command, "person")):
+        coordinator.consume_bridge_result(
+            _bridge_result(
+                command=command,
+                status=_status(
+                    command,
+                    state=TrackingState.TRACKING,
+                    bbox=command.bbox,
+                    label=label,
+                ),
+            ),
+            now_s=100.1 + command.sequence * 0.1,
+        )
+
+    coordinator.consume_bridge_result(
+        _bridge_result(command=_command(3, SelectionAction.CANCEL_TRK, first_box)),
+        now_s=100.4,
+    )
+    late = coordinator.consume_bridge_result(
+        _bridge_result(
+            status=_status(
+                first_command,
+                state=TrackingState.LOST,
+                bbox=None,
+                label=None,
+            )
+        ),
+        now_s=100.41,
+    )
+
+    assert coordinator.tracked_track_ids == (tracks[1].track_id,)
+    assert late.pending_manual_observation is False
+    assert late.reason is None
+
+
 def test_arbitrary_manual_box_becomes_stable_unified_track_on_next_frame() -> None:
     bbox = BoundingBox(0.2, 0.2, 0.45, 0.55)
     pool = UnifiedTargetPool()

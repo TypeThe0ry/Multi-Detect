@@ -333,8 +333,12 @@ class UnifiedSelectionTargetPool:
             # the next frame. Explicit CANCEL/CANCEL_TRK remains the sole
             # removal path for operator selections.
             if (
-                status.selection_command_id in self._pending
-                or status.selection_command_id in self._command_to_track
+                self._active_action is SelectionAction.SELECT_TRK
+                and status.selection_command_id == self._active_command_id
+                and (
+                    status.selection_command_id in self._pending
+                    or status.selection_command_id in self._command_to_track
+                )
             ):
                 return self._sync(
                     pending_manual_observation=bool(self._pending),
@@ -570,6 +574,10 @@ class UnifiedSelectionTargetPool:
             except ValueError:
                 unlocked_id = None
         self._tracked_track_ids.discard(candidate.track_id)
+        # A late singleton-status update for an individually cancelled target
+        # must not resurrect its old operator command.  The remaining TRK
+        # selections retain their own command-to-track mappings.
+        self._forget_mappings_for_track(candidate.track_id)
 
         if self._active_track_id == candidate.track_id:
             replacement = self._preferred_active_track()
@@ -751,6 +759,20 @@ class UnifiedSelectionTargetPool:
                 self._command_to_track.pop(oldest, None)
             self._mapping_order.append(command_id)
         self._command_to_track[command_id] = track_id
+
+    def _forget_mappings_for_track(self, track_id: str) -> None:
+        command_ids = tuple(
+            command_id
+            for command_id, mapped_track_id in self._command_to_track.items()
+            if mapped_track_id == track_id
+        )
+        for command_id in command_ids:
+            self._command_to_track.pop(command_id, None)
+            self._pending.pop(command_id, None)
+            try:
+                self._mapping_order.remove(command_id)
+            except ValueError:
+                pass
 
     def _sync(
         self,

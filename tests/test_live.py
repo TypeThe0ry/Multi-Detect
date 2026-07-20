@@ -2862,22 +2862,22 @@ def test_reid_domains_can_stagger_stable_inference_frames() -> None:
 
 def test_target_pool_metadata_refreshes_at_distinct_det_trk_and_lck_cadences() -> None:
     assert live_module._target_pool_status_interval_s(
-        normal_interval_s=0.1,
-        operator_trk_interval_s=0.05,
+        normal_interval_s=1.0 / 25.0,
+        operator_trk_interval_s=1.0 / 25.0,
         exclusive_lock_interval_s=1.0 / 30.0,
         operator_tracked_target_count=0,
         exclusive_lock_track_id=None,
-    ) == pytest.approx(0.1)
+    ) == pytest.approx(1.0 / 25.0)
     assert live_module._target_pool_status_interval_s(
-        normal_interval_s=0.1,
-        operator_trk_interval_s=0.05,
+        normal_interval_s=1.0 / 25.0,
+        operator_trk_interval_s=1.0 / 25.0,
         exclusive_lock_interval_s=1.0 / 30.0,
         operator_tracked_target_count=2,
         exclusive_lock_track_id=None,
-    ) == pytest.approx(0.05)
+    ) == pytest.approx(1.0 / 25.0)
     assert live_module._target_pool_status_interval_s(
-        normal_interval_s=0.1,
-        operator_trk_interval_s=0.05,
+        normal_interval_s=1.0 / 25.0,
+        operator_trk_interval_s=1.0 / 25.0,
         exclusive_lock_interval_s=1.0 / 30.0,
         operator_tracked_target_count=1,
         exclusive_lock_track_id="target-000001",
