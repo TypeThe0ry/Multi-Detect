@@ -49,6 +49,19 @@ class _NoMessageConnection:
         pass
 
 
+class _CommandRecorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def command_long_send(self, *values: object) -> None:
+        self.calls.append(values)
+
+
+class _RangingStreamConnection(_NoMessageConnection):
+    def __init__(self) -> None:
+        self.mav = _CommandRecorder()
+
+
 def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     provider._connection = _NoMessageConnection()  # Avoid an actual transport in the unit test.
@@ -72,6 +85,10 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     provider.ingest_message(_Message("GPS_RAW_INT", satellites_visible=17), received_at_s=10.0)
     provider.ingest_message(_Message("MISSION_CURRENT", seq=4), received_at_s=10.0)
     provider.ingest_message(_Message("VFR_HUD", airspeed=16.5), received_at_s=10.1)
+    provider.ingest_message(
+        _Message("SCALED_PRESSURE", press_diff=4.25, temperature=2350),
+        received_at_s=10.15,
+    )
     provider.ingest_message(
         _Message("WIND_COV", wind_x=2.0, wind_y=-1.5),
         received_at_s=10.2,
@@ -101,6 +118,10 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     assert snapshot.velocity_observed_at_s == 10.0
     assert snapshot.airspeed_observed_at_s == 10.1
     assert snapshot.wind_observed_at_s == 10.2
+    diagnostics = provider.diagnostics(now_s=10.5)
+    assert diagnostics["motion"]["differential_pressure_hpa"] == pytest.approx(4.25)
+    assert diagnostics["motion"]["differential_pressure_temperature_c"] == pytest.approx(23.5)
+    assert diagnostics["motion"]["differential_pressure_age_s"] == pytest.approx(0.35)
     assert snapshot.position_healthy is True
     assert snapshot.link_healthy is True
     assert snapshot.in_allowed_zone is None
@@ -110,9 +131,7 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
 def test_pixhawk_attitude_yaw_fills_heading_when_gps_course_is_unavailable() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     provider._connection = _NoMessageConnection()
-    provider.ingest_message(
-        _Message("ATTITUDE", roll=0.0, pitch=0.0, yaw=-0.5), received_at_s=10.0
-    )
+    provider.ingest_message(_Message("ATTITUDE", roll=0.0, pitch=0.0, yaw=-0.5), received_at_s=10.0)
     provider.ingest_message(
         _Message(
             "GLOBAL_POSITION_INT",
@@ -160,11 +179,34 @@ def test_pixhawk_local_ned_and_quaternion_keep_range_pose_available_without_gps(
     assert snapshot.velocity_east_mps == pytest.approx(4.0)
 
 
+def test_pixhawk_local_ned_learns_disarmed_ground_zero_and_tracks_climb() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider.ingest_message(_Message("HEARTBEAT", base_mode=0), received_at_s=10.0)
+    provider.ingest_message(
+        _Message("LOCAL_POSITION_NED", x=0.0, y=0.0, z=1.22, vx=0.0, vy=0.0),
+        received_at_s=10.1,
+    )
+
+    grounded = provider.cached_snapshot(now_s=10.1)
+    assert grounded.altitude_agl_m == pytest.approx(0.0)
+    assert grounded.altitude_reference == "local_ned_takeoff_relative"
+
+    provider.ingest_message(_Message("HEARTBEAT", base_mode=128), received_at_s=10.2)
+    provider.ingest_message(
+        _Message("LOCAL_POSITION_NED", x=4.0, y=0.0, z=-3.78, vx=12.0, vy=0.0),
+        received_at_s=10.3,
+    )
+
+    airborne = provider.cached_snapshot(now_s=10.3)
+    assert airborne.altitude_agl_m == pytest.approx(5.0)
+    assert airborne.altitude_reference == "local_ned_takeoff_relative"
+    diagnostics = provider.diagnostics(now_s=10.3)
+    assert diagnostics["vertical"]["local_ground_down_m"] == pytest.approx(1.22)
+
+
 def test_pixhawk_altitude_relative_supplies_vertical_timestamp_without_global_position() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
-    provider.ingest_message(
-        _Message("ALTITUDE", altitude_relative=21.25), received_at_s=10.0
-    )
+    provider.ingest_message(_Message("ALTITUDE", altitude_relative=21.25), received_at_s=10.0)
 
     snapshot = provider.cached_snapshot(now_s=10.1)
 
@@ -172,6 +214,25 @@ def test_pixhawk_altitude_relative_supplies_vertical_timestamp_without_global_po
     assert snapshot.altitude_reference == "home_relative"
     assert snapshot.altitude_observed_at_s == pytest.approx(10.0)
     assert snapshot.position_healthy is None
+    diagnostics = provider.diagnostics(now_s=10.1)
+    assert diagnostics["vertical"]["raw_altitude_relative_m"] == pytest.approx(21.25)
+    assert diagnostics["vertical"]["altitude_message_age_s"] == pytest.approx(0.1)
+
+
+def test_pixhawk_gps_and_home_position_supply_relative_height_fallback() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider.ingest_message(_Message("HOME_POSITION", altitude=102_000), received_at_s=10.0)
+    provider.ingest_message(
+        _Message("GPS_RAW_INT", fix_type=3, alt=114_500, satellites_visible=15),
+        received_at_s=10.1,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.2)
+
+    assert snapshot.altitude_agl_m == pytest.approx(12.5)
+    assert snapshot.altitude_reference == "gps_home_relative"
+    assert snapshot.altitude_observed_at_s == pytest.approx(10.1)
+    assert snapshot.satellites_visible == 15
 
 
 def test_pixhawk_rejects_odometry_in_a_non_navigation_frame() -> None:
@@ -242,6 +303,59 @@ def test_pixhawk_cached_snapshot_never_connects_or_receives() -> None:
 
     assert stale.link_healthy is False
     assert stale.position_healthy is False
+    assert provider.messages_transmitted == 0
+
+
+def test_pixhawk_requests_dynamic_ranging_streams_after_heartbeat_with_bounded_retries() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:127.0.0.1:14550",
+            expected_system_id=1,
+            request_ranging_streams=True,
+        )
+    )
+    connection = _RangingStreamConnection()
+    provider._connection = connection
+    provider.ingest_message(
+        _Message(
+            "HEARTBEAT",
+            source_system_id=1,
+            source_component_id=1,
+            autopilot=12,
+            type=1,
+            system_status=3,
+            base_mode=0,
+        ),
+        received_at_s=10.0,
+    )
+
+    provider.snapshot(now_s=10.0)
+    provider.snapshot(now_s=12.0)
+    provider.snapshot(now_s=15.0)
+    provider.snapshot(now_s=20.0)
+    provider.snapshot(now_s=30.0)
+
+    assert len(connection.mav.calls) == 18
+    assert provider.messages_transmitted == 18
+    assert {int(call[4]) for call in connection.mav.calls[:6]} == {29, 30, 32, 33, 141, 242}
+    assert all(int(call[2]) == 511 for call in connection.mav.calls)
+    diagnostics = provider.diagnostics(now_s=30.1)
+    assert diagnostics["telemetry_configuration_enabled"] is True
+    assert diagnostics["ranging_stream_requests"]["attempts"] == 3
+
+
+def test_pixhawk_default_receive_only_mode_sends_no_stream_requests() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    connection = _RangingStreamConnection()
+    provider._connection = connection
+    provider.ingest_message(
+        _Message("HEARTBEAT", source_system_id=1, source_component_id=1),
+        received_at_s=10.0,
+    )
+
+    provider.snapshot(now_s=10.0)
+
+    assert connection.mav.calls == []
     assert provider.messages_transmitted == 0
 
 

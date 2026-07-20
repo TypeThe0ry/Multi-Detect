@@ -45,9 +45,25 @@ ENVIRONMENT_RISK_DETECTOR_ENABLED="${ENVIRONMENT_RISK_DETECTOR_ENABLED:-0}"
 SEMANTIC_CONTEXT_ENABLED="${SEMANTIC_CONTEXT_ENABLED:-0}"
 SHORT_TERM_TRACKING_ENABLED="${SHORT_TERM_TRACKING_ENABLED:-1}"
 MULTIMODAL_RANGING_ENABLED="${MULTIMODAL_RANGING_ENABLED:-0}"
+METRIC_DEPTH_ENABLED="${METRIC_DEPTH_ENABLED:-auto}"
+DEPTH_GRID_UDP_ENABLED="${DEPTH_GRID_UDP_ENABLED:-auto}"
+DEPTH_GRID_UDP_HOST="${DEPTH_GRID_UDP_HOST:-192.168.144.100}"
+DEPTH_GRID_UDP_PORT="${DEPTH_GRID_UDP_PORT:-14582}"
+DEPTH_GRID_UDP_LOCAL_PORT="${DEPTH_GRID_UDP_LOCAL_PORT:-14583}"
+PIXHAWK_REQUEST_RANGING_STREAMS="${PIXHAWK_REQUEST_RANGING_STREAMS:-1}"
 MODE3_CONFIRMATION_ENABLED="${MODE3_CONFIRMATION_ENABLED:-0}"
 MODE3_AIM_CONTROL_ENABLED="${MODE3_AIM_CONTROL_ENABLED:-0}"
 RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"
+METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-indoor}"
+METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
+# Temporary single-anchor calibration from the measured 6.8 m target versus the
+# stable 7.99-8.01 m raw indoor model result. Override with a multi-point profile
+# after collecting 2/4/6.8/10/15 m ground truth.
+METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-}"
+METRIC_DEPTH_CALIBRATION_OFFSET_M="${METRIC_DEPTH_CALIBRATION_OFFSET_M:-0.0}"
+METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-}"
+METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.15}"
+METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-}"
 COMMON_OBJECT_ONNX_PATH="${COMMON_OBJECT_ONNX_PATH:-${ROOT}/models/coco-yolo26n-traditional/yolo26n-traditional.onnx}"
 COMMON_OBJECT_MODEL_PATH="${COMMON_OBJECT_MODEL_PATH:-${ROOT}/models/coco-yolo26n-traditional/yolo26n-traditional.b1.fp16.trt86.engine}"
 COMMON_OBJECT_MODEL_MANIFEST="${COMMON_OBJECT_MODEL_MANIFEST:-${COMMON_OBJECT_MODEL_PATH}.manifest.json}"
@@ -107,6 +123,25 @@ SEMANTIC_CONTEXT_MINIMUM_INTERVAL_SECONDS="${SEMANTIC_CONTEXT_MINIMUM_INTERVAL_S
 SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS="${SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS:-2.0}"
 TRTEXEC="${TRTEXEC:-/usr/src/tensorrt/bin/trtexec}"
 
+case "${METRIC_DEPTH_SCENE_PROFILE}" in
+    indoor)
+        METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-indoor-small/depth_anything_v2_vits_indoor_518.fp16.trt86.engine}"
+        METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-0.85}"
+        METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-indoor-single-anchor-6.8m-20260720}"
+        METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-20.0}"
+        ;;
+    outdoor)
+        METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-outdoor-small/depth_anything_v2_vits_outdoor_518.fp16.trt86.engine}"
+        METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-1.0}"
+        METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-outdoor-unanchored-v1}"
+        METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-80.0}"
+        ;;
+    *)
+        printf 'METRIC_DEPTH_SCENE_PROFILE must be indoor or outdoor.\n' >&2
+        exit 2
+        ;;
+esac
+
 # The camera manual specifies this credential-free H.265 main stream. Override
 # CAMERA_SOURCE in the process environment if the installation changes.
 export CAMERA_SOURCE="${CAMERA_SOURCE:-rtsp://192.168.144.108:554/stream=0}"
@@ -156,6 +191,13 @@ args=(
     --audit-out "${audit_out}"
     --prediction-log-out "${prediction_out}"
 )
+
+if [[ "${PIXHAWK_REQUEST_RANGING_STREAMS}" == "1" ]]; then
+    args+=(--pixhawk-request-ranging-streams)
+elif [[ "${PIXHAWK_REQUEST_RANGING_STREAMS}" != "0" ]]; then
+    printf 'PIXHAWK_REQUEST_RANGING_STREAMS must be 0 or 1.\n' >&2
+    exit 2
+fi
 
 if [[ "${LOCK_MODEL_FORCE_EVERY_FRAME}" == "1" ]]; then
     args+=(--lock-model-force-every-frame)
@@ -223,6 +265,41 @@ if [[ "${MULTIMODAL_RANGING_ENABLED}" == "1" ]]; then
     )
 elif [[ "${MULTIMODAL_RANGING_ENABLED}" != "0" ]]; then
     printf 'MULTIMODAL_RANGING_ENABLED must be 0 or 1.\n' >&2
+    exit 2
+fi
+
+if [[ "${METRIC_DEPTH_ENABLED}" == "auto" ]]; then
+    if [[ "${MULTIMODAL_RANGING_ENABLED}" == "1" && -f "${METRIC_DEPTH_MODEL_PATH}" ]]; then
+        METRIC_DEPTH_ENABLED=1
+    else
+        METRIC_DEPTH_ENABLED=0
+    fi
+fi
+if [[ "${METRIC_DEPTH_ENABLED}" == "1" ]]; then
+    if [[ "${MULTIMODAL_RANGING_ENABLED}" != "1" ]]; then
+        printf 'METRIC_DEPTH_ENABLED=1 requires MULTIMODAL_RANGING_ENABLED=1.\n' >&2
+        exit 2
+    fi
+    if [[ ! -f "${METRIC_DEPTH_MODEL_PATH}" ]]; then
+        printf 'METRIC_DEPTH_MODEL_PATH must name an existing model.\n' >&2
+        exit 2
+    fi
+    args+=(
+        --metric-depth-model "${METRIC_DEPTH_MODEL_PATH}"
+        --metric-depth-input-size "${METRIC_DEPTH_INPUT_SIZE:-518}"
+        --metric-depth-minimum-depth-m "${METRIC_DEPTH_MINIMUM_DEPTH_M}"
+        --metric-depth-maximum-depth-m "${METRIC_DEPTH_MAXIMUM_DEPTH_M}"
+        --metric-depth-minimum-interval-seconds "${METRIC_DEPTH_MINIMUM_INTERVAL_SECONDS:-0.10}"
+        --metric-depth-maximum-age-seconds "${METRIC_DEPTH_MAXIMUM_AGE_SECONDS:-1.00}"
+        --metric-depth-calibration-scale "${METRIC_DEPTH_CALIBRATION_SCALE}"
+        --metric-depth-calibration-offset-m "${METRIC_DEPTH_CALIBRATION_OFFSET_M}"
+        --metric-depth-calibration-profile "${METRIC_DEPTH_CALIBRATION_PROFILE}"
+        --metric-depth-grid-width "${METRIC_DEPTH_GRID_WIDTH:-160}"
+        --metric-depth-grid-height "${METRIC_DEPTH_GRID_HEIGHT:-90}"
+        --metric-depth-temporal-window "${METRIC_DEPTH_TEMPORAL_WINDOW:-5}"
+    )
+elif [[ "${METRIC_DEPTH_ENABLED}" != "0" ]]; then
+    printf 'METRIC_DEPTH_ENABLED must be auto, 0 or 1.\n' >&2
     exit 2
 fi
 
@@ -585,6 +662,31 @@ elif [[ "${OPERATOR_UDP_ENABLED}" != "0" ]]; then
     exit 2
 fi
 
+if [[ "${DEPTH_GRID_UDP_ENABLED}" == "auto" ]]; then
+    if [[ "${METRIC_DEPTH_ENABLED}" == "1" && "${OPERATOR_UDP_ENABLED}" == "1" ]]; then
+        DEPTH_GRID_UDP_ENABLED=1
+    else
+        DEPTH_GRID_UDP_ENABLED=0
+    fi
+fi
+
+if [[ "${DEPTH_GRID_UDP_ENABLED}" == "1" ]]; then
+    if [[ "${METRIC_DEPTH_ENABLED}" != "1" || "${OPERATOR_UDP_ENABLED}" != "1" ]]; then
+        printf 'DEPTH_GRID_UDP_ENABLED=1 requires metric depth and operator UDP.\n' >&2
+        exit 2
+    fi
+    args+=(
+        --depth-grid-udp-host "${DEPTH_GRID_UDP_HOST}"
+        --depth-grid-udp-port "${DEPTH_GRID_UDP_PORT}"
+        --depth-grid-udp-local-port "${DEPTH_GRID_UDP_LOCAL_PORT}"
+        --depth-grid-hmac-key-env MULTIDETECT_OPERATOR_KEY
+        --depth-grid-maximum-datagram-bytes "${DEPTH_GRID_MAXIMUM_DATAGRAM_BYTES:-1200}"
+    )
+elif [[ "${DEPTH_GRID_UDP_ENABLED}" != "0" ]]; then
+    printf 'DEPTH_GRID_UDP_ENABLED must be auto, 0 or 1.\n' >&2
+    exit 2
+fi
+
 if [[ "${MODE3_CONFIRMATION_ENABLED}" == "1" ]]; then
     if [[ "${OPERATOR_UDP_ENABLED}" != "1" ]]; then
         printf 'MODE3_CONFIRMATION_ENABLED=1 requires OPERATOR_UDP_ENABLED=1.\n' >&2
@@ -662,6 +764,10 @@ printf 'Short-term optical-flow/template tracking: %s (prediction hints only).\n
     "${SHORT_TERM_TRACKING_ENABLED}"
 printf 'Timestamped multimodal ranging: %s.\n' \
     "${MULTIMODAL_RANGING_ENABLED}"
+printf 'Manual-LCK metric depth: %s (asynchronous target-only inference).\n' \
+    "${METRIC_DEPTH_ENABLED}"
+printf 'Authenticated depth-grid UDP: %s (%s:%s).\n' \
+    "${DEPTH_GRID_UDP_ENABLED}" "${DEPTH_GRID_UDP_HOST}" "${DEPTH_GRID_UDP_PORT}"
 printf 'Mode-3 signed execution confirmation: %s.\n' "${MODE3_CONFIRMATION_ENABLED}"
 printf 'Mode-3 fixed-wing attitude control: %s.\n' "${MODE3_AIM_CONTROL_ENABLED}"
 printf 'Audit: %s\nPredictions: %s\n' "${audit_out}" "${prediction_out}"

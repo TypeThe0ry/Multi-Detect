@@ -14,6 +14,7 @@ from .approach_hil import ApproachHilPhase
 from .approach_live import LiveApproachHilCoordinator, LiveApproachHilFrame
 from .attitude_camera_motion import AttitudeCameraMotionEstimator
 from .deployment_planner import PrimaryRangeEvidence
+from .depth_grid_udp import DepthGridUdpPublisher
 from .domain import (
     BoundingBox,
     DeploymentWindowSolution,
@@ -32,6 +33,7 @@ from .fixed_wing_aim_control import (
     FixedWingAimTarget,
 )
 from .manual_tracking import OpenCVManualTargetTracker
+from .metric_depth import AsyncMetricDepthRunner, MetricDepthResult
 from .mission import MissionController, ObservationOutcome
 from .monocular_avoidance import (
     CollisionRiskState,
@@ -93,6 +95,7 @@ from .short_term_tracking import (
     ShortTermTrackingResult,
     ShortTermTrackingStatus,
 )
+from .target_speed import TargetWorldSpeedEstimator
 from .telemetry import (
     TelemetryProvider,
     with_observed_flight_mode_permission,
@@ -108,6 +111,7 @@ from .unified_tracking import (
 )
 from .vehicle_reid import OnnxVehicleReIdEncoder
 from .vision import CapturedFrame, DetectorEnsemble, FrameSource, VisionDependencyError
+from .visual_inertial_range import VisualInertialRangeEstimator
 
 _PERSON_LOCK_MODEL_LABELS = frozenset(
     {"person", "pedestrian", "people", "person_sitting", "firefighter"}
@@ -713,6 +717,8 @@ class LiveMissionRunner:
         selection_target_pool: UnifiedSelectionTargetPool | None = None,
         ranging_engine: MultiModalRangingEngine | None = None,
         ranging_config: LiveRangingConfig | None = None,
+        metric_depth_runner: AsyncMetricDepthRunner | None = None,
+        depth_grid_publisher: DepthGridUdpPublisher | None = None,
         approach_hil_coordinator: LiveApproachHilCoordinator | None = None,
         fixed_wing_aim_executor: FixedWingAimExecutor | None = None,
         payload_target_coordinator: LivePayloadTargetCoordinator | None = None,
@@ -758,6 +764,12 @@ class LiveMissionRunner:
             raise ValueError("live ranging engine and configuration must be supplied together")
         if ranging_engine is not None and unified_target_pool is None:
             raise ValueError("live ranging requires the unified target pool")
+        if metric_depth_runner is not None and any(
+            value is None for value in (ranging_engine, ranging_config, selection_target_pool)
+        ):
+            raise ValueError("metric depth requires ranging and the operator selection pool")
+        if depth_grid_publisher is not None and metric_depth_runner is None:
+            raise ValueError("depth-grid publishing requires metric depth")
         if approach_hil_coordinator is not None and any(
             dependency is None
             for dependency in (
@@ -809,6 +821,11 @@ class LiveMissionRunner:
         self.selection_target_pool = selection_target_pool
         self.ranging_engine = ranging_engine
         self.ranging_config = ranging_config
+        self.metric_depth_runner = metric_depth_runner
+        self.depth_grid_publisher = depth_grid_publisher
+        self.visual_inertial_ranging = (
+            VisualInertialRangeEstimator() if ranging_engine is not None else None
+        )
         self.approach_hil_coordinator = approach_hil_coordinator
         self.fixed_wing_aim_executor = fixed_wing_aim_executor
         self.payload_target_coordinator = payload_target_coordinator
@@ -826,6 +843,17 @@ class LiveMissionRunner:
             IndependentRgbFireCorroborationConfig()
         )
         self._lifecycle_waiting_fingerprint: tuple[object, ...] | None = None
+        self._ranging_solution_fingerprints: dict[str, tuple[object, ...]] = {}
+        # Detector-stride and short occlusion frames must not make QGC alternate
+        # between a metric value and ``--``. Keep only a very short per-track
+        # display holdover; a new valid estimate replaces it immediately.
+        self._target_metric_cache: dict[str, tuple[float, float | None, float]] = {}
+        self._metric_depth_last_result_frame_id: str | None = None
+        self._metric_depth_last_failure_count = 0
+        self._latest_metric_depth_result: MetricDepthResult | None = None
+        self._target_world_speed = (
+            TargetWorldSpeedEstimator() if ranging_engine is not None else None
+        )
 
     def run(self) -> LiveRunResult:
         ui = OpenCVAuthorizationUI() if self.config.display else None
@@ -900,6 +928,7 @@ class LiveMissionRunner:
         vehicle_reid_skipped_frames = 0
         vehicle_reid_no_candidate_frames = 0
         vehicle_reid_forced_recoveries = 0
+        last_telemetry_diagnostics_at_s = float("-inf")
         patrol_advisory_assessments = 0
         patrol_return_to_observe = 0
         patrol_advisory_errors = 0
@@ -1118,12 +1147,14 @@ class LiveMissionRunner:
                     detector_route_labels,
                 )
                 specialized_reid_enabled = (
-                    exclusive_lock_family == "person" and self.person_reid_encoder is not None
-                ) or (
-                    exclusive_lock_family == "vehicle" and self.vehicle_reid_encoder is not None
-                ) or (
-                    exclusive_lock_family == "aircraft"
-                    and self.aircraft_appearance_encoder is not None
+                    (exclusive_lock_family == "person" and self.person_reid_encoder is not None)
+                    or (
+                        exclusive_lock_family == "vehicle" and self.vehicle_reid_encoder is not None
+                    )
+                    or (
+                        exclusive_lock_family == "aircraft"
+                        and self.aircraft_appearance_encoder is not None
+                    )
                 )
                 specialized_detector_enabled = (
                     exclusive_lock_track_id is not None
@@ -1340,6 +1371,15 @@ class LiveMissionRunner:
                         )
                 frame_motion_at_s = time.monotonic()
                 telemetry = self.telemetry_provider.snapshot(now_s=frame_motion_at_s)
+                if frame_motion_at_s - last_telemetry_diagnostics_at_s >= 5.0:
+                    diagnostics = getattr(self.telemetry_provider, "diagnostics", None)
+                    if callable(diagnostics):
+                        self.mission.audit.append(
+                            "telemetry.pixhawk_diagnostics",
+                            frame_motion_at_s,
+                            diagnostics(now_s=frame_motion_at_s),
+                        )
+                    last_telemetry_diagnostics_at_s = frame_motion_at_s
                 unified_camera_motion = None
                 if self.attitude_camera_motion is not None:
                     try:
@@ -1534,12 +1574,9 @@ class LiveMissionRunner:
                             )
                         ):
                             unified_camera_motion = short_term_result.camera_motion
-                        if (
-                            short_term_result.camera_motion is not None
-                            and (short_term_result.camera_motion_source or "").startswith(
-                                "background_"
-                            )
-                        ):
+                        if short_term_result.camera_motion is not None and (
+                            short_term_result.camera_motion_source or ""
+                        ).startswith("background_"):
                             short_term_tracking_camera_motion_estimates += 1
                             if not short_term_tracking_camera_motion_reported:
                                 self.mission.audit.append(
@@ -1985,6 +2022,109 @@ class LiveMissionRunner:
                 if self.ranging_engine is not None and unified_update is not None:
                     ranging_started_s = time.perf_counter()
                     try:
+                        if (
+                            self.metric_depth_runner is not None
+                            and exclusive_lock_track_id is not None
+                        ):
+                            metric_track = _target_pool_snapshot(
+                                self.unified_target_pool,
+                                exclusive_lock_track_id,
+                            )
+                            if metric_track is not None:
+                                self.metric_depth_runner.submit(
+                                    image_bgr=captured.image_bgr,
+                                    target_id=metric_track.track_id,
+                                    bbox=metric_track.bbox,
+                                    target_label=metric_track.label,
+                                    frame_id=captured.frame_id,
+                                    captured_at_s=captured.captured_at_s,
+                                    now_s=frame_event_at_s,
+                                )
+                                metric_result = self.metric_depth_runner.latest_result()
+                                if (
+                                    metric_result is not None
+                                    and metric_result.frame_id
+                                    != self._metric_depth_last_result_frame_id
+                                ):
+                                    self._metric_depth_last_result_frame_id = metric_result.frame_id
+                                    self._latest_metric_depth_result = metric_result
+                                    if self.depth_grid_publisher is not None:
+                                        try:
+                                            fragment_count = self.depth_grid_publisher.publish(
+                                                metric_result.depth_grid
+                                            )
+                                            self.mission.audit.append(
+                                                "ranging.depth_grid_published",
+                                                frame_event_at_s,
+                                                {
+                                                    "frame_id": metric_result.frame_id,
+                                                    "width": metric_result.depth_grid.width,
+                                                    "height": metric_result.depth_grid.height,
+                                                    "fragment_count": fragment_count,
+                                                },
+                                            )
+                                        except (
+                                            OSError,
+                                            RuntimeError,
+                                            TypeError,
+                                            ValueError,
+                                        ) as exc:
+                                            self.mission.audit.append(
+                                                "ranging.depth_grid_publish_failed",
+                                                frame_event_at_s,
+                                                {
+                                                    "error_type": type(exc).__name__,
+                                                    "frame_loop_continues": True,
+                                                },
+                                            )
+                                    self.mission.audit.append(
+                                        "ranging.metric_depth_updated",
+                                        frame_event_at_s,
+                                        {
+                                            "frame_id": metric_result.frame_id,
+                                            "target_id": metric_result.target_id,
+                                            "slant_range_m": metric_result.slant_range_m,
+                                            "raw_slant_range_m": (
+                                                metric_result.raw_slant_range_m
+                                            ),
+                                            "sigma_m": metric_result.sigma_m,
+                                            "valid_pixel_count": metric_result.valid_pixel_count,
+                                            "processing_time_ms": (
+                                                metric_result.processing_time_ms
+                                            ),
+                                            "providers": metric_result.provider_names,
+                                            "calibration_scale": (
+                                                metric_result.calibration_scale
+                                            ),
+                                            "calibration_offset_m": (
+                                                metric_result.calibration_offset_m
+                                            ),
+                                            "calibration_profile": (
+                                                metric_result.calibration_profile
+                                            ),
+                                            "grid_width": metric_result.depth_grid.width,
+                                            "grid_height": metric_result.depth_grid.height,
+                                            "exclusive_lck_only": True,
+                                        },
+                                    )
+                                if (
+                                    self.metric_depth_runner.failure_count
+                                    != self._metric_depth_last_failure_count
+                                ):
+                                    self._metric_depth_last_failure_count = (
+                                        self.metric_depth_runner.failure_count
+                                    )
+                                    self.mission.audit.append(
+                                        "ranging.metric_depth_failed",
+                                        frame_event_at_s,
+                                        {
+                                            "failure_count": (
+                                                self.metric_depth_runner.failure_count
+                                            ),
+                                            "error": self.metric_depth_runner.last_error,
+                                            "frame_loop_continues": True,
+                                        },
+                                    )
                         for track in unified_update.tracks:
                             # Range/bearing metadata is per target. A malformed
                             # observation, one stale estimate, or a transient
@@ -2012,17 +2152,53 @@ class LiveMissionRunner:
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
                                 )
+                                ranging_fingerprint = (
+                                    track_solution.validity.value,
+                                    track_solution.reasons,
+                                    track_solution.sources,
+                                    track_solution.rejected_sources,
+                                )
+                                if (
+                                    self._ranging_solution_fingerprints.get(track.track_id)
+                                    != ranging_fingerprint
+                                ):
+                                    self._ranging_solution_fingerprints[track.track_id] = (
+                                        ranging_fingerprint
+                                    )
+                                    self.mission.audit.append(
+                                        "ranging.target_solution_changed",
+                                        frame_event_at_s,
+                                        {
+                                            "frame_id": captured.frame_id,
+                                            "target_id": track.track_id,
+                                            "label": track.label,
+                                            "validity": track_solution.validity.value,
+                                            "reasons": track_solution.reasons,
+                                            "sources": track_solution.sources,
+                                            "rejected_sources": track_solution.rejected_sources,
+                                            "slant_range_m": track_solution.slant_range_m,
+                                            "ground_range_m": track_solution.ground_range_m,
+                                            "advisory_only": True,
+                                        },
+                                    )
                                 if track_solution.slant_range_m is not None:
                                     target_estimated_ranges[track.track_id] = (
                                         track_solution.slant_range_m
                                     )
                                     target_speed_mps = self._estimate_target_speed_mps(
                                         track=track,
-                                        slant_range_m=track_solution.slant_range_m,
+                                        solution=track_solution,
+                                        telemetry=telemetry,
+                                        captured_at_s=captured.captured_at_s,
                                         calibration=self.ranging_config.calibration,
                                     )
                                     if target_speed_mps is not None:
                                         target_estimated_speeds[track.track_id] = target_speed_mps
+                                    self._target_metric_cache[track.track_id] = (
+                                        track_solution.slant_range_m,
+                                        target_speed_mps,
+                                        frame_event_at_s,
+                                    )
                                 if track.track_id == unified_update.primary_track_id:
                                     latest_ranging_solution = track_solution
                             except (RuntimeError, TypeError, ValueError) as exc:
@@ -2041,6 +2217,24 @@ class LiveMissionRunner:
                                         "physical_release_enabled": False,
                                     },
                                 )
+                        active_track_ids = {track.track_id for track in unified_update.tracks}
+                        if self._target_world_speed is not None:
+                            self._target_world_speed.retain(active_track_ids)
+                        for track_id in active_track_ids:
+                            cached = self._target_metric_cache.get(track_id)
+                            if cached is None:
+                                continue
+                            cached_range_m, cached_speed_mps, cached_at_s = cached
+                            if frame_event_at_s - cached_at_s > 0.75:
+                                continue
+                            target_estimated_ranges.setdefault(track_id, cached_range_m)
+                            if cached_speed_mps is not None:
+                                target_estimated_speeds.setdefault(track_id, cached_speed_mps)
+                        self._target_metric_cache = {
+                            track_id: cached
+                            for track_id, cached in self._target_metric_cache.items()
+                            if track_id in active_track_ids and frame_event_at_s - cached[2] <= 0.75
+                        }
                         if latest_ranging_solution is not None:
                             ranging_assessments += 1
                             if latest_ranging_solution.validity is RangeValidity.VALID:
@@ -2058,6 +2252,26 @@ class LiveMissionRunner:
                                     now_s=frame_event_at_s,
                                 ),
                             )
+                    except Exception as exc:
+                        # Ranging and optional dense-depth metadata share the
+                        # live video loop.  Preserve the stream and operator
+                        # heartbeat when a provider or integration defect
+                        # rejects one frame; the audit retains the exact error
+                        # for diagnosis and the next frame retries normally.
+                        ranging_errors += 1
+                        self.mission.audit.append(
+                            "ranging.frame_processing_failed",
+                            frame_event_at_s,
+                            {
+                                "frame_id": captured.frame_id,
+                                "error_type": type(exc).__name__,
+                                "error": str(exc)[:240],
+                                "frame_loop_continues": True,
+                                "advisory_only": True,
+                                "flight_control_enabled": False,
+                                "physical_release_enabled": False,
+                            },
+                        )
                     finally:
                         ranging_latency_ms.append(
                             (time.perf_counter() - ranging_started_s) * 1_000.0
@@ -2459,14 +2673,32 @@ class LiveMissionRunner:
                         remote_range_status_sequence = (
                             remote_range_status_sequence + 1
                         ) & 0xFFFFFFFF
-                        range_status_message = build_range_status_message(
-                            sequence=remote_range_status_sequence,
-                            solution=replace(
-                                latest_ranging_solution,
-                                evaluated_at_s=produced_at_s,
-                            ),
-                            source_captured_at_s=captured.captured_at_s,
-                        )
+                        try:
+                            range_status_message = build_range_status_message(
+                                sequence=remote_range_status_sequence,
+                                solution=replace(
+                                    latest_ranging_solution,
+                                    evaluated_at_s=produced_at_s,
+                                ),
+                                source_captured_at_s=captured.captured_at_s,
+                            )
+                        except (TypeError, ValueError) as exc:
+                            # Range metadata is optional transport output. A
+                            # schema/registry mismatch must never terminate the
+                            # camera, detector, tracker, or LCK state machine.
+                            remote_transport_errors += 1
+                            self.mission.audit.append(
+                                "operator.range_status_build_failed",
+                                produced_at_s,
+                                {
+                                    "frame_id": captured.frame_id,
+                                    "target_id": latest_ranging_solution.target_id,
+                                    "error_type": type(exc).__name__,
+                                    "error": str(exc)[:240],
+                                    "metadata_packet_dropped": True,
+                                    "perception_continues": True,
+                                },
+                            )
                     release_status_message = None
                     release_decision = next(
                         (
@@ -3052,6 +3284,11 @@ class LiveMissionRunner:
                         )
                     if bridge_result.published_target_pool_statuses:
                         first_page = bridge_result.published_target_pool_statuses[0]
+                        published_target_entries = tuple(
+                            entry
+                            for page in bridge_result.published_target_pool_statuses
+                            for entry in page.entries
+                        )
                         self.mission.audit.append(
                             "operator.remote_target_pool_status",
                             time.monotonic(),
@@ -3061,6 +3298,17 @@ class LiveMissionRunner:
                                 "total_track_count": first_page.total_track_count,
                                 "published_page_count": len(
                                     bridge_result.published_target_pool_statuses
+                                ),
+                                "published_entry_count": len(published_target_entries),
+                                "range_track_ids": tuple(
+                                    entry.target_id
+                                    for entry in published_target_entries
+                                    if entry.estimated_range_m is not None
+                                ),
+                                "speed_track_ids": tuple(
+                                    entry.target_id
+                                    for entry in published_target_entries
+                                    if entry.target_speed_mps is not None
                                 ),
                                 "advisory_only": True,
                                 "flight_control_enabled": False,
@@ -3417,6 +3665,10 @@ class LiveMissionRunner:
             self.frame_source.close()
             if self.semantic_context_runner is not None:
                 semantic_context_shutdown_clean = self.semantic_context_runner.close()
+            if self.metric_depth_runner is not None:
+                self.metric_depth_runner.close()
+            if self.depth_grid_publisher is not None:
+                self.depth_grid_publisher.close()
             if self.operator_bridge is not None:
                 self.operator_bridge.close()
             if self.payload_hil_cycle is not None:
@@ -3799,7 +4051,12 @@ class LiveMissionRunner:
         config = self.ranging_config
         if engine is None or config is None:
             raise RuntimeError("ranging engine is not configured")
-        if track.missed_frame_count != 0 or not track.actionable:
+        predicted_track_usable = (
+            track.state in {UnifiedTrackState.OCCLUDED, UnifiedTrackState.REACQUIRING}
+            and track.missed_frame_count <= 3
+            and track.tracking_quality >= 0.20
+        )
+        if not track.actionable and not predicted_track_usable:
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,
@@ -3818,7 +4075,6 @@ class LiveMissionRunner:
             telemetry.pitch_deg,
             telemetry.heading_deg,
             telemetry.attitude_observed_at_s,
-            altitude_timestamp_s,
         )
         if not all(math.isfinite(value) for value in pose_values):
             return _invalid_live_range_solution(
@@ -3828,30 +4084,121 @@ class LiveMissionRunner:
                 now_s=now_s,
                 reason="pixhawk_pose_or_timestamp_unavailable",
             )
-        if not math.isfinite(telemetry.altitude_agl_m) or telemetry.altitude_agl_m <= 0.0:
+        center_x, center_y = track.bbox.center
+        target = TargetImageObservation(
+            target_id=track.track_id,
+            frame_id=captured.frame_id,
+            captured_at_s=captured.captured_at_s,
+            center_x=center_x,
+            center_y=center_y,
+            center_sigma_px=config.target_center_sigma_px,
+        )
+        visual_direct = (
+            self.visual_inertial_ranging.observe(
+                track=track,
+                telemetry=telemetry,
+                calibration=config.calibration,
+                frame_id=captured.frame_id,
+                captured_at_s=captured.captured_at_s,
+            )
+            if self.visual_inertial_ranging is not None
+            else None
+        )
+        metric_direct = (
+            self.metric_depth_runner.measurement_for(
+                target_id=track.track_id,
+                now_s=now_s,
+            )
+            if self.metric_depth_runner is not None
+            else None
+        )
+        direct_measurements = tuple(
+            measurement
+            for measurement in (visual_direct, metric_direct)
+            if measurement is not None
+        )
+        pose = AircraftPose(
+            captured_at_s=telemetry.attitude_observed_at_s,
+            roll_deg=telemetry.roll_deg,
+            pitch_deg=telemetry.pitch_deg,
+            heading_deg=telemetry.heading_deg % 360.0,
+            roll_sigma_deg=config.roll_sigma_deg,
+            pitch_sigma_deg=config.pitch_sigma_deg,
+            heading_sigma_deg=config.heading_sigma_deg,
+        )
+        # Sub-decimetre local-NED noise while parked is a learned zero, not a
+        # geometric camera height.  Keep it out of the ground-ray solver and let
+        # the temporal motion estimator wait for real platform excitation.
+        if (
+            telemetry.armed is False
+            or not math.isfinite(telemetry.altitude_agl_m)
+            or telemetry.altitude_agl_m <= 0.15
+        ):
+            if direct_measurements:
+                return engine.solve_direct(
+                    calibration=config.calibration,
+                    pose=pose,
+                    target=target,
+                    direct_measurements=direct_measurements,
+                    now_s=now_s,
+                )
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,
                 calibration_id=config.calibration.calibration_id,
                 now_s=now_s,
-                reason="pixhawk_agl_unavailable",
+                reason="vertical_reference_unavailable",
+            )
+        if not math.isfinite(altitude_timestamp_s):
+            return _invalid_live_range_solution(
+                target_id=track.track_id,
+                frame_id=captured.frame_id,
+                calibration_id=config.calibration.calibration_id,
+                now_s=now_s,
+                reason="vertical_reference_unavailable",
             )
         if (
             abs(telemetry.attitude_observed_at_s - altitude_timestamp_s)
             > engine.config.maximum_pose_image_skew_s
         ):
+            # A metric-depth observation is tied to the image itself and does
+            # not require the vertical reference to share the attitude sample's
+            # exact timestamp.  Keep the direct measurement available while the
+            # ground-ray branch waits for synchronized aircraft telemetry.
+            if direct_measurements:
+                return engine.solve_direct(
+                    calibration=config.calibration,
+                    pose=pose,
+                    target=target,
+                    direct_measurements=direct_measurements,
+                    now_s=now_s,
+                )
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,
                 calibration_id=config.calibration.calibration_id,
                 now_s=now_s,
-                reason="attitude_altitude_time_skew_exceeded",
+                reason="attitude_position_time_skew_exceeded",
             )
         pose_timestamp_s = min(
             telemetry.attitude_observed_at_s,
             altitude_timestamp_s,
         )
-        center_x, center_y = track.bbox.center
+        # The RTSP decoder can deliver a frame 0.4-0.7 s behind the newest
+        # Pixhawk sample. The metric model measures that captured image directly,
+        # while camera-ground projection needs tightly synchronized pose/height.
+        # Preserve the calibrated direct result during this bounded skew instead
+        # of alternating the QGC field between a value and an invalid marker.
+        if direct_measurements and abs(pose_timestamp_s - captured.captured_at_s) > (
+            engine.config.maximum_pose_image_skew_s
+        ):
+            return engine.solve_direct(
+                calibration=config.calibration,
+                pose=pose,
+                target=target,
+                direct_measurements=direct_measurements,
+                now_s=now_s,
+            )
         return engine.solve(
             calibration=config.calibration,
             pose=AircraftPose(
@@ -3863,14 +4210,7 @@ class LiveMissionRunner:
                 pitch_sigma_deg=config.pitch_sigma_deg,
                 heading_sigma_deg=config.heading_sigma_deg,
             ),
-            target=TargetImageObservation(
-                target_id=track.track_id,
-                frame_id=captured.frame_id,
-                captured_at_s=captured.captured_at_s,
-                center_x=center_x,
-                center_y=center_y,
-                center_sigma_px=config.target_center_sigma_px,
-            ),
+            target=target,
             vertical_measurements=(
                 VerticalMeasurement(
                     source=VerticalSource.PIXHAWK_AGL,
@@ -3879,33 +4219,51 @@ class LiveMissionRunner:
                     captured_at_s=altitude_timestamp_s,
                 ),
             ),
+            direct_measurements=direct_measurements,
             now_s=now_s,
         )
 
-    @staticmethod
     def _estimate_target_speed_mps(
+        self,
         *,
         track: UnifiedTrackSnapshot,
-        slant_range_m: float,
+        solution: RangeSolution,
+        telemetry: VehicleTelemetry,
+        captured_at_s: float,
         calibration: CameraCalibration,
     ) -> float | None:
-        """Convert camera-motion-compensated image velocity to transverse m/s.
+        """Estimate world speed, with a conservative image-motion startup gate.
 
-        UnifiedTargetPool velocity is normalized image motion after the global
-        camera transform has been removed. Multiplying its angular rate by the
-        fused slant range yields a metric transverse target-speed estimate. A
-        monocular view has no reliable radial component, so only the observable
-        component is published.
+        Once enough metric positions exist, Local-NED plus target offsets remove
+        aircraft translation and the regression estimator classifies stationary
+        jitter. During its first 0.6 s, only a near-zero image-motion result is
+        published; larger ambiguous startup motion stays absent until measured.
         """
 
-        if track.missed_frame_count != 0 or not track.actionable:
+        predicted_track_usable = (
+            track.state in {UnifiedTrackState.OCCLUDED, UnifiedTrackState.REACQUIRING}
+            and track.missed_frame_count <= 3
+            and track.tracking_quality >= 0.20
+        )
+        if not track.actionable and not predicted_track_usable:
             return None
+        if solution.slant_range_m is None:
+            return None
+        if self._target_world_speed is not None:
+            world_speed = self._target_world_speed.update(
+                target_id=track.track_id,
+                solution=solution,
+                telemetry=telemetry,
+                captured_at_s=captured_at_s,
+            )
+            if world_speed is not None:
+                return world_speed
         angular_x_s = track.velocity_x_s * calibration.width_px / calibration.fx_px
         angular_y_s = track.velocity_y_s * calibration.height_px / calibration.fy_px
-        speed_mps = slant_range_m * math.hypot(angular_x_s, angular_y_s)
+        speed_mps = solution.slant_range_m * math.hypot(angular_x_s, angular_y_s)
         if not math.isfinite(speed_mps) or not 0.0 <= speed_mps <= 6_553.4:
             return None
-        return speed_mps
+        return 0.0 if speed_mps <= 1.0 else None
 
     def _advance_observed_pixhawk_lifecycle(
         self,
@@ -4087,9 +4445,7 @@ def _ranging_input_details(
         return {
             "sample_available": finite_value and finite_timestamp,
             "age_s": (
-                max(0.0, now_s - observed_at_s)
-                if now_s is not None and finite_timestamp
-                else None
+                max(0.0, now_s - observed_at_s) if now_s is not None and finite_timestamp else None
             ),
         }
 

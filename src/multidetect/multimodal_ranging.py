@@ -26,6 +26,8 @@ class VerticalSource(StrEnum):
 class DirectRangeSource(StrEnum):
     LASER = "laser"
     VIO = "vio"
+    MONOCULAR_SIZE = "monocular_size"
+    MONOCULAR_METRIC = "monocular_metric"
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +333,17 @@ class MultiModalRangingEngine:
         ray_body, _ = _target_rays(calibration, neutral_pose, target)
         return _wrap_signed_degrees(math.degrees(math.atan2(ray_body[1], ray_body[0])))
 
+    @staticmethod
+    def target_ray_ned(
+        *,
+        calibration: CameraCalibration,
+        pose: AircraftPose,
+        target: TargetImageObservation,
+    ) -> tuple[float, float, float]:
+        """Return the calibrated target ray in the navigation NED frame."""
+
+        return _target_rays(calibration, pose, target)[1]
+
     def solve(
         self,
         *,
@@ -415,16 +428,20 @@ class MultiModalRangingEngine:
         for measurement in direct_measurements:
             age_s = now_s - measurement.captured_at_s
             if measurement.target_id != target.target_id:
-                reasons.append(f"{measurement.source.value}_target_mismatch")
+                reasons.append(_direct_rejection_reason(measurement.source, "target_mismatch"))
                 continue
             if not measurement.absolute_scale_valid:
-                reasons.append(f"{measurement.source.value}_absolute_scale_invalid")
+                reasons.append(
+                    _direct_rejection_reason(measurement.source, "absolute_scale_invalid")
+                )
                 continue
             if age_s < 0.0 or age_s > self.config.maximum_direct_range_age_s:
-                reasons.append(f"{measurement.source.value}_stale_or_from_future")
+                reasons.append(
+                    _direct_rejection_reason(measurement.source, "stale_or_from_future")
+                )
                 continue
             if measurement.slant_range_m > self.config.maximum_slant_range_m:
-                reasons.append(f"{measurement.source.value}_out_of_range")
+                reasons.append(_direct_rejection_reason(measurement.source, "out_of_range"))
                 continue
             range_candidates.append(
                 _Candidate(
@@ -500,6 +517,91 @@ class MultiModalRangingEngine:
             east_offset_m=east_offset_m,
             data_freshness_s=max(all_ages),
             sensor_consistency=sensor_consistency,
+        )
+
+    def solve_direct(
+        self,
+        *,
+        calibration: CameraCalibration,
+        pose: AircraftPose,
+        target: TargetImageObservation,
+        direct_measurements: tuple[DirectRangeMeasurement, ...],
+        now_s: float,
+    ) -> RangeSolution:
+        """Produce a degraded metric solution from scaled visual-inertial range.
+
+        This is used while an aircraft is moving when a terrain/home height is
+        temporarily absent.  It remains explicitly degraded and carries a wide
+        uncertainty interval; later vertical ranging replaces it automatically.
+        """
+        base = {
+            "target_id": target.target_id,
+            "frame_id": target.frame_id,
+            "calibration_id": calibration.calibration_id,
+            "evaluated_at_s": now_s,
+        }
+        pose_age, image_age = now_s - pose.captured_at_s, now_s - target.captured_at_s
+        if pose_age < 0 or pose_age > self.config.maximum_pose_age_s:
+            return self._invalid(base, "pose_stale_or_from_future")
+        if image_age < 0 or image_age > self.config.maximum_image_age_s:
+            return self._invalid(base, "target_image_stale_or_from_future")
+        # Direct metric methods do not derive their scale from the instantaneous
+        # aircraft pose. Keep bearing metadata usable across the bounded RTSP
+        # capture/telemetry skew seen on the live Jetson pipeline.
+        if abs(pose.captured_at_s - target.captured_at_s) > (
+            self.config.maximum_pose_age_s + self.config.maximum_image_age_s + 1e-6
+        ):
+            return self._invalid(base, "pose_image_time_skew_exceeded")
+        candidates = tuple(
+            _Candidate(
+                m.source.value,
+                m.slant_range_m,
+                max(self.config.minimum_range_sigma_m, m.sigma_m),
+                now_s - m.captured_at_s,
+            )
+            for m in direct_measurements
+            if m.target_id == target.target_id
+            and m.absolute_scale_valid
+            and 0 <= now_s - m.captured_at_s <= self.config.maximum_direct_range_age_s
+            and m.slant_range_m <= self.config.maximum_slant_range_m
+        )
+        fusion = _fuse_consistent(
+            candidates,
+            gate_sigma=self.config.consistency_gate_sigma,
+            minimum_sigma=self.config.minimum_range_sigma_m,
+        )
+        if fusion is None:
+            return self._invalid(base, "direct_range_unavailable")
+        ray_body, ray_ned = _target_rays(calibration, pose, target)
+        slant_range_m = fusion.value_m
+        horizontal_fraction = math.hypot(ray_ned[0], ray_ned[1])
+        return RangeSolution(
+            **base,
+            validity=RangeValidity.DEGRADED,
+            reasons=("direct_degraded_metric_range", "vertical_reference_unavailable"),
+            sources=tuple(c.source for c in fusion.accepted),
+            rejected_sources=tuple(c.source for c in fusion.rejected),
+            slant_range_m=slant_range_m,
+            ground_range_m=slant_range_m * horizontal_fraction,
+            slant_range_ci95_m=_ci95(slant_range_m, fusion.sigma_m),
+            ground_range_ci95_m=_ci95(
+                slant_range_m * horizontal_fraction, fusion.sigma_m * horizontal_fraction
+            ),
+            relative_bearing_deg=_wrap_signed_degrees(
+                math.degrees(math.atan2(ray_body[1], ray_body[0]))
+            ),
+            absolute_bearing_deg=_wrap_unsigned_degrees(
+                math.degrees(math.atan2(ray_ned[1], ray_ned[0]))
+            ),
+            bearing_sigma_deg=math.sqrt(
+                pose.heading_sigma_deg**2
+                + calibration.boresight_sigma_deg**2
+                + math.degrees(target.center_sigma_px / max(calibration.fx_px, 1.0)) ** 2
+            ),
+            north_offset_m=slant_range_m * ray_ned[0],
+            east_offset_m=slant_range_m * ray_ned[1],
+            data_freshness_s=max(pose_age, image_age, *(c.age_s for c in fusion.accepted)),
+            sensor_consistency=fusion.consistency,
         )
 
     def _camera_range_sigma(
@@ -690,6 +792,12 @@ def _normalize(vector: tuple[float, float, float]) -> tuple[float, float, float]
 def _has_duplicate_sources(sources: Iterable[object]) -> bool:
     values = tuple(sources)
     return len(values) != len(set(values))
+
+
+def _direct_rejection_reason(source: DirectRangeSource, suffix: str) -> str:
+    if source in {DirectRangeSource.LASER, DirectRangeSource.VIO}:
+        return f"{source.value}_{suffix}"
+    return "direct_range_unavailable"
 
 
 def _fuse_consistent(

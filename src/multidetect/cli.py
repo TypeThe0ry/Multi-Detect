@@ -35,6 +35,7 @@ from .audit import AuditLog
 from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
 from .deployment_planner import FixedWingReleaseWindowPlanner, PrimaryRangeEvidence
+from .depth_grid_udp import DepthGridUdpPublisher
 from .domain import (
     BoundingBox,
     DeploymentWindowStatus,
@@ -64,6 +65,7 @@ from .gr01_bench import Gr01BenchConfig, run_gr01_link_bench
 from .integration_evidence import INTEGRATION_PROFILES, check_integration_evidence_bundle
 from .jetson_bench import JetsonVisionBenchConfig, run_jetson_vision_bench
 from .live import LiveMissionRunner, LiveRangingConfig, LiveRunConfig
+from .metric_depth import AsyncMetricDepthRunner, MetricDepthConfig, MetricDepthEstimator
 from .mission import MissionController
 from .model_manifest import (
     PINNED_LEGACY_CHECKPOINT_SHA256,
@@ -84,6 +86,7 @@ from .multimodal_ranging import (
     MultiModalRangingEngine,
     RangeSolution,
     RangeValidity,
+    RangingFusionConfig,
     load_camera_calibration,
 )
 from .operator_bridge import LiveOperatorBridge
@@ -1171,6 +1174,11 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--pixhawk-baud", type=int, default=57_600)
     live.add_argument("--pixhawk-system-id", type=int)
     live.add_argument(
+        "--pixhawk-request-ranging-streams",
+        action="store_true",
+        help="request dynamic PX4 attitude/local-position/altitude telemetry for ranging",
+    )
+    live.add_argument(
         "--pixhawk-expected-autopilot",
         choices=tuple(sorted(PIXHAWK_AUTOPILOT_IDS)),
     )
@@ -1258,6 +1266,33 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--ranging-pitch-sigma-deg", type=float, default=0.3)
     live.add_argument("--ranging-heading-sigma-deg", type=float, default=1.0)
     live.add_argument("--ranging-target-center-sigma-px", type=float, default=2.0)
+    live.add_argument(
+        "--metric-depth-model",
+        type=Path,
+        help=(
+            "Depth Anything V2 metric ONNX or Jetson TensorRT engine used for the "
+            "sole LCK target and its full-frame depth grid"
+        ),
+    )
+    live.add_argument("--metric-depth-input-size", type=int, default=518)
+    live.add_argument("--metric-depth-minimum-depth-m", type=float, default=0.15)
+    live.add_argument("--metric-depth-maximum-depth-m", type=float, default=20.0)
+    live.add_argument("--metric-depth-minimum-interval-seconds", type=float, default=0.20)
+    live.add_argument("--metric-depth-maximum-age-seconds", type=float, default=1.00)
+    live.add_argument("--metric-depth-calibration-scale", type=float, default=1.0)
+    live.add_argument("--metric-depth-calibration-offset-m", type=float, default=0.0)
+    live.add_argument("--metric-depth-calibration-profile", default="uncalibrated")
+    live.add_argument("--metric-depth-grid-width", type=int, default=160)
+    live.add_argument("--metric-depth-grid-height", type=int, default=90)
+    live.add_argument("--metric-depth-temporal-window", type=int, default=5)
+    live.add_argument(
+        "--depth-grid-udp-host",
+        help="QGC address for the authenticated compressed depth-grid side channel",
+    )
+    live.add_argument("--depth-grid-udp-port", type=int, default=14_582)
+    live.add_argument("--depth-grid-udp-local-port", type=int, default=14_583)
+    live.add_argument("--depth-grid-hmac-key-env")
+    live.add_argument("--depth-grid-maximum-datagram-bytes", type=int, default=1200)
     live.add_argument(
         "--unified-target-pool",
         action="store_true",
@@ -3925,6 +3960,15 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             raise ValueError("--multimodal-ranging requires --ranging-calibration")
     elif args.ranging_calibration is not None:
         raise ValueError("--ranging-calibration requires --multimodal-ranging")
+    if args.metric_depth_model is not None and not args.multimodal_ranging:
+        raise ValueError("--metric-depth-model requires --multimodal-ranging")
+    if args.depth_grid_udp_host is not None:
+        if args.metric_depth_model is None:
+            raise ValueError("--depth-grid-udp-host requires --metric-depth-model")
+        if args.depth_grid_hmac_key_env is None:
+            raise ValueError("--depth-grid-udp-host requires --depth-grid-hmac-key-env")
+    elif args.depth_grid_hmac_key_env is not None:
+        raise ValueError("--depth-grid-hmac-key-env requires --depth-grid-udp-host")
     if args.approach_hil:
         missing = tuple(
             option
@@ -4728,6 +4772,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             require_operational_state=(
                 args.require_pixhawk_operational_state or args.fixed_wing_aim_control
             ),
+            request_ranging_streams=args.pixhawk_request_ranging_streams,
         )
         if args.pixhawk_endpoint
         else None
@@ -4985,7 +5030,18 @@ def _run_live_camera(args: argparse.Namespace) -> int:
     aircraft_appearance_encoder = (
         HandcraftedAircraftAppearanceEncoder() if unified_target_pool is not None else None
     )
-    ranging_engine = MultiModalRangingEngine() if args.multimodal_ranging else None
+    ranging_engine = (
+        MultiModalRangingEngine(
+            RangingFusionConfig(
+                maximum_image_age_s=args.metric_depth_maximum_age_seconds,
+                maximum_direct_range_age_s=args.metric_depth_maximum_age_seconds,
+            )
+            if args.metric_depth_model is not None
+            else None
+        )
+        if args.multimodal_ranging
+        else None
+    )
     ranging_config = None
     ranging_calibration_sha256 = None
     if args.multimodal_ranging:
@@ -5001,6 +5057,28 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             heading_sigma_deg=args.ranging_heading_sigma_deg,
             target_center_sigma_px=args.ranging_target_center_sigma_px,
         )
+    metric_depth_runner = (
+        AsyncMetricDepthRunner(
+            MetricDepthEstimator(
+                MetricDepthConfig(
+                    model_path=args.metric_depth_model,
+                    input_size=args.metric_depth_input_size,
+                    minimum_depth_m=args.metric_depth_minimum_depth_m,
+                    maximum_depth_m=args.metric_depth_maximum_depth_m,
+                    minimum_interval_s=args.metric_depth_minimum_interval_seconds,
+                    maximum_result_age_s=args.metric_depth_maximum_age_seconds,
+                    calibration_scale=args.metric_depth_calibration_scale,
+                    calibration_offset_m=args.metric_depth_calibration_offset_m,
+                    calibration_profile=args.metric_depth_calibration_profile,
+                    grid_width=args.metric_depth_grid_width,
+                    grid_height=args.metric_depth_grid_height,
+                    temporal_window_size=args.metric_depth_temporal_window,
+                )
+            )
+        )
+        if args.metric_depth_model is not None
+        else None
+    )
     short_term_tracker = (
         OpenCVShortTermTargetTracker(
             ShortTermTrackingConfig(
@@ -5141,6 +5219,17 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             if person_reid_session is not None:
                 person_reid_session.close()
             raise
+    depth_grid_publisher = (
+        DepthGridUdpPublisher(
+            host=args.depth_grid_udp_host,
+            port=args.depth_grid_udp_port,
+            hmac_key=_hmac_key_from_env(args.depth_grid_hmac_key_env),
+            maximum_datagram_bytes=args.depth_grid_maximum_datagram_bytes,
+            local_port=args.depth_grid_udp_local_port,
+        )
+        if args.depth_grid_udp_host is not None
+        else None
+    )
     runner = LiveMissionRunner(
         mission=controller,
         frame_source=frame_source,
@@ -5163,6 +5252,8 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         selection_target_pool=selection_target_pool,
         ranging_engine=ranging_engine,
         ranging_config=ranging_config,
+        metric_depth_runner=metric_depth_runner,
+        depth_grid_publisher=depth_grid_publisher,
         approach_hil_coordinator=approach_hil_coordinator,
         fixed_wing_aim_executor=fixed_wing_aim_executor,
         payload_target_coordinator=payload_target_coordinator,
@@ -5436,6 +5527,47 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "multimodal_ranging_advisory_only": True,
             "multimodal_ranging_flight_control_enabled": False,
             "multimodal_ranging_physical_release_enabled": False,
+            "metric_depth_enabled": metric_depth_runner is not None,
+            "metric_depth_model": (
+                str(args.metric_depth_model) if metric_depth_runner is not None else None
+            ),
+            "metric_depth_providers": (
+                list(metric_depth_runner.estimator.provider_names)
+                if metric_depth_runner is not None
+                else []
+            ),
+            "metric_depth_manual_lck_only": False,
+            "metric_depth_exclusive_lck_only": True,
+            "metric_depth_calibration_scale": (
+                metric_depth_runner.config.calibration_scale
+                if metric_depth_runner is not None
+                else None
+            ),
+            "metric_depth_calibration_offset_m": (
+                metric_depth_runner.config.calibration_offset_m
+                if metric_depth_runner is not None
+                else None
+            ),
+            "metric_depth_calibration_profile": (
+                metric_depth_runner.config.calibration_profile
+                if metric_depth_runner is not None
+                else None
+            ),
+            "metric_depth_grid": (
+                [metric_depth_runner.config.grid_width, metric_depth_runner.config.grid_height]
+                if metric_depth_runner is not None
+                else None
+            ),
+            "depth_grid_udp_enabled": depth_grid_publisher is not None,
+            "depth_grid_udp_host": (
+                args.depth_grid_udp_host if depth_grid_publisher is not None else None
+            ),
+            "depth_grid_udp_port": (
+                args.depth_grid_udp_port if depth_grid_publisher is not None else None
+            ),
+            "depth_grid_udp_local_port": (
+                args.depth_grid_udp_local_port if depth_grid_publisher is not None else None
+            ),
             "approach_hil_enabled": approach_hil_coordinator is not None,
             "approach_hil_advisory_only": True,
             "approach_hil_sitl_hil_only": True,

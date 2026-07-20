@@ -54,6 +54,8 @@ RANGING_SOURCE_IDS = (
     "camera_ground",
     "laser",
     "vio",
+    "monocular_size",
+    "monocular_metric",
 )
 
 RANGING_REASON_IDS = (
@@ -85,6 +87,9 @@ RANGING_REASON_IDS = (
     "pixhawk_agl_unavailable",
     "attitude_position_time_skew_exceeded",
     "target_not_freshly_observed",
+    "direct_degraded_metric_range",
+    "vertical_reference_unavailable",
+    "direct_range_unavailable",
 )
 
 RELEASE_REASON_IDS = (
@@ -844,9 +849,7 @@ class TargetPoolEntry:
             ("estimated range", self.estimated_range_m),
             ("target speed", self.target_speed_mps),
         ):
-            if value is not None and (
-                not isfinite(value) or not 0.0 <= value <= 6_553.4
-            ):
+            if value is not None and (not isfinite(value) or not 0.0 <= value <= 6_553.4):
                 raise ValueError(
                     f"target-pool {name} must be finite and representable in decimetres"
                 )

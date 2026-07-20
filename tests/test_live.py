@@ -2180,6 +2180,97 @@ def _live_ranging_config() -> LiveRangingConfig:
     )
 
 
+def test_manual_exclusive_lck_metric_depth_keeps_live_loop_running() -> None:
+    class _RecordingMetricDepthRunner:
+        def __init__(self) -> None:
+            self.submitted_target_ids: list[str] = []
+            self.failure_count = 0
+            self.last_error = None
+            self.closed = False
+
+        def submit(self, **kwargs) -> bool:
+            self.submitted_target_ids.append(kwargs["target_id"])
+            return True
+
+        def latest_result(self):
+            return None
+
+        def measurement_for(self, **_kwargs):
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    bbox = BoundingBox(0.1, 0.2, 0.3, 0.7)
+    target_pool, selection_pool = _exclusive_lck_pool("manual", bbox)
+    metric_depth = _RecordingMetricDepthRunner()
+
+    result = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_FrameSource(3),
+        detector=_LabelDetector("manual"),
+        telemetry_provider=_TimestampedRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=3, display=False),
+        operator_bridge=_idle_operator_bridge(),
+        unified_target_pool=target_pool,
+        selection_target_pool=selection_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(),
+        metric_depth_runner=metric_depth,  # type: ignore[arg-type]
+    ).run()
+
+    assert result.processed_frames == 3
+    assert metric_depth.submitted_target_ids
+    assert set(metric_depth.submitted_target_ids) == {selection_pool.exclusive_lock_track_id}
+    assert metric_depth.closed is True
+
+
+def test_manual_exclusive_lck_isolates_metric_depth_submit_failure() -> None:
+    class _FailingMetricDepthRunner:
+        failure_count = 0
+        last_error = None
+
+        def submit(self, **_kwargs) -> bool:
+            raise AttributeError("synthetic metric-depth integration defect")
+
+        def latest_result(self):
+            return None
+
+        def measurement_for(self, **_kwargs):
+            return None
+
+        def close(self) -> None:
+            pass
+
+    bbox = BoundingBox(0.1, 0.2, 0.3, 0.7)
+    target_pool, selection_pool = _exclusive_lck_pool("manual", bbox)
+    mission = MissionController(_patrol_config())
+
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(3),
+        detector=_LabelDetector("manual"),
+        telemetry_provider=_TimestampedRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=3, display=False),
+        operator_bridge=_idle_operator_bridge(),
+        unified_target_pool=target_pool,
+        selection_target_pool=selection_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(),
+        metric_depth_runner=_FailingMetricDepthRunner(),  # type: ignore[arg-type]
+    ).run()
+
+    assert result.processed_frames == 3
+    assert result.ranging_error_count == 3
+    failures = [
+        event
+        for event in mission.audit.events()
+        if event.event_type == "ranging.frame_processing_failed"
+    ]
+    assert len(failures) == 3
+    assert all(event.details["frame_loop_continues"] is True for event in failures)
+
+
 def test_live_primary_target_ranging_is_timestamped_degraded_and_read_only() -> None:
     mission = MissionController(_patrol_config())
     target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
@@ -2215,6 +2306,40 @@ def test_live_primary_target_ranging_is_timestamped_degraded_and_read_only() -> 
     assert details["advisory_only"] is True
     assert details["flight_control_enabled"] is False
     assert details["physical_release_enabled"] is False
+
+
+def test_range_wire_build_failure_does_not_stop_locked_target_tracking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mission = MissionController(_patrol_config())
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    _seed_locked_primary_target(target_pool)
+
+    def _raise_wire_registry_error(**_kwargs):
+        raise ValueError("synthetic ranging registry mismatch")
+
+    monkeypatch.setattr(live_module, "build_range_status_message", _raise_wire_registry_error)
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(3),
+        detector=_Detector(),
+        telemetry_provider=_TimestampedRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=3, display=False),
+        operator_bridge=_idle_operator_bridge(),
+        unified_target_pool=target_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(),
+    ).run()
+
+    assert result.processed_frames == 3
+    assert target_pool.primary_track_id is not None
+    failures = [
+        event
+        for event in mission.audit.events()
+        if event.event_type == "operator.range_status_build_failed"
+    ]
+    assert failures
+    assert all(event.details["perception_continues"] is True for event in failures)
 
 
 def test_live_ranging_uses_local_vertical_timestamp_when_gps_position_is_absent() -> None:
@@ -2353,9 +2478,7 @@ def test_live_ranging_isolates_one_target_failure_from_other_target_metadata() -
         telemetry_provider=_TimestampedRangingTelemetryProvider(),
         config=LiveRunConfig(max_frames=3, display=False),
         operator_bridge=bridge,
-        unified_target_pool=UnifiedTargetPool(
-            UnifiedTargetPoolConfig(minimum_confirmed_hits=1)
-        ),
+        unified_target_pool=UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1)),
         ranging_engine=_FirstTargetBearingFailureEngine(),
         ranging_config=_live_ranging_config(),
     ).run()
@@ -2363,9 +2486,7 @@ def test_live_ranging_isolates_one_target_failure_from_other_target_metadata() -
     assert result.ranging_error_count >= 1
     assert result.unified_target_pool_maximum_track_count == 2, result
     errors = [
-        event
-        for event in mission.audit.events()
-        if event.event_type == "ranging.processing_failed"
+        event for event in mission.audit.events() if event.event_type == "ranging.processing_failed"
     ]
     assert errors
     assert all(event.details["target_id"] != "" for event in errors)

@@ -220,6 +220,170 @@ class TensorRtRawYoloSession(TensorRtNx6Session):
         super().__init__(engine_path, raw_yolo_class_count=class_count)
 
 
+class TensorRtDepthSession:
+    """TensorRT 8.6 adapter for a batch-1 NCHW monocular depth network."""
+
+    def __init__(
+        self,
+        engine_path: str | Path,
+        *,
+        input_height: int = 518,
+        input_width: int = 518,
+    ) -> None:
+        if input_height <= 0 or input_width <= 0:
+            raise ValueError("depth input dimensions must be positive")
+        try:
+            import numpy as np
+            import tensorrt as trt
+            from cuda import cudart
+        except ImportError as exc:  # pragma: no cover - Jetson-specific dependency path.
+            raise TensorRtDependencyError(
+                "TensorRT engines require JetPack TensorRT Python bindings and cuda-python==12.2.1"
+            ) from exc
+
+        artifact = Path(engine_path)
+        if not artifact.is_file():
+            raise TensorRtEngineError(f"TensorRT depth engine does not exist: {artifact}")
+        self._np = np
+        self._cudart = cudart
+        self._closed = False
+        self._device_buffers: list[Any] = []
+        logger = trt.Logger(trt.Logger.WARNING)
+        _initialize_tensorrt_plugins(trt, logger)
+        runtime = trt.Runtime(logger)
+        engine = runtime.deserialize_cuda_engine(artifact.read_bytes())
+        if engine is None:
+            raise TensorRtEngineError("TensorRT depth engine deserialization failed")
+        if engine.num_bindings != 2:
+            raise TensorRtEngineError("TensorRT depth engine must expose one input and one output")
+        inputs = [index for index in range(engine.num_bindings) if engine.binding_is_input(index)]
+        outputs = [
+            index
+            for index in range(engine.num_bindings)
+            if not engine.binding_is_input(index)
+        ]
+        if len(inputs) != 1 or len(outputs) != 1:
+            raise TensorRtEngineError("TensorRT depth engine must expose one input and one output")
+        self._input_index, self._output_index = inputs[0], outputs[0]
+        self._input_name = engine.get_binding_name(self._input_index)
+        self._output_name = engine.get_binding_name(self._output_index)
+        declared_input = tuple(int(value) for value in engine.get_binding_shape(self._input_index))
+        if len(declared_input) != 4 or declared_input[1] not in {-1, 3}:
+            raise TensorRtEngineError("TensorRT depth input must be NCHW RGB")
+        expected_input = (1, 3, input_height, input_width)
+        context = engine.create_execution_context()
+        if context is None:
+            raise TensorRtEngineError("TensorRT depth execution context creation failed")
+        if any(value <= 0 for value in declared_input) and not context.set_binding_shape(
+            self._input_index, expected_input
+        ):
+            raise TensorRtEngineError("TensorRT depth input shape was rejected")
+        runtime_input = tuple(int(value) for value in context.get_binding_shape(self._input_index))
+        output_shape = tuple(int(value) for value in context.get_binding_shape(self._output_index))
+        if runtime_input != expected_input:
+            raise TensorRtEngineError(
+                f"TensorRT depth input shape {runtime_input} does not match {expected_input}"
+            )
+        if (
+            len(output_shape) not in {3, 4}
+            or output_shape[0] != 1
+            or any(value <= 0 for value in output_shape)
+            or math.prod(output_shape) != input_height * input_width
+        ):
+            raise TensorRtEngineError("TensorRT depth output must contain one dense depth map")
+        self._input_dtype = np.dtype(trt.nptype(engine.get_binding_dtype(self._input_index)))
+        self._output_dtype = np.dtype(trt.nptype(engine.get_binding_dtype(self._output_index)))
+        if self._input_dtype not in {np.dtype(np.float16), np.dtype(np.float32)}:
+            raise TensorRtEngineError("TensorRT depth input must use float16 or float32")
+        if self._output_dtype not in {np.dtype(np.float16), np.dtype(np.float32)}:
+            raise TensorRtEngineError("TensorRT depth output must use float16 or float32")
+        self._runtime, self._engine, self._context = runtime, engine, context
+        self._input_shape, self._output_shape = expected_input, output_shape
+        self._input_bytes = math.prod(expected_input) * self._input_dtype.itemsize
+        self._output_bytes = math.prod(output_shape) * self._output_dtype.itemsize
+        try:
+            self._input_device = self._cuda_value(
+                cudart.cudaMalloc(self._input_bytes), "allocate TensorRT depth input"
+            )
+            self._device_buffers.append(self._input_device)
+            self._output_device = self._cuda_value(
+                cudart.cudaMalloc(self._output_bytes), "allocate TensorRT depth output"
+            )
+            self._device_buffers.append(self._output_device)
+        except BaseException:
+            self.close()
+            raise
+
+    def get_inputs(self) -> tuple[TensorMeta, ...]:
+        return (TensorMeta(self._input_name, self._input_shape),)
+
+    def get_outputs(self) -> tuple[TensorMeta, ...]:
+        return (TensorMeta(self._output_name, self._output_shape),)
+
+    def get_providers(self) -> tuple[str, ...]:
+        return ("TensorrtExecutionProvider",)
+
+    def run(self, outputs: Any, feeds: dict[str, Any]) -> list[Any]:
+        if self._closed:
+            raise TensorRtEngineError("TensorRT depth session is closed")
+        if outputs not in (None, [], [self._output_name]):
+            raise TensorRtEngineError("TensorRT depth output request is unsupported")
+        if set(feeds) != {self._input_name}:
+            raise TensorRtEngineError("TensorRT depth input feed does not match the engine")
+        tensor = self._np.asarray(feeds[self._input_name], dtype=self._input_dtype)
+        if tuple(tensor.shape) != self._input_shape:
+            raise TensorRtEngineError("TensorRT depth input tensor has an invalid shape")
+        tensor = self._np.ascontiguousarray(tensor)
+        result = self._np.empty(self._output_shape, dtype=self._output_dtype)
+        self._cuda_value(
+            self._cudart.cudaMemcpy(
+                self._input_device,
+                tensor.ctypes.data,
+                self._input_bytes,
+                self._cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
+            ),
+            "copy TensorRT depth input",
+        )
+        bindings = [0] * self._engine.num_bindings
+        bindings[self._input_index] = int(self._input_device)
+        bindings[self._output_index] = int(self._output_device)
+        if not self._context.execute_v2(bindings):
+            raise TensorRtEngineError("TensorRT depth execution failed")
+        self._cuda_value(
+            self._cudart.cudaMemcpy(
+                result.ctypes.data,
+                self._output_device,
+                self._output_bytes,
+                self._cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
+            ),
+            "copy TensorRT depth output",
+        )
+        return [result.astype(self._np.float32, copy=False)]
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for pointer in reversed(self._device_buffers):
+            try:
+                self._cudart.cudaFree(pointer)
+            except BaseException:
+                pass
+        self._device_buffers.clear()
+
+    def __del__(self) -> None:  # pragma: no cover - interpreter-shutdown safety net.
+        try:
+            self.close()
+        except BaseException:
+            pass
+
+    def _cuda_value(self, result: tuple[Any, ...], operation: str) -> Any:
+        if not result or int(result[0]) != 0:
+            code = result[0] if result else "missing status"
+            raise TensorRtEngineError(f"CUDA failed to {operation}: {code}")
+        return result[1] if len(result) > 1 else None
+
+
 class TensorRtSemanticSession:
     """Static batch-1 TensorRT adapter for categorical NHWC segmentation masks."""
 

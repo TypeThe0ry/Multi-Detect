@@ -51,6 +51,18 @@ _SYSTEM_STATUS_NAMES = {
 }
 _OPERATIONAL_SYSTEM_STATUSES = frozenset({3, 4})
 
+# MAV_CMD_SET_MESSAGE_INTERVAL only changes this companion-computer link's
+# telemetry cadence.  It never changes flight mode, parameters or actuators.
+_MAV_CMD_SET_MESSAGE_INTERVAL = 511
+_RANGING_STREAM_INTERVALS_US: tuple[tuple[str, int, int], ...] = (
+    ("ATTITUDE", 30, 50_000),
+    ("SCALED_PRESSURE", 29, 100_000),
+    ("LOCAL_POSITION_NED", 32, 66_667),
+    ("GLOBAL_POSITION_INT", 33, 100_000),
+    ("ALTITUDE", 141, 100_000),
+    ("HOME_POSITION", 242, 1_000_000),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class PixhawkHeartbeatIdentity:
@@ -167,6 +179,7 @@ class PixhawkReadOnlyConfig:
     expected_autopilot_id: int | None = None
     expected_vehicle_type_id: int | None = None
     require_operational_state: bool = False
+    request_ranging_streams: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.endpoint, str) or not self.endpoint.strip():
@@ -192,6 +205,8 @@ class PixhawkReadOnlyConfig:
             raise ValueError("Pixhawk expected system ID must be in [1, 255]")
         if not isinstance(self.require_operational_state, bool):
             raise ValueError("Pixhawk operational-state requirement must be boolean")
+        if not isinstance(self.request_ranging_streams, bool):
+            raise ValueError("Pixhawk ranging-stream request setting must be boolean")
 
     @property
     def qualification_required(self) -> bool:
@@ -209,7 +224,7 @@ class PixhawkReadOnlyConfig:
 
 
 class PixhawkReadOnlyTelemetryProvider:
-    """Consumes MAVLink telemetry without transmitting commands or parameters.
+    """Consumes MAVLink telemetry without flight-control or parameter writes.
 
     Unknown operational predicates intentionally remain ``None``. In particular,
     this class does not infer a deployment zone, geofence approval, flight-mode
@@ -227,15 +242,28 @@ class PixhawkReadOnlyTelemetryProvider:
         self._last_local_position_s: float | None = None
         self._last_velocity_s: float | None = None
         self._last_airspeed_s: float | None = None
+        self._last_differential_pressure_s: float | None = None
         self._last_wind_s: float | None = None
+        self._last_gps_raw_s: float | None = None
+        self._last_gps_raw_message_s: float | None = None
+        self._last_home_position_s: float | None = None
+        self._last_altitude_message_s: float | None = None
+        self._raw_altitude_relative_m: float | None = None
+        self._raw_altitude_local_m: float | None = None
         self._altitude_agl_m = float("nan")
         self._altitude_reference: str | None = None
+        self._gps_absolute_altitude_m = float("nan")
+        self._home_absolute_altitude_m = float("nan")
+        self._last_gps_fix_type: int | None = None
+        self._last_gps_altitude_m: float | None = None
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
         self._ground_speed_mps = float("nan")
         self._velocity_north_mps = float("nan")
         self._velocity_east_mps = float("nan")
         self._airspeed_mps = float("nan")
+        self._differential_pressure_hpa = float("nan")
+        self._differential_pressure_temperature_c = float("nan")
         self._wind_north_mps = float("nan")
         self._wind_east_mps = float("nan")
         self._latitude_deg = float("nan")
@@ -243,6 +271,7 @@ class PixhawkReadOnlyTelemetryProvider:
         self._local_north_m = float("nan")
         self._local_east_m = float("nan")
         self._local_down_m = float("nan")
+        self._local_ground_down_m: float | None = None
         self._heading_deg = float("nan")
         self._battery_remaining_pct = float("nan")
         self._satellites_visible: int | None = None
@@ -256,6 +285,9 @@ class PixhawkReadOnlyTelemetryProvider:
         self._ignored_non_autopilot_heartbeat_count = 0
         self._message_type_counts: Counter[str] = Counter()
         self._rc_input_snapshot: PixhawkRcInputSnapshot | None = None
+        self._messages_transmitted = 0
+        self._stream_request_attempts = 0
+        self._last_stream_request_s: float | None = None
 
     @property
     def is_read_only(self) -> bool:
@@ -263,9 +295,9 @@ class PixhawkReadOnlyTelemetryProvider:
 
     @property
     def messages_transmitted(self) -> int:
-        """The provider has no send path; expose the invariant for integration evidence."""
+        """Count link-local stream-cadence requests; flight commands stay absent."""
 
-        return 0
+        return self._messages_transmitted
 
     @property
     def resolved_endpoint(self) -> str | None:
@@ -343,6 +375,7 @@ class PixhawkReadOnlyTelemetryProvider:
             "resolved_endpoint": self.resolved_endpoint,
             "read_only": self.is_read_only,
             "hardware_control_enabled": False,
+            "telemetry_configuration_enabled": self.config.request_ranging_streams,
             "messages_received": self.messages_received,
             "messages_transmitted": self.messages_transmitted,
             "rejected_system_messages": self.rejected_system_messages,
@@ -352,12 +385,79 @@ class PixhawkReadOnlyTelemetryProvider:
             "rc_input_age_s": (
                 max(0.0, now_s - rc_input.observed_at_s) if rc_input is not None else None
             ),
-            "rc_valid_channel_count": (
-                rc_input.valid_channel_count if rc_input is not None else 0
-            ),
+            "rc_valid_channel_count": (rc_input.valid_channel_count if rc_input is not None else 0),
             "transport_link_healthy": self.transport_link_healthy(now_s=now_s),
             "qualified_link_healthy": snapshot.link_healthy,
             "position_healthy": snapshot.position_healthy,
+            "motion": {
+                "armed": snapshot.armed,
+                "ground_speed_mps": (
+                    snapshot.ground_speed_mps if math.isfinite(snapshot.ground_speed_mps) else None
+                ),
+                "velocity_north_mps": (
+                    snapshot.velocity_north_mps
+                    if math.isfinite(snapshot.velocity_north_mps)
+                    else None
+                ),
+                "velocity_east_mps": (
+                    snapshot.velocity_east_mps
+                    if math.isfinite(snapshot.velocity_east_mps)
+                    else None
+                ),
+                "velocity_age_s": self._sample_age(self._last_velocity_s, now_s),
+                "airspeed_mps": (
+                    snapshot.airspeed_mps if math.isfinite(snapshot.airspeed_mps) else None
+                ),
+                "airspeed_age_s": self._sample_age(self._last_airspeed_s, now_s),
+                "differential_pressure_hpa": (
+                    self._differential_pressure_hpa
+                    if math.isfinite(self._differential_pressure_hpa)
+                    else None
+                ),
+                "differential_pressure_temperature_c": (
+                    self._differential_pressure_temperature_c
+                    if math.isfinite(self._differential_pressure_temperature_c)
+                    else None
+                ),
+                "differential_pressure_age_s": self._sample_age(
+                    self._last_differential_pressure_s,
+                    now_s,
+                ),
+            },
+            "ranging_stream_requests": {
+                "attempts": self._stream_request_attempts,
+                "last_request_age_s": self._sample_age(self._last_stream_request_s, now_s),
+                "requested_message_intervals_us": {
+                    name: interval_us
+                    for name, _message_id, interval_us in _RANGING_STREAM_INTERVALS_US
+                },
+            },
+            "vertical": {
+                "altitude_agl_m": (
+                    snapshot.altitude_agl_m if math.isfinite(snapshot.altitude_agl_m) else None
+                ),
+                "altitude_reference": snapshot.altitude_reference,
+                "altitude_fresh": self._is_fresh(self._last_altitude_s, now_s),
+                "gps_raw_age_s": self._sample_age(self._last_gps_raw_s, now_s),
+                "gps_raw_message_age_s": self._sample_age(self._last_gps_raw_message_s, now_s),
+                "gps_fix_type": self._last_gps_fix_type,
+                "gps_absolute_altitude_m": self._last_gps_altitude_m,
+                "home_position_age_s": self._sample_age(self._last_home_position_s, now_s),
+                "altitude_message_age_s": self._sample_age(self._last_altitude_message_s, now_s),
+                "raw_altitude_relative_m": self._raw_altitude_relative_m,
+                "raw_altitude_local_m": self._raw_altitude_local_m,
+                "local_position_age_s": self._sample_age(self._last_local_position_s, now_s),
+                "local_north_m": (
+                    snapshot.local_north_m if math.isfinite(snapshot.local_north_m) else None
+                ),
+                "local_east_m": (
+                    snapshot.local_east_m if math.isfinite(snapshot.local_east_m) else None
+                ),
+                "local_down_m": (
+                    snapshot.local_down_m if math.isfinite(snapshot.local_down_m) else None
+                ),
+                "local_ground_down_m": self._local_ground_down_m,
+            },
             "heartbeat_identity": self.heartbeat_identity.to_document(),
             "qualification": self.qualification.to_document(),
         }
@@ -371,8 +471,8 @@ class PixhawkReadOnlyTelemetryProvider:
             raise PixhawkDependencyError(
                 "Install the optional Pixhawk dependency: pip install -e '.[pixhawk]'"
             ) from exc
-        # No heartbeat, parameter request, command, mission, actuator or stream-rate
-        # message is sent here. The provider only opens the transport and receives data.
+        # Opening the transport itself sends nothing.  Optional message-interval
+        # requests are emitted only after a matching autopilot heartbeat arrives.
         endpoint = resolve_pixhawk_endpoint(self.config.endpoint)
         self._connection = mavutil.mavlink_connection(
             endpoint,
@@ -400,6 +500,7 @@ class PixhawkReadOnlyTelemetryProvider:
             if message is None:
                 break
             self.ingest_message(message, received_at_s=now_s)
+        self._maybe_request_ranging_streams(now_s=now_s)
         connection_mode = getattr(connection, "flightmode", None)
         if isinstance(connection_mode, str) and connection_mode.strip():
             self._flight_mode = connection_mode.strip()
@@ -562,14 +663,17 @@ class PixhawkReadOnlyTelemetryProvider:
                 )
         elif message_type == "ALTITUDE":
             relative = _finite_float(getattr(message, "altitude_relative", None))
+            local = _finite_float(getattr(message, "altitude_local", None))
+            self._last_altitude_message_s = now_s
+            self._raw_altitude_relative_m = relative
+            self._raw_altitude_local_m = local
             if relative is not None and relative > 0.0:
                 self._altitude_agl_m = relative
                 self._altitude_reference = "home_relative"
                 self._last_altitude_s = now_s
         elif message_type == "ATTITUDE_QUATERNION":
             quaternion = tuple(
-                _finite_float(getattr(message, name, None))
-                for name in ("q1", "q2", "q3", "q4")
+                _finite_float(getattr(message, name, None)) for name in ("q1", "q2", "q3", "q4")
             )
             if all(value is not None for value in quaternion):
                 self._ingest_attitude_quaternion(
@@ -581,6 +685,14 @@ class PixhawkReadOnlyTelemetryProvider:
             if airspeed is not None and math.isfinite(float(airspeed)) and float(airspeed) >= 0.0:
                 self._airspeed_mps = float(airspeed)
                 self._last_airspeed_s = now_s
+        elif message_type in {"SCALED_PRESSURE", "SCALED_PRESSURE2", "SCALED_PRESSURE3"}:
+            differential_pressure = _finite_float(getattr(message, "press_diff", None))
+            temperature_cdeg = _finite_float(getattr(message, "temperature", None))
+            if differential_pressure is not None:
+                self._differential_pressure_hpa = differential_pressure
+                self._last_differential_pressure_s = now_s
+            if temperature_cdeg is not None and temperature_cdeg != 32767:
+                self._differential_pressure_temperature_c = temperature_cdeg / 100.0
         elif message_type == "WIND_COV":
             wind_north = getattr(message, "wind_x", None)
             wind_east = getattr(message, "wind_y", None)
@@ -596,9 +708,24 @@ class PixhawkReadOnlyTelemetryProvider:
             if remaining is not None and int(remaining) >= 0:
                 self._battery_remaining_pct = float(remaining)
         elif message_type == "GPS_RAW_INT":
+            self._last_gps_raw_message_s = now_s
             satellites = getattr(message, "satellites_visible", None)
             if satellites is not None and int(satellites) != 255:
                 self._satellites_visible = int(satellites)
+            fix_type = _optional_int(getattr(message, "fix_type", None))
+            altitude_mm = _finite_float(getattr(message, "alt", None))
+            self._last_gps_fix_type = fix_type
+            self._last_gps_altitude_m = altitude_mm / 1_000.0 if altitude_mm is not None else None
+            if fix_type is not None and fix_type >= 3 and altitude_mm is not None:
+                self._gps_absolute_altitude_m = altitude_mm / 1_000.0
+                self._last_gps_raw_s = now_s
+                self._update_gps_home_relative_altitude(now_s=now_s)
+        elif message_type == "HOME_POSITION":
+            altitude_mm = _finite_float(getattr(message, "altitude", None))
+            if altitude_mm is not None:
+                self._home_absolute_altitude_m = altitude_mm / 1_000.0
+                self._last_home_position_s = now_s
+                self._update_gps_home_relative_altitude(now_s=now_s)
         elif message_type == "MISSION_CURRENT":
             sequence = getattr(message, "seq", None)
             if sequence is not None and int(sequence) >= 0:
@@ -632,6 +759,70 @@ class PixhawkReadOnlyTelemetryProvider:
                 if any(value is not None for value in channels):
                     self._rc_input_snapshot = PixhawkRcInputSnapshot(now_s, tuple(channels))
 
+    def _maybe_request_ranging_streams(self, *, now_s: float) -> None:
+        """Request dynamic pose/height streams with bounded retries.
+
+        PX4 may start a companion UDP endpoint with only its default sparse
+        stream.  Ranging needs estimator attitude and local/relative altitude at
+        video-rate cadence, so the companion asks PX4 for those message rates.
+        Three attempts cover link start-up races without adding persistent
+        traffic.  This is telemetry configuration only.
+        """
+
+        if not self.config.request_ranging_streams or self._stream_request_attempts >= 3:
+            return
+        if self._heartbeat_identity.source_system_id is None:
+            return
+        if self._last_stream_request_s is not None and now_s - self._last_stream_request_s < 5.0:
+            return
+        connection = self._connection
+        mav = getattr(connection, "mav", None)
+        send = getattr(mav, "command_long_send", None)
+        if not callable(send):
+            return
+        target_system = self._heartbeat_identity.source_system_id
+        target_component = self._heartbeat_identity.source_component_id or 1
+        sent = 0
+        for _name, message_id, interval_us in _RANGING_STREAM_INTERVALS_US:
+            send(
+                target_system,
+                target_component,
+                _MAV_CMD_SET_MESSAGE_INTERVAL,
+                0,
+                float(message_id),
+                float(interval_us),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+            sent += 1
+        self._messages_transmitted += sent
+        self._stream_request_attempts += 1
+        self._last_stream_request_s = now_s
+
+    def _update_gps_home_relative_altitude(self, *, now_s: float) -> None:
+        """Use GPS altitude only after PX4 supplies a matching home reference.
+
+        GPS_RAW_INT.alt is an absolute ellipsoid/geoid-referenced value, so it is
+        not directly useful for camera-ray ranging.  HOME_POSITION provides the
+        corresponding PX4 home reference; their positive difference is a valid
+        airborne height fallback when GLOBAL_POSITION_INT/ALTITUDE are absent.
+        """
+
+        if not (
+            math.isfinite(self._gps_absolute_altitude_m)
+            and math.isfinite(self._home_absolute_altitude_m)
+        ):
+            return
+        relative_m = self._gps_absolute_altitude_m - self._home_absolute_altitude_m
+        if relative_m <= 0.0:
+            return
+        self._altitude_agl_m = relative_m
+        self._altitude_reference = "gps_home_relative"
+        self._last_altitude_s = now_s
+
     def _ingest_local_position(
         self,
         *,
@@ -643,6 +834,10 @@ class PixhawkReadOnlyTelemetryProvider:
         received_at_s: float,
         reference: str,
     ) -> None:
+        velocity = tuple(_finite_float(value) for value in (north_velocity, east_velocity))
+        local_speed_mps = (
+            math.hypot(*velocity) if all(value is not None for value in velocity) else None
+        )
         coordinates = tuple(_finite_float(value) for value in (north, east, down))
         if all(value is not None for value in coordinates):
             north_m, east_m, down_m = coordinates  # type: ignore[misc]
@@ -651,14 +846,24 @@ class PixhawkReadOnlyTelemetryProvider:
             self._local_down_m = down_m
             self._last_local_position_s = received_at_s
             self._last_position_s = received_at_s
-            # NED z is positive down.  A non-positive z therefore carries a
-            # usable height above the local origin.  Its reference remains
-            # explicit so consumers do not mistake it for terrain AGL.
-            if down_m <= 0.0:
+            # PX4 local NED z is positive down, but its estimator origin need
+            # not coincide exactly with the physical takeoff surface.  Learn a
+            # slowly varying zero while disarmed and stationary, then freeze it
+            # when armed.  This removes barometer/EKF zero offsets without
+            # requiring GPS or HOME_POSITION and preserves true climb dynamics.
+            if self._armed is False and (local_speed_mps is None or local_speed_mps <= 1.0):
+                if self._local_ground_down_m is None:
+                    self._local_ground_down_m = down_m
+                else:
+                    self._local_ground_down_m = self._local_ground_down_m * 0.95 + down_m * 0.05
+            if self._local_ground_down_m is not None:
+                self._altitude_agl_m = max(0.0, self._local_ground_down_m - down_m)
+                self._altitude_reference = "local_ned_takeoff_relative"
+                self._last_altitude_s = received_at_s
+            elif down_m <= 0.0:
                 self._altitude_agl_m = -down_m
                 self._altitude_reference = reference
                 self._last_altitude_s = received_at_s
-        velocity = tuple(_finite_float(value) for value in (north_velocity, east_velocity))
         if all(value is not None for value in velocity):
             north_mps, east_mps = velocity  # type: ignore[misc]
             self._velocity_north_mps = north_mps
@@ -685,6 +890,12 @@ class PixhawkReadOnlyTelemetryProvider:
         self._pitch_deg = math.degrees(pitch)
         self._heading_deg = math.degrees(yaw) % 360.0
         self._last_attitude_s = received_at_s
+
+    @staticmethod
+    def _sample_age(timestamp_s: float | None, now_s: float) -> float | None:
+        if timestamp_s is None:
+            return None
+        return max(0.0, now_s - timestamp_s)
 
     def _is_fresh(self, timestamp_s: float | None, now_s: float) -> bool | None:
         if timestamp_s is None:
