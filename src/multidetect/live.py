@@ -3755,12 +3755,18 @@ class LiveMissionRunner:
                 now_s=now_s,
                 reason="target_not_freshly_observed",
             )
+        # Older read-only telemetry providers exposed only a position timestamp.
+        # Keep that compatibility path while new Pixhawk telemetry reports a
+        # dedicated local/relative-altitude timestamp for GPS-denied operation.
+        altitude_timestamp_s = telemetry.altitude_observed_at_s
+        if not math.isfinite(altitude_timestamp_s):
+            altitude_timestamp_s = telemetry.position_observed_at_s
         pose_values = (
             telemetry.roll_deg,
             telemetry.pitch_deg,
             telemetry.heading_deg,
             telemetry.attitude_observed_at_s,
-            telemetry.position_observed_at_s,
+            altitude_timestamp_s,
         )
         if not all(math.isfinite(value) for value in pose_values):
             return _invalid_live_range_solution(
@@ -3779,7 +3785,7 @@ class LiveMissionRunner:
                 reason="pixhawk_agl_unavailable",
             )
         if (
-            abs(telemetry.attitude_observed_at_s - telemetry.position_observed_at_s)
+            abs(telemetry.attitude_observed_at_s - altitude_timestamp_s)
             > engine.config.maximum_pose_image_skew_s
         ):
             return _invalid_live_range_solution(
@@ -3787,11 +3793,11 @@ class LiveMissionRunner:
                 frame_id=captured.frame_id,
                 calibration_id=config.calibration.calibration_id,
                 now_s=now_s,
-                reason="attitude_position_time_skew_exceeded",
+                reason="attitude_altitude_time_skew_exceeded",
             )
         pose_timestamp_s = min(
             telemetry.attitude_observed_at_s,
-            telemetry.position_observed_at_s,
+            altitude_timestamp_s,
         )
         center_x, center_y = track.bbox.center
         return engine.solve(
@@ -3818,7 +3824,7 @@ class LiveMissionRunner:
                     source=VerticalSource.PIXHAWK_AGL,
                     height_m=telemetry.altitude_agl_m,
                     sigma_m=config.altitude_agl_sigma_m,
-                    captured_at_s=telemetry.position_observed_at_s,
+                    captured_at_s=altitude_timestamp_s,
                 ),
             ),
             now_s=now_s,

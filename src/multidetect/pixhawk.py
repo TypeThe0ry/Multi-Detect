@@ -223,10 +223,13 @@ class PixhawkReadOnlyTelemetryProvider:
         self._last_heartbeat_s: float | None = None
         self._last_attitude_s: float | None = None
         self._last_position_s: float | None = None
+        self._last_altitude_s: float | None = None
+        self._last_local_position_s: float | None = None
         self._last_velocity_s: float | None = None
         self._last_airspeed_s: float | None = None
         self._last_wind_s: float | None = None
         self._altitude_agl_m = float("nan")
+        self._altitude_reference: str | None = None
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
         self._ground_speed_mps = float("nan")
@@ -237,6 +240,9 @@ class PixhawkReadOnlyTelemetryProvider:
         self._wind_east_mps = float("nan")
         self._latitude_deg = float("nan")
         self._longitude_deg = float("nan")
+        self._local_north_m = float("nan")
+        self._local_east_m = float("nan")
+        self._local_down_m = float("nan")
         self._heading_deg = float("nan")
         self._battery_remaining_pct = float("nan")
         self._satellites_visible: int | None = None
@@ -449,6 +455,18 @@ class PixhawkReadOnlyTelemetryProvider:
             wind_observed_at_s=(
                 self._last_wind_s if self._last_wind_s is not None else float("nan")
             ),
+            altitude_observed_at_s=(
+                self._last_altitude_s if self._last_altitude_s is not None else float("nan")
+            ),
+            altitude_reference=self._altitude_reference,
+            local_north_m=self._local_north_m,
+            local_east_m=self._local_east_m,
+            local_down_m=self._local_down_m,
+            local_position_observed_at_s=(
+                self._last_local_position_s
+                if self._last_local_position_s is not None
+                else float("nan")
+            ),
         )
 
     def ingest_message(self, message: Any, *, received_at_s: float | None = None) -> None:
@@ -502,6 +520,7 @@ class PixhawkReadOnlyTelemetryProvider:
             self._last_attitude_s = now_s
         elif message_type == "GLOBAL_POSITION_INT":
             self._altitude_agl_m = float(message.relative_alt) / 1_000.0
+            self._altitude_reference = "home_relative"
             self._ground_speed_mps = math.hypot(float(message.vx), float(message.vy)) / 100.0
             self._velocity_north_mps = float(message.vx) / 100.0
             self._velocity_east_mps = float(message.vy) / 100.0
@@ -514,7 +533,49 @@ class PixhawkReadOnlyTelemetryProvider:
             if heading is not None and int(heading) != 65_535:
                 self._heading_deg = float(heading) / 100.0
             self._last_position_s = now_s
+            self._last_altitude_s = now_s
             self._last_velocity_s = now_s
+        elif message_type == "LOCAL_POSITION_NED":
+            self._ingest_local_position(
+                north=getattr(message, "x", None),
+                east=getattr(message, "y", None),
+                down=getattr(message, "z", None),
+                north_velocity=getattr(message, "vx", None),
+                east_velocity=getattr(message, "vy", None),
+                received_at_s=now_s,
+                reference="local_ned_relative",
+            )
+        elif message_type == "ODOMETRY":
+            # ODOMETRY can use several frames.  Use only LOCAL_NED (MAV_FRAME=1)
+            # values here; body/camera frames must first be transformed by their
+            # producer and are never silently treated as a navigation position.
+            frame_id = _optional_int(getattr(message, "frame_id", None))
+            if frame_id == 1:
+                self._ingest_local_position(
+                    north=getattr(message, "x", None),
+                    east=getattr(message, "y", None),
+                    down=getattr(message, "z", None),
+                    north_velocity=getattr(message, "vx", None),
+                    east_velocity=getattr(message, "vy", None),
+                    received_at_s=now_s,
+                    reference="odometry_local_ned_relative",
+                )
+        elif message_type == "ALTITUDE":
+            relative = _finite_float(getattr(message, "altitude_relative", None))
+            if relative is not None and relative > 0.0:
+                self._altitude_agl_m = relative
+                self._altitude_reference = "home_relative"
+                self._last_altitude_s = now_s
+        elif message_type == "ATTITUDE_QUATERNION":
+            quaternion = tuple(
+                _finite_float(getattr(message, name, None))
+                for name in ("q1", "q2", "q3", "q4")
+            )
+            if all(value is not None for value in quaternion):
+                self._ingest_attitude_quaternion(
+                    quaternion=quaternion,  # type: ignore[arg-type]
+                    received_at_s=now_s,
+                )
         elif message_type == "VFR_HUD":
             airspeed = getattr(message, "airspeed", None)
             if airspeed is not None and math.isfinite(float(airspeed)) and float(airspeed) >= 0.0:
@@ -571,6 +632,60 @@ class PixhawkReadOnlyTelemetryProvider:
                 if any(value is not None for value in channels):
                     self._rc_input_snapshot = PixhawkRcInputSnapshot(now_s, tuple(channels))
 
+    def _ingest_local_position(
+        self,
+        *,
+        north: object,
+        east: object,
+        down: object,
+        north_velocity: object,
+        east_velocity: object,
+        received_at_s: float,
+        reference: str,
+    ) -> None:
+        coordinates = tuple(_finite_float(value) for value in (north, east, down))
+        if all(value is not None for value in coordinates):
+            north_m, east_m, down_m = coordinates  # type: ignore[misc]
+            self._local_north_m = north_m
+            self._local_east_m = east_m
+            self._local_down_m = down_m
+            self._last_local_position_s = received_at_s
+            self._last_position_s = received_at_s
+            # NED z is positive down.  A non-positive z therefore carries a
+            # usable height above the local origin.  Its reference remains
+            # explicit so consumers do not mistake it for terrain AGL.
+            if down_m <= 0.0:
+                self._altitude_agl_m = -down_m
+                self._altitude_reference = reference
+                self._last_altitude_s = received_at_s
+        velocity = tuple(_finite_float(value) for value in (north_velocity, east_velocity))
+        if all(value is not None for value in velocity):
+            north_mps, east_mps = velocity  # type: ignore[misc]
+            self._velocity_north_mps = north_mps
+            self._velocity_east_mps = east_mps
+            self._ground_speed_mps = math.hypot(north_mps, east_mps)
+            self._last_velocity_s = received_at_s
+
+    def _ingest_attitude_quaternion(
+        self,
+        *,
+        quaternion: tuple[float, float, float, float],
+        received_at_s: float,
+    ) -> None:
+        q1, q2, q3, q4 = quaternion
+        norm = math.sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4)
+        if norm < 1e-6:
+            return
+        w, x, y, z = (value / norm for value in quaternion)
+        roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+        pitch_term = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
+        pitch = math.asin(pitch_term)
+        yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        self._roll_deg = math.degrees(roll)
+        self._pitch_deg = math.degrees(pitch)
+        self._heading_deg = math.degrees(yaw) % 360.0
+        self._last_attitude_s = received_at_s
+
     def _is_fresh(self, timestamp_s: float | None, now_s: float) -> bool | None:
         if timestamp_s is None:
             return None
@@ -584,6 +699,16 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _finite_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _rc_pwm_value(value: object) -> int | None:

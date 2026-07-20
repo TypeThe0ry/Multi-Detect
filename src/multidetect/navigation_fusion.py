@@ -19,6 +19,16 @@ class NavigationVelocitySource(StrEnum):
     AIR_DATA = "air_data"
 
 
+class NavigationFusionMode(StrEnum):
+    """Declared source mode for the GPS-first navigation fallback chain."""
+
+    GPS_FUSED = "gps_fused"
+    GPS_SUSPECT = "gps_suspect"
+    VIO_AIRDATA = "vio_airdata"
+    GPS_REACQUIRE = "gps_reacquire"
+    INSUFFICIENT = "insufficient"
+
+
 @dataclass(frozen=True, slots=True)
 class GpsVelocityMeasurement:
     north_mps: float
@@ -232,6 +242,100 @@ class NavigationVelocitySolution:
             "advisory_only": self.advisory_only,
             "flight_control_enabled": self.flight_control_enabled,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationFusionState:
+    """State-machine result layered on the metric velocity fusion solution.
+
+    This is deliberately a source supervisor, not a claim that unscaled
+    monocular optical flow is SLAM.  A VIO measurement reaches this layer only
+    after it has metric scale and passes the existing freshness/consistency
+    gates.  The mode gives QGC and audit consumers a stable indication of the
+    GPS-first / local-VIO-airdata fallback path.
+    """
+
+    mode: NavigationFusionMode
+    solution: NavigationVelocitySolution
+    consecutive_gps_samples: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, NavigationFusionMode):
+            raise ValueError("navigation fusion mode is invalid")
+        if self.consecutive_gps_samples < 0:
+            raise ValueError("GPS sample counter cannot be negative")
+
+
+class MultimodalNavigationSupervisor:
+    """GPS-first mode supervisor with VIO/air-data continuity and reacquisition.
+
+    The supervisor is stateful only for GPS re-acquisition hysteresis.  Metric
+    velocity and all uncertainty calculations remain owned by
+    :class:`NavigationVelocityFusionEngine`.
+    """
+
+    def __init__(
+        self,
+        engine: NavigationVelocityFusionEngine | None = None,
+        *,
+        gps_reacquire_samples: int = 3,
+    ) -> None:
+        if (
+            isinstance(gps_reacquire_samples, bool)
+            or not isinstance(gps_reacquire_samples, int)
+            or gps_reacquire_samples < 1
+        ):
+            raise ValueError("GPS reacquisition sample count must be a positive integer")
+        self.engine = engine or NavigationVelocityFusionEngine()
+        self.gps_reacquire_samples = gps_reacquire_samples
+        self._gps_was_healthy = False
+        self._consecutive_gps_samples = 0
+
+    def solve(
+        self,
+        *,
+        now_s: float,
+        gps: GpsVelocityMeasurement | None = None,
+        visual_odometry: VisualOdometryVelocityMeasurement | None = None,
+        airspeed: AirspeedMeasurement | None = None,
+        wind: WindVelocityMeasurement | None = None,
+    ) -> NavigationFusionState:
+        solution = self.engine.solve(
+            now_s=now_s,
+            gps=gps,
+            visual_odometry=visual_odometry,
+            airspeed=airspeed,
+            wind=wind,
+        )
+        gps_accepted = "gps:accepted" in solution.source_diagnostics
+        had_gps = self._gps_was_healthy
+        if gps_accepted:
+            self._consecutive_gps_samples += 1
+            self._gps_was_healthy = True
+            mode = (
+                NavigationFusionMode.GPS_REACQUIRE
+                if not had_gps and self._consecutive_gps_samples < self.gps_reacquire_samples
+                else NavigationFusionMode.GPS_FUSED
+            )
+        else:
+            self._gps_was_healthy = False
+            self._consecutive_gps_samples = 0
+            sources = set(solution.sources)
+            fallback_sources = {
+                NavigationVelocitySource.VIO.value,
+                NavigationVelocitySource.AIR_DATA.value,
+            }
+            if fallback_sources.issubset(sources):
+                mode = NavigationFusionMode.VIO_AIRDATA
+            elif gps is not None:
+                mode = NavigationFusionMode.GPS_SUSPECT
+            else:
+                mode = NavigationFusionMode.INSUFFICIENT
+        return NavigationFusionState(
+            mode=mode,
+            solution=solution,
+            consecutive_gps_samples=self._consecutive_gps_samples,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -596,10 +700,13 @@ __all__ = [
     "AirspeedMeasurement",
     "GpsVelocityMeasurement",
     "NavigationFusionConfig",
+    "NavigationFusionMode",
+    "NavigationFusionState",
     "NavigationFusionValidity",
     "NavigationVelocityFusionEngine",
     "NavigationVelocitySolution",
     "NavigationVelocitySource",
+    "MultimodalNavigationSupervisor",
     "VisualOdometryVelocityMeasurement",
     "WindVelocityMeasurement",
 ]

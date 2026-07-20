@@ -590,6 +590,34 @@ class _TimestampedRangingTelemetryProvider:
             heading_deg=20.0,
             attitude_observed_at_s=observed_at_s,
             position_observed_at_s=observed_at_s,
+            altitude_observed_at_s=observed_at_s,
+        )
+
+
+class _LocalHeightRangingTelemetryProvider:
+    """GPS-denied local-NED sample: no global position timestamp is required."""
+
+    def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+        return VehicleTelemetry(
+            altitude_agl_m=12.0,
+            roll_deg=0.0,
+            pitch_deg=0.0,
+            ground_speed_mps=0.0,
+            in_allowed_zone=None,
+            geofence_healthy=None,
+            position_healthy=True,
+            link_healthy=True,
+            flight_mode_allows_deploy=False,
+            release_zone_clear=None,
+            heading_deg=20.0,
+            attitude_observed_at_s=now_s,
+            position_observed_at_s=float("nan"),
+            altitude_observed_at_s=now_s,
+            altitude_reference="local_ned_relative",
+            local_north_m=4.0,
+            local_east_m=2.0,
+            local_down_m=-12.0,
+            local_position_observed_at_s=now_s,
         )
 
 
@@ -2187,6 +2215,33 @@ def test_live_primary_target_ranging_is_timestamped_degraded_and_read_only() -> 
     assert details["advisory_only"] is True
     assert details["flight_control_enabled"] is False
     assert details["physical_release_enabled"] is False
+
+
+def test_live_ranging_uses_local_vertical_timestamp_when_gps_position_is_absent() -> None:
+    mission = MissionController(_patrol_config())
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    _seed_locked_primary_target(target_pool)
+
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(1),
+        detector=_Detector(),
+        telemetry_provider=_LocalHeightRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=1, display=False),
+        unified_target_pool=target_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(),
+    ).run()
+
+    assert result.ranging_assessment_count == 1
+    assert result.ranging_degraded_count == 1
+    solution = next(
+        event
+        for event in mission.audit.events()
+        if event.event_type == "ranging.primary_target_solution"
+    )
+    assert solution.details["validity"] == RangeValidity.DEGRADED.value
+    assert solution.details["slant_range_m"] is not None
 
 
 def test_live_ranging_isolates_one_target_failure_from_other_target_metadata() -> None:

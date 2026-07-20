@@ -7,7 +7,9 @@ import pytest
 from multidetect.navigation_fusion import (
     AirspeedMeasurement,
     GpsVelocityMeasurement,
+    MultimodalNavigationSupervisor,
     NavigationFusionConfig,
+    NavigationFusionMode,
     NavigationFusionValidity,
     NavigationVelocityFusionEngine,
     VisualOdometryVelocityMeasurement,
@@ -185,6 +187,47 @@ def test_air_data_requires_synchronized_wind_before_ground_velocity_fusion() -> 
     assert "air_data:wind_missing" in missing_wind.source_diagnostics
     assert stale_wind.validity is NavigationFusionValidity.INVALID
     assert "air_data:wind_stale_or_from_future" in stale_wind.source_diagnostics
+
+
+def test_navigation_supervisor_falls_back_and_smoothly_reacquires_gps() -> None:
+    supervisor = MultimodalNavigationSupervisor(gps_reacquire_samples=2)
+
+    fallback = supervisor.solve(
+        now_s=10.05,
+        visual_odometry=_vio(),
+        airspeed=_airspeed(),
+        wind=_wind(),
+    )
+    first_gps = supervisor.solve(
+        now_s=11.05,
+        gps=_gps(captured_at_s=11.0),
+        visual_odometry=_vio(captured_at_s=11.0),
+        airspeed=_airspeed(captured_at_s=11.0),
+        wind=_wind(captured_at_s=11.0),
+    )
+    settled_gps = supervisor.solve(
+        now_s=11.15,
+        gps=_gps(captured_at_s=11.1),
+        visual_odometry=_vio(captured_at_s=11.1),
+        airspeed=_airspeed(captured_at_s=11.1),
+        wind=_wind(captured_at_s=11.1),
+    )
+
+    assert fallback.mode is NavigationFusionMode.VIO_AIRDATA
+    assert fallback.solution.absolute_scale_valid is True
+    assert first_gps.mode is NavigationFusionMode.GPS_REACQUIRE
+    assert first_gps.consecutive_gps_samples == 1
+    assert settled_gps.mode is NavigationFusionMode.GPS_FUSED
+    assert settled_gps.consecutive_gps_samples == 2
+
+
+def test_navigation_supervisor_marks_rejected_gps_as_suspect() -> None:
+    supervisor = MultimodalNavigationSupervisor()
+
+    state = supervisor.solve(now_s=10.05, gps=_gps(fix_type=1, satellites_visible=0))
+
+    assert state.mode is NavigationFusionMode.GPS_SUSPECT
+    assert state.solution.validity is NavigationFusionValidity.INVALID
 
 
 @pytest.mark.parametrize(

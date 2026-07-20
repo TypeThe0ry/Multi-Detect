@@ -131,6 +131,62 @@ def test_pixhawk_attitude_yaw_fills_heading_when_gps_course_is_unavailable() -> 
     assert snapshot.heading_deg == pytest.approx(math.degrees(-0.5) % 360.0)
 
 
+def test_pixhawk_local_ned_and_quaternion_keep_range_pose_available_without_gps() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider._connection = _NoMessageConnection()
+    provider.ingest_message(
+        _Message("ATTITUDE_QUATERNION", q1=1.0, q2=0.0, q3=0.0, q4=0.0),
+        received_at_s=10.0,
+    )
+    provider.ingest_message(
+        _Message("LOCAL_POSITION_NED", x=12.0, y=-4.0, z=-8.5, vx=3.0, vy=4.0),
+        received_at_s=10.02,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.10)
+
+    assert snapshot.latitude_deg != snapshot.latitude_deg  # GPS remains absent.
+    assert snapshot.altitude_agl_m == pytest.approx(8.5)
+    assert snapshot.altitude_reference == "local_ned_relative"
+    assert snapshot.altitude_observed_at_s == pytest.approx(10.02)
+    assert snapshot.local_north_m == pytest.approx(12.0)
+    assert snapshot.local_east_m == pytest.approx(-4.0)
+    assert snapshot.local_down_m == pytest.approx(-8.5)
+    assert snapshot.local_position_observed_at_s == pytest.approx(10.02)
+    assert snapshot.position_healthy is True
+    assert snapshot.heading_deg == pytest.approx(0.0)
+    assert snapshot.ground_speed_mps == pytest.approx(5.0)
+    assert snapshot.velocity_north_mps == pytest.approx(3.0)
+    assert snapshot.velocity_east_mps == pytest.approx(4.0)
+
+
+def test_pixhawk_altitude_relative_supplies_vertical_timestamp_without_global_position() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider.ingest_message(
+        _Message("ALTITUDE", altitude_relative=21.25), received_at_s=10.0
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.1)
+
+    assert snapshot.altitude_agl_m == pytest.approx(21.25)
+    assert snapshot.altitude_reference == "home_relative"
+    assert snapshot.altitude_observed_at_s == pytest.approx(10.0)
+    assert snapshot.position_healthy is None
+
+
+def test_pixhawk_rejects_odometry_in_a_non_navigation_frame() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
+    provider.ingest_message(
+        _Message("ODOMETRY", frame_id=12, x=1.0, y=2.0, z=-3.0, vx=4.0, vy=5.0),
+        received_at_s=10.0,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.1)
+
+    assert math.isnan(snapshot.altitude_agl_m)
+    assert snapshot.position_healthy is None
+
+
 def test_pixhawk_provider_caches_all_valid_rc_channels_for_override_detection() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(
         PixhawkReadOnlyConfig("udp:127.0.0.1:14550", expected_system_id=1)

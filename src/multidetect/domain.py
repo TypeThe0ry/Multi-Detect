@@ -173,6 +173,16 @@ class VehicleTelemetry:
     velocity_observed_at_s: float = nan
     airspeed_observed_at_s: float = nan
     wind_observed_at_s: float = nan
+    # The vertical sample is deliberately timestamped separately from horizontal
+    # position.  PX4 can keep local/relative altitude healthy indoors while a
+    # global GPS position is absent; camera ground-ray ranging only needs the
+    # former, plus a synchronized attitude sample.
+    altitude_observed_at_s: float = nan
+    altitude_reference: str | None = None
+    local_north_m: float = nan
+    local_east_m: float = nan
+    local_down_m: float = nan
+    local_position_observed_at_s: float = nan
 
 
 @dataclass(frozen=True, slots=True)
