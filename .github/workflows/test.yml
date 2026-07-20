@@ -1,8 +1,13 @@
-name: tests
+name: manual validation
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_wheel:
+        description: Build a Python wheel after validation
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,4 +38,5 @@ jobs:
       - run: python -m pytest
       - run: python -m ruff check .
       - run: python -m ruff format --check .
-      - run: python -m pip wheel . --no-deps --wheel-dir dist
+      - if: ${{ inputs.build_wheel }}
+        run: python -m pip wheel . --no-deps --wheel-dir dist

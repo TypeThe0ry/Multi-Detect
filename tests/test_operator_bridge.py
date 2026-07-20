@@ -257,6 +257,39 @@ def test_bridge_throttles_fast_target_pool_revisions_to_stable_ui_cadence() -> N
     assert {status.pool_revision for status in latest.published_target_pool_statuses} == {3}
 
 
+def test_bridge_can_publish_target_pool_at_twenty_five_hz_for_ground_overlay() -> None:
+    transport = _PeerAwareTransport()
+    bridge = _bridge(transport)
+    bridge.target_pool_status_heartbeat_s = 1.0 / 25.0
+    bridge.start()
+
+    results = []
+    for index, produced_at_s in enumerate((100.00, 100.02, 100.041, 100.06, 100.082), start=1):
+        results.append(
+            bridge.process_frame(
+                tracks=(),
+                frame_id=f"frame-{index}",
+                captured_at_s=produced_at_s,
+                produced_at_s=produced_at_s,
+                target_pool_statuses=_target_pool_statuses(
+                    revision=index,
+                    produced_at_s=produced_at_s,
+                ),
+            )
+        )
+    bridge.close()
+
+    assert [len(result.published_target_pool_statuses) for result in results] == [2, 0, 2, 0, 2]
+    assert [status.pool_revision for status, _peer in transport.target_pool_statuses] == [
+        1,
+        1,
+        3,
+        3,
+        5,
+        5,
+    ]
+
+
 def _mission_status() -> MissionStatusMessage:
     return MissionStatusMessage(
         status_id="33333333-3333-4333-8333-333333333333",
