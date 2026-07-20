@@ -456,6 +456,7 @@ def _telemetry(observed_at_s: float) -> VehicleTelemetry:
         geofence_healthy=True,
         position_healthy=True,
         link_healthy=True,
+        armed=True,
         flight_mode_allows_deploy=False,
         release_zone_clear=False,
         airspeed_mps=17.0,

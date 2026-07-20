@@ -845,8 +845,9 @@ class LiveMissionRunner:
         self._lifecycle_waiting_fingerprint: tuple[object, ...] | None = None
         self._ranging_solution_fingerprints: dict[str, tuple[object, ...]] = {}
         # Detector-stride and short occlusion frames must not make QGC alternate
-        # between a metric value and ``--``. Keep only a very short per-track
-        # display holdover; a new valid estimate replaces it immediately.
+        # between a metric value and ``--``.  The QGC overlay holds the matching
+        # value for 1.5 s, so retain the same bounded interval here. A new valid
+        # estimate always replaces this cache immediately.
         self._target_metric_cache: dict[str, tuple[float, float | None, float]] = {}
         self._metric_depth_last_result_frame_id: str | None = None
         self._metric_depth_last_failure_count = 0
@@ -2151,6 +2152,9 @@ class LiveMissionRunner:
                                     captured=captured,
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
+                                    exclusive_lock=(
+                                        track.track_id == exclusive_lock_track_id
+                                    ),
                                 )
                                 ranging_fingerprint = (
                                     track_solution.validity.value,
@@ -2225,7 +2229,7 @@ class LiveMissionRunner:
                             if cached is None:
                                 continue
                             cached_range_m, cached_speed_mps, cached_at_s = cached
-                            if frame_event_at_s - cached_at_s > 0.75:
+                            if frame_event_at_s - cached_at_s > 1.5:
                                 continue
                             target_estimated_ranges.setdefault(track_id, cached_range_m)
                             if cached_speed_mps is not None:
@@ -2233,7 +2237,7 @@ class LiveMissionRunner:
                         self._target_metric_cache = {
                             track_id: cached
                             for track_id, cached in self._target_metric_cache.items()
-                            if track_id in active_track_ids and frame_event_at_s - cached[2] <= 0.75
+                            if track_id in active_track_ids and frame_event_at_s - cached[2] <= 1.5
                         }
                         if latest_ranging_solution is not None:
                             ranging_assessments += 1
@@ -4046,6 +4050,7 @@ class LiveMissionRunner:
         track: UnifiedTrackSnapshot,
         telemetry: VehicleTelemetry,
         now_s: float,
+        exclusive_lock: bool = False,
     ) -> RangeSolution:
         engine = self.ranging_engine
         config = self.ranging_config
@@ -4056,7 +4061,26 @@ class LiveMissionRunner:
             and track.missed_frame_count <= 3
             and track.tracking_quality >= 0.20
         )
-        if not track.actionable and not predicted_track_usable:
+        # An exclusive LCK keeps a dedicated tracker and dense-depth worker on
+        # this object. Permit its bounded prediction window to bridge detector
+        # stride, temporary blur and the EKF transition that follows ARM. The
+        # async depth result itself still has its own one-second freshness gate.
+        exclusive_metric_hold_usable = (
+            exclusive_lock
+            and track.state
+            in {
+                UnifiedTrackState.TRACKING,
+                UnifiedTrackState.OCCLUDED,
+                UnifiedTrackState.REACQUIRING,
+            }
+            and track.missed_frame_count <= 24
+            and track.tracking_quality >= 0.10
+        )
+        if (
+            not track.actionable
+            and not predicted_track_usable
+            and not exclusive_metric_hold_usable
+        ):
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,

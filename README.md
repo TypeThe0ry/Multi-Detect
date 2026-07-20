@@ -1167,3 +1167,26 @@ python -m ruff check .
 更多设计依据见 [架构说明](docs/architecture.md) 与 [MVP 安全边界](docs/safety-case.md)。
 
 Jetson目标机的无特权systemd模板、受限环境文件和部署前检查见 [Jetson部署模板](deploy/jetson/README.md)；接入所需模型、RTSP、Jetson、Pixhawk、数传和载荷控制器资料见 [集成输入清单](docs/integration-input-checklist.md)。
+
+## 2026-07-20 深度图、ARM 执行门控与链路恢复快照
+
+本轮完成了目标稠密深度链路和 ARM/LCK 状态机修复：
+
+- Jetson 使用 `Depth Anything V2 Metric Indoor Small` 生成目标距离和 `160×90` 深度网格；当前 6.8 m 临时锚点将约 8.0 m 原始输出按 `0.85` 比例校正。该锚点仅供当前室内配置使用，后续仍需用 2/4/6.8/10/15 m 多点数据拟合室内、室外分段标定曲线。
+- 深度网格由 Jetson 固定源端口 `14583` 发往 Windows `14582`，采用 HMAC、分片、zlib 和 CRC；QGC 每秒向 `14583` 发送 keepalive，以维持 Windows 状态防火墙的双向 UDP 状态。
+- QGC 新增 `DEPTH` 画中画、全屏热图、色标和点击测距；目标框继续显示距离、方向和世界坐标速度。
+- 火焰/烟雾测距优先采样框底部和相邻承载面，降低烟雾中心像素造成的漂移。
+- 目标距离与速度增加 1.5 s 有界保持窗，吸收 ARM 时 EKF 高度基准切换和单帧缺值；超过保持窗后字段回到未知状态。
+- Mode 3 执行挑战现在只在 Pixhawk 已 ARM、当前目标为 Jetson 确认的唯一 LCK 时签发；DISARM/ARM 边沿会创建新的执行 epoch，旧挑战和旧确认不会跨 epoch 延用。
+- QGC 的模式 2/3 执行按钮与桌面确认、触控滑动均绑定 `vehicleArmed && LCK`；DISARM 时保持 LCK 视觉目标，但结束执行状态。
+- Jetson 服务重启或元数据链路短断后，QGC 会用最后一个目标框自动重建 `SELECT_TRK`，原状态为 LCK 时再等待稳定目标并恢复 `PROMOTE_LCK`，避免只剩本地红框而 Jetson 没有选择绑定。
+
+当前部署与构建证据：
+
+- Jetson：`multidetect-live.service`，2026-07-20 16:35:52 CST 启动，部署后 `MainPID=17236`、`NRestarts=0`。
+- Jetson ARM/LCK 部署证据：`/home/jetson/Multi-Detect/artifacts/deployment/arm-exec-range-20260720T163539`。
+- QGC 独立目录：`C:\Users\TT\Documents\GitHub\QGroundControl-MultiDetect\build-multidetect-release\staging-arm-exec-range-20260720T163441\bin\MultiDetectGCS.exe`。
+- QGC EXE SHA-256：`DA20E53C7CAB9F88AA1250B862D7905DFD31C1323695D4301A4E91B9BE7E5BAD`。
+- `MODE3_AIM_CONTROL_ENABLED=0` 继续保持；本轮验证的是执行确认状态机、提示/音效与元数据链路，不包含舵面输出。
+
+现场验收顺序：关闭旧的 `staging-metric-depth-*` QGC，启动上述新 EXE；选择模式 3，TRK 后升为 LCK；DISARM 时执行按钮应为灰色；ARM 后 Jetson 应生成新挑战并允许确认；距离在 ARM 边沿保持，LCK 深度稳定后按新数据刷新。DEBUG 3D 点云和姿态配准局部地图仍作为下一阶段工作。

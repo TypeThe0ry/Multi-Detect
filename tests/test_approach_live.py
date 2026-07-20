@@ -97,6 +97,7 @@ def _telemetry(**changes) -> VehicleTelemetry:
         geofence_healthy=True,
         position_healthy=True,
         link_healthy=True,
+        armed=True,
         flight_mode_allows_deploy=False,
         release_zone_clear=False,
         airspeed_mps=17.0,
@@ -173,6 +174,35 @@ def test_live_coordinator_issues_challenge_on_immediate_locked_pool_state() -> N
     assert frame.challenge is not None
     assert frame.challenge.selection_command_id == SELECTION_ID
     assert frame.assessment.phase is ApproachHilPhase.SLIDE_CONFIRM_REQUIRED
+
+
+def test_live_coordinator_requires_fresh_arm_epoch_before_execution_challenge() -> None:
+    coordinator = LiveApproachHilCoordinator(
+        controller=ApproachHilController(), calibration=_calibration()
+    )
+
+    disarmed = _prepare(coordinator, telemetry=_telemetry(armed=False))
+    assert disarmed.challenge is None
+    assert disarmed.assessment.phase is ApproachHilPhase.TARGET_LOCKED
+    assert disarmed.assessment.reasons == ("required_telemetry_unavailable",)
+
+    armed = _prepare(
+        coordinator,
+        telemetry=_telemetry(armed=True),
+        now_s=10.10,
+        wire_now_s=1000.10,
+    )
+    assert armed.challenge is not None
+    assert armed.assessment.phase is ApproachHilPhase.SLIDE_CONFIRM_REQUIRED
+
+    returned_disarmed = _prepare(
+        coordinator,
+        telemetry=_telemetry(armed=False),
+        now_s=10.20,
+        wire_now_s=1000.20,
+    )
+    assert returned_disarmed.challenge is None
+    assert returned_disarmed.assessment.reasons == ("required_telemetry_unavailable",)
 
 
 def test_live_coordinator_executes_detector_backed_non_manual_target() -> None:

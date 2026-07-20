@@ -56,6 +56,7 @@ class LiveApproachHilCoordinator:
         self._challenge_sequence = 0
         self._status_sequence = 0
         self._pilot_input_cancelled = False
+        self._vehicle_armed: bool | None = None
 
     @property
     def active_binding(self) -> tuple[str, str, int] | None:
@@ -65,6 +66,7 @@ class LiveApproachHilCoordinator:
         self.controller.clear_target()
         self._binding = None
         self._pilot_input_cancelled = False
+        self._vehicle_armed = None
 
     def cancel_execution(self, *, now_s: float, pilot_input_cancelled: bool) -> None:
         self._require_time(now_s, "Mode-3 cancellation time")
@@ -122,7 +124,15 @@ class LiveApproachHilCoordinator:
             locked=track.locked,
             primary=track.primary,
         )
-        if binding != self._binding:
+        vehicle_armed = telemetry.armed is True
+        armed_state_changed = self._vehicle_armed is not None and (
+            vehicle_armed != self._vehicle_armed
+        )
+        if binding != self._binding or armed_state_changed:
+            # A disarm/arm edge starts a new execution epoch.  Re-selecting the
+            # same visual target invalidates any challenge or accepted
+            # confirmation from the previous epoch while retaining the LCK
+            # identity and its continuously updated ranging evidence.
             self.controller.select_target(evidence, now_s=now_s)
             self._binding = binding
             self._pilot_input_cancelled = False
@@ -140,6 +150,22 @@ class LiveApproachHilCoordinator:
             # latched because it is not a recoverable tracking abort.
             self.controller.select_target(evidence, now_s=now_s)
             self._pilot_input_cancelled = False
+        self._vehicle_armed = vehicle_armed
+
+        if not vehicle_armed:
+            assessment = ApproachHilAssessment(
+                phase=ApproachHilPhase.TARGET_LOCKED,
+                target_id=track.track_id,
+                target_revision=revision,
+                evaluated_at_s=now_s,
+                reasons=("required_telemetry_unavailable",),
+            )
+            return self._frame(
+                assessment,
+                selection_command_id=selection_command_id,
+                now_s=now_s,
+                wire_now_s=wire_now_s,
+            )
 
         challenge = self.controller.challenge
         if (
