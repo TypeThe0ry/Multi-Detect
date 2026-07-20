@@ -30,6 +30,7 @@ from .appearance_reid import (
 )
 from .approach_hil import ApproachHilController
 from .approach_live import LiveApproachHilCoordinator
+from .attitude_camera_motion import AttitudeCameraMotionEstimator
 from .audit import AuditLog
 from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
@@ -5021,6 +5022,11 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.short_term_tracking
         else None
     )
+    attitude_camera_motion = (
+        AttitudeCameraMotionEstimator(ranging_config.calibration)
+        if short_term_tracker is not None and ranging_config is not None
+        else None
+    )
     selection_target_pool = (
         UnifiedSelectionTargetPool(unified_target_pool)
         if unified_target_pool is not None and operator_bridge is not None
@@ -5153,6 +5159,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         aircraft_appearance_encoder=aircraft_appearance_encoder,
         patrol_advisory_engine=patrol_advisory_engine,
         short_term_tracker=short_term_tracker,
+        attitude_camera_motion=attitude_camera_motion,
         selection_target_pool=selection_target_pool,
         ranging_engine=ranging_engine,
         ranging_config=ranging_config,

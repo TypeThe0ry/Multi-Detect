@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from .domain import BoundingBox
 from .unified_tracking import (
     CameraMotionEstimate,
     TargetMotionHint,
@@ -216,12 +217,15 @@ class OpenCVShortTermTargetTracker:
         camera_motion: CameraMotionEstimate | None = None,
         prefer_background_motion: bool = False,
         exclusive_track_id: str | None = None,
+        background_exclusion_boxes: tuple[BoundingBox, ...] = (),
     ) -> ShortTermTrackingResult:
         started = time.perf_counter()
         if exclusive_track_id is not None and not exclusive_track_id.strip():
             raise ValueError("exclusive short-term track ID cannot be empty")
         if not isinstance(prefer_background_motion, bool):
             raise ValueError("prefer_background_motion must be boolean")
+        if any(not isinstance(box, BoundingBox) for box in background_exclusion_boxes):
+            raise ValueError("background exclusion boxes must be BoundingBox values")
         cv2, np = self._require_dependencies()
         if not hasattr(image_bgr, "shape") or len(image_bgr.shape) < 2:
             raise ValueError("short-term tracking requires an image array")
@@ -301,6 +305,7 @@ class OpenCVShortTermTargetTracker:
                 previous_gray,
                 gray,
                 previous_tracks,
+                background_exclusion_boxes,
             )
             if background_camera_motion is not None:
                 effective_camera_motion = background_camera_motion
@@ -394,6 +399,7 @@ class OpenCVShortTermTargetTracker:
         previous_gray: Any,
         gray: Any,
         tracks: tuple[UnifiedTrackSnapshot, ...],
+        exclusion_boxes: tuple[BoundingBox, ...],
     ) -> tuple[CameraMotionEstimate | None, int, str | None]:
         """Estimate global image motion while excluding every known target region."""
 
@@ -401,8 +407,8 @@ class OpenCVShortTermTargetTracker:
         mask = np.full((height, width), 255, dtype=np.uint8)
         margin_x = round(width * self.config.camera_motion_exclusion_margin)
         margin_y = round(height * self.config.camera_motion_exclusion_margin)
-        for track in tracks:
-            x1, y1, x2, y2 = self._pixel_box(track.bbox, width, height)
+        for box in (*tuple(track.bbox for track in tracks), *exclusion_boxes):
+            x1, y1, x2, y2 = self._pixel_box(box, width, height)
             mask[
                 max(0, y1 - margin_y) : min(height, y2 + margin_y),
                 max(0, x1 - margin_x) : min(width, x2 + margin_x),

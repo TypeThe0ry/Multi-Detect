@@ -12,6 +12,7 @@ from .alerts import AlertPublisher, RecordingAlertPublisher, SqliteAlertOutbox
 from .appearance_reid import OnnxPersonReIdEncoder
 from .approach_hil import ApproachHilPhase
 from .approach_live import LiveApproachHilCoordinator, LiveApproachHilFrame
+from .attitude_camera_motion import AttitudeCameraMotionEstimator
 from .deployment_planner import PrimaryRangeEvidence
 from .domain import (
     BoundingBox,
@@ -708,6 +709,7 @@ class LiveMissionRunner:
         aircraft_appearance_encoder: HandcraftedAircraftAppearanceEncoder | None = None,
         patrol_advisory_engine: PatrolAdvisoryEngine | None = None,
         short_term_tracker: OpenCVShortTermTargetTracker | None = None,
+        attitude_camera_motion: AttitudeCameraMotionEstimator | None = None,
         selection_target_pool: UnifiedSelectionTargetPool | None = None,
         ranging_engine: MultiModalRangingEngine | None = None,
         ranging_config: LiveRangingConfig | None = None,
@@ -739,6 +741,10 @@ class LiveMissionRunner:
             raise ValueError("patrol advisory requires the unified target pool")
         if short_term_tracker is not None and unified_target_pool is None:
             raise ValueError("short-term tracking requires the unified target pool")
+        if attitude_camera_motion is not None and (
+            short_term_tracker is None or ranging_config is None
+        ):
+            raise ValueError("attitude camera motion requires short-term tracking and calibration")
         if selection_target_pool is not None and unified_target_pool is None:
             raise ValueError("selection target-pool integration requires the unified target pool")
         if selection_target_pool is not None and operator_bridge is None:
@@ -799,6 +805,7 @@ class LiveMissionRunner:
         self.aircraft_appearance_encoder = aircraft_appearance_encoder
         self.patrol_advisory_engine = patrol_advisory_engine
         self.short_term_tracker = short_term_tracker
+        self.attitude_camera_motion = attitude_camera_motion
         self.selection_target_pool = selection_target_pool
         self.ranging_engine = ranging_engine
         self.ranging_config = ranging_config
@@ -905,6 +912,7 @@ class LiveMissionRunner:
         short_term_tracking_rejected_hints = 0
         short_term_tracking_camera_motion_estimates = 0
         short_term_tracking_camera_motion_reported = False
+        attitude_camera_motion_reported = False
         selection_target_pool_syncs = 0
         selection_target_pool_bindings = 0
         selection_target_pool_pending = 0
@@ -1330,7 +1338,43 @@ class LiveMissionRunner:
                                 "physical_release_enabled": False,
                             },
                         )
+                frame_motion_at_s = time.monotonic()
+                telemetry = self.telemetry_provider.snapshot(now_s=frame_motion_at_s)
                 unified_camera_motion = None
+                if self.attitude_camera_motion is not None:
+                    try:
+                        unified_camera_motion = self.attitude_camera_motion.update(
+                            telemetry,
+                            captured_at_s=captured.captured_at_s,
+                        )
+                    except ValueError as exc:
+                        self.mission.audit.append(
+                            "tracking.attitude_camera_motion_rejected",
+                            max(captured.captured_at_s, frame_motion_at_s),
+                            {
+                                "frame_id": captured.frame_id,
+                                "error_type": type(exc).__name__,
+                                "metadata_only": True,
+                                "flight_control_enabled": False,
+                            },
+                        )
+                    if unified_camera_motion is not None and not attitude_camera_motion_reported:
+                        self.mission.audit.append(
+                            "tracking.attitude_camera_motion_ready",
+                            max(captured.captured_at_s, frame_motion_at_s),
+                            {
+                                "frame_id": captured.frame_id,
+                                "dx": unified_camera_motion.dx,
+                                "dy": unified_camera_motion.dy,
+                                "scale": unified_camera_motion.scale,
+                                "rotation_deg": unified_camera_motion.rotation_deg,
+                                "confidence": unified_camera_motion.confidence,
+                                "source": "pixhawk_attitude_calibrated_camera",
+                                "metadata_only": True,
+                                "flight_control_enabled": False,
+                            },
+                        )
+                        attitude_camera_motion_reported = True
                 if self.monocular_avoidance is not None:
                     avoidance_started_s = time.perf_counter()
                     avoidance_error_type = None
@@ -1395,7 +1439,9 @@ class LiveMissionRunner:
                         latest_monocular_avoidance.camera_motion_scale,
                         latest_monocular_avoidance.camera_motion_confidence,
                     )
-                    if all(value is not None for value in camera_motion_values):
+                    if unified_camera_motion is None and all(
+                        value is not None for value in camera_motion_values
+                    ):
                         unified_camera_motion = CameraMotionEstimate(
                             dx=float(camera_motion_values[0]),
                             dy=float(camera_motion_values[1]),
@@ -1456,6 +1502,9 @@ class LiveMissionRunner:
                             # camera transform when it is available.  Monocular
                             # motion remains a bounded fallback for blank scenes.
                             "prefer_background_motion": True,
+                            "background_exclusion_boxes": tuple(
+                                detection.bbox for detection in detections
+                            ),
                         }
                         if exclusive_lock_track_id is not None:
                             short_term_arguments["exclusive_track_id"] = exclusive_lock_track_id
@@ -1913,7 +1962,6 @@ class LiveMissionRunner:
                     else:
                         identity_tracking_log_frames += 1
                 frame_event_at_s = time.monotonic()
-                telemetry = self.telemetry_provider.snapshot(now_s=frame_event_at_s)
                 telemetry = with_person_detector_health(
                     telemetry,
                     healthy=(
