@@ -15,7 +15,7 @@ from .domain import (
     RuleCheck,
     Verdict,
 )
-from .multimodal_ranging import RangeValidity
+from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .patrol_advisory import AdvisoryValidity, PatrolPhase, ReturnObserveDirection
 from .payload_target_gate import PayloadTargetEligibility
 from .unified_tracking import UnifiedTrackState
@@ -56,6 +56,7 @@ RANGING_SOURCE_IDS = (
     "vio",
     "monocular_size",
     "monocular_metric",
+    "rgb_slam",
 )
 
 RANGING_REASON_IDS = (
@@ -1044,6 +1045,11 @@ class RangeStatusMessage:
     east_offset_m: float | None = None
     data_freshness_s: float | None = None
     sensor_consistency: float = 0.0
+    source_contributions: tuple[RangeSourceContribution, ...] = ()
+    fusion_profile: str = "outdoor-multimodal-v1"
+    vehicle_profile: str = "auto"
+    navigation_state: str = "unknown"
+    motion_regime: str = "unknown"
     advisory_only: bool = True
     flight_control_enabled: bool = False
     physical_release_enabled: bool = False
@@ -1125,6 +1131,32 @@ class RangeStatusMessage:
             raise ValueError("invalid ranging status cannot publish distance")
         if not isfinite(self.sensor_consistency) or not 0.0 <= self.sensor_consistency <= 1.0:
             raise ValueError("sensor_consistency must be in [0, 1]")
+        if len(self.source_contributions) > 3 or any(
+            not isinstance(contribution, RangeSourceContribution)
+            or contribution.source not in RANGING_SOURCE_IDS
+            for contribution in self.source_contributions
+        ):
+            raise ValueError("ranging source contributions must contain at most three wire sources")
+        if len({contribution.source for contribution in self.source_contributions}) != len(
+            self.source_contributions
+        ):
+            raise ValueError("ranging source contributions cannot contain duplicate sources")
+        if sum(contribution.weight for contribution in self.source_contributions) > 1.001:
+            raise ValueError("ranging source contribution weights cannot exceed one")
+        if self.vehicle_profile not in {"auto", "fixed-wing", "multirotor"}:
+            raise ValueError("ranging vehicle profile is invalid")
+        if self.navigation_state not in {
+            "unknown",
+            "vision-only",
+            "gps-aided",
+            "local-ned",
+            "airspeed-dr",
+        }:
+            raise ValueError("ranging navigation state is invalid")
+        if self.motion_regime not in {"unknown", "static", "low-speed", "cruise", "high-speed"}:
+            raise ValueError("ranging motion regime is invalid")
+        if not self.fusion_profile.strip():
+            raise ValueError("ranging fusion profile cannot be empty")
         if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
             raise ValueError("ranging status transport must remain display-only")
 

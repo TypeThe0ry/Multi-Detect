@@ -26,6 +26,7 @@ class DepthGridFragment:
     fragment_count: int
     minimum_depth_mm: int
     maximum_depth_mm: int
+    logarithmic_encoding: bool
     uncompressed_size: int
     compressed_size: int
     raw_crc32: int
@@ -84,7 +85,7 @@ class DepthGridDatagramCodec:
             header = DEPTH_GRID_HEADER.pack(
                 DEPTH_GRID_MAGIC,
                 DEPTH_GRID_VERSION,
-                0,
+                int(grid.encoding == "logarithmic"),
                 DEPTH_GRID_HEADER.size,
                 sequence & 0xFFFFFFFF,
                 emitted_at_ms & 0xFFFFFFFFFFFFFFFF,
@@ -121,7 +122,7 @@ class DepthGridDatagramCodec:
         (
             magic,
             version,
-            _flags,
+            flags,
             header_size,
             sequence,
             sent_at_ms,
@@ -138,6 +139,8 @@ class DepthGridDatagramCodec:
         ) = fields
         if magic != DEPTH_GRID_MAGIC or version != DEPTH_GRID_VERSION:
             raise ValueError("unsupported depth-grid protocol")
+        if flags & ~0x01:
+            raise ValueError("unsupported depth-grid encoding flags")
         if header_size != DEPTH_GRID_HEADER.size:
             raise ValueError("invalid depth-grid header size")
         payload = authenticated[header_size:]
@@ -158,6 +161,7 @@ class DepthGridDatagramCodec:
             fragment_count=fragment_count,
             minimum_depth_mm=minimum_depth_mm,
             maximum_depth_mm=maximum_depth_mm,
+            logarithmic_encoding=bool(flags & 0x01),
             uncompressed_size=uncompressed_size,
             compressed_size=compressed_size,
             raw_crc32=raw_crc32,

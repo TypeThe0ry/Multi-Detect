@@ -23,9 +23,28 @@ class VisualInertialRangeConfig:
     minimum_span_seconds: float = 0.35
     minimum_baseline_m: float = 0.20
     minimum_ray_separation_deg: float = 0.15
-    maximum_range_m: float = 5_000.0
+    minimum_range_m: float = 0.4
+    maximum_range_m: float = 800.0
     maximum_position_age_s: float = 0.60
     minimum_motion_speed_mps: float = 2.0
+
+    def __post_init__(self) -> None:
+        numeric = (
+            self.window_seconds,
+            self.minimum_span_seconds,
+            self.minimum_baseline_m,
+            self.minimum_ray_separation_deg,
+            self.minimum_range_m,
+            self.maximum_range_m,
+            self.maximum_position_age_s,
+            self.minimum_motion_speed_mps,
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in numeric):
+            raise ValueError("visual-inertial ranging limits must be finite and positive")
+        if self.minimum_samples < 3:
+            raise ValueError("visual-inertial ranging requires at least three samples")
+        if self.minimum_range_m >= self.maximum_range_m:
+            raise ValueError("visual-inertial ranging limits are reversed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +285,7 @@ class VisualInertialRangeEstimator:
         if track.label in self._DYNAMIC_LABELS:
             sigma_m *= 1.75
         sigma_m = max(1.0, sigma_m, range_m * 0.10)
-        if not 1.0 <= range_m <= self.config.maximum_range_m:
+        if not self.config.minimum_range_m <= range_m <= self.config.maximum_range_m:
             return None
         return DirectRangeMeasurement(
             source=DirectRangeSource.VIO,
@@ -298,7 +317,11 @@ class VisualInertialRangeEstimator:
         slant_range_m = axial_range_m * math.sqrt(
             1.0 + normalized_x * normalized_x + normalized_y * normalized_y
         )
-        if not 1.0 <= slant_range_m <= min(500.0, self.config.maximum_range_m):
+        if not (
+            self.config.minimum_range_m
+            <= slant_range_m
+            <= self.config.maximum_range_m
+        ):
             return None
         return DirectRangeMeasurement(
             source=DirectRangeSource.MONOCULAR_SIZE,
@@ -358,7 +381,7 @@ class VisualInertialRangeEstimator:
         if closing_speed_mps < self.config.minimum_motion_speed_mps:
             return None
         range_m = closing_speed_mps / growth_rate
-        if not 1.0 <= range_m <= self.config.maximum_range_m:
+        if not self.config.minimum_range_m <= range_m <= self.config.maximum_range_m:
             return None
         relative_error = min(0.80, max(0.20, fit_rms / max(growth_rate * elapsed_s, 1e-3)))
         return _Candidate(range_m, max(1.5, range_m * relative_error), "looming")

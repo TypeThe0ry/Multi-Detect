@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
 
+from .adaptive_ranging import AdaptiveRangingPolicy
 from .aircraft_appearance import HandcraftedAircraftAppearanceEncoder
 from .alerts import AlertPublisher, RecordingAlertPublisher, SqliteAlertOutbox
 from .appearance_reid import OnnxPersonReIdEncoder
@@ -84,6 +85,7 @@ from .rgb_fire_corroboration import (
     IndependentRgbFireCorroborationConfig,
     IndependentRgbFireCorroborator,
 )
+from .rgb_slam_range import RgbSlamRangeConfig, RgbSlamRangeEstimator
 from .selection_target_pool import UnifiedSelectionTargetPool
 from .semantic_environment import (
     AsyncSemanticContextRunner,
@@ -111,7 +113,7 @@ from .unified_tracking import (
 )
 from .vehicle_reid import OnnxVehicleReIdEncoder
 from .vision import CapturedFrame, DetectorEnsemble, FrameSource, VisionDependencyError
-from .visual_inertial_range import VisualInertialRangeEstimator
+from .visual_inertial_range import VisualInertialRangeConfig, VisualInertialRangeEstimator
 
 _PERSON_LOCK_MODEL_LABELS = frozenset(
     {"person", "pedestrian", "people", "person_sitting", "firefighter"}
@@ -717,6 +719,8 @@ class LiveMissionRunner:
         selection_target_pool: UnifiedSelectionTargetPool | None = None,
         ranging_engine: MultiModalRangingEngine | None = None,
         ranging_config: LiveRangingConfig | None = None,
+        adaptive_ranging_policy: AdaptiveRangingPolicy | None = None,
+        rgb_slam_ranging: RgbSlamRangeEstimator | None = None,
         metric_depth_runner: AsyncMetricDepthRunner | None = None,
         depth_grid_publisher: DepthGridUdpPublisher | None = None,
         approach_hil_coordinator: LiveApproachHilCoordinator | None = None,
@@ -764,6 +768,10 @@ class LiveMissionRunner:
             raise ValueError("live ranging engine and configuration must be supplied together")
         if ranging_engine is not None and unified_target_pool is None:
             raise ValueError("live ranging requires the unified target pool")
+        if adaptive_ranging_policy is not None and ranging_engine is None:
+            raise ValueError("adaptive ranging policy requires live ranging")
+        if rgb_slam_ranging is not None and ranging_engine is None:
+            raise ValueError("RGB-SLAM ranging requires live ranging")
         if metric_depth_runner is not None and any(
             value is None for value in (ranging_engine, ranging_config, selection_target_pool)
         ):
@@ -821,10 +829,30 @@ class LiveMissionRunner:
         self.selection_target_pool = selection_target_pool
         self.ranging_engine = ranging_engine
         self.ranging_config = ranging_config
+        self.adaptive_ranging_policy = adaptive_ranging_policy or (
+            AdaptiveRangingPolicy() if ranging_engine is not None else None
+        )
         self.metric_depth_runner = metric_depth_runner
         self.depth_grid_publisher = depth_grid_publisher
         self.visual_inertial_ranging = (
-            VisualInertialRangeEstimator() if ranging_engine is not None else None
+            VisualInertialRangeEstimator(
+                VisualInertialRangeConfig(
+                    minimum_range_m=ranging_engine.config.minimum_slant_range_m,
+                    maximum_range_m=ranging_engine.config.maximum_slant_range_m,
+                )
+            )
+            if ranging_engine is not None
+            else None
+        )
+        self.rgb_slam_ranging = rgb_slam_ranging or (
+            RgbSlamRangeEstimator(
+                RgbSlamRangeConfig(
+                    minimum_range_m=ranging_engine.config.minimum_slant_range_m,
+                    maximum_range_m=ranging_engine.config.maximum_slant_range_m,
+                )
+            )
+            if ranging_engine is not None
+            else None
         )
         self.approach_hil_coordinator = approach_hil_coordinator
         self.fixed_wing_aim_executor = fixed_wing_aim_executor
@@ -2152,6 +2180,7 @@ class LiveMissionRunner:
                                     captured=captured,
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
+                                    camera_motion=unified_camera_motion,
                                     exclusive_lock=(
                                         track.track_id == exclusive_lock_track_id
                                     ),
@@ -2182,6 +2211,22 @@ class LiveMissionRunner:
                                             "rejected_sources": track_solution.rejected_sources,
                                             "slant_range_m": track_solution.slant_range_m,
                                             "ground_range_m": track_solution.ground_range_m,
+                                            "source_contributions": [
+                                                {
+                                                    "source": contribution.source,
+                                                    "range_m": contribution.range_m,
+                                                    "sigma_m": contribution.sigma_m,
+                                                    "weight": contribution.weight,
+                                                    "freshness_s": contribution.freshness_s,
+                                                }
+                                                for contribution in (
+                                                    track_solution.source_contributions
+                                                )
+                                            ],
+                                            "fusion_profile": track_solution.fusion_profile,
+                                            "vehicle_profile": track_solution.vehicle_profile,
+                                            "navigation_state": track_solution.navigation_state,
+                                            "motion_regime": track_solution.motion_regime,
                                             "advisory_only": True,
                                         },
                                     )
@@ -4050,6 +4095,7 @@ class LiveMissionRunner:
         track: UnifiedTrackSnapshot,
         telemetry: VehicleTelemetry,
         now_s: float,
+        camera_motion: CameraMotionEstimate | None = None,
         exclusive_lock: bool = False,
     ) -> RangeSolution:
         engine = self.ranging_engine
@@ -4117,6 +4163,24 @@ class LiveMissionRunner:
             center_y=center_y,
             center_sigma_px=config.target_center_sigma_px,
         )
+        adaptive_decision = (
+            self.adaptive_ranging_policy.decide(telemetry, now_s=now_s)
+            if self.adaptive_ranging_policy is not None
+            else None
+        )
+        source_weight_multipliers = (
+            adaptive_decision.source_weight_priors if adaptive_decision is not None else None
+        )
+        fusion_metadata = (
+            {
+                "fusion_profile": "outdoor-multimodal-v1",
+                "vehicle_profile": adaptive_decision.vehicle_profile.value,
+                "navigation_state": adaptive_decision.navigation_state.value,
+                "motion_regime": adaptive_decision.motion_regime.value,
+            }
+            if adaptive_decision is not None
+            else {}
+        )
         visual_direct = (
             self.visual_inertial_ranging.observe(
                 track=track,
@@ -4126,6 +4190,18 @@ class LiveMissionRunner:
                 captured_at_s=captured.captured_at_s,
             )
             if self.visual_inertial_ranging is not None
+            else None
+        )
+        rgb_slam_direct = (
+            self.rgb_slam_ranging.observe(
+                track=track,
+                telemetry=telemetry,
+                calibration=config.calibration,
+                frame_id=captured.frame_id,
+                captured_at_s=captured.captured_at_s,
+                camera_motion=camera_motion,
+            )
+            if self.rgb_slam_ranging is not None
             else None
         )
         metric_direct = (
@@ -4138,7 +4214,7 @@ class LiveMissionRunner:
         )
         direct_measurements = tuple(
             measurement
-            for measurement in (visual_direct, metric_direct)
+            for measurement in (visual_direct, rgb_slam_direct, metric_direct)
             if measurement is not None
         )
         pose = AircraftPose(
@@ -4164,7 +4240,9 @@ class LiveMissionRunner:
                     pose=pose,
                     target=target,
                     direct_measurements=direct_measurements,
+                    source_weight_multipliers=source_weight_multipliers,
                     now_s=now_s,
+                    **fusion_metadata,
                 )
             return _invalid_live_range_solution(
                 target_id=track.track_id,
@@ -4195,7 +4273,9 @@ class LiveMissionRunner:
                     pose=pose,
                     target=target,
                     direct_measurements=direct_measurements,
+                    source_weight_multipliers=source_weight_multipliers,
                     now_s=now_s,
+                    **fusion_metadata,
                 )
             return _invalid_live_range_solution(
                 target_id=track.track_id,
@@ -4221,7 +4301,9 @@ class LiveMissionRunner:
                 pose=pose,
                 target=target,
                 direct_measurements=direct_measurements,
+                source_weight_multipliers=source_weight_multipliers,
                 now_s=now_s,
+                **fusion_metadata,
             )
         return engine.solve(
             calibration=config.calibration,
@@ -4244,7 +4326,9 @@ class LiveMissionRunner:
                 ),
             ),
             direct_measurements=direct_measurements,
+            source_weight_multipliers=source_weight_multipliers,
             now_s=now_s,
+            **fusion_metadata,
         )
 
     def _estimate_target_speed_mps(

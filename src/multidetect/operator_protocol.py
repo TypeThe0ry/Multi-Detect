@@ -18,7 +18,7 @@ from .domain import (
     RuleCheck,
     Verdict,
 )
-from .multimodal_ranging import RangeValidity
+from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .operator_link import (
     APPROACH_REASON_IDS,
     OPERATOR_LINK_PROTOCOL_VERSION,
@@ -72,7 +72,7 @@ _AUTHORIZATION_CHALLENGE = struct.Struct(">QQQQQQIQQB")
 _AUTHORIZATION_DECISION = struct.Struct(">QQQQQQQQIBQH")
 _AUTHORIZATION_ACK = struct.Struct(">QBBI")
 _PATROL_STATUS = struct.Struct(">QQBBBBBQ4HB16sBBHHQHHH")
-_RANGE_STATUS = struct.Struct(">QQQQBBIHH6HhHHiiHHB")
+_RANGE_STATUS = struct.Struct(">QQQQBBIHH6HhHHiiHHB6s6s6s")
 _RELEASE_STATUS = struct.Struct(">QQQQBBI6i2Hh5HB")
 _APPROACH_CHALLENGE = struct.Struct(">QQI16sQQB")
 _APPROACH_CONFIRMATION = struct.Struct(">QQQQI16sHHBB")
@@ -561,13 +561,22 @@ class OperatorTunnelCodec:
             bits=16,
             field_name="ranging source frame age milliseconds",
         )
+        contributions = tuple(
+            _encode_range_contribution(contribution)
+            for contribution in status.source_contributions
+        )
+        contribution_slots = contributions + (b"\0\0\0\0\0\0",) * (3 - len(contributions))
         body = _RANGE_STATUS.pack(
             _hash64(status.status_id),
             _hash64(status.target_id),
             _hash64(status.calibration_id),
             _hash64(status.source_frame_id),
             validity,
-            0,
+            _encode_range_status_flags(
+                vehicle_profile=status.vehicle_profile,
+                navigation_state=status.navigation_state,
+                motion_regime=status.motion_regime,
+            ),
             reason_mask,
             source_mask,
             rejected_source_mask,
@@ -585,6 +594,7 @@ class OperatorTunnelCodec:
             source_age_ms,
             _encode_duration(status.data_freshness_s),
             _encode_ratio(status.sensor_consistency),
+            *contribution_slots,
         )
         return self._encode_frame(
             WireMessageType.RANGE_STATUS,
@@ -1641,9 +1651,23 @@ class OperatorTunnelCodec:
             frame_age_ms,
             data_freshness,
             consistency,
+            contribution_one,
+            contribution_two,
+            contribution_three,
         ) = _RANGE_STATUS.unpack(body)
-        if flags != 0:
-            raise OperatorProtocolError("range-status flags contain unsupported bits")
+        try:
+            vehicle_profile, navigation_state, motion_regime = _decode_range_status_flags(flags)
+            source_contributions = tuple(
+                contribution
+                for contribution in (
+                    _decode_range_contribution(contribution_one),
+                    _decode_range_contribution(contribution_two),
+                    _decode_range_contribution(contribution_three),
+                )
+                if contribution is not None
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"range-status fusion metadata is invalid: {exc}") from exc
         validity = {
             1: RangeValidity.VALID,
             2: RangeValidity.DEGRADED,
@@ -1690,6 +1714,10 @@ class OperatorTunnelCodec:
                 east_offset_m=_decode_signed_distance32(east_offset),
                 data_freshness_s=_decode_duration(data_freshness),
                 sensor_consistency=decoded_consistency,
+                source_contributions=source_contributions,
+                vehicle_profile=vehicle_profile,
+                navigation_state=navigation_state,
+                motion_regime=motion_regime,
             )
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid range-status content: {exc}") from exc
@@ -2373,6 +2401,86 @@ def _encode_duration(value: float | None) -> int:
 
 def _decode_duration(value: int) -> float | None:
     return None if value == 0xFFFF else value / 10.0
+
+
+_RANGE_STATUS_VEHICLE_CODES = {"auto": 0, "fixed-wing": 1, "multirotor": 2}
+_RANGE_STATUS_NAVIGATION_CODES = {
+    "unknown": 0,
+    "vision-only": 1,
+    "gps-aided": 2,
+    "local-ned": 3,
+    "airspeed-dr": 4,
+}
+_RANGE_STATUS_MOTION_CODES = {
+    "unknown": 0,
+    "static": 1,
+    "low-speed": 2,
+    "cruise": 3,
+    "high-speed": 4,
+}
+
+
+def _encode_range_status_flags(
+    *, vehicle_profile: str, navigation_state: str, motion_regime: str
+) -> int:
+    try:
+        vehicle = _RANGE_STATUS_VEHICLE_CODES[vehicle_profile]
+        navigation = _RANGE_STATUS_NAVIGATION_CODES[navigation_state]
+        motion = _RANGE_STATUS_MOTION_CODES[motion_regime]
+    except KeyError as exc:
+        raise ValueError("unsupported range-status fusion profile") from exc
+    return vehicle | (navigation << 2) | (motion << 5)
+
+
+def _decode_range_status_flags(value: int) -> tuple[str, str, str]:
+    if value & ~0xFF:
+        raise ValueError("range-status flags exceed byte width")
+    vehicle = {code: name for name, code in _RANGE_STATUS_VEHICLE_CODES.items()}.get(value & 0x03)
+    navigation = {code: name for name, code in _RANGE_STATUS_NAVIGATION_CODES.items()}.get(
+        (value >> 2) & 0x07
+    )
+    motion = {code: name for name, code in _RANGE_STATUS_MOTION_CODES.items()}.get(
+        (value >> 5) & 0x07
+    )
+    if vehicle is None or navigation is None or motion is None:
+        raise ValueError("range-status flags contain an unassigned profile")
+    return vehicle, navigation, motion
+
+
+def _encode_range_contribution(contribution: RangeSourceContribution) -> bytes:
+    try:
+        source_index = RANGING_SOURCE_IDS.index(contribution.source) + 1
+    except ValueError as exc:
+        raise ValueError("range contribution source is not registered") from exc
+    weight = max(1, _encode_ratio(contribution.weight))
+    return struct.pack(
+        ">BBHH",
+        source_index,
+        weight,
+        _encode_distance(contribution.range_m),
+        _encode_distance(contribution.sigma_m),
+    )
+
+
+def _decode_range_contribution(encoded: bytes) -> RangeSourceContribution | None:
+    if encoded == b"\0\0\0\0\0\0":
+        return None
+    if len(encoded) != 6:
+        raise ValueError("range contribution wire record has an invalid size")
+    source_index, weight, range_raw, sigma_raw = struct.unpack(">BBHH", encoded)
+    if source_index == 0 or source_index > len(RANGING_SOURCE_IDS) or weight == 255:
+        raise ValueError("range contribution source or weight is invalid")
+    range_m = _decode_distance(range_raw)
+    sigma_m = _decode_distance(sigma_raw)
+    if range_m is None or sigma_m is None or sigma_m <= 0.0:
+        raise ValueError("range contribution distance is unavailable")
+    return RangeSourceContribution(
+        source=RANGING_SOURCE_IDS[source_index - 1],
+        range_m=range_m,
+        sigma_m=sigma_m,
+        weight=weight / 254.0,
+        freshness_s=0.0,
+    )
 
 
 def _encode_signed_distance(value: float | None) -> int:

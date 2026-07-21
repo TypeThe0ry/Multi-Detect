@@ -170,7 +170,8 @@ def test_metric_depth_applies_single_anchor_calibration_and_exports_grid() -> No
     assert result.calibration_scale == pytest.approx(0.85)
     assert result.calibration_profile == "indoor-single-anchor-6.8m"
     assert (result.depth_grid.width, result.depth_grid.height) == (160, 90)
-    assert result.depth_grid.depth_at(0.5, 0.5) == pytest.approx(6.8, abs=0.05)
+    assert result.depth_grid.encoding == "logarithmic"
+    assert result.depth_grid.depth_at(0.5, 0.5) == pytest.approx(6.8, abs=0.12)
 
 
 def test_metric_depth_samples_fire_base_instead_of_translucent_plume_center() -> None:

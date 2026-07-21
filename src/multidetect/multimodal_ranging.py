@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,7 @@ class VerticalSource(StrEnum):
 class DirectRangeSource(StrEnum):
     LASER = "laser"
     VIO = "vio"
+    RGB_SLAM = "rgb_slam"
     MONOCULAR_SIZE = "monocular_size"
     MONOCULAR_METRIC = "monocular_metric"
 
@@ -194,7 +195,8 @@ class RangingFusionConfig:
     maximum_pose_image_skew_s: float = 0.10
     consistency_gate_sigma: float = 3.5
     minimum_range_sigma_m: float = 0.15
-    maximum_slant_range_m: float = 5_000.0
+    minimum_slant_range_m: float = 0.4
+    maximum_slant_range_m: float = 800.0
     minimum_downward_ray_component: float = 0.03
 
     def __post_init__(self) -> None:
@@ -206,6 +208,7 @@ class RangingFusionConfig:
             self.maximum_pose_image_skew_s,
             self.consistency_gate_sigma,
             self.minimum_range_sigma_m,
+            self.minimum_slant_range_m,
             self.maximum_slant_range_m,
             self.minimum_downward_ray_component,
         )
@@ -213,6 +216,30 @@ class RangingFusionConfig:
             raise ValueError("ranging fusion limits must be finite and positive")
         if self.minimum_downward_ray_component >= 1.0:
             raise ValueError("minimum downward ray component must be below one")
+        if self.minimum_slant_range_m >= self.maximum_slant_range_m:
+            raise ValueError("ranging slant-range limits are reversed")
+
+
+@dataclass(frozen=True, slots=True)
+class RangeSourceContribution:
+    """One accepted measurement exposed to the ground UI and audit stream."""
+
+    source: str
+    range_m: float
+    sigma_m: float
+    weight: float
+    freshness_s: float
+
+    def __post_init__(self) -> None:
+        if not self.source.strip():
+            raise ValueError("range contribution source cannot be empty")
+        if not all(
+            math.isfinite(value) and value >= 0.0
+            for value in (self.range_m, self.sigma_m, self.weight, self.freshness_s)
+        ):
+            raise ValueError("range contribution fields must be finite and non-negative")
+        if self.sigma_m <= 0.0:
+            raise ValueError("range contribution sigma must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +263,11 @@ class RangeSolution:
     east_offset_m: float | None = None
     data_freshness_s: float | None = None
     sensor_consistency: float = 0.0
+    source_contributions: tuple[RangeSourceContribution, ...] = ()
+    fusion_profile: str = "outdoor-multimodal-v1"
+    vehicle_profile: str = "auto"
+    navigation_state: str = "unknown"
+    motion_regime: str = "unknown"
     advisory_only: bool = True
     flight_control_enabled: bool = False
     physical_release_enabled: bool = False
@@ -267,6 +299,24 @@ class RangeSolution:
             raise ValueError("range solution numeric values must be finite when supplied")
         if not math.isfinite(self.sensor_consistency) or not 0.0 <= self.sensor_consistency <= 1.0:
             raise ValueError("sensor consistency must be in [0, 1]")
+        if any(
+            not isinstance(value, RangeSourceContribution) for value in self.source_contributions
+        ):
+            raise ValueError("range source contributions are invalid")
+        if self.source_contributions and not math.isclose(
+            sum(value.weight for value in self.source_contributions),
+            1.0,
+            abs_tol=0.015,
+        ):
+            raise ValueError("accepted range contribution weights must sum to one")
+        for name, value in (
+            ("fusion profile", self.fusion_profile),
+            ("vehicle profile", self.vehicle_profile),
+            ("navigation state", self.navigation_state),
+            ("motion regime", self.motion_regime),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} cannot be empty")
         if self.validity is RangeValidity.INVALID and any(
             value is not None
             for value in (
@@ -352,6 +402,11 @@ class MultiModalRangingEngine:
         target: TargetImageObservation,
         vertical_measurements: tuple[VerticalMeasurement, ...],
         direct_measurements: tuple[DirectRangeMeasurement, ...] = (),
+        source_weight_multipliers: Mapping[str, float] | None = None,
+        fusion_profile: str = "outdoor-multimodal-v1",
+        vehicle_profile: str = "auto",
+        navigation_state: str = "unknown",
+        motion_regime: str = "unknown",
         now_s: float,
     ) -> RangeSolution:
         if not math.isfinite(now_s) or now_s < 0.0:
@@ -361,6 +416,10 @@ class MultiModalRangingEngine:
             "frame_id": target.frame_id,
             "calibration_id": calibration.calibration_id,
             "evaluated_at_s": now_s,
+            "fusion_profile": fusion_profile,
+            "vehicle_profile": vehicle_profile,
+            "navigation_state": navigation_state,
+            "motion_regime": motion_regime,
         }
         reasons: list[str] = []
         pose_age = now_s - pose.captured_at_s
@@ -375,11 +434,14 @@ class MultiModalRangingEngine:
         if _has_duplicate_sources(measurement.source for measurement in vertical_measurements):
             return self._invalid(base, "duplicate_vertical_source")
         vertical_candidates = tuple(
-            _Candidate(
+            _weighted_candidate(
+                _Candidate(
                 measurement.source.value,
                 measurement.height_m,
                 measurement.sigma_m,
                 now_s - measurement.captured_at_s,
+                ),
+                source_weight_multipliers,
             )
             for measurement in vertical_measurements
             if 0.0 <= now_s - measurement.captured_at_s <= self.config.maximum_vertical_age_s
@@ -401,7 +463,11 @@ class MultiModalRangingEngine:
             return self._invalid(base, "target_ray_does_not_intersect_ground_safely")
 
         camera_slant = vertical_fusion.value_m / ray_ned[2]
-        if not 0.0 < camera_slant <= self.config.maximum_slant_range_m:
+        if not (
+            self.config.minimum_slant_range_m
+            <= camera_slant
+            <= self.config.maximum_slant_range_m
+        ):
             return self._invalid(base, "camera_ground_intersection_out_of_range")
         camera_sigma = self._camera_range_sigma(
             calibration=calibration,
@@ -411,7 +477,8 @@ class MultiModalRangingEngine:
             height_sigma_m=vertical_fusion.sigma_m,
         )
         range_candidates: list[_Candidate] = [
-            _Candidate(
+            _weighted_candidate(
+                _Candidate(
                 "camera_ground",
                 camera_slant,
                 max(self.config.minimum_range_sigma_m, camera_sigma),
@@ -420,6 +487,8 @@ class MultiModalRangingEngine:
                     image_age,
                     *(candidate.age_s for candidate in vertical_fusion.accepted),
                 ),
+                ),
+                source_weight_multipliers,
             )
         ]
 
@@ -440,15 +509,22 @@ class MultiModalRangingEngine:
                     _direct_rejection_reason(measurement.source, "stale_or_from_future")
                 )
                 continue
-            if measurement.slant_range_m > self.config.maximum_slant_range_m:
+            if not (
+                self.config.minimum_slant_range_m
+                <= measurement.slant_range_m
+                <= self.config.maximum_slant_range_m
+            ):
                 reasons.append(_direct_rejection_reason(measurement.source, "out_of_range"))
                 continue
             range_candidates.append(
-                _Candidate(
+                _weighted_candidate(
+                    _Candidate(
                     measurement.source.value,
                     measurement.slant_range_m,
                     max(self.config.minimum_range_sigma_m, measurement.sigma_m),
                     age_s,
+                    ),
+                    source_weight_multipliers,
                 )
             )
 
@@ -517,6 +593,7 @@ class MultiModalRangingEngine:
             east_offset_m=east_offset_m,
             data_freshness_s=max(all_ages),
             sensor_consistency=sensor_consistency,
+            source_contributions=_source_contributions(range_fusion),
         )
 
     def solve_direct(
@@ -526,6 +603,11 @@ class MultiModalRangingEngine:
         pose: AircraftPose,
         target: TargetImageObservation,
         direct_measurements: tuple[DirectRangeMeasurement, ...],
+        source_weight_multipliers: Mapping[str, float] | None = None,
+        fusion_profile: str = "outdoor-multimodal-v1",
+        vehicle_profile: str = "auto",
+        navigation_state: str = "unknown",
+        motion_regime: str = "unknown",
         now_s: float,
     ) -> RangeSolution:
         """Produce a degraded metric solution from scaled visual-inertial range.
@@ -539,6 +621,10 @@ class MultiModalRangingEngine:
             "frame_id": target.frame_id,
             "calibration_id": calibration.calibration_id,
             "evaluated_at_s": now_s,
+            "fusion_profile": fusion_profile,
+            "vehicle_profile": vehicle_profile,
+            "navigation_state": navigation_state,
+            "motion_regime": motion_regime,
         }
         pose_age, image_age = now_s - pose.captured_at_s, now_s - target.captured_at_s
         if pose_age < 0 or pose_age > self.config.maximum_pose_age_s:
@@ -553,17 +639,22 @@ class MultiModalRangingEngine:
         ):
             return self._invalid(base, "pose_image_time_skew_exceeded")
         candidates = tuple(
-            _Candidate(
+            _weighted_candidate(
+                _Candidate(
                 m.source.value,
                 m.slant_range_m,
                 max(self.config.minimum_range_sigma_m, m.sigma_m),
                 now_s - m.captured_at_s,
+                ),
+                source_weight_multipliers,
             )
             for m in direct_measurements
             if m.target_id == target.target_id
             and m.absolute_scale_valid
             and 0 <= now_s - m.captured_at_s <= self.config.maximum_direct_range_age_s
-            and m.slant_range_m <= self.config.maximum_slant_range_m
+            and self.config.minimum_slant_range_m
+            <= m.slant_range_m
+            <= self.config.maximum_slant_range_m
         )
         fusion = _fuse_consistent(
             candidates,
@@ -602,6 +693,7 @@ class MultiModalRangingEngine:
             east_offset_m=slant_range_m * ray_ned[1],
             data_freshness_s=max(pose_age, image_age, *(c.age_s for c in fusion.accepted)),
             sensor_consistency=fusion.consistency,
+            source_contributions=_source_contributions(fusion),
         )
 
     def _camera_range_sigma(
@@ -794,8 +886,52 @@ def _has_duplicate_sources(sources: Iterable[object]) -> bool:
     return len(values) != len(set(values))
 
 
+def _weighted_candidate(
+    candidate: _Candidate,
+    source_weight_multipliers: Mapping[str, float] | None,
+) -> _Candidate:
+    """Apply a bounded information prior without obscuring the raw measurement.
+
+    The fusion engine stays deterministic: policy weights only rescale the
+    covariance before the existing consistency gate and inverse-variance fusion.
+    """
+
+    if not source_weight_multipliers:
+        return candidate
+    multiplier = source_weight_multipliers.get(candidate.source, 1.0)
+    if not isinstance(multiplier, (int, float)) or not math.isfinite(multiplier):
+        return candidate
+    multiplier = min(8.0, max(0.05, float(multiplier)))
+    return _Candidate(
+        source=candidate.source,
+        value_m=candidate.value_m,
+        sigma_m=candidate.sigma_m / math.sqrt(multiplier),
+        age_s=candidate.age_s,
+    )
+
+
+def _source_contributions(fusion: _Fusion) -> tuple[RangeSourceContribution, ...]:
+    if not fusion.accepted:
+        return ()
+    information = tuple(1.0 / candidate.sigma_m**2 for candidate in fusion.accepted)
+    total = sum(information)
+    return tuple(
+        RangeSourceContribution(
+            source=candidate.source,
+            range_m=candidate.value_m,
+            sigma_m=candidate.sigma_m,
+            weight=value / total,
+            freshness_s=candidate.age_s,
+        )
+        for candidate, value in zip(fusion.accepted, information, strict=True)
+    )
+
+
 def _direct_rejection_reason(source: DirectRangeSource, suffix: str) -> str:
-    if source in {DirectRangeSource.LASER, DirectRangeSource.VIO}:
+    if source in {
+        DirectRangeSource.LASER,
+        DirectRangeSource.VIO,
+    }:
         return f"{source.value}_{suffix}"
     return "direct_range_unavailable"
 
@@ -874,6 +1010,7 @@ __all__ = [
     "DirectRangeSource",
     "MultiModalRangingEngine",
     "RangeSolution",
+    "RangeSourceContribution",
     "RangeValidity",
     "RangingFusionConfig",
     "TargetImageObservation",

@@ -216,6 +216,22 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert "--no-display" in launcher
 
 
+def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> None:
+    deployer = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "src/multidetect/adaptive_ranging.py" in deployer
+    assert "src/multidetect/rgb_slam_range.py" in deployer
+    assert "src/multidetect/operator_protocol.py" in deployer
+    assert "source-sha256.txt" in deployer
+    assert "sha256sum --check source-sha256.txt" in deployer
+    assert "-m compileall -q src scripts" in deployer
+    assert "bash -n scripts/run_jetson_fire_patrol.sh" in deployer
+    assert "sudo -n systemctl restart" in deployer
+    assert "QGC source and build artifacts stay local" in deployer
+
+
 def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> None:
     recorder = (ROOT / "scripts/record_jetson_rtsp_evidence.sh").read_text(encoding="utf-8")
     launcher = (ROOT / "scripts/run_jetson_fire_patrol.sh").read_text(encoding="utf-8")

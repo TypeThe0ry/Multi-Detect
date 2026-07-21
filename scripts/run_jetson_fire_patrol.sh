@@ -54,7 +54,7 @@ PIXHAWK_REQUEST_RANGING_STREAMS="${PIXHAWK_REQUEST_RANGING_STREAMS:-1}"
 MODE3_CONFIRMATION_ENABLED="${MODE3_CONFIRMATION_ENABLED:-0}"
 MODE3_AIM_CONTROL_ENABLED="${MODE3_AIM_CONTROL_ENABLED:-0}"
 RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"
-METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-indoor}"
+METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-auto}"
 METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
 # Temporary single-anchor calibration from the measured 6.8 m target versus the
 # stable 7.99-8.01 m raw indoor model result. Override with a multi-point profile
@@ -62,8 +62,11 @@ METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
 METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-}"
 METRIC_DEPTH_CALIBRATION_OFFSET_M="${METRIC_DEPTH_CALIBRATION_OFFSET_M:-0.0}"
 METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-}"
-METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.15}"
+METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.4}"
 METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-}"
+RANGING_MINIMUM_DISTANCE_M="${RANGING_MINIMUM_DISTANCE_M:-0.4}"
+RANGING_MAXIMUM_DISTANCE_M="${RANGING_MAXIMUM_DISTANCE_M:-800.0}"
+RANGING_VEHICLE_PROFILE="${RANGING_VEHICLE_PROFILE:-fixed-wing}"
 COMMON_OBJECT_ONNX_PATH="${COMMON_OBJECT_ONNX_PATH:-${ROOT}/models/coco-yolo26n-traditional/yolo26n-traditional.onnx}"
 COMMON_OBJECT_MODEL_PATH="${COMMON_OBJECT_MODEL_PATH:-${ROOT}/models/coco-yolo26n-traditional/yolo26n-traditional.b1.fp16.trt86.engine}"
 COMMON_OBJECT_MODEL_MANIFEST="${COMMON_OBJECT_MODEL_MANIFEST:-${COMMON_OBJECT_MODEL_PATH}.manifest.json}"
@@ -123,6 +126,14 @@ SEMANTIC_CONTEXT_MINIMUM_INTERVAL_SECONDS="${SEMANTIC_CONTEXT_MINIMUM_INTERVAL_S
 SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS="${SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS:-2.0}"
 TRTEXEC="${TRTEXEC:-/usr/src/tensorrt/bin/trtexec}"
 
+if [[ "${METRIC_DEPTH_SCENE_PROFILE}" == "auto" ]]; then
+    if [[ -f "${ROOT}/models/depth-anything-v2-metric-outdoor-small/depth_anything_v2_vits_outdoor_518.fp16.trt86.engine" ]]; then
+        METRIC_DEPTH_SCENE_PROFILE=outdoor
+    else
+        METRIC_DEPTH_SCENE_PROFILE=indoor
+    fi
+fi
+
 case "${METRIC_DEPTH_SCENE_PROFILE}" in
     indoor)
         METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-indoor-small/depth_anything_v2_vits_indoor_518.fp16.trt86.engine}"
@@ -134,10 +145,10 @@ case "${METRIC_DEPTH_SCENE_PROFILE}" in
         METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-outdoor-small/depth_anything_v2_vits_outdoor_518.fp16.trt86.engine}"
         METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-1.0}"
         METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-outdoor-unanchored-v1}"
-        METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-80.0}"
+        METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-800.0}"
         ;;
     *)
-        printf 'METRIC_DEPTH_SCENE_PROFILE must be indoor or outdoor.\n' >&2
+        printf 'METRIC_DEPTH_SCENE_PROFILE must be auto, indoor or outdoor.\n' >&2
         exit 2
         ;;
 esac
@@ -262,6 +273,9 @@ if [[ "${MULTIMODAL_RANGING_ENABLED}" == "1" ]]; then
         --ranging-pitch-sigma-deg "${RANGING_PITCH_SIGMA_DEG:-0.3}"
         --ranging-heading-sigma-deg "${RANGING_HEADING_SIGMA_DEG:-1.0}"
         --ranging-target-center-sigma-px "${RANGING_TARGET_CENTER_SIGMA_PX:-2.0}"
+        --ranging-minimum-distance-m "${RANGING_MINIMUM_DISTANCE_M}"
+        --ranging-maximum-distance-m "${RANGING_MAXIMUM_DISTANCE_M}"
+        --ranging-vehicle-profile "${RANGING_VEHICLE_PROFILE}"
     )
 elif [[ "${MULTIMODAL_RANGING_ENABLED}" != "0" ]]; then
     printf 'MULTIMODAL_RANGING_ENABLED must be 0 or 1.\n' >&2

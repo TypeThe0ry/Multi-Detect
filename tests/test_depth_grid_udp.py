@@ -38,6 +38,7 @@ def test_depth_grid_codec_fragments_and_round_trips_authenticated_frame() -> Non
     assert fragments[0].sequence == 77
     assert fragments[0].minimum_depth_mm == 1250
     assert fragments[0].maximum_depth_mm == 24_500
+    assert fragments[0].logarithmic_encoding is True
     assert zlib.crc32(raw) & 0xFFFFFFFF == fragments[0].raw_crc32
 
 

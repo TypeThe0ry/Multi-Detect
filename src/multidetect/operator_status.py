@@ -218,6 +218,17 @@ def build_range_status_message(
         east_offset_m=solution.east_offset_m,
         data_freshness_s=solution.data_freshness_s,
         sensor_consistency=solution.sensor_consistency,
+        source_contributions=tuple(
+            sorted(
+                solution.source_contributions,
+                key=lambda contribution: contribution.weight,
+                reverse=True,
+            )[:3]
+        ),
+        fusion_profile=solution.fusion_profile,
+        vehicle_profile=solution.vehicle_profile,
+        navigation_state=solution.navigation_state,
+        motion_regime=solution.motion_regime,
     )
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from .adaptive_ranging import AdaptiveRangingConfig, AdaptiveRangingPolicy, VehicleProfile
 from .aircraft_appearance import HandcraftedAircraftAppearanceEncoder
 from .alerts import (
     AlertAuthenticationError,
@@ -1267,6 +1268,24 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--ranging-heading-sigma-deg", type=float, default=1.0)
     live.add_argument("--ranging-target-center-sigma-px", type=float, default=2.0)
     live.add_argument(
+        "--ranging-minimum-distance-m",
+        type=float,
+        default=0.4,
+        help="minimum accepted fused target distance in metres",
+    )
+    live.add_argument(
+        "--ranging-maximum-distance-m",
+        type=float,
+        default=800.0,
+        help="maximum accepted fused target distance in metres",
+    )
+    live.add_argument(
+        "--ranging-vehicle-profile",
+        choices=tuple(profile.value for profile in VehicleProfile),
+        default=VehicleProfile.AUTO.value,
+        help="adaptive fusion profile; auto chooses fixed-wing or multirotor from telemetry",
+    )
+    live.add_argument(
         "--metric-depth-model",
         type=Path,
         help=(
@@ -1275,8 +1294,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     live.add_argument("--metric-depth-input-size", type=int, default=518)
-    live.add_argument("--metric-depth-minimum-depth-m", type=float, default=0.15)
-    live.add_argument("--metric-depth-maximum-depth-m", type=float, default=20.0)
+    live.add_argument("--metric-depth-minimum-depth-m", type=float, default=0.4)
+    live.add_argument("--metric-depth-maximum-depth-m", type=float, default=800.0)
     live.add_argument("--metric-depth-minimum-interval-seconds", type=float, default=0.20)
     live.add_argument("--metric-depth-maximum-age-seconds", type=float, default=1.00)
     live.add_argument("--metric-depth-calibration-scale", type=float, default=1.0)
@@ -5035,9 +5054,9 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             RangingFusionConfig(
                 maximum_image_age_s=args.metric_depth_maximum_age_seconds,
                 maximum_direct_range_age_s=args.metric_depth_maximum_age_seconds,
+                minimum_slant_range_m=args.ranging_minimum_distance_m,
+                maximum_slant_range_m=args.ranging_maximum_distance_m,
             )
-            if args.metric_depth_model is not None
-            else None
         )
         if args.multimodal_ranging
         else None
@@ -5077,6 +5096,15 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             )
         )
         if args.metric_depth_model is not None
+        else None
+    )
+    adaptive_ranging_policy = (
+        AdaptiveRangingPolicy(
+            AdaptiveRangingConfig(
+                vehicle_profile=VehicleProfile(args.ranging_vehicle_profile),
+            )
+        )
+        if ranging_engine is not None
         else None
     )
     short_term_tracker = (
@@ -5252,6 +5280,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         selection_target_pool=selection_target_pool,
         ranging_engine=ranging_engine,
         ranging_config=ranging_config,
+        adaptive_ranging_policy=adaptive_ranging_policy,
         metric_depth_runner=metric_depth_runner,
         depth_grid_publisher=depth_grid_publisher,
         approach_hil_coordinator=approach_hil_coordinator,

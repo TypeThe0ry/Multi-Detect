@@ -31,8 +31,8 @@ class MetricDepthConfig:
     minimum_interval_s: float = 0.20
     maximum_result_age_s: float = 1.00
     center_fraction: float = 0.50
-    minimum_depth_m: float = 0.15
-    maximum_depth_m: float = 20.0
+    minimum_depth_m: float = 0.4
+    maximum_depth_m: float = 800.0
     minimum_valid_pixels: int = 64
     minimum_sigma_m: float = 0.50
     relative_sigma: float = 0.25
@@ -42,6 +42,7 @@ class MetricDepthConfig:
     grid_width: int = 160
     grid_height: int = 90
     temporal_window_size: int = 5
+    grid_encoding: str = "logarithmic"
     providers: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -75,6 +76,8 @@ class MetricDepthConfig:
             raise ValueError("metric-depth grid dimensions are outside the supported range")
         if not 1 <= self.temporal_window_size <= 15:
             raise ValueError("metric-depth temporal window must be in [1, 15]")
+        if self.grid_encoding not in {"linear", "logarithmic"}:
+            raise ValueError("metric-depth grid encoding must be linear or logarithmic")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +89,7 @@ class MetricDepthGrid:
     minimum_depth_m: float
     maximum_depth_m: float
     quantized_depth: bytes
+    encoding: str = "logarithmic"
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:
@@ -98,6 +102,8 @@ class MetricDepthGrid:
             and 0.0 < self.minimum_depth_m < self.maximum_depth_m
         ):
             raise ValueError("metric-depth grid range is invalid")
+        if self.encoding not in {"linear", "logarithmic"}:
+            raise ValueError("metric-depth grid encoding is invalid")
 
     def depth_at(self, normalized_x: float, normalized_y: float) -> float | None:
         if not 0.0 <= normalized_x <= 1.0 or not 0.0 <= normalized_y <= 1.0:
@@ -107,9 +113,13 @@ class MetricDepthGrid:
         encoded = self.quantized_depth[y * self.width + x]
         if encoded == 0:
             return None
-        return self.minimum_depth_m + (encoded - 1) / 254.0 * (
-            self.maximum_depth_m - self.minimum_depth_m
-        )
+        fraction = (encoded - 1) / 254.0
+        if self.encoding == "logarithmic":
+            return math.exp(
+                math.log(self.minimum_depth_m)
+                + fraction * math.log(self.maximum_depth_m / self.minimum_depth_m)
+            )
+        return self.minimum_depth_m + fraction * (self.maximum_depth_m - self.minimum_depth_m)
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,9 +279,14 @@ class MetricDepthEstimator:
             & (resized <= self.config.maximum_depth_m)
         )
         encoded = self._np.zeros(resized.shape, dtype=self._np.uint8)
-        normalized = (resized[valid] - self.config.minimum_depth_m) / (
-            self.config.maximum_depth_m - self.config.minimum_depth_m
-        )
+        if self.config.grid_encoding == "logarithmic":
+            normalized = (
+                self._np.log(resized[valid]) - math.log(self.config.minimum_depth_m)
+            ) / math.log(self.config.maximum_depth_m / self.config.minimum_depth_m)
+        else:
+            normalized = (resized[valid] - self.config.minimum_depth_m) / (
+                self.config.maximum_depth_m - self.config.minimum_depth_m
+            )
         encoded[valid] = self._np.clip(
             self._np.rint(1.0 + normalized * 254.0),
             1,
@@ -283,6 +298,7 @@ class MetricDepthEstimator:
             minimum_depth_m=self.config.minimum_depth_m,
             maximum_depth_m=self.config.maximum_depth_m,
             quantized_depth=encoded.tobytes(order="C"),
+            encoding=self.config.grid_encoding,
         )
 
     def _load_session(self) -> Any:

@@ -13,7 +13,7 @@ from multidetect.domain import (
     RuleCheck,
     Verdict,
 )
-from multidetect.multimodal_ranging import RangeValidity
+from multidetect.multimodal_ranging import RangeSourceContribution, RangeValidity
 from multidetect.operator_link import (
     ApproachChallengeStatusMessage,
     ApproachConfirmationCommand,
@@ -293,12 +293,31 @@ def test_range_status_round_trip_carries_uncertainty_and_consistency() -> None:
         east_offset_m=-22.7,
         data_freshness_s=0.08,
         sensor_consistency=0.5,
+        source_contributions=(
+            RangeSourceContribution(
+                source="camera_ground",
+                range_m=122.8,
+                sigma_m=4.1,
+                weight=0.63,
+                freshness_s=0.08,
+            ),
+            RangeSourceContribution(
+                source="pixhawk_agl",
+                range_m=124.2,
+                sigma_m=7.0,
+                weight=0.37,
+                freshness_s=0.08,
+            ),
+        ),
+        vehicle_profile="fixed-wing",
+        navigation_state="gps-aided",
+        motion_regime="cruise",
     )
 
     encoded = _codec().encode_range_status(status)
     decoded = _codec().decode(encoded)
 
-    assert len(encoded) == 109
+    assert len(encoded) == 127
     assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
     assert decoded.message_type is WireMessageType.RANGE_STATUS
     message = decoded.message
@@ -314,6 +333,12 @@ def test_range_status_round_trip_carries_uncertainty_and_consistency() -> None:
     assert message.east_offset_m == pytest.approx(-22.7)
     assert message.data_freshness_s == pytest.approx(0.1)
     assert message.sensor_consistency == pytest.approx(0.5, abs=1 / 254)
+    assert message.vehicle_profile == "fixed-wing"
+    assert message.navigation_state == "gps-aided"
+    assert message.motion_regime == "cruise"
+    assert message.source_contributions[0].source == "camera_ground"
+    assert message.source_contributions[0].range_m == pytest.approx(122.8)
+    assert message.source_contributions[0].weight == pytest.approx(0.63, abs=1 / 254)
     assert message.advisory_only is True
     assert message.flight_control_enabled is False
     assert message.physical_release_enabled is False
