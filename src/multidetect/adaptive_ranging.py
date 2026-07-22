@@ -41,7 +41,11 @@ class AdaptiveRangingConfig:
     static_speed_mps: float = 0.5
     low_speed_mps: float = 5.0
     cruise_speed_mps: float = 12.0
+    minimum_gps_fix_type: int = 3
     minimum_gps_satellites: int = 6
+    maximum_gps_horizontal_accuracy_m: float = 6.0
+    maximum_gps_vertical_accuracy_m: float = 10.0
+    maximum_gps_age_s: float = 1.50
     maximum_local_position_age_s: float = 0.60
     maximum_velocity_age_s: float = 0.60
     maximum_airspeed_age_s: float = 0.80
@@ -49,9 +53,14 @@ class AdaptiveRangingConfig:
     def __post_init__(self) -> None:
         if not (0.0 < self.static_speed_mps < self.low_speed_mps < self.cruise_speed_mps):
             raise ValueError("adaptive ranging speed thresholds are not ordered")
+        if self.minimum_gps_fix_type < 3 or self.minimum_gps_fix_type > 6:
+            raise ValueError("adaptive ranging GPS minimum fix type must be in [3, 6]")
         if self.minimum_gps_satellites < 4:
             raise ValueError("adaptive ranging GPS minimum must be at least four satellites")
         for value in (
+            self.maximum_gps_horizontal_accuracy_m,
+            self.maximum_gps_vertical_accuracy_m,
+            self.maximum_gps_age_s,
             self.maximum_local_position_age_s,
             self.maximum_velocity_age_s,
             self.maximum_airspeed_age_s,
@@ -180,12 +189,22 @@ class AdaptiveRangingPolicy:
         return VehicleProfile.MULTIROTOR
 
     def _navigation_state(self, telemetry: VehicleTelemetry, *, now_s: float) -> NavigationState:
+        gps_age = abs(now_s - telemetry.gps_observed_at_s)
         global_position = (
             telemetry.position_healthy is True
             and math.isfinite(telemetry.latitude_deg)
             and math.isfinite(telemetry.longitude_deg)
+            and isinstance(telemetry.gps_fix_type, int)
+            and telemetry.gps_fix_type >= self.config.minimum_gps_fix_type
             and telemetry.satellites_visible is not None
             and telemetry.satellites_visible >= self.config.minimum_gps_satellites
+            and math.isfinite(telemetry.gps_horizontal_accuracy_m)
+            and telemetry.gps_horizontal_accuracy_m
+            <= self.config.maximum_gps_horizontal_accuracy_m
+            and math.isfinite(telemetry.gps_vertical_accuracy_m)
+            and telemetry.gps_vertical_accuracy_m <= self.config.maximum_gps_vertical_accuracy_m
+            and math.isfinite(gps_age)
+            and gps_age <= self.config.maximum_gps_age_s
         )
         if global_position:
             return NavigationState.GPS_AIDED

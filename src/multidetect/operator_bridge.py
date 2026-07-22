@@ -23,6 +23,7 @@ from .operator_link import (
     SafetyStatusMessage,
     SceneContextStatusMessage,
     SelectionAction,
+    TargetGeolocationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackingState,
@@ -105,6 +106,13 @@ class OperatorStatusTransport(Protocol):
         peer: OperatorPeer,
     ) -> None: ...
 
+    def publish_target_geolocation_status(
+        self,
+        status: TargetGeolocationStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> None: ...
+
     def publish_release_status(
         self,
         status: ReleaseStatusMessage,
@@ -176,6 +184,7 @@ class OperatorBridgeResult:
     accepted_selection_commands: tuple[tuple[TargetSelectionCommand, OperatorPeer], ...] = ()
     published_patrol_statuses: tuple[PatrolStatusMessage, ...] = ()
     published_range_statuses: tuple[RangeStatusMessage, ...] = ()
+    published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
     published_release_statuses: tuple[ReleaseStatusMessage, ...] = ()
     accepted_approach_confirmations: tuple[
         tuple[ApproachConfirmationCommand, OperatorPeer], ...
@@ -203,6 +212,7 @@ class LiveOperatorBridge:
         maximum_errors_per_frame: int = 8,
         mission_status_heartbeat_s: float = 1.0,
         range_status_heartbeat_s: float = 1.0 / 15.0,
+        target_geolocation_status_heartbeat_s: float = 1.0 / 15.0,
         release_status_heartbeat_s: float = 1.0 / 15.0,
         approach_status_heartbeat_s: float = 1.0 / 15.0,
         payload_target_status_heartbeat_s: float = 1.0 / 15.0,
@@ -216,6 +226,11 @@ class LiveOperatorBridge:
             raise ValueError("mission status heartbeat must be finite and positive")
         if not isfinite(range_status_heartbeat_s) or range_status_heartbeat_s <= 0.0:
             raise ValueError("range status heartbeat must be finite and positive")
+        if (
+            not isfinite(target_geolocation_status_heartbeat_s)
+            or target_geolocation_status_heartbeat_s <= 0.0
+        ):
+            raise ValueError("target geolocation status heartbeat must be finite and positive")
         if not isfinite(release_status_heartbeat_s) or release_status_heartbeat_s <= 0.0:
             raise ValueError("release status heartbeat must be finite and positive")
         if not isfinite(approach_status_heartbeat_s) or approach_status_heartbeat_s <= 0.0:
@@ -238,6 +253,7 @@ class LiveOperatorBridge:
         self.maximum_errors_per_frame = maximum_errors_per_frame
         self.mission_status_heartbeat_s = mission_status_heartbeat_s
         self.range_status_heartbeat_s = range_status_heartbeat_s
+        self.target_geolocation_status_heartbeat_s = target_geolocation_status_heartbeat_s
         self.release_status_heartbeat_s = release_status_heartbeat_s
         self.approach_status_heartbeat_s = approach_status_heartbeat_s
         self.payload_target_status_heartbeat_s = payload_target_status_heartbeat_s
@@ -256,6 +272,8 @@ class LiveOperatorBridge:
         self._last_patrol_status_at_s: float | None = None
         self._last_range_status_fingerprint: tuple[object, ...] | None = None
         self._last_range_status_at_s: float | None = None
+        self._last_target_geolocation_status_fingerprint: tuple[object, ...] | None = None
+        self._last_target_geolocation_status_at_s: float | None = None
         self._last_release_status_fingerprint: tuple[object, ...] | None = None
         self._last_release_status_at_s: float | None = None
         self._last_approach_challenge_fingerprint: tuple[object, ...] | None = None
@@ -297,6 +315,7 @@ class LiveOperatorBridge:
         safety_status: SafetyStatusMessage | None = None,
         patrol_status: PatrolStatusMessage | None = None,
         range_status: RangeStatusMessage | None = None,
+        target_geolocation_status: TargetGeolocationStatusMessage | None = None,
         release_status: ReleaseStatusMessage | None = None,
         approach_challenge: ApproachChallengeStatusMessage | None = None,
         approach_status: ApproachStatusMessage | None = None,
@@ -601,6 +620,22 @@ class LiveOperatorBridge:
             published_range_statuses = (range_status,)
             self._last_range_status_fingerprint = self._range_status_fingerprint(range_status)
             self._last_range_status_at_s = range_status.produced_at_s
+        published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
+        if (
+            target_geolocation_status is not None
+            and self._active_peer is not None
+            and self._target_geolocation_status_due(target_geolocation_status)
+            and self._publish_target_geolocation_status(
+                target_geolocation_status,
+                self._active_peer,
+                errors,
+            )
+        ):
+            published_target_geolocation_statuses = (target_geolocation_status,)
+            self._last_target_geolocation_status_fingerprint = (
+                self._target_geolocation_status_fingerprint(target_geolocation_status)
+            )
+            self._last_target_geolocation_status_at_s = target_geolocation_status.produced_at_s
         published_release_statuses: tuple[ReleaseStatusMessage, ...] = ()
         if (
             release_status is not None
@@ -737,6 +772,7 @@ class LiveOperatorBridge:
             published_safety_statuses=published_safety_statuses,
             published_patrol_statuses=published_patrol_statuses,
             published_range_statuses=published_range_statuses,
+            published_target_geolocation_statuses=published_target_geolocation_statuses,
             published_release_statuses=published_release_statuses,
             accepted_approach_confirmations=tuple(accepted_approach_confirmations),
             published_approach_challenges=published_approach_challenges,
@@ -769,6 +805,8 @@ class LiveOperatorBridge:
         self._last_patrol_status_at_s = None
         self._last_range_status_fingerprint = None
         self._last_range_status_at_s = None
+        self._last_target_geolocation_status_fingerprint = None
+        self._last_target_geolocation_status_at_s = None
         self._last_release_status_fingerprint = None
         self._last_release_status_at_s = None
         self._last_approach_challenge_fingerprint = None
@@ -872,6 +910,22 @@ class LiveOperatorBridge:
         errors: list[str],
     ) -> bool:
         publish = getattr(self.transport, "publish_range_status", None)
+        if not callable(publish):
+            return False
+        try:
+            publish(status, peer=peer)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(type(exc).__name__)
+            return False
+        return True
+
+    def _publish_target_geolocation_status(
+        self,
+        status: TargetGeolocationStatusMessage,
+        peer: OperatorPeer,
+        errors: list[str],
+    ) -> bool:
+        publish = getattr(self.transport, "publish_target_geolocation_status", None)
         if not callable(publish):
             return False
         try:
@@ -1054,6 +1108,17 @@ class LiveOperatorBridge:
             return True
         return status.produced_at_s - self._last_range_status_at_s >= self.range_status_heartbeat_s
 
+    def _target_geolocation_status_due(self, status: TargetGeolocationStatusMessage) -> bool:
+        fingerprint = self._target_geolocation_status_fingerprint(status)
+        if fingerprint != self._last_target_geolocation_status_fingerprint:
+            return True
+        if self._last_target_geolocation_status_at_s is None:
+            return True
+        return (
+            status.produced_at_s - self._last_target_geolocation_status_at_s
+            >= self.target_geolocation_status_heartbeat_s
+        )
+
     def _release_status_due(self, status: ReleaseStatusMessage) -> bool:
         fingerprint = self._release_status_fingerprint(status)
         if fingerprint != self._last_release_status_fingerprint:
@@ -1229,6 +1294,20 @@ class LiveOperatorBridge:
             _quantize(status.east_offset_m, 10.0),
             _quantize(status.data_freshness_s, 10.0),
             _quantize(status.sensor_consistency, 254.0),
+        )
+
+    @staticmethod
+    def _target_geolocation_status_fingerprint(
+        status: TargetGeolocationStatusMessage,
+    ) -> tuple[object, ...]:
+        return (
+            status.target_id,
+            status.source_frame_id,
+            status.available,
+            status.reason,
+            _quantize(status.latitude_deg, 10_000_000.0),
+            _quantize(status.longitude_deg, 10_000_000.0),
+            _quantize(status.horizontal_sigma_m, 10.0),
         )
 
     @staticmethod

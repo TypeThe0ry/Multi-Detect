@@ -1,0 +1,27 @@
+#pragma once
+
+#include "FactSystemTestBase.h"
+
+// Unit Test for Fact System on PX4 autopilot
+class FactSystemTestPX4 : public FactSystemTestBase
+{
+    Q_OBJECT
+
+private slots:
+    void init();
+
+    void cleanup()
+    {
+        _cleanup();
+    }
+
+    void parameter_default_component_id_test()
+    {
+        _parameter_default_component_id_test();
+    }
+
+    void parameter_specific_component_id_test()
+    {
+        _parameter_specific_component_id_test();
+    }
+};

@@ -1,0 +1,32 @@
+#pragma once
+
+#include <QtQmlIntegration/QtQmlIntegration>
+
+#include "SettingsGroup.h"
+
+/// \brief Application Settings
+///
+class MavlinkSettings : public SettingsGroup
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+public:
+    MavlinkSettings(QObject* parent = nullptr);
+
+    DEFINE_SETTING_NAME_GROUP()
+
+    DEFINE_SETTINGFACT(telemetrySave)
+    DEFINE_SETTINGFACT(telemetrySaveNotArmed)
+    DEFINE_SETTINGFACT(saveCsvTelemetry)
+    DEFINE_SETTINGFACT(forwardMavlink)
+    DEFINE_SETTINGFACT(forwardMavlinkHostName)
+    DEFINE_SETTINGFACT(forwardMavlinkAPMSupportHostName)
+    DEFINE_SETTINGFACT(sendGCSHeartbeat)
+    DEFINE_SETTINGFACT(gcsMavlinkSystemID)
+
+    DEFINE_SETTINGFACT(noInitialDownloadWhenFlying)
+
+    // Although this is a global setting it only affects ArduPilot vehicle since PX4 automatically starts the stream from the vehicle side
+    DEFINE_SETTINGFACT(apmStartMavlinkStreams)
+};

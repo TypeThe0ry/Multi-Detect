@@ -1,0 +1,26 @@
+{
+  "exclude": [
+    "build",
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules",
+    "tools/skills"
+  ],
+  "include": [
+    "tools/**/*.py",
+    "test/**/*.py",
+    ".github/scripts/**/*.py"
+  ],
+  "extraPaths": [
+    "tools",
+    "tools/translations",
+    ".github/scripts",
+    ".github/scripts/tests"
+  ],
+  "pythonVersion": "3.10",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": false,
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning",
+  "typeCheckingMode": "basic"
+}

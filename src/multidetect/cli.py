@@ -36,6 +36,7 @@ from .audit import AuditLog
 from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
 from .deployment_planner import FixedWingReleaseWindowPlanner, PrimaryRangeEvidence
+from .depth_calibration import load_calibration_document
 from .depth_grid_udp import DepthGridUdpPublisher
 from .domain import (
     BoundingBox,
@@ -1301,6 +1302,14 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--metric-depth-calibration-scale", type=float, default=1.0)
     live.add_argument("--metric-depth-calibration-offset-m", type=float, default=0.0)
     live.add_argument("--metric-depth-calibration-profile", default="uncalibrated")
+    live.add_argument(
+        "--metric-depth-calibration-document",
+        type=Path,
+        help=(
+            "validated multi-point outdoor calibration JSON; when supplied it "
+            "overrides the scale, offset, and profile arguments"
+        ),
+    )
     live.add_argument("--metric-depth-grid-width", type=int, default=160)
     live.add_argument("--metric-depth-grid-height", type=int, default=90)
     live.add_argument("--metric-depth-temporal-window", type=int, default=5)
@@ -1312,6 +1321,12 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--depth-grid-udp-local-port", type=int, default=14_583)
     live.add_argument("--depth-grid-hmac-key-env")
     live.add_argument("--depth-grid-maximum-datagram-bytes", type=int, default=1200)
+    live.add_argument(
+        "--depth-grid-maximum-rate-hz",
+        type=float,
+        default=5.0,
+        help="bound depth-grid display publishing while leaving metric inference unthrottled",
+    )
     live.add_argument(
         "--unified-target-pool",
         action="store_true",
@@ -1516,6 +1531,12 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--operator-source-rotation", type=int, default=0)
     live.add_argument("--operator-acquisition-timeout-seconds", type=float, default=1.0)
     live.add_argument("--operator-lost-after-seconds", type=float, default=0.75)
+    live.add_argument(
+        "--operator-metadata-peer-timeout-seconds",
+        type=float,
+        default=5.0,
+        help="signed QGC metadata-peer lease; aligned with the QGC stale-state timeout",
+    )
     live.add_argument("--operator-local-system-id", type=int, default=1)
     live.add_argument("--operator-local-component-id", type=int, default=191)
     live.add_argument("--operator-remote-system-id", type=int, default=255)
@@ -4894,6 +4915,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             port=args.operator_udp_port,
             mavlink=operator_adapter,
             guard=SelectionCommandGuard(operator_geometry),
+            metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
         )
         operator_bridge = LiveOperatorBridge(
             operator_transport,
@@ -5076,6 +5098,11 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             heading_sigma_deg=args.ranging_heading_sigma_deg,
             target_center_sigma_px=args.ranging_target_center_sigma_px,
         )
+    metric_depth_calibration = (
+        load_calibration_document(args.metric_depth_calibration_document)
+        if args.metric_depth_calibration_document is not None
+        else None
+    )
     metric_depth_runner = (
         AsyncMetricDepthRunner(
             MetricDepthEstimator(
@@ -5086,9 +5113,21 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     maximum_depth_m=args.metric_depth_maximum_depth_m,
                     minimum_interval_s=args.metric_depth_minimum_interval_seconds,
                     maximum_result_age_s=args.metric_depth_maximum_age_seconds,
-                    calibration_scale=args.metric_depth_calibration_scale,
-                    calibration_offset_m=args.metric_depth_calibration_offset_m,
-                    calibration_profile=args.metric_depth_calibration_profile,
+                    calibration_scale=(
+                        metric_depth_calibration.scale
+                        if metric_depth_calibration is not None
+                        else args.metric_depth_calibration_scale
+                    ),
+                    calibration_offset_m=(
+                        metric_depth_calibration.offset_m
+                        if metric_depth_calibration is not None
+                        else args.metric_depth_calibration_offset_m
+                    ),
+                    calibration_profile=(
+                        metric_depth_calibration.profile
+                        if metric_depth_calibration is not None
+                        else args.metric_depth_calibration_profile
+                    ),
                     grid_width=args.metric_depth_grid_width,
                     grid_height=args.metric_depth_grid_height,
                     temporal_window_size=args.metric_depth_temporal_window,
@@ -5254,6 +5293,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             hmac_key=_hmac_key_from_env(args.depth_grid_hmac_key_env),
             maximum_datagram_bytes=args.depth_grid_maximum_datagram_bytes,
             local_port=args.depth_grid_udp_local_port,
+            maximum_rate_hz=args.depth_grid_maximum_rate_hz,
         )
         if args.depth_grid_udp_host is not None
         else None
@@ -5580,6 +5620,26 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "metric_depth_calibration_profile": (
                 metric_depth_runner.config.calibration_profile
                 if metric_depth_runner is not None
+                else None
+            ),
+            "metric_depth_calibration_document": (
+                str(metric_depth_calibration.document_path)
+                if metric_depth_calibration is not None
+                else None
+            ),
+            "metric_depth_calibration_document_sha256": (
+                metric_depth_calibration.document_sha256
+                if metric_depth_calibration is not None
+                else None
+            ),
+            "metric_depth_calibration_sample_count": (
+                metric_depth_calibration.sample_count
+                if metric_depth_calibration is not None
+                else None
+            ),
+            "metric_depth_calibration_inlier_count": (
+                metric_depth_calibration.inlier_count
+                if metric_depth_calibration is not None
                 else None
             ),
             "metric_depth_grid": (

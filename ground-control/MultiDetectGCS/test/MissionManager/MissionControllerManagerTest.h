@@ -1,0 +1,51 @@
+#pragma once
+
+#include <memory>
+
+#include <QtPositioning/QGeoCoordinate>
+
+#include "BaseClasses/VehicleTestManualConnect.h"
+#include "MissionManager.h"
+
+class MultiSignalSpy;
+
+/// This is the base class for the MissionManager and MissionController unit tests.
+class MissionControllerManagerTest : public VehicleTestManualConnect
+{
+    Q_OBJECT
+
+public:
+    ~MissionControllerManagerTest() override;
+
+protected slots:
+    void cleanup() override;
+
+protected:
+    void _initForFirmwareType(MAV_AUTOPILOT firmwareType);
+    void _checkInProgressValues(bool inProgress);
+
+    MissionManager* _missionManager;
+
+    struct ItemInfo_t {
+        int sequenceNumber;
+        QGeoCoordinate coordinate;
+        MAV_CMD command;
+        double param1;
+        double param2;
+        double param3;
+        double param4;
+        bool autocontinue;
+        bool isCurrentItem;
+        MAV_FRAME frame;
+    };
+
+    struct TestCase_t {
+        const char* itemStream;
+        const ItemInfo_t expectedItem;
+    };
+
+    std::unique_ptr<MultiSignalSpy> _multiSpyMissionManager;
+
+    static const int _missionManagerSignalWaitTime =
+        MissionManager::_ackTimeoutMilliseconds * MissionManager::_maxRetryCount * 2;
+};

@@ -1,0 +1,83 @@
+#include "QGCFenceCircle.h"
+#include "JsonParsing.h"
+
+QGCFenceCircle::QGCFenceCircle(QObject* parent)
+    : QGCMapCircle  (parent)
+    , _inclusion    (true)
+{
+    _init();
+}
+
+QGCFenceCircle::QGCFenceCircle(const QGeoCoordinate& center, double radius, bool inclusion, QObject* parent)
+    : QGCMapCircle  (center, radius, false /* showRotation */, true /* clockwiseRotation */, parent)
+    , _inclusion    (inclusion)
+{
+    _init();
+}
+
+QGCFenceCircle::QGCFenceCircle(const QGCFenceCircle& other, QObject* parent)
+    : QGCMapCircle  (other, parent)
+    , _inclusion    (other._inclusion)
+{
+    _init();
+}
+
+void QGCFenceCircle::_init(void)
+{
+    connect(this, &QGCFenceCircle::inclusionChanged, this, &QGCFenceCircle::_setDirty);
+}
+
+const QGCFenceCircle& QGCFenceCircle::operator=(const QGCFenceCircle& other)
+{
+    QGCMapCircle::operator=(other);
+
+    setInclusion(other._inclusion);
+
+    return *this;
+}
+
+void QGCFenceCircle::_setDirty(void)
+{
+    setDirty(true);
+}
+
+void QGCFenceCircle::saveToJson(QJsonObject& json)
+{
+    json[JsonParsing::jsonVersionKey] = _jsonCurrentVersion;
+    json[_jsonInclusionKey] = _inclusion;
+    QGCMapCircle::saveToJson(json);
+}
+
+bool QGCFenceCircle::loadFromJson(const QJsonObject& json, QString& errorString)
+{
+    errorString.clear();
+
+    QList<JsonParsing::KeyValidateInfo> keyInfoList = {
+        { JsonParsing::jsonVersionKey,   QJsonValue::Double, true },
+        { _jsonInclusionKey,            QJsonValue::Bool,   true },
+    };
+    if (!JsonParsing::validateKeys(json, keyInfoList, errorString)) {
+        return false;
+    }
+
+    if (json[JsonParsing::jsonVersionKey].toInt() != _jsonCurrentVersion) {
+        errorString = tr("GeoFence Circle only supports version %1").arg(_jsonCurrentVersion);
+        return false;
+    }
+
+    if (!QGCMapCircle::loadFromJson(json, errorString)) {
+        return false;
+    }
+
+    setInclusion(json[_jsonInclusionKey].toBool());
+
+    return true;
+}
+
+void QGCFenceCircle::setInclusion(bool inclusion)
+{
+    if (inclusion != _inclusion) {
+        _inclusion = inclusion;
+        emit inclusionChanged(inclusion);
+    }
+}

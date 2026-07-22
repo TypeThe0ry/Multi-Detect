@@ -4,9 +4,9 @@ from collections.abc import Collection, Mapping
 from uuid import uuid4
 
 from .approach_hil import ApproachHilAssessment, SlideConfirmationChallenge
-from .domain import AuthorizationChallenge, DeploymentWindowSolution, MissionPhase
+from .domain import AuthorizationChallenge, DeploymentWindowSolution, MissionPhase, VehicleTelemetry
 from .mission import MissionStatus, ObservationOutcome
-from .multimodal_ranging import RangeSolution
+from .multimodal_ranging import RangeSolution, RangeValidity
 from .operator_link import (
     ApproachChallengeStatusMessage,
     ApproachStatusMessage,
@@ -22,6 +22,7 @@ from .operator_link import (
     SceneContextRegionEntry,
     SceneContextState,
     SceneContextStatusMessage,
+    TargetGeolocationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     operator_identifier_token,
@@ -34,6 +35,7 @@ from .payload_target_gate import (
 )
 from .semantic_environment import SemanticContextSnapshot
 from .semantic_environment import SemanticContextState as ModelContextState
+from .target_geolocation import target_geolocation_from_ned_offset
 from .unified_tracking import UnifiedTrackSnapshot, UnifiedTrackState
 
 _AUTHORIZED_PHASES = frozenset(
@@ -229,6 +231,77 @@ def build_range_status_message(
         vehicle_profile=solution.vehicle_profile,
         navigation_state=solution.navigation_state,
         motion_regime=solution.motion_regime,
+    )
+
+
+def build_target_geolocation_status_message(
+    *,
+    sequence: int,
+    solution: RangeSolution,
+    telemetry: VehicleTelemetry,
+    source_captured_at_s: float,
+) -> TargetGeolocationStatusMessage:
+    """Build qualified target coordinates or an explicit withholding reason.
+
+    The result is display-only.  In particular, local-NED, vision-only, stale,
+    or otherwise unqualified navigation must never be promoted to WGS-84.
+    """
+
+    values: dict[str, object] = {
+        "sequence": sequence,
+        "target_id": solution.target_id,
+        "source_frame_id": solution.frame_id,
+        "source_captured_at_s": source_captured_at_s,
+        "produced_at_s": solution.evaluated_at_s,
+    }
+    if solution.validity is RangeValidity.INVALID:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="target_range_invalid",
+        )
+    if solution.navigation_state != "gps-aided":
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="gps_navigation_not_qualified",
+        )
+    if solution.north_offset_m is None or solution.east_offset_m is None:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="target_offset_unavailable",
+        )
+    try:
+        target = target_geolocation_from_ned_offset(
+            aircraft_latitude_deg=telemetry.latitude_deg,
+            aircraft_longitude_deg=telemetry.longitude_deg,
+            north_offset_m=solution.north_offset_m,
+            east_offset_m=solution.east_offset_m,
+            aircraft_horizontal_sigma_m=telemetry.gps_horizontal_accuracy_m,
+            ground_range_ci95_m=solution.ground_range_ci95_m,
+            ground_range_m=solution.ground_range_m,
+            bearing_sigma_deg=solution.bearing_sigma_deg,
+        )
+    except ValueError:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="geolocation_input_invalid",
+        )
+    if target.horizontal_sigma_m > 6553.4:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="target_uncertainty_out_of_wire_range",
+        )
+    return TargetGeolocationStatusMessage(
+        **values,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=target.latitude_deg,
+        longitude_deg=target.longitude_deg,
+        horizontal_sigma_m=target.horizontal_sigma_m,
     )
 
 
@@ -582,4 +655,5 @@ __all__ = [
     "build_safety_status_message",
     "build_scene_context_status_messages",
     "build_target_pool_status_messages",
+    "build_target_geolocation_status_message",
 ]

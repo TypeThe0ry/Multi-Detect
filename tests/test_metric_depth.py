@@ -95,12 +95,58 @@ def test_async_metric_depth_holds_last_manual_lck_result_without_blocking_submit
         measurement = None
         deadline = time.monotonic() + 2.0
         while measurement is None and time.monotonic() < deadline:
-            measurement = runner.measurement_for(target_id="manual-2", now_s=time.perf_counter())
+            measurement = runner.measurement_for(
+                target_id="manual-2",
+                bbox=BoundingBox(0.2, 0.2, 0.8, 0.8),
+                now_s=time.perf_counter(),
+            )
             time.sleep(0.005)
         assert measurement is not None
         assert measurement.slant_range_m == pytest.approx(3.25)
         assert runner.inference_count == 1
         assert runner.failure_count == 0
+    finally:
+        runner.close()
+
+
+def test_async_metric_depth_rejects_result_when_same_track_moves_substantially() -> None:
+    estimator = _estimator(np.full((1, 518, 518), 4.0, dtype=np.float32))
+    runner = AsyncMetricDepthRunner(estimator)
+    source_bbox = BoundingBox(0.10, 0.10, 0.30, 0.30)
+    try:
+        started = time.perf_counter()
+        assert runner.submit(
+            image_bgr=np.zeros((480, 640, 3), dtype=np.uint8),
+            target_id="moving-track",
+            bbox=source_bbox,
+            frame_id="frame-moving-track",
+            captured_at_s=started,
+            now_s=started,
+        )
+        deadline = time.monotonic() + 2.0
+        while runner.latest_result() is None and time.monotonic() < deadline:
+            time.sleep(0.005)
+        accepted = runner.measurement_association_for(
+            target_id="moving-track",
+            bbox=source_bbox,
+            now_s=time.perf_counter(),
+        )
+        assert accepted.status == "accepted"
+        assert accepted.measurement is not None
+        assert accepted.source_iou == pytest.approx(1.0)
+        assert accepted.center_distance == pytest.approx(0.0)
+        assert accepted.compatible_sample_count == 1
+        rejected = runner.measurement_association_for(
+            target_id="moving-track",
+            bbox=BoundingBox(0.65, 0.65, 0.85, 0.85),
+            now_s=time.perf_counter(),
+        )
+        assert rejected.measurement is None
+        assert rejected.status == "geometry_rejected"
+        assert rejected.source_result is not None
+        assert rejected.source_iou == pytest.approx(0.0)
+        assert rejected.center_distance is not None
+        assert rejected.center_distance > 0.15
     finally:
         runner.close()
 

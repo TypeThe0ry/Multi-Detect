@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/mavlink/qgroundcontrol.git",
+  "commit": "5bc5dfba657ee584b4ddf20f1b037eac25da9a3c",
+  "commit_date_utc": "2026-07-10T19:42:51Z",
+  "source_archive_sha256": "FC95B302D65243E1A32743A938BE091C8932F0622B810F075CB9091F51AD511A",
+  "source_archive": "QGroundControl-5bc5dfb-source.tar.gz",
+  "git_initialized": true,
+  "branch": "codex/multidetect-qgc",
+  "submodules_required": false,
+  "tooling_ready": true,
+  "build_ready": false,
+  "build_blockers": [
+    "Visual Studio 2022 Build Tools with VCTools is not installed.",
+    "Qt 6.11.1 msvc2022_64 is not installed.",
+    "GStreamer 1.28.4 MSVC x86_64 runtime and development files are not installed."
+  ],
+  "notes": [
+    "Source archive matches the tested 2026-07-10 QGroundControl Daily baseline.",
+    "Git history is anchored to the tested upstream commit and existing custom changes are preserved on a dedicated branch.",
+    "The repository has no .gitmodules at this commit; no submodule initialization is required.",
+    "The lightweight Python/CMake/Ninja/Just toolchain is installed in .venv and 484 QGC tools tests pass."
+  ]
+}

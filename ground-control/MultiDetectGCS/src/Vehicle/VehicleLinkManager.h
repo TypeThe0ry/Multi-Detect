@@ -1,0 +1,97 @@
+#pragma once
+
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QObject>
+#include <QtCore/QTimer>
+#include <QtQmlIntegration/QtQmlIntegration>
+
+#include "LinkInterface.h"
+#include "MAVLinkMessageType.h"
+
+class Vehicle;
+class VehicleLinkManagerTest;
+
+class VehicleLinkManager : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+    Q_MOC_INCLUDE("Vehicle.h")
+    Q_PROPERTY(QString      primaryLinkName             READ primaryLinkName            WRITE setPrimaryLinkByName          NOTIFY primaryLinkChanged)
+    Q_PROPERTY(QStringList  linkNames                   READ linkNames                                                      NOTIFY linkNamesChanged)
+    Q_PROPERTY(QStringList  linkStatuses                READ linkStatuses                                                   NOTIFY linkStatusesChanged)
+    Q_PROPERTY(bool         communicationLost           READ communicationLost                                              NOTIFY communicationLostChanged)
+    Q_PROPERTY(bool         communicationLostEnabled    READ communicationLostEnabled   WRITE setCommunicationLostEnabled   NOTIFY communicationLostEnabledChanged)
+    Q_PROPERTY(bool         autoDisconnect              MEMBER _autoDisconnect                                              NOTIFY autoDisconnectChanged)
+
+    friend class Vehicle;
+#ifdef QGC_UNITTEST_BUILD
+    friend class VehicleLinkManagerTest;
+#endif
+
+public:
+    VehicleLinkManager(Vehicle *vehicle);
+    ~VehicleLinkManager();
+
+    void mavlinkMessageReceived(LinkInterface *link, const mavlink_message_t &message);
+    bool containsLink(LinkInterface *link);
+    WeakLinkInterfacePtr primaryLink() const { return _primaryLink; }
+    QString primaryLinkName() const;
+    QStringList linkNames() const;
+    QStringList linkStatuses() const;
+    bool communicationLost() const { return _communicationLost; }
+    bool communicationLostEnabled() const { return _communicationLostEnabled; }
+    void setPrimaryLinkByName(const QString &name);
+    void setCommunicationLostEnabled(bool communicationLostEnabled);
+    void closeVehicle();
+
+signals:
+    void primaryLinkChanged();
+    void allLinksRemoved(Vehicle *vehicle);
+    void communicationLostChanged(bool communicationLost);
+    void communicationLostEnabledChanged(bool communicationLostEnabled);
+    void linkNamesChanged();
+    void linkStatusesChanged();
+    void autoDisconnectChanged(bool autoDisconnect);
+
+private slots:
+    void _commLostCheck();
+
+private:
+    int _containsLinkIndex(const LinkInterface *link);
+    void _addLink(LinkInterface *link);
+    void _removeLink(LinkInterface *link);
+    void _linkDisconnected();
+    bool _updatePrimaryLink();
+    SharedLinkInterfacePtr _bestActivePrimaryLink();
+    void _commRegainedOnLink(LinkInterface *link);
+
+    struct LinkInfo_t {
+        SharedLinkInterfacePtr link;
+        bool commLost = false;
+        QElapsedTimer heartbeatElapsedTimer;
+    };
+
+    Vehicle *_vehicle = nullptr;
+    QTimer *_commLostCheckTimer = nullptr;
+    QList<LinkInfo_t> _rgLinkInfo;
+    WeakLinkInterfacePtr _primaryLink;
+    bool _communicationLost = false;
+    bool _communicationLostEnabled = true;
+    bool _autoDisconnect = false;                           ///< true: Automatically disconnect vehicle when last connection goes away or lost heartbeat
+    bool _allLinksRemovedSignalledByCloseVehicle = false;
+
+    static constexpr int _commLostCheckTimeoutMSecs = 1000; ///< Check for comm lost once a second
+    static constexpr int _heartbeatMaxElpasedMSecs = 3500;  ///< No heartbeat for longer than this indicates comm loss
+
+public:
+    /// Heartbeat timeout used in unit tests (shorter for faster tests). Margin kept wide so an
+    /// ASan-stalled event loop can't be mistaken for a missed heartbeat (false comm-loss).
+    static constexpr int kTestHeartbeatTimeoutMs = 1500;
+
+    static constexpr int kTestCommLostCheckTimeoutMs = 250;
+
+    /// Full comm loss detection timeout for tests: accounts for timer interval + heartbeat timeout + margin.
+    /// Use this in tests waiting for communicationLostChanged or linkStatusesChanged signals.
+    static constexpr int kTestCommLostDetectionTimeoutMs = kTestCommLostCheckTimeoutMs + kTestHeartbeatTimeoutMs + 300;
+};

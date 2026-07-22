@@ -1,0 +1,87 @@
+#include "SettingsFact.h"
+#include "AppMessages.h"
+#include "QGCCorePlugin.h"
+#include "QGCLoggingCategory.h"
+#include "SettingsManager.h"
+
+#include <QtCore/QSettings>
+
+QGC_LOGGING_CATEGORY(SettingsFactLog, "FactSystem.SettingsFact")
+
+SettingsFact::SettingsFact(QObject *parent)
+    : Fact(parent)
+{
+    // qCDebug(SettingsFactLog) << Q_FUNC_INFO << this;
+}
+
+SettingsFact::SettingsFact(const QString &settingsGroup, FactMetaData *metaData, QObject *parent)
+    : Fact(0, metaData->name(), metaData->type(), parent)
+    , _settingsGroup(settingsGroup)
+{
+    // qCDebug(SettingsFactLog) << Q_FUNC_INFO << this;
+    QSettings settings;
+
+    if (!_settingsGroup.isEmpty()) {
+        settings.beginGroup(_settingsGroup);
+    }
+
+    // Allow core plugin a chance to override the default value
+    SettingsManager::adjustSettingMetaData(settingsGroup, *metaData, _userVisible);
+    setMetaData(metaData);
+
+    if (metaData->defaultValueAvailable()) {
+        const QVariant rawDefaultValue = metaData->rawDefaultValue();
+        QVariant resolvedValue;
+
+        if (QGC::runningUnitTests()) {
+            // Don't use saved settings
+            resolvedValue = rawDefaultValue;
+        } else if (_userVisible) {
+            QVariant typedValue;
+            QString errorString;
+            (void) metaData->convertAndValidateRaw(settings.value(_name, rawDefaultValue), true /* conertOnly */, typedValue, errorString);
+            resolvedValue = typedValue;
+        } else {
+            // Setting is not visible, force to default value always
+            // Note that we specifically do not save this back to QSettings such that a Settings Override file change is not a permanent change
+            resolvedValue = rawDefaultValue;
+        }
+
+        QMutexLocker<QRecursiveMutex> locker(&_rawValueMutex);
+        _rawValue = resolvedValue;
+    }
+
+    (void) connect(this, &Fact::rawValueChanged, this, &SettingsFact::_rawValueChanged);
+}
+
+SettingsFact::SettingsFact(const SettingsFact &other, QObject *parent)
+    : Fact(other, parent)
+{
+    // qCDebug(SettingsFactLog) << Q_FUNC_INFO << this;
+    *this = other;
+}
+
+SettingsFact::~SettingsFact()
+{
+    // qCDebug(SettingsFactLog) << Q_FUNC_INFO << this;
+}
+
+const SettingsFact &SettingsFact::operator=(const SettingsFact &other)
+{
+    Fact::operator=(other);
+
+    _settingsGroup = other._settingsGroup;
+
+    return *this;
+}
+
+void SettingsFact::_rawValueChanged(const QVariant &value)
+{
+    QSettings settings;
+
+    if (!_settingsGroup.isEmpty()) {
+        settings.beginGroup(_settingsGroup);
+    }
+
+    settings.setValue(_name, value);
+}

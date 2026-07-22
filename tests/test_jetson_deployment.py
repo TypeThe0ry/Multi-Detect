@@ -224,9 +224,18 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     )
 
     assert "src/multidetect/adaptive_ranging.py" in deployer
+    assert "src/multidetect/depth_calibration.py" in deployer
+    assert "src/multidetect/target_geolocation.py" in deployer
+    assert "scripts/export_outdoor_depth_calibration_candidates.py" in deployer
+    assert "scripts/validate_outdoor_depth_calibration.py" in deployer
+    assert "scripts/fit_outdoor_depth_calibration.py" in deployer
+    assert "src/multidetect/domain.py" in deployer
+    assert "src/multidetect/pixhawk.py" in deployer
     assert "src/multidetect/rgb_slam_range.py" in deployer
     assert "src/multidetect/operator_protocol.py" in deployer
-    assert "from multidetect.operator_protocol import OperatorTunnelCodec" in deployer
+    assert '"src/multidetect/operator_protocol.py"' in deployer
+    assert '"src/multidetect/operator_bridge.py"' in deployer
+    assert '"src/multidetect/operator_mavlink.py"' in deployer
     assert "source-sha256.txt" in deployer
     assert "[System.IO.File]::WriteAllText" in deployer
     assert '($manifest -join "`n") + "`n"' in deployer
@@ -236,8 +245,20 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "bash -n scripts/run_jetson_fire_patrol.sh" in deployer
     assert 'chmod 755 "`$root/scripts/run_jetson_fire_patrol.sh"' in deployer
     assert 'test -x "`$root/scripts/run_jetson_fire_patrol.sh"' in deployer
-    assert "RgbSlamRangeEstimator().config.minimum_range_m == 0.4" in deployer
-    assert "RgbSlamRangeEstimator().config.maximum_range_m == 800.0" in deployer
+    assert 'find "`$root/src/multidetect" -type d -name __pycache__' in deployer
+    assert 'cp -f "`$source" "`$target"' in deployer
+    assert "grep -Fq 'minimum_range_m: float = 0.4'" in deployer
+    assert "grep -Fq 'maximum_range_m: float = 800.0'" in deployer
+    assert "grep -Fq 'metadata_peer_timeout_s: float = 5.0'" in deployer
+    assert "grep -Fq 'def encode_target_geolocation_status'" in deployer
+    assert "grep -Fq 'def _target_geolocation_status_due'" in deployer
+    assert "grep -Fq 'TARGET_GEOLOCATION_STATUS = 22'" in deployer
+    assert "grep -Fq 'minimum_gps_fix_type: int = 3'" in deployer
+    assert "grep -Fq 'gps_horizontal_accuracy_m'" in deployer
+    assert "CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1" in deployer
+    assert "geometry-accepted target depth events" in deployer
+    assert "automatic_calibration_update=false" in deployer
+    assert "--metric-depth-calibration-document" in deployer
     assert "sudo -n systemctl restart" in deployer
     assert "QGC source and build artifacts stay local" in deployer
 
@@ -245,6 +266,9 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
 def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> None:
     recorder = (ROOT / "scripts/record_jetson_rtsp_evidence.sh").read_text(encoding="utf-8")
     launcher = (ROOT / "scripts/run_jetson_fire_patrol.sh").read_text(encoding="utf-8")
+    deployment = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert "record-rtsp-evidence" in recorder
     assert '--source-env "${SOURCE_ENV_NAME}"' in recorder
@@ -267,8 +291,11 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert 'MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX:-' in launcher
     assert "OPERATOR_UDP_ENABLED must be auto, 0 or 1" in launcher
     assert '--operator-udp-port "${OPERATOR_UDP_PORT:-14580}"' in launcher
+    assert '--operator-metadata-peer-timeout-seconds "${OPERATOR_METADATA_PEER_TIMEOUT_SECONDS:-5.0}"' in launcher
     assert "--operator-udp-bind-host" in launcher
     assert "--operator-hmac-key-env MULTIDETECT_OPERATOR_KEY" in launcher
+    assert '--depth-grid-maximum-rate-hz "${DEPTH_GRID_MAXIMUM_RATE_HZ:-5.0}"' in launcher
+    assert '"src/multidetect/operator_udp.py"' in deployment
     assert "--mavlink-signing-key-hex-env MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX" in launcher
     assert "--operator-local-system-id 1" in launcher
     assert "--operator-local-component-id 191" in launcher

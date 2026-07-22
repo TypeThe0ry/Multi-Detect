@@ -160,6 +160,10 @@ class VehicleTelemetry:
     heading_deg: float = nan
     battery_remaining_pct: float = nan
     satellites_visible: int | None = None
+    gps_fix_type: int | None = None
+    gps_horizontal_accuracy_m: float = nan
+    gps_vertical_accuracy_m: float = nan
+    gps_observed_at_s: float = nan
     armed: bool | None = None
     flight_mode: str | None = None
     mission_sequence: int | None = None

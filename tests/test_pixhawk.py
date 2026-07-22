@@ -82,7 +82,19 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
         received_at_s=10.0,
     )
     provider.ingest_message(_Message("SYS_STATUS", battery_remaining=73), received_at_s=10.0)
-    provider.ingest_message(_Message("GPS_RAW_INT", satellites_visible=17), received_at_s=10.0)
+    provider.ingest_message(
+        _Message(
+            "GPS_RAW_INT",
+            fix_type=3,
+            satellites_visible=17,
+            lat=31_123_4560,
+            lon=121_654_3210,
+            alt=15_000,
+            eph=85,
+            epv=140,
+        ),
+        received_at_s=10.0,
+    )
     provider.ingest_message(_Message("MISSION_CURRENT", seq=4), received_at_s=10.0)
     provider.ingest_message(_Message("VFR_HUD", airspeed=16.5), received_at_s=10.1)
     provider.ingest_message(
@@ -105,6 +117,10 @@ def test_pixhawk_provider_only_maps_read_only_telemetry() -> None:
     assert snapshot.heading_deg == pytest.approx(123.45)
     assert snapshot.battery_remaining_pct == pytest.approx(73.0)
     assert snapshot.satellites_visible == 17
+    assert snapshot.gps_fix_type == 3
+    assert snapshot.gps_horizontal_accuracy_m == pytest.approx(0.85)
+    assert snapshot.gps_vertical_accuracy_m == pytest.approx(1.40)
+    assert snapshot.gps_observed_at_s == pytest.approx(10.0)
     assert snapshot.armed is True
     assert snapshot.flight_mode == "AUTO"
     assert snapshot.mission_sequence == 4

@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 
+import pytest
 from pymavlink.dialects.v20 import common as mavlink2
 
 from multidetect.approach_hil import ApproachHilPhase
@@ -150,6 +151,19 @@ def test_authenticated_metadata_peer_lease_expires_without_heartbeat() -> None:
             assert server.active_metadata_peer() is not None
             time.sleep(0.05)
             assert server.active_metadata_peer() is None
+
+
+def test_metadata_peer_lease_default_matches_qgc_stale_timeout() -> None:
+    server = UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+    )
+    try:
+        assert server.metadata_peer_timeout_s == pytest.approx(5.0)
+    finally:
+        server.close()
 
 
 def test_real_localhost_udp_selection_and_ack_round_trip() -> None:

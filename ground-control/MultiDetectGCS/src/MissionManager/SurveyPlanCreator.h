@@ -1,0 +1,13 @@
+#pragma once
+
+#include "PlanCreator.h"
+
+class SurveyPlanCreator : public PlanCreator
+{
+    Q_OBJECT
+
+public:
+    SurveyPlanCreator(PlanMasterController* planMasterController);
+
+    Q_INVOKABLE void createPlan(const QGeoCoordinate& mapCenterCoord) final;
+};

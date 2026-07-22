@@ -1,0 +1,55 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
+import QtQuick.Window
+
+import QGroundControl
+import QGroundControl.Controls
+import QGroundControl.FlyView
+import QGroundControl.FlightMap
+
+ApplicationWindow {
+    id:         _root
+    visible:    true
+    visibility: Qt.WindowFullScreen
+    color:      qgcPal.window
+
+    property real editorWidth:  ScreenTools.defaultFontPixelWidth * 30
+
+    QGCPalette { id: qgcPal; colorGroupEnabled: true }
+
+    Timer {
+        id:             timer
+        interval:       100
+        onTriggered: {
+            var success = fullImage.grabToImage(function(result) { result.saveToFile(imagePath) })
+            console.log(success)
+        }
+    }
+
+    Component.onCompleted: timer.start()
+
+    Flow {
+        id:             fullImage
+        anchors.fill:   parent
+
+        Repeater {
+            model: missionItems
+
+            Column {
+                QGCLabel { text: modelData.commandName; color: "black" }
+
+                Loader {
+                    id: editorLoader
+                    Component.onCompleted: {
+                        editorLoader.setSource(modelData.editorQml, {
+                            missionItem:    modelData,
+                            availableWidth: editorWidth
+                        })
+                    }
+                }
+            }
+        }
+    }
+}

@@ -93,6 +93,15 @@ RANGING_REASON_IDS = (
     "direct_range_unavailable",
 )
 
+TARGET_GEOLOCATION_REASON_IDS = (
+    "gps_qualified",
+    "gps_navigation_not_qualified",
+    "target_offset_unavailable",
+    "geolocation_input_invalid",
+    "target_uncertainty_out_of_wire_range",
+    "target_range_invalid",
+)
+
 RELEASE_REASON_IDS = (
     "target_class_not_eligible",
     "multimodal_range_evidence_unavailable",
@@ -1162,6 +1171,67 @@ class RangeStatusMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetGeolocationStatusMessage:
+    """Qualified WGS-84 target position for display only, never vehicle control."""
+
+    sequence: int
+    target_id: str
+    source_frame_id: str
+    source_captured_at_s: float
+    produced_at_s: float
+    available: bool
+    reason: str
+    latitude_deg: float | None = None
+    longitude_deg: float | None = None
+    horizontal_sigma_m: float | None = None
+    advisory_only: bool = True
+    flight_control_enabled: bool = False
+    physical_release_enabled: bool = False
+    protocol_version: int = OPERATOR_LINK_PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if self.protocol_version != OPERATOR_LINK_PROTOCOL_VERSION:
+            raise ValueError("unsupported operator-link protocol version")
+        if not 0 <= self.sequence <= 0xFFFFFFFF:
+            raise ValueError("sequence must fit in an unsigned 32-bit integer")
+        for value, name in (
+            (self.target_id, "target_id"),
+            (self.source_frame_id, "source_frame_id"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"target geolocation {name} cannot be empty")
+        if not all(
+            isfinite(value) and value >= 0.0
+            for value in (self.source_captured_at_s, self.produced_at_s)
+        ):
+            raise ValueError("target geolocation timestamps must be finite and non-negative")
+        if self.produced_at_s < self.source_captured_at_s:
+            raise ValueError("target geolocation cannot predate its source frame")
+        if self.reason not in TARGET_GEOLOCATION_REASON_IDS:
+            raise ValueError("target geolocation reason must use the registered wire vocabulary")
+        values = (self.latitude_deg, self.longitude_deg, self.horizontal_sigma_m)
+        if self.available:
+            if self.reason != "gps_qualified":
+                raise ValueError("available target geolocation requires qualified GPS")
+            if any(value is None or not isfinite(value) for value in values):
+                raise ValueError(
+                    "available target geolocation requires finite coordinates and uncertainty"
+                )
+            if not -90.0 <= float(self.latitude_deg) <= 90.0:
+                raise ValueError("target geolocation latitude is outside the WGS-84 domain")
+            if not -180.0 <= float(self.longitude_deg) <= 180.0:
+                raise ValueError("target geolocation longitude is outside the WGS-84 domain")
+            if float(self.horizontal_sigma_m) < 0.0:
+                raise ValueError("target geolocation uncertainty cannot be negative")
+        elif any(value is not None for value in values):
+            raise ValueError("unavailable target geolocation cannot publish coordinates")
+        elif self.reason == "gps_qualified":
+            raise ValueError("unavailable target geolocation cannot claim qualified GPS")
+        if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
+            raise ValueError("target geolocation transport must remain display-only")
+
+
+@dataclass(frozen=True, slots=True)
 class ReleaseStatusMessage:
     """Authenticated Mode-2 impact advice; never an authorization or actuator command."""
 
@@ -1997,6 +2067,8 @@ __all__ = [
     "TargetSelectionCommand",
     "TargetPoolEntry",
     "TargetPoolStatusMessage",
+    "TargetGeolocationStatusMessage",
+    "TARGET_GEOLOCATION_REASON_IDS",
     "TrackingState",
     "TrackStatusMessage",
     "VideoGeometry",

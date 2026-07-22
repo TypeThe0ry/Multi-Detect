@@ -1,0 +1,804 @@
+#include "MockLinkFTP.h"
+#include "MockLink.h"
+#include "QGCLoggingCategory.h"
+
+#include <QtCore/QDataStream>
+#include <QtCore/QDir>
+#include <QtCore/QTemporaryFile>
+
+QGC_LOGGING_CATEGORY(MockLinkFTPLog, "Comms.MockLink.MockLinkFTP")
+
+MockLinkFTP::MockLinkFTP(uint8_t systemIdServer, uint8_t componentIdServer, MockLink *mockLink)
+    : QObject(mockLink)
+    , _systemIdServer(systemIdServer)
+    , _componentIdServer(componentIdServer)
+    , _mockLink(mockLink)
+{
+    // qCDebug(MockLinkFTPLog) << Q_FUNC_INFO << this;
+}
+
+MockLinkFTP::~MockLinkFTP()
+{
+    if (!_paramPckTempFile.isEmpty()) {
+        QFile::remove(_paramPckTempFile);
+    }
+}
+
+void MockLinkFTP::ensureNullTemination(MavlinkFTP::Request *request)
+{
+    if (request->hdr.size < sizeof(request->data)) {
+        request->data[request->hdr.size] = '\0';
+    } else {
+        request->data[sizeof(request->data) - 1] = '\0';
+    }
+}
+
+void MockLinkFTP::_listCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber, bool withTime)
+{
+    MavlinkFTP::Request ackResponse{};
+    ensureNullTemination(request);
+
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+    const MavlinkFTP::OpCode_t listOpCode = withTime ? MavlinkFTP::kCmdListDirectoryWithTime : MavlinkFTP::kCmdListDirectory;
+
+    if (withTime && !_listDirectoryWithTimeSupported) {
+        // Simulate a server which doesn't implement the command. The client should fall back to kCmdListDirectory.
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrUnknownCommand, outgoingSeqNumber, listOpCode);
+        return;
+    }
+
+    // We only support root path
+    const QString path = reinterpret_cast<char*>(&request->data[0]);
+    if (!path.isEmpty() && path != "/") {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, listOpCode);
+        return;
+    }
+
+    if (request->hdr.offset > 0) {
+        if (_errMode == errModeNakSecondResponse) {
+            // Nak error all subsequent requests
+            _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, listOpCode);
+            return;
+        }
+
+        if (_errMode == errModeNoSecondResponse) {
+            // No response for all subsequent requests
+            return;
+        }
+
+        if (_errMode == errModeNoSecondResponseAllowRetry) {
+            // No response to this request, subsequent requests will succeed
+            _errMode = errModeNone;
+            return;
+        }
+    }
+
+    ackResponse.hdr.opcode = MavlinkFTP::kRspAck;
+    ackResponse.hdr.req_opcode = listOpCode;
+    ackResponse.hdr.session = 0;
+    ackResponse.hdr.offset = request->hdr.offset;
+    ackResponse.hdr.size = 0;
+
+    // Entry format is "F<name>\t<size>", plus a trailing "\t<modification time>" for kCmdListDirectoryWithTime.
+    const auto makeEntry = [withTime](uint32_t index) {
+        QString entry = QStringLiteral("Ffile%1.txt\t%2").arg(index).arg(1024 + index);
+        if (withTime) {
+            entry += QStringLiteral("\t%1").arg(kMockModificationTime + index);
+        }
+        return entry;
+    };
+
+    // MockLink sends two directory entries per packet for a maximum of 3 packets, 6 total entries
+    if (request->hdr.offset <= 5) {
+        char *bufPtr = reinterpret_cast<char*>(&ackResponse.data[0]);
+        QString dirEntry = makeEntry(request->hdr.offset);
+        auto cchDirEntry = dirEntry.length();
+        (void) strncpy(bufPtr, dirEntry.toStdString().c_str(), cchDirEntry);
+        ackResponse.hdr.size += dirEntry.length() + 1;
+        bufPtr += cchDirEntry + 1;
+        dirEntry = makeEntry(request->hdr.offset + 1);
+        cchDirEntry = dirEntry.length();
+        (void) strncpy(bufPtr, dirEntry.toStdString().c_str(), cchDirEntry);
+        ackResponse.hdr.size += dirEntry.length() + 1;
+    } else {
+        ackResponse.hdr.opcode = MavlinkFTP::kRspNak;
+        ackResponse.data[0] = MavlinkFTP::kErrEOF;
+        ackResponse.hdr.size = 1;
+    }
+
+    _sendResponse(senderSystemId, senderComponentId, &ackResponse, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_openCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    MavlinkFTP::Request response{};
+    ensureNullTemination(request);
+    const QString path = reinterpret_cast<char*>(request->data);
+
+    _uploadSession.reset();
+
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    const size_t cchPath = strnlen(reinterpret_cast<char*>(request->data), sizeof(request->data));
+    Q_ASSERT(cchPath != sizeof(request->data));
+    Q_UNUSED(cchPath); // Fix initialized-but-not-referenced warning on release builds
+
+    _currentFile.close();
+
+    QString tmpFilename;
+    const QString sizePrefix = sizeFilenamePrefix;
+    if (path.startsWith(sizePrefix)) {
+        const QString sizeString = path.right(path.length() - sizePrefix.length());
+        tmpFilename = _createTestTempFile(sizeString.toInt());
+    } else if (path == "/general.json") {
+        tmpFilename = QStringLiteral(":MockLink/General.MetaData.json");
+    } else if (path == "/general.json.xz") {
+        tmpFilename = QStringLiteral(":MockLink/General.MetaData.json.xz");
+    } else if (path == "/parameter.json") {
+        tmpFilename = QStringLiteral(":MockLink/Parameter.MetaData.json");
+    } else if (path == "/parameter.json.xz") {
+        tmpFilename = QStringLiteral(":MockLink/Parameter.MetaData.json.xz");
+    } else if (path == "@PARAM/param.pck" || path.startsWith("@PARAM/param.pck?")) {
+        const bool withDefaults = path.contains(QStringLiteral("withdefaults=1"));
+        tmpFilename = _generateParamPck(withDefaults);
+    }
+
+    if (!tmpFilename.isEmpty()) {
+        _currentFile.setFileName(tmpFilename);
+        if (!_currentFile.open(QIODevice::ReadOnly)) {
+            _sendNakErrno(senderSystemId, senderComponentId, _currentFile.error(), outgoingSeqNumber, MavlinkFTP::kCmdOpenFileRO);
+            return;
+        }
+    } else {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFailFileNotFound, outgoingSeqNumber, MavlinkFTP::kCmdOpenFileRO);
+        return;
+    }
+
+    response.hdr.opcode = MavlinkFTP::kRspAck;
+    response.hdr.req_opcode = MavlinkFTP::kCmdOpenFileRO;
+    response.hdr.session = _sessionId;
+
+    // Data contains file length
+    response.hdr.size = sizeof(uint32_t);
+
+    // Ardupilot sends constant wrong file size for parameter file due to dynamic on the fly generation
+    response.openFileLength = ((path == "@PARAM/param.pck" || path.startsWith("@PARAM/param.pck?")) ? qPow(1024, 2) : _currentFile.size());
+
+    _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_createFileCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    ensureNullTemination(request);
+
+    const QString path = reinterpret_cast<char*>(request->data);
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if (path.isEmpty()) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdCreateFile);
+        return;
+    }
+
+    _uploadSession.reset();
+    _uploadSession.active = true;
+    _uploadSession.remotePath = path;
+
+    MavlinkFTP::Request response{};
+    response.hdr.opcode = MavlinkFTP::kRspAck;
+    response.hdr.req_opcode = MavlinkFTP::kCmdCreateFile;
+    response.hdr.session = _sessionId;
+    response.hdr.size = 0;
+
+    _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_openFileWOCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    ensureNullTemination(request);
+
+    const QString path = reinterpret_cast<char*>(request->data);
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if (path.isEmpty()) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdOpenFileWO);
+        return;
+    }
+
+    _uploadSession.reset();
+    _uploadSession.active = true;
+    _uploadSession.remotePath = path;
+
+    MavlinkFTP::Request response{};
+    response.hdr.opcode = MavlinkFTP::kRspAck;
+    response.hdr.req_opcode = MavlinkFTP::kCmdOpenFileWO;
+    response.hdr.session = _sessionId;
+    response.hdr.size = 0;
+
+    _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_readCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    MavlinkFTP::Request	response{};
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if (request->hdr.session != _sessionId) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrInvalidSession, outgoingSeqNumber, MavlinkFTP::kCmdReadFile);
+        return;
+    }
+
+    const uint32_t readOffset = request->hdr.offset;  // offset into file for reading
+    if (readOffset != 0) {
+        // If we get here it means the client is requesting additional data past the first request
+        if (_errMode == errModeNakSecondResponse) {
+            // Nak error all subsequent requests
+            _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdReadFile);
+            return;
+        }
+
+        if (_errMode == errModeNoSecondResponse) {
+            // No rsponse for all subsequent requests
+            return;
+        }
+    }
+
+    if (readOffset >= _currentFile.size()) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrEOF, outgoingSeqNumber, MavlinkFTP::kCmdReadFile);
+        return;
+    }
+
+    const uint8_t cBytesToRead = static_cast<uint8_t>(qMin(static_cast<qint64>(sizeof(response.data)), _currentFile.size() - readOffset));
+    (void) _currentFile.seek(readOffset);
+    const QByteArray bytes = _currentFile.read(cBytesToRead);
+    (void) memcpy(response.data, bytes.constData(), cBytesToRead);
+
+    // We should always have written something, otherwise there is something wrong with the code above
+    Q_ASSERT(cBytesToRead);
+
+    response.hdr.session = _sessionId;
+    response.hdr.size = cBytesToRead;
+    response.hdr.offset = request->hdr.offset;
+    response.hdr.opcode = MavlinkFTP::kRspAck;
+    response.hdr.req_opcode = MavlinkFTP::kCmdReadFile;
+
+    _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_burstReadCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    MavlinkFTP::Request response{};
+    uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if (request->hdr.session != _sessionId) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdBurstReadFile);
+        return;
+    }
+
+    constexpr int burstMax = 10;
+    int burstCount = 1;
+    uint32_t burstOffset = request->hdr.offset;
+
+    while ((burstOffset < _currentFile.size()) && (burstCount++ < burstMax)) {
+        _currentFile.seek(burstOffset);
+
+        const uint8_t cBytes = static_cast<uint8_t>(qMin(static_cast<qint64>(sizeof(response.data)), _currentFile.size() - burstOffset));
+        const QByteArray bytes = _currentFile.read(cBytes);
+        Q_ASSERT(cBytes); // We should always have written something, otherwise there is something wrong with the code above
+
+        (void) memcpy(response.data, bytes.constData(), cBytes);
+
+        response.hdr.session = _sessionId;
+        response.hdr.size = cBytes;
+        response.hdr.offset = burstOffset;
+        response.hdr.opcode = MavlinkFTP::kRspAck;
+        response.hdr.req_opcode = MavlinkFTP::kCmdBurstReadFile;
+        response.hdr.burstComplete = (burstCount == burstMax) ? 1 : 0;
+
+        _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+
+        outgoingSeqNumber = _nextSeqNumber(outgoingSeqNumber);
+        burstOffset += cBytes;
+    }
+
+    if (burstOffset >= _currentFile.size()) {
+        // Burst is fully complete
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrEOF, outgoingSeqNumber, MavlinkFTP::kCmdBurstReadFile);
+    }
+}
+
+void MockLinkFTP::_terminateCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if (request->hdr.session != _sessionId) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrInvalidSession, outgoingSeqNumber, MavlinkFTP::kCmdTerminateSession);
+        return;
+    }
+
+    _currentFile.close();
+    _sendAck(senderSystemId, senderComponentId, outgoingSeqNumber, MavlinkFTP::kCmdTerminateSession);
+
+    _finalizeActiveUpload();
+
+    emit terminateCommandReceived();
+}
+
+void MockLinkFTP::_resetCommand(uint8_t senderSystemId, uint8_t senderComponentId, uint16_t seqNumber)
+{
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    _currentFile.close();
+    _sendAck(senderSystemId, senderComponentId, outgoingSeqNumber, MavlinkFTP::kCmdResetSessions);
+
+    _finalizeActiveUpload();
+
+    emit resetCommandReceived();
+}
+
+void MockLinkFTP::_writeCommand(uint8_t senderSystemId, uint8_t senderComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(seqNumber);
+
+    if ((request->hdr.session != _sessionId) || !_uploadSession.active) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrInvalidSession, outgoingSeqNumber, MavlinkFTP::kCmdWriteFile);
+        return;
+    }
+
+    if (request->hdr.offset > static_cast<uint32_t>(_uploadSession.buffer.size())) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdWriteFile);
+        return;
+    }
+
+    if (request->hdr.offset != 0) {
+        if (_errMode == errModeNakSecondResponse) {
+            _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdWriteFile);
+            return;
+        }
+
+        if (_errMode == errModeNoSecondResponse) {
+            return;
+        }
+
+        if (_errMode == errModeNoSecondResponseAllowRetry) {
+            _errMode = errModeNone;
+            return;
+        }
+    }
+
+    const uint32_t bytesToWrite = request->hdr.size;
+    if (bytesToWrite > sizeof(request->data)) {
+        _sendNak(senderSystemId, senderComponentId, MavlinkFTP::kErrFail, outgoingSeqNumber, MavlinkFTP::kCmdWriteFile);
+        return;
+    }
+
+    const uint32_t requiredSize = request->hdr.offset + bytesToWrite;
+    if (requiredSize > static_cast<uint32_t>(_uploadSession.buffer.size())) {
+        _uploadSession.buffer.resize(requiredSize);
+    }
+
+    if (bytesToWrite > 0) {
+        (void) memcpy(_uploadSession.buffer.data() + request->hdr.offset, request->data, bytesToWrite);
+    }
+
+    MavlinkFTP::Request response{};
+    response.hdr.opcode = MavlinkFTP::kRspAck;
+    response.hdr.req_opcode = MavlinkFTP::kCmdWriteFile;
+    response.hdr.session = _sessionId;
+    response.hdr.size = 0;
+    response.hdr.offset = request->hdr.offset;
+
+    _sendResponse(senderSystemId, senderComponentId, &response, outgoingSeqNumber);
+}
+
+void MockLinkFTP::_finalizeActiveUpload()
+{
+    if (!_uploadSession.active) {
+        return;
+    }
+
+    if (!_uploadSession.remotePath.isEmpty()) {
+        _uploadedFiles.insert(_uploadSession.remotePath, _uploadSession.buffer);
+    }
+
+    _uploadSession.reset();
+}
+
+void MockLinkFTP::mavlinkMessageReceived(const mavlink_message_t &message)
+{
+    if (message.msgid != MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL) {
+        return;
+    }
+
+    mavlink_file_transfer_protocol_t requestFTP{};
+    mavlink_msg_file_transfer_protocol_decode(&message, &requestFTP);
+
+    if (requestFTP.target_system != _systemIdServer) {
+        return;
+    }
+
+    MavlinkFTP::Request *request = reinterpret_cast<MavlinkFTP::Request*>(&requestFTP.payload[0]);
+
+    // kCmdOpenFileRO and kCmdResetSessions don't support retry so we can't drop those
+    if (_randomDropsEnabled && (request->hdr.opcode != MavlinkFTP::kCmdOpenFileRO) && (request->hdr.opcode != MavlinkFTP::kCmdResetSessions)) {
+        if ((rand() % 5) == 0) {
+            qCDebug(MockLinkFTPLog) << "MockLinkFTP: Random drop of incoming packet";
+            return;
+        }
+    }
+
+    if (_lastReplyValid && (request->hdr.seqNumber == (_lastReplySequence - 1))) {
+        // This is the same request as the one we replied to last. It means the (n)ack got lost, and the GCS
+        // resent the request
+        qCDebug(MockLinkFTPLog) << "MockLinkFTP: resending response";
+        _mockLink->respondWithMavlinkMessage(_lastReply);
+        return;
+    }
+
+    const uint16_t incomingSeqNumber = request->hdr.seqNumber;
+    const uint16_t outgoingSeqNumber = _nextSeqNumber(incomingSeqNumber);
+
+    if ((request->hdr.opcode != MavlinkFTP::kCmdResetSessions) && (request->hdr.opcode != MavlinkFTP::kCmdTerminateSession)) {
+        if (_errMode == errModeNoResponse) {
+            // Don't respond to any requests, this shold cause the client to eventually timeout waiting for the ack
+            return;
+        }
+
+        if (_errMode == errModeNakResponse) {
+            // Nak all requests, the actual error send back doesn't really matter as long as it's an error
+            _sendNak(message.sysid, message.compid, MavlinkFTP::kErrFail, outgoingSeqNumber, static_cast<MavlinkFTP::OpCode_t>(request->hdr.opcode));
+            return;
+        }
+    }
+
+    MavlinkFTP::Request ackResponse{};
+    switch (request->hdr.opcode) {
+    case MavlinkFTP::kCmdNone:
+        // ignored, always acked
+        ackResponse.hdr.opcode = MavlinkFTP::kRspAck;
+        ackResponse.hdr.session = 0;
+        ackResponse.hdr.size = 0;
+        _sendResponse(message.sysid, message.compid, &ackResponse, outgoingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdListDirectory:
+        _listCommand(message.sysid, message.compid, request, incomingSeqNumber, false /* withTime */);
+        break;
+    case MavlinkFTP::kCmdListDirectoryWithTime:
+        _listCommand(message.sysid, message.compid, request, incomingSeqNumber, true /* withTime */);
+        break;
+    case MavlinkFTP::kCmdOpenFileRO:
+        _openCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdCreateFile:
+        _createFileCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdOpenFileWO:
+        _openFileWOCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdReadFile:
+        _readCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdBurstReadFile:
+        _burstReadCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdWriteFile:
+        _writeCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdTerminateSession:
+        _terminateCommand(message.sysid, message.compid, request, incomingSeqNumber);
+        break;
+    case MavlinkFTP::kCmdResetSessions:
+        _resetCommand(message.sysid, message.compid, incomingSeqNumber);
+        break;
+    default:
+        // nack for all NYI opcodes
+        _sendNak(message.sysid, message.compid, MavlinkFTP::kErrUnknownCommand, outgoingSeqNumber, static_cast<MavlinkFTP::OpCode_t>(request->hdr.opcode));
+        break;
+    }
+}
+
+void MockLinkFTP::_sendAck(uint8_t targetSystemId, uint8_t targetComponentId, uint16_t seqNumber, MavlinkFTP::OpCode_t reqOpcode)
+{
+    MavlinkFTP::Request ackResponse{};
+
+    ackResponse.hdr.opcode = MavlinkFTP::kRspAck;
+    ackResponse.hdr.req_opcode = reqOpcode;
+    ackResponse.hdr.session = _sessionId;
+    ackResponse.hdr.size = 0;
+
+    _sendResponse(targetSystemId, targetComponentId, &ackResponse, seqNumber);
+}
+
+void MockLinkFTP::_sendNak(uint8_t targetSystemId, uint8_t targetComponentId, MavlinkFTP::ErrorCode_t error, uint16_t seqNumber, MavlinkFTP::OpCode_t reqOpcode)
+{
+    MavlinkFTP::Request nakResponse{};
+
+    nakResponse.hdr.opcode = MavlinkFTP::kRspNak;
+    nakResponse.hdr.req_opcode = reqOpcode;
+    nakResponse.hdr.session = _sessionId;
+    nakResponse.hdr.size = 1;
+    nakResponse.data[0] = error;
+
+    _sendResponse(targetSystemId, targetComponentId, &nakResponse, seqNumber);
+}
+
+void MockLinkFTP::_sendNakErrno(uint8_t targetSystemId, uint8_t targetComponentId, uint8_t nakErrno, uint16_t seqNumber, MavlinkFTP::OpCode_t reqOpcode)
+{
+    MavlinkFTP::Request nakResponse{};
+
+    nakResponse.hdr.opcode = MavlinkFTP::kRspNak;
+    nakResponse.hdr.req_opcode = reqOpcode;
+    nakResponse.hdr.session = _sessionId;
+    nakResponse.hdr.size = 2;
+    nakResponse.data[0] = MavlinkFTP::kErrFailErrno;
+    nakResponse.data[1] = nakErrno;
+
+    _sendResponse(targetSystemId, targetComponentId, &nakResponse, seqNumber);
+}
+
+
+void MockLinkFTP::_sendResponse(uint8_t targetSystemId, uint8_t targetComponentId, MavlinkFTP::Request *request, uint16_t seqNumber)
+{
+    request->hdr.seqNumber = seqNumber;
+    _lastReplySequence = seqNumber;
+    _lastReplyValid = true;
+
+    (void) mavlink_msg_file_transfer_protocol_pack_chan(
+        _systemIdServer,                    // System ID
+        _componentIdServer,                 // Component ID
+        _mockLink->mavlinkChannel(),
+        &_lastReply,                        // Mavlink Message to pack into
+        0,                                  // Target network
+        targetSystemId,
+        targetComponentId,
+        reinterpret_cast<uint8_t*>(request) // Payload
+    );
+
+    // kCmdOpenFileRO and kCmdResetSessions don't support retry so we can't drop those
+    if (_randomDropsEnabled && (request->hdr.req_opcode != MavlinkFTP::kCmdOpenFileRO) && (request->hdr.req_opcode != MavlinkFTP::kCmdResetSessions)) {
+        if ((rand() % 5) == 0) {
+            qCDebug(MockLinkFTPLog) << "MockLinkFTP: Random drop of outgoing packet";
+            return;
+        }
+    }
+
+    _mockLink->respondWithMavlinkMessage(_lastReply);
+}
+
+
+uint16_t MockLinkFTP::_nextSeqNumber(uint16_t seqNumber) const
+{
+    uint16_t outgoingSeqNumber = seqNumber + 1;
+
+    if (_errMode == errModeBadSequence) {
+        outgoingSeqNumber++;
+    }
+
+    return outgoingSeqNumber;
+}
+
+QString MockLinkFTP::_createTestTempFile(int size)
+{
+    QTemporaryFile tmpFile(QDir::tempPath() + QStringLiteral("/MockLinkFTPTestCaseXXXXXX"));
+    tmpFile.setAutoRemove(false);
+
+    if (tmpFile.open()) {
+        for (int i = 0; i < size; i++) {
+            (void) tmpFile.write(QByteArray(1, static_cast<char>(i % 255)));
+        }
+        tmpFile.close();
+    }
+
+    return tmpFile.fileName();
+}
+
+QString MockLinkFTP::_generateParamPck(bool withDefaults)
+{
+    // AP_PARAM types used in the binary param.pck format
+    enum APParamType : quint8 {
+        AP_PARAM_INT8  = 1,
+        AP_PARAM_INT16 = 2,
+        AP_PARAM_INT32 = 3,
+        AP_PARAM_FLOAT = 4,
+    };
+
+    // ArduPilot binary param.pck format magic numbers.
+    // See AP_Filesystem_Param.cpp in ArduPilot source (AP_PARAM_HEADER_MAGIC / AP_PARAM_HEADER_MAGIC_DEFAULT).
+    constexpr quint16 magicStandard     = 0x671B; // param.pck without defaults
+    constexpr quint16 magicWithDefaults = 0x671C; // param.pck?withdefaults=1
+    constexpr int readSize = 239; // Max data bytes per MAVLink FTP burst: MAVLink payload (251 bytes) minus FTP header (12 bytes) = 239.
+                                 // This matches the MAVLink FTP spec / PX4-ArduPilot implementations and is critical to correct chunking and padding.
+
+    // Get params for component 1 (MAV_COMP_ID_AUTOPILOT1)
+    constexpr int compId = 1;
+    const auto &valueMap = _mockLink->_mapParamName2Value;
+    const auto &typeMap  = _mockLink->_mapParamName2MavParamType;
+    if (!valueMap.contains(compId) || !typeMap.contains(compId)) {
+        qCWarning(MockLinkFTPLog) << "_generateParamPck: no parameters for component" << compId;
+        return QString();
+    }
+
+    const auto &values = valueMap[compId];
+    const auto &types  = typeMap[compId];
+
+    // Sort parameter names alphabetically (matching ArduPilot behavior)
+    QStringList paramNames = values.keys();
+    paramNames.sort();
+
+    const quint16 numParams = static_cast<quint16>(paramNames.size());
+
+    // Map MAV_PARAM_TYPE to AP_PARAM type and value size
+    auto mapType = [](MAV_PARAM_TYPE mavType, quint8 &apType, int &valueSize) {
+        switch (mavType) {
+        case MAV_PARAM_TYPE_UINT8:
+        case MAV_PARAM_TYPE_INT8:
+            apType = AP_PARAM_INT8;
+            valueSize = 1;
+            break;
+        case MAV_PARAM_TYPE_UINT16:
+        case MAV_PARAM_TYPE_INT16:
+            apType = AP_PARAM_INT16;
+            valueSize = 2;
+            break;
+        case MAV_PARAM_TYPE_UINT32:
+        case MAV_PARAM_TYPE_INT32:
+            apType = AP_PARAM_INT32;
+            valueSize = 4;
+            break;
+        case MAV_PARAM_TYPE_REAL32:
+            apType = AP_PARAM_FLOAT;
+            valueSize = 4;
+            break;
+        default:
+            apType = AP_PARAM_FLOAT;
+            valueSize = 4;
+            break;
+        }
+    };
+
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::LittleEndian);
+
+    // Write header
+    const quint16 magic = withDefaults ? magicWithDefaults : magicStandard;
+    stream << magic << numParams << numParams;
+
+    QByteArray previousName;
+    constexpr int headerSize = 6; // 2 bytes magic + 2 bytes numParams + 2 bytes totalParams
+
+    for (const QString &name : paramNames) {
+        const QVariant &value = values[name];
+        const MAV_PARAM_TYPE mavType = types[name];
+        const QByteArray nameBytes = name.toLatin1();
+
+        quint8 apType = 0;
+        int valueSize = 0;
+        mapType(mavType, apType, valueSize);
+
+        // Compute common prefix with previous parameter name
+        const int previousNameLen = previousName.size();
+        const int currentNameLen = nameBytes.size();
+        int commonLen = 0;
+        // common_len is limited to 15 because common_len + name_len <= 16 and name_len must be >= 1
+        const int maxCommon = std::min({previousNameLen, currentNameLen, 15});
+        while (commonLen < maxCommon && nameBytes[commonLen] == previousName[commonLen]) {
+            commonLen++;
+        }
+
+        int nameLen = currentNameLen - commonLen;
+        // name_len is encoded as (name_len - 1) in 4 bits, so it must be >= 1.
+        // If the entire name matched the common prefix, steal one char back.
+        if (nameLen == 0 && commonLen > 0) {
+            nameLen = 1;
+            commonLen--;
+        }
+        // Ensure name_len + common_len <= 16
+        if (nameLen + commonLen > 16) {
+            commonLen = 16 - nameLen;
+        }
+        // name_len must fit in 4 bits as (name_len - 1)
+        if (nameLen > 16) {
+            nameLen = 16;
+            commonLen = 0;
+        }
+
+        // For ArduPilot, calibration-indicator parameters have a firmware default of 0
+        // (uncalibrated). All other parameters use their current value as the default,
+        // since MockLink params are loaded from a snapshot and we have no separate
+        // defaults file.
+        const bool useZeroDefault = withDefaults
+            && (_mockLink->getFirmwareType() == MAV_AUTOPILOT_ARDUPILOTMEGA)
+            && MockLink::kAPMCalOffsetParams.contains(name);
+        const bool addDefault = withDefaults;
+        const quint8 flags = addDefault ? 0x01 : 0x00;
+        const int packedLen = 2 + nameLen + valueSize + (addDefault ? valueSize : 0);
+
+        // FTP reads data in fixed-size blocks (readSize = 239 bytes, the MAVLink FTP
+        // payload). If a multi-byte value straddles a block boundary, a retransmitted
+        // block could overwrite part of the value with stale data, corrupting it.
+        // To prevent this, ArduPilot inserts zero-byte padding before the entry so
+        // the value bytes land entirely within one block. The parser skips leading
+        // zeros between entries. See AP_Filesystem_Param::pack_param.
+        if (valueSize > 1) {
+            const quint32 dataOfs = static_cast<quint32>(data.size()) - headerSize;
+            const quint32 endOfs = dataOfs + static_cast<quint32>(packedLen);
+            const quint32 endMod = endOfs % readSize;
+            if (endMod > 0 && endMod < static_cast<quint32>(valueSize)) {
+                const int pad = valueSize - static_cast<int>(endMod);
+                for (int i = 0; i < pad; i++) {
+                    stream << static_cast<quint8>(0);
+                }
+            }
+        }
+
+        // Type + flags byte
+        stream << static_cast<quint8>(apType | (flags << 4));
+        // Name encoding byte: upper 4 bits = (name_len - 1), lower 4 bits = common_len
+        stream << static_cast<quint8>(((nameLen - 1) << 4) | commonLen);
+        // Write the unique suffix of the name
+        stream.writeRawData(nameBytes.constData() + commonLen, nameLen);
+
+        // Write parameter value
+        switch (apType) {
+        case AP_PARAM_INT8: {
+            const qint8 v = static_cast<qint8>(value.toInt());
+            stream << v;
+            if (addDefault) stream << (useZeroDefault ? qint8(0) : v);
+            break;
+        }
+        case AP_PARAM_INT16: {
+            const qint16 v = static_cast<qint16>(value.toInt());
+            stream << v;
+            if (addDefault) stream << (useZeroDefault ? qint16(0) : v);
+            break;
+        }
+        case AP_PARAM_INT32: {
+            const qint32 v = value.toInt();
+            stream << v;
+            if (addDefault) stream << (useZeroDefault ? qint32(0) : v);
+            break;
+        }
+        case AP_PARAM_FLOAT: {
+            const float f = value.toFloat();
+            qint32 raw;
+            memcpy(&raw, &f, sizeof(raw));
+            stream << raw;
+            if (addDefault) {
+                if (useZeroDefault) {
+                    stream << qint32(0);
+                } else {
+                    stream << raw;
+                }
+            }
+            break;
+        }
+        }
+
+        previousName = nameBytes;
+    }
+
+    // Clean up previous temp file
+    if (!_paramPckTempFile.isEmpty()) {
+        QFile::remove(_paramPckTempFile);
+        _paramPckTempFile.clear();
+    }
+
+    // Write to temp file
+    QTemporaryFile tmpFile(QDir::temp().filePath(QStringLiteral("MockLinkParamPckXXXXXX")));
+    tmpFile.setAutoRemove(false);
+
+    if (!tmpFile.open()) {
+        qCWarning(MockLinkFTPLog) << "_generateParamPck: failed to create temp file";
+        return QString();
+    }
+
+    tmpFile.write(data);
+    tmpFile.close();
+    _paramPckTempFile = tmpFile.fileName();
+
+    qCDebug(MockLinkFTPLog) << "_generateParamPck: generated" << numParams << "params,"
+                            << data.size() << "bytes, withDefaults:" << withDefaults
+                            << "file:" << tmpFile.fileName();
+
+    return tmpFile.fileName();
+}

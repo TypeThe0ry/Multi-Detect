@@ -27,6 +27,7 @@ from .operator_link import (
     RANGING_SOURCE_IDS,
     RELEASE_REASON_IDS,
     SAFETY_RULE_REGISTRY_VERSION,
+    TARGET_GEOLOCATION_REASON_IDS,
     ApproachChallengeStatusMessage,
     ApproachConfirmationCommand,
     ApproachStatusMessage,
@@ -46,6 +47,7 @@ from .operator_link import (
     SceneContextState,
     SceneContextStatusMessage,
     SelectionAction,
+    TargetGeolocationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -73,6 +75,7 @@ _AUTHORIZATION_DECISION = struct.Struct(">QQQQQQQQIBQH")
 _AUTHORIZATION_ACK = struct.Struct(">QBBI")
 _PATROL_STATUS = struct.Struct(">QQBBBBBQ4HB16sBBHHQHHH")
 _RANGE_STATUS = struct.Struct(">QQQQBBIHH6HhHHiiHHB6s6s6s")
+_TARGET_GEOLOCATION_STATUS = struct.Struct(">QQBBiiHH")
 _RELEASE_STATUS = struct.Struct(">QQQQBBI6i2Hh5HB")
 _APPROACH_CHALLENGE = struct.Struct(">QQI16sQQB")
 _APPROACH_CONFIRMATION = struct.Struct(">QQQQI16sHHBB")
@@ -114,6 +117,7 @@ class WireMessageType(IntEnum):
     PAYLOAD_TARGET_CONFIRMATION = 19
     PAYLOAD_TARGET_ACK = 20
     PAYLOAD_TARGET_STATUS = 21
+    TARGET_GEOLOCATION_STATUS = 22
 
 
 class SelectionAckReason(IntEnum):
@@ -603,6 +607,32 @@ class OperatorTunnelCodec:
             body=body,
         )
 
+    def encode_target_geolocation_status(self, status: TargetGeolocationStatusMessage) -> bytes:
+        """Encode a compact, qualified target coordinate display status."""
+
+        source_age_ms = _bounded_uint(
+            round((status.produced_at_s - status.source_captured_at_s) * 1000.0),
+            bits=16,
+            field_name="target geolocation source frame age milliseconds",
+        )
+        reason_value = TARGET_GEOLOCATION_REASON_IDS.index(status.reason) + 1
+        body = _TARGET_GEOLOCATION_STATUS.pack(
+            _hash64(status.target_id),
+            _hash64(status.source_frame_id),
+            int(status.available),
+            reason_value,
+            _encode_coordinate_e7(status.latitude_deg),
+            _encode_coordinate_e7(status.longitude_deg),
+            _encode_distance(status.horizontal_sigma_m),
+            source_age_ms,
+        )
+        return self._encode_frame(
+            WireMessageType.TARGET_GEOLOCATION_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
     def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
         timing = {
             ReleaseTimingStatus.INVALID: 1,
@@ -1068,6 +1098,12 @@ class OperatorTunnelCodec:
             )
         elif message_type is WireMessageType.RANGE_STATUS:
             message = self._decode_range_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.TARGET_GEOLOCATION_STATUS:
+            message = self._decode_target_geolocation_status(
                 body,
                 sequence=sequence,
                 sent_at_s=sent_at_s,
@@ -1721,6 +1757,66 @@ class OperatorTunnelCodec:
             )
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid range-status content: {exc}") from exc
+
+    def _decode_target_geolocation_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> TargetGeolocationStatusMessage:
+        if len(body) != _TARGET_GEOLOCATION_STATUS.size:
+            raise OperatorProtocolError("target-geolocation-status body has an invalid size")
+        (
+            target_hash,
+            frame_hash,
+            available_value,
+            reason_value,
+            latitude_e7,
+            longitude_e7,
+            horizontal_sigma,
+            frame_age_ms,
+        ) = _TARGET_GEOLOCATION_STATUS.unpack(body)
+        if target_hash == 0 or frame_hash == 0 or available_value not in {0, 1}:
+            raise OperatorProtocolError(
+                "target-geolocation-status identifiers or availability are invalid"
+            )
+        if not 1 <= reason_value <= len(TARGET_GEOLOCATION_REASON_IDS):
+            raise OperatorProtocolError("target-geolocation-status reason is invalid")
+        available = bool(available_value)
+        reason = TARGET_GEOLOCATION_REASON_IDS[reason_value - 1]
+        coordinates = (_decode_coordinate_e7(latitude_e7), _decode_coordinate_e7(longitude_e7))
+        sigma_m = _decode_distance(horizontal_sigma)
+        if available:
+            if (
+                reason != "gps_qualified"
+                or any(value is None for value in coordinates)
+                or sigma_m is None
+            ):
+                raise OperatorProtocolError("available target geolocation is incomplete")
+        elif (
+            reason == "gps_qualified"
+            or any(value is not None for value in coordinates)
+            or sigma_m is not None
+        ):
+            raise OperatorProtocolError("unavailable target geolocation contains coordinate data")
+        try:
+            return TargetGeolocationStatusMessage(
+                sequence=sequence,
+                target_id=_hashed_identifier(target_hash),
+                source_frame_id=_hashed_identifier(frame_hash),
+                source_captured_at_s=sent_at_s - frame_age_ms / 1000.0,
+                produced_at_s=sent_at_s,
+                available=available,
+                reason=reason,
+                latitude_deg=coordinates[0],
+                longitude_deg=coordinates[1],
+                horizontal_sigma_m=sigma_m,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(
+                f"invalid target-geolocation-status content: {exc}"
+            ) from exc
 
     def _decode_release_status(
         self,
@@ -2384,6 +2480,21 @@ def _encode_distance(value: float | None) -> int:
 
 def _decode_distance(value: int) -> float | None:
     return None if value == 0xFFFF else value / 10.0
+
+
+def _encode_coordinate_e7(value: float | None) -> int:
+    if value is None:
+        return -(1 << 31)
+    if not isfinite(value):
+        raise ValueError("WGS-84 coordinate must be finite")
+    encoded = round(value * 10_000_000.0)
+    if not -(1 << 31) + 1 <= encoded <= (1 << 31) - 1:
+        raise ValueError("WGS-84 coordinate does not fit the int32 wire range")
+    return encoded
+
+
+def _decode_coordinate_e7(value: int) -> float | None:
+    return None if value == -(1 << 31) else value / 10_000_000.0
 
 
 def _encode_duration(value: float | None) -> int:

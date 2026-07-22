@@ -19,6 +19,7 @@ from .operator_link import (
     ReleaseStatusMessage,
     SafetyStatusMessage,
     SceneContextStatusMessage,
+    TargetGeolocationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
@@ -153,6 +154,11 @@ class OperatorMavlinkTunnelAdapter:
 
     def encode_range_status(self, status: RangeStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_range_status(status))
+
+    def encode_target_geolocation_status(self, status: TargetGeolocationStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_target_geolocation_status(status)
+        )
 
     def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_release_status(status))

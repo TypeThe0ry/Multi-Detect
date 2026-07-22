@@ -10,6 +10,7 @@ dist/
 build/
 artifacts/
 /tmp/dataset-audit/
+/tmp/pytest-*/
 /yolo*.pt
 models/*.engine
 models/*.onnx
@@ -21,3 +22,20 @@ models/**/*.plan
 
 # Keep the local multi-gigabyte training corpus out of normal Git operations.
 森林火灾 检测 7000多   数据集/
+
+# Unified MultiDetectGCS source tree. Its nested .gitignore carries the full
+# QGroundControl toolchain rules; these root rules make the large local-only
+# directories explicit to anyone working from the unified repository.
+/ground-control/MultiDetectGCS/.git/
+/ground-control/MultiDetectGCS/.cache/
+/ground-control/MultiDetectGCS/.venv/
+/ground-control/MultiDetectGCS/.pytest_cache/
+/ground-control/MultiDetectGCS/.ruff_cache/
+/ground-control/MultiDetectGCS/.vs/
+/ground-control/MultiDetectGCS/.qt/
+/ground-control/MultiDetectGCS/build*/
+/ground-control/MultiDetectGCS/cmake-build-*/
+/ground-control/MultiDetectGCS/file-alias-sandbox/
+/ground-control/MultiDetectGCS/staging-*/
+/ground-control/MultiDetectGCS/artifacts/
+/ground-control/MultiDetectGCS/*.log

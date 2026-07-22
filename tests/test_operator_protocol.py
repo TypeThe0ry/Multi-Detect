@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 
 import pytest
 
@@ -34,6 +35,7 @@ from multidetect.operator_link import (
     SceneContextState,
     SceneContextStatusMessage,
     SelectionAction,
+    TargetGeolocationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -362,6 +364,65 @@ def test_range_status_rejects_unregistered_reasons_and_control_flags() -> None:
         RangeStatusMessage(**values, flight_control_enabled=True)
     with pytest.raises(ValueError, match="registered wire vocabulary"):
         RangeStatusMessage(**{**values, "reasons": ("unknown_reason",)})
+
+
+def test_target_geolocation_status_round_trip_is_explicitly_gps_qualified() -> None:
+    status = TargetGeolocationStatusMessage(
+        sequence=108,
+        target_id="target-fire-7",
+        source_frame_id="jetson-frame-702",
+        source_captured_at_s=1_000.20,
+        produced_at_s=1_000.25,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=1.3008983,
+        longitude_deg=103.8004493,
+        horizontal_sigma_m=6.71,
+    )
+
+    encoded = _codec().encode_target_geolocation_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 66
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.TARGET_GEOLOCATION_STATUS
+    message = decoded.message
+    assert isinstance(message, TargetGeolocationStatusMessage)
+    assert message.target_id.startswith("hash64:")
+    assert message.source_frame_id.startswith("hash64:")
+    assert message.available is True
+    assert message.reason == "gps_qualified"
+    assert message.latitude_deg == pytest.approx(1.3008983)
+    assert message.longitude_deg == pytest.approx(103.8004493)
+    assert message.horizontal_sigma_m == pytest.approx(6.7)
+    assert message.advisory_only is True
+    assert message.flight_control_enabled is False
+    assert message.physical_release_enabled is False
+
+
+def test_target_geolocation_status_withholds_coordinates_when_gps_is_not_qualified() -> None:
+    status = TargetGeolocationStatusMessage(
+        sequence=109,
+        target_id="target-fire-7",
+        source_frame_id="jetson-frame-702",
+        source_captured_at_s=1_000.20,
+        produced_at_s=1_000.25,
+        available=False,
+        reason="gps_navigation_not_qualified",
+    )
+
+    decoded = _codec().decode(_codec().encode_target_geolocation_status(status))
+
+    message = decoded.message
+    assert isinstance(message, TargetGeolocationStatusMessage)
+    assert message.available is False
+    assert message.reason == "gps_navigation_not_qualified"
+    assert message.latitude_deg is None
+    assert message.longitude_deg is None
+    assert message.horizontal_sigma_m is None
+
+    with pytest.raises(ValueError, match="cannot publish coordinates"):
+        replace(status, latitude_deg=1.3)
 
 
 def test_release_status_round_trip_carries_bound_impact_uncertainty() -> None:

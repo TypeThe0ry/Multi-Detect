@@ -1,0 +1,29 @@
+#pragma once
+
+#include "VehicleComponent.h"
+
+class Actuators;
+
+class ActuatorComponent : public VehicleComponent
+{
+    Q_OBJECT
+
+public:
+    ActuatorComponent(Vehicle* vehicle, AutoPilotPlugin* autopilot, QObject* parent = nullptr);
+
+    // Virtuals from VehicleComponent
+    QStringList setupCompleteChangedTriggerList(void) const final;
+
+    // Virtuals from VehicleComponent
+    QString name(void) const final;
+    QString description(void) const final;
+    QString iconResource(void) const final;
+    bool requiresSetup(void) const final;
+    bool setupComplete(void) const final;
+    virtual QUrl setupSource(void) const;
+    QUrl summaryQmlSource(void) const final;
+
+private:
+    const QString   _name;
+    Actuators& _actuators;
+};

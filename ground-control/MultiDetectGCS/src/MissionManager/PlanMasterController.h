@@ -1,0 +1,213 @@
+#pragma once
+
+#include <QtCore/QObject>
+#include <QtQmlIntegration/QtQmlIntegration>
+
+#include "MissionController.h"
+#include "GeoFenceController.h"
+#include "RallyPointController.h"
+#include "QGCMAVLinkTypes.h"
+
+class QGCCompressionJob;
+class QmlObjectListModel;
+class MultiVehicleManager;
+class Vehicle;
+#ifdef QGC_UNITTEST_BUILD
+class PlanMasterControllerTest;
+#endif
+
+/// \brief Master controller for mission, fence, rally
+///
+class PlanMasterController : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_MOC_INCLUDE("QmlObjectListModel.h")
+    Q_MOC_INCLUDE("Vehicle.h")
+
+#ifdef QGC_UNITTEST_BUILD
+    friend class PlanMasterControllerTest;
+#endif
+
+public:
+    PlanMasterController(QObject* parent = nullptr);
+#ifdef QGC_UNITTEST_BUILD
+    // Used by test code to create master controller with specific firmware/vehicle type
+    PlanMasterController(MAV_AUTOPILOT firmwareType, MAV_TYPE vehicleType, QObject* parent = nullptr);
+#endif
+
+    ~PlanMasterController();
+
+    Q_PROPERTY(bool                     flyView                 MEMBER _flyView)
+    Q_PROPERTY(Vehicle*                 controllerVehicle       READ controllerVehicle                      CONSTANT)                               ///< Offline controller vehicle
+    Q_PROPERTY(Vehicle*                 managerVehicle          READ managerVehicle                         NOTIFY managerVehicleChanged)           ///< Either active vehicle or _controllerVehicle if no active vehicle
+    Q_PROPERTY(MissionController*       missionController       READ missionController                      CONSTANT)
+    Q_PROPERTY(GeoFenceController*      geoFenceController      READ geoFenceController                     CONSTANT)
+    Q_PROPERTY(RallyPointController*    rallyPointController    READ rallyPointController                   CONSTANT)
+    Q_PROPERTY(bool                     offline                 READ offline                                NOTIFY offlineChanged)                  ///< true: controller is not connected to an active vehicle
+    Q_PROPERTY(bool                     containsItems           READ containsItems                          NOTIFY containsItemsChanged)            ///< true: Elemement is non-empty
+    Q_PROPERTY(bool                     showCreateFromTemplate  READ showCreateFromTemplate                 NOTIFY showCreateFromTemplateChanged)   ///< true: No plan items and not in manual-creation mode; UI should show "create new plan" template selection
+    Q_PROPERTY(bool                     syncInProgress          READ syncInProgress                         NOTIFY syncInProgressChanged)           ///< true: Information is currently being saved/sent, false: no active save/send in progress
+    Q_PROPERTY(bool                     dirtyForSave            READ dirtyForSave                           NOTIFY dirtyForSaveChanged)             ///< true: Unsaved changes to disk are present, false: no changes since last save to disk
+    Q_PROPERTY(bool                     dirtyForUpload          READ dirtyForUpload                         NOTIFY dirtyForUploadChanged)           ///< true: Unsent changes are present, false: no changes since last upload/download sync
+    Q_PROPERTY(QString                  fileExtension           READ fileExtension                          CONSTANT)                               ///< File extension for missions
+    Q_PROPERTY(QString                  kmlFileExtension        READ kmlFileExtension                       CONSTANT)
+    Q_PROPERTY(QString                  currentPlanFile         READ currentPlanFile                        NOTIFY currentPlanFileChanged)          ///< Fully qualified path, empty if not yet saved
+    Q_PROPERTY(QString                  currentPlanFileName     READ currentPlanFileName WRITE setCurrentPlanFileName NOTIFY currentPlanFileNameChanged)  ///< Editable base name, no path or extension
+    Q_PROPERTY(QString                  originalPlanFileName    READ originalPlanFileName                   NOTIFY originalPlanFileNameChanged)     ///< On-disk name when last loaded/saved
+    Q_PROPERTY(bool                     planFileRenamed         READ planFileRenamed                        NOTIFY planFileRenamedChanged)          ///< true if currentPlanFileName differs from originalPlanFileName
+    Q_PROPERTY(QStringList              loadNameFilters         READ loadNameFilters                        CONSTANT)                               ///< File filter list loading plan files
+    Q_PROPERTY(QStringList              saveNameFilters         READ saveNameFilters                        CONSTANT)                               ///< File filter list saving plan files
+    Q_PROPERTY(QmlObjectListModel*      planCreators            READ planCreators                           NOTIFY planCreatorsChanged)
+    Q_PROPERTY(bool                     userSelectedManualCreation READ userSelectedManualCreation WRITE setUserSelectedManualCreation NOTIFY userSelectedManualCreationChanged) ///< true: User is not using a template to create the plan
+
+    /// Should be called immediately upon Component.onCompleted.
+    Q_INVOKABLE void start(void);
+
+    /// Starts the controller using a single static active vehicle. Will not track global active vehicle changes.
+    ///     @param deleteWhenSendCmplete The PlanMasterController object should be deleted after the first send is completed.
+    Q_INVOKABLE void startStaticActiveVehicle(Vehicle* vehicle, bool deleteWhenSendCompleted = false);
+
+    /// Determines if the plan has all information needed to be saved or sent to the vehicle.
+    /// IMPORTANT NOTE: The return value is a VisualMissionItem::ReadForSaveState value. It is an int here to work around
+    /// a nightmare of circular header dependency problems.
+    Q_INVOKABLE int readyForSaveState(void) const { return _missionController.readyForSaveState(); }
+
+    /// Replaces any current plan with the plan from the manager vehicle even if offline.
+    Q_INVOKABLE void showPlanFromManagerVehicle(void);
+
+    /// Sends a plan to the specified file
+    ///     @param[in] vehicle Vehicle we are sending a plan to
+    ///     @param[in] filename Plan file to load
+    static void sendPlanToVehicle(Vehicle* vehicle, const QString& filename);
+
+    Q_INVOKABLE void loadFromVehicle(void);
+    Q_INVOKABLE void sendToVehicle(void);
+    Q_INVOKABLE void loadFromFile(const QString& filename);
+
+    /// Load a plan from an archive file (.zip, .tar.gz, etc.)
+    /// Extracts the archive and loads the first .plan file found.
+    /// @param archivePath Path to the archive file
+    Q_INVOKABLE void loadFromArchive(const QString& archivePath);
+
+    Q_INVOKABLE bool saveToCurrent();
+    Q_INVOKABLE bool saveToFile(const QString& filename);
+    Q_INVOKABLE void saveToKml(const QString& filename);
+
+    Q_INVOKABLE bool saveWithCurrentName(); ///< Save using the (possibly renamed) currentPlanFileName
+    Q_INVOKABLE bool resolvedPlanFileExists() const; ///< true if a file at the renamed path already exists on disk
+    Q_INVOKABLE void removeAll(void); ///< Removes all from controller only, sync required to remove from vehicle
+    Q_INVOKABLE void removeAllFromVehicle(void); ///< Removes all from vehicle and controller
+
+    MissionController* missionController(void) { return &_missionController; }
+    GeoFenceController* geoFenceController(void) { return &_geoFenceController; }
+    RallyPointController* rallyPointController(void) { return &_rallyPointController; }
+
+    bool offline(void) const { return _offline; }
+    bool containsItems(void) const;
+    bool showCreateFromTemplate(void) const { return !containsItems() && !_userSelectedManualCreation; }
+    bool syncInProgress(void) const;
+    bool dirtyForSave(void) const { return _dirtyForSave; }
+    bool dirtyForUpload(void) const { return _dirtyForUpload; }
+    QString fileExtension(void) const;
+    QString kmlFileExtension(void) const;
+    QString currentPlanFile(void) const { return _currentPlanFile; }
+    QString currentPlanFileName(void) const { return _currentPlanFileName; }
+    void setCurrentPlanFileName(const QString& name);
+    QString originalPlanFileName(void) const { return _originalPlanFileName; }
+    bool planFileRenamed(void) const;
+    QStringList loadNameFilters(void) const;
+    QStringList saveNameFilters(void) const;
+    bool isEmpty(void) const;
+    bool userSelectedManualCreation(void) const { return _userSelectedManualCreation; }
+    QmlObjectListModel* planCreators(void) const { return _planCreators; }
+
+    void setFlyView(bool flyView) { _flyView = flyView; }
+    void setUserSelectedManualCreation(bool userSelectedManualCreation);
+
+    QJsonDocument saveToJson();
+
+    Vehicle* controllerVehicle(void) { return _controllerVehicle; }
+    Vehicle* managerVehicle(void) { return _managerVehicle; }
+
+    static constexpr int kPlanFileVersion = 1;
+    static constexpr const char* kPlanFileType = "Plan";
+    static constexpr const char* kJsonMissionObjectKey = "mission";
+    static constexpr const char* kJsonGeoFenceObjectKey = "geoFence";
+    static constexpr const char* kJsonRallyPointsObjectKey = "rallyPoints";
+
+signals:
+    void containsItemsChanged();
+    void showCreateFromTemplateChanged();
+    void syncInProgressChanged(void);
+    void dirtyForSaveChanged(bool dirtyForSave);
+    void dirtyForUploadChanged(bool dirtyForUpload);
+    void offlineChanged(bool offlineEditing);
+    void currentPlanFileChanged(void);
+    void currentPlanFileNameChanged(void);
+    void originalPlanFileNameChanged(void);
+    void planFileRenamedChanged(void);
+    void planCreatorsChanged(QmlObjectListModel* planCreators);
+    void managerVehicleChanged(Vehicle* managerVehicle);
+    void promptForPlanUsageOnVehicleChange(void);
+    void userSelectedManualCreationChanged();
+
+private slots:
+    void _activeVehicleChanged(Vehicle* activeVehicle);
+    void _loadMissionComplete(void);
+    void _loadGeoFenceComplete(void);
+    void _loadRallyPointsComplete(void);
+    void _sendMissionComplete(void);
+    void _sendGeoFenceComplete(void);
+    void _sendRallyPointsComplete(void);
+    void _updateOverallDirty(void);
+    void _updateShowCreateFromTemplate(void);
+    void _updatePlanCreatorsList(void);
+    void _handleExtractionFinished(bool success);
+
+private:
+    void _commonInit(void);
+    void _showPlanFromManagerVehicle(void);
+    void _setDirtyForSave(bool dirtyForSave);
+    void _setDirtyForUpload(bool dirtyForUpload);
+    void _setDirtyStates(bool dirtyForSave, bool dirtyForUpload);
+    QString _resolvedPlanFilePath() const;
+    void _clearFileNames();
+
+#ifdef QGC_UNITTEST_BUILD
+    // Used by unit tests to set dirty flags for initial state
+    void _setDirtyForSaveUnitTest(bool dirtyForSave) { _dirtyForSave = dirtyForSave; }
+    void _setDirtyForUploadUnitTest(bool dirtyForUpload) { _dirtyForUpload = dirtyForUpload; }
+#endif
+
+    MultiVehicleManager* _multiVehicleMgr = nullptr;
+    Vehicle* _controllerVehicle = nullptr;    ///< Offline controller vehicle
+    Vehicle* _managerVehicle = nullptr;       ///< Either active vehicle or _controllerVehicle if none
+    bool _flyView = true;
+    bool _offline = true;
+    MissionController _missionController;
+    GeoFenceController _geoFenceController;
+    RallyPointController _rallyPointController;
+    bool _loadGeoFence = false;
+    bool _loadRallyPoints = false;
+    bool _sendGeoFence = false;
+    bool _sendRallyPoints = false;
+    QString _currentPlanFile;
+
+    // NOTE: _currentPlanFileName and _originalPlanFileName must be kept in sync
+    // with _currentPlanFile across all code paths that modify any of them:
+    // loadFromFile, saveToFile, removeAll, removeAllFromVehicle, _clearFileNames.
+    QString _currentPlanFileName;
+    QString _originalPlanFileName;
+
+    bool _deleteWhenSendCompleted = false;
+    bool _dirtyForSave = false;
+    bool _dirtyForUpload = false;
+    bool _showCreateFromTemplate = true;
+    bool _suppressOverallDirtyUpdate = false;
+    QmlObjectListModel* _planCreators = nullptr;
+    QGCMAVLinkTypes::VehicleClass_t _planCreatorsVehicleClass = -1;
+    bool _userSelectedManualCreation = false;
+    QGCCompressionJob* _extractionJob = nullptr;
+    QString _extractionOutputDir;
+};

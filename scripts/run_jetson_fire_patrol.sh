@@ -64,6 +64,10 @@ METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
 METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-}"
 METRIC_DEPTH_CALIBRATION_OFFSET_M="${METRIC_DEPTH_CALIBRATION_OFFSET_M:-0.0}"
 METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-}"
+# A fitted document only overrides the temporary field anchor after it contains
+# at least four MAD-gated measured samples. It must already exist on the Jetson;
+# the launch script deliberately never creates or modifies calibration evidence.
+METRIC_DEPTH_CALIBRATION_DOCUMENT="${METRIC_DEPTH_CALIBRATION_DOCUMENT:-}"
 METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.4}"
 METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-}"
 RANGING_MINIMUM_DISTANCE_M="${RANGING_MINIMUM_DISTANCE_M:-0.4}"
@@ -154,6 +158,11 @@ for path in "${PYTHON}" "${CONFIG}" "${MODEL}" "${MANIFEST}"; do
         exit 2
     fi
 done
+
+if [[ -n "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" && ! -f "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" ]]; then
+    printf 'METRIC_DEPTH_CALIBRATION_DOCUMENT must name an existing JSON file.\n' >&2
+    exit 2
+fi
 
 mkdir -p "${EVIDENCE_DIR}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -303,6 +312,9 @@ if [[ "${METRIC_DEPTH_ENABLED}" == "1" ]]; then
         --metric-depth-grid-height "${METRIC_DEPTH_GRID_HEIGHT:-90}"
         --metric-depth-temporal-window "${METRIC_DEPTH_TEMPORAL_WINDOW:-5}"
     )
+    if [[ -n "${METRIC_DEPTH_CALIBRATION_DOCUMENT}" ]]; then
+        args+=(--metric-depth-calibration-document "${METRIC_DEPTH_CALIBRATION_DOCUMENT}")
+    fi
 elif [[ "${METRIC_DEPTH_ENABLED}" != "0" ]]; then
     printf 'METRIC_DEPTH_ENABLED must be auto, 0 or 1.\n' >&2
     exit 2
@@ -651,6 +663,7 @@ if [[ "${OPERATOR_UDP_ENABLED}" == "1" ]]; then
     args+=(
         --operator-udp-port "${OPERATOR_UDP_PORT:-14580}"
         --operator-udp-bind-host "${OPERATOR_UDP_BIND_HOST:-0.0.0.0}"
+        --operator-metadata-peer-timeout-seconds "${OPERATOR_METADATA_PEER_TIMEOUT_SECONDS:-5.0}"
         --operator-hmac-key-env MULTIDETECT_OPERATOR_KEY
         --mavlink-signing-key-hex-env MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX
         --operator-stream-id "${MULTIDETECT_OPERATOR_STREAM_ID:-camera-main}"
@@ -686,6 +699,7 @@ if [[ "${DEPTH_GRID_UDP_ENABLED}" == "1" ]]; then
         --depth-grid-udp-local-port "${DEPTH_GRID_UDP_LOCAL_PORT}"
         --depth-grid-hmac-key-env MULTIDETECT_OPERATOR_KEY
         --depth-grid-maximum-datagram-bytes "${DEPTH_GRID_MAXIMUM_DATAGRAM_BYTES:-1200}"
+        --depth-grid-maximum-rate-hz "${DEPTH_GRID_MAXIMUM_RATE_HZ:-5.0}"
     )
 elif [[ "${DEPTH_GRID_UDP_ENABLED}" != "0" ]]; then
     printf 'DEPTH_GRID_UDP_ENABLED must be auto, 0 or 1.\n' >&2

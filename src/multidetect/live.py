@@ -71,6 +71,7 @@ from .operator_status import (
     build_release_status_message,
     build_safety_status_message,
     build_scene_context_status_messages,
+    build_target_geolocation_status_message,
     build_target_pool_status_messages,
 )
 from .operator_tracking import (
@@ -97,6 +98,7 @@ from .short_term_tracking import (
     ShortTermTrackingResult,
     ShortTermTrackingStatus,
 )
+from .target_geolocation import target_geolocation_from_ned_offset
 from .target_speed import TargetWorldSpeedEstimator
 from .telemetry import (
     TelemetryProvider,
@@ -879,6 +881,7 @@ class LiveMissionRunner:
         self._target_metric_cache: dict[str, tuple[float, float | None, float]] = {}
         self._metric_depth_last_result_frame_id: str | None = None
         self._metric_depth_last_failure_count = 0
+        self._metric_depth_association_fingerprints: dict[str, tuple[object, ...]] = {}
         self._latest_metric_depth_result: MetricDepthResult | None = None
         self._metric_depth_submission_cursor = 0
         self._target_world_speed = (
@@ -919,6 +922,7 @@ class LiveMissionRunner:
         remote_safety_status_sequence = 0
         remote_patrol_status_sequence = 0
         remote_range_status_sequence = 0
+        remote_target_geolocation_status_sequence = 0
         remote_release_status_sequence = 0
         remote_authorization_challenge_sequence = 0
         remote_target_pool_status_sequence = 0
@@ -2099,16 +2103,17 @@ class LiveMissionRunner:
                                         fragment_count = self.depth_grid_publisher.publish(
                                             metric_result.depth_grid
                                         )
-                                        self.mission.audit.append(
-                                            "ranging.depth_grid_published",
-                                            frame_event_at_s,
-                                            {
-                                                "frame_id": metric_result.frame_id,
-                                                "width": metric_result.depth_grid.width,
-                                                "height": metric_result.depth_grid.height,
-                                                "fragment_count": fragment_count,
-                                            },
-                                        )
+                                        if fragment_count:
+                                            self.mission.audit.append(
+                                                "ranging.depth_grid_published",
+                                                frame_event_at_s,
+                                                {
+                                                    "frame_id": metric_result.frame_id,
+                                                    "width": metric_result.depth_grid.width,
+                                                    "height": metric_result.depth_grid.height,
+                                                    "fragment_count": fragment_count,
+                                                },
+                                            )
                                     except (
                                         OSError,
                                         RuntimeError,
@@ -2727,17 +2732,22 @@ class LiveMissionRunner:
                             produced_at_s=produced_at_s,
                         )
                     range_status_message = None
+                    target_geolocation_status_message = None
                     if latest_ranging_solution is not None:
                         remote_range_status_sequence = (
                             remote_range_status_sequence + 1
                         ) & 0xFFFFFFFF
+                        remote_target_geolocation_status_sequence = (
+                            remote_target_geolocation_status_sequence + 1
+                        ) & 0xFFFFFFFF
+                        wire_ranging_solution = replace(
+                            latest_ranging_solution,
+                            evaluated_at_s=produced_at_s,
+                        )
                         try:
                             range_status_message = build_range_status_message(
                                 sequence=remote_range_status_sequence,
-                                solution=replace(
-                                    latest_ranging_solution,
-                                    evaluated_at_s=produced_at_s,
-                                ),
+                                solution=wire_ranging_solution,
                                 source_captured_at_s=captured.captured_at_s,
                             )
                         except (TypeError, ValueError) as exc:
@@ -2747,6 +2757,29 @@ class LiveMissionRunner:
                             remote_transport_errors += 1
                             self.mission.audit.append(
                                 "operator.range_status_build_failed",
+                                produced_at_s,
+                                {
+                                    "frame_id": captured.frame_id,
+                                    "target_id": latest_ranging_solution.target_id,
+                                    "error_type": type(exc).__name__,
+                                    "error": str(exc)[:240],
+                                    "metadata_packet_dropped": True,
+                                    "perception_continues": True,
+                                },
+                            )
+                        try:
+                            target_geolocation_status_message = (
+                                build_target_geolocation_status_message(
+                                    sequence=remote_target_geolocation_status_sequence,
+                                    solution=wire_ranging_solution,
+                                    telemetry=telemetry,
+                                    source_captured_at_s=captured.captured_at_s,
+                                )
+                            )
+                        except (TypeError, ValueError) as exc:
+                            remote_transport_errors += 1
+                            self.mission.audit.append(
+                                "operator.target_geolocation_status_build_failed",
                                 produced_at_s,
                                 {
                                     "frame_id": captured.frame_id,
@@ -2919,6 +2952,7 @@ class LiveMissionRunner:
                         safety_status=safety_status_message,
                         patrol_status=patrol_status_message,
                         range_status=range_status_message,
+                        target_geolocation_status=target_geolocation_status_message,
                         release_status=release_status_message,
                         approach_challenge=(
                             latest_approach_frame.challenge
@@ -4213,14 +4247,76 @@ class LiveMissionRunner:
             if self.rgb_slam_ranging is not None
             else None
         )
-        metric_direct = (
-            self.metric_depth_runner.measurement_for(
-                target_id=track.track_id,
-                now_s=now_s,
+        metric_direct = None
+        if self.metric_depth_runner is not None:
+            association_reader = getattr(
+                self.metric_depth_runner,
+                "measurement_association_for",
+                None,
             )
-            if self.metric_depth_runner is not None
-            else None
-        )
+            if callable(association_reader):
+                metric_association = association_reader(
+                    target_id=track.track_id,
+                    bbox=track.bbox,
+                    now_s=now_s,
+                )
+                metric_direct = metric_association.measurement
+                source_result = metric_association.source_result
+                if (
+                    source_result is not None
+                    and metric_association.source_target_id == track.track_id
+                ):
+                    association_fingerprint = (
+                        source_result.frame_id,
+                        metric_association.status,
+                    )
+                    if (
+                        self._metric_depth_association_fingerprints.get(track.track_id)
+                        != association_fingerprint
+                    ):
+                        self._metric_depth_association_fingerprints[track.track_id] = (
+                            association_fingerprint
+                        )
+                        self.mission.audit.append(
+                            "ranging.metric_depth_association",
+                            now_s,
+                            {
+                                "target_id": track.track_id,
+                                "source_frame_id": source_result.frame_id,
+                                "status": metric_association.status,
+                                "source_age_s": metric_association.age_s,
+                                "source_iou": metric_association.source_iou,
+                                "center_distance": metric_association.center_distance,
+                                "compatible_sample_count": (
+                                    metric_association.compatible_sample_count
+                                ),
+                                "minimum_iou": (
+                                    self.metric_depth_runner.config.association_minimum_iou
+                                ),
+                                "maximum_center_distance": (
+                                    self.metric_depth_runner.config
+                                    .association_maximum_center_distance
+                                ),
+                                "source_bbox": [
+                                    source_result.source_bbox.x1,
+                                    source_result.source_bbox.y1,
+                                    source_result.source_bbox.x2,
+                                    source_result.source_bbox.y2,
+                                ],
+                                "current_bbox": [
+                                    track.bbox.x1,
+                                    track.bbox.y1,
+                                    track.bbox.x2,
+                                    track.bbox.y2,
+                                ],
+                            },
+                        )
+            else:
+                metric_direct = self.metric_depth_runner.measurement_for(
+                    target_id=track.track_id,
+                    bbox=track.bbox,
+                    now_s=now_s,
+                )
         direct_measurements = tuple(
             measurement
             for measurement in (visual_direct, rgb_slam_direct, metric_direct)
@@ -4546,7 +4642,40 @@ def _range_solution_details(
     }
     if telemetry is not None:
         details["ranging_input"] = _ranging_input_details(telemetry, now_s=now_s)
+        details["target_geolocation"] = _target_geolocation_details(solution, telemetry)
     return details
+
+
+def _target_geolocation_details(
+    solution: RangeSolution,
+    telemetry: VehicleTelemetry,
+) -> dict[str, object]:
+    """Expose GPS target coordinates only after adaptive GPS qualification."""
+
+    if solution.navigation_state != "gps-aided":
+        return {"available": False, "reason": "gps_navigation_not_qualified"}
+    if solution.north_offset_m is None or solution.east_offset_m is None:
+        return {"available": False, "reason": "target_offset_unavailable"}
+    try:
+        target = target_geolocation_from_ned_offset(
+            aircraft_latitude_deg=telemetry.latitude_deg,
+            aircraft_longitude_deg=telemetry.longitude_deg,
+            north_offset_m=solution.north_offset_m,
+            east_offset_m=solution.east_offset_m,
+            aircraft_horizontal_sigma_m=telemetry.gps_horizontal_accuracy_m,
+            ground_range_ci95_m=solution.ground_range_ci95_m,
+            ground_range_m=solution.ground_range_m,
+            bearing_sigma_deg=solution.bearing_sigma_deg,
+        )
+    except ValueError as exc:
+        return {"available": False, "reason": str(exc)}
+    return {
+        "available": True,
+        "latitude_deg": target.latitude_deg,
+        "longitude_deg": target.longitude_deg,
+        "horizontal_sigma_m": target.horizontal_sigma_m,
+        "reference": "wgs84_local_tangent_plane",
+    }
 
 
 def _ranging_input_details(

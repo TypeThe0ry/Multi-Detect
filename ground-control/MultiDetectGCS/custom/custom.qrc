@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/Custom/qml">
+        <file alias="QGroundControl/FlyView/FlyViewCustomLayer.qml">src/FlyViewCustomLayer.qml</file>
+        <file alias="QGroundControl/FlyView/FlyViewVideo.qml">src/FlyViewVideo.qml</file>
+        <file alias="QGroundControl/PlanView/PlanViewRightPanel.qml">src/PlanViewRightPanel.qml</file>
+        <file alias="QGroundControl/AppSettings/MultiDetectConfigure.qml">src/MultiDetectConfigure.qml</file>
+        <file alias="QGroundControl/Toolbar/SelectViewDropdown.qml">src/SelectViewDropdown.qml</file>
+    </qresource>
+    <qresource prefix="/Custom/audio">
+        <file alias="locked.wav">../resources/audio/locked.wav</file>
+        <file alias="mode3-execution.wav">../resources/audio/alert.wav</file>
+        <file alias="mode3-execution-loop.wav">../resources/audio/mode3-execution-loop.wav</file>
+    </qresource>
+</RCC>

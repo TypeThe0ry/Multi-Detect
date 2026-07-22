@@ -1,0 +1,37 @@
+{
+  "version": 6,
+  "include": ["common.json"],
+  "configurePresets": [
+    {
+      "name": "iOS",
+      "displayName": "iOS",
+      "generator": "Ninja Multi-Config",
+      "inherits": ["ccache"],
+      "binaryDir": "${sourceParentDir}/build/iOS",
+      "toolchainFile": "$penv{QT_ROOT_DIR}/lib/cmake/Qt6/qt.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Release;Debug",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "17.0",
+        "QT_HOST_PATH": "$penv{QT_HOST_PATH}"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "iOS", "configurePreset": "iOS", "configuration": "Release", "inherits": ["default"] },
+    { "name": "iOS-debug", "configurePreset": "iOS", "configuration": "Debug", "inherits": ["default"] }
+  ],
+  "packagePresets": [
+    { "name": "iOS", "configurePreset": "iOS", "configurations": ["Release"] }
+  ],
+  "workflowPresets": [
+    {
+      "name": "iOS",
+      "steps": [
+        { "type": "configure", "name": "iOS" },
+        { "type": "build", "name": "iOS" },
+        { "type": "package", "name": "iOS" }
+      ]
+    }
+  ]
+}

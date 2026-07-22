@@ -1,0 +1,27 @@
+{
+    "version":      1,
+    "fileType":  "FactMetaData",
+    "QGC.MetaData.Facts":
+[
+{
+    "name":             "Latitude",
+    "shortDesc":        "Latitude",
+    "type":             "double",
+    "decimalPlaces":    6
+},
+{
+    "name":             "Longitude",
+    "shortDesc":        "Longitude",
+    "type":             "double",
+    "decimalPlaces":    6
+},
+{
+    "name":             "RelativeAltitude",
+    "shortDesc":        "Altitude (rel)",
+    "type":             "double",
+    "decimalPlaces":    2,
+    "units":            "m",
+    "default":          0.0
+}
+]
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import socket
+import time
 import zlib
 
 import pytest
@@ -71,6 +72,33 @@ def test_depth_grid_publisher_uses_fixed_return_port_after_keepalive() -> None:
         assert publisher.publish(_grid()) >= 1
         _datagram, sender = receiver.recvfrom(65_535)
         assert sender[1] == local_port
+    finally:
+        publisher.close()
+        receiver.close()
+
+
+def test_depth_grid_publisher_coalesces_display_frames_to_configured_rate() -> None:
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(0.25)
+    local_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    local_probe.bind(("127.0.0.1", 0))
+    local_port = local_probe.getsockname()[1]
+    local_probe.close()
+    publisher = DepthGridUdpPublisher(
+        host="127.0.0.1",
+        port=receiver.getsockname()[1],
+        local_port=local_port,
+        hmac_key=b"r" * 32,
+        maximum_rate_hz=20.0,
+    )
+    try:
+        assert publisher.publish(_grid()) > 0
+        assert publisher.publish(_grid()) == 0
+        assert publisher.suppressed_frames == 1
+        time.sleep(0.06)
+        assert publisher.publish(_grid()) > 0
+        assert publisher.published_frames == 2
     finally:
         publisher.close()
         receiver.close()

@@ -1,0 +1,151 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+import QGroundControl
+import QGroundControl.Controls
+
+Rectangle {
+    id:             _summaryRoot
+    anchors.fill:   parent
+    anchors.rightMargin: ScreenTools.defaultFontPixelWidth
+    anchors.leftMargin:  ScreenTools.defaultFontPixelWidth
+    color:          qgcPal.window
+
+    property real _minSummaryW:     ScreenTools.isTinyScreen ? ScreenTools.defaultFontPixelWidth * 28 : ScreenTools.defaultFontPixelWidth * 36
+    property real _summaryBoxWidth: _minSummaryW
+    property real _summaryBoxSpace: ScreenTools.defaultFontPixelWidth * 2
+    property real _margins:        ScreenTools.defaultFontPixelHeight / 2
+
+    function computeSummaryBoxSize() {
+        var sw  = 0
+        var rw  = 0
+        var idx = Math.floor(_summaryRoot.width / (_minSummaryW + ScreenTools.defaultFontPixelWidth))
+        if(idx < 1) {
+            _summaryBoxWidth = _summaryRoot.width
+            _summaryBoxSpace = 0
+        } else {
+            _summaryBoxSpace = 0
+            if(idx > 1) {
+                _summaryBoxSpace = ScreenTools.defaultFontPixelWidth * 2
+                sw = _summaryBoxSpace * (idx - 1)
+            }
+            rw = _summaryRoot.width - sw
+            _summaryBoxWidth = rw / idx
+        }
+    }
+
+    function capitalizeWords(sentence) {
+        return sentence.replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
+    }
+
+    QGCPalette {
+        id:                 qgcPal
+        colorGroupEnabled:  enabled
+    }
+
+    Component.onCompleted: {
+        computeSummaryBoxSize()
+    }
+
+    onWidthChanged: {
+        computeSummaryBoxSize()
+    }
+
+    QGCFlickable {
+        clip:               true
+        anchors.fill:       parent
+        contentHeight:      summaryColumn.height
+        contentWidth:       _summaryRoot.width
+        flickableDirection: Flickable.VerticalFlick
+
+        Column {
+            id:             summaryColumn
+            width:          _summaryRoot.width
+            spacing:        ScreenTools.defaultFontPixelHeight
+
+            QGCLabel {
+                width:			parent.width
+                wrapMode:		Text.WordWrap
+                color:			setupComplete ? qgcPal.text : qgcPal.warningText
+                font.bold:      true
+                horizontalAlignment: Text.AlignHCenter
+                text:           setupComplete ?
+                    qsTr("Your vehicle configuration summary appears below. Select components on the left to review or fine-tune settings.") :
+                    qsTr("WARNING: Configuration tasks remain before this vehicle is ready to fly. Open the red-marked components on the left to finish setup.")
+
+                property bool setupComplete: QGroundControl.multiVehicleManager.activeVehicle ? QGroundControl.multiVehicleManager.activeVehicle.autopilotPlugin.setupComplete : false
+            }
+
+            Flow {
+                id:         _flowCtl
+                width:      _summaryRoot.width
+                spacing:    _summaryBoxSpace
+
+                Repeater {
+                    model: QGroundControl.multiVehicleManager.activeVehicle ? QGroundControl.multiVehicleManager.activeVehicle.autopilotPlugin.vehicleComponents : undefined
+
+                    // Outer summary item rectangle
+                    Rectangle {
+                        width: mainLayout.width + (_margins * 2)
+                        height: mainLayout.height + (_margins * 2)
+                        color: qgcPal.windowShade
+                        visible: modelData.summaryQmlSource.toString() !== ""
+                        border.width: 1
+                        border.color: qgcPal.text
+
+                        Component.onCompleted: {
+                            border.color = Qt.rgba(border.color.r, border.color.g, border.color.b, 0.1)
+                        }
+
+                        readonly property real titleHeight: ScreenTools.defaultFontPixelHeight * 2
+
+                        ColumnLayout {
+                            id: mainLayout
+                            anchors.margins: _margins
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            spacing: ScreenTools.defaultFontPixelHeight / 2
+
+                            // Title bar
+                            QGCButton {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: titleHeight
+                                text: capitalizeWords(modelData.name)
+
+                                // Setup indicator
+                                Rectangle {
+                                    anchors.rightMargin:    ScreenTools.defaultFontPixelWidth
+                                    anchors.right:          parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width:                  ScreenTools.defaultFontPixelWidth * 1.75
+                                    height:                 width
+                                    radius:                 width / 2
+                                    color:                  modelData.setupComplete ? "#00d932" : "red"
+                                    visible:                modelData.requiresSetup && modelData.setupSource !== ""
+                                }
+
+                                onClicked : {
+                                    if (modelData.setupSource !== "") {
+                                        setupView.showVehicleComponentPanel(modelData)
+                                    }
+                                }
+                            }
+
+                            // Summary Qml
+                            Loader {
+                                id: summaryLoader
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: item ? item.implicitWidth : 0
+                                Layout.preferredHeight: item ? item.implicitHeight : 0
+                                source: modelData.summaryQmlSource
+
+                                property var vehicleComponent: modelData
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

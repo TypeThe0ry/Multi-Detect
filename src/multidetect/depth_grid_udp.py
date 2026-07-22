@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import socket
 import struct
 import time
@@ -178,6 +179,7 @@ class DepthGridUdpPublisher:
         hmac_key: bytes,
         maximum_datagram_bytes: int = 1200,
         local_port: int = 14_583,
+        maximum_rate_hz: float = 5.0,
     ) -> None:
         if not host.strip():
             raise ValueError("depth-grid UDP host is required")
@@ -185,6 +187,8 @@ class DepthGridUdpPublisher:
             raise ValueError("depth-grid UDP port is outside the application range")
         if not 1024 <= local_port <= 65535 or local_port == port:
             raise ValueError("invalid depth-grid local UDP port")
+        if not math.isfinite(maximum_rate_hz) or maximum_rate_hz <= 0.0:
+            raise ValueError("depth-grid maximum rate must be finite and positive")
         self._destination = (socket.gethostbyname(host.strip()), port)
         self._codec = DepthGridDatagramCodec(
             hmac_key,
@@ -195,13 +199,20 @@ class DepthGridUdpPublisher:
         self._socket.setblocking(False)
         self._sequence = 0
         self._closed = False
+        self._minimum_interval_s = 1.0 / maximum_rate_hz
+        self._last_published_at_s = -math.inf
         self.published_frames = 0
         self.published_datagrams = 0
+        self.suppressed_frames = 0
 
     def publish(self, grid: MetricDepthGrid) -> int:
         if self._closed:
             raise RuntimeError("depth-grid UDP publisher is closed")
         self._drain_keepalives()
+        now_s = time.monotonic()
+        if now_s - self._last_published_at_s < self._minimum_interval_s:
+            self.suppressed_frames += 1
+            return 0
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
         datagrams = self._codec.encode(grid, sequence=self._sequence)
         sent = 0
@@ -210,6 +221,7 @@ class DepthGridUdpPublisher:
             sent += 1
         self.published_frames += 1
         self.published_datagrams += sent
+        self._last_published_at_s = now_s
         return sent
 
     def _drain_keepalives(self) -> None:

@@ -255,6 +255,8 @@ class PixhawkReadOnlyTelemetryProvider:
         self._gps_absolute_altitude_m = float("nan")
         self._home_absolute_altitude_m = float("nan")
         self._last_gps_fix_type: int | None = None
+        self._gps_horizontal_accuracy_m = float("nan")
+        self._gps_vertical_accuracy_m = float("nan")
         self._last_gps_altitude_m: float | None = None
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
@@ -533,6 +535,12 @@ class PixhawkReadOnlyTelemetryProvider:
             heading_deg=self._heading_deg,
             battery_remaining_pct=self._battery_remaining_pct,
             satellites_visible=self._satellites_visible,
+            gps_fix_type=self._last_gps_fix_type,
+            gps_horizontal_accuracy_m=self._gps_horizontal_accuracy_m,
+            gps_vertical_accuracy_m=self._gps_vertical_accuracy_m,
+            gps_observed_at_s=(
+                self._last_gps_raw_s if self._last_gps_raw_s is not None else float("nan")
+            ),
             armed=self._armed,
             flight_mode=self._flight_mode,
             mission_sequence=self._mission_sequence,
@@ -715,8 +723,28 @@ class PixhawkReadOnlyTelemetryProvider:
             fix_type = _optional_int(getattr(message, "fix_type", None))
             altitude_mm = _finite_float(getattr(message, "alt", None))
             self._last_gps_fix_type = fix_type
+            eph_cm = _finite_float(getattr(message, "eph", None))
+            epv_cm = _finite_float(getattr(message, "epv", None))
+            self._gps_horizontal_accuracy_m = (
+                eph_cm / 100.0
+                if eph_cm is not None and 0.0 <= eph_cm < 65_535.0
+                else float("nan")
+            )
+            self._gps_vertical_accuracy_m = (
+                epv_cm / 100.0
+                if epv_cm is not None and 0.0 <= epv_cm < 65_535.0
+                else float("nan")
+            )
             self._last_gps_altitude_m = altitude_mm / 1_000.0 if altitude_mm is not None else None
             if fix_type is not None and fix_type >= 3 and altitude_mm is not None:
+                latitude = _finite_float(getattr(message, "lat", None))
+                longitude = _finite_float(getattr(message, "lon", None))
+                if latitude is not None and longitude is not None:
+                    latitude_deg = latitude / 10_000_000.0
+                    longitude_deg = longitude / 10_000_000.0
+                    if -90.0 <= latitude_deg <= 90.0 and -180.0 <= longitude_deg <= 180.0:
+                        self._latitude_deg = latitude_deg
+                        self._longitude_deg = longitude_deg
                 self._gps_absolute_altitude_m = altitude_mm / 1_000.0
                 self._last_gps_raw_s = now_s
                 self._update_gps_home_relative_altitude(now_s=now_s)

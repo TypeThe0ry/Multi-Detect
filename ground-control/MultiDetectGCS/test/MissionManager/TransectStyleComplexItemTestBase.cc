@@ -1,0 +1,23 @@
+#include "TransectStyleComplexItemTestBase.h"
+
+#include "MissionItem.h"
+#include "PlanMasterController.h"
+#include "PlanViewSettings.h"
+#include "SettingsManager.h"
+
+void TransectStyleComplexItemTestBase::init()
+{
+    OfflineMissionTest::init();
+
+    _planViewSettings = SettingsManager::instance()->planViewSettings();
+    _controllerVehicle = planController()->controllerVehicle();
+}
+
+void TransectStyleComplexItemTestBase::cleanup()
+{
+    _planViewSettings = nullptr;
+    _controllerVehicle = nullptr;
+
+    OfflineMissionTest::cleanup();
+}
+

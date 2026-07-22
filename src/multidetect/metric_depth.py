@@ -43,6 +43,8 @@ class MetricDepthConfig:
     grid_height: int = 90
     temporal_window_size: int = 5
     grid_encoding: str = "logarithmic"
+    association_minimum_iou: float = 0.35
+    association_maximum_center_distance: float = 0.15
     providers: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -57,6 +59,8 @@ class MetricDepthConfig:
             self.minimum_sigma_m,
             self.relative_sigma,
             self.calibration_scale,
+            self.association_minimum_iou,
+            self.association_maximum_center_distance,
         )
         if not all(math.isfinite(value) and value > 0.0 for value in numeric):
             raise ValueError("metric-depth limits must be finite and positive")
@@ -78,6 +82,10 @@ class MetricDepthConfig:
             raise ValueError("metric-depth temporal window must be in [1, 15]")
         if self.grid_encoding not in {"linear", "logarithmic"}:
             raise ValueError("metric-depth grid encoding must be linear or logarithmic")
+        if self.association_minimum_iou > 1.0:
+            raise ValueError("metric-depth association IoU must not exceed 1")
+        if self.association_maximum_center_distance > math.sqrt(2.0):
+            raise ValueError("metric-depth association center distance is outside the frame")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +133,7 @@ class MetricDepthGrid:
 @dataclass(frozen=True, slots=True)
 class MetricDepthResult:
     target_id: str
+    source_bbox: BoundingBox
     frame_id: str
     captured_at_s: float
     produced_at_s: float
@@ -148,6 +157,25 @@ class MetricDepthResult:
             captured_at_s=self.captured_at_s,
             absolute_scale_valid=True,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class MetricDepthAssociation:
+    """Explains whether an asynchronous depth result still matches a live track.
+
+    Depth inference completes after the source video frame has already moved
+    through the tracker.  The fusion path therefore needs both the measurement
+    and a compact, auditable reason whenever it cannot safely use that result.
+    """
+
+    measurement: DirectRangeMeasurement | None
+    source_result: MetricDepthResult | None
+    source_target_id: str | None
+    age_s: float | None
+    source_iou: float | None
+    center_distance: float | None
+    compatible_sample_count: int
+    status: str
 
 
 class MetricDepthEstimator:
@@ -215,6 +243,7 @@ class MetricDepthEstimator:
         )
         return MetricDepthResult(
             target_id=target_id,
+            source_bbox=bbox,
             frame_id=frame_id,
             captured_at_s=captured_at_s,
             produced_at_s=time.monotonic(),
@@ -388,16 +417,107 @@ class AsyncMetricDepthRunner:
             self._last_submit_s = now_s
             return True
 
-    def measurement_for(self, *, target_id: str, now_s: float) -> DirectRangeMeasurement | None:
+    def measurement_for(
+        self,
+        *,
+        target_id: str,
+        bbox: BoundingBox,
+        now_s: float,
+    ) -> DirectRangeMeasurement | None:
+        return self.measurement_association_for(
+            target_id=target_id,
+            bbox=bbox,
+            now_s=now_s,
+        ).measurement
+
+    def measurement_association_for(
+        self,
+        *,
+        target_id: str,
+        bbox: BoundingBox,
+        now_s: float,
+    ) -> MetricDepthAssociation:
+        """Return a compatible metric measurement plus its association evidence."""
         with self._lock:
             self._harvest_locked()
             result = self._latest
-            if result is None or result.target_id != target_id:
-                return None
+            if result is None:
+                return MetricDepthAssociation(
+                    measurement=None,
+                    source_result=None,
+                    source_target_id=None,
+                    age_s=None,
+                    source_iou=None,
+                    center_distance=None,
+                    compatible_sample_count=0,
+                    status="no_result",
+                )
+            if result.target_id != target_id:
+                return MetricDepthAssociation(
+                    measurement=None,
+                    source_result=result,
+                    source_target_id=result.target_id,
+                    age_s=None,
+                    source_iou=None,
+                    center_distance=None,
+                    compatible_sample_count=0,
+                    status="target_mismatch",
+                )
             age_s = now_s - result.captured_at_s
             if age_s < 0.0 or age_s > self.config.maximum_result_age_s:
-                return None
-            return result.measurement()
+                return MetricDepthAssociation(
+                    measurement=None,
+                    source_result=result,
+                    source_target_id=result.target_id,
+                    age_s=age_s,
+                    source_iou=None,
+                    center_distance=None,
+                    compatible_sample_count=0,
+                    status="age_rejected",
+                )
+            source_iou = result.source_bbox.iou(bbox)
+            center_distance = result.source_bbox.center_distance(bbox)
+            if (
+                source_iou < self.config.association_minimum_iou
+                or center_distance > self.config.association_maximum_center_distance
+            ):
+                return MetricDepthAssociation(
+                    measurement=None,
+                    source_result=result,
+                    source_target_id=result.target_id,
+                    age_s=age_s,
+                    source_iou=source_iou,
+                    center_distance=center_distance,
+                    compatible_sample_count=0,
+                    status="geometry_rejected",
+                )
+            compatible = tuple(
+                item
+                for item in self._history[target_id]
+                if 0.0 <= now_s - item.captured_at_s <= self.config.maximum_result_age_s
+                and item.source_bbox.iou(bbox) >= self.config.association_minimum_iou
+                and item.source_bbox.center_distance(bbox)
+                <= self.config.association_maximum_center_distance
+            )
+            distances = sorted(item.slant_range_m for item in compatible)
+            median_distance = distances[len(distances) // 2]
+            deviations = sorted(abs(value - median_distance) for value in distances)
+            temporal_mad = deviations[len(deviations) // 2]
+            measurement = replace(
+                result,
+                slant_range_m=median_distance,
+                sigma_m=max(result.sigma_m, temporal_mad * 1.4826 * 2.0),
+            ).measurement()
+            return MetricDepthAssociation(
+                measurement=measurement,
+                source_result=result,
+                source_target_id=result.target_id,
+                age_s=age_s,
+                source_iou=source_iou,
+                center_distance=center_distance,
+                compatible_sample_count=len(compatible),
+                status="accepted",
+            )
 
     def latest_result(self) -> MetricDepthResult | None:
         with self._lock:
@@ -421,18 +541,7 @@ class AsyncMetricDepthRunner:
             result = future.result()
             history = self._history[result.target_id]
             history.append(result)
-            distances = sorted(item.slant_range_m for item in history)
-            median_distance = distances[len(distances) // 2]
-            deviations = sorted(abs(value - median_distance) for value in distances)
-            temporal_mad = deviations[len(deviations) // 2]
-            self._latest = replace(
-                result,
-                slant_range_m=median_distance,
-                sigma_m=max(
-                    result.sigma_m,
-                    temporal_mad * 1.4826 * 2.0,
-                ),
-            )
+            self._latest = result
             self.inference_count += 1
             self.last_error = None
         # Inference backends can surface provider-specific Exception subclasses

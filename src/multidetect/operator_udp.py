@@ -30,6 +30,7 @@ from .operator_link import (
     SafetyStatusMessage,
     SceneContextStatusMessage,
     SelectionCommandGuard,
+    TargetGeolocationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
@@ -122,7 +123,7 @@ class UdpOperatorSelectionServer:
         approach_guard: ApproachConfirmationCommandGuard | None = None,
         payload_target_guard: PayloadTargetConfirmationCommandGuard | None = None,
         receive_timeout_s: float | None = None,
-        metadata_peer_timeout_s: float = 3.0,
+        metadata_peer_timeout_s: float = 5.0,
     ) -> None:
         if not bind_host.strip():
             raise ValueError("UDP bind host cannot be empty")
@@ -447,6 +448,14 @@ class UdpOperatorSelectionServer:
     ) -> None:
         self._channel.sendto(self.mavlink.encode_range_status(status), peer)
 
+    def publish_target_geolocation_status(
+        self,
+        status: TargetGeolocationStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_target_geolocation_status(status), peer)
+
     def publish_release_status(
         self,
         status: ReleaseStatusMessage,
@@ -605,6 +614,7 @@ class UdpOperatorSessionClient:
         self._last_safety_status_sequence: int | None = None
         self._last_patrol_status_sequence: int | None = None
         self._last_range_status_sequence: int | None = None
+        self._last_target_geolocation_status_sequence: int | None = None
         self._last_release_status_sequence: int | None = None
         self._last_approach_challenge_sequence: int | None = None
         self._last_approach_status_sequence: int | None = None
@@ -619,6 +629,7 @@ class UdpOperatorSessionClient:
             WireMessageType.SAFETY_STATUS: deque(maxlen=1),
             WireMessageType.PATROL_STATUS: deque(maxlen=1),
             WireMessageType.RANGE_STATUS: deque(maxlen=1),
+            WireMessageType.TARGET_GEOLOCATION_STATUS: deque(maxlen=1),
             WireMessageType.RELEASE_STATUS: deque(maxlen=1),
             WireMessageType.APPROACH_CHALLENGE: deque(maxlen=1),
             WireMessageType.APPROACH_STATUS: deque(maxlen=1),
@@ -909,6 +920,32 @@ class UdpOperatorSessionClient:
         ):
             raise OperatorProtocolError("range status sequence is not newer")
         self._last_range_status_sequence = status.sequence
+        return status
+
+    def receive_target_geolocation_status(
+        self,
+        *,
+        timeout_s: float,
+    ) -> TargetGeolocationStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("target geolocation status timeout must be positive")
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        status = self._receive_message(
+            WireMessageType.TARGET_GEOLOCATION_STATUS,
+            timeout_s=timeout_s,
+        )
+        if not isinstance(
+            status,
+            TargetGeolocationStatusMessage,
+        ):  # pragma: no cover - type narrowing
+            raise OperatorProtocolError("decoded target geolocation status has the wrong type")
+        if (
+            self._last_target_geolocation_status_sequence is not None
+            and status.sequence <= self._last_target_geolocation_status_sequence
+        ):
+            raise OperatorProtocolError("target geolocation status sequence is not newer")
+        self._last_target_geolocation_status_sequence = status.sequence
         return status
 
     def receive_release_status(self, *, timeout_s: float) -> ReleaseStatusMessage:
