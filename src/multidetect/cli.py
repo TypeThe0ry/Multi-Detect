@@ -1290,7 +1290,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Depth Anything V2 metric ONNX or Jetson TensorRT engine used for the "
-            "sole LCK target and its full-frame depth grid"
+            "full-frame depth grid and round-robin operator TRK/LCK target ranging"
         ),
     )
     live.add_argument("--metric-depth-input-size", type=int, default=518)

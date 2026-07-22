@@ -75,6 +75,8 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     launcher = (ROOT / "scripts/run_jetson_fire_patrol.sh").read_text(encoding="utf-8")
 
     assert "--source-env CAMERA_SOURCE" in launcher
+    assert 'METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-0.282}"' in launcher
+    assert "outdoor-field-scale-0.282-20260721" in launcher
     assert "--rtsp-codec h265" in launcher
     assert "--gstreamer-hardware-decode" in launcher
     assert 'GSTREAMER_LATENCY_MS="${GSTREAMER_LATENCY_MS:-50}"' in launcher
@@ -224,10 +226,18 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "src/multidetect/adaptive_ranging.py" in deployer
     assert "src/multidetect/rgb_slam_range.py" in deployer
     assert "src/multidetect/operator_protocol.py" in deployer
+    assert "from multidetect.operator_protocol import OperatorTunnelCodec" in deployer
     assert "source-sha256.txt" in deployer
+    assert "[System.IO.File]::WriteAllText" in deployer
+    assert '($manifest -join "`n") + "`n"' in deployer
+    assert "[System.Text.Encoding]::ASCII" in deployer
     assert "sha256sum --check source-sha256.txt" in deployer
     assert "-m compileall -q src scripts" in deployer
     assert "bash -n scripts/run_jetson_fire_patrol.sh" in deployer
+    assert 'chmod 755 "`$root/scripts/run_jetson_fire_patrol.sh"' in deployer
+    assert 'test -x "`$root/scripts/run_jetson_fire_patrol.sh"' in deployer
+    assert "RgbSlamRangeEstimator().config.minimum_range_m == 0.4" in deployer
+    assert "RgbSlamRangeEstimator().config.maximum_range_m == 800.0" in deployer
     assert "sudo -n systemctl restart" in deployer
     assert "QGC source and build artifacts stay local" in deployer
 

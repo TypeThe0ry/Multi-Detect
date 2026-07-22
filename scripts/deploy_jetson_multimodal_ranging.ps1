@@ -63,7 +63,12 @@ try {
         $hash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
         $manifest.Add("$hash  $relativePath")
     }
-    Set-Content -LiteralPath (Join-Path $payloadRoot "source-sha256.txt") -Value $manifest -Encoding ascii
+    $manifestPath = Join-Path $payloadRoot "source-sha256.txt"
+    [System.IO.File]::WriteAllText(
+        $manifestPath,
+        (($manifest -join "`n") + "`n"),
+        [System.Text.Encoding]::ASCII
+    )
 
     & $tar.Source -cf $archivePath -C $payloadRoot .
     if ($LASTEXITCODE -ne 0) {
@@ -129,15 +134,21 @@ while read -r expected relative; do
     cp -a "`$source" "`$target"
 done < "`$manifest"
 
+# Windows archive creation does not preserve the executable bit. The systemd unit
+# invokes this launcher directly, so restore the required mode after every sync.
+chmod 755 "`$root/scripts/run_jetson_fire_patrol.sh"
+test -x "`$root/scripts/run_jetson_fire_patrol.sh"
+
 "`$root/.venv/bin/python" -m compileall -q "`$root/src" "`$root/scripts"
 PYTHONPATH="`$root/src" "`$root/.venv/bin/python" - <<'PY'
 from multidetect.adaptive_ranging import AdaptiveRangingPolicy
 from multidetect.rgb_slam_range import RgbSlamRangeEstimator
-from multidetect.operator_protocol import decode_operator_packet
+from multidetect.operator_protocol import OperatorTunnelCodec
 
-assert AdaptiveRangingPolicy().config.maximum_distance_m == 800.0
-assert RgbSlamRangeEstimator().config.maximum_distance_m == 800.0
-assert callable(decode_operator_packet)
+assert AdaptiveRangingPolicy().config.maximum_local_position_age_s == 0.60
+assert RgbSlamRangeEstimator().config.minimum_range_m == 0.4
+assert RgbSlamRangeEstimator().config.maximum_range_m == 800.0
+assert OperatorTunnelCodec.__name__ == "OperatorTunnelCodec"
 PY
 
 if [[ "`$restart" == "1" ]]; then

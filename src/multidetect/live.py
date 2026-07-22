@@ -880,6 +880,7 @@ class LiveMissionRunner:
         self._metric_depth_last_result_frame_id: str | None = None
         self._metric_depth_last_failure_count = 0
         self._latest_metric_depth_result: MetricDepthResult | None = None
+        self._metric_depth_submission_cursor = 0
         self._target_world_speed = (
             TargetWorldSpeedEstimator() if ranging_engine is not None else None
         )
@@ -2051,109 +2052,117 @@ class LiveMissionRunner:
                 if self.ranging_engine is not None and unified_update is not None:
                     ranging_started_s = time.perf_counter()
                     try:
-                        if (
-                            self.metric_depth_runner is not None
-                            and exclusive_lock_track_id is not None
-                        ):
+                        if self.metric_depth_runner is not None:
+                            metric_tracks = tuple(
+                                track
+                                for track in unified_update.tracks
+                                if self.selection_target_pool is not None
+                                and track.track_id
+                                in self.selection_target_pool.tracked_track_ids
+                            )
                             metric_track = _target_pool_snapshot(
                                 self.unified_target_pool,
                                 exclusive_lock_track_id,
                             )
-                            if metric_track is not None:
-                                self.metric_depth_runner.submit(
-                                    image_bgr=captured.image_bgr,
-                                    target_id=metric_track.track_id,
-                                    bbox=metric_track.bbox,
-                                    target_label=metric_track.label,
-                                    frame_id=captured.frame_id,
-                                    captured_at_s=captured.captured_at_s,
-                                    now_s=frame_event_at_s,
+                            if metric_track is None and metric_tracks:
+                                metric_track = metric_tracks[
+                                    self._metric_depth_submission_cursor % len(metric_tracks)
+                                ]
+                                self._metric_depth_submission_cursor += 1
+                            if metric_track is None:
+                                metric_target_id = "depth-grid"
+                                metric_bbox = BoundingBox(0.0, 0.0, 1.0, 1.0)
+                                metric_label = "scene"
+                            else:
+                                metric_target_id = metric_track.track_id
+                                metric_bbox = metric_track.bbox
+                                metric_label = metric_track.label
+                            self.metric_depth_runner.submit(
+                                image_bgr=captured.image_bgr,
+                                target_id=metric_target_id,
+                                bbox=metric_bbox,
+                                target_label=metric_label,
+                                frame_id=captured.frame_id,
+                                captured_at_s=captured.captured_at_s,
+                                now_s=frame_event_at_s,
+                            )
+                            metric_result = self.metric_depth_runner.latest_result()
+                            if (
+                                metric_result is not None
+                                and metric_result.frame_id
+                                != self._metric_depth_last_result_frame_id
+                            ):
+                                self._metric_depth_last_result_frame_id = metric_result.frame_id
+                                self._latest_metric_depth_result = metric_result
+                                if self.depth_grid_publisher is not None:
+                                    try:
+                                        fragment_count = self.depth_grid_publisher.publish(
+                                            metric_result.depth_grid
+                                        )
+                                        self.mission.audit.append(
+                                            "ranging.depth_grid_published",
+                                            frame_event_at_s,
+                                            {
+                                                "frame_id": metric_result.frame_id,
+                                                "width": metric_result.depth_grid.width,
+                                                "height": metric_result.depth_grid.height,
+                                                "fragment_count": fragment_count,
+                                            },
+                                        )
+                                    except (
+                                        OSError,
+                                        RuntimeError,
+                                        TypeError,
+                                        ValueError,
+                                    ) as exc:
+                                        self.mission.audit.append(
+                                            "ranging.depth_grid_publish_failed",
+                                            frame_event_at_s,
+                                            {
+                                                "error_type": type(exc).__name__,
+                                                "frame_loop_continues": True,
+                                            },
+                                        )
+                                self.mission.audit.append(
+                                    "ranging.metric_depth_updated",
+                                    frame_event_at_s,
+                                    {
+                                        "frame_id": metric_result.frame_id,
+                                        "target_id": metric_result.target_id,
+                                        "slant_range_m": metric_result.slant_range_m,
+                                        "raw_slant_range_m": metric_result.raw_slant_range_m,
+                                        "sigma_m": metric_result.sigma_m,
+                                        "valid_pixel_count": metric_result.valid_pixel_count,
+                                        "processing_time_ms": metric_result.processing_time_ms,
+                                        "providers": metric_result.provider_names,
+                                        "calibration_scale": metric_result.calibration_scale,
+                                        "calibration_offset_m": metric_result.calibration_offset_m,
+                                        "calibration_profile": metric_result.calibration_profile,
+                                        "grid_width": metric_result.depth_grid.width,
+                                        "grid_height": metric_result.depth_grid.height,
+                                        "exclusive_lck_only": False,
+                                        "submission_mode": (
+                                            "lck" if exclusive_lock_track_id is not None else
+                                            "trk" if metric_tracks else "scene"
+                                        ),
+                                    },
                                 )
-                                metric_result = self.metric_depth_runner.latest_result()
-                                if (
-                                    metric_result is not None
-                                    and metric_result.frame_id
-                                    != self._metric_depth_last_result_frame_id
-                                ):
-                                    self._metric_depth_last_result_frame_id = metric_result.frame_id
-                                    self._latest_metric_depth_result = metric_result
-                                    if self.depth_grid_publisher is not None:
-                                        try:
-                                            fragment_count = self.depth_grid_publisher.publish(
-                                                metric_result.depth_grid
-                                            )
-                                            self.mission.audit.append(
-                                                "ranging.depth_grid_published",
-                                                frame_event_at_s,
-                                                {
-                                                    "frame_id": metric_result.frame_id,
-                                                    "width": metric_result.depth_grid.width,
-                                                    "height": metric_result.depth_grid.height,
-                                                    "fragment_count": fragment_count,
-                                                },
-                                            )
-                                        except (
-                                            OSError,
-                                            RuntimeError,
-                                            TypeError,
-                                            ValueError,
-                                        ) as exc:
-                                            self.mission.audit.append(
-                                                "ranging.depth_grid_publish_failed",
-                                                frame_event_at_s,
-                                                {
-                                                    "error_type": type(exc).__name__,
-                                                    "frame_loop_continues": True,
-                                                },
-                                            )
-                                    self.mission.audit.append(
-                                        "ranging.metric_depth_updated",
-                                        frame_event_at_s,
-                                        {
-                                            "frame_id": metric_result.frame_id,
-                                            "target_id": metric_result.target_id,
-                                            "slant_range_m": metric_result.slant_range_m,
-                                            "raw_slant_range_m": (
-                                                metric_result.raw_slant_range_m
-                                            ),
-                                            "sigma_m": metric_result.sigma_m,
-                                            "valid_pixel_count": metric_result.valid_pixel_count,
-                                            "processing_time_ms": (
-                                                metric_result.processing_time_ms
-                                            ),
-                                            "providers": metric_result.provider_names,
-                                            "calibration_scale": (
-                                                metric_result.calibration_scale
-                                            ),
-                                            "calibration_offset_m": (
-                                                metric_result.calibration_offset_m
-                                            ),
-                                            "calibration_profile": (
-                                                metric_result.calibration_profile
-                                            ),
-                                            "grid_width": metric_result.depth_grid.width,
-                                            "grid_height": metric_result.depth_grid.height,
-                                            "exclusive_lck_only": True,
-                                        },
-                                    )
-                                if (
+                            if (
+                                self.metric_depth_runner.failure_count
+                                != self._metric_depth_last_failure_count
+                            ):
+                                self._metric_depth_last_failure_count = (
                                     self.metric_depth_runner.failure_count
-                                    != self._metric_depth_last_failure_count
-                                ):
-                                    self._metric_depth_last_failure_count = (
-                                        self.metric_depth_runner.failure_count
-                                    )
-                                    self.mission.audit.append(
-                                        "ranging.metric_depth_failed",
-                                        frame_event_at_s,
-                                        {
-                                            "failure_count": (
-                                                self.metric_depth_runner.failure_count
-                                            ),
-                                            "error": self.metric_depth_runner.last_error,
-                                            "frame_loop_continues": True,
-                                        },
-                                    )
+                                )
+                                self.mission.audit.append(
+                                    "ranging.metric_depth_failed",
+                                    frame_event_at_s,
+                                    {
+                                        "failure_count": self.metric_depth_runner.failure_count,
+                                        "error": self.metric_depth_runner.last_error,
+                                        "frame_loop_continues": True,
+                                    },
+                                )
                         for track in unified_update.tracks:
                             # Range/bearing metadata is per target. A malformed
                             # observation, one stale estimate, or a transient

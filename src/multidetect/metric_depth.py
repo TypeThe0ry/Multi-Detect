@@ -151,7 +151,7 @@ class MetricDepthResult:
 
 
 class MetricDepthEstimator:
-    """Depth Anything V2 metric-indoor inference and robust target-box sampling."""
+    """Metric depth inference and robust target-box sampling."""
 
     def __init__(self, config: MetricDepthConfig, *, session: Any | None = None) -> None:
         self.config = config

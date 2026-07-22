@@ -2225,6 +2225,53 @@ def test_manual_exclusive_lck_metric_depth_keeps_live_loop_running() -> None:
     assert metric_depth.closed is True
 
 
+def test_manual_trk_metric_depth_keeps_range_input_without_an_lck() -> None:
+    class _RecordingMetricDepthRunner:
+        def __init__(self) -> None:
+            self.submitted_target_ids: list[str] = []
+            self.failure_count = 0
+            self.last_error = None
+
+        def submit(self, **kwargs) -> bool:
+            self.submitted_target_ids.append(kwargs["target_id"])
+            return True
+
+        def latest_result(self):
+            return None
+
+        def measurement_for(self, **_kwargs):
+            return None
+
+        def close(self) -> None:
+            pass
+
+    bbox = BoundingBox(0.1, 0.2, 0.3, 0.7)
+    target_pool, selection_pool = _exclusive_lck_pool("manual", bbox)
+    tracked_target_id = selection_pool.exclusive_lock_track_id
+    assert tracked_target_id is not None
+    target_pool.unlock(tracked_target_id, now_s=time.monotonic())
+    assert selection_pool.exclusive_lock_track_id is None
+    metric_depth = _RecordingMetricDepthRunner()
+
+    result = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_FrameSource(3),
+        detector=_LabelDetector("manual"),
+        telemetry_provider=_TimestampedRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=3, display=False),
+        operator_bridge=_idle_operator_bridge(),
+        unified_target_pool=target_pool,
+        selection_target_pool=selection_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(),
+        metric_depth_runner=metric_depth,  # type: ignore[arg-type]
+    ).run()
+
+    assert result.processed_frames == 3
+    assert metric_depth.submitted_target_ids
+    assert set(metric_depth.submitted_target_ids) == {tracked_target_id}
+
+
 def test_manual_exclusive_lck_isolates_metric_depth_submit_failure() -> None:
     class _FailingMetricDepthRunner:
         failure_count = 0

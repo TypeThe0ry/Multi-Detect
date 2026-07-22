@@ -54,7 +54,9 @@ PIXHAWK_REQUEST_RANGING_STREAMS="${PIXHAWK_REQUEST_RANGING_STREAMS:-1}"
 MODE3_CONFIRMATION_ENABLED="${MODE3_CONFIRMATION_ENABLED:-0}"
 MODE3_AIM_CONTROL_ENABLED="${MODE3_AIM_CONTROL_ENABLED:-0}"
 RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"
-METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-auto}"
+# The deployed platform is an outdoor aircraft.  Keep one calibrated outdoor
+# model rather than silently switching scale domains when the aircraft slows.
+METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-outdoor}"
 METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
 # Temporary single-anchor calibration from the measured 6.8 m target versus the
 # stable 7.99-8.01 m raw indoor model result. Override with a multi-point profile
@@ -126,29 +128,18 @@ SEMANTIC_CONTEXT_MINIMUM_INTERVAL_SECONDS="${SEMANTIC_CONTEXT_MINIMUM_INTERVAL_S
 SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS="${SEMANTIC_CONTEXT_MAXIMUM_AGE_SECONDS:-2.0}"
 TRTEXEC="${TRTEXEC:-/usr/src/tensorrt/bin/trtexec}"
 
-if [[ "${METRIC_DEPTH_SCENE_PROFILE}" == "auto" ]]; then
-    if [[ -f "${ROOT}/models/depth-anything-v2-metric-outdoor-small/depth_anything_v2_vits_outdoor_518.fp16.trt86.engine" ]]; then
-        METRIC_DEPTH_SCENE_PROFILE=outdoor
-    else
-        METRIC_DEPTH_SCENE_PROFILE=indoor
-    fi
-fi
-
 case "${METRIC_DEPTH_SCENE_PROFILE}" in
-    indoor)
-        METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-indoor-small/depth_anything_v2_vits_indoor_518.fp16.trt86.engine}"
-        METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-0.85}"
-        METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-indoor-single-anchor-6.8m-20260720}"
-        METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-20.0}"
-        ;;
     outdoor)
         METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-${ROOT}/models/depth-anything-v2-metric-outdoor-small/depth_anything_v2_vits_outdoor_518.fp16.trt86.engine}"
-        METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-1.0}"
-        METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-outdoor-unanchored-v1}"
+        # Field anchor for the current outdoor camera mounting.  Override this
+        # environment value with a multi-point calibration profile when new
+        # measured ranges are available.
+        METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-0.282}"
+        METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-outdoor-field-scale-0.282-20260721}"
         METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-800.0}"
         ;;
     *)
-        printf 'METRIC_DEPTH_SCENE_PROFILE must be auto, indoor or outdoor.\n' >&2
+        printf 'METRIC_DEPTH_SCENE_PROFILE must be outdoor.\n' >&2
         exit 2
         ;;
 esac
@@ -778,7 +769,7 @@ printf 'Short-term optical-flow/template tracking: %s (prediction hints only).\n
     "${SHORT_TERM_TRACKING_ENABLED}"
 printf 'Timestamped multimodal ranging: %s.\n' \
     "${MULTIMODAL_RANGING_ENABLED}"
-printf 'Manual-LCK metric depth: %s (asynchronous target-only inference).\n' \
+printf 'TRK/LCK metric depth: %s (asynchronous rotating target and scene-grid inference).\n' \
     "${METRIC_DEPTH_ENABLED}"
 printf 'Authenticated depth-grid UDP: %s (%s:%s).\n' \
     "${DEPTH_GRID_UDP_ENABLED}" "${DEPTH_GRID_UDP_HOST}" "${DEPTH_GRID_UDP_PORT}"
