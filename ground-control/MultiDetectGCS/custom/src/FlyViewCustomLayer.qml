@@ -104,6 +104,17 @@ Item {
         _setTargetEvidenceFeedback(qsTr("经纬度已复制到剪贴板"), false);
     }
 
+    function _copySavedEvidenceCoordinates(snapshot) {
+        const latitude = Number(snapshot.latitude_deg);
+        const longitude = Number(snapshot.longitude_deg);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            _setTargetEvidenceFeedback(qsTr("记录没有可复制的有效坐标"), true);
+            return;
+        }
+        QGroundControl.copyToClipboard(latitude.toFixed(7) + ", " + longitude.toFixed(7));
+        _setTargetEvidenceFeedback(qsTr("历史记录坐标已复制到剪贴板"), false);
+    }
+
     function _saveTargetEvidenceSnapshot() {
         if (!_targetGeolocationQualified) {
             _setTargetEvidenceFeedback(qsTr("不可定位：没有可保存的合格坐标"), true);
@@ -716,6 +727,14 @@ Item {
                     text: qsTr("保存快照")
                     onClicked: root._saveTargetEvidenceSnapshot()
                 }
+
+                QGCButton {
+                    enabled: typeof multiDetectTargetEvidenceStore !== "undefined" &&
+                             multiDetectTargetEvidenceStore !== null &&
+                             multiDetectTargetEvidenceStore.snapshotCount > 0
+                    text: qsTr("记录")
+                    onClicked: targetEvidenceHistoryPopup.open()
+                }
             }
 
             QGCLabel {
@@ -730,6 +749,120 @@ Item {
                 Layout.fillWidth: true
                 color: qgcPal.warningText
                 text: qsTr("仅显示与记录；不产生飞控指令")
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Popup {
+        id: targetEvidenceHistoryPopup
+
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        focus: true
+        height: Math.min(root.height * 0.56, ScreenTools.defaultFontPixelHeight * 25)
+        modal: false
+        padding: root._margin * 0.75
+        width: Math.min(root.width - root._margin * 2, ScreenTools.defaultFontPixelWidth * 50)
+        x: Math.max(root._margin, Math.min(root.width - width - root._margin, targetGeolocationCard.x))
+        y: Math.max(root._margin, Math.min(root.height - height - root._margin,
+                                          targetGeolocationCard.y + targetGeolocationCard.height + root._margin))
+        z: 80
+
+        background: Rectangle {
+            border.color: "#ffd43b"
+            border.width: 1
+            color: qgcPal.window
+            opacity: 0.97
+            radius: ScreenTools.defaultBorderRadius
+        }
+
+        contentItem: ColumnLayout {
+            spacing: root._margin * 0.35
+
+            QGCLabel {
+                Layout.fillWidth: true
+                color: "#ffd43b"
+                font.bold: true
+                text: qsTr("目标事件记录 · 只读")
+            }
+
+            QGCLabel {
+                Layout.fillWidth: true
+                color: qgcPal.text
+                text: qsTr("最近 %1 条 · 本地保存").arg(
+                          typeof multiDetectTargetEvidenceStore !== "undefined" &&
+                          multiDetectTargetEvidenceStore !== null ?
+                              multiDetectTargetEvidenceStore.recentSnapshots.length : 0)
+            }
+
+            ListView {
+                id: targetEvidenceHistoryList
+
+                Layout.fillHeight: true
+                Layout.fillWidth: true
+                clip: true
+                model: typeof multiDetectTargetEvidenceStore !== "undefined" &&
+                       multiDetectTargetEvidenceStore !== null ?
+                           multiDetectTargetEvidenceStore.recentSnapshots : []
+                spacing: root._margin * 0.35
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    readonly property var entry: modelData
+                    border.color: qgcPal.button
+                    border.width: 1
+                    color: qgcPal.windowShade
+                    height: evidenceRecordColumn.implicitHeight + root._margin
+                    radius: ScreenTools.defaultBorderRadius
+                    width: targetEvidenceHistoryList.width
+
+                    ColumnLayout {
+                        id: evidenceRecordColumn
+
+                        anchors.fill: parent
+                        anchors.margins: root._margin * 0.5
+                        spacing: root._margin * 0.16
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            font.bold: true
+                            text: qsTr("%1 · %2").arg(
+                                      String(parent.parent.entry.target_label || "--"),
+                                      String(parent.parent.entry.saved_at_utc || "--"))
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            text: "GPS " + Number(parent.parent.entry.latitude_deg).toFixed(7) + ", " +
+                                  Number(parent.parent.entry.longitude_deg).toFixed(7) + " ± " +
+                                  Number(parent.parent.entry.horizontal_sigma_m).toFixed(1) + " m (1σ)"
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            text: qsTr("距离：%1 m · 方位：%2° · %3").arg(
+                                      Number(parent.parent.entry.range_m).toFixed(1),
+                                      Number(parent.parent.entry.relative_bearing_deg).toFixed(1),
+                                      String(parent.parent.entry.range_validity || "--"))
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCButton {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("复制坐标")
+                            onClicked: root._copySavedEvidenceCoordinates(parent.parent.entry)
+                        }
+                    }
+                }
+            }
+
+            QGCLabel {
+                Layout.fillWidth: true
+                color: qgcPal.warningText
+                text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")
                 wrapMode: Text.WordWrap
             }
         }

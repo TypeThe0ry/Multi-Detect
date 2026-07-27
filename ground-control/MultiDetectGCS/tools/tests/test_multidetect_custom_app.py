@@ -1071,6 +1071,33 @@ def test_trk_cancel_preempts_pending_manual_selection_and_hud_regions_do_not_ove
     assert "ScreenTools.defaultFontPixelHeight * 7.4" in layer
 
 
+def test_lck_cancel_demotes_once_and_trk_cancel_hides_the_exact_box_immediately() -> None:
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
+
+    cancel_handler = state[
+        state.index("function cancelTarget()") : state.index("function denyAuthorization()")
+    ]
+    fallback_cancel = state[
+        state.index("function _cancelCurrentTrackByBox()") : state.index("function approveAuthorization()")
+    ]
+
+    assert 'if ((interactionState === "LCK" || interactionState === "TGT") && targetBoxValid)' in cancel_handler
+    assert "return demoteTrack();" in cancel_handler
+    demote_handler = state[
+        state.index("function demoteTrack()") : state.index("function cancelMode3Aim()")
+    ]
+    assert "hasPendingTargetSelection" not in demote_handler
+    assert "function isCancellationPendingTarget(entry)" in state
+    assert "pendingCancelledTargetIds = hidden;" in fallback_cancel
+    assert "_removePendingCancelledTarget(cancelledTargetId);" not in fallback_cancel
+    assert "function onPendingCancelledTargetIdsChanged()" in overlay
+    assert "readonly property bool cancellationPending: MultiDetectState.isCancellationPendingTarget(entry)" in overlay
+    assert "entry.bboxValid && !cancellationPending" in overlay
+    assert 'text: parent.parent.primaryLocked ? qsTr("返回 TRK") : qsTr("取消")' in overlay
+    assert "MultiDetectState.demoteTrack();" in overlay
+
+
 def test_mode_three_uses_production_observe_state_and_minimal_ui_copy() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     layer = _read("src/FlyViewCustomLayer.qml")
@@ -1221,6 +1248,24 @@ def test_outdoor_fusion_metadata_shows_source_distance_weight_and_log_depth_grid
     assert "MultiDetectState.rangeContributionText()" in overlay
     assert "MultiDetectState.rangeFusionText()" in layer
     assert 'return "DEP " + depthMinimumM.toFixed(1)' in state
+
+
+def test_target_evidence_history_exposes_recent_read_only_records() -> None:
+    store_header = _read("src/MultiDetectTargetEvidenceStore.h")
+    store_source = _read("src/MultiDetectTargetEvidenceStore.cc")
+    layer = _read("src/FlyViewCustomLayer.qml")
+
+    assert "Q_PROPERTY(QVariantList recentSnapshots READ recentSnapshots NOTIFY recentSnapshotsChanged)" in store_header
+    assert "static constexpr int kRecentSnapshotLimit = 24" in store_header
+    assert "void _appendRecentSnapshot(const QVariantMap& snapshot);" in store_header
+    assert "_recentSnapshots.prepend(snapshot);" in store_source
+    assert "while (_recentSnapshots.size() > kRecentSnapshotLimit)" in store_source
+    assert "emit recentSnapshotsChanged();" in store_source
+    assert "id: targetEvidenceHistoryPopup" in layer
+    assert "multiDetectTargetEvidenceStore.recentSnapshots" in layer
+    assert "function _copySavedEvidenceCoordinates(snapshot)" in layer
+    assert 'text: qsTr("目标事件记录 · 只读")' in layer
+    assert 'text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")' in layer
 
 
 def test_fly_view_shows_per_algorithm_ranging_status_and_weight_rows() -> None:

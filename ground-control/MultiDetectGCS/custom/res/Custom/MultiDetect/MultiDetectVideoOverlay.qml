@@ -17,6 +17,13 @@ Item {
         visible: false
     }
 
+    Button {
+        id: returnTrackActionSizer
+
+        text: qsTr("返回 TRK")
+        visible: false
+    }
+
     QGCButton {
         id: lockActionSizer
 
@@ -39,7 +46,8 @@ Item {
     property string depthSampleText: ""
     readonly property real _actionButtonHeight: Math.max(26, ScreenTools.defaultFontPixelHeight * 1.55)
     readonly property real _actionSpacing: Math.max(2, ScreenTools.defaultFontPixelWidth * 0.3)
-    readonly property real _cancelActionWidth: Math.max(54, cancelActionSizer.implicitWidth)
+    readonly property real _cancelActionWidth: Math.max(54, cancelActionSizer.implicitWidth,
+                                                        returnTrackActionSizer.implicitWidth)
     readonly property real _lockActionWidth: Math.max(48, lockActionSizer.implicitWidth)
     // Reserve the top band for the native QGC toolbar and the fixed-wing
     // heading tape.  The Jetson panel owns upper-right; depth owns upper-left.
@@ -217,15 +225,15 @@ Item {
             root._syncRenderTargetPool();
         }
 
+        function onPendingCancelledTargetIdsChanged() {
+            root._syncRenderTargetPool();
+        }
+
         function onTargetIdChanged() {
             root._syncRenderTargetPool();
         }
 
         function onExclusiveLockPendingTargetIdChanged() {
-            root._syncRenderTargetPool();
-        }
-
-        function onPendingCancelledTargetIdsChanged() {
             root._syncRenderTargetPool();
         }
 
@@ -385,8 +393,12 @@ Item {
             const geometry = _actionGeometry(entry.x1, entry.y1, entry.x2, lockVisible);
             if (!_insideActionRow(pixelX, pixelY, geometry))
                 continue;
-            if (pixelX <= geometry.cancelRight)
-                MultiDetectState.cancelTrackedCandidate(entry);
+            if (pixelX <= geometry.cancelRight) {
+                if (primaryLocked)
+                    MultiDetectState.demoteTrack();
+                else
+                    MultiDetectState.cancelTrackedCandidate(entry);
+            }
             else if (lockVisible && pixelX >= geometry.lockLeft &&
                      !MultiDetectState.hasPendingTargetSelection)
                 MultiDetectState.lockTrackedCandidate(entry);
@@ -494,6 +506,7 @@ Item {
             required property string targetId
 
             readonly property bool operatorTracked: MultiDetectState.isOperatorTrackedTarget(entry)
+            readonly property bool cancellationPending: MultiDetectState.isCancellationPendingTarget(entry)
             readonly property bool primaryLocked: operatorTracked &&
                                                     ((entry.locked && entry.primary &&
                                                       MultiDetectState.confirmedPrimaryLockTargetId === entry.targetId) ||
@@ -501,7 +514,7 @@ Item {
                                                       entry.targetId === MultiDetectState.targetId))
             readonly property color displayColor: primaryLocked ? "#ff3b30" : root._classColor(entry.label)
             readonly property real markerDiameter: Math.max(34, ScreenTools.defaultFontPixelHeight * 2.2)
-            readonly property bool candidateVisible: entry.bboxValid &&
+            readonly property bool candidateVisible: entry.bboxValid && !cancellationPending &&
                                                       (operatorTracked || !MultiDetectState.targetBoxValid ||
                                                        entry.targetId !== MultiDetectState.targetId)
             height: operatorTracked ? (entry.y2 - entry.y1) * root.height : markerDiameter
@@ -579,10 +592,15 @@ Item {
                 Button {
                     enabled: root.interactionEnabled
                     height: root._actionButtonHeight
-                    text: qsTr("取消")
+                    text: parent.parent.primaryLocked ? qsTr("返回 TRK") : qsTr("取消")
                     width: root._cancelActionWidth
 
-                    onClicked: MultiDetectState.cancelTrackedCandidate(parent.parent.entry)
+                    onClicked: {
+                        if (parent.parent.primaryLocked)
+                            MultiDetectState.demoteTrack();
+                        else
+                            MultiDetectState.cancelTrackedCandidate(parent.parent.entry);
+                    }
                 }
 
                 QGCButton {
@@ -717,7 +735,7 @@ Item {
             Button {
                 enabled: root.interactionEnabled
                 height: root._actionButtonHeight
-                text: qsTr("取消")
+                text: MultiDetectState.interactionState === "LCK" ? qsTr("返回 TRK") : qsTr("取消")
                 width: root._cancelActionWidth
 
                 onClicked: MultiDetectState.cancelTarget()

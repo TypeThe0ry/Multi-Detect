@@ -111,6 +111,11 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
 
     ++_snapshotCount;
+    QVariantMap recentSnapshot;
+    for (auto it = record.constBegin(); it != record.constEnd(); ++it) {
+        recentSnapshot.insert(it.key(), it.value().toVariant());
+    }
+    _appendRecentSnapshot(recentSnapshot);
     _setLastError({});
     emit snapshotCountChanged();
     return true;
@@ -134,8 +139,23 @@ void MultiDetectTargetEvidenceStore::_loadSnapshotCount()
             && document.object().value(QStringLiteral("schema")).toString()
                 == QStringLiteral("multidetect.target-evidence.v1")) {
             ++_snapshotCount;
+            QVariantMap recentSnapshot;
+            const QJsonObject record = document.object();
+            for (auto it = record.constBegin(); it != record.constEnd(); ++it) {
+                recentSnapshot.insert(it.key(), it.value().toVariant());
+            }
+            _appendRecentSnapshot(recentSnapshot);
         }
     }
+}
+
+void MultiDetectTargetEvidenceStore::_appendRecentSnapshot(const QVariantMap& snapshot)
+{
+    _recentSnapshots.prepend(snapshot);
+    while (_recentSnapshots.size() > kRecentSnapshotLimit) {
+        _recentSnapshots.removeLast();
+    }
+    emit recentSnapshotsChanged();
 }
 
 void MultiDetectTargetEvidenceStore::_setLastError(const QString& error)

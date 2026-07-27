@@ -207,24 +207,28 @@ elseif(LINUX)
 # Windows Installation & Installer Creation
 # ----------------------------------------------------------------------------
 elseif(WIN32)
-    # Pass variables to Windows installer creation script
-    if(DEFINED QGC_WINDOWS_INSTALLER_FILENAME AND NOT QGC_WINDOWS_INSTALLER_FILENAME STREQUAL "")
-        set(_win_installer_out "${CMAKE_BINARY_DIR}/${QGC_WINDOWS_INSTALLER_FILENAME}")
-    elseif(CMAKE_CROSSCOMPILING)
-        set(_win_installer_out "${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}-installer-${CMAKE_HOST_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_PROCESSOR}.exe")
-    else()
-        set(_win_installer_out "${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}-installer-${CMAKE_SYSTEM_PROCESSOR}.exe")
+    # Always deploy a runnable staging directory. NSIS packaging is optional so
+    # local developers can use `cmake --install` for a portable build only.
+    if(QGC_BUILD_INSTALLER)
+        # Pass variables to Windows installer creation script
+        if(DEFINED QGC_WINDOWS_INSTALLER_FILENAME AND NOT QGC_WINDOWS_INSTALLER_FILENAME STREQUAL "")
+            set(_win_installer_out "${CMAKE_BINARY_DIR}/${QGC_WINDOWS_INSTALLER_FILENAME}")
+        elseif(CMAKE_CROSSCOMPILING)
+            set(_win_installer_out "${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}-installer-${CMAKE_HOST_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_PROCESSOR}.exe")
+        else()
+            set(_win_installer_out "${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}-installer-${CMAKE_SYSTEM_PROCESSOR}.exe")
+        endif()
+        install(CODE "
+            set(CMAKE_PROJECT_NAME \"${CMAKE_PROJECT_NAME}\")
+            set(CMAKE_PROJECT_VERSION \"${CMAKE_PROJECT_VERSION}\")
+            set(QGC_ORG_NAME \"${QGC_ORG_NAME}\")
+            set(QGC_WINDOWS_ICON_PATH \"${QGC_WINDOWS_ICON_PATH}\")
+            set(QGC_WINDOWS_INSTALL_HEADER_PATH \"${QGC_WINDOWS_INSTALL_HEADER_PATH}\")
+            set(QGC_WINDOWS_OUT \"${_win_installer_out}\")
+            set(QGC_WINDOWS_INSTALLER_SCRIPT \"${CMAKE_SOURCE_DIR}/deploy/windows/nullsoft_installer.nsi\")
+        ")
+        install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/install/CreateWinInstaller.cmake")
     endif()
-    install(CODE "
-        set(CMAKE_PROJECT_NAME \"${CMAKE_PROJECT_NAME}\")
-        set(CMAKE_PROJECT_VERSION \"${CMAKE_PROJECT_VERSION}\")
-        set(QGC_ORG_NAME \"${QGC_ORG_NAME}\")
-        set(QGC_WINDOWS_ICON_PATH \"${QGC_WINDOWS_ICON_PATH}\")
-        set(QGC_WINDOWS_INSTALL_HEADER_PATH \"${QGC_WINDOWS_INSTALL_HEADER_PATH}\")
-        set(QGC_WINDOWS_OUT \"${_win_installer_out}\")
-        set(QGC_WINDOWS_INSTALLER_SCRIPT \"${CMAKE_SOURCE_DIR}/deploy/windows/nullsoft_installer.nsi\")
-    ")
-    install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/install/CreateWinInstaller.cmake")
 
 # ----------------------------------------------------------------------------
 # macOS Installation, Code Signing & DMG Creation

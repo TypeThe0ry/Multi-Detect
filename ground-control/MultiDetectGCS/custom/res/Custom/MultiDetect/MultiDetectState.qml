@@ -1048,6 +1048,11 @@ QtObject {
                entry.locked === true && entry.primary === true;
     }
 
+    function isCancellationPendingTarget(entry) {
+        return entry !== undefined && entry !== null &&
+               _arrayContains(pendingCancelledTargetIds, String(entry.targetId || ""));
+    }
+
     function _reconcileDemotedPrimaryLock(entries) {
         if (demotedPrimaryLockTargetId === "")
             return;
@@ -2040,7 +2045,7 @@ QtObject {
 
     function demoteTrack() {
         if ((interactionState !== "LCK" && interactionState !== "TGT") ||
-                !targetBoxValid || !operatorConfigured || hasPendingTargetSelection)
+                !targetBoxValid || !operatorConfigured)
             return false;
         reconnectPromoteLock = false;
         if (!_operator.sendTargetSelection("DEMOTE_TRK", targetX1, targetY1, targetX2, targetY2)) {
@@ -2119,14 +2124,16 @@ QtObject {
         reconnectSelectionPending = false;
         reconnectPromoteLock = false;
         localTrackSelectionCommandIds = [];
+        const hidden = pendingCancelledTargetIds.slice();
+        if (cancelledTargetId !== "" && !_arrayContains(hidden, cancelledTargetId))
+            hidden.push(cancelledTargetId);
+        pendingCancelledTargetIds = hidden;
         selectionCommandId = _operator.lastSelectionCommandId;
         pendingSelectionAction = "CANCEL_TRK";
         pendingCancelledTargetId = cancelledTargetId;
         selectionAwaitingTrackStatus = true;
         selectionTrackStatusTimer.restart();
         selectionMode = false;
-        if (cancelledTargetId !== "" && _arrayContains(pendingCancelledTargetIds, cancelledTargetId))
-            _removePendingCancelledTarget(cancelledTargetId);
         targetId = "";
         targetLabel = "";
         targetConfidence = 0.0;
@@ -2189,6 +2196,11 @@ QtObject {
             statusMessage = qsTr("框选已取消");
             return true;
         }
+        // A primary LCK is not a cancellation target. One press must return it
+        // to TRK, keeping the same target identity and never leaving the red
+        // LCK rectangle visible while Jetson's demotion acknowledgement is due.
+        if ((interactionState === "LCK" || interactionState === "TGT") && targetBoxValid)
+            return demoteTrack();
         const entries = operatorTrackedTargetPoolEntries;
         let selectedEntry = null;
         for (let index = 0; index < entries.length; ++index) {
