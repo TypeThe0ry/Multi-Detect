@@ -5,6 +5,25 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v58 多高度/距离/坡度目标定位矩阵门（2026-09-05）
+
+- Gazebo camera → shared ranging → WGS-84 acceptance evidence 升级为 schema v2：绑定评估器源码
+  SHA-256，并从绑定的逐帧 telemetry/truth/DEM 派生 AGL 高度、真实地面距离及目标位置坡度；truth
+  仍在全部 prediction 完成后才读取，不进入 detector/ranging 输入。评估器字节变化会使旧证据 fail-closed。
+- 新增 `multidetect-gazebo-geolocation-matrix` 与
+  `scripts/run_gazebo_geolocation_regime_matrix.py`。矩阵会先逐份重开原始 scenario、frame-set、模型、
+  manifest 和当前 parity，完整复算每份证据，再要求至少 3 个相隔 `5 m` 的高度档、3 个相隔 `5 m`
+  的距离档、2 个相隔 `3 deg` 的坡度档、3 个/15 帧正样本，以及 1 个/5 帧的零坐标负样本；所有
+  source 必须具有相同 release/evaluator identity。
+- 当前 v58 实际正向证据仍为 5/5 落图，最大/平均误差 `0.674040/0.651476 m`；近地平线负向仍为
+  5/5 检测、0/5 坐标。两份 schema-v2 verifier 都 `passed=true/reproduced=true`。
+- 当前矩阵报告按设计 `gate_passed=false`：正样本 `1/3`、正帧 `5/15`、高度档 `1/3`、距离档
+  `1/3`、坡度档 `1/2`；零坐标负样本 `1/1`、负帧 `5/5` 已满足。没有用单一平地场景冒充多工况
+  定位完成，也没有提升 QGC 人工视觉、户外 GNSS、HIL/REAL、硬件、实飞或生产批准。
+- 全量回归 3,241 tests：`3240 passed, 1 skipped, 0 failed, 0 errors`，JUnit 470,851 bytes /
+  SHA-256 `08FEBF2327722653503715CF1180ACA2FABEE7578F5937D734430C6CCC9FE7F0`；全仓 Ruff check 与
+  compileall 通过。历史 Ruff format baseline debt 保持独立，不在 v58 功能提交中批量改写。
+
 ### v0.3.0-pre.8 v57 可复现的 Gazebo 像素到 WGS-84 定位门与仓库状态重整（2026-09-05）
 
 - 以 GitHub `origin/main` 的 `b5c3f10baf4cc9febaa3a10103752f202f3b0611` 为审计基线，重新盘点

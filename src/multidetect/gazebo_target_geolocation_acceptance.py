@@ -67,11 +67,12 @@ from .terrain_dem import (
 from .vision import OnnxRawYoloConfig, OnnxRawYoloDetector
 
 EVIDENCE_SCHEMA = "multidetect.gazebo-target-geolocation-acceptance"
-EVIDENCE_SCHEMA_VERSION = 1
+EVIDENCE_SCHEMA_VERSION = 2
 FRAME_SET_SCHEMA = "multidetect.gazebo-bgr24-frame-set"
 FRAME_SET_SCHEMA_VERSION = 2
 RAW_YOLO_NATIVE_OUTPUT = "ultralytics_raw_xywh_class_scores"
 MAX_SOURCE_SKEW_NS = 1_500_000_000
+EVALUATOR_SOURCE_PATH = "src/multidetect/gazebo_target_geolocation_acceptance.py"
 
 
 class GazeboTargetGeolocationInputError(ValueError):
@@ -250,6 +251,12 @@ def evaluate_gazebo_target_geolocation(
 
     try:
         repository_root = _repository_root(config.repository_root)
+        evaluator_source_path = _repository_path(
+            repository_root,
+            EVALUATOR_SOURCE_PATH,
+            "geolocation evaluator source",
+        )
+        evaluator_source_sha256 = sha256_file(evaluator_source_path)
         release_parity = build_release_parity_document(repository_root)
         frame_set_path = _regular_file(config.frame_set_manifest_path, "frame-set manifest")
         scenario_path = _regular_file(config.scenario_manifest_path, "scenario manifest")
@@ -486,6 +493,14 @@ def evaluate_gazebo_target_geolocation(
             ci95_gate,
         )
     )
+    truth_surface = frame_set.terrain_dem.sample_wgs84(
+        truth_target.position.latitude_deg,
+        truth_target.position.longitude_deg,
+    )
+    terrain_slope_m_per_m = math.hypot(
+        truth_surface.north_slope_m_per_m,
+        truth_surface.east_slope_m_per_m,
+    )
 
     provider_names = tuple(str(item) for item in getattr(detector, "provider_names", ()))
     document: dict[str, Any] = {
@@ -493,13 +508,15 @@ def evaluate_gazebo_target_geolocation(
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "evaluated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "scope": "gazebo_actual_pixels_per_frame_camera_to_wgs84_software_acceptance",
+        "evaluator_identity": {
+            "module_path": EVALUATOR_SOURCE_PATH,
+            "module_sha256": evaluator_source_sha256,
+        },
         "release_identity": {
             "product": release_parity["product"],
             "release_label": release_parity["release_label"],
             "runtime_mode": "sim",
-            "source_files_canonical_sha256": canonical_sha256(
-                release_parity["source_files"]
-            ),
+            "source_files_canonical_sha256": canonical_sha256(release_parity["source_files"]),
             "parity": release_parity["parity"],
         },
         "scenario": {
@@ -587,6 +604,21 @@ def evaluate_gazebo_target_geolocation(
             "minimum_range_ci95_coverage": float(config.minimum_range_ci95_coverage),
         },
         "frames": scored_frames,
+        "regime": {
+            "vehicle_altitude_agl_m": _metric_summary(
+                [item.frame.telemetry.altitude_agl_m for item in predictions]
+            ),
+            "truth_ground_range_m": _metric_summary(
+                [float(item["truth_ground_range_m"]) for item in scored_frames]
+            ),
+            "terrain_at_truth": {
+                "elevation_msl_m": truth_surface.elevation_m,
+                "north_slope_m_per_m": truth_surface.north_slope_m_per_m,
+                "east_slope_m_per_m": truth_surface.east_slope_m_per_m,
+                "slope_m_per_m": terrain_slope_m_per_m,
+                "slope_deg": math.degrees(math.atan(terrain_slope_m_per_m)),
+            },
+        },
         "scoring": {
             "frame_count": len(predictions),
             "matching_detection_frame_count": sum(
@@ -654,9 +686,7 @@ def verify_gazebo_target_geolocation_evidence(
         root = _repository_root(Path(repository_root))
         if isinstance(evidence, (str, Path)):
             evidence_path = _regular_file(Path(evidence), "geolocation evidence")
-            document: Mapping[str, Any] = _load_json_object(
-                evidence_path, "geolocation evidence"
-            )
+            document: Mapping[str, Any] = _load_json_object(evidence_path, "geolocation evidence")
         elif isinstance(evidence, Mapping):
             document = evidence
         else:
@@ -666,14 +696,30 @@ def verify_gazebo_target_geolocation_evidence(
 
         if document.get("schema") != EVIDENCE_SCHEMA:
             reasons.append("evidence schema does not match the verifier contract")
-        if type(document.get("schema_version")) is not int or document.get(
-            "schema_version"
-        ) != EVIDENCE_SCHEMA_VERSION:
+        if (
+            type(document.get("schema_version")) is not int
+            or document.get("schema_version") != EVIDENCE_SCHEMA_VERSION
+        ):
             reasons.append("evidence schema_version does not match the verifier contract")
         if document.get("scope") != (
             "gazebo_actual_pixels_per_frame_camera_to_wgs84_software_acceptance"
         ):
             reasons.append("evidence scope does not match the verifier contract")
+
+        evaluator_identity = _mapping(document.get("evaluator_identity"), "evaluator_identity")
+        if evaluator_identity.get("module_path") != EVALUATOR_SOURCE_PATH:
+            reasons.append("evaluator module path does not match the verifier contract")
+        evaluator_source = _repository_path(
+            root,
+            evaluator_identity.get("module_path"),
+            "geolocation evaluator source",
+        )
+        claimed_evaluator_sha256 = _sha256_text(
+            evaluator_identity.get("module_sha256"),
+            "evaluator_identity.module_sha256",
+        )
+        if sha256_file(evaluator_source) != claimed_evaluator_sha256:
+            reasons.append("evaluator source SHA-256 does not match the current checkout")
 
         evaluated_at = document.get("evaluated_at_utc")
         if not isinstance(evaluated_at, str) or not evaluated_at.endswith("Z"):
@@ -701,20 +747,14 @@ def verify_gazebo_target_geolocation_evidence(
                 "deterministic_result_sha256 does not match the timestamp-independent document"
             )
 
-        frame_set_identity = _mapping(
-            document.get("frame_set_identity"), "frame_set_identity"
-        )
+        frame_set_identity = _mapping(document.get("frame_set_identity"), "frame_set_identity")
         scenario = _mapping(document.get("scenario"), "scenario")
         model_identity = _mapping(document.get("model_identity"), "model_identity")
-        execution_provider = _mapping(
-            document.get("execution_provider"), "execution_provider"
-        )
+        execution_provider = _mapping(document.get("execution_provider"), "execution_provider")
         thresholds = _mapping(document.get("thresholds"), "thresholds")
         requested_providers = execution_provider.get("requested")
         if not isinstance(requested_providers, list):
-            raise GazeboTargetGeolocationInputError(
-                "execution_provider.requested must be an array"
-            )
+            raise GazeboTargetGeolocationInputError("execution_provider.requested must be an array")
 
         replay_config = GazeboTargetGeolocationConfig(
             repository_root=root,
@@ -737,9 +777,7 @@ def verify_gazebo_target_geolocation_evidence(
             providers=tuple(requested_providers),
             minimum_anchor_sigma_px=thresholds.get("minimum_anchor_sigma_px"),  # type: ignore[arg-type]
             maximum_horizontal_error_m=thresholds.get("maximum_horizontal_error_m"),  # type: ignore[arg-type]
-            maximum_multiframe_stability_m=thresholds.get(
-                "maximum_multiframe_stability_m"
-            ),  # type: ignore[arg-type]
+            maximum_multiframe_stability_m=thresholds.get("maximum_multiframe_stability_m"),  # type: ignore[arg-type]
             minimum_one_sigma_coverage=thresholds.get("minimum_one_sigma_coverage"),  # type: ignore[arg-type]
             minimum_range_ci95_coverage=thresholds.get("minimum_range_ci95_coverage"),  # type: ignore[arg-type]
         )
@@ -1568,6 +1606,16 @@ def _deterministic_result_sha256(document: Mapping[str, Any]) -> str:
     return canonical_sha256(deterministic)
 
 
+def _metric_summary(values: list[float]) -> dict[str, float]:
+    if not values or any(not math.isfinite(value) for value in values):
+        raise GazeboTargetGeolocationInputError("regime metrics require finite samples")
+    return {
+        "minimum": min(values),
+        "maximum": max(values),
+        "mean": sum(values) / len(values),
+    }
+
+
 def _negative_claims() -> dict[str, Any]:
     return {
         "environment": "software_simulation",
@@ -1596,6 +1644,7 @@ def _require_numpy() -> Any:
 __all__ = [
     "EVIDENCE_SCHEMA",
     "EVIDENCE_SCHEMA_VERSION",
+    "EVALUATOR_SOURCE_PATH",
     "GazeboTargetGeolocationConfig",
     "GazeboTargetGeolocationInputError",
     "build_input_error_document",

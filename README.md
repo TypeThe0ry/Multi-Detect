@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v57：Gazebo 实际像素到 WGS-84 的可复现证据门 |
+| 当前工程迭代 | v58：多高度/距离/坡度目标定位矩阵门 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -110,16 +110,25 @@ py -3.12 -m venv .venv
 `create_release_parity.py` 会更新 `configs/release-parity.json`。任何被五组共享契约绑定的源码
 变化都必须同时提交新的 parity，旧证据自动失效。
 
-### v57 定位证据复核
+### v58 定位证据复核与工况矩阵
 
 本地存在候选 ONNX、原始 Gazebo frame-set 和证据文件时，可执行：
 
 ```powershell
 python .\scripts\verify_gazebo_target_geolocation_acceptance.py `
   --repository-root . `
-  --evidence .\artifacts\evaluation\terminal-continuation-v57\gazebo-car-geolocation-positive-control-evaluation-v57-pre8-v3.json `
+  --evidence .\artifacts\evaluation\terminal-continuation-v57\gazebo-car-geolocation-positive-control-evaluation-v58-pre8-v4.json `
   --out .\artifacts\evaluation\terminal-continuation-v57\positive-verification-rerun.json
+
+python .\scripts\run_gazebo_geolocation_regime_matrix.py `
+  --repository-root . `
+  --positive-evidence .\artifacts\evaluation\terminal-continuation-v57\gazebo-car-geolocation-positive-control-evaluation-v58-pre8-v4.json `
+  --negative-no-coordinate-evidence .\artifacts\evaluation\terminal-continuation-v57\gazebo-car-near-horizon-negative-evaluation-v58-pre8-v2.json `
+  --out .\artifacts\evaluation\terminal-continuation-v57\gazebo-geolocation-regime-matrix-rerun.json
 ```
+
+矩阵命令当前应退出 `2`：现有负向拒绝假点门已满足，但还缺两个独立正向场景和对应的高度、距离、
+坡度覆盖。新增场景后重复传入 `--positive-evidence` 即可累积矩阵，不能降低门限来冒充完成。
 
 `artifacts/` 默认不进入普通 Git 提交；进度文件记录其路径、摘要、结论和声明边界。需要归档的
 轻量证据必须按 [仓库更新规范](docs/development-update-policy.md) 单独评审，原始视频、模型与大型

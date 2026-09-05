@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T09:31:50Z",
+  "updated_at_utc": "2026-09-05T10:00:27Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -14,7 +14,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v57",
+  "working_iteration": "v58",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -23,16 +23,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v57-final.xml",
-      "tests": 3233,
-      "passed": 3232,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v58-final.xml",
+      "tests": 3241,
+      "passed": 3240,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 182.618,
-      "junit_local_path": "tmp/current-progress-regression-v57-final.xml",
-      "junit_file_bytes": 469702,
-      "junit_file_sha256": "2fd79f5349a56dbdb72eb6ad1a77653707310d141f99cf996a36ffa3a23a9b6f",
+      "duration_seconds": 94.263,
+      "junit_local_path": "tmp/current-progress-regression-v58-final.xml",
+      "junit_file_bytes": 470851,
+      "junit_file_sha256": "08febf2327722653503715cf1180aca2fabee7578f5937d734430c6ccc9fe7f0",
       "distributed_in_git": false
     },
     "ruff": {
@@ -69,11 +69,12 @@
   },
   "evidence": {
     "gazebo_target_geolocation_positive": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-geolocation-positive-control-evaluation-v57-pre8-v3.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-geolocation-positive-control-evaluation-v58-pre8-v4.json",
       "distributed_in_git": false,
-      "file_sha256": "5aa0257d05e5bdb7ebe871748a923420faa46d811475fa4d4c8fa590af54ac08",
-      "evidence_sha256": "a18f2b9951de21a83ce0c7e02dc69b7d626d8997cb45df66a23fd7d351ff9f22",
-      "deterministic_result_sha256": "2ba7ea1cb65fcce5d188a59a4c3269ff3817178f7fb9ce2df8f862584547712e",
+      "file_sha256": "fa8e526cc26683cf7638a33c82d5aecc379a5b55975baa71dbece55b959ed35a",
+      "evidence_sha256": "9f626d06842748fda7f90a84c3fa4f7442e4687d9f18c2980c61246875467d00",
+      "deterministic_result_sha256": "2f30b9a869b12e63b7d8de31d741c3a83e8274938c72c5dc8a74705ae1262d4d",
+      "evaluator_source_sha256": "e6f49bf03dd6b3225c27a64a15fbe547bda736fe26321e450c81ad0b10a5cd32",
       "gate_passed": true,
       "frame_count": 5,
       "geolocated_frame_count": 5,
@@ -81,19 +82,60 @@
       "mean_horizontal_error_m": 0.6514757073115282,
       "maximum_pairwise_prediction_distance_m": 0.035196957063615746,
       "one_sigma_coverage": 1.0,
-      "range_ci95_coverage": 1.0
+      "range_ci95_coverage": 1.0,
+      "mean_vehicle_altitude_agl_m": 6.195846539735794,
+      "mean_truth_ground_range_m": 8.00000000003625,
+      "truth_terrain_slope_deg": 0.0,
+      "verification": {
+        "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-geolocation-positive-control-verification-v58-pre8-v4.json",
+        "file_sha256": "dc9da51413113e5a935c55afded742834fd192bdffbe92f846ed71a3525231c4",
+        "verification_sha256": "91ce81015f5a51f6fb32d198bfb0b8f75f07c3215a6256900ee980c84d9a12d1",
+        "passed": true,
+        "reproduced": true
+      }
     },
     "gazebo_target_geolocation_negative": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-near-horizon-negative-evaluation-v57-pre8-v1.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-near-horizon-negative-evaluation-v58-pre8-v2.json",
       "distributed_in_git": false,
-      "file_sha256": "fd47707305d3608b58b030bd48acec05162b0849a80e0e01175bfa30b50f8054",
-      "evidence_sha256": "9776323e6cef0f5be3a5ca3180989d3bc99ed9f48153cb16d147ea1f5fe8784e",
-      "deterministic_result_sha256": "56a8e9c95781aa17a1952c67cd1e2f4f9b14db6c21daeec38e0fda066d5986d3",
+      "file_sha256": "aa7a7bb6aaf8469d5fc0d25e9c28412c331d6f96a8bfd26243dddae767455895",
+      "evidence_sha256": "71bf863749c40270838a795753407e554e4e6fb0cfd9056bfa40f38206e8e0b9",
+      "deterministic_result_sha256": "7c1694f06f029fd60c5c2a506f45fe0def509db483c5fe5cea57daee7fc200f5",
+      "evaluator_source_sha256": "e6f49bf03dd6b3225c27a64a15fbe547bda736fe26321e450c81ad0b10a5cd32",
       "gate_passed": false,
       "frame_count": 5,
       "geolocated_frame_count": 0,
       "fake_coordinate_count": 0,
-      "expected_failure_reason": "target_ray_does_not_intersect_ground_safely"
+      "expected_failure_reason": "target_ray_does_not_intersect_ground_safely",
+      "verification": {
+        "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-near-horizon-negative-verification-v58-pre8-v2.json",
+        "file_sha256": "be75f0aca71c2b970eaf355be9ad53ac09d1468cd5ae99540ba54406ee207f75",
+        "verification_sha256": "56ac67565d1490080b7ab1e9907e4c255e23fc0b571a29d08c2a7cd77686a390",
+        "passed": true,
+        "reproduced": true
+      }
+    },
+    "gazebo_geolocation_regime_matrix": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-geolocation-regime-matrix-v58-pre8-v4.json",
+      "distributed_in_git": false,
+      "file_sha256": "ff791a6dad855a476f2e9ddb9890c905a375f6d9146d352e88b6c9f211a09257",
+      "evidence_sha256": "4fb9e50143ef1b4a777b4292f384cc16005204bb1eb60b9a7d0ceff28aece33b",
+      "deterministic_result_sha256": "779ad2029f1ee904ddf83a240a3c3db33cdb123e04644dda9904e9f5116986af",
+      "matrix_evaluator_source_sha256": "ba30f792508890f00d4c1ad4de60fcece2f3bdf809760db47fa4cdf45b8b3a94",
+      "gate_passed": false,
+      "positive_cases": {"actual": 1, "required": 3},
+      "positive_frames": {"actual": 5, "required": 15},
+      "negative_no_coordinate_cases": {"actual": 1, "required": 1},
+      "negative_frames": {"actual": 5, "required": 5},
+      "altitude_regimes": {"actual": 1, "required": 3, "separation_m": 5.0},
+      "distance_regimes": {"actual": 1, "required": 3, "separation_m": 5.0},
+      "slope_regimes": {"actual": 1, "required": 2, "separation_deg": 3.0},
+      "reasons": [
+        "positive cases 1 < 3",
+        "positive frames 5 < 15",
+        "altitude regimes 1 < 3",
+        "distance regimes 1 < 3",
+        "slope regimes 1 < 2"
+      ]
     },
     "external_three_airframe_rebind": {
       "local_path": "artifacts/evaluation/terminal-continuation-v57/simulator-external-runtime-ai-join-v57-current-parity-pre8.json",
@@ -118,7 +160,8 @@
     "accuracy_validated_for_production": false
   },
   "claims": {
-    "software_sim_geolocation_subgate": "passed",
+    "software_sim_single_regime_geolocation_subgate": "passed",
+    "software_sim_multi_regime_geolocation_subgate": "blocked_insufficient_regime_coverage",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
@@ -128,7 +171,8 @@
   },
   "next_priorities": [
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
-    "multi_height_multi_slope_gazebo_camera_to_native_qgc_geolocation_acceptance",
+    "capture_two_or_more_additional_separated_gazebo_geolocation_regimes",
+    "native_qgc_geolocation_evidence_card_manual_acceptance",
     "fixed_wing_and_vtol_dynamic_response_parity",
     "deployment_domain_model_and_replay_set_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",

@@ -57,6 +57,7 @@ multidetect-mission-compile = "multidetect.mission_compile_cli:main"
 multidetect-px4-mission-feedback = "multidetect.px4_mission_feedback_cli:main"
 multidetect-px4-mission-feedback-verify = "multidetect.px4_mission_feedback_cli:verify_main"
 multidetect-px4-runtime-profile-provision = "multidetect.px4_mission_feedback_cli:provision_main"
+multidetect-gazebo-geolocation-matrix = "multidetect.gazebo_geolocation_regime_matrix:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -9,6 +9,18 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+### v58 多高度/距离/坡度定位矩阵（2026-09-05，pre.8）
+
+单场景定位 evidence 升级为 schema v2，并绑定 `gazebo_target_geolocation_acceptance.py` 的源码
+SHA-256。证据在所有 prediction 结束后从 truth/DEM 派生 AGL 高度区间、真实地面距离区间和目标处
+坡度；这些值只用于评分与工况分类，不返回 detector 或 ranging。矩阵评估器会重新复算每份 source，
+并要求 source release/evaluator identity 完全一致。
+
+默认覆盖门为：3 个正场景/15 帧、1 个零坐标负场景/5 帧、3 个高度档（间隔至少 `5 m`）、3 个
+距离档（间隔至少 `5 m`）和 2 个坡度档（间隔至少 `3 deg`）。当前真实 source 只有平地 `6.196 m`
+AGL / `8.000 m` ground range 一档；近地平线负向 5 帧全部拒绝坐标。v58 matrix 因正向工况不足按
+设计失败，未声明 QGC rendering、人工视觉、室外 GNSS、HIL、REAL、硬件或实飞通过。
+
 ### v56 相机 frame 语义与实际 Gazebo 像素三控（2026-09-05，pre.8）
 
 三个 composite model 的 `mono_cam` include 和 fixed joint 现在都以 `base_link` 为同一 pose reference。

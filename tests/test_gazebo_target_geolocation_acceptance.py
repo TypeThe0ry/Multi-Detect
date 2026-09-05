@@ -18,6 +18,7 @@ from multidetect.backends.gazebo_sim import (
 )
 from multidetect.domain import BoundingBox, Detection
 from multidetect.gazebo_target_geolocation_acceptance import (
+    EVALUATOR_SOURCE_PATH,
     GazeboTargetGeolocationConfig,
     GazeboTargetGeolocationInputError,
     evaluate_gazebo_target_geolocation,
@@ -109,6 +110,13 @@ def _build_case(
                 encoding="utf-8",
                 newline="\n",
             )
+    evaluator_source = root / EVALUATOR_SOURCE_PATH
+    evaluator_source.parent.mkdir(parents=True, exist_ok=True)
+    evaluator_source.write_text(
+        "# fixture geolocation evaluator source\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     model_asset = root / "simulation/gazebo/models/fixture/model.sdf"
     model_asset.parent.mkdir(parents=True, exist_ok=True)
     model_asset.write_text("<sdf version='1.10'><model name='fixture'/></sdf>\n", encoding="utf-8")
@@ -543,6 +551,7 @@ def test_two_frame_camera_to_wgs84_gate_is_truth_isolated(tmp_path: Path) -> Non
     )
 
     assert document["gate_passed"] is True
+    assert document["schema_version"] == 2
     assert factory_calls == 1
     assert detector.calls == case.frame_count
     assert document["truth_isolation"]["truth_channel_loaded_after_all_predictions"] is True
@@ -554,6 +563,10 @@ def test_two_frame_camera_to_wgs84_gate_is_truth_isolated(tmp_path: Path) -> Non
     assert document["claims"]["environment"] == "software_simulation"
     assert document["claims"]["hardware"] == "not_claimed"
     assert document["model_identity"]["production_approved"] is False
+    assert document["evaluator_identity"]["module_path"] == EVALUATOR_SOURCE_PATH
+    assert document["regime"]["vehicle_altitude_agl_m"]["mean"] == pytest.approx(10.0)
+    assert document["regime"]["truth_ground_range_m"]["mean"] > 0.0
+    assert document["regime"]["terrain_at_truth"]["slope_deg"] == pytest.approx(0.0)
     evidence_hash = document.pop("evidence_sha256")
     assert canonical_sha256(document) == evidence_hash
 
@@ -564,9 +577,7 @@ def test_evidence_verifier_reopens_inputs_and_reproduces_result(tmp_path: Path) 
     def factory(_config: Any) -> _FakeDetector:
         return _FakeDetector(case.detection)
 
-    document = evaluate_gazebo_target_geolocation(
-        _config(case), detector_factory=factory
-    )
+    document = evaluate_gazebo_target_geolocation(_config(case), detector_factory=factory)
     verification = verify_gazebo_target_geolocation_evidence(
         document,
         repository_root=case.root,
@@ -577,10 +588,7 @@ def test_evidence_verifier_reopens_inputs_and_reproduces_result(tmp_path: Path) 
     assert verification["reproduced"] is True
     assert verification["reasons"] == []
     assert verification["evidence_sha256"] == document["evidence_sha256"]
-    assert (
-        verification["reproduced_result_sha256"]
-        == document["deterministic_result_sha256"]
-    )
+    assert verification["reproduced_result_sha256"] == document["deterministic_result_sha256"]
 
 
 def test_evidence_verifier_fails_closed_after_bound_core_change(tmp_path: Path) -> None:
@@ -589,9 +597,7 @@ def test_evidence_verifier_fails_closed_after_bound_core_change(tmp_path: Path) 
     def factory(_config: Any) -> _FakeDetector:
         return _FakeDetector(case.detection)
 
-    document = evaluate_gazebo_target_geolocation(
-        _config(case), detector_factory=factory
-    )
+    document = evaluate_gazebo_target_geolocation(_config(case), detector_factory=factory)
     bound_core_source = case.root / DEFAULT_FILE_LIST["core_algorithm"][0]
     bound_core_source.write_text(
         bound_core_source.read_text(encoding="utf-8") + "changed\n",
@@ -613,6 +619,35 @@ def test_evidence_verifier_fails_closed_after_bound_core_change(tmp_path: Path) 
     )
     assert (
         "release identity or shared parity does not match the current checkout"
+        in verification["reasons"]
+    )
+
+
+def test_evidence_verifier_fails_closed_after_evaluator_source_change(tmp_path: Path) -> None:
+    case = _build_case(tmp_path)
+
+    def factory(_config: Any) -> _FakeDetector:
+        return _FakeDetector(case.detection)
+
+    document = evaluate_gazebo_target_geolocation(_config(case), detector_factory=factory)
+    evaluator_source = case.root / EVALUATOR_SOURCE_PATH
+    evaluator_source.write_text(
+        evaluator_source.read_text(encoding="utf-8") + "# changed\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    verification = verify_gazebo_target_geolocation_evidence(
+        document,
+        repository_root=case.root,
+        detector_factory=factory,
+    )
+
+    assert verification["passed"] is False
+    assert verification["reproduced"] is False
+    assert "evaluator source SHA-256 does not match the current checkout" in verification["reasons"]
+    assert (
+        "evidence does not reproduce from the current bound inputs and shared contracts"
         in verification["reasons"]
     )
 
