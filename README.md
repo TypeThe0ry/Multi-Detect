@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v93：事务式接收可搬迁 covariance workspace；源介质先验、20 文件原子复制、本机复验、bundle 外 hash-bound 回执和失败回滚 |
+| 当前工程迭代 | v94：receipt-bound 单叶 covariance 现场事务；在线 probe 先落盘独立复验，再 capture，并生成可事后重开的不可变 session record |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,31 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v94 单叶现场采集事务
+
+完成 v93 接收后，每次只运行一个 `run-next`。journal 必须位于收到的 workspace 外：
+
+```powershell
+python -m multidetect.field_covariance_session run-next `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json `
+  --journal-dir D:\FieldEvidence\session-journal
+```
+
+命令会重验 receipt/workspace/parity，锁定唯一 `next_leaf`，运行六叶静态门和当前 Pixhawk probe，把 online
+preflight 以 write-new 文件落盘并立即从磁盘独立复验，只有仍在 300 秒窗口且当前叶/身份/查询预算完全
+一致时才启动一次 covariance capture。成功后重新打开不可变 report，并生成 closed-schema、digest-bound
+的 `.session.json`。probe 被拒时保留诊断文件但不写成功 session record，也不启动 capture。
+
+之后或完成更多叶后，旧 session record 仍可重验：
+
+```powershell
+python -m multidetect.field_covariance_session verify-record `
+  --record D:\FieldEvidence\session-journal\<leaf>.session.json
+```
+
+该 verifier 重开 receipt、本机 workspace、campaign、归档 probe 和正式 covariance report；session record
+仍只是一叶操作链记录，不能单独提升最终发布或硬件/飞行 acceptance。
 
 ### v93 第二机事务式接收与回执
 

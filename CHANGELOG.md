@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v94 sealed single-leaf covariance sessions（2026-09-06）
+
+- 新增 `field_covariance_session run-next/verify-record`：每次从 v93 接收回执锁定唯一下一叶，将 receipt、
+  workspace、campaign、online probe 与正式 report 串成不可变成功记录；
+- `capture-next --probe-report-out` 在启动采集 subprocess 前 write-new 保存 online observation，并从磁盘按
+  默认 300 秒时效、当前 next leaf、source/parity、mode binding 和 query budget 独立复验；失败不启动采集；
+- online verifier 增加显式 archived 模式：完成采集后只放松“仍是 next leaf”，其余 schema、digest、source、
+  parity、mode binding、identity、预算和报告当前状态仍重算，不能用归档 probe 再授权一次采集；
+- 修复 portable workspace 生命周期冲突：移动介质/接收阶段仍严格 20 文件；接收后回执复验仅额外允许
+  campaign 声明且正式 covariance verifier 通过的报告路径，未知文件和失败报告继续 fail-closed；
+- CLI status output 禁止覆盖 campaign/source/report/probe/binding；session schema/module 纳入 PX4 Mission
+  parity，`px4_mission_path_hash=f8e8f4e0...4acce1`；全量回归 3,456 tests：
+  `3455 passed, 1 skipped`，全仓 Ruff 通过。版本保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v93 transactional covariance workspace receive（2026-09-06）
 
 - `field_covariance_workspace` 新增 `receive`：先验源介质，按闭合 manifest 精确复制 20 文件到同盘临时

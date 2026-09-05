@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## Receipt-bound 单叶 covariance session（v94）
+
+- [x] 从 v93 receipt 重验本机 workspace/parity，并锁定精确唯一 next leaf；
+- [x] online probe 在 capture subprocess 前 write-new 落盘并从磁盘独立复验；
+- [x] blocked probe 保留诊断但禁止 capture 和成功 session record；
+- [x] 成功后重开 covariance report，生成 closed-schema、digest-bound 的一叶 session record；
+- [x] 支持后续叶推进后继续复验旧 record；归档模式只放松 next-leaf 条件，不放松其他在线合同；
+- [x] 修复接收后合法 campaign report 与静态 20 文件闭合集的生命周期冲突；
+- [ ] 在真实 Pixhawk 上按 receipt 运行六次 run-next，并由第二进程/第二人复验六份 session record。
+
 ## 事务式接收 covariance workspace（v93）
 
 - [x] 接收前完整验证源介质，只复制 manifest 精确声明的 20 个文件；

@@ -1,5 +1,35 @@
 # 统一仓库架构
 
+## v94 receipt-bound field session（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+external v93 receipt + received workspace
+  -> verify receipt / current parity / static sources / existing declared reports
+  -> select exact campaign next_leaf
+  -> live Pixhawk identity probe
+  -> write-new online-preflight.json
+  -> reload before capture (fresh + still-next + full source/mode/query verification)
+  -> one covariance capture subprocess
+  -> authoritative report verifier
+  -> write-new session.json outside workspace
+       receipt file/digest/workspace identity
+       campaign hash + exact ordinal/mode/airframe
+       archived probe file/evidence identity
+       report file/evidence/firmware identity
+       exact post-capture progression
+       acceptance claims false
+  -> verify-record remains valid as later leaves advance
+```
+
+`field_covariance_session.py` 是现场单叶操作编排层，不实现第二套 Pixhawk 或 covariance 判定；它组合已有
+workspace receipt、campaign runner、online verifier 和 report verifier。`online_covariance_preflight.py`
+的 archived 模式只用于事后审计已经完成的叶，默认模式仍强制 observation 对应当前唯一 next leaf。
+`pixhawk-covariance-field-session-record.schema.json` 和编排器都绑定到 `px4_mission_path_hash`。
+
+本机 workspace 的静态身份仍由 manifest 的 20 文件计算；生成报告不进入 workspace digest。回执复验只
+允许 manifest/campaign 已声明的 report 路径，并逐份正式验证，避免“严格 20 文件”在第一次成功采集后
+错误阻断，同时仍拒绝任何未声明附件。
+
 ## v93 transactional workspace receive（2026-09-06，`v0.3.0-pre.8`）
 
 ```text
@@ -1900,6 +1930,7 @@ Multi-Detect/
 │   ├── field_covariance_campaign.py # 六叶 covariance 现场顺序、静态/在线预检、采集与聚合入口
 │   ├── online_covariance_preflight.py # 5 分钟时效、source/parity-bound 的在线探测 observation/verifier
 │   ├── field_covariance_workspace.py # 六叶静态 source 的 hash-bound 相对路径导出/搬迁复验
+│   ├── field_covariance_session.py # receipt-bound 单叶 probe/capture/session seal 与事后复验
 │   ├── replay_set.py                 # 六类部署域分层回放集 manifest、帧对齐与哈希校验
 │   ├── replay_set_evaluation.py      # 六分层 IoU/延迟精度报告、独立复核与 E7 哈希绑定
 │   ├── replay_set_readiness.py        # 采集阶段逐层 readiness、正例分母与精度报告重算

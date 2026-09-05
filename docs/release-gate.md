@@ -1,5 +1,34 @@
 # v0.3.0 E7 发布门
 
+## v94 sealed single-leaf field session（2026-09-06，`v0.3.0-pre.8`）
+
+现场每叶统一入口：
+
+```powershell
+python -m multidetect.field_covariance_session run-next `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json `
+  --journal-dir D:\FieldEvidence\session-journal
+```
+
+该入口在一次进程中完成 receipt/workspace/parity 复验、next-leaf 选择、source preflight、online probe、
+probe write-new、磁盘独立复验、capture subprocess、正式 report 复验和成功 session seal。online probe 未
+通过时 `capture_started=false`，只留下 `.online-preflight.json` 诊断；不存在成功 `.session.json`。
+
+成功记录复验：
+
+```powershell
+python -m multidetect.field_covariance_session verify-record `
+  --record D:\FieldEvidence\session-journal\<leaf>.session.json
+```
+
+归档 verifier 允许被采集叶不再是 `next_leaf`，否则第一个成功 capture 会令自身 probe 无法事后审计；但它
+仍重算 probe schema/digest/source/parity/mode binding/identity/query budget，要求当前 campaign 中该叶及
+此前所有叶报告继续正式通过。record 的进度必须严格是 `ordinal/6`，所有 acceptance claims 固定为 false。
+六份正式 report 仍需由 E7 六叶 builder 独立打开；session record 不替代 E7 evidence。
+
+portable workspace 生命周期现在分两层：未接收的移动介质和 receive 输入必须精确 20 文件；接收后的本机
+workspace 可出现且只可出现 campaign 声明的六个 report，且每个存在的 report 必须通过正式 verifier。
+
 ## v93 transactional workspace receive（2026-09-06，`v0.3.0-pre.8`）
 
 第二台机器从只读/移动介质接收时执行：

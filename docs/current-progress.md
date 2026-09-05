@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v93 工作树）
+最后更新：2026-09-06（v94 工作树）
+
+## v94 本轮已收口
+
+- 新增 `field_covariance_session run-next/verify-record`：每次从 v93 receipt 重验本机 workspace，锁定唯一
+  `next_leaf`，只执行一叶 Pixhawk covariance 现场事务；
+- `capture-next --probe-report-out` 先 write-new 保存 online observation，再从磁盘按默认 300 秒时效、当前
+  leaf、source/parity、mode binding、identity 和 query budget 独立复验，通过后才启动 capture subprocess；
+- blocked probe 保留诊断文件但 `capture_started=false`，不产生成功 session；成功 capture 会重开正式
+  report，并将 receipt/workspace/campaign/probe/report/进度绑定进 closed-schema、digest-bound record；
+- archived probe verifier 只放松“仍为 next leaf”条件，保留其余完整重算；旧 record 在后续叶推进后仍可
+  验证，但归档 probe 不能再次授权 capture；
+- 修复 v92/v93 生命周期冲突：移动介质/receive 输入仍精确限制 20 文件；收到的本机 workspace 只允许
+  campaign 声明且正式验证通过的报告路径，未声明文件或失败报告仍 fail-closed；
+- status output 不能覆盖 campaign/source/report/probe/binding。session schema/module 纳入 PX4 Mission parity，
+  `px4_mission_path_hash=F8E8F4E0...4ACCE1`。真实设备未连接，未生成现场 session 或 acceptance。
+- 全量回归 3,456 tests：`3455 passed, 1 skipped, 0 failed, 0 errors`，耗时 100.186 秒；JUnit
+  504,362 bytes、SHA-256 `870BA2CB7B98CE62782AD5CE6FB24B4DD6B3E2E320D25351BBF49C1854732072`；
+  全仓 Ruff 通过。
 
 ## v93 本轮已收口
 
