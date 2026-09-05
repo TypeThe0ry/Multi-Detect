@@ -251,7 +251,6 @@ def _camera_mount_fixture(tmp_path: Path) -> Path:
         },
     )
     raw = tmp_path / "camera-mount-raw.csv"
-    raw.write_text("physical mount survey fixture\n", encoding="utf-8")
     equipment_calibration = tmp_path / "equipment-calibration.pdf"
     equipment_calibration.write_bytes(b"equipment calibration certificate fixture")
     perturbations = (-0.01, 0.01, 0.0, -0.005, 0.005)
@@ -267,6 +266,23 @@ def _camera_mount_fixture(tmp_path: Path) -> Path:
         }
         for index, delta in enumerate(perturbations)
     ]
+    fields = (
+        "sample_id",
+        "pitch_down_deg",
+        "yaw_right_deg",
+        "roll_clockwise_deg",
+        "offset_forward_m",
+        "offset_right_m",
+        "offset_down_m",
+    )
+    raw.write_text(
+        ",".join(fields)
+        + "\n"
+        + "\n".join(",".join(str(sample[field]) for field in fields) for sample in samples)
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     report = create_camera_mount_survey(
         survey_id="mount-survey-001",
         aircraft_id="aircraft-001",

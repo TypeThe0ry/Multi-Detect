@@ -167,7 +167,7 @@
       "required": [
         "sample_ids_unique", "minimum_samples", "surveyor_reviewer_distinct",
         "physical_attestations_complete", "equipment_calibration_valid", "equipment_calibration_hash_bound",
-        "raw_measurements_hash_bound", "camera_calibration_hash_bound",
+        "raw_measurements_hash_bound", "samples_match_raw_measurements", "camera_calibration_hash_bound",
         "camera_calibration_id_matches", "angular_repeatability_within_limit",
         "linear_repeatability_within_limit", "calibration_angles_match_survey",
         "calibration_offsets_match_survey", "calibration_angular_uncertainty_not_understated",
@@ -177,6 +177,7 @@
         "sample_ids_unique": {"type": "boolean"}, "minimum_samples": {"type": "boolean"},
         "surveyor_reviewer_distinct": {"type": "boolean"}, "physical_attestations_complete": {"type": "boolean"},
         "equipment_calibration_valid": {"type": "boolean"}, "equipment_calibration_hash_bound": {"type": "boolean"}, "raw_measurements_hash_bound": {"type": "boolean"},
+        "samples_match_raw_measurements": {"type": "boolean"},
         "camera_calibration_hash_bound": {"type": "boolean"}, "camera_calibration_id_matches": {"type": "boolean"},
         "angular_repeatability_within_limit": {"type": "boolean"}, "linear_repeatability_within_limit": {"type": "boolean"},
         "calibration_angles_match_survey": {"type": "boolean"}, "calibration_offsets_match_survey": {"type": "boolean"},

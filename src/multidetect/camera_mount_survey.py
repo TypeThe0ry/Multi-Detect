@@ -14,6 +14,7 @@ claims full hardware acceptance, or promotes a release.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -50,6 +51,7 @@ _ATTESTATIONS = (
     "raw_measurements_retained",
     "simulated_or_nominal_values_excluded",
 )
+_RAW_CSV_COLUMNS = ("sample_id", *_SAMPLE_FIELDS)
 
 
 def create_camera_mount_survey(
@@ -67,8 +69,8 @@ def create_camera_mount_survey(
     equipment_calibration_path: str | Path,
     calibration_path: str | Path,
     raw_measurements_path: str | Path,
-    samples: Sequence[Mapping[str, object]],
     attestations: Mapping[str, object],
+    samples: Sequence[Mapping[str, object]] | None = None,
     minimum_samples: int = 5,
     maximum_angular_sigma_deg: float = 1.0,
     maximum_linear_sigma_m: float = 0.10,
@@ -79,6 +81,9 @@ def create_camera_mount_survey(
     """Build a deterministic survey report from physical measurement inputs."""
 
     created = created_at_utc or datetime.now(timezone.utc).isoformat()
+    raw_reference = _file_reference(raw_measurements_path)
+    raw_samples = _load_raw_measurements_csv(Path(raw_reference["path"]))
+    selected_samples = raw_samples if samples is None else list(samples)
     document: dict[str, Any] = {
         "event": "camera_mount_survey_evaluated",
         "schema_version": CAMERA_MOUNT_SURVEY_SCHEMA_VERSION,
@@ -126,9 +131,9 @@ def create_camera_mount_survey(
         "inputs": {
             "equipment_calibration": _file_reference(equipment_calibration_path),
             "camera_calibration": _file_reference(calibration_path),
-            "raw_measurements": _file_reference(raw_measurements_path),
+            "raw_measurements": raw_reference,
         },
-        "samples": [_sample(item, index) for index, item in enumerate(samples)],
+        "samples": [_sample(item, index) for index, item in enumerate(selected_samples)],
         "estimate": {},
         "checks": {},
         "blocking_reasons": [],
@@ -252,6 +257,7 @@ def _evaluate(source: Mapping[str, object]) -> dict[str, Any]:
     calibration_ref = _reference(document, "camera_calibration")
     equipment_calibration_ref = _reference(document, "equipment_calibration")
     raw_ref = _reference(document, "raw_measurements")
+    raw_samples = _load_raw_measurements_csv(Path(raw_ref["path"]))
     calibration = _load_calibration(Path(calibration_ref["path"]))
     calibration_id = calibration["calibration_id"]
     camera_matches = document.get("camera_id") == calibration_id
@@ -292,6 +298,7 @@ def _evaluate(source: Mapping[str, object]) -> dict[str, Any]:
         "equipment_calibration_valid": equipment["calibration_valid_at_survey"] is True,
         "equipment_calibration_hash_bound": equipment_calibration_ref["bytes"] > 0,
         "raw_measurements_hash_bound": raw_ref["bytes"] > 0,
+        "samples_match_raw_measurements": samples == raw_samples,
         "camera_calibration_hash_bound": calibration_ref["bytes"] > 0,
         "camera_calibration_id_matches": camera_matches,
         "angular_repeatability_within_limit": angular_sigma <= policy["maximum_angular_sigma_deg"],
@@ -385,6 +392,33 @@ def _reference_path(inputs: Mapping[str, object], name: str) -> Path:
     if not isinstance(path, str) or not path.strip():
         raise ValueError(f"inputs.{name}.path must be a string")
     return Path(path).expanduser().resolve()
+
+
+def _load_raw_measurements_csv(path: Path) -> list[dict[str, object]]:
+    """Parse the exact v1 survey CSV used as the statistical source of truth."""
+
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != list(_RAW_CSV_COLUMNS):
+            raise ValueError(
+                "raw measurement CSV header must be exactly " + ",".join(_RAW_CSV_COLUMNS)
+            )
+        samples: list[dict[str, object]] = []
+        for index, row in enumerate(reader):
+            if None in row or set(row) != set(_RAW_CSV_COLUMNS):
+                raise ValueError(f"raw measurement CSV row {index + 2} has extra columns")
+            candidate: dict[str, object] = {"sample_id": row["sample_id"]}
+            for name in _SAMPLE_FIELDS:
+                try:
+                    candidate[name] = float(row[name])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"raw measurement CSV row {index + 2} {name} must be numeric"
+                    ) from exc
+            samples.append(_sample(candidate, index))
+    if not samples:
+        raise ValueError("raw measurement CSV must contain at least one sample")
+    return samples
 
 
 def _sample(value: object, index: int) -> dict[str, object]:
@@ -540,16 +574,6 @@ def _utc_timestamp(value: object, name: str) -> str:
     return text
 
 
-def _parse_sample(value: str, index: int) -> dict[str, object]:
-    parts = [item.strip() for item in value.split(",")]
-    if len(parts) != 6:
-        raise ValueError("--sample needs pitch,yaw,roll,forward,right,down")
-    return {
-        "sample_id": f"sample-{index + 1:03d}",
-        **dict(zip(_SAMPLE_FIELDS, map(float, parts), strict=True)),
-    }
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -570,7 +594,6 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--equipment-calibration", required=True, type=Path)
     create.add_argument("--camera-calibration", required=True, type=Path)
     create.add_argument("--raw-measurements", required=True, type=Path)
-    create.add_argument("--sample", action="append", required=True)
     for name in _ATTESTATIONS:
         create.add_argument(
             f"--attest-{name.replace('_', '-')}", action="store_true", required=True
@@ -595,7 +618,6 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True))
         return 0 if result["passed"] else 2
     try:
-        samples = [_parse_sample(value, index) for index, value in enumerate(args.sample)]
         attestations = {name: getattr(args, f"attest_{name}") for name in _ATTESTATIONS}
         document = create_camera_mount_survey(
             survey_id=args.survey_id,
@@ -611,7 +633,6 @@ def main(argv: list[str] | None = None) -> int:
             equipment_calibration_path=args.equipment_calibration,
             calibration_path=args.camera_calibration,
             raw_measurements_path=args.raw_measurements,
-            samples=samples,
             attestations=attestations,
         )
         output = write_camera_mount_survey(args.output, document, overwrite=args.overwrite)

@@ -65,6 +65,21 @@ def _samples() -> list[dict[str, object]]:
     ]
 
 
+def _write_raw_measurements(path: Path) -> None:
+    fields = (
+        "sample_id",
+        "pitch_down_deg",
+        "yaw_right_deg",
+        "roll_clockwise_deg",
+        "offset_forward_m",
+        "offset_right_m",
+        "offset_down_m",
+    )
+    rows = [",".join(fields)]
+    rows.extend(",".join(str(sample[field]) for field in fields) for sample in _samples())
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
+
+
 def _attestations() -> dict[str, bool]:
     return {
         "aircraft_physically_present": True,
@@ -83,10 +98,11 @@ def _report(
     surveyor: str = "surveyor-a",
     reviewer: str = "reviewer-b",
     attestations: dict[str, bool] | None = None,
+    samples: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     raw = tmp_path / "raw-measurements.csv"
-    raw.write_text("physical field notes\n", encoding="utf-8")
+    _write_raw_measurements(raw)
     equipment_calibration = tmp_path / "equipment-calibration.pdf"
     equipment_calibration.write_bytes(b"equipment calibration certificate fixture")
     return create_camera_mount_survey(
@@ -103,7 +119,7 @@ def _report(
         equipment_calibration_path=equipment_calibration,
         calibration_path=calibration or _calibration(tmp_path),
         raw_measurements_path=raw,
-        samples=_samples(),
+        samples=_samples() if samples is None else samples,
         attestations=attestations or _attestations(),
         created_at_utc="2026-09-06T02:00:00Z",
     )
@@ -159,6 +175,15 @@ def test_independent_verifier_rejects_changed_raw_measurements(tmp_path: Path) -
     verification = verify_camera_mount_survey(output, require_gate_passed=True)
     assert verification["passed"] is False
     assert any("hash/size/path" in reason for reason in verification["reasons"])
+
+
+def test_declared_samples_cannot_diverge_from_hash_bound_raw_csv(tmp_path: Path) -> None:
+    changed = _samples()
+    changed[0] = {**changed[0], "pitch_down_deg": 34.5}
+    report = _report(tmp_path, samples=changed)
+    assert report["gate_passed"] is False
+    assert report["checks"]["samples_match_raw_measurements"] is False
+    assert "samples_match_raw_measurements" in report["blocking_reasons"]
 
 
 def test_mount_survey_matches_strict_json_schema(tmp_path: Path) -> None:
