@@ -161,6 +161,64 @@ def _rewrite_as_legacy_px4_report(files: dict[str, Path], *, runtime_mode: str =
     )
 
 
+def _rewrite_as_combined_sim_report(files: dict[str, Path]) -> None:
+    current = json.loads(files["machine"].read_text(encoding="utf-8"))
+    parity = json.loads(files["parity"].read_text(encoding="utf-8"))
+    _write_json(
+        files["machine"],
+        {
+            "schema": "multidetect.px4-gazebo-qgc-combined-sim-acceptance",
+            "schema_version": 2,
+            "runtime_mode": "sim",
+            "run_id": "actual-combined-sim",
+            "gate_passed": True,
+            "hashes": {
+                "qgc_exe": current["executable_identity"],
+                "release_parity": {
+                    "path": str(files["parity"]),
+                    "bytes": files["parity"].stat().st_size,
+                    "sha256": hashlib.sha256(files["parity"].read_bytes()).hexdigest(),
+                    "parity": parity,
+                },
+            },
+            "integrated_sim_qgc": {
+                "runtime_mode": "sim",
+                "qgc_transport_acceptance_gate": (
+                    "passed_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+                ),
+                "synchronization": {
+                    "complete": True,
+                    "metadata_acceptance_ack_count": 12,
+                },
+            },
+            "qgc": {
+                "expected_runtime_mode": "SIM",
+                "runtime_status_run_hash_bound_to_integrated_identity": True,
+                "native_toolbar_indicator": {
+                    "gate_passed": True,
+                    "operator_visual_acceptance": "not_claimed",
+                    "geometry_error": None,
+                    "automation_error": None,
+                    "qgc_process": {
+                        "pid": 1234,
+                        "client_screen_rect": {"width": 1600, "height": 900},
+                    },
+                    "open_capture": {
+                        **current["capture"],
+                        "width": 1600,
+                        "height": 900,
+                    },
+                    "single_surface": {"unchanged_and_only_main_window": True},
+                    "checks": {
+                        "indicator_geometry_bound_to_exact_qgc_pid_hwnd": True,
+                        "drawer_open_closed_visual_change": True,
+                    },
+                },
+            },
+        },
+    )
+
+
 def test_accepted_record_is_schema_valid_and_reproducible(tmp_path: Path) -> None:
     files = _fixture(tmp_path)
     document = _accepted(files)
@@ -202,6 +260,64 @@ def test_legacy_px4_hil_machine_report_cannot_claim_sim(tmp_path: Path) -> None:
     document = _accepted(files)
     assert document["gate_passed"] is False
     assert document["positive_visual_evidence"]["machine_checks"]["machine_event"] is False
+
+
+def test_combined_sim_runtime_report_is_accepted_and_reproducible(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    _rewrite_as_combined_sim_report(files)
+    document = _accepted(files)
+    assert document["gate_passed"] is True
+    machine_binding = document["positive_visual_evidence"]["machine_report"]
+    assert machine_binding["runtime_mode"] == "sim"
+    assert (
+        machine_binding["event"]
+        == "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
+    )
+    evidence = tmp_path / "artifacts" / "sim" / "combined-visual-review.json"
+    _write_json(evidence, document)
+    verification = verify_record(evidence, repository_root=tmp_path)
+    assert verification["gate_passed"] is True
+    assert all(verification["checks"].values())
+
+
+def test_combined_sim_report_cannot_relabel_replay_as_sim(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    _rewrite_as_combined_sim_report(files)
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    machine["integrated_sim_qgc"]["runtime_mode"] = "replay"
+    _write_json(files["machine"], machine)
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    assert document["positive_visual_evidence"]["machine_checks"]["machine_event"] is False
+
+
+def test_combined_sim_report_requires_qgc_post_adoption_ack(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    _rewrite_as_combined_sim_report(files)
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    machine["integrated_sim_qgc"]["synchronization"][
+        "metadata_acceptance_ack_count"
+    ] = 0
+    _write_json(files["machine"], machine)
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    assert (
+        document["positive_visual_evidence"]["machine_checks"]["capture_bound_to_pid"]
+        is False
+    )
+
+
+def test_combined_sim_report_with_stale_release_parity_remains_closed(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    _rewrite_as_combined_sim_report(files)
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    machine["hashes"]["release_parity"]["parity"]["ui_contract_hash"] = "2" * 64
+    _write_json(files["machine"], machine)
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    checks = document["positive_visual_evidence"]["machine_checks"]
+    assert checks["release_parity_values_match_current"] is False
+    assert checks["ui_contract_matches_current"] is False
 
 
 def test_native_capture_with_occluder_remains_closed(tmp_path: Path) -> None:

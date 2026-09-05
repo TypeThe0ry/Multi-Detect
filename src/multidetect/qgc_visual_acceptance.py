@@ -227,7 +227,74 @@ def _machine_binding(
     current_parity = _mapping(parity.get("parity", parity), label="current release parity")
     source_schema = machine.get("schema")
     native_capture = source_schema == "multidetect.qgc-native-style-capture"
-    if native_capture:
+    combined_sim = source_schema == "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
+    identity_bound_source = native_capture or combined_sim
+    if combined_sim:
+        qgc = _mapping(machine.get("qgc"), label="machine.qgc")
+        toolbar = _mapping(qgc.get("native_toolbar_indicator"), label="machine QGC toolbar")
+        qgc_process = _mapping(toolbar.get("qgc_process"), label="machine QGC process")
+        qgc_client_rect = _mapping(
+            qgc_process.get("client_screen_rect"), label="machine QGC client rect"
+        )
+        toolbar_checks = _mapping(toolbar.get("checks"), label="machine QGC toolbar checks")
+        capture_file = _mapping(toolbar.get("open_capture"), label="machine capture file")
+        hashes = _mapping(machine.get("hashes"), label="machine hashes")
+        executable = _mapping(hashes.get("qgc_exe"), label="machine executable identity")
+        parity_binding = _mapping(hashes.get("release_parity"), label="machine release parity")
+        embedded_parity = _mapping(
+            parity_binding.get("parity"), label="machine embedded release parity"
+        )
+        integrated = _mapping(machine.get("integrated_sim_qgc"), label="integrated SIM result")
+        synchronization = _mapping(
+            integrated.get("synchronization"), label="integrated SIM synchronization"
+        )
+        machine_mode = _machine_runtime_mode(machine, qgc)
+        machine_event_valid = (
+            machine.get("schema_version") == 2
+            and machine_mode == "sim"
+            and isinstance(machine.get("run_id"), str)
+            and _RUN_ID_RE.fullmatch(machine["run_id"]) is not None
+            and qgc.get("expected_runtime_mode") == "SIM"
+            and integrated.get("runtime_mode") == "sim"
+            and integrated.get("qgc_transport_acceptance_gate")
+            == "passed_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+        )
+        machine_gate = machine.get("gate_passed") is True
+        capture_bound_to_pid = (
+            type(qgc_process.get("pid")) is int
+            and qgc_process["pid"] > 0
+            and toolbar.get("gate_passed") is True
+            and bool(toolbar_checks)
+            and all(value is True for value in toolbar_checks.values())
+            and capture_file.get("width") == qgc_client_rect.get("width")
+            and capture_file.get("height") == qgc_client_rect.get("height")
+            and synchronization.get("complete") is True
+            and type(synchronization.get("metadata_acceptance_ack_count")) is int
+            and synchronization["metadata_acceptance_ack_count"] > 0
+            and qgc.get("runtime_status_run_hash_bound_to_integrated_identity") is True
+        )
+        qgc_path_value = executable.get("path")
+        qgc_sha_value = executable.get("sha256")
+        parity_path_value = parity_binding.get("path")
+        parity_identity_matches = (
+            isinstance(parity_path_value, str)
+            and Path(parity_path_value).resolve() == parity_path
+            and parity_binding.get("bytes") == len(parity_raw)
+            and str(parity_binding.get("sha256", "")).lower() == _sha256_bytes(parity_raw)
+        )
+        capture = {
+            "qgc_pid": qgc_process.get("pid"),
+            "exact_client_rect_screen": qgc_process.get("client_screen_rect"),
+            "single_native_surface_machine_check": _mapping(
+                toolbar.get("single_surface"), label="machine QGC single surface"
+            ).get("unchanged_and_only_main_window")
+            is True,
+            "operator_visual_acceptance": toolbar.get("operator_visual_acceptance"),
+            "error": toolbar.get("geometry_error") or toolbar.get("automation_error"),
+            "external_occluders_after": [],
+            "capture": capture_file,
+        }
+    elif native_capture:
         executable, parity_binding, embedded_parity = _native_capture_machine_parts(machine)
         qgc: Mapping[str, Any] = {}
         capture = machine
@@ -287,7 +354,7 @@ def _machine_binding(
         "machine_gate": machine_gate,
         "capture_bound_to_pid": capture_bound_to_pid,
         "valid_exact_client_rect": valid_rect,
-        "no_external_occluders": not native_capture
+        "no_external_occluders": not identity_bound_source
         or capture.get("external_occluders_after") == [],
         "single_native_surface": capture.get("single_native_surface_machine_check") is True,
         "machine_did_not_claim_human_review": capture.get("operator_visual_acceptance")
@@ -303,10 +370,10 @@ def _machine_binding(
         and Path(qgc_path_value).resolve() == executable_path,
         "executable_sha256_matches": str(qgc_sha_value or "").lower()
         == executable_identity["sha256"],
-        "executable_bytes_match": not native_capture
+        "executable_bytes_match": not identity_bound_source
         or executable.get("bytes") == len(executable_raw),
         "release_parity_identity_matches": parity_identity_matches,
-        "release_parity_values_match_current": not native_capture
+        "release_parity_values_match_current": not identity_bound_source
         or dict(embedded_parity) == dict(current_parity),
         "ui_contract_matches_current": embedded_parity.get("ui_contract_hash")
         == current_parity.get("ui_contract_hash"),
@@ -315,7 +382,7 @@ def _machine_binding(
         "path": _relative(machine_path, root, label="machine report"),
         "bytes": len(machine_raw),
         "sha256": _sha256_bytes(machine_raw),
-        "event": machine.get("event"),
+        "event": machine.get("event") or source_schema,
         "runtime_mode": machine_mode,
         "run_id": machine.get("run_id"),
         "qgc_pid": capture.get("qgc_pid"),

@@ -98,7 +98,12 @@
         "path": {"$ref": "#/$defs/path"},
         "bytes": {"type": "integer", "minimum": 1},
         "sha256": {"$ref": "#/$defs/sha256"},
-        "event": {"enum": ["px4_sitl_qgc_operator_acceptance", "qgc_native_style_capture"]},
+        "event": {
+          "enum": [
+            "px4_sitl_qgc_operator_acceptance", "qgc_native_style_capture",
+            "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
+          ]
+        },
         "schema": {"type": ["string", "null"]},
         "runtime_mode": {"enum": ["replay", "sim", "hil", "real"]},
         "run_id": {"type": "string", "minLength": 1},

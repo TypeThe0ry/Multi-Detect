@@ -28,6 +28,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $ProductVersionManifest = Join-Path $Root "configs\product-version.json"
+$ReleaseParityPath = Join-Path $Root "configs\release-parity.json"
 if (-not (Test-Path -LiteralPath $ProductVersionManifest -PathType Leaf)) {
     throw "Product version manifest is missing: $ProductVersionManifest"
 }
@@ -2629,7 +2630,7 @@ $Docker = @($DockerCandidates)[0]
 $DockerDirectory = Split-Path -Parent $Docker
 $DockerChildArgument = if ($Docker -match '\s') { [char]34 + $Docker + [char]34 } else { $Docker }
 foreach ($required in @(
-    $QgcExecutable, $RtspHelper, $ScenarioManifest, $MissionConfig, $StreamScript,
+    $QgcExecutable, $RtspHelper, $ReleaseParityPath, $ScenarioManifest, $MissionConfig, $StreamScript,
     $DesktopCaptureValidator, $NativeVideoGrabValidator, $ToolbarLayoutValidator,
     $AttachedVtolScript, $MissionAcceptanceScript,
     $ModelConfig, $ModelSdf, $WorldAsset, $TerrainDem,
@@ -3759,6 +3760,12 @@ $evidence = [ordered]@{
     source = [ordered]@{ git_head = $gitHead; dirty = (-not [string]::IsNullOrWhiteSpace($gitStatus)); git_status_sha256 = $gitStatusHash }
     hashes = [ordered]@{
         qgc_exe = [ordered]@{ path = $QgcExecutable; bytes = (Get-Item $QgcExecutable).Length; sha256 = Get-Sha256OrNull $QgcExecutable }
+        release_parity = [ordered]@{
+            path = $ReleaseParityPath
+            bytes = (Get-Item $ReleaseParityPath).Length
+            sha256 = Get-Sha256OrNull $ReleaseParityPath
+            parity = (Get-Content -LiteralPath $ReleaseParityPath -Raw | ConvertFrom-Json).parity
+        }
         rtsp_helper = [ordered]@{ path = $RtspHelper; bytes = (Get-Item $RtspHelper).Length; sha256 = Get-Sha256OrNull $RtspHelper }
         product_version_manifest = Get-Sha256OrNull $ProductVersionManifest
         scenario_manifest = Get-Sha256OrNull $ScenarioManifest

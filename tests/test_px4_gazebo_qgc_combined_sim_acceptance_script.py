@@ -231,6 +231,15 @@ def test_portable_qgc_runs_visible_on_the_native_fly_view_surface() -> None:
     text = _read_script()
 
     assert '$ProductVersionManifest = Join-Path $Root "configs\\product-version.json"' in text
+    assert '$ReleaseParityPath = Join-Path $Root "configs\\release-parity.json"' in text
+    assert '$QgcExecutable, $RtspHelper, $ReleaseParityPath, $ScenarioManifest' in text
+    assert "release_parity = [ordered]@{" in text
+    assert "bytes = (Get-Item $ReleaseParityPath).Length" in text
+    assert "sha256 = Get-Sha256OrNull $ReleaseParityPath" in text
+    assert (
+        "parity = (Get-Content -LiteralPath $ReleaseParityPath -Raw | "
+        "ConvertFrom-Json).parity"
+    ) in text
     assert '"build\\windows-v{0}-release\\portable-v{0}\\bin" -f $ReleaseLabel' in text
     assert '"build\\qgc-replay-fixture-v{0}" -f $ReleaseLabel' in text
     assert 'release_status = $ReleaseStatus' in text
