@@ -1,7 +1,7 @@
 {
   "parity": {
     "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
-    "px4_mission_path_hash": "c7c86a1fa98e15efb6ed3302332be19603449f4ac96df679a5d4c2c0982ab218",
+    "px4_mission_path_hash": "792fffbe10f0665b578b1a8d06ea2ad814ea02fdea4d2ebae360462b10100780",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
     "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
@@ -36,6 +36,7 @@
       "configs/schemas/autonomy-executable-mission.schema.json",
       "configs/schemas/autonomy-mission-compile-runtime.schema.json",
       "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
+      "configs/schemas/pixhawk-covariance-online-preflight.schema.json",
       "configs/schemas/pixhawk-odometry-covariance-observation.schema.json",
       "configs/schemas/px4-mission-feedback-observation-v2.schema.json",
       "configs/schemas/px4-mission-feedback-observation.schema.json",
@@ -49,6 +50,7 @@
       "src/multidetect/fixed_wing_aim_control.py",
       "src/multidetect/mission_compile_cli.py",
       "src/multidetect/mission_planning.py",
+      "src/multidetect/online_covariance_preflight.py",
       "src/multidetect/operator_mavlink.py",
       "src/multidetect/payload_hil_mission.py",
       "src/multidetect/payload_target_gate.py",

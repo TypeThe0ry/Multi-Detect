@@ -26,6 +26,12 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .mission_planning import load_executable_mission_document
+from .online_covariance_preflight import (
+    DEFAULT_MAXIMUM_AGE_SECONDS,
+    OnlineCovariancePreflightError,
+    build_online_covariance_preflight_observation,
+    load_online_covariance_preflight_observation,
+)
 from .pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
 from .pixhawk_covariance_binding import (
     REQUIRED_COMBINATIONS,
@@ -570,7 +576,15 @@ def probe_next(
         clock=clock,
         sleeper=sleeper,
     )
-    return exit_code, {**result, "source_preflight": preflight}
+    observation = build_online_covariance_preflight_observation(
+        {**result, "source_preflight": preflight},
+        release_label=config.release_label,
+        config_path=config.path,
+        mission_path=leaf.mission_path,
+        mission_feedback_path=leaf.mission_feedback_path,
+        runtime_profile_path=leaf.runtime_profile_path,
+    )
+    return exit_code, observation
 
 
 def _leaf_status(leaf: CampaignLeaf, *, manifest_directory: Path) -> dict[str, object]:
@@ -789,11 +803,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("status", "preflight", "probe-next", "capture-next", "verify"),
+        choices=(
+            "status",
+            "preflight",
+            "probe-next",
+            "verify-probe",
+            "capture-next",
+            "verify",
+        ),
     )
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--status-out", type=Path)
     parser.add_argument("--binding-out", type=Path)
+    parser.add_argument("--probe-report", type=Path)
+    parser.add_argument("--maximum-age-seconds", type=float)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
     parser.add_argument("--interval-seconds", type=float, default=DEFAULT_INTERVAL_S)
@@ -816,6 +839,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = load_campaign_config(args.config)
+        if args.command != "verify-probe" and args.probe_report is not None:
+            raise FieldCovarianceCampaignError("--probe-report is reserved for verify-probe")
+        if args.command != "verify-probe" and args.maximum_age_seconds is not None:
+            raise FieldCovarianceCampaignError("--maximum-age-seconds is reserved for verify-probe")
         if args.command == "status":
             result = campaign_status(config)
             exit_code = 0
@@ -836,6 +863,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 samples=args.probe_samples,
                 interval_seconds=args.probe_interval_seconds,
             )
+        elif args.command == "verify-probe":
+            if args.probe_report is None:
+                raise FieldCovarianceCampaignError("verify-probe requires --probe-report")
+            if args.binding_out is not None or args.dry_run:
+                raise FieldCovarianceCampaignError(
+                    "verify-probe does not accept --binding-out or --dry-run"
+                )
+            result = load_online_covariance_preflight_observation(
+                args.probe_report,
+                maximum_age_seconds=(
+                    DEFAULT_MAXIMUM_AGE_SECONDS
+                    if args.maximum_age_seconds is None
+                    else args.maximum_age_seconds
+                ),
+            )
+            source_binding = result.get("source_binding")
+            if (
+                not isinstance(source_binding, Mapping)
+                or source_binding.get("campaign_config_path") != str(config.path)
+                or source_binding.get("campaign_config_sha256") != _sha256(config.path)
+            ):
+                raise FieldCovarianceCampaignError("probe report does not match --config")
+            exit_code = 0 if result["gate_passed"] is True else 1
         elif args.command == "capture-next":
             if args.binding_out is not None:
                 raise FieldCovarianceCampaignError("--binding-out is reserved for verify")
@@ -858,7 +908,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             _atomic_write(args.status_out.resolve(), result)
         print(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2))
         return exit_code
-    except (FieldCovarianceCampaignError, PixhawkCovarianceBindingError, OSError) as exc:
+    except (
+        FieldCovarianceCampaignError,
+        OnlineCovariancePreflightError,
+        PixhawkCovarianceBindingError,
+        OSError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

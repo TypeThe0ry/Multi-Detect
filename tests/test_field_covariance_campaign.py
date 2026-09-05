@@ -452,6 +452,39 @@ def test_preflight_cli_returns_one_for_blocked_sources(tmp_path: Path, capsys: o
     assert output["blocked_count"] == 6
 
 
+def test_verify_probe_cli_applies_default_expiry_and_matches_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object
+) -> None:
+    config_path = _write_config(tmp_path)
+    config = campaign.load_campaign_config(config_path)
+    report_path = tmp_path / "probe.json"
+    report_path.write_text("{}", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def load(path: Path, *, maximum_age_seconds: float) -> dict[str, object]:
+        captured["path"] = path
+        captured["maximum_age_seconds"] = maximum_age_seconds
+        return {
+            "source_binding": {
+                "campaign_config_path": str(config.path),
+                "campaign_config_sha256": campaign._sha256(config.path),
+            },
+            "gate_passed": True,
+        }
+
+    monkeypatch.setattr(campaign, "load_online_covariance_preflight_observation", load)
+    exit_code = campaign.main(
+        ["verify-probe", "--config", str(config_path), "--probe-report", str(report_path)]
+    )
+
+    assert exit_code == 0
+    assert captured == {
+        "path": report_path,
+        "maximum_age_seconds": campaign.DEFAULT_MAXIMUM_AGE_SECONDS,
+    }
+    assert json.loads(capsys.readouterr().out)["gate_passed"] is True
+
+
 def test_online_probe_stops_on_current_identity_match_and_closes_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
