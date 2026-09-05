@@ -114,6 +114,28 @@ def _event(
     )
 
 
+def _camera_calibration(path: Path, *, fx_px: float = 540.0) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "calibration": {
+                    "calibration_id": "camera-main-001",
+                    "width_px": 1280,
+                    "height_px": 960,
+                    "fx_px": fx_px,
+                    "fy_px": 540.0,
+                    "cx_px": 640.0,
+                    "cy_px": 480.0,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_target_event_replay_round_trip_filters_and_binds_media(tmp_path: Path) -> None:
     root = tmp_path / "target-event-bundle"
     session_id = str(uuid4())
@@ -147,6 +169,25 @@ def test_target_event_replay_round_trip_filters_and_binds_media(tmp_path: Path) 
         expected_manifest_sha256=manifest_hash,
     )
     assert loaded.summary() == bundle.summary()
+
+
+def test_target_event_replay_contains_and_rehashes_camera_calibration(tmp_path: Path) -> None:
+    calibration = _camera_calibration(tmp_path / "camera.json")
+    root = tmp_path / "target-event-calibrated"
+    builder = TargetEventReplayBuilder(
+        root,
+        session_id=str(uuid4()),
+        camera_calibration_path=calibration,
+    )
+    builder.append(_event(1.0))
+    bundle = builder.finalize()
+    assert bundle.camera_calibration_id == "camera-main-001"
+    assert bundle.camera_calibration_sha256 == hashlib.sha256(calibration.read_bytes()).hexdigest()
+    assert bundle.camera_calibration_path == (root / "camera-calibration.json").resolve()
+
+    bundle.camera_calibration_path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="camera calibration.*mismatch"):
+        load_target_event_replay_manifest(root / "manifest.json")
 
 
 def test_target_event_replay_rejects_mutated_media_and_event_stream(tmp_path: Path) -> None:
@@ -243,10 +284,7 @@ def test_target_event_replay_gps_thresholds_follow_live_policy_defaults() -> Non
     config = AdaptiveRangingConfig()
     assert GPS_QUALIFIED_FIX_TYPE == config.minimum_gps_fix_type
     assert GPS_QUALIFIED_MIN_SATELLITES == config.minimum_gps_satellites
-    assert (
-        GPS_QUALIFIED_MAX_HORIZONTAL_ACCURACY_M
-        == config.maximum_gps_horizontal_accuracy_m
-    )
+    assert GPS_QUALIFIED_MAX_HORIZONTAL_ACCURACY_M == config.maximum_gps_horizontal_accuracy_m
     assert GPS_QUALIFIED_MAX_VERTICAL_ACCURACY_M == config.maximum_gps_vertical_accuracy_m
     assert GPS_QUALIFIED_MAX_AGE_S == config.maximum_gps_age_s
 
@@ -403,9 +441,7 @@ def test_target_event_replay_rejects_future_and_stale_qualified_gps(tmp_path: Pa
                 target_id="target-stale",
                 target_label="person",
                 captured_at_s=10.0,
-                gps=TargetGpsEvidence(
-                    **base, observed_at_s=10.0 - GPS_QUALIFIED_MAX_AGE_S - 0.01
-                ),
+                gps=TargetGpsEvidence(**base, observed_at_s=10.0 - GPS_QUALIFIED_MAX_AGE_S - 0.01),
                 ranging=TargetRangeEvidence(validity="VALID", range_m=4.0),
                 video=TargetMediaInput(kind="video_frame", payload=b"frame", encoding="jpeg"),
             )
@@ -559,6 +595,9 @@ def test_target_event_replay_schema_matches_manifest_shape() -> None:
         "bundle_hash",
     }
     assert schema["$defs"]["claims"]["properties"]["contains_flight_control"] == {"const": False}
+    assert schema["$defs"]["cameraCalibration"]["properties"]["path"] == {
+        "const": "camera-calibration.json"
+    }
     assert schema["$defs"]["targetEvent"]["properties"]["video"]["anyOf"]
     assert schema["$defs"]["gps"]["properties"]["observed_at_s"]["type"] == [
         "number",
@@ -582,6 +621,7 @@ def test_target_event_replay_creator_copies_capture_media_and_emits_summary(
     video_path.write_bytes(b"captured-video")
     depth_path.write_bytes(b"captured-depth")
     capture_manifest = tmp_path / "capture.json"
+    calibration_path = _camera_calibration(tmp_path / "camera.json")
     capture_manifest.write_text(
         json.dumps(
             {
@@ -626,12 +666,27 @@ def test_target_event_replay_creator_copies_capture_media_and_emits_summary(
     )
     output_root = tmp_path / "bundle"
 
-    assert create_target_event_replay([str(capture_manifest), str(output_root)]) == 0
+    assert (
+        create_target_event_replay(
+            [
+                str(capture_manifest),
+                str(output_root),
+                "--camera-calibration",
+                str(calibration_path),
+            ]
+        )
+        == 0
+    )
     summary = json.loads(capsys.readouterr().out)
     assert summary["bundle_id"] == "bundle-from-capture"
     assert summary["event_count"] == 1
     assert summary["media_count"] == 2
+    assert summary["camera_calibration_id"] == "camera-main-001"
     loaded = load_target_event_replay_manifest(output_root / "manifest.json")
+    assert (
+        loaded.camera_calibration_sha256
+        == hashlib.sha256(calibration_path.read_bytes()).hexdigest()
+    )
     assert loaded.events[0].video is not None
     assert loaded.events[0].video.read_verified_bytes() == b"captured-video"
     assert loaded.events[0].depth is not None

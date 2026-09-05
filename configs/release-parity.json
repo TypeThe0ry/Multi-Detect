@@ -1,9 +1,9 @@
 {
   "parity": {
-    "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
+    "core_algorithm_hash": "bebbf1b559add8479fb4d184ea4ef25891902aa27784ce1b8b51bdce62334738",
     "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-    "task_contract_hash": "ab8c40f568f0ccbba814bc5c9dae31d8f22218bd14d9d27e6637771a0e272521",
+    "task_contract_hash": "e4e2e829961352bfce90dac04e93207a49644a118c863181de850488c448f54b",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
   },
   "product": "Multi-Detect",
@@ -13,6 +13,7 @@
     "core_algorithm": [
       "configs/schemas/camera-calibration.schema.json",
       "configs/schemas/mission-progress.schema.json",
+      "configs/schemas/target-event-replay-manifest.schema.json",
       "src/multidetect/adaptive_ranging.py",
       "src/multidetect/autonomy/planner.py",
       "src/multidetect/depth_calibration.py",

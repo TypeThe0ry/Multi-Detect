@@ -26,6 +26,7 @@
     "started_at_utc": {"type": "string", "format": "date-time"},
     "events": {"$ref": "#/$defs/eventStream"},
     "media": {"$ref": "#/$defs/mediaSummary"},
+    "camera_calibration": {"$ref": "#/$defs/cameraCalibration"},
     "claims": {"$ref": "#/$defs/claims"},
     "bundle_hash": {"$ref": "#/$defs/sha256"}
   },
@@ -58,6 +59,17 @@
         "root": {"const": "media"},
         "count": {"type": "integer", "minimum": 0, "maximum": 200000},
         "bytes": {"type": "integer", "minimum": 0, "maximum": 536870912}
+      }
+    },
+    "cameraCalibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "calibration_id"],
+      "properties": {
+        "path": {"const": "camera-calibration.json"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "calibration_id": {"type": "string", "minLength": 1}
       }
     },
     "claims": {

@@ -118,6 +118,10 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # while REAL keeps the shared ellipsoid implementation.
         "src/multidetect/simulator/flight_model.py",
         "src/multidetect/simulator/perception_bridge.py",
+        # Target-event evidence carries the exact camera calibration consumed
+        # by target geolocation.  Bind both the loader/builder and its strict
+        # manifest so a schema drift invalidates the common algorithm identity.
+        "configs/schemas/target-event-replay-manifest.schema.json",
         "src/multidetect/target_event_replay.py",
         # Detection boxes become operational target rays only after the
         # shared semantic anchor policy selects a ground-contact/image-center

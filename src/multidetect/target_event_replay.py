@@ -45,6 +45,7 @@ from .mavlink_gps import (
     MAVLINK_SATELLITES_MAX,
     MAVLINK_SATELLITES_UNKNOWN,
 )
+from .multimodal_ranging import load_camera_calibration
 
 SCHEMA_VERSION = 1
 TARGET_EVENT_SCHEMA = "multidetect.target-event.v1"
@@ -104,6 +105,13 @@ def _strict_json_loads(payload: bytes, *, name: str) -> object:
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AutonomyContractError(f"{name} is not valid UTF-8 JSON: {exc}") from exc
+
+
+def _load_camera_calibration_id(path: Path) -> str:
+    try:
+        return load_camera_calibration(path).calibration_id
+    except ValueError as exc:
+        raise AutonomyContractError(f"camera calibration is invalid: {exc}") from exc
 
 
 def _strict_relative_path(value: object, name: str) -> str:
@@ -238,17 +246,13 @@ def _validate_declared_gps_timing(
         actual_age = event.gps_age_s
         if actual_age is None:
             if declared_age is not None:
-                raise AutonomyContractError(
-                    "target event gps_age_s does not match GPS observation"
-                )
+                raise AutonomyContractError("target event gps_age_s does not match GPS observation")
         elif declared_age is None or not math.isclose(
             declared_age, actual_age, rel_tol=0.0, abs_tol=1.0e-9
         ):
             raise AutonomyContractError("target event gps_age_s does not match GPS observation")
     if declared_freshness_present and declared_freshness != event.gps_freshness:
-        raise AutonomyContractError(
-            "target event gps_freshness does not match GPS observation age"
-        )
+        raise AutonomyContractError("target event gps_freshness does not match GPS observation age")
 
 
 def _normalize_session_id(value: object) -> str:
@@ -467,9 +471,7 @@ class TargetGpsEvidence:
                     attribute,
                     require_real(value, name, minimum=0.0, maximum=100_000.0),
                 )
-        observed_at = _optional_real_mapping(
-            self.observed_at_s, "gps.observed_at_s", minimum=0.0
-        )
+        observed_at = _optional_real_mapping(self.observed_at_s, "gps.observed_at_s", minimum=0.0)
         object.__setattr__(self, "observed_at_s", observed_at)
         if self.status == "unavailable" and any(
             value is not None
@@ -908,9 +910,7 @@ class TargetEvent:
             else None
         )
         if declared_freshness is not None and declared_freshness not in _GPS_FRESHNESS_VALUES:
-            raise AutonomyContractError(
-                "gps_freshness must be fresh, stale, or unknown"
-            )
+            raise AutonomyContractError("gps_freshness must be fresh, stale, or unknown")
         _validate_declared_gps_timing(
             declared_age=declared_age,
             declared_age_present="gps_age_s" in value,
@@ -934,6 +934,10 @@ class TargetEventReplayBundle:
     root_path: Path
     manifest_path: Path
     bundle_hash: str
+    camera_calibration_id: str | None = None
+    camera_calibration_sha256: str | None = None
+    camera_calibration_bytes: int | None = None
+    camera_calibration_path: Path | None = None
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -1000,6 +1004,38 @@ class TargetEventReplayBundle:
         object.__setattr__(self, "root_path", root.resolve(strict=True))
         object.__setattr__(self, "manifest_path", manifest.resolve(strict=True))
         object.__setattr__(self, "bundle_hash", require_sha256(self.bundle_hash, "bundle_hash"))
+        calibration_values = (
+            self.camera_calibration_id,
+            self.camera_calibration_sha256,
+            self.camera_calibration_bytes,
+            self.camera_calibration_path,
+        )
+        if any(value is not None for value in calibration_values):
+            if not all(value is not None for value in calibration_values):
+                raise AutonomyContractError("camera calibration provenance must be complete")
+            object.__setattr__(
+                self,
+                "camera_calibration_id",
+                require_text(self.camera_calibration_id, "camera_calibration.calibration_id"),
+            )
+            object.__setattr__(
+                self,
+                "camera_calibration_sha256",
+                require_sha256(self.camera_calibration_sha256, "camera_calibration.sha256"),
+            )
+            object.__setattr__(
+                self,
+                "camera_calibration_bytes",
+                require_int(self.camera_calibration_bytes, "camera_calibration.bytes", minimum=1),
+            )
+            calibration_path = Path(self.camera_calibration_path)
+            if not calibration_path.is_absolute() or not calibration_path.is_file():
+                raise AutonomyContractError("camera calibration path must be an absolute file")
+            if calibration_path.parent.resolve(strict=True) != self.root_path:
+                raise AutonomyContractError("camera calibration must be contained in bundle root")
+            object.__setattr__(
+                self, "camera_calibration_path", calibration_path.resolve(strict=True)
+            )
 
     @property
     def event_count(self) -> int:
@@ -1049,6 +1085,8 @@ class TargetEventReplayBundle:
             "event_stream_sha256": self.event_stream_sha256,
             "event_stream_bytes": self.event_stream_bytes,
             "bundle_hash": self.bundle_hash,
+            "camera_calibration_id": self.camera_calibration_id,
+            "camera_calibration_sha256": self.camera_calibration_sha256,
             "claims": {
                 "read_only_evidence": True,
                 "contains_flight_control": False,
@@ -1069,6 +1107,7 @@ class TargetEventReplayBuilder:
         started_at_utc: str | None = None,
         maximum_events: int = 10_000,
         maximum_media_bytes: int = MAX_TOTAL_MEDIA_BYTES,
+        camera_calibration_path: str | Path | None = None,
         overwrite: bool = False,
     ) -> None:
         self.root = Path(root).resolve()
@@ -1090,6 +1129,18 @@ class TargetEventReplayBuilder:
         self._closed = False
         self._events: list[TargetEvent] = []
         self._media_bytes = 0
+        self._camera_calibration_bytes: bytes | None = None
+        self._camera_calibration_id: str | None = None
+        if camera_calibration_path is not None:
+            requested_calibration = Path(camera_calibration_path).expanduser()
+            if requested_calibration.is_symlink():
+                raise AutonomyContractError("camera calibration source must not be a symlink")
+            resolved_calibration = requested_calibration.resolve(strict=True)
+            if not resolved_calibration.is_file():
+                raise AutonomyContractError("camera calibration source must be a regular file")
+            calibration_id = _load_camera_calibration_id(resolved_calibration)
+            self._camera_calibration_bytes = resolved_calibration.read_bytes()
+            self._camera_calibration_id = calibration_id
         if self.root.exists():
             if not self.root.is_dir():
                 raise AutonomyContractError("target event replay root must be a directory")
@@ -1196,6 +1247,16 @@ class TargetEventReplayBuilder:
             for reference in (event.video, event.depth)
             if reference is not None
         }
+        camera_calibration: dict[str, object] | None = None
+        if self._camera_calibration_bytes is not None:
+            calibration_path = self.root / "camera-calibration.json"
+            _atomic_write_bytes(calibration_path, self._camera_calibration_bytes)
+            camera_calibration = {
+                "path": "camera-calibration.json",
+                "sha256": hashlib.sha256(self._camera_calibration_bytes).hexdigest(),
+                "bytes": len(self._camera_calibration_bytes),
+                "calibration_id": self._camera_calibration_id,
+            }
         manifest_without_hash: dict[str, object] = {
             "schema": TARGET_EVENT_REPLAY_SCHEMA,
             "schema_version": SCHEMA_VERSION,
@@ -1220,6 +1281,8 @@ class TargetEventReplayBuilder:
                 "contains_truth": False,
             },
         }
+        if camera_calibration is not None:
+            manifest_without_hash["camera_calibration"] = camera_calibration
         manifest = dict(manifest_without_hash)
         manifest["bundle_hash"] = canonical_sha256(manifest_without_hash)
         manifest_path = self.root / "manifest.json"
@@ -1271,6 +1334,7 @@ def load_target_event_replay_manifest(
                 "bundle_hash",
             }
         ),
+        optional=frozenset({"camera_calibration"}),
     )
     if require_text(value["schema"], "schema") != TARGET_EVENT_REPLAY_SCHEMA:
         raise AutonomyContractError("target event replay manifest schema identifier is invalid")
@@ -1299,6 +1363,43 @@ def load_target_event_replay_manifest(
         )
 
     root = manifest_path.parent.resolve(strict=True)
+    calibration_id: str | None = None
+    calibration_sha256: str | None = None
+    calibration_bytes: int | None = None
+    calibration_path: Path | None = None
+    if "camera_calibration" in value:
+        calibration_value = strict_object(
+            value["camera_calibration"],
+            name="TargetEventReplayCameraCalibration",
+            required=frozenset({"path", "sha256", "bytes", "calibration_id"}),
+        )
+        calibration_relative_path = _strict_relative_path(
+            calibration_value["path"], "camera_calibration.path"
+        )
+        if calibration_relative_path != "camera-calibration.json":
+            raise AutonomyContractError("camera_calibration.path must be camera-calibration.json")
+        calibration_path = _resolve_contained_file(
+            root, calibration_relative_path, name="camera_calibration"
+        )
+        calibration_sha256 = require_sha256(
+            calibration_value["sha256"], "camera_calibration.sha256"
+        )
+        calibration_bytes = require_int(
+            calibration_value["bytes"], "camera_calibration.bytes", minimum=1
+        )
+        _read_verified_file(
+            calibration_path,
+            expected_sha256=calibration_sha256,
+            expected_byte_count=calibration_bytes,
+            name="camera calibration",
+        )
+        calibration_id = require_text(
+            calibration_value["calibration_id"], "camera_calibration.calibration_id"
+        )
+        if _load_camera_calibration_id(calibration_path) != calibration_id:
+            raise AutonomyContractError(
+                "camera calibration ID does not match contained calibration"
+            )
     events_value = strict_object(
         value["events"],
         name="TargetEventReplayEvents",
@@ -1399,6 +1500,10 @@ def load_target_event_replay_manifest(
         root_path=root,
         manifest_path=manifest_path,
         bundle_hash=expected_bundle_hash,
+        camera_calibration_id=calibration_id,
+        camera_calibration_sha256=calibration_sha256,
+        camera_calibration_bytes=calibration_bytes,
+        camera_calibration_path=calibration_path,
     )
 
 

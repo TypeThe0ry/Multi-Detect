@@ -42,7 +42,7 @@ def _read_json(path: Path) -> Mapping[str, object]:
         raw,
         name="TargetEventCaptureManifest",
         required=frozenset({"session_id", "events"}),
-        optional=frozenset({"bundle_id", "started_at_utc"}),
+        optional=frozenset({"bundle_id", "started_at_utc", "camera_calibration"}),
     )
 
 
@@ -132,7 +132,22 @@ def _event_from_mapping(raw: object, *, base_dir: Path) -> TargetEventInput:
     )
 
 
-def create_bundle(capture_manifest: Path, output_root: Path) -> TargetEventReplayBundle:
+def _resolve_input_file(value: object, *, name: str, base_dir: Path) -> Path:
+    requested = value if isinstance(value, Path) else Path(require_text(value, name))
+    if not requested.is_absolute():
+        requested = base_dir / requested
+    resolved = requested.resolve(strict=True)
+    if not resolved.is_file():
+        raise AutonomyContractError(f"{name} must be a regular file")
+    return resolved
+
+
+def create_bundle(
+    capture_manifest: Path,
+    output_root: Path,
+    *,
+    camera_calibration: Path | None = None,
+) -> TargetEventReplayBundle:
     document = _read_json(capture_manifest)
     base_dir = capture_manifest.resolve(strict=True).parent
     events_raw = require_array(document["events"], "events")
@@ -142,6 +157,15 @@ def create_bundle(capture_manifest: Path, output_root: Path) -> TargetEventRepla
         "root": output_root,
         "session_id": require_text(document["session_id"], "session_id"),
     }
+    calibration_input: object | None = camera_calibration
+    if calibration_input is None:
+        calibration_input = document.get("camera_calibration")
+    if calibration_input is not None:
+        kwargs["camera_calibration_path"] = _resolve_input_file(
+            calibration_input,
+            name="camera_calibration",
+            base_dir=base_dir,
+        )
     if document.get("bundle_id") is not None:
         kwargs["bundle_id"] = require_text(document["bundle_id"], "bundle_id")
     if document.get("started_at_utc") is not None:
@@ -161,13 +185,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("capture_manifest", type=Path, help="JSON capture manifest")
     parser.add_argument("output_root", type=Path, help="new empty output bundle directory")
+    parser.add_argument(
+        "--camera-calibration",
+        type=Path,
+        help=(
+            "strict camera calibration JSON to copy and hash-bind into the bundle; "
+            "overrides camera_calibration in the capture manifest"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        bundle = create_bundle(args.capture_manifest, args.output_root)
+        bundle = create_bundle(
+            args.capture_manifest,
+            args.output_root,
+            camera_calibration=args.camera_calibration,
+        )
         print(json.dumps(bundle.summary(), ensure_ascii=False, allow_nan=False, indent=2))
         return 0
     except (AutonomyContractError, OSError, ValueError, TypeError) as exc:

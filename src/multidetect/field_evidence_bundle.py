@@ -414,6 +414,8 @@ def check_field_evidence_bundle(
                 inputs["target_event_manifest"]["path"]  # type: ignore[arg-type]
             )
             context["target_bundle"] = target_bundle
+            if target_bundle.camera_calibration_sha256 is None:
+                fail("target_event", "target-event replay camera calibration is missing")
             event_ids = [event.event_id for event in target_bundle.events]
             target_ids = sorted({event.target_id for event in target_bundle.events})
             if not event_ids:
@@ -440,6 +442,8 @@ def check_field_evidence_bundle(
                     "event_ids": event_ids,
                     "target_ids": target_ids,
                     "media_count": target_bundle.media_count,
+                    "camera_calibration_id": target_bundle.camera_calibration_id,
+                    "camera_calibration_sha256": target_bundle.camera_calibration_sha256,
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -727,6 +731,8 @@ def check_field_evidence_bundle(
                 "target_event_session_id": target_bundle.session_id,
                 "target_event_ids": [event.event_id for event in target_bundle.events],
                 "target_ids": sorted({event.target_id for event in target_bundle.events}),
+                "target_event_camera_calibration_id": target_bundle.camera_calibration_id,
+                "target_event_camera_calibration_sha256": (target_bundle.camera_calibration_sha256),
             }
         )
     recording = context.get("recording")
@@ -757,6 +763,26 @@ def check_field_evidence_bundle(
                 ),
             }
         )
+        if target_bundle is not None:
+            mount_calibration_hash = (
+                calibration_reference.get("sha256")
+                if isinstance(calibration_reference, Mapping)
+                else None
+            )
+            mount_estimate = mount_document.get("estimate")
+            mount_calibration_id = (
+                mount_estimate.get("calibration_id")
+                if isinstance(mount_estimate, Mapping)
+                else None
+            )
+            if target_bundle.camera_calibration_sha256 != mount_calibration_hash:
+                cross_binding_reasons.append(
+                    "target-event camera calibration hash does not match mount survey"
+                )
+            if target_bundle.camera_calibration_id != mount_calibration_id:
+                cross_binding_reasons.append(
+                    "target-event camera calibration ID does not match mount survey"
+                )
     if cross_binding_reasons:
         for reason in cross_binding_reasons:
             add_blocking(f"cross_binding: {reason}")

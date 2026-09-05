@@ -162,9 +162,48 @@ def _raw_recording(tmp_path: Path) -> tuple[Path, RawReplayTelemetrySample]:
     return manifest, sample
 
 
-def _target_manifest(tmp_path: Path) -> Path:
-    root = tmp_path / "target-events"
-    builder = TargetEventReplayBuilder(root, session_id=SESSION_ID, bundle_id="bundle-a")
+def _camera_calibration_fixture(tmp_path: Path) -> Path:
+    calibration = tmp_path / "camera-calibration.json"
+    if not calibration.exists():
+        _write_json(
+            calibration,
+            {
+                "schema_version": 1,
+                "calibration": {
+                    "calibration_id": "camera-main-001",
+                    "width_px": 1280,
+                    "height_px": 960,
+                    "fx_px": 540.0,
+                    "fy_px": 540.0,
+                    "cx_px": 640.0,
+                    "cy_px": 480.0,
+                    "mount_pitch_down_deg": 35.0,
+                    "mount_yaw_right_deg": 0.0,
+                    "mount_roll_clockwise_deg": 0.0,
+                    "boresight_sigma_deg": 0.20,
+                    "camera_offset_forward_m": 0.40,
+                    "camera_offset_right_m": -0.08,
+                    "camera_offset_down_m": 0.15,
+                    "camera_offset_sigma_m": 0.02,
+                },
+            },
+        )
+    return calibration
+
+
+def _target_manifest(
+    tmp_path: Path,
+    *,
+    camera_calibration: Path | None = None,
+    root_name: str = "target-events",
+) -> Path:
+    root = tmp_path / root_name
+    builder = TargetEventReplayBuilder(
+        root,
+        session_id=SESSION_ID,
+        bundle_id="bundle-a",
+        camera_calibration_path=camera_calibration or _camera_calibration_fixture(tmp_path),
+    )
     builder.append(
         TargetEventInput(
             event_id="event-0",
@@ -226,30 +265,7 @@ def _gnss_fixture(tmp_path: Path) -> Path:
 
 
 def _camera_mount_fixture(tmp_path: Path) -> Path:
-    calibration = tmp_path / "camera-calibration.json"
-    _write_json(
-        calibration,
-        {
-            "schema_version": 1,
-            "calibration": {
-                "calibration_id": "camera-main-001",
-                "width_px": 1280,
-                "height_px": 960,
-                "fx_px": 540.0,
-                "fy_px": 540.0,
-                "cx_px": 640.0,
-                "cy_px": 480.0,
-                "mount_pitch_down_deg": 35.0,
-                "mount_yaw_right_deg": 0.0,
-                "mount_roll_clockwise_deg": 0.0,
-                "boresight_sigma_deg": 0.20,
-                "camera_offset_forward_m": 0.40,
-                "camera_offset_right_m": -0.08,
-                "camera_offset_down_m": 0.15,
-                "camera_offset_sigma_m": 0.02,
-            },
-        },
-    )
+    calibration = _camera_calibration_fixture(tmp_path)
     raw = tmp_path / "camera-mount-raw.csv"
     certificate = tmp_path / "equipment-certificate.pdf"
     certificate.write_bytes(b"equipment calibration certificate fixture")
@@ -444,6 +460,53 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
     assert report["bindings"]["recording_id"] == "recording-a"
     assert report["bindings"]["camera_mount_survey_id"] == "mount-survey-001"
     assert report["bindings"]["camera_mount_camera_id"] == "camera-main-001"
+    assert report["bindings"]["target_event_camera_calibration_id"] == "camera-main-001"
+    assert (
+        report["bindings"]["target_event_camera_calibration_sha256"]
+        == report["bindings"]["camera_calibration_sha256"]
+    )
+
+    alternate_calibration = tmp_path / "alternate-camera-calibration.json"
+    alternate_document = json.loads(
+        _camera_calibration_fixture(tmp_path).read_text(encoding="utf-8")
+    )
+    alternate_document["calibration"]["fx_px"] = 541.0
+    _write_json(alternate_calibration, alternate_document)
+    alternate_target_path = _target_manifest(
+        tmp_path,
+        camera_calibration=alternate_calibration,
+        root_name="target-events-alternate-calibration",
+    )
+    alternate_accuracy = build_accuracy_report_from_target_event_replay(
+        alternate_target_path,
+        [
+            {
+                "sample_id": "event-0",
+                "ground_truth_latitude_deg": 1.3001,
+                "ground_truth_longitude_deg": 103.8001,
+                "target_id": "target-a",
+            }
+        ],
+        minimum_samples=1,
+    )
+    alternate_accuracy_path = tmp_path / "accuracy-alternate-calibration.json"
+    _write_json(alternate_accuracy_path, alternate_accuracy.report)
+    mismatch_report = bundle_module.check_field_evidence_bundle(
+        field_session_report=session_path,
+        gnss_capture_report=gnss_path,
+        target_event_manifest=alternate_target_path,
+        recording_manifest=recording_path,
+        telemetry_sidecar=sidecar_path,
+        link_preflight=link_path,
+        camera_mount_survey=camera_mount_path,
+        accuracy_report=alternate_accuracy_path,
+    )
+    assert mismatch_report["strata"]["target_event"]["gate_passed"] is True
+    assert mismatch_report["checks"]["cross_bindings_passed"] is False
+    assert any(
+        "target-event camera calibration hash does not match mount survey" in reason
+        for reason in mismatch_report["blocking_reasons"]
+    )
 
 
 def test_tampered_sidecar_closes_only_media_timeline_and_overall_gate(
