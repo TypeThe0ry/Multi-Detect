@@ -19,6 +19,9 @@ def _diagnostics() -> dict[str, object]:
         "resolved_endpoint": "COM7",
         "read_only": True,
         "hardware_control_enabled": False,
+        "transport_link_healthy": True,
+        "qualified_link_healthy": True,
+        "qualification": {"required": True, "passed": True, "reasons": []},
         "heartbeat_identity": {
             "source_system_id": 1,
             "source_component_id": 1,
@@ -27,6 +30,8 @@ def _diagnostics() -> dict[str, object]:
             "mavlink_version": 3,
         },
         "autopilot_version_identity": {"identity_hash": "a" * 64},
+        "autopilot_version_observed_at_s": 99.5,
+        "autopilot_version_age_s": 0.5,
         "autopilot_version_requests": {
             "enabled": True,
             "attempts": 1,
@@ -132,6 +137,29 @@ def test_observation_report_fails_closed_without_requested_firmware_identity() -
 
     assert report["checks"]["telemetry_requests_only"] is True
     assert report["checks"]["autopilot_version_identity_observed"] is False
+    assert report["gate_passed"] is False
+    assert report["claims"]["sim_acceptance"] == "not_claimed"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "failed_check"),
+    [
+        ("transport_link_healthy", False, "transport_link_current"),
+        ("qualified_link_healthy", False, "qualified_link_current"),
+        ("autopilot_version_age_s", 12.0, "autopilot_version_current_session"),
+    ],
+)
+def test_observation_report_rejects_stale_or_unqualified_current_session(
+    field: str,
+    value: object,
+    failed_check: str,
+) -> None:
+    diagnostics = _diagnostics()
+    diagnostics[field] = value
+
+    report = _report(diagnostics)
+
+    assert report["checks"][failed_check] is False
     assert report["gate_passed"] is False
     assert report["claims"]["sim_acceptance"] == "not_claimed"
 
@@ -288,6 +316,36 @@ def test_hil_observation_fails_closed_on_current_firmware_mismatch(
 
     assert report["gate_passed"] is False
     assert report["mode_binding"]["checks"]["current_firmware_identity_exact"] is False
+    assert report["claims"]["hil_covariance_observation"] == "not_claimed"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "binding_check"),
+    [
+        ("transport_link_healthy", False, "provider_transport_link_current"),
+        ("qualified_link_healthy", False, "provider_qualified_link_current"),
+        (
+            "qualification",
+            {"required": True, "passed": False, "reasons": ["heartbeat_stale"]},
+            "provider_operational_qualification",
+        ),
+    ],
+)
+def test_hil_mode_binding_rejects_noncurrent_provider_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    value: object,
+    binding_check: str,
+) -> None:
+    diagnostics = _diagnostics()
+    diagnostics[field] = value
+
+    report = _hil_report(monkeypatch, tmp_path, diagnostics=diagnostics)
+
+    assert report["mode_binding"]["checks"][binding_check] is False
+    assert report["mode_binding"]["gate_passed"] is False
+    assert report["gate_passed"] is False
     assert report["claims"]["hil_covariance_observation"] == "not_claimed"
 
 

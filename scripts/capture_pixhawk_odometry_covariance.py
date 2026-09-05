@@ -98,6 +98,15 @@ def _finite_positive(value: object) -> bool:
     )
 
 
+def _finite_nonnegative(value: object) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and float(value) >= 0.0
+    )
+
+
 def _endpoint_valid(runtime_mode: str, endpoint: str) -> bool:
     if not isinstance(endpoint, str) or not endpoint.strip():
         return False
@@ -156,6 +165,7 @@ def build_mode_binding(
     feedback_transport = feedback.get("transport")
     heartbeat = diagnostics.get("heartbeat_identity")
     autopilot_version = diagnostics.get("autopilot_version_identity")
+    qualification = diagnostics.get("qualification")
     if not isinstance(runtime_binding, Mapping):
         runtime_binding = {}
     if not isinstance(feedback_transport, Mapping):
@@ -164,6 +174,8 @@ def build_mode_binding(
         heartbeat = {}
     if not isinstance(autopilot_version, Mapping):
         autopilot_version = {}
+    if not isinstance(qualification, Mapping):
+        qualification = {}
     expected_heartbeat = runtime_binding.get("heartbeat_identity")
     if not isinstance(expected_heartbeat, Mapping):
         expected_heartbeat = {}
@@ -201,6 +213,13 @@ def build_mode_binding(
         "provider_read_only": diagnostics.get("read_only") is True,
         "provider_hardware_control_disabled": (
             diagnostics.get("hardware_control_enabled") is False
+        ),
+        "provider_transport_link_current": (diagnostics.get("transport_link_healthy") is True),
+        "provider_qualified_link_current": (diagnostics.get("qualified_link_healthy") is True),
+        "provider_operational_qualification": (
+            qualification.get("required") is True
+            and qualification.get("passed") is True
+            and qualification.get("reasons") in ((), [])
         ),
     }
     binding: dict[str, object] = {
@@ -289,6 +308,7 @@ def build_observation_report(
     requests = diagnostics.get("ranging_stream_requests")
     identity_requests = diagnostics.get("autopilot_version_requests")
     autopilot_version = diagnostics.get("autopilot_version_identity")
+    qualification = diagnostics.get("qualification")
     if not isinstance(message_counts, Mapping):
         message_counts = {}
     if not isinstance(uncertainty, Mapping):
@@ -299,6 +319,8 @@ def build_observation_report(
         identity_requests = {}
     if not isinstance(autopilot_version, Mapping):
         autopilot_version = {}
+    if not isinstance(qualification, Mapping):
+        qualification = {}
     requested_intervals = requests.get("requested_message_intervals_us")
     if not isinstance(requested_intervals, Mapping):
         requested_intervals = {}
@@ -352,6 +374,13 @@ def build_observation_report(
     checks = {
         "runtime_mode_valid": runtime_mode in {"sim", "hil", "real"},
         "endpoint_policy": _endpoint_valid(runtime_mode, endpoint),
+        "transport_link_current": diagnostics.get("transport_link_healthy") is True,
+        "qualified_link_current": (
+            diagnostics.get("qualified_link_healthy") is True
+            and qualification.get("required") is True
+            and qualification.get("passed") is True
+            and qualification.get("reasons") in ((), [])
+        ),
         "odometry_message_count": odometry_count >= minimum_odometry_messages,
         "accepted_covariance_count": accepted_count >= minimum_accepted_covariances,
         "captured_records_valid": records_valid,
@@ -368,6 +397,11 @@ def build_observation_report(
             and identity_requests.get("response_observed") is True
             and isinstance(autopilot_version.get("identity_hash"), str)
             and _SHA256.fullmatch(str(autopilot_version.get("identity_hash"))) is not None
+        ),
+        "autopilot_version_current_session": (
+            _finite_nonnegative(diagnostics.get("autopilot_version_observed_at_s"))
+            and _finite_nonnegative(diagnostics.get("autopilot_version_age_s"))
+            and float(diagnostics["autopilot_version_age_s"]) <= duration_s + 1.0
         ),
         "telemetry_requests_only": (
             attempts > 0
