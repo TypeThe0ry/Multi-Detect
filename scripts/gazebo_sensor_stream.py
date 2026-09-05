@@ -82,6 +82,8 @@ MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
 MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 8
 QUATERNION_NORM_TOLERANCE = 1.0e-3
+CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX = 1.0e-6
+CAMERA_DISTORTION_ABSOLUTE_TOLERANCE = 1.0e-12
 
 # gz.msgs PixelFormatType values used by Gazebo Harmonic.
 GAZEBO_PIXEL_FORMAT_L_INT8 = 1
@@ -265,6 +267,105 @@ def _validate_navsat(
     if not -1_000.0 <= altitude <= 100_000.0:
         raise ValueError("altitude_m exceeds the wire safety bound [-1000, 100000]")
     return latitude, longitude, altitude
+
+
+def validate_camera_info_semantics(
+    message: Any,
+    *,
+    expected_width: int,
+    expected_height: int,
+    expected_fx_px: float,
+    expected_fy_px: float,
+    expected_cx_px: float,
+    expected_cy_px: float,
+    expected_distortion: tuple[float, float, float, float, float],
+) -> dict[str, object]:
+    """Validate Gazebo CameraInfo against the repository pinhole calibration."""
+
+    width = _uint("CameraInfo width", int(message.width), bits=32)
+    height = _uint("CameraInfo height", int(message.height), bits=32)
+    if (width, height) != (expected_width, expected_height):
+        raise ValueError("CameraInfo geometry does not match the expected calibration")
+    k = tuple(
+        _finite(f"CameraInfo K[{index}]", value)
+        for index, value in enumerate(message.intrinsics.k)
+    )
+    p = tuple(
+        _finite(f"CameraInfo P[{index}]", value)
+        for index, value in enumerate(message.projection.p)
+    )
+    r = tuple(
+        _finite(f"CameraInfo R[{index}]", value)
+        for index, value in enumerate(message.rectification_matrix)
+    )
+    distortion = tuple(
+        _finite(f"CameraInfo D[{index}]", value)
+        for index, value in enumerate(message.distortion.k)
+    )
+    if len(k) != 9 or len(p) != 12 or len(r) != 9 or len(distortion) != 5:
+        raise ValueError("CameraInfo must contain K[9], P[12], R[9], and D[5]")
+    if int(message.distortion.model) != 0:
+        raise ValueError("CameraInfo distortion model must be PLUMB_BOB")
+    expected_k = (
+        expected_fx_px, 0.0, expected_cx_px,
+        0.0, expected_fy_px, expected_cy_px,
+        0.0, 0.0, 1.0,
+    )
+    expected_p = (
+        expected_fx_px, 0.0, expected_cx_px, 0.0,
+        0.0, expected_fy_px, expected_cy_px, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+    )
+    identity = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    for name, actual, expected, tolerance in (
+        ("K", k, expected_k, CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX),
+        ("P", p, expected_p, CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX),
+        ("R", r, identity, CAMERA_DISTORTION_ABSOLUTE_TOLERANCE),
+        ("D", distortion, expected_distortion, CAMERA_DISTORTION_ABSOLUTE_TOLERANCE),
+    ):
+        if any(
+            not math.isclose(a, e, rel_tol=0.0, abs_tol=tolerance)
+            for a, e in zip(actual, expected, strict=True)
+        ):
+            raise ValueError(f"CameraInfo {name} does not match the expected calibration")
+    return {
+        "status": "validated_k_p_rectification_plumb_bob_distortion",
+        "width": width,
+        "height": height,
+        "distortion_model": "PLUMB_BOB",
+        "k": list(k),
+        "p": list(p),
+        "r": list(r),
+        "d": list(distortion),
+    }
+
+
+def _parse_expected_camera_calibration(raw: str | None) -> dict[str, object] | None:
+    if raw is None:
+        return None
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("expected camera calibration is not valid JSON") from exc
+    if not isinstance(document, dict) or set(document) != {
+        "width_px", "height_px", "fx_px", "fy_px", "cx_px", "cy_px", "distortion"
+    }:
+        raise ValueError("expected camera calibration has an invalid field set")
+    distortion = document["distortion"]
+    if not isinstance(distortion, list) or len(distortion) != 5:
+        raise ValueError("expected camera calibration distortion must contain five values")
+    return {
+        "expected_width": _uint("expected width", document["width_px"], bits=32),
+        "expected_height": _uint("expected height", document["height_px"], bits=32),
+        "expected_fx_px": _finite("expected fx", document["fx_px"]),
+        "expected_fy_px": _finite("expected fy", document["fy_px"]),
+        "expected_cx_px": _finite("expected cx", document["cx_px"]),
+        "expected_cy_px": _finite("expected cy", document["cy_px"]),
+        "expected_distortion": tuple(
+            _finite(f"expected distortion[{index}]", value)
+            for index, value in enumerate(distortion)
+        ),
+    }
 
 
 def _validate_source_skew(
@@ -906,6 +1007,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-info-topic")
     parser.add_argument("--navsat-topic")
     parser.add_argument("--odometry-topic")
+    parser.add_argument("--expected-camera-calibration-json")
     return parser
 
 
@@ -915,6 +1017,12 @@ def main() -> int:
         raise SystemExit(f"--frames must be between 1 and {MAX_FRAME_COUNT}")
     if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
         raise SystemExit("--timeout-seconds must be a positive finite number")
+    try:
+        expected_camera_calibration = _parse_expected_camera_calibration(
+            args.expected_camera_calibration_json
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     # Gazebo bindings exist only inside the pinned runtime image.
     from gz.msgs10.camera_info_pb2 import CameraInfo
@@ -962,6 +1070,7 @@ def main() -> int:
     odometry_timestamp_frame_count = 0
     last_sensor_stamp_ns: int | None = None
     first_error: str | None = None
+    camera_info_semantic_validation: dict[str, object] | None = None
 
     def fail(message: str) -> None:
         nonlocal first_error
@@ -971,12 +1080,19 @@ def main() -> int:
         error_event.set()
 
     def on_camera_info(message: CameraInfo) -> None:
+        nonlocal camera_info_semantic_validation
         try:
             stamp_ns = _stamp_ns(message)
             width = int(message.width)
             height = int(message.height)
             if width <= 0 or height <= 0 or width > MAX_DIMENSION or height > MAX_DIMENSION:
                 raise ValueError("CameraInfo contains invalid geometry")
+            semantic_validation = None
+            if expected_camera_calibration is not None:
+                semantic_validation = validate_camera_info_semantics(
+                    message,
+                    **expected_camera_calibration,
+                )
             with state_lock:
                 source_buffers["camera_info"].append(
                     {
@@ -986,6 +1102,8 @@ def main() -> int:
                     }
                 )
                 counts["camera_info"] += 1
+                if semantic_validation is not None:
+                    camera_info_semantic_validation = semantic_validation
         except Exception as exc:  # Gazebo callbacks must fail through the main thread.
             fail(f"CameraInfo rejected: {exc}")
 
@@ -1195,6 +1313,11 @@ def main() -> int:
         optional_sources=[],
         source_association_policy="nearest_source_at_or_before_image",
         camera_info_freshness_policy="session_static_geometry_bound_causal_timestamp",
+        camera_info_intrinsics_semantic_validation=(
+            "configured_fail_closed"
+            if expected_camera_calibration is not None
+            else "pending_k_p_distortion_validation"
+        ),
         maximum_dynamic_source_skew_ns=MAX_SOURCE_SKEW_NS,
         stale_dynamic_image_policy="discard_until_fresh_sources_or_bounded_timeout",
         source_callback_order="strictly_increasing_per_topic",
@@ -1251,6 +1374,7 @@ def main() -> int:
         ready_sources = sorted(name for name, buffer in source_buffers.items() if buffer.ready)
         accepted_snapshot = accepted
         odometry_timestamp_frame_count_snapshot = odometry_timestamp_frame_count
+        camera_info_semantic_validation_snapshot = camera_info_semantic_validation
     gate_passed = error is None and emitted == args.frames and accepted_snapshot == args.frames
     _diagnostic(
         "gazebo_sensor_stream_finished",
@@ -1270,6 +1394,12 @@ def main() -> int:
         source_row_order=GAZEBO_SOURCE_ROW_ORDER,
         wire_row_order=WIRE_ROW_ORDER,
         vertical_flip_applied=GAZEBO_VERTICAL_FLIP_APPLIED,
+        camera_info_intrinsics_semantic_validation=(
+            camera_info_semantic_validation_snapshot["status"]
+            if camera_info_semantic_validation_snapshot is not None
+            else "pending_k_p_distortion_validation"
+        ),
+        camera_info_semantics=camera_info_semantic_validation_snapshot,
         message_counts=count_snapshot,
         error=error,
     )

@@ -40,6 +40,7 @@ from scripts.gazebo_sensor_stream import (
     parse_wire_frame,
     read_wire_frame,
     unpack_header,
+    validate_camera_info_semantics,
 )
 from scripts.gazebo_sensor_stream import main as sensor_stream_main
 
@@ -95,6 +96,84 @@ def _gazebo_message(*, stamp_ns: int, **fields: object) -> SimpleNamespace:
         header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nsec=nsec)),
         **fields,
     )
+
+
+def _camera_info_message(**changes: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "width": 1280,
+        "height": 960,
+        "intrinsics": SimpleNamespace(
+            k=[539.93636802453, 0.0, 640.0, 0.0, 539.93636802453, 480.0, 0.0, 0.0, 1.0]
+        ),
+        "projection": SimpleNamespace(
+            p=[
+                539.93636802453, 0.0, 640.0, 0.0,
+                0.0, 539.93636802453, 480.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+            ]
+        ),
+        "rectification_matrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        "distortion": SimpleNamespace(model=0, k=[0.0] * 5),
+    }
+    values.update(changes)
+    return SimpleNamespace(**values)
+
+
+def _validate_camera_info(message: SimpleNamespace) -> dict[str, object]:
+    return validate_camera_info_semantics(
+        message,
+        expected_width=1280,
+        expected_height=960,
+        expected_fx_px=539.93636802453,
+        expected_fy_px=539.93636802453,
+        expected_cx_px=640.0,
+        expected_cy_px=480.0,
+        expected_distortion=(0.0, 0.0, 0.0, 0.0, 0.0),
+    )
+
+
+def test_camera_info_semantics_match_repository_pinhole_calibration() -> None:
+    result = _validate_camera_info(_camera_info_message())
+    assert result["status"] == "validated_k_p_rectification_plumb_bob_distortion"
+    assert result["distortion_model"] == "PLUMB_BOB"
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    (
+        ({"width": 640}, "geometry"),
+        ({"intrinsics": SimpleNamespace(k=[1.0] * 8)}, r"K\[9\]"),
+        ({"projection": SimpleNamespace(p=[1.0] * 11)}, r"P\[12\]"),
+        ({"rectification_matrix": [1.0] * 8}, r"R\[9\]"),
+        ({"distortion": SimpleNamespace(model=1, k=[0.0] * 5)}, "PLUMB_BOB"),
+        ({"distortion": SimpleNamespace(model=0, k=[0.0] * 4)}, r"D\[5\]"),
+        (
+            {
+                "intrinsics": SimpleNamespace(
+                    k=[540.0, 0.0, 640.0, 0.0, 539.93636802453, 480.0, 0.0, 0.0, 1.0]
+                )
+            },
+            "CameraInfo K",
+        ),
+        (
+            {
+                "projection": SimpleNamespace(
+                    p=[
+                        539.93636802453, 0.0, 640.0, 1.0,
+                        0.0, 539.93636802453, 480.0, 0.0,
+                        0.0, 0.0, 1.0, 0.0,
+                    ]
+                )
+            },
+            "CameraInfo P",
+        ),
+        ({"rectification_matrix": [1.0, 0.0, 0.0, 0.0, 0.9, 0.0, 0.0, 0.0, 1.0]}, "CameraInfo R"),
+        ({"distortion": SimpleNamespace(model=0, k=[0.1, 0.0, 0.0, 0.0, 0.0])}, "CameraInfo D"),
+    ),
+)
+def test_camera_info_semantics_fail_closed(change: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        _validate_camera_info(_camera_info_message(**change))
 
 
 def _run_fake_gazebo_helper(
