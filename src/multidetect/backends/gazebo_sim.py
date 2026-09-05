@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import math
 import os
 import re
@@ -27,6 +28,7 @@ from ..adaptive_ranging import assess_gps_quality
 from ..autonomy.serialization import canonical_sha256, require_int, require_real, require_sha256
 from ..clock import Clock, SystemClock
 from ..domain import VehicleTelemetry
+from ..multimodal_ranging import CameraCalibration
 from ..runtime import RuntimeCapability, RuntimeDescriptor, RuntimeMode, RuntimeProfile
 from ..simulation.runtime_input import ScenarioRuntimeInput
 from ..terrain_dem import (
@@ -61,7 +63,9 @@ GAZEBO_SIM_MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 GAZEBO_SIM_MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
 GAZEBO_SIM_QUATERNION_NORM_TOLERANCE = 1.0e-3
 GAZEBO_SIM_TERRAIN_AGL_REFERENCE = "GAZEBO_NAVSAT_MSL_MINUS_SCENARIO_DEM_MSL"
-GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION = "pending_k_p_distortion_validation"
+GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION = (
+    "validated_k_p_rectification_plumb_bob_distortion"
+)
 GAZEBO_SIM_SOURCE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_WIRE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_VERTICAL_FLIP_APPLIED = False
@@ -686,6 +690,7 @@ class GazeboSimFrameSource:
         odometry_topic: str,
         sensor_id: str,
         calibration_id: str,
+        camera_calibration: CameraCalibration,
         stream_uri: str,
         topic_binding_sha256: str,
         sensor_binding_sha256: str,
@@ -711,6 +716,16 @@ class GazeboSimFrameSource:
             raise ValueError("Gazebo SIM helper topics do not match the bound world/model_instance")
         self.sensor_id = sensor_id
         self.calibration_id = calibration_id
+        if not isinstance(camera_calibration, CameraCalibration):
+            raise TypeError("camera_calibration must be a CameraCalibration")
+        if camera_calibration.calibration_id != calibration_id:
+            raise ValueError("camera calibration ID does not match the scenario sensor")
+        if (camera_calibration.width_px, camera_calibration.height_px) != (
+            expected_width,
+            expected_height,
+        ):
+            raise ValueError("camera calibration geometry does not match the wire geometry")
+        self.camera_calibration = camera_calibration
         self.stream_uri = stream_uri
         self.image_topic = image_topic
         self.camera_info_topic = camera_info_topic
@@ -748,6 +763,26 @@ class GazeboSimFrameSource:
             navsat_topic,
             "--odometry-topic",
             odometry_topic,
+            "--expected-camera-calibration-json",
+            json.dumps(
+                {
+                    "width_px": camera_calibration.width_px,
+                    "height_px": camera_calibration.height_px,
+                    "fx_px": camera_calibration.fx_px,
+                    "fy_px": camera_calibration.fy_px,
+                    "cx_px": camera_calibration.cx_px,
+                    "cy_px": camera_calibration.cy_px,
+                    "distortion": [
+                        camera_calibration.k1,
+                        camera_calibration.k2,
+                        camera_calibration.p1,
+                        camera_calibration.p2,
+                        camera_calibration.k3,
+                    ],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
         )
         self._popen_factory = popen_factory
         self._process: subprocess.Popen[bytes] | None = None
@@ -1004,6 +1039,7 @@ class GazeboSimBackend:
         self,
         *,
         scenario_input: ScenarioRuntimeInput,
+        camera_calibration: CameraCalibration,
         docker_executable: str | Path,
         container_name: str,
         frame_count: int,
@@ -1028,6 +1064,8 @@ class GazeboSimBackend:
     ) -> None:
         if not isinstance(scenario_input, ScenarioRuntimeInput):
             raise TypeError("scenario_input must be ScenarioRuntimeInput")
+        if not isinstance(camera_calibration, CameraCalibration):
+            raise TypeError("camera_calibration must be a CameraCalibration")
         rgb_sensors = tuple(
             sensor for sensor in scenario_input.sensors if sensor.kind == "rgb_camera"
         )
@@ -1038,6 +1076,13 @@ class GazeboSimBackend:
             raise ValueError("Gazebo SIM RGB camera sensor_id must be 'front-camera'")
         if rgb_sensor.calibration_id is None:
             raise ValueError("Gazebo SIM RGB camera must bind a calibration_id")
+        if camera_calibration.calibration_id != rgb_sensor.calibration_id:
+            raise ValueError("camera calibration ID does not match the scenario RGB sensor")
+        if (camera_calibration.width_px, camera_calibration.height_px) != (
+            expected_width,
+            expected_height,
+        ):
+            raise ValueError("camera calibration geometry does not match Gazebo wire geometry")
         expected_stream_uri = f"gazebo://{scenario_input.scenario_id}/{rgb_sensor.sensor_id}"
         if rgb_sensor.stream_uri != expected_stream_uri:
             raise ValueError(
@@ -1066,8 +1111,7 @@ class GazeboSimBackend:
             "source_row_order": GAZEBO_SIM_SOURCE_ROW_ORDER,
             "wire_row_order": GAZEBO_SIM_WIRE_ROW_ORDER,
             "vertical_flip_applied": GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
-            # The helper currently validates synchronized CameraInfo geometry.
-            # Semantic validation of K/P/distortion remains a separate pending gate.
+            "camera_calibration_sha256": canonical_sha256(asdict(camera_calibration)),
             "camera_info_intrinsics_semantic_validation": (
                 GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
             ),
@@ -1182,6 +1226,7 @@ class GazeboSimBackend:
             odometry_topic=topics[3],
             sensor_id=rgb_sensor.sensor_id,
             calibration_id=rgb_sensor.calibration_id,
+            camera_calibration=camera_calibration,
             stream_uri=rgb_sensor.stream_uri,
             topic_binding_sha256=self.topic_binding_hash,
             sensor_binding_sha256=self.sensor_binding_hash,

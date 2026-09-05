@@ -55,7 +55,7 @@ from multidetect.backends.gazebo_sim import (
     gazebo_sim_ned_frd_kinematics,
     reconstruct_gazebo_sim_wire_frame,
 )
-from multidetect.multimodal_ranging import load_camera_calibration
+from multidetect.multimodal_ranging import CameraCalibration, load_camera_calibration
 from multidetect.product_version import PRODUCT_VERSION
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario
@@ -734,6 +734,7 @@ def _capture_gazebo_sensor_transport(
         expected_width=expected_width,
         expected_height=expected_height,
     )
+    camera_calibration_profile = CameraCalibration(**camera_calibration["calibration"])
     terrain_dem_provenance = _terrain_dem_provenance(
         plan=plan,
         terrain_dem=terrain_dem,
@@ -757,6 +758,7 @@ def _capture_gazebo_sensor_transport(
     )
     backend = GazeboSimBackend(
         scenario_input=scenario_input,
+        camera_calibration=camera_calibration_profile,
         docker_executable=Path(docker_executable).resolve(),
         container_name=plan.container_name,
         frame_count=frame_count,

@@ -3004,6 +3004,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--model-assets-sha256", $modelAssetsHash,
         "--airframe-profile-sha256", $airframeProfileHash,
         "--terrain-dem", $TerrainDem,
+        "--camera-info-calibration", (Join-Path $Root "simulation\gazebo\calibration\gazebo-front-camera-v1.json"),
         "--stream-script", "/workspace/scripts/gazebo_sensor_stream.py",
         "--model-instance", "standard_vtol_mono_cam_0", "--gazebo-world", "default",
         "--frame-count", "$Frames", "--stream-timeout-seconds", "$SensorStreamTimeoutSeconds",

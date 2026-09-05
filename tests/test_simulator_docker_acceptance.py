@@ -509,11 +509,11 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
         "_camera_calibration_provenance",
         lambda **_kwargs: {
             "schema_version": 1,
-            "calibration_id": "gazebo-multirotor-front-camera-v1",
+            "calibration_id": "gazebo-front-camera-v1",
             "repository_path": "simulation/gazebo/calibration/test.json",
             "file_sha256": "e" * 64,
             "calibration": {
-                "calibration_id": "gazebo-multirotor-front-camera-v1",
+                "calibration_id": "gazebo-front-camera-v1",
                 "width_px": 2,
                 "height_px": 1,
                 "fx_px": 1.0,

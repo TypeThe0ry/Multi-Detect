@@ -181,6 +181,7 @@ def _run_fake_gazebo_helper(
     *,
     odometry_behavior: str,
     topics: tuple[str, str, str, str] | None = None,
+    validate_camera_info: bool = False,
 ) -> tuple[int, bytes, list[dict[str, object]]]:
     class CameraInfo:
         pass
@@ -212,6 +213,14 @@ def _run_fake_gazebo_helper(
                         ),
                         width=2,
                         height=1,
+                        intrinsics=SimpleNamespace(
+                            k=[1.0, 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0]
+                        ),
+                        projection=SimpleNamespace(
+                            p=[1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0]
+                        ),
+                        rectification_matrix=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                        distortion=SimpleNamespace(model=0, k=[0.0] * 5),
                     )
                 )
                 if odometry_behavior == "causal_history":
@@ -449,6 +458,23 @@ def _run_fake_gazebo_helper(
     monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(sys, "stderr", stderr)
     argv = ["gazebo_sensor_stream.py", "--frames", "1", "--timeout-seconds", "0.5"]
+    if validate_camera_info:
+        argv.extend(
+            (
+                "--expected-camera-calibration-json",
+                json.dumps(
+                    {
+                        "width_px": 2,
+                        "height_px": 1,
+                        "fx_px": 1.0,
+                        "fy_px": 1.0,
+                        "cx_px": 1.0,
+                        "cy_px": 0.5,
+                        "distortion": [0.0] * 5,
+                    }
+                ),
+            )
+        )
     if topics is not None:
         argv.extend(
             (
@@ -466,6 +492,25 @@ def _run_fake_gazebo_helper(
     exit_code = sensor_stream_main()
     diagnostics = [json.loads(line) for line in stderr.getvalue().splitlines() if line]
     return exit_code, stdout.buffer.getvalue(), diagnostics
+
+
+def test_helper_enforces_configured_camera_info_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A complete helper run may claim semantic validation only after the live
+    # CameraInfo callback matches the host-bound repository calibration.
+    exit_code, _blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="valid",
+        validate_camera_info=True,
+    )
+    assert exit_code == 0
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    assert finished["camera_info_intrinsics_semantic_validation"] == (
+        "validated_k_p_rectification_plumb_bob_distortion"
+    )
 
 
 def test_normalize_rgb_to_packed_bgr24_with_step_padding() -> None:

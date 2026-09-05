@@ -1936,6 +1936,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="scenario-matched MSL DEM used to derive AGL; local odometry up is never AGL",
     )
     integrated_sim_qgc.add_argument(
+        "--camera-info-calibration",
+        type=Path,
+        required=True,
+        help="repository camera calibration enforced against Gazebo CameraInfo K/P/R/D",
+    )
+    integrated_sim_qgc.add_argument(
         "--ranging-calibration",
         type=Path,
         help=(
@@ -5295,6 +5301,9 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
     config = MissionConfig.from_json(args.config)
     runtime_input = load_runtime_scenario(args.scenario_manifest, mode=RuntimeMode.SIM)
     terrain_dem = load_local_dem_grid(args.terrain_dem.resolve(strict=True))
+    camera_info_calibration = load_camera_calibration(
+        args.camera_info_calibration.resolve(strict=True)
+    )
     (
         ranging_engine,
         ranging_config,
@@ -5315,6 +5324,7 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
     perception_args.unified_target_pool = True
     backend = GazeboSimBackend(
         scenario_input=runtime_input,
+        camera_calibration=camera_info_calibration,
         docker_executable=args.docker_executable.resolve(strict=True),
         container_name=args.container_name,
         frame_count=args.frame_count,

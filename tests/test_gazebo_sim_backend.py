@@ -5,7 +5,7 @@ import io
 import math
 import sys
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, asdict, replace
 from pathlib import Path
 
 import pytest
@@ -28,6 +28,7 @@ from multidetect.backends.gazebo_sim import (
     read_gazebo_sim_wire_frame,
     reconstruct_gazebo_sim_wire_frame,
 )
+from multidetect.multimodal_ranging import CameraCalibration
 from multidetect.runtime import RuntimeMode, RuntimeProfile
 from multidetect.simulation import SensorRuntimeInput, load_runtime_scenario
 from multidetect.terrain_dem import load_local_dem_grid
@@ -37,6 +38,20 @@ ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
 TERRAIN_DEM = ROOT / "simulation/terrain/river_rescue_vtol_001.dem.json"
 URBAN_TERRAIN_DEM = ROOT / "simulation/terrain/urban_inspection_multirotor_001.dem.json"
+
+
+def _camera_calibration(
+    calibration_id: str = "gazebo-front-camera-v1",
+) -> CameraCalibration:
+    return CameraCalibration(
+        calibration_id=calibration_id,
+        width_px=2,
+        height_px=1,
+        fx_px=1.0,
+        fy_px=1.0,
+        cx_px=1.0,
+        cy_px=0.5,
+    )
 
 
 def _wire_frame(
@@ -203,6 +218,7 @@ def test_gazebo_frame_source_preserves_helper_stderr_after_eof_exit() -> None:
     )
     backend = GazeboSimBackend(
         scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(),
         docker_executable=Path(sys.executable).resolve(),
         container_name="owned-gazebo-sim",
         frame_count=1,
@@ -682,8 +698,9 @@ def test_gazebo_agl_fails_closed_without_dem_or_qualified_gps(
 def test_gazebo_backend_rejects_terrain_dem_from_another_scenario() -> None:
     runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
     with pytest.raises(ValueError, match="terrain_dem scenario_id"):
-        GazeboSimBackend(
-            scenario_input=runtime_input,
+            GazeboSimBackend(
+                scenario_input=runtime_input,
+                camera_calibration=_camera_calibration(),
             docker_executable=Path(sys.executable).resolve(),
             container_name="owned-gazebo-sim",
             frame_count=1,
@@ -747,8 +764,9 @@ def test_gazebo_backend_fails_closed_on_invalid_scenario_rgb_binding(
     invalid_input = replace(runtime_input, sensors=mutate_sensors(runtime_input.sensors))
 
     with pytest.raises(ValueError, match=message):
-        GazeboSimBackend(
-            scenario_input=invalid_input,
+            GazeboSimBackend(
+                scenario_input=invalid_input,
+                camera_calibration=_camera_calibration(),
             docker_executable=Path(sys.executable).resolve(),
             container_name="owned-gazebo-sim",
             frame_count=1,
@@ -782,12 +800,14 @@ def test_gazebo_sensor_binding_hash_covers_camera_calibration_and_exact_topics()
         "model_assets_sha256": "d" * 64,
         "expected_width": 2,
         "expected_height": 1,
+        "camera_calibration": _camera_calibration(),
     }
 
     baseline = GazeboSimBackend(scenario_input=runtime_input, **common)
     alternate_calibration = GazeboSimBackend(
         scenario_input=alternate_calibration_input,
-        **common,
+        camera_calibration=_camera_calibration("alternate-front-camera-v1"),
+        **{key: value for key, value in common.items() if key != "camera_calibration"},
     )
     alternate_topics = GazeboSimBackend(
         scenario_input=runtime_input,
@@ -839,6 +859,7 @@ def test_gazebo_sensor_binding_supports_every_checked_in_rgb_scenario(
 
     backend = GazeboSimBackend(
         scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(calibration_id),
         docker_executable=Path(sys.executable).resolve(),
         container_name="owned-gazebo-sim",
         frame_count=1,
@@ -881,6 +902,7 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
     process = _FakeProcess(stream)
     backend = GazeboSimBackend(
         scenario_input=runtime_input,
+        camera_calibration=_camera_calibration(),
         docker_executable=Path(sys.executable).resolve(),
         container_name="owned-gazebo-sim",
         frame_count=2,
@@ -924,6 +946,7 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
         "sensor_id": "front-camera",
         "kind": "rgb_camera",
         "calibration_id": "gazebo-front-camera-v1",
+        "camera_calibration_sha256": canonical_sha256(asdict(_camera_calibration())),
         "stream_uri": "gazebo://river_rescue_vtol_001/front-camera",
         "topic_binding": expected_topics,
         "topic_binding_sha256": expected_topic_hash,

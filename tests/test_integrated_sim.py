@@ -13,7 +13,11 @@ from multidetect.config import MissionConfig
 from multidetect.integrated_sim import IntegratedSimIdentity, build_integrated_sim_session
 from multidetect.live import LiveRangingConfig
 from multidetect.mission import MissionController
-from multidetect.multimodal_ranging import MultiModalRangingEngine, load_camera_calibration
+from multidetect.multimodal_ranging import (
+    CameraCalibration,
+    MultiModalRangingEngine,
+    load_camera_calibration,
+)
 from multidetect.operator_link import RuntimeBackendHealth
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario
@@ -97,6 +101,15 @@ def _backend(process: _Process, *, frame_count: int = 2) -> GazeboSimBackend:
     terrain_dem = TERRAIN_GRID
     return GazeboSimBackend(
         scenario_input=runtime_input,
+        camera_calibration=CameraCalibration(
+            calibration_id="gazebo-front-camera-v1",
+            width_px=2,
+            height_px=1,
+            fx_px=1.0,
+            fy_px=1.0,
+            cx_px=1.0,
+            cy_px=0.5,
+        ),
         docker_executable=Path(sys.executable).resolve(),
         container_name="owned-integrated-sim",
         frame_count=frame_count,
