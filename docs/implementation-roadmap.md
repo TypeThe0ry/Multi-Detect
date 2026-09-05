@@ -2,13 +2,14 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 三机型 PX4 动态响应与 E7 绑定收口（v62）
+## 当前 pre.8 三机型 PX4 动态响应与故障 campaign 收口（v63）
 
 - [x] fixed-wing/multirotor/VTOL 使用同一 AI→MAVLink `MANUAL_CONTROL` 路径驱动 external PX4/Gazebo；
 - [x] 只从 `GLOBAL_POSITION_INT` 验证实际位移，禁止 Gazebo truth consumption 和 pose injection；
 - [x] source-bound 三机型矩阵、独立 verifier、JSON Schema、E7 writer/evaluator/CLI/wrapper 接线完成；
-- [x] 当前 parity、external join 和 report-only E7 均按 v62 源码重新生成；
-- [ ] 增加多次重复运行和故障注入的三机型动态响应分布门；
+- [x] 当前 parity、external join 和 report-only E7 均按 v63 源码重新生成；
+- [x] 每机型两次正常响应与三种显式故障均完成外部运行，source-bound campaign、独立 verifier、
+  JSON Schema 和 E7 子门通过；
 - [ ] 完成 operator visual、部署域模型、现场链路、HIL/REAL 与真实三机型硬件反馈。
 
 ## v61 户外定位/SIM/QGC 动态机器捕获收口
@@ -83,8 +84,8 @@
   gate 或复用旧 evidence 冒充完成。
 - [ ] 基于 v61 已通过的 exact PID/HWND 机器图，由操作者人工复核 evidence card/地图点/1σ 圆/复制/快照
   并签字；通过正式 E7 schema/manifest 评审后再接入发布门。机器截图本身不冒充人工签字。
-- [ ] 生成 fixed-wing 与 VTOL 对等动态 response evidence；只有明确纳入发布门并重跑 E7 wrapper 后，
-  才能更新三机型 external source 或 blocker 数。
+- [x] fixed-wing 与 VTOL 对等动态 response evidence 已与 multirotor 一并纳入 source-bound matrix 和
+  repeatability/fault campaign，并已重跑当前 E7 wrapper；该 SIM 子门不改变硬件或实飞 blocker。
 - [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。
 
 ## Phase 1: software-only mission loop
