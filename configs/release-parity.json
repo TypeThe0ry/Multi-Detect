@@ -1,7 +1,7 @@
 {
   "parity": {
     "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
-    "px4_mission_path_hash": "7d18dfa5e8ac2848d15fd80cd024ac9bbaac6562a4c0df0829386c5684b5f514",
+    "px4_mission_path_hash": "6b1c9b223a54f5adbfe95bd119e7360d0deabf37dc046e76e1eab2ffe9af43d8",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
     "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
@@ -35,6 +35,7 @@
     "px4_mission_path": [
       "configs/schemas/autonomy-executable-mission.schema.json",
       "configs/schemas/autonomy-mission-compile-runtime.schema.json",
+      "configs/schemas/pixhawk-odometry-covariance-observation.schema.json",
       "configs/schemas/px4-mission-feedback-observation-v2.schema.json",
       "configs/schemas/px4-mission-feedback-observation.schema.json",
       "configs/schemas/px4-mission-feedback.schema.json",

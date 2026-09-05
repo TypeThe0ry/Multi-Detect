@@ -185,6 +185,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/state_machine.py",
     ),
     "px4_mission_path": (
+        "configs/schemas/pixhawk-odometry-covariance-observation.schema.json",
         "configs/schemas/autonomy-executable-mission.schema.json",
         "configs/schemas/autonomy-mission-compile-runtime.schema.json",
         "configs/schemas/px4-mission-feedback.schema.json",

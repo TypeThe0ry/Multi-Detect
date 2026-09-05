@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Capture source-bound MAVLink ODOMETRY attitude covariance evidence.
 
-The tool may transmit only MAV_CMD_SET_MESSAGE_INTERVAL requests on the selected
-companion link.  It never sends a flight-mode, mission, parameter-write, or
-actuator command.  SIM/HIL/REAL use the same Pixhawk telemetry provider and the
-same report contract; the selected runtime mode changes claims, not parsing.
+The tool may transmit only MAV_CMD_SET_MESSAGE_INTERVAL and bounded
+MAV_CMD_REQUEST_MESSAGE(AUTOPILOT_VERSION) requests on the selected companion
+link.  It never sends a flight-mode, mission, parameter-write, or actuator
+command.  SIM/HIL/REAL use the same Pixhawk telemetry provider and the same
+report contract; the selected runtime mode changes claims, not parsing.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
+from jsonschema import Draft202012Validator, FormatChecker
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -37,7 +40,9 @@ from multidetect.px4_mission_feedback_cli import (  # noqa: E402
     load_px4_mission_feedback_observation,
 )
 
-SCHEMA = "multidetect.pixhawk-odometry-covariance-observation/v2"
+SCHEMA = "multidetect.pixhawk-odometry-covariance-observation/v3"
+SCHEMA_VERSION = 3
+SCHEMA_PATH = ROOT / "configs" / "schemas" / "pixhawk-odometry-covariance-observation.schema.json"
 UNCERTAINTY_SOURCE = "mavlink_odometry_pose_covariance_local_ned_with_configured_floor"
 _LOCAL_UDP = re.compile(r"udpin:(?:0\.0\.0\.0|127\.0\.0\.1):(\d{1,5})")
 _UDP_ENDPOINT = re.compile(r"(?:udp|udpin|udpout):[^:]*:(\d{1,5})")
@@ -105,6 +110,150 @@ def _finite_nonnegative(value: object) -> bool:
         and math.isfinite(float(value))
         and float(value) >= 0.0
     )
+
+
+def _selected(raw: object, fields: Sequence[str]) -> dict[str, object]:
+    source = raw if isinstance(raw, Mapping) else {}
+    return {field: source.get(field) for field in fields}
+
+
+def _mapping_copy(raw: object) -> dict[str, object]:
+    return dict(raw) if isinstance(raw, Mapping) else {}
+
+
+def _sequence_copy(raw: object) -> list[object]:
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        return list(raw)
+    return []
+
+
+def _evidence_diagnostics(diagnostics: Mapping[str, object]) -> dict[str, object]:
+    """Return the closed, evidence-relevant subset of provider diagnostics."""
+
+    uncertainty = _selected(
+        diagnostics.get("attitude_uncertainty"),
+        (
+            "source",
+            "roll_sigma_deg",
+            "pitch_sigma_deg",
+            "heading_sigma_deg",
+            "observed_at_s",
+            "age_s",
+            "fresh",
+            "associated_with_attitude",
+            "maximum_attitude_association_s",
+            "raw_angular_covariance_rad2",
+            "configured_floor_deg",
+            "reset_counter",
+            "child_frame_id",
+            "accepted_count",
+            "rejections",
+        ),
+    )
+    uncertainty["configured_floor_deg"] = _selected(
+        uncertainty.get("configured_floor_deg"), ("roll", "pitch", "heading")
+    )
+    uncertainty["raw_angular_covariance_rad2"] = _sequence_copy(
+        uncertainty.get("raw_angular_covariance_rad2")
+    )
+    uncertainty["rejections"] = _mapping_copy(uncertainty.get("rejections"))
+
+    ranging_requests = _selected(
+        diagnostics.get("ranging_stream_requests"),
+        ("attempts", "last_request_age_s", "requested_message_intervals_us"),
+    )
+    ranging_requests["requested_message_intervals_us"] = _mapping_copy(
+        ranging_requests.get("requested_message_intervals_us")
+    )
+    qualification = _selected(diagnostics.get("qualification"), ("required", "passed", "reasons"))
+    qualification["reasons"] = _sequence_copy(qualification.get("reasons"))
+    return {
+        "configured_endpoint": diagnostics.get("configured_endpoint"),
+        "resolved_endpoint": diagnostics.get("resolved_endpoint"),
+        "read_only": diagnostics.get("read_only"),
+        "hardware_control_enabled": diagnostics.get("hardware_control_enabled"),
+        "messages_transmitted": diagnostics.get("messages_transmitted"),
+        "message_type_counts": _mapping_copy(diagnostics.get("message_type_counts")),
+        "transport_link_healthy": diagnostics.get("transport_link_healthy"),
+        "qualified_link_healthy": diagnostics.get("qualified_link_healthy"),
+        "qualification": qualification,
+        "attitude_uncertainty": uncertainty,
+        "ranging_stream_requests": ranging_requests,
+        "autopilot_version_requests": _selected(
+            diagnostics.get("autopilot_version_requests"),
+            (
+                "enabled",
+                "attempts",
+                "last_request_age_s",
+                "command_id",
+                "message_id",
+                "response_observed",
+            ),
+        ),
+        "heartbeat_identity": _selected(
+            diagnostics.get("heartbeat_identity"),
+            (
+                "source_system_id",
+                "source_component_id",
+                "autopilot_id",
+                "autopilot_name",
+                "vehicle_type_id",
+                "vehicle_type_name",
+                "system_status_id",
+                "system_status_name",
+                "mavlink_version",
+            ),
+        ),
+        "autopilot_version_identity": _selected(
+            diagnostics.get("autopilot_version_identity"),
+            (
+                "schema_version",
+                "source_system_id",
+                "source_component_id",
+                "capabilities",
+                "flight_sw_version",
+                "middleware_sw_version",
+                "os_sw_version",
+                "board_version",
+                "flight_custom_version_hex",
+                "middleware_custom_version_hex",
+                "os_custom_version_hex",
+                "vendor_id",
+                "product_id",
+                "device_uid_source",
+                "device_uid_hash",
+                "capabilities_hex",
+                "flight_sw_version_text",
+                "flight_sw_version_type",
+                "middleware_sw_version_text",
+                "middleware_sw_version_type",
+                "os_sw_version_text",
+                "os_sw_version_type",
+                "raw_device_uid_serialized",
+                "identity_hash",
+            ),
+        ),
+        "autopilot_version_observed_at_s": diagnostics.get("autopilot_version_observed_at_s"),
+        "autopilot_version_age_s": diagnostics.get("autopilot_version_age_s"),
+    }
+
+
+def _validate_observation_schema(document: Mapping[str, object]) -> None:
+    try:
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(schema)
+        errors = sorted(
+            Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(document),
+            key=lambda error: tuple(str(part) for part in error.absolute_path),
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ObservationEvidenceError(f"cannot load observation schema: {exc}") from exc
+    if errors:
+        first = errors[0]
+        location = ".".join(str(part) for part in first.absolute_path) or "<root>"
+        raise ObservationEvidenceError(
+            f"observation schema violation at {location}: {first.message}"
+        )
 
 
 def _endpoint_valid(runtime_mode: str, endpoint: str) -> bool:
@@ -303,6 +452,7 @@ def build_observation_report(
     baud: int = 57_600,
     mode_binding: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    diagnostics = _evidence_diagnostics(diagnostics)
     message_counts = diagnostics.get("message_type_counts")
     uncertainty = diagnostics.get("attitude_uncertainty")
     requests = diagnostics.get("ranging_stream_requests")
@@ -423,7 +573,7 @@ def build_observation_report(
     provider_path = ROOT / "src" / "multidetect" / "pixhawk.py"
     without_hash: dict[str, object] = {
         "schema": SCHEMA,
-        "schema_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "release_status": "0.3.0-pre.8",
         "runtime_mode": runtime_mode,
         "endpoint": endpoint,
@@ -441,6 +591,8 @@ def build_observation_report(
         "mode_binding": None if mode_binding is None else dict(mode_binding),
         "checks": checks,
         "source_binding": {
+            "observation_schema": str(SCHEMA_PATH.relative_to(ROOT)).replace("\\", "/"),
+            "observation_schema_sha256": _sha256(SCHEMA_PATH),
             "capture_script": str(source_path.relative_to(ROOT)).replace("\\", "/"),
             "capture_script_sha256": _sha256(source_path),
             "provider": str(provider_path.relative_to(ROOT)).replace("\\", "/"),
@@ -468,6 +620,7 @@ def build_observation_report(
         "gate_passed": all(checks.values()),
     }
     without_hash["evidence_sha256"] = canonical_sha256(without_hash)
+    _validate_observation_schema(without_hash)
     return without_hash
 
 
@@ -496,7 +649,8 @@ def verify_observation_report(document: Mapping[str, object]) -> dict[str, objec
     rebuilt from the stored raw records and diagnostics before exact comparison.
     """
 
-    if document.get("schema") != SCHEMA or document.get("schema_version") != 2:
+    _validate_observation_schema(document)
+    if document.get("schema") != SCHEMA or document.get("schema_version") != SCHEMA_VERSION:
         raise ObservationEvidenceError("unsupported evidence schema")
     stored_hash = document.get("evidence_sha256")
     if not isinstance(stored_hash, str):

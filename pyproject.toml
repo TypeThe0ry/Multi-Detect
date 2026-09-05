@@ -20,7 +20,7 @@ vision-gpu = [
   "opencv-contrib-python>=4.10",
   "onnxruntime-gpu==1.22.0",
 ]
-pixhawk = ["pymavlink>=2.4", "pyserial>=3.5"]
+pixhawk = ["pymavlink>=2.4", "pyserial>=3.5", "jsonschema>=4.20"]
 security = ["PyNaCl>=1.5"]
 jetson = ["cuda-python==12.2.1"]
 model-tools = ["onnx>=1.16,<2"]

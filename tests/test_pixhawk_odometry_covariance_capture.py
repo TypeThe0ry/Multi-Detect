@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from multidetect.autonomy.serialization import canonical_sha256
 from scripts import capture_pixhawk_odometry_covariance as module
@@ -198,6 +200,80 @@ def test_observation_report_verifier_rejects_digest_tampering() -> None:
         module.verify_observation_report(report)
 
 
+def test_observation_schema_is_draft_2020_closed_and_accepts_report() -> None:
+    schema = json.loads(module.SCHEMA_PATH.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    report = _report(_diagnostics())
+
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["final_diagnostics"]["$ref"] == "#/$defs/diagnostics"
+    assert schema["$defs"]["diagnostics"]["additionalProperties"] is False
+    assert schema["$defs"]["attitude_uncertainty"]["additionalProperties"] is False
+    assert schema["$defs"]["mode_binding"]["additionalProperties"] is False
+    assert list(Draft202012Validator(schema).iter_errors(report)) == []
+
+
+def test_observation_report_stores_only_closed_evidence_diagnostics() -> None:
+    diagnostics = _diagnostics()
+    diagnostics["motion"] = {"armed": True}
+    diagnostics["unrelated_internal_counter"] = 99
+    diagnostics["attitude_uncertainty"]["unrelated_internal_field"] = "discarded"
+    diagnostics["qualification"]["reasons"] = ()
+
+    report = _report(diagnostics)
+
+    assert "motion" not in report["final_diagnostics"]
+    assert "unrelated_internal_counter" not in report["final_diagnostics"]
+    assert "unrelated_internal_field" not in report["final_diagnostics"]["attitude_uncertainty"]
+    assert report["final_diagnostics"]["qualification"]["reasons"] == []
+
+
+def test_failed_observation_without_covariance_remains_schema_valid() -> None:
+    diagnostics = _diagnostics()
+    diagnostics["attitude_uncertainty"] = None
+
+    report = module.build_observation_report(
+        runtime_mode="sim",
+        endpoint="udpin:0.0.0.0:14801",
+        started_at_utc="2026-09-06T00:00:00Z",
+        finished_at_utc="2026-09-06T00:00:10Z",
+        duration_s=10.0,
+        samples_requested=100,
+        records=[],
+        diagnostics=diagnostics,
+        minimum_odometry_messages=20,
+        minimum_accepted_covariances=10,
+    )
+
+    assert report["gate_passed"] is False
+    assert report["checks"]["captured_records_valid"] is False
+    assert report["final_diagnostics"]["attitude_uncertainty"]["raw_angular_covariance_rad2"] == []
+    assert module.verify_observation_report(report)["gate_passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("mutate", "location"),
+    [
+        (lambda report: report.update({"unexpected": True}), "<root>"),
+        (lambda report: report["final_diagnostics"].update({"unexpected": 1}), "final_diagnostics"),
+        (lambda report: report["checks"].pop("transport_link_current"), "checks"),
+        (lambda report: report.update({"duration_s": "ten"}), "duration_s"),
+    ],
+)
+def test_observation_verifier_rejects_schema_drift_before_digest_rebuild(
+    mutate: object,
+    location: str,
+) -> None:
+    report = _report(_diagnostics())
+    mutate(report)  # type: ignore[operator]
+    report["evidence_sha256"] = canonical_sha256(
+        {key: value for key, value in report.items() if key != "evidence_sha256"}
+    )
+
+    with pytest.raises(module.ObservationEvidenceError, match=location):
+        module.verify_observation_report(report)
+
+
 def _install_mode_binding_fixtures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -212,8 +288,8 @@ def _install_mode_binding_fixtures(
     profile_path.write_text("{}\n", encoding="utf-8")
     mission = SimpleNamespace(
         mission_id="mission-v83",
-        canonical_hash="mission-sha256",
-        airframe_profile_hash="airframe-sha256",
+        canonical_hash="b" * 64,
+        airframe_profile_hash="c" * 64,
     )
     feedback = {
         "schema_version": 2,
@@ -236,13 +312,13 @@ def _install_mode_binding_fixtures(
                 "mavlink_version": 3,
             },
             "observed_identity": {"firmware_identity_hash": "a" * 64},
-            "binding_sha256": "feedback-binding-sha256",
-            "profile_document_sha256": "profile-document-sha256",
-            "profile_sha256": "profile-sha256",
+            "binding_sha256": "d" * 64,
+            "profile_document_sha256": "e" * 64,
+            "profile_sha256": "f" * 64,
             "profile": {"profile_id": f"{runtime_mode}-profile"},
             "key_id": "operator-key",
         },
-        "evidence_sha256": "feedback-evidence-sha256",
+        "evidence_sha256": "1" * 64,
     }
     monkeypatch.setattr(module, "load_executable_mission_document", lambda path: mission)
 
