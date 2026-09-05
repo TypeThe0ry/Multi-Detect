@@ -1029,6 +1029,9 @@ def test_exact_qgc_pid_hwnd_capture_reads_only_the_owned_client_rectangle() -> N
     assert "$foregroundBeforeClick -eq $window.Handle" in text
     assert "$foregroundOwnerBeforeClick -eq $Process.Id" in text
     assert "$cursorBeforeClick.X -eq $screenPoint.X" in text
+    assert "for ($pointerAttempt = 1; $pointerAttempt -le 8; $pointerAttempt++)" in text
+    assert "pointer_position_attempts = $pointerAttempt" in text
+    assert "after $pointerAttempt bounded attempts" in text
     assert "QgcOriginalTopmost" in text
     assert "SendLeftClick()" in text
     assert "SendInput((uint)inputs.Length" in text

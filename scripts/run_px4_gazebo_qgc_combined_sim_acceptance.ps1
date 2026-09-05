@@ -2450,19 +2450,32 @@ function Invoke-QgcNativePipSwap {
     Assert-True ([MultiDetectWindow.Native]::GetCursorPos([ref]$previousCursor)) "Unable to preserve the current pointer position."
     $previousForeground = Set-QgcWindowCaptureForeground -Window $window
     try {
-        Assert-True ([MultiDetectWindow.Native]::SetCursorPos($screenPoint.X, $screenPoint.Y)) "Unable to move the pointer to the native QGC PiP."
-        Start-Sleep -Milliseconds 120
-        $hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($screenPoint)
-        [uint32]$hitOwner = 0
-        $null = [MultiDetectWindow.Native]::GetWindowThreadProcessId($hitWindow, [ref]$hitOwner)
-        Assert-True ($hitOwner -eq $Process.Id) "Native PiP pointer coordinate is not owned by the exact QGC process."
-        $foregroundBeforeClick = [MultiDetectWindow.Native]::GetForegroundWindow()
-        [uint32]$foregroundOwnerBeforeClick = 0
-        $null = [MultiDetectWindow.Native]::GetWindowThreadProcessId($foregroundBeforeClick, [ref]$foregroundOwnerBeforeClick)
-        Assert-True ($foregroundBeforeClick -eq $window.Handle -and $foregroundOwnerBeforeClick -eq $Process.Id) "Exact QGC HWND/PID lost foreground before native PiP click."
+        $pointerReady = $false
+        $pointerAttempt = 0
         [MultiDetectWindow.Native+POINT]$cursorBeforeClick = New-Object MultiDetectWindow.Native+POINT
-        Assert-True ([MultiDetectWindow.Native]::GetCursorPos([ref]$cursorBeforeClick)) "Unable to verify the native PiP pointer position."
-        Assert-True ($cursorBeforeClick.X -eq $screenPoint.X -and $cursorBeforeClick.Y -eq $screenPoint.Y) "Native pointer did not reach the exact QGC PiP coordinate."
+        for ($pointerAttempt = 1; $pointerAttempt -le 8; $pointerAttempt++) {
+            Assert-True ([MultiDetectWindow.Native]::SetCursorPos($screenPoint.X, $screenPoint.Y)) "Unable to move the pointer to the native QGC PiP."
+            Start-Sleep -Milliseconds 75
+            $hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($screenPoint)
+            [uint32]$hitOwner = 0
+            $null = [MultiDetectWindow.Native]::GetWindowThreadProcessId($hitWindow, [ref]$hitOwner)
+            $foregroundBeforeClick = [MultiDetectWindow.Native]::GetForegroundWindow()
+            [uint32]$foregroundOwnerBeforeClick = 0
+            $null = [MultiDetectWindow.Native]::GetWindowThreadProcessId($foregroundBeforeClick, [ref]$foregroundOwnerBeforeClick)
+            Assert-True ([MultiDetectWindow.Native]::GetCursorPos([ref]$cursorBeforeClick)) "Unable to verify the native PiP pointer position."
+            $pointerReady = (
+                $cursorBeforeClick.X -eq $screenPoint.X -and
+                $cursorBeforeClick.Y -eq $screenPoint.Y -and
+                $hitOwner -eq $Process.Id -and
+                $foregroundBeforeClick -eq $window.Handle -and
+                $foregroundOwnerBeforeClick -eq $Process.Id
+            )
+            if ($pointerReady) {
+                break
+            }
+            $null = Set-QgcWindowCaptureForeground -Window $window
+        }
+        Assert-True $pointerReady "Native pointer did not reach the exact QGC PiP coordinate and ownership after $pointerAttempt bounded attempts (actual=$($cursorBeforeClick.X),$($cursorBeforeClick.Y); expected=$($screenPoint.X),$($screenPoint.Y); hit_pid=$hitOwner; foreground_pid=$foregroundOwnerBeforeClick)."
         $clickSentAtUtc = (Get-Date).ToUniversalTime()
         Assert-True ([MultiDetectWindow.Native]::SendLeftClick()) "SendInput did not deliver both native left-click events."
         Start-Sleep -Milliseconds 800
@@ -2483,6 +2496,7 @@ function Invoke-QgcNativePipSwap {
         foreground_hwnd_before_click = ("0x{0:X}" -f $foregroundBeforeClick.ToInt64())
         foreground_owner_pid_before_click = $foregroundOwnerBeforeClick
         cursor_verified_before_click = ($cursorBeforeClick.X -eq $screenPoint.X -and $cursorBeforeClick.Y -eq $screenPoint.Y)
+        pointer_position_attempts = $pointerAttempt
         click_sent_at_utc = $clickSentAtUtc.ToString('o')
         method = "exact_pid_hwnd_foreground_pointer_click"
         derivation = "QGC FlyView anchors left/bottom plus native PipView 20 percent by 9/16 geometry"
