@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 独占 covariance capture journal（v95）
+
+- [x] 用 receipt/workspace digest 派生的原子目录 lease 串行化 probe、capture 与 session seal；
+- [x] 第二进程在 capture 前拒绝；正常完成仅删除完全未变的自有 lease；
+- [x] Windows 用只读进程句柄判断 owner 状态，不用信号探测或静默清理；
+- [x] 只有精确 lease ID 且同机 PID 明确死亡时允许恢复，并保留 lease/recovery 双文档审计链；
+- [x] session 嵌入完整 lease 并复验 receipt、campaign、leaf 与 digest；
+- [x] journal index 对账 `1..N` 连续 session 前缀、当前 verified reports 与 blocked probe 数量；
+- [ ] 在真实第二台现场机执行并发抢锁、异常断电恢复和六叶 journal/index 人工复验。
+
 ## Receipt-bound 单叶 covariance session（v94）
 
 - [x] 从 v93 receipt 重验本机 workspace/parity，并锁定精确唯一 next leaf；

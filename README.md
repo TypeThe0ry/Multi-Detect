@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v94：receipt-bound 单叶 covariance 现场事务；在线 probe 先落盘独立复验，再 capture，并生成可事后重开的不可变 session record |
+| 当前工程迭代 | v95：covariance 现场 journal 独占 lease、保留式死进程恢复与连续六叶 index；并发终端不能重复抓同一叶 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,45 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v95 独占采集 lease 与 journal index
+
+`field_covariance_session run-next` 现在会在 online probe 之前原子创建 receipt/workspace 专属 lease。同一
+journal 中第二个终端无法同时抓取相同 campaign；成功、blocked probe 或正常异常退出都会核对原 lease
+文档后释放。若进程非正常终止，锁不会被静默删除，先查看状态：
+
+```powershell
+python -m multidetect.field_covariance_journal lease-status `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json `
+  --journal-dir D:\FieldEvidence\session-journal
+```
+
+只有同机 owner PID 被只读进程查询明确判定为死亡时，才可凭输出中的精确 `lease_id` 恢复；原
+`lease.json` 和带原因的 `recovery.json` 会一起移入 `recovered-leases/<lease-id>`，不会销毁审计链：
+
+```powershell
+python -m multidetect.field_covariance_journal recover-lease `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json `
+  --journal-dir D:\FieldEvidence\session-journal `
+  --expected-lease-id <32位lease-id> `
+  --reason "capture host restarted after confirmed process exit"
+```
+
+每个成功 session 嵌入完整 digest-bound lease，并交叉绑定 receipt、campaign 与 leaf。随时可生成或验证
+连续 `1..N` 前缀 index；断号、重复、乱序、不同 receipt、report 数量不一致或 campaign 回退均拒绝：
+
+```powershell
+python -m multidetect.field_covariance_journal journal-status `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json `
+  --journal-dir D:\FieldEvidence\session-journal `
+  --out D:\FieldEvidence\session-journal-index.json
+
+python -m multidetect.field_covariance_journal verify-index `
+  --index D:\FieldEvidence\session-journal-index.json
+```
+
+index 与 journal 必须位于收到的 closed workspace 外；这些记录仍不提升硬件、HIL、REAL、实飞或最终
+发布声明。
 
 ### v94 单叶现场采集事务
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T23:15:59Z",
+  "updated_at_utc": "2026-09-05T23:35:41Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "f16a0d87ff134a85c13098ee22dd0576d8341369",
-    "commit_subject": "feat(evidence): seal covariance capture sessions",
-    "commits_ahead_of_origin_main": 76
+    "commit": "fad02de49b9cd97f29dd66ffa77af41d448aaf17",
+    "commit_subject": "feat(evidence): serialize covariance field sessions",
+    "commits_ahead_of_origin_main": 78
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v94",
+  "working_iteration": "v95",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v94-final.xml",
-      "tests": 3456,
-      "passed": 3455,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v95-final.xml",
+      "tests": 3464,
+      "passed": 3463,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 100.186,
-      "junit_local_path": "tmp/current-progress-regression-v94-final.xml",
-      "junit_file_bytes": 504362,
-      "junit_file_sha256": "870ba2cb7b98ce62782ad5ce6fb24b4dd6b3e2e320d25351bbf49c1854732072",
+      "duration_seconds": 97.762,
+      "junit_local_path": "tmp/current-progress-regression-v95-final.xml",
+      "junit_file_bytes": 505454,
+      "junit_file_sha256": "106ede42c9c57a04ef6d30c864b2d876e2df3923b82c07ceed40fe7e0aef4fdc",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,14 +63,14 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 6438,
-    "file_sha256": "2b28285be42b3c7cb56e6e9f59390730e86960df046deb0e4d715de5b40b36a0",
+    "bytes": 6561,
+    "file_sha256": "d541ab299719a3812e14a8cbc351a25cceb6bf4823b5331dc7ccf81532eb87ab",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "f8e8f4e0c16b88fcec21f5ee7233ba49d67e0331da58f0d111b84cdb514acce1"
+      "px4_mission_path_hash": "71a7b6d05bdb4accd48a46f5cb0d9e87f59571439ec3477d6b27574665e20cea"
     }
   },
   "evidence": {
@@ -164,8 +164,8 @@
     "pixhawk_covariance_field_session": {
       "schema": "multidetect.pixhawk-covariance-field-session-record/v1",
       "schema_path": "configs/schemas/pixhawk-covariance-field-session-record.schema.json",
-      "schema_file_bytes": 4103,
-      "schema_file_sha256": "e2a3e67e2a664c479ee7ae1199cb7fad570cc2bac5c736fbb8cd31369fd160fc",
+      "schema_file_bytes": 6626,
+      "schema_file_sha256": "ed20e3cee4d39ed0bd9f684963246ad19159644d611304216203a9f56c84e391",
       "module": "multidetect.field_covariance_session",
       "commands": ["run-next", "verify-record"],
       "receipt_required": true,
@@ -178,10 +178,44 @@
       "blocked_probe_writes_success_record": false,
       "successful_report_reverified": true,
       "successful_record_write_new": true,
+      "full_capture_lease_embedded": true,
+      "lease_receipt_campaign_leaf_reverified": true,
       "later_leaf_progress_preserves_old_record_verification": true,
       "real_sessions_collected": false,
       "claims": {
         "software_session_gate_implemented": "passed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "hardware_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      }
+    },
+    "pixhawk_covariance_field_journal": {
+      "schemas": [
+        "multidetect.pixhawk-covariance-field-capture-lease/v1",
+        "multidetect.pixhawk-covariance-field-lease-recovery/v1",
+        "multidetect.pixhawk-covariance-field-journal-index/v1"
+      ],
+      "schema_path": "configs/schemas/pixhawk-covariance-field-journal.schema.json",
+      "schema_file_bytes": 6084,
+      "schema_file_sha256": "d6569c3890262da17f779fe1a8f7fd946cbe651abec94d17ca8b9fc740524d6f",
+      "module": "multidetect.field_covariance_journal",
+      "commands": ["journal-status", "lease-status", "recover-lease", "verify-index"],
+      "capture_lease_atomic_directory": true,
+      "capture_lease_scoped_by_workspace_sha256": true,
+      "second_process_capture_blocked": true,
+      "silent_stale_lock_deletion": false,
+      "windows_process_liveness_read_only": true,
+      "remote_or_unknown_owner_recovery_allowed": false,
+      "exact_lease_id_recovery_required": true,
+      "dead_owner_proof_required": true,
+      "lease_and_recovery_audit_preserved": true,
+      "journal_index_contiguous_prefix_required": true,
+      "journal_index_reconciles_campaign_reports": true,
+      "blocked_probes_counted": true,
+      "real_journal_collected": false,
+      "claims": {
+        "software_exclusive_journal_gate_implemented": "passed",
         "hil_acceptance": "not_claimed",
         "real_acceptance": "not_claimed",
         "hardware_acceptance": "not_claimed",
@@ -613,6 +647,7 @@
     "hil_real_covariance_identity_binding": "implemented_pending_field_capture",
     "portable_hil_real_covariance_workspace": "implemented_pending_physical_handoff",
     "receipt_bound_covariance_field_sessions": "implemented_pending_field_runs",
+    "exclusive_covariance_field_journal": "implemented_pending_field_runs",
     "qgc_manual_visual_acceptance_contract": "implemented_pending_human_review",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",

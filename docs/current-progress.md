@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v94 工作树）
+最后更新：2026-09-06（v95 工作树）
+
+## v95 本轮已收口
+
+- 新增 `field_covariance_journal` 的原子目录 lease；`run-next` 在 online probe/capture/record 全事务外持锁，
+  同一 receipt/workspace 的第二进程在采集启动前 fail-closed；成功、blocked probe 和正常异常路径均仅在
+  lease 文档仍逐字一致时释放，锁被篡改则保留；
+- `lease-status` 使用同机只读进程状态判断。Windows 走 `OpenProcess + GetExitCodeProcess`，不发送信号；
+  远端 hostname、权限/状态未知或仍存活 PID 都禁止恢复；
+- `recover-lease` 要求精确 32 位 lease ID 和书面原因，且 owner 必须被证明死亡；恢复会把原 lease 与
+  closed-schema、digest-bound recovery 一起原子归档到 `recovered-leases/<lease-id>`，不静默删除证据；
+- 成功 session 嵌入完整 lease，并在事后复验时交叉核对 receipt/workspace/campaign/leaf/digest；新增
+  `journal-status/verify-index`，严格对账 session `1..N` 连续前缀与 campaign 已验证 reports，拒绝断号、
+  重复、乱序、跨 receipt、路径逃逸和 campaign 回退，同时统计未进入成功 session 的 blocked probes；
+- journal/session 两份 schema 与实现纳入 PX4 Mission parity，`px4_mission_path_hash=71A7B6D0...E20CEA`。
+  真实硬件未连接，未生成现场 lease/session/index 或任何 HIL/REAL/hardware/flight acceptance。
+- 全量回归 3,464 tests：`3463 passed, 1 skipped, 0 failed, 0 errors`，耗时 97.762 秒；JUnit
+  505,454 bytes、SHA-256 `106EDE42C9C57A04EF6D30C864B2D876E2DF3923B82C07CEED40FE7E0AEF4FDC`；
+  全仓 Ruff 通过。
 
 ## v94 本轮已收口
 
