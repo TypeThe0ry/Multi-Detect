@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T19:36:20Z",
+  "updated_at_utc": "2026-09-05T19:59:55Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "fb521c89c8e11b4ebc0f6ebb3009e737879c2063",
-    "commit_subject": "feat(sim): propagate Gazebo attitude covariance",
-    "commits_ahead_of_origin_main": 48
+    "commit": "edbe9858e7ac489a59ef3d29aa67752c0cd85630",
+    "commit_subject": "feat(sim): seal derived attitude uncertainty evidence",
+    "commits_ahead_of_origin_main": 50
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v80",
+  "working_iteration": "v81",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v80-final.xml",
-      "tests": 3344,
-      "passed": 3343,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v81-final.xml",
+      "tests": 3345,
+      "passed": 3344,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 138.487,
-      "junit_local_path": "tmp/current-progress-regression-v80-final.xml",
-      "junit_file_bytes": 487428,
-      "junit_file_sha256": "43f95d4a87f91ee7bc6b370736581d7d3bdddaed7b665f5bdddb0e0167a2a06a",
+      "duration_seconds": 133.593,
+      "junit_local_path": "tmp/current-progress-regression-v81-final.xml",
+      "junit_file_bytes": 487590,
+      "junit_file_sha256": "9346a922eb7a62b5ac8e3bf2500aff88ca94c48bc756abede43d0c82baa6187d",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,16 +64,64 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5659,
-    "file_sha256": "d1866dcfe0d9c7c1746dc76d571422ec3b4efbf12b53746990dbb4431782af6f",
+    "file_sha256": "a208c0af57735d4124fc437695d2bedadc980f9dfdb37c89331fa23a0f79dcb2",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
-      "core_algorithm_hash": "c772daadf86995876493a730f3acd77ae38970254ac716607740c7612dbfd31b",
+      "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
       "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"
     }
   },
   "evidence": {
+    "gazebo_three_airframe_covariance_wire_v3": {
+      "distributed_in_git": false,
+      "wire_version": 3,
+      "frames_per_airframe": 3,
+      "attitude_covariance_convention": "gazebo_pose_fixed_axis_xyz_enu_rad2",
+      "attitude_covariance_record_count": 9,
+      "nonzero_attitude_covariance_record_count": 0,
+      "derived_attitude_sigmas_persisted": true,
+      "attitude_uncertainty_source": "gazebo_odometry_covariance_with_configured_floor",
+      "attitude_uncertainty_floor_deg": {"roll": 0.3, "pitch": 0.3, "heading": 1.0},
+      "container_cleanup_passed": true,
+      "airframes": {
+        "vtol": {
+          "runtime_local_path": "artifacts/evaluation/terminal-continuation-v81/vtol-mdgzsim3-runtime-final.json",
+          "runtime_file_bytes": 75446,
+          "runtime_file_sha256": "caf652d913ab1455c45558fd1f0321862c2e938352cc9ea80f8f872ea644a590",
+          "manifest_local_path": "artifacts/evaluation/terminal-continuation-v81/vtol-mdgzsim3-frames-final/gazebo-bgr24-frame-set.manifest.json",
+          "manifest_file_bytes": 19263,
+          "manifest_file_sha256": "b104dac063b0f066eda7052da51981e7b62f3c15cd8a533580338433859fc439",
+          "gate_passed": true
+        },
+        "multirotor": {
+          "runtime_local_path": "artifacts/evaluation/terminal-continuation-v81/multirotor-mdgzsim3-runtime-final.json",
+          "runtime_file_bytes": 76265,
+          "runtime_file_sha256": "c79dc49de09dbf2e996199aca1d77a8ab5f7f59abd1380f6a4c71f7878cea6bd",
+          "manifest_local_path": "artifacts/evaluation/terminal-continuation-v81/multirotor-mdgzsim3-frames-final/gazebo-bgr24-frame-set.manifest.json",
+          "manifest_file_bytes": 19519,
+          "manifest_file_sha256": "08aae234a6d33e7731efb6ddef6fcc53e438c2149f494274c97dbeb1a22b4666",
+          "gate_passed": true
+        },
+        "fixed_wing": {
+          "runtime_local_path": "artifacts/evaluation/terminal-continuation-v81/fixed-wing-mdgzsim3-runtime-final.json",
+          "runtime_file_bytes": 75886,
+          "runtime_file_sha256": "49919699fbd44bcd090eaa5e35a32609aeb64ab303fe5e9620923a4a92ed79fe",
+          "manifest_local_path": "artifacts/evaluation/terminal-continuation-v81/fixed-wing-mdgzsim3-frames-final/gazebo-bgr24-frame-set.manifest.json",
+          "manifest_file_bytes": 19375,
+          "manifest_file_sha256": "2a57b4a2cf600c3c4ce4712182aaa55437ce2bf2b40f80da01ee26ffe8c1199a",
+          "gate_passed": true
+        }
+      },
+      "claims": {
+        "external_docker_px4_gazebo_runtime": "passed",
+        "estimator_covariance_received": false,
+        "hardware_acceptance": "not_claimed",
+        "outdoor_gnss_acceptance": "not_claimed",
+        "hil_real_acceptance": "not_claimed"
+      }
+    },
     "gazebo_target_geolocation_positive": {
       "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-geolocation-positive-control-evaluation-v58-pre8-v4.json",
       "distributed_in_git": false,
@@ -388,7 +436,7 @@
     "flight_acceptance": "not_claimed"
   },
   "next_priorities": [
-    "gazebo_odometry_covariance_wire_v3_and_coordinate_transform_validation",
+    "real_estimator_attitude_covariance_adapter_and_nonzero_source_validation",
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
     "deployment_domain_model_and_replay_set_review",

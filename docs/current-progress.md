@@ -1,6 +1,16 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v80 工作树）
+最后更新：2026-09-06（v81 工作树）
+
+## v81 本轮已收口
+
+- fixed-wing、multirotor、VTOL 各以 pinned Docker/PX4/Gazebo 外部进程采集 3 帧 `MDGZSIM3`；
+- 三份 runtime/sensor gate、逐帧重构、record hash、frame-set manifest 与容器清理全部通过；
+- 最终 roll/pitch/heading sigma 与来源进入 frame provenance 和 latest telemetry，验收器从原始 wire
+  covariance 重算后逐项比较，来源或数值篡改会在 detector 前拒绝；
+- 三类机型的原始姿态 covariance 实测均为 9 项全零，manifest 记录 nonzero count=0；系统应用
+  `0.3°/0.3°/1.0°` 配置 floor 并明确标注来源，不声称收到 estimator covariance；
+- `core_algorithm_hash` 更新为 `ed102767...53f`。E7 仍为 32 blockers，现场声明不变。
 
 ## v80 本轮已收口
 
@@ -8,7 +18,7 @@
 - producer/backend 双端要求矩阵 9 项 finite、对称、正半定；缺失 36 项源矩阵或 malformed wire 拒绝；
 - fixed-axis X/Y/Z covariance 经数值 Jacobian 转为 NED/FRD Euler `1σ`，配置 floor 在变换后应用；
 - gimbal lock 使用 `180°/90°/180°` 保守预算；原始矩阵和实际 sigma/source 均进入逐帧证据；
-- producer/backend 新增到 `core_algorithm_hash`。外部 Docker/PX4 v3 帧尚未重采，E7 仍为 32 blockers。
+- producer/backend 新增到 `core_algorithm_hash`。外部 Docker/PX4 v3 帧已在 v81 三机型重采；E7 仍为 32 blockers。
 
 ## v79 本轮已收口
 
@@ -73,7 +83,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `fb521c89c8e11b4ebc0f6ebb3009e737879c2063`（当前文档提交前领先远端 48 个提交）。
+本地 `main` 提交 `edbe9858e7ac489a59ef3d29aa67752c0cd85630`（当前文档提交前领先远端 50 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -129,7 +139,7 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v80 全仓回归为 3,344 tests：`3343 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
+- v81 全仓回归目标为 3,345 tests：`3344 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
   SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
@@ -448,7 +458,7 @@ v59 矩阵内部摘要为：
 | 测距 | metric depth、相机地面射线、多源融合、DEM/GNSS、时间/运动/残差不确定性 | v59 实际 Gazebo 像素；三档坡高/距离；advisory-only | 真实外参与 outdoor survey |
 | 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、事件/证据存储 | 三正场景 15/15 落图；近地平线 0/5 假点；v61 exact PID/HWND 机器截图通过 | 人工视觉签字与真实 GNSS |
 | MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | 本机 portable 可运行；v61 签名持续刷新与单一原生 surface 机器采集通过 | 四模式人工视觉对等与 E7 绑定 |
-| 数字孪生 | PX4/Gazebo、三机型、场景/地图/DEM、wire v3 covariance、故障、watchdog | external software evidence；x500 position response；三档定位 | 外部 v3 重采；fixed-wing/VTOL 对等动态响应 |
+| 数字孪生 | PX4/Gazebo、三机型、场景/地图/DEM、wire v3 covariance、故障、watchdog | 三机型外部 wire-v3 实采；x500 position response；三档定位 | estimator 非零 covariance；fixed-wing/VTOL 对等动态响应 |
 | 任务与控制 | 平台无关 planner、PX4 Mission 编译/反馈、Mode 3 动态权限 | 测试/SIM/HIL 框架；物理输出默认锁定 | 六份 HIL/REAL×三机型 feedback 与真实飞控验收 |
 | Jetson/Pixhawk/链路 | Jetson profile、RTSP bench、只读 MAVLink、V6X 参数备份、G20/GR01 认证协议 | 软件/localhost 与部分只读现场快照 | 实机 Jetson provider、相机、GR01、V6X 同时在线验收 |
 | 载荷安全 | 独立授权、双反馈、惰性 HIL、超时/重放/状态不一致 fail-closed | 无物理输出的 HIL | 经评审真实 controller transport 与受控地面台架 |

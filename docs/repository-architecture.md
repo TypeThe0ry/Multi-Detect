@@ -1,5 +1,20 @@
 # 统一仓库架构
 
+## v81 三机型外部 covariance evidence（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+pinned Docker/PX4/Gazebo: fixed-wing | multirotor | VTOL
+  -> MDGZSIM3 × 3 frames per airframe
+  -> raw BGR24 + wire header + record SHA-256
+  -> frame provenance: raw 3x3 covariance + derived R/P/H sigma + source
+  -> frame-set manifest: convention/count/nonzero-count/floor/source
+  -> independent persisted-frame reconstruction and acceptance
+```
+
+三份实采均发现默认 publisher 的姿态 covariance 为零，系统保留原始事实并显式应用
+`0.3°/0.3°/1.0°` floor。该结果证明 transport、backend 与证据链一致，不将零矩阵解释为零误差，
+也不将配置 floor 解释为 estimator 输出。
+
 ## v80 Gazebo covariance wire 与 parity（2026-09-06，`v0.3.0-pre.8`）
 
 ```text
@@ -14,8 +29,8 @@ Gazebo OdometryWithCovariance (row-major 6x6)
 ```
 
 `scripts/gazebo_sensor_stream.py` 和 `src/multidetect/backends/gazebo_sim.py` 现在都属于
-`core_algorithm_hash`；wire 或坐标变换任一字节变化都会使四模式共享身份失效。当前只关闭代码、协议、
-回放和回归门，外部 Gazebo/PX4 仍须采集新的 v3 source。
+`core_algorithm_hash`；wire 或坐标变换任一字节变化都会使四模式共享身份失效。v81 已采集三机型
+外部 v3 source，并将最终 sigma/source 写入逐帧证据；现场与 HIL/REAL 门仍独立阻断。
 
 ## v79 姿态 uncertainty provenance（2026-09-06，`v0.3.0-pre.8`）
 

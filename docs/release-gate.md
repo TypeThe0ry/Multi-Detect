@@ -1,5 +1,15 @@
 # v0.3.0 E7 发布门
 
+## v81 三机型外部 covariance 证据子门（2026-09-06，`v0.3.0-pre.8`）
+
+fixed-wing、multirotor、VTOL 各完成一次 pinned Docker/PX4/Gazebo 外部运行和 3 帧 `MDGZSIM3`
+采集；runtime/sensor gates、逐帧重构与容器清理全部通过。manifest 绑定 covariance convention、记录数、
+非零记录数、派生 sigma 持久化、floor 与来源。三份 source 的原始 covariance 都是全零矩阵，故最终
+sigma 来自显式 `0.3°/0.3°/1.0°` floor；系统没有声称收到 estimator uncertainty。
+
+该软件/SIM 子门不减少 E7 的 32 个 blocker；模型精度、人工 QGC、室外 GNSS、HIL/REAL、真实硬件、
+Mission feedback 六叶矩阵与实飞仍须各自通过。
+
 ## v80 Gazebo 姿态 covariance 子门（2026-09-06，`v0.3.0-pre.8`）
 
 `MDGZSIM3` 已将 Gazebo `PoseWithCovariance` 的 angular 3×3 block 纳入 276-byte 固定 header、整帧
@@ -7,8 +17,8 @@ SHA-256、逐帧 manifest 和独立重放。双端验证 finite/对称/PSD，bac
 经数值 Jacobian 转成 NED/FRD roll/pitch/heading `1σ`，再应用显式 floor；奇异姿态使用保守预算。
 producer/backend 同时受 `core_algorithm_hash` 约束。
 
-这关闭的是软件协议与来源绑定缺口。当前主机没有重跑外部 Docker/PX4/Gazebo v3 采集，因此既有 v2
-外部证据只保留历史价值，E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；模型、
+这关闭的是软件协议与来源绑定缺口。v81 已补跑外部 Docker/PX4/Gazebo v3 采集，既有 v2
+外部证据只保留历史价值；E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，模型、
 人工 QGC、室外 GNSS、HIL/REAL、真实硬件和实飞门均不变化。
 
 ## v79 姿态不确定性 provenance 子门（2026-09-06，`v0.3.0-pre.8`）

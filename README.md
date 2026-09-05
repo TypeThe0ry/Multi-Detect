@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v80：Gazebo `OdometryWithCovariance` 的姿态 3×3 covariance 经 `MDGZSIM3` 进入共享测距，并绑定 core parity |
+| 当前工程迭代 | v81：三机型外部 Docker/PX4/Gazebo `MDGZSIM3` 实采，并封存逐帧 covariance→sigma 来源证据 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,6 +82,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v81 三机型外部 covariance 证据闭环
+
+fixed-wing、multirotor、VTOL 已分别在 pinned Docker/PX4/Gazebo 外部进程中采集 3 帧
+`MDGZSIM3` 数据；三份 runtime 与 frame-set 均通过 transport、逐帧重放、hash binding 和容器清理门。
+每帧同时保存原始 3×3 covariance、派生 roll/pitch/heading `1σ` 和来源。实测确认当前 Gazebo 默认
+OdometryPublisher 的 9 项姿态 covariance 全为 0，因此运行时明确应用 `0.3°/0.3°/1.0°` 配置下限，
+并标记 `gazebo_odometry_covariance_with_configured_floor`；这证明协议和证据链已接通，不代表 Gazebo
+提供了真实 estimator uncertainty，也不提升 HIL/REAL、室外 GNSS、硬件或实飞声明。
+
 ### v80 Gazebo 姿态协方差进入共享测距
 
 Gazebo helper 现在严格读取 `PoseWithCovariance` 的 6×6 row-major 矩阵，提取固定轴 X/Y/Z 的
@@ -89,7 +98,7 @@ Gazebo helper 现在严格读取 `PoseWithCovariance` 的 6×6 row-major 矩阵�
 固定 276-byte header 把完整矩阵纳入整帧 SHA-256，frame manifest 与独立重放也逐项绑定它。backend
 通过数值 Jacobian 将 ENU/FLU 固定轴角协方差变换为 NED/FRD roll/pitch/heading `1σ`，再应用显式
 配置下限；奇异姿态发布保守的 `180°/90°/180°`，不伪造精度。producer/backend 已纳入
-`core_algorithm_hash`。本轮尚未在外部 Docker/PX4 上重新采集 v3 帧，因此不提升现场或发布声明。
+`core_algorithm_hash`。v81 已补齐三机型外部 v3 采集，但其软件/SIM 证据不提升现场或发布声明。
 
 ### v79 姿态不确定性来源绑定
 
@@ -98,7 +107,7 @@ Gazebo helper 现在严格读取 `PoseWithCovariance` 的 6×6 row-major 矩阵�
 `attitude_uncertainty_unavailable_or_malformed`，不会混用成假精度。VI、RGB-SLAM 和主测距都通过同一
 resolver 构造姿态，`RangeSolution`/operator status 同时记录实际使用的三个 sigma 与 provenance。
 v79 当时的 Gazebo wire-v2 尚未携带 `OdometryWithCovariance` 矩阵，因此该迭代明确使用配置 fallback；
-这一缺口已由 v80 的 wire-v3 代码与回归关闭，但外部 runtime 证据仍须重新采集。
+这一缺口已由 v80 的 wire-v3 代码与回归关闭，并在 v81 完成三机型外部 runtime 重采。
 
 ### v78 杆臂几何不确定性端点传播
 

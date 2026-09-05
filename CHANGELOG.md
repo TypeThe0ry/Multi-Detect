@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v81 three-airframe covariance evidence（2026-09-06）
+
+- fixed-wing、multirotor、VTOL 分别在 pinned Docker/PX4/Gazebo 外部进程采集 3 帧 `MDGZSIM3`，
+  runtime、sensor transport、逐帧 hash/replay 和 stop/rm cleanup 全部通过；
+- frame provenance 与 runtime latest telemetry 现在封存最终 roll/pitch/heading sigma 及
+  `gazebo_odometry_covariance_with_configured_floor` 来源，验收器重新从 wire covariance 计算并核对；
+- 三类机型实采的 Gazebo 姿态 covariance 均为全零矩阵，证据明确记录 nonzero count=0，并应用
+  `0.3°/0.3°/1.0°` 配置下限；不把 floor 误报成 estimator uncertainty；
+- 增加 covariance evidence 篡改负测并更新 core parity。E7 仍有 32 blockers，HIL/REAL、真实硬件、
+  室外 GNSS、人工 QGC 和最终 `v0.3.0` 状态不变。
+
 ### v0.3.0-pre.8 v80 Gazebo attitude-covariance wire（2026-09-06）
 
 - 将 Gazebo sensor transport 升级为 `MDGZSIM3` / wire version 3 / 276-byte fixed header，把
