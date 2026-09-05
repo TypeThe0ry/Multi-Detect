@@ -4,7 +4,7 @@ Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知�
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 > 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；真实 Jetson/相机/Pixhawk、
-> 室外 GNSS 精度、HIL/REAL、三机型动态响应和人工 QGC 验收仍有门禁未关闭。任何
+> 室外 GNSS 精度、HIL/REAL、三机型硬件响应和人工 QGC 验收仍有门禁未关闭。任何
 > software/SIM 通过记录都不能解释为实飞或生产批准。
 
 ## 从这里开始
@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v61：同一原生 QGC PID/HWND 的定位卡片与地图机器捕获子门通过 |
+| 当前工程迭代 | v62：三机型外部 PX4/Gazebo 实际位移响应矩阵及 E7 子门通过 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -158,6 +158,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 排除外部遮挡并保存 PNG/observation。v61 机器图已显示完整坐标、1σ、类别、距离、方位、更新时间、
 复制/快照/记录按钮和只读边界；它仍是机器证据，`operator_visual_acceptance=not_claimed`，需人工签字后
 才能关闭人工视觉门。
+
+### v62 三机型 PX4 实际位移响应矩阵
+
+固定翼、多旋翼和 VTOL 已分别在 disposable PX4/Gazebo Docker 中走同一条
+`perception → AI executor → authority/watchdog → MANUAL_CONTROL → PX4` 链路，并只用 PX4
+`GLOBAL_POSITION_INT` 计算实际水平位移。三机型最大位移分别为 `33.872547 m`、`1.171039 m`、
+`3.784929 m`；均通过目标刷新、heartbeat、POSCTL 连续性、容器安全与清理检查，且未读取 Gazebo
+真值或注入 pose。
+
+`scripts/run_px4_reported_position_response_matrix.py` 将三份报告、scenario、当前 release parity 和
+三个生成/验证工具源码 SHA-256 汇总；`scripts/verify_px4_reported_position_response_matrix.py` 可独立
+重放。该矩阵现已作为 `px4_reported_position_response_matrix` 接入 E7；它只关闭外部 SIM 动态响应
+子门，硬件、HIL、REAL、人工视觉和实飞仍为 `not_claimed`。
 
 ### MultiDetectGCS
 

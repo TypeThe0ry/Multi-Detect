@@ -458,6 +458,24 @@ _PX4_AIRFRAME_TRANSACTION_KEYS = frozenset(
         "checks",
     }
 )
+_PX4_REPORTED_POSITION_RESPONSE_MATRIX_KEYS = frozenset(
+    {
+        "evidence_path",
+        "evidence_sha256",
+        "evidence_bytes",
+        "schema",
+        "schema_version",
+        "release_label",
+        "gate_passed",
+        "matrix_sha256",
+        "vehicle_classes",
+        "truth_free",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "checks",
+    }
+)
 _SIMULATOR_3D_CONTROL_KEYS = frozenset(
     {
         "schema_version",
@@ -538,6 +556,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "simulator_combined",
         "simulator_external_evidence",
         "px4_airframe_transaction",
+        "px4_reported_position_response_matrix",
         "px4_mission_feedback",
         "simulator_3d_control",
         "simulator_scene_stream_set",
@@ -3986,6 +4005,128 @@ def _simulator_scene_stream_set_result(
     return result
 
 
+def _px4_reported_position_response_matrix_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+    expected_release_label: str | None,
+) -> dict[str, Any]:
+    """Re-hash and reproduce the three-airframe external PX4 motion matrix."""
+
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": [],
+        "evidence": None,
+        "verification": None,
+    }
+    reasons: list[str] = result["reasons"]
+    if raw_record is None:
+        reasons.append("px4_reported_position_response_matrix record is absent")
+        return result
+    if not isinstance(raw_record, Mapping):
+        reasons.append("px4_reported_position_response_matrix must be an object")
+        return result
+    unknown = sorted(
+        set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_MATRIX_KEYS)
+    )
+    if unknown:
+        reasons.append(
+            f"unknown px4_reported_position_response_matrix field(s): {unknown!r}"
+        )
+    path_value = raw_record.get("evidence_path")
+    evidence_path: Path | None = None
+    if not isinstance(path_value, str) or not path_value.strip():
+        reasons.append(
+            "px4_reported_position_response_matrix.evidence_path is missing or empty"
+        )
+    else:
+        evidence_path = Path(path_value)
+        if not evidence_path.is_absolute():
+            evidence_path = manifest_directory / evidence_path
+        evidence_path = evidence_path.resolve()
+    expected_sha = raw_record.get("evidence_sha256")
+    expected_bytes = raw_record.get("evidence_bytes")
+    if not _is_sha256(expected_sha):
+        reasons.append(
+            "px4_reported_position_response_matrix.evidence_sha256 is invalid"
+        )
+    if type(expected_bytes) is not int or expected_bytes < 1:
+        reasons.append(
+            "px4_reported_position_response_matrix.evidence_bytes must be positive"
+        )
+    expected_values = {
+        "schema": "multidetect.px4-reported-position-response-matrix",
+        "schema_version": 1,
+        "gate_passed": True,
+        "truth_free": True,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+    }
+    for field, expected in expected_values.items():
+        if raw_record.get(field) != expected:
+            reasons.append(
+                f"px4_reported_position_response_matrix.{field} must be {expected!r}"
+            )
+    release_label = raw_record.get("release_label")
+    if expected_release_label is not None and release_label != expected_release_label:
+        reasons.append(
+            "px4_reported_position_response_matrix.release_label does not match product"
+        )
+    if not _is_sha256(raw_record.get("matrix_sha256")):
+        reasons.append("px4_reported_position_response_matrix.matrix_sha256 is invalid")
+    if raw_record.get("vehicle_classes") != ["fixed-wing", "multirotor", "vtol"]:
+        reasons.append(
+            "px4_reported_position_response_matrix.vehicle_classes is incomplete"
+        )
+    checks = raw_record.get("checks")
+    if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
+        reasons.append("px4_reported_position_response_matrix.checks must all be true")
+    if evidence_path is None or not evidence_path.is_file():
+        reasons.append("px4_reported_position_response_matrix evidence file does not exist")
+        return result
+    actual_sha = _sha256(evidence_path)
+    actual_bytes = evidence_path.stat().st_size
+    result["evidence"] = {
+        "path": str(evidence_path),
+        "sha256": actual_sha,
+        "bytes": actual_bytes,
+    }
+    if _is_sha256(expected_sha) and actual_sha.lower() != str(expected_sha).lower():
+        reasons.append("px4_reported_position_response_matrix evidence SHA-256 mismatch")
+    if type(expected_bytes) is int and actual_bytes != expected_bytes:
+        reasons.append("px4_reported_position_response_matrix evidence byte count mismatch")
+    try:
+        from scripts.verify_px4_reported_position_response_matrix import verify_file
+
+        verification = verify_file(evidence_path)
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        reasons.append(f"px4_reported_position_response_matrix verifier failed: {exc}")
+        verification = None
+    if verification is not None:
+        result["verification"] = verification
+        if verification.get("gate_passed") is not True:
+            reasons.extend(
+                f"px4_reported_position_response_matrix: {reason}"
+                for reason in verification.get("reasons", [])
+                if isinstance(reason, str) and reason
+            )
+        if verification.get("matrix_sha256") != raw_record.get("matrix_sha256"):
+            reasons.append(
+                "px4_reported_position_response_matrix digest does not match verifier"
+            )
+        verified_checks = verification.get("checks")
+        if not isinstance(verified_checks, Mapping) or dict(verified_checks) != dict(
+            checks if isinstance(checks, Mapping) else {}
+        ):
+            reasons.append(
+                "px4_reported_position_response_matrix checks do not match verifier"
+            )
+    result["passed"] = not reasons
+    return result
+
+
 def _px4_airframe_transaction_result(
     raw_record: object,
     *,
@@ -4636,6 +4777,20 @@ def evaluate_release_gate(
             for reason in simulator_scenario_matrix_result["reasons"]
         )
 
+    raw_px4_response_matrix = manifest.get("px4_reported_position_response_matrix")
+    px4_response_matrix_result = _px4_reported_position_response_matrix_result(
+        raw_px4_response_matrix,
+        manifest_directory=path.parent,
+        expected_release_label=(
+            version.release_label if version is not None else manifest.get("release_label")
+        ),
+    )
+    if raw_px4_response_matrix is not None and not px4_response_matrix_result["passed"]:
+        top_reasons.extend(
+            f"px4_reported_position_response_matrix: {reason}"
+            for reason in px4_response_matrix_result["reasons"]
+        )
+
     raw_simulator_scene_stream_set = manifest.get("simulator_scene_stream_set")
     simulator_scene_stream_set_result = _simulator_scene_stream_set_result(
         raw_simulator_scene_stream_set,
@@ -5002,6 +5157,16 @@ def evaluate_release_gate(
                     f"simulator_scenario_matrix: {reason}"
                     for reason in simulator_scenario_matrix_result["reasons"]
                 )
+            if not px4_response_matrix_result["present"]:
+                release_reasons.append(
+                    "final release requires a hash-bound three-airframe PX4 "
+                    "reported-position response matrix"
+                )
+            elif not px4_response_matrix_result["passed"]:
+                release_reasons.extend(
+                    f"px4_reported_position_response_matrix: {reason}"
+                    for reason in px4_response_matrix_result["reasons"]
+                )
             if not simulator_combined_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound combined SIM dynamic-port evidence"
@@ -5102,6 +5267,8 @@ def evaluate_release_gate(
         "actuator_safety_required_for_release": True,
         "simulator_scenario_matrix": simulator_scenario_matrix_result,
         "simulator_scenario_matrix_required_for_release": True,
+        "px4_reported_position_response_matrix": px4_response_matrix_result,
+        "px4_reported_position_response_matrix_required_for_release": True,
         "simulator_combined": simulator_combined_result,
         "simulator_combined_required_for_release": True,
         "simulator_external_evidence": simulator_external_result,

@@ -2468,3 +2468,16 @@ build/windows-v0.3.0-pre.7-release/portable-v0.3.0-pre.7/bin/MultiDetectReplayRt
 `artifacts/evaluation/terminal-continuation-v61/native-visual-v8/qgc-native-style.png`，SHA-256
 `86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3`。它证明同一 PID/HWND 上的
 动态机器可见状态，仍保留 `computer_use_tool_exposed=false`、`operator_visual_acceptance=not_claimed`。
+
+### v62 三机型 PX4/Gazebo 实际位移响应与 E7 绑定
+
+三份 disposable Docker acceptance 均从同一 perception/AI/authority/watchdog/MAVLink 路径驱动 PX4，
+并以 `GLOBAL_POSITION_INT` 报告位置计算位移：fixed-wing `33.872547 m`、multirotor `1.171039 m`、
+VTOL `3.784929 m`。矩阵 artifact 的文件 SHA-256 为
+`6858131CAC4FF1090FF7D7936D68D841634C6F22EA450B28D7AC9A9F014A605A`，内部稳定摘要为
+`7124F746870F8CC2ADCF7A78A385EBE8190320CBAB67D972D437CAAC902C00CA`。
+
+当前 E7 manifest/report 分别为
+`artifacts/evaluation/terminal-continuation-v62/release-gate-pre.8-current-20260905T124000Z-v6-bound.json`
+和对应 `-report.json`；矩阵子门 `present=true/passed=true`，总门仍为 false、32 blockers。该运行没有
+读取 Gazebo truth、没有 pose injection、没有接触真实 Pixhawk，不能替代 HIL/REAL/实飞或人工验收。

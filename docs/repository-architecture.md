@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v62 三机型 PX4 reported-position 响应证据（2026-09-05，`v0.3.0-pre.8`）
+
+| 组件 | 职责 | 声明边界 |
+|---|---|---|
+| `scripts/run_px4_reported_position_response_matrix.py` | 汇总 fixed-wing/multirotor/VTOL 三份 external Docker AI acceptance，绑定 source、scenario、parity 与生成工具哈希，检查同一控制路径和 PX4 reported displacement | 只接受恰好三个 canonical airframe；拒绝 Gazebo truth/pose injection、非 pinned image、残留容器、mode/heartbeat/target refresh/位移失败 |
+| `scripts/verify_px4_reported_position_response_matrix.py` | 从矩阵记录的相对路径重新打开全部输入并复算稳定摘要 | 不信任矩阵内的通过布尔值；任一源码或源证据漂移即关闭子门 |
+| `release_gate_manifest.py` / `release_gate.py` | 将矩阵以 SHA-256/bytes/matrix digest 绑定为 E7 `px4_reported_position_response_matrix` 并在每次评估时重放 verifier | 仅关闭外部 SIM 动态响应子门；hardware/HIL/REAL/flight/operator visual 固定不提升 |
+
 ## v61 同一原生 QGC PID/HWND 的定位机器捕获（2026-09-05，`v0.3.0-pre.8`）
 
 ```text

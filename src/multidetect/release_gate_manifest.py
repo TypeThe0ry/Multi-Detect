@@ -47,6 +47,11 @@ The writer is intentionally fail-closed:
   can be hash-bound to ``px4_airframe_transaction``; the writer requires all
   three durable journals to pass, and the evaluator re-opens them on every
   read so the final release cannot silently skip an airframe.
+* an optional three-airframe PX4 reported-position response matrix can be
+  hash-bound to ``px4_reported_position_response_matrix``; its verifier
+  reopens all three Docker acceptance reports, scenario manifests, parity
+  identity and source tools so simulated motion cannot be replaced by a
+  stale or pose-injected claim.
 * an optional six-observation PX4 Mission feedback matrix can be hash-bound to
   ``px4_mission_feedback``; the writer requires one receive-only observation
   for every HIL/REAL and VTOL/fixed-wing/multirotor combination.  The evaluator
@@ -1971,6 +1976,75 @@ def _px4_airframe_transaction_record(
     }
 
 
+def _px4_reported_position_response_matrix_record(
+    matrix_evidence: str | Path,
+    *,
+    output_identity: Path,
+    manifest_directory: Path,
+    release_label: str,
+) -> dict[str, Any]:
+    """Create a strict binding for external PX4-reported motion by three airframes."""
+
+    resolved = _resolve_file(
+        matrix_evidence,
+        name="px4_reported_position_response_matrix evidence",
+    )
+    if resolved == output_identity:
+        raise ReleaseGateManifestError(
+            "release-gate output cannot also be px4_reported_position_response_matrix evidence"
+        )
+    artifact = _load_json_object(
+        resolved, name="px4_reported_position_response_matrix evidence"
+    )
+    try:
+        from scripts.verify_px4_reported_position_response_matrix import verify_file
+
+        verification = verify_file(resolved)
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        raise ReleaseGateManifestError(
+            f"px4_reported_position_response_matrix verifier failed: {exc}"
+        ) from exc
+    if verification.get("gate_passed") is not True:
+        detail = "; ".join(
+            str(reason) for reason in verification.get("reasons", []) if reason
+        )
+        raise ReleaseGateManifestError(
+            "px4_reported_position_response_matrix verifier did not pass"
+            + (f": {detail}" if detail else "")
+        )
+    checks = verification.get("checks")
+    if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
+        raise ReleaseGateManifestError(
+            "px4_reported_position_response_matrix verifier checks must all be true"
+        )
+    if artifact.get("release_label") != release_label:
+        raise ReleaseGateManifestError(
+            "px4_reported_position_response_matrix release_label does not match product"
+        )
+    entries = artifact.get("entries")
+    vehicle_classes = sorted(
+        entry.get("vehicle_class")
+        for entry in entries
+        if isinstance(entries, list) and isinstance(entry, Mapping)
+    ) if isinstance(entries, list) else []
+    return {
+        "evidence_path": _relative_path(resolved, manifest_directory=manifest_directory),
+        "evidence_sha256": sha256_file(resolved),
+        "evidence_bytes": resolved.stat().st_size,
+        "schema": artifact.get("schema"),
+        "schema_version": artifact.get("schema_version"),
+        "release_label": artifact.get("release_label"),
+        "gate_passed": True,
+        "matrix_sha256": artifact.get("matrix_sha256"),
+        "vehicle_classes": vehicle_classes,
+        "truth_free": artifact.get("truth_free"),
+        "hardware_acceptance": artifact.get("hardware_acceptance"),
+        "hil_acceptance": artifact.get("hil_acceptance"),
+        "real_acceptance": artifact.get("real_acceptance"),
+        "checks": dict(checks),
+    }
+
+
 def _px4_mission_feedback_record(
     feedback_evidence: Sequence[object],
     *,
@@ -2093,6 +2167,7 @@ def build_release_gate_manifest(
     simulator_external_evidence: str | Path | None = None,
     simulator_external_evidence_revalidation: str | Path | None = None,
     px4_airframe_transaction_evidence: str | Path | None = None,
+    px4_reported_position_response_matrix_evidence: str | Path | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     real_target_accuracy_report: str | Path | None = None,
@@ -2352,6 +2427,17 @@ def build_release_gate_manifest(
         else None
     )
 
+    px4_reported_position_response_matrix_record = (
+        _px4_reported_position_response_matrix_record(
+            px4_reported_position_response_matrix_evidence,
+            output_identity=output_identity,
+            manifest_directory=manifest_directory,
+            release_label=version.release_label,
+        )
+        if px4_reported_position_response_matrix_evidence is not None
+        else None
+    )
+
     px4_mission_feedback_record = (
         _px4_mission_feedback_record(
             px4_mission_feedback_evidence,
@@ -2436,6 +2522,10 @@ def build_release_gate_manifest(
         document["simulator_external_evidence"] = simulator_external_record
     if px4_airframe_transaction_record is not None:
         document["px4_airframe_transaction"] = px4_airframe_transaction_record
+    if px4_reported_position_response_matrix_record is not None:
+        document["px4_reported_position_response_matrix"] = (
+            px4_reported_position_response_matrix_record
+        )
     if px4_mission_feedback_record is not None:
         document["px4_mission_feedback"] = px4_mission_feedback_record
     if simulator_3d_control_record is not None:
@@ -2505,6 +2595,7 @@ def create_release_gate_manifest(
     simulator_external_evidence: str | Path | None = None,
     simulator_external_evidence_revalidation: str | Path | None = None,
     px4_airframe_transaction_evidence: str | Path | None = None,
+    px4_reported_position_response_matrix_evidence: str | Path | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     actuator_safety_evidence: str | Path | None = None,
@@ -2544,6 +2635,9 @@ def create_release_gate_manifest(
         simulator_external_evidence=simulator_external_evidence,
         simulator_external_evidence_revalidation=simulator_external_evidence_revalidation,
         px4_airframe_transaction_evidence=px4_airframe_transaction_evidence,
+        px4_reported_position_response_matrix_evidence=(
+            px4_reported_position_response_matrix_evidence
+        ),
         px4_mission_feedback_evidence=px4_mission_feedback_evidence,
         simulator_3d_control_evidence=simulator_3d_control_evidence,
         field_evidence_bundle=field_evidence_bundle,
@@ -2791,6 +2885,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--px4-reported-position-response-matrix-evidence",
+        "--px4-response-matrix-evidence",
+        type=Path,
+        help=(
+            "hash-bound fixed-wing, multirotor and VTOL external PX4-reported "
+            "position-response matrix; required for final release"
+        ),
+    )
+    parser.add_argument(
         "--px4-mission-feedback-evidence",
         "--px4-mission-feedback-binding",
         dest="px4_mission_feedback_evidence",
@@ -2999,6 +3102,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             simulator_external_evidence=args.simulator_external_evidence,
             simulator_external_evidence_revalidation=args.simulator_external_evidence_revalidation,
             px4_airframe_transaction_evidence=args.px4_airframe_transaction_evidence,
+            px4_reported_position_response_matrix_evidence=(
+                args.px4_reported_position_response_matrix_evidence
+            ),
             px4_mission_feedback_evidence=args.px4_mission_feedback_evidence,
             simulator_3d_control_evidence=args.simulator_3d_control_evidence,
             simulator_scene_stream_set_evidence=args.simulator_scene_stream_set_evidence,
@@ -3028,6 +3134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "simulator_combined",
             "simulator_external_evidence",
             "px4_airframe_transaction",
+            "px4_reported_position_response_matrix",
             "px4_mission_feedback",
             "simulator_3d_control",
             "simulator_scene_stream_set",

@@ -62,11 +62,13 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "[string]$SimulatorExternalEvidence",
         "[string]$SimulatorExternalEvidenceRevalidation",
         "[string]$Px4AirframeTransactionEvidence",
+        "[string]$Px4ReportedPositionResponseMatrixEvidence",
         "[string[]]$Px4MissionFeedbackBinding",
         "[string[]]$Simulator3dControlEvidence",
         "[string[]]$SimulatorSceneStreamSetEvidence",
         "--simulator-scene-stream-set-evidence",
         "--px4-mission-feedback-evidence",
+        "--px4-reported-position-response-matrix-evidence",
         "MODE|VEHICLE|MISSION_JSON|SIGNED_RUNTIME_PROFILE_JSON|REPORT_JSON",
         "--allow-incomplete",
         "--no-overwrite",
@@ -98,8 +100,9 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "actuator-safety-software-acceptance-latest.json",
         "simulator-scenario-matrix-20260903-portable-paths-pre8.json",
         "combined-sim-qgc-20260902-hwnd-fallback-v4.json",
-        "simulator-external-runtime-ai-join-v56-current-parity-pre8.json",
-        "simulator-external-runtime-ai-revalidation-v56-current-parity-pre8.json",
+        "simulator-external-runtime-ai-join-v62b-current-parity-pre8.json",
+        "simulator-external-runtime-ai-revalidation-v62b-current-parity-pre8.json",
+        "px4-reported-position-response-matrix-v62-pre8-v2.json",
         "px4-airframe-mission-transaction-acceptance-latest.json",
         "simulator-3d-control-v56-camera-frame-vtol-pre8.json",
         "simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json",
@@ -111,27 +114,24 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         assert path in text
 
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v56\\"
-        "simulator-external-runtime-ai-join-v56-current-parity-pre8.json"
+        "artifacts\\evaluation\\terminal-continuation-v62\\"
+        "simulator-external-runtime-ai-join-v62b-current-parity-pre8.json"
     ) in text
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v56\\"
-        "simulator-external-runtime-ai-revalidation-v56-current-parity-pre8.json"
+        "artifacts\\evaluation\\terminal-continuation-v62\\"
+        "simulator-external-runtime-ai-revalidation-v62b-current-parity-pre8.json"
     ) in text
     for filename in (
         "simulator-3d-control-v56-camera-frame-vtol-pre8.json",
         "simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json",
         "simulator-3d-control-v56-camera-frame-multirotor-pre8.json",
     ):
-        assert (
-            "artifacts\\evaluation\\terminal-continuation-v56\\" + filename
-        ) in text
+        assert ("artifacts\\evaluation\\terminal-continuation-v56\\" + filename) in text
     assert "simulator-3d-control-v52-dem-ranging" not in text
     assert "simulator-3d-control-v54-odometry" not in text
     assert "simulator-external-runtime-ai-join-20260905-v52-dem-ranging-pre8.json" not in text
     assert (
-        "simulator-external-runtime-ai-revalidation-20260905-v52-dem-ranging-pre8.json"
-        not in text
+        "simulator-external-runtime-ai-revalidation-20260905-v52-dem-ranging-pre8.json" not in text
     )
     assert "terminal-continuation-v42\\simulator-external-runtime-ai-join" not in text
     assert "terminal-continuation-v42\\simulator-external-runtime-ai-revalidation" not in text

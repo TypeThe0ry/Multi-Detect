@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v62 三机型 PX4 reported-position 动态响应矩阵（2026-09-05）
+
+- 新增固定翼、多旋翼、VTOL 外部 PX4/Gazebo 动态响应矩阵生成器、独立验证器和 JSON Schema；
+  三机型均通过同一 truth-free perception/AI/authority/watchdog/MAVLink `MANUAL_CONTROL` 路径。
+- 使用 PX4 `GLOBAL_POSITION_INT` 实测最大水平位移 `33.872547 / 1.171039 / 3.784929 m`，禁止读取
+  Gazebo 真值或注入 pose；目标刷新、heartbeat、POSCTL 连续性、pinned image 和清理门全部通过。
+- E7 manifest writer/evaluator/schema/CLI 与当前 pre.8 wrapper 新增 hash-bound
+  `px4_reported_position_response_matrix`，每次重开三份源证据并复算矩阵；final release 缺失该项时
+  fail-closed。
+- `px4_mission_path_hash` 刷新为
+  `B79C941AF889BAB50B2F42E674EC6662921233926E1C9271A65CEB9FC2702E55`，相关 external join 与 E7
+  证据按新 parity 重建。该结果只关闭 SIM 动态响应子门，不声明硬件、HIL、REAL、实飞或人工视觉。
+- 全量回归 3,261 tests：`3260 passed, 1 skipped, 0 failed, 0 errors`；全仓 Ruff 和 compileall 通过。
+
 ### v0.3.0-pre.8 v61 原生 QGC 定位卡片/地图 exact-PID 机器捕获（2026-09-05）
 
 - HIL driver 增加 bounded post-authorization refresh：定位 evidence 在截图窗口内持续以同 target/frame

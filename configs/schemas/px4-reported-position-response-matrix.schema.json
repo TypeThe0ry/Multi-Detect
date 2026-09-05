@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/px4-reported-position-response-matrix.schema.json",
+  "title": "Multi-Detect three-airframe PX4 reported-position response matrix",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "product",
+    "release_label",
+    "release_identity",
+    "source_tools",
+    "entries",
+    "shared_checks",
+    "truth_free",
+    "hardware_acceptance",
+    "hil_acceptance",
+    "real_acceptance",
+    "gate_passed",
+    "reasons",
+    "matrix_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.px4-reported-position-response-matrix"},
+    "schema_version": {"const": 1},
+    "generated_at_utc": {"type": "string"},
+    "product": {"const": "Multi-Detect"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0-pre\\.[1-9][0-9]*$"},
+    "release_identity": {"type": "object"},
+    "source_tools": {
+      "type": "object",
+      "required": ["acceptance_runner", "matrix_builder", "matrix_verifier"],
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_runner": {"$ref": "#/$defs/sourceTool"},
+        "matrix_builder": {"$ref": "#/$defs/sourceTool"},
+        "matrix_verifier": {"$ref": "#/$defs/sourceTool"}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["vehicle_class", "source_path", "source_sha256", "checks_passed"],
+        "properties": {
+          "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+          "source_path": {"type": "string"},
+          "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "checks_passed": {"const": true}
+        }
+      }
+    },
+    "shared_checks": {"type": "object"},
+    "truth_free": {"const": true},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "hil_acceptance": {"const": "not_claimed"},
+    "real_acceptance": {"const": "not_claimed"},
+    "gate_passed": {"const": true},
+    "reasons": {"type": "array", "maxItems": 0},
+    "matrix_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "sourceTool": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

@@ -2,7 +2,16 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 户外定位/SIM/QGC 动态机器捕获收口（v61）
+## 当前 pre.8 三机型 PX4 动态响应与 E7 绑定收口（v62）
+
+- [x] fixed-wing/multirotor/VTOL 使用同一 AI→MAVLink `MANUAL_CONTROL` 路径驱动 external PX4/Gazebo；
+- [x] 只从 `GLOBAL_POSITION_INT` 验证实际位移，禁止 Gazebo truth consumption 和 pose injection；
+- [x] source-bound 三机型矩阵、独立 verifier、JSON Schema、E7 writer/evaluator/CLI/wrapper 接线完成；
+- [x] 当前 parity、external join 和 report-only E7 均按 v62 源码重新生成；
+- [ ] 增加多次重复运行和故障注入的三机型动态响应分布门；
+- [ ] 完成 operator visual、部署域模型、现场链路、HIL/REAL 与真实三机型硬件反馈。
+
+## v61 户外定位/SIM/QGC 动态机器捕获收口
 
 - [x] 将三轴射线不确定性失败映射为 Python/QGC 共用的 `RANGE_STATUS` bit 31，保持内部诊断细粒度并
   让操作端稳定显示 fail-closed 状态。

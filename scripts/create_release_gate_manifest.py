@@ -13,7 +13,10 @@ import sys
 from pathlib import Path
 
 if __package__ in {None, ""}:
-    _repository_source = Path(__file__).resolve().parents[1] / "src"
+    _repository_root = Path(__file__).resolve().parents[1]
+    if str(_repository_root) not in sys.path:
+        sys.path.insert(0, str(_repository_root))
+    _repository_source = _repository_root / "src"
     if _repository_source.is_dir() and str(_repository_source) not in sys.path:
         sys.path.insert(0, str(_repository_source))
 
