@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 可独立复验的 online covariance preflight（v91）
+
+- [x] 将下一叶在线探测固化为闭合 schema-v2 observation，加入 UTC 与 canonical evidence digest；
+- [x] 绑定当前 campaign、六叶 source gate、Mission/feedback/profile、schema/runner/builder 与 release parity；
+- [x] `verify-probe` 重开来源并重算 mode binding、采样时序、identity query 预算、reasons 与 gate；
+- [x] 默认 300 秒过期，并拒绝未来时间、source/parity 漂移、leaf 前移、未知字段和 symlink；
+- [ ] 在现场准备真实 campaign 后生成并立即复验每个下一叶 observation，再执行对应 `capture-next`；
+- [ ] 第二机可移植复验仍需定义路径重定位合同；当前 observation 明确绑定原 campaign workspace 的绝对路径。
+
 ## 六叶 covariance source preflight（v89）
 
 - [x] 无 transport I/O 地重开全部 Mission、feedback v2 与 signed runtime profile；

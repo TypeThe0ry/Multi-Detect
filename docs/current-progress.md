@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v90 工作树）
+最后更新：2026-09-06（v91 工作树）
+
+## v91 本轮已收口
+
+- `probe-next` 输出升级为 `multidetect.pixhawk-covariance-online-preflight/v2` 闭合 observation，加入 UTC
+  观测时间、canonical evidence SHA-256 和固定为 false 的 release/hardware/HIL/REAL/flight claims；
+- source binding 覆盖 campaign、Mission、Mission feedback、runtime profile、online schema、campaign runner、
+  covariance mode-binding authority 与当前五组 release parity；
+- 新增 `verify-probe`：重开当前 campaign，要求相同 leaf 仍是 `next_leaf`、六叶 source preflight 仍全绿，
+  并重算 authoritative mode binding、采样时序、firmware response、查询/TX 预算、reasons 与 gate；
+- 文件加载默认 300 秒过期；未来时间、digest 篡改、未知字段、source/parity 漂移、campaign 前移和 symlink
+  全部 fail-closed。当前记录绑定原 workspace 绝对路径，第二机路径重定位合同仍待实现；
+- `px4_mission_path_hash` 更新为 `792FFFBE...100780`。当前没有真实 campaign 配置、串口/PnP 设备或
+  `field-inputs`，所以没有运行真实 probe/capture，也没有生成 HIL/REAL、hardware 或 flight 通过声明。
+- 全量回归 3,430 tests：`3429 passed, 1 skipped, 0 failed, 0 errors`，耗时 93.046 秒；JUnit
+  500,693 bytes、SHA-256 `EF040571787F7AAD5759548B60EC8CE66EB21E3E878F830AE36D060436D0E241`；
+  全仓 Ruff 通过。
 
 ## v90 本轮已收口
 

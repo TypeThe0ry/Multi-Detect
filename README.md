@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v90：下一叶 Pixhawk online identity probe；正式采集前核对当前 endpoint、HEARTBEAT、firmware、qualification 与安全查询预算 |
+| 当前工程迭代 | v91：可独立复验、默认 5 分钟过期的 Pixhawk online preflight；绑定当前 campaign、六叶静态门、Mission/feedback/profile、parity、身份与查询预算 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,23 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v91 严格、过期失效的 online preflight
+
+`probe-next` 的输出已经升级为闭合 schema-v2 observation。记录包含 UTC 观测时间与 canonical
+`evidence_sha256`，并绑定当前 campaign、六叶 source preflight、Mission、Mission feedback、signed
+runtime profile、online schema、runner、mode-binding authority 和五组 release parity。保存后的记录可用
+独立命令重开全部来源、重算 mode binding、采样时序、identity query 预算、reasons 与 gate；默认超过
+300 秒即拒绝。当前 leaf 被采集、campaign 的 `next_leaf` 前移后，旧 probe 也会按设计失效。
+
+```powershell
+python -m multidetect.field_covariance_campaign verify-probe `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --probe-report .\artifacts\evaluation\field-covariance\online-preflight.json
+```
+
+可用 `--maximum-age-seconds` 显式缩短或调整现场窗口。该文件仍固定声明
+`release/hardware/HIL/REAL/flight=false`，只授权紧随其后的当前叶采集，不进入 E7。
 
 ### v90 下一叶 Pixhawk online identity probe
 

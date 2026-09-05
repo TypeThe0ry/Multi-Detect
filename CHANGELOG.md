@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v91 sealed and expiring covariance online preflight（2026-09-06）
+
+- `probe-next` 输出升级为闭合 Draft 2020-12 schema-v2 observation，加入 UTC observation time、canonical
+  evidence SHA-256 与不可提升的 release/hardware/HIL/REAL/flight=false claims；
+- source binding 覆盖 campaign、Mission、feedback、runtime profile、schema、runner、mode-binding module
+  和五组当前 parity；verifier 会重开当前 campaign，要求相同 leaf 仍是唯一 `next_leaf` 且六叶静态门全绿；
+- 新增 `verify-probe`，独立重算 source hashes、authoritative mode binding、采样时序、identity response、
+  最多三次查询预算、reasons 与 gate；默认 300 秒过期，未来时间、内容篡改、source/parity 漂移和 symlink
+  均 fail-closed；
+- 新 schema/module 纳入 `px4_mission_path_hash`，更新为 `792fffbe...100780`。本轮没有可用真实串口或
+  现场 campaign，因此没有生成 HIL/REAL、hardware 或 flight 通过声明；全量回归 3,430 tests：
+  `3429 passed, 1 skipped`，全仓 Ruff 通过；版本保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v90 current Pixhawk covariance identity probe（2026-09-06）
 
 - campaign runner 新增 `probe-next`：六叶静态预检通过后，只探测当前 pending 叶，复用正式 covariance

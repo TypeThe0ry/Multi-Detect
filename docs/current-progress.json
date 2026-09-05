@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T22:19:07Z",
+  "updated_at_utc": "2026-09-05T22:40:03Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "0ea2be55212e7b70a0b3497681d347547b854493",
-    "commit_subject": "feat(evidence): probe current covariance leaf identity",
-    "commits_ahead_of_origin_main": 68
+    "commit": "0d757a21ef4f732a0ec8bc1b1280ac042650fc19",
+    "commit_subject": "feat(evidence): seal online covariance preflight",
+    "commits_ahead_of_origin_main": 70
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v90",
+  "working_iteration": "v91",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v90-final.xml",
-      "tests": 3419,
-      "passed": 3418,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v91-final.xml",
+      "tests": 3430,
+      "passed": 3429,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 95.171,
-      "junit_local_path": "tmp/current-progress-regression-v90-final.xml",
-      "junit_file_bytes": 499148,
-      "junit_file_sha256": "32d6bdc009476b67c1117a137e981642570a9004f4137626c1e66f8f180cad53",
+      "duration_seconds": 93.046,
+      "junit_local_path": "tmp/current-progress-regression-v91-final.xml",
+      "junit_file_bytes": 500693,
+      "junit_file_sha256": "ef040571787f7aad5759548b60ec8ce66eb21e3e878f830ae36d060436d0e241",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,14 +63,14 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 5972,
-    "file_sha256": "bb07ec7c7e7989fcf492eef622a3ed29dee63ec9e3fedb664ceed0ccea3b9284",
+    "bytes": 6101,
+    "file_sha256": "89445664e9958ef6106a471883a475c8d0200879127e18cb12e6435e9ea29a96",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "c7c86a1fa98e15efb6ed3302332be19603449f4ac96df679a5d4c2c0982ab218"
+      "px4_mission_path_hash": "792fffbe10f0665b578b1a8d06ea2ad814ea02fdea4d2ebae360462b10100780"
     }
   },
   "evidence": {
@@ -79,7 +79,7 @@
       "schema_path": "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
       "example_config": "configs/pixhawk-covariance-field-campaign.example.json",
       "runner_module": "multidetect.field_covariance_campaign",
-      "commands": ["status", "preflight", "probe-next", "capture-next", "verify"],
+      "commands": ["status", "preflight", "probe-next", "verify-probe", "capture-next", "verify"],
       "source_preflight_all_six_required": true,
       "source_preflight_transport_io": false,
       "source_preflight_reopens_sources": true,
@@ -100,6 +100,15 @@
       "online_preflight_ranging_requests_enabled": false,
       "online_preflight_identity_query_maximum_attempts": 3,
       "online_preflight_capture_hard_block": true,
+      "online_preflight_schema": "multidetect.pixhawk-covariance-online-preflight/v2",
+      "online_preflight_schema_path": "configs/schemas/pixhawk-covariance-online-preflight.schema.json",
+      "online_preflight_schema_file_bytes": 8243,
+      "online_preflight_schema_file_sha256": "44eb0812335d8e8cd6434c3fa00cfc39e5c4cf75205e4bb286e795d04b8d5256",
+      "online_preflight_default_maximum_age_seconds": 300.0,
+      "online_preflight_reopens_current_campaign": true,
+      "online_preflight_requires_same_next_leaf": true,
+      "online_preflight_recomputes_mode_binding_and_budget": true,
+      "online_preflight_workspace_relocation_supported": false,
       "online_preflight_release_evidence": false,
       "one_leaf_per_capture": true,
       "existing_reports_reverified": true,

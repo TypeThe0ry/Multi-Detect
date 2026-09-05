@@ -1,5 +1,26 @@
 # 统一仓库架构
 
+## v91 sealed online preflight contract（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+live next-leaf probe
+  -> closed online-preflight schema v2 + UTC + canonical digest
+  -> source binding: campaign + Mission + feedback + profile
+                     + schema + runner + mode-binding authority + parity
+  -> verify-probe (default max age 300 s)
+       reopen current six-leaf campaign and require same next_leaf
+       rerun all-six source preflight
+       rebuild authoritative mode binding and query/TX budget
+       reject time/content/source/parity/leaf drift
+  -> operational authorization for the immediate next capture only
+  -> never E7/HIL/REAL/hardware/flight acceptance
+```
+
+`src/multidetect/online_covariance_preflight.py` owns the immutable observation contract and independent verifier；
+`configs/schemas/pixhawk-covariance-online-preflight.schema.json` closes every nested object and reuses the existing
+heartbeat、firmware、mode-binding、qualification 与 parity definitions。记录绑定原 campaign workspace 的
+绝对来源路径；第二机路径重定位尚未定义，因此当前只声称同一已准备 workspace 内的独立复验。
+
 ## v90 current Pixhawk online identity probe（2026-09-06，`v0.3.0-pre.8`）
 
 ```text
@@ -1832,6 +1853,8 @@ Multi-Detect/
 │   ├── px4_mission_feedback_cli.py   # v1 历史诊断 / v2 签名运行身份现场采集与独立重验
 │   ├── px4_mission_feedback_runtime.py # profile/heartbeat/endpoint/airframe/output-lock 会话绑定
 │   ├── px4_mission_feedback_binding.py # HIL/REAL × 三机型 Mission/profile/report 的 E7 六源绑定
+│   ├── field_covariance_campaign.py # 六叶 covariance 现场顺序、静态/在线预检、采集与聚合入口
+│   ├── online_covariance_preflight.py # 5 分钟时效、source/parity-bound 的在线探测 observation/verifier
 │   ├── replay_set.py                 # 六类部署域分层回放集 manifest、帧对齐与哈希校验
 │   ├── replay_set_evaluation.py      # 六分层 IoU/延迟精度报告、独立复核与 E7 哈希绑定
 │   ├── replay_set_readiness.py        # 采集阶段逐层 readiness、正例分母与精度报告重算
@@ -1855,8 +1878,9 @@ Multi-Detect/
 ├── configs/
 │   ├── product-version.json         # 产品版本单一真源
 │   ├── release-parity.json          # 当前源码五组共享契约 hash（由生成器重算）
+│   ├── pixhawk-covariance-field-campaign.example.json # HIL/REAL × 三机型六叶现场配置模板
 │   ├── calibration/                 # 可追踪的现场标定输入资产（ChArUco 打印板）
-│   ├── schemas/                     # 对外 JSON Schema 与版本化数据契约（含 E7/replay-set/scene-stream-set manifest）
+│   ├── schemas/                     # 对外 JSON Schema（含 E7/replay/scene/covariance online-preflight）
 │   └── scenarios/                   # 可复现实验场景清单
 ├── scripts/                         # 部署、构建、Replay/SITL/Mission/HIL/现场验收（含 scenario-matrix wrapper、verify_simulator_scene_stream.py、verify_simulator_scene_stream_set.py、create_release_mode_evidence.py、create_release_gate_manifest.py、check_release_gate.py、check_field_evidence_bundle.py、create_replay_set_manifest.py、check_replay_set_readiness.py、create_sim_replay_set_fixture.py、create_replay_set_positive_fixture.py、create_video_replay_recording.py、gnss_capture_to_replay_telemetry.py、join_raw_replay_telemetry.py、evaluate_replay_set.py、calibrate_replay_set.py、run_alert_link_bench.py、verify_alert_link_bench.py、run_field_link_preflight.py、run_field_link_preflight.ps1（只读现场一键入口）、inspect_field_link_interfaces.ps1（迁移后只读网卡诊断）、verify_field_link_preflight.py、prepare_field_link.ps1（含显式 UAC -Elevate）、capture_field_session.py、verify_field_session_capture.py、validate_field_session.py、capture_gnss_samples.py、verify_gnss_capture.py、build_target_geolocation_accuracy.py、recover_docker_desktop_stale_socket.ps1）
 ├── tests/                           # Python 单元、契约、确定性与集成回归

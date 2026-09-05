@@ -1,5 +1,24 @@
 # v0.3.0 E7 发布门
 
+## v91 sealed online preflight（2026-09-06，`v0.3.0-pre.8`）
+
+`probe-next --status-out` 现在保存 schema-v2 operational observation。正式采集前在同一 campaign
+workspace 立即独立复验：
+
+```powershell
+python -m multidetect.field_covariance_campaign verify-probe `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --probe-report .\artifacts\evaluation\field-covariance\online-preflight.json
+```
+
+默认 freshness 窗口为 300 秒；也可显式传入 `--maximum-age-seconds 120`。verifier 不信任保存的摘要，
+会重开 campaign/Mission/feedback/profile，重新执行六叶静态 preflight 和 authoritative mode binding，
+核对 leaf 仍是当前 `next_leaf`，并重算采样时序、identity response、查询/TX 预算、reasons、gate、
+canonical digest 和当前 release parity。任一漂移、过期或 symlink 返回非零。
+
+这仍不是 E7 covariance leaf：它不含 estimator covariance 样本，所有 acceptance claims 固定为 false，
+也不能跨 workspace 搬运后冒充复验。正式 `capture-next` 自己会重新在线探测，不依赖旧文件放行。
+
 ## v90 当前 Pixhawk identity probe（2026-09-06，`v0.3.0-pre.8`）
 
 六叶 source READY 后、正式采集前运行：
