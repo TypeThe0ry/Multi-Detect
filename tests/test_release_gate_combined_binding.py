@@ -82,6 +82,17 @@ def _combined_document() -> dict[str, object]:
         "integrated_sim_qgc": {
             "gate_passed": True,
             "runtime_mode": "sim",
+            "sensor_transport": {
+                "camera_info_intrinsics_semantic_validation": (
+                    "validated_k_p_rectification_plumb_bob_distortion"
+                ),
+                "complete": True,
+                "expected_frame_count": 3,
+                "received_frame_count": 3,
+                "odometry_required": True,
+                "odometry_timestamp_frame_count": 3,
+                "full_odometry_pose_velocity_fusion_claimed": True,
+            },
             "hardware_outputs_present": False,
             "real_pixhawk_contacted": False,
             "actuator_outputs_present": False,
