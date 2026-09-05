@@ -348,17 +348,39 @@ def _parse_labeled_boxes(value: object, *, require_confidence: bool) -> tuple[La
 
 def _load_jsonl(path: str | Path) -> tuple[dict[str, Any], ...]:
     records: list[dict[str, Any]] = []
-    with Path(path).open("r", encoding="utf-8") as handle:
+    with Path(path).open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
                 continue
-            raw = json.loads(line)
+            try:
+                raw = json.loads(
+                    line,
+                    parse_constant=_reject_json_constant,
+                    object_pairs_hook=_reject_duplicate_json_keys,
+                )
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise ValueError(
+                    f"JSONL line {line_number} is not strict JSON: {exc}"
+                ) from exc
             if not isinstance(raw, dict):
                 raise ValueError(f"JSONL line {line_number} must be an object")
             records.append(raw)
     if not records:
         raise ValueError("evaluation JSONL cannot be empty")
     return tuple(records)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number {value}")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        result[key] = value
+    return result
 
 
 def _required_text(mapping: dict[str, Any], key: str) -> str:

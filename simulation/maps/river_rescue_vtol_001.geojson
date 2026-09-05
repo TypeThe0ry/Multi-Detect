@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "river_rescue_vtol_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "operating-area",
+      "properties": {
+        "role": "operating_area",
+        "source": "repository_owned_simulation_asset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [103.7955, 1.295],
+            [103.8055, 1.295],
+            [103.8055, 1.305],
+            [103.7955, 1.305],
+            [103.7955, 1.295]
+          ]
+        ]
+      }
+    }
+  ]
+}

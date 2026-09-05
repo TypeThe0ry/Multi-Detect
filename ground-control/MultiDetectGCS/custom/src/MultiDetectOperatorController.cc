@@ -88,6 +88,7 @@ MultiDetectOperatorController::MultiDetectOperatorController(QObject* parent)
       _remoteSystemId(environmentInteger("MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID", 1)),
       _remoteComponentId(environmentInteger("MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID", 191)),
       _operatorId(environmentValue("MULTIDETECT_OPERATOR_ID")),
+      _expectedRuntimeMode(environmentValue("MULTIDETECT_EXPECTED_RUNTIME_MODE").trimmed().toUpper()),
       _operatorUdpHost(environmentValue("MULTIDETECT_OPERATOR_UDP_HOST", QStringLiteral("192.168.144.20")).trimmed()),
       _operatorUdpPort(environmentInteger("MULTIDETECT_OPERATOR_UDP_PORT", 14580)),
       _operatorUdpLocalPort(environmentInteger("MULTIDETECT_OPERATOR_UDP_LOCAL_PORT", 14581)),
@@ -133,7 +134,13 @@ MultiDetectOperatorController::MultiDetectOperatorController(QObject* parent)
     _depthGridRenderTimer.setSingleShot(true);
     connect(&_depthGridRenderTimer, &QTimer::timeout, this, &MultiDetectOperatorController::_renderPendingDepthGrid);
 
-    if (_depthGridUdpPort >= 1024 && _depthGridUdpPort <= 65535 && _depthGridJetsonPort >= 1024 &&
+    // The depth-grid channel is authenticated with the same operator key as
+    // the metadata path.  An offline/unprovisioned QGC has no usable protocol
+    // state, so do not create a receiver only to emit a misleading bind
+    // warning; once the key is provisioned, invalid endpoints still fail
+    // closed through MultiDetectDepthGridReceiver::start().
+    if (_protocol.configured() && _depthGridUdpPort >= 1024 && _depthGridUdpPort <= 65535 &&
+        _depthGridJetsonPort >= 1024 &&
         _depthGridJetsonPort <= 65535 && _depthGridUdpPort != _depthGridJetsonPort) {
         _depthGridReceiver = new MultiDetectDepthGridReceiver(_hmacKey, this);
         connect(_depthGridReceiver, &MultiDetectDepthGridReceiver::frameReady, this,
@@ -157,6 +164,31 @@ MultiDetectOperatorController::~MultiDetectOperatorController()
     shutdown();
 }
 
+QString MultiDetectOperatorController::runtimeDisplayMode() const
+{
+    if (_runtimeStatus.isEmpty()) {
+        return QStringLiteral("UNKNOWN");
+    }
+    const QString remoteMode = _runtimeStatus.value(QStringLiteral("mode")).toString();
+    if (remoteMode != QStringLiteral("REPLAY") && remoteMode != QStringLiteral("SIM") &&
+        remoteMode != QStringLiteral("HIL") && remoteMode != QStringLiteral("REAL")) {
+        return QStringLiteral("UNKNOWN");
+    }
+    const bool scenarioPresent = _runtimeStatus.value(QStringLiteral("scenarioPresent")).toBool();
+    const bool groundTruthIsolated = _runtimeStatus.value(QStringLiteral("groundTruthIsolated")).toBool();
+    const bool hardwareOutputsPresent = _runtimeStatus.value(QStringLiteral("hardwareOutputsPresent")).toBool();
+    const bool profileValid = _runtimeStatus.value(QStringLiteral("profileValid")).toBool();
+    const bool realRuntime = remoteMode == QStringLiteral("REAL");
+    if (!profileValid || (realRuntime && scenarioPresent) ||
+        (!realRuntime && (!groundTruthIsolated || hardwareOutputsPresent))) {
+        return QStringLiteral("UNKNOWN");
+    }
+    if (!_expectedRuntimeMode.isEmpty() && remoteMode != _expectedRuntimeMode) {
+        return QStringLiteral("MISMATCH");
+    }
+    return remoteMode;
+}
+
 void MultiDetectOperatorController::shutdown()
 {
     if (_shutdown) {
@@ -173,6 +205,7 @@ void MultiDetectOperatorController::shutdown()
     _challenge = {};
     _approachChallengeBinding = {};
     _payloadTargetChallengeBinding = {};
+    _clearTargetGeolocationSourceState();
     if (_depthGridReceiver != nullptr) {
         _depthGridReceiver->close();
         _depthGridReceiver = nullptr;
@@ -677,7 +710,8 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
     if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetSelection ||
         packet.type == MultiDetectOperatorProtocol::MessageType::AuthorizationDecision ||
         packet.type == MultiDetectOperatorProtocol::MessageType::ApproachConfirmation ||
-        packet.type == MultiDetectOperatorProtocol::MessageType::PayloadTargetConfirmation) {
+        packet.type == MultiDetectOperatorProtocol::MessageType::PayloadTargetConfirmation ||
+        packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatusAck) {
         _reject(QStringLiteral("operator-link message direction is invalid for GCS"));
         return;
     }
@@ -853,6 +887,10 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         emit rangeStatusChanged();
         emit rangeStatusReceived(fields);
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetGeolocationStatus) {
+        if (!_acceptTargetGeolocationSource(fields, packet.sentAtMs, _lastAuthenticatedAtMs)) {
+            _reject(QStringLiteral("target-geolocation source frame is stale or regressed"));
+            return;
+        }
         _targetGeolocationStatus = fields;
         _lastTargetGeolocationStatusAtMs = _lastAuthenticatedAtMs;
         emit targetGeolocationStatusChanged();
@@ -870,6 +908,35 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         _payloadTargetStatus = fields;
         _lastPayloadTargetStatusAtMs = _lastAuthenticatedAtMs;
         emit payloadTargetStatusChanged();
+    } else if (packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatus) {
+        _runtimeStatus = fields;
+        _lastRuntimeStatusAtMs = _lastAuthenticatedAtMs;
+        emit runtimeStatusChanged();
+        // The acceptance proof is deliberately post-adoption: stale/duplicate
+        // type-23 packets returned above through _isNewStatus, and this point is
+        // reached only after the native QGC state was replaced and observers
+        // were notified on the existing Fly View controller chain.
+        bool runHashOk = false;
+        const quint64 runHash64 = fields.value(QStringLiteral("runHash64")).toString().toULongLong(&runHashOk, 16);
+        QString acknowledgementError;
+        const QByteArray acknowledgement =
+            runHashOk && runHash64 != 0
+                ? _protocol.encodeRuntimeStatusAck(packet.sequence, runHash64, ++_runtimeStatusAckSequence,
+                                                   static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()),
+                                                   &acknowledgementError)
+                : QByteArray();
+        if (acknowledgement.isEmpty()) {
+            _reject(runHashOk ? acknowledgementError
+                              : QStringLiteral("runtime-status run hash could not be acknowledged"));
+            return;
+        }
+        if (!_sendPayload(acknowledgement)) {
+            _reject(QStringLiteral("failed to send runtime-status acceptance acknowledgement"));
+            return;
+        }
+        qCInfo(MultiDetectOperatorLog).nospace()
+            << "runtime status adopted and acknowledged sequence=" << packet.sequence
+            << " run_hash64=" << fields.value(QStringLiteral("runHash64")).toString();
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetPoolStatus) {
         const quint32 revision = fields.value(QStringLiteral("poolRevision")).toUInt();
         const int pageIndex = fields.value(QStringLiteral("pageIndex")).toInt();
@@ -1128,9 +1195,15 @@ void MultiDetectOperatorController::_poll()
             _targetGeolocationStatus.clear();
             emit targetGeolocationStatusChanged();
         }
+        _clearTargetGeolocationSourceState();
         if (!_releaseStatus.isEmpty()) {
             _releaseStatus.clear();
             emit releaseStatusChanged();
+        }
+        if (!_runtimeStatus.isEmpty()) {
+            _runtimeStatus.clear();
+            _lastRuntimeStatusAtMs = 0;
+            emit runtimeStatusChanged();
         }
         if (!_approachChallenge.isEmpty()) {
             _approachChallenge.clear();
@@ -1216,6 +1289,17 @@ void MultiDetectOperatorController::_poll()
         if (!_releaseStatus.isEmpty()) {
             _releaseStatus.clear();
             emit releaseStatusChanged();
+        }
+    }
+
+    // Runtime identity is sent at 1 Hz.  Fail closed after two complete
+    // heartbeat periods so a badge never keeps advertising a dead backend.
+    constexpr quint64 kRuntimeStatusStaleMs = 2000;
+    if (_lastRuntimeStatusAtMs != 0 && nowMs - _lastRuntimeStatusAtMs > kRuntimeStatusStaleMs) {
+        _lastRuntimeStatusAtMs = 0;
+        if (!_runtimeStatus.isEmpty()) {
+            _runtimeStatus.clear();
+            emit runtimeStatusChanged();
         }
     }
 
@@ -1512,6 +1596,91 @@ bool MultiDetectOperatorController::_isNewStatus(MultiDetectOperatorProtocol::Me
     _lastStatusSequence.insert(key, sequence);
     _lastStatusAcceptedAtMs.insert(key, receivedAtMs);
     return true;
+}
+
+bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,
+                                                                   quint64 receivedAtMs)
+{
+    // Unavailable packets are already fail-closed at the protocol layer and
+    // carry no coordinates.  They may be adopted normally so the Fly View can
+    // explicitly show “不可定位” instead of retaining a previous point.
+    if (!fields.value(QStringLiteral("available")).toBool()) {
+        return true;
+    }
+
+    bool sourceAgeOk = false;
+    const quint64 sourceAgeMs = _unsignedValue(fields, QStringLiteral("sourceAgeMs"), &sourceAgeOk);
+    const QString targetId = fields.value(QStringLiteral("targetId")).toString();
+    const QString sourceFrameId = fields.value(QStringLiteral("sourceFrameId")).toString();
+    if (!sourceAgeOk || sourceAgeMs > MultiDetectOperatorProtocol::kMaximumTargetGeolocationSourceAgeMs ||
+        sentAtMs == 0 || sentAtMs < sourceAgeMs || targetId.isEmpty() || sourceFrameId.isEmpty()) {
+        return false;
+    }
+
+    const quint64 sourceCapturedAtMs = sentAtMs - sourceAgeMs;
+    const QString sourceKey = targetId + QLatin1Char('\x1f') + sourceFrameId;
+    auto stateIt = _targetGeolocationSourceStates.find(sourceKey);
+    if (stateIt == _targetGeolocationSourceStates.end()) {
+        // Source timestamps must not move backwards for one target.  This
+        // catches an old coordinate replayed under a new frame id while still
+        // allowing legitimate target changes and normal UDP reordering.
+        const auto latestIt = _targetGeolocationLatestCaptureAtMs.constFind(targetId);
+        if (latestIt != _targetGeolocationLatestCaptureAtMs.constEnd() && sourceCapturedAtMs < latestIt.value()) {
+            return false;
+        }
+
+        TargetGeolocationSourceState state;
+        state.firstSeenAtMs = receivedAtMs;
+        state.lastSentAtMs = sentAtMs;
+        state.lastSourceCaptureAtMs = sourceCapturedAtMs;
+        state.lastSourceAgeMs = static_cast<quint16>(sourceAgeMs);
+        _targetGeolocationSourceStates.insert(sourceKey, state);
+        _targetGeolocationLatestCaptureAtMs.insert(targetId, sourceCapturedAtMs);
+
+        // A detector can emit many source frames over a long authenticated
+        // session. Keep this replay guard bounded; the latest-per-target map
+        // remains small and is cleared with the link session below.
+        constexpr int kMaximumTrackedSourceFrames = 128;
+        if (_targetGeolocationSourceStates.size() > kMaximumTrackedSourceFrames) {
+            auto oldestIt = _targetGeolocationSourceStates.begin();
+            for (auto candidate = oldestIt; candidate != _targetGeolocationSourceStates.end(); ++candidate) {
+                if (candidate.value().firstSeenAtMs < oldestIt.value().firstSeenAtMs) {
+                    oldestIt = candidate;
+                }
+            }
+            _targetGeolocationSourceStates.erase(oldestIt);
+        }
+        return true;
+    }
+
+    TargetGeolocationSourceState& state = stateIt.value();
+    // A source frame may be retransmitted while its age increases, but it may
+    // not be kept alive indefinitely, reset its age, or move its producer
+    // timestamp backwards.  Rejecting here leaves the previous point subject
+    // to the normal one-second QGC stale timer instead of refreshing it.
+    if (receivedAtMs < state.firstSeenAtMs ||
+        receivedAtMs - state.firstSeenAtMs > MultiDetectOperatorProtocol::kMaximumTargetGeolocationFrameHoldMs ||
+        sentAtMs < state.lastSentAtMs || sourceAgeMs < state.lastSourceAgeMs ||
+        sourceCapturedAtMs < state.lastSourceCaptureAtMs ||
+        (sentAtMs == state.lastSentAtMs && sourceAgeMs == state.lastSourceAgeMs)) {
+        return false;
+    }
+
+    const auto latestIt = _targetGeolocationLatestCaptureAtMs.constFind(targetId);
+    if (latestIt != _targetGeolocationLatestCaptureAtMs.constEnd() && sourceCapturedAtMs < latestIt.value()) {
+        return false;
+    }
+    state.lastSentAtMs = sentAtMs;
+    state.lastSourceCaptureAtMs = sourceCapturedAtMs;
+    state.lastSourceAgeMs = static_cast<quint16>(sourceAgeMs);
+    _targetGeolocationLatestCaptureAtMs.insert(targetId, sourceCapturedAtMs);
+    return true;
+}
+
+void MultiDetectOperatorController::_clearTargetGeolocationSourceState()
+{
+    _targetGeolocationSourceStates.clear();
+    _targetGeolocationLatestCaptureAtMs.clear();
 }
 
 quint64 MultiDetectOperatorController::_operatorWireNowMs(quint64 localNowMs) const

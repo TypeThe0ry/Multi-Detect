@@ -107,7 +107,12 @@ def _validate_packet_header(
     now_unix_s: float,
     maximum_clock_skew_seconds: float,
 ) -> None:
-    if document.get("protocol") != _UDP_PROTOCOL or document.get("version") != 1:
+    version = document.get("version")
+    if (
+        document.get("protocol") != _UDP_PROTOCOL
+        or type(version) is not int
+        or version != _UDP_PROTOCOL_VERSION
+    ):
         raise AlertAuthenticationError("unsupported data-link protocol or version")
     if document.get("message_type") != message_type:
         raise AlertAuthenticationError("unexpected data-link message type")
@@ -116,7 +121,11 @@ def _validate_packet_header(
     if document.get("receiver_id") != expected_receiver_id:
         raise AlertAuthenticationError("unexpected data-link receiver identity")
     sent_at_unix_s = document.get("sent_at_unix_s")
-    if not isinstance(sent_at_unix_s, int | float) or not math.isfinite(sent_at_unix_s):
+    if (
+        isinstance(sent_at_unix_s, bool)
+        or not isinstance(sent_at_unix_s, (int, float))
+        or not math.isfinite(float(sent_at_unix_s))
+    ):
         raise AlertAuthenticationError("data-link packet timestamp is invalid")
     if abs(now_unix_s - float(sent_at_unix_s)) > maximum_clock_skew_seconds:
         raise AlertAuthenticationError("data-link packet timestamp is outside the allowed window")

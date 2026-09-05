@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-executable-mission.schema.json",
+  "title": "Multi-Detect ExecutableMission v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mission_id", "platform_plan_hash", "airframe_profile_hash", "airframe_adapter_id", "airframe_adapter_hash", "items"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "mission_id": {"type": "string", "minLength": 1},
+    "platform_plan_hash": {"$ref": "#/$defs/sha256"},
+    "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+    "airframe_adapter_id": {"type": "string", "minLength": 1},
+    "airframe_adapter_hash": {"$ref": "#/$defs/sha256"},
+    "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/item"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+        "required": ["sequence", "command", "frame", "param1", "param2", "param3", "param4", "current", "autocontinue", "mission_type"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 0},
+          "command": {"enum": ["MAV_CMD_NAV_TAKEOFF", "MAV_CMD_NAV_VTOL_TAKEOFF", "MAV_CMD_NAV_WAYPOINT", "MAV_CMD_NAV_LOITER_TIME", "MAV_CMD_NAV_LOITER_TO_ALT", "MAV_CMD_NAV_RETURN_TO_LAUNCH", "MAV_CMD_NAV_LAND", "MAV_CMD_NAV_VTOL_LAND", "MAV_CMD_DO_VTOL_TRANSITION"]},
+          "frame": {"enum": ["MAV_FRAME_GLOBAL_INT", "MAV_FRAME_GLOBAL_RELATIVE_ALT_INT", "MAV_FRAME_GLOBAL_TERRAIN_ALT_INT", "MAV_FRAME_MISSION"]},
+          "latitude_deg": {"type": "number", "minimum": -90, "maximum": 90},
+          "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+          "altitude_m": {"type": "number"},
+          "param1": {"type": "number"},
+          "param2": {"type": "number"},
+          "param3": {"type": "number"},
+          "param4": {"type": "number"},
+          "current": {"enum": [0, 1]},
+          "autocontinue": {"const": true},
+          "mission_type": {"const": 0}
+      },
+      "oneOf": [
+        {
+          "required": ["latitude_deg", "longitude_deg", "altitude_m"],
+          "properties": {
+            "command": {"enum": ["MAV_CMD_NAV_TAKEOFF", "MAV_CMD_NAV_VTOL_TAKEOFF", "MAV_CMD_NAV_WAYPOINT", "MAV_CMD_NAV_LOITER_TIME", "MAV_CMD_NAV_LOITER_TO_ALT", "MAV_CMD_NAV_LAND", "MAV_CMD_NAV_VTOL_LAND"]},
+            "frame": {"enum": ["MAV_FRAME_GLOBAL_INT", "MAV_FRAME_GLOBAL_RELATIVE_ALT_INT", "MAV_FRAME_GLOBAL_TERRAIN_ALT_INT"]}
+          }
+        },
+        {
+          "properties": {"command": {"const": "MAV_CMD_NAV_RETURN_TO_LAUNCH"}, "frame": {"const": "MAV_FRAME_MISSION"}},
+          "not": {"anyOf": [{"required": ["latitude_deg"]}, {"required": ["longitude_deg"]}, {"required": ["altitude_m"]}]}
+        },
+        {
+          "properties": {
+            "command": {"const": "MAV_CMD_DO_VTOL_TRANSITION"},
+            "frame": {"const": "MAV_FRAME_MISSION"},
+            "param1": {"enum": [3, 4]},
+            "param2": {"const": 0},
+            "param3": {"const": 0},
+            "param4": {"const": 0}
+          },
+          "not": {"anyOf": [{"required": ["latitude_deg"]}, {"required": ["longitude_deg"]}, {"required": ["altitude_m"]}]}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gnss-capture.schema.json",
+  "title": "Multi-Detect read-only GNSS capture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "evidence_type",
+    "endpoint",
+    "started_at_epoch_s",
+    "ended_at_epoch_s",
+    "duration_seconds",
+    "read_only",
+    "messages_transmitted",
+    "contains_flight_control",
+    "contains_truth",
+    "ground_truth_isolated",
+    "advisory_only",
+    "hardware_acceptance",
+    "real_flight_acceptance",
+    "decode_errors",
+    "records",
+    "summary",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "multidetect.gnss-capture.completed"},
+    "evidence_type": {"const": "multidetect.gnss-capture.v1"},
+    "endpoint": {"type": "string", "minLength": 1},
+    "started_at_epoch_s": {"type": "number", "minimum": 0},
+    "ended_at_epoch_s": {"type": "number", "minimum": 0},
+    "duration_seconds": {"type": "number", "minimum": 0},
+    "read_only": {"const": true},
+    "messages_transmitted": {"const": 0},
+    "contains_flight_control": {"const": false},
+    "contains_truth": {"const": false},
+    "ground_truth_isolated": {"const": true},
+    "advisory_only": {"const": true},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "real_flight_acceptance": {"const": "not_claimed"},
+    "decode_errors": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "records": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/record"}
+    },
+    "summary": {"$ref": "#/$defs/summary"},
+    "notes": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "$defs": {
+    "finiteNumberOrNull": {
+      "anyOf": [
+        {"type": "number"},
+        {"type": "null"}
+      ]
+    },
+    "nonNegativeNumberOrNull": {
+      "anyOf": [
+        {"type": "number", "minimum": 0},
+        {"type": "null"}
+      ]
+    },
+    "latitudeOrNull": {
+      "anyOf": [
+        {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+        {"type": "null"}
+      ]
+    },
+    "longitudeOrNull": {
+      "anyOf": [
+        {"type": "number", "minimum": -180, "maximum": 180},
+        {"type": "null"}
+      ]
+    },
+    "record": {
+      "oneOf": [
+        {"$ref": "#/$defs/rawGpsRecord"},
+        {"$ref": "#/$defs/globalPositionRecord"}
+      ]
+    },
+    "rawGpsRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message_type",
+        "observed_at_monotonic_s",
+        "observed_at_epoch_s",
+        "gps_observed_at_s",
+        "gps_age_s",
+        "gps_freshness",
+        "fix_type",
+        "satellites_visible",
+        "satellites_visible_wire",
+        "latitude_deg",
+        "longitude_deg",
+        "altitude_m",
+        "horizontal_accuracy_m",
+        "vertical_accuracy_m",
+        "velocity_mps",
+        "course_deg",
+        "mavlink_time_usec",
+        "qualified",
+        "qualification_reason"
+      ],
+      "properties": {
+        "kind": {"const": "gps_raw"},
+        "message_type": {"enum": ["GPS_RAW_INT", "GPS2_RAW"]},
+        "observed_at_monotonic_s": {"type": "number", "minimum": 0},
+        "observed_at_epoch_s": {"type": "number", "minimum": 0},
+        "gps_observed_at_s": {"type": "number", "minimum": 0},
+        "gps_age_s": {"type": "number", "minimum": 0},
+        "gps_freshness": {"enum": ["fresh", "stale"]},
+        "fix_type": {"anyOf": [{"type": "integer", "minimum": 0, "maximum": 8}, {"type": "null"}]},
+        "satellites_visible": {"anyOf": [{"type": "integer", "minimum": 0, "maximum": 254}, {"type": "null"}]},
+        "satellites_visible_wire": {"anyOf": [{"type": "integer", "minimum": 0, "maximum": 255}, {"type": "null"}]},
+        "latitude_deg": {"$ref": "#/$defs/latitudeOrNull"},
+        "longitude_deg": {"$ref": "#/$defs/longitudeOrNull"},
+        "altitude_m": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "horizontal_accuracy_m": {"$ref": "#/$defs/nonNegativeNumberOrNull"},
+        "vertical_accuracy_m": {"$ref": "#/$defs/nonNegativeNumberOrNull"},
+        "velocity_mps": {"$ref": "#/$defs/nonNegativeNumberOrNull"},
+        "course_deg": {"$ref": "#/$defs/nonNegativeNumberOrNull"},
+        "mavlink_time_usec": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "qualified": {"type": "boolean"},
+        "qualification_reason": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+      }
+    },
+    "globalPositionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message_type",
+        "observed_at_monotonic_s",
+        "observed_at_epoch_s",
+        "latitude_deg",
+        "longitude_deg",
+        "altitude_m",
+        "relative_altitude_m",
+        "velocity_north_mps",
+        "velocity_east_mps",
+        "velocity_down_mps",
+        "heading_deg",
+        "coordinate_valid"
+      ],
+      "properties": {
+        "kind": {"const": "global_position"},
+        "message_type": {"const": "GLOBAL_POSITION_INT"},
+        "observed_at_monotonic_s": {"type": "number", "minimum": 0},
+        "observed_at_epoch_s": {"type": "number", "minimum": 0},
+        "latitude_deg": {"$ref": "#/$defs/latitudeOrNull"},
+        "longitude_deg": {"$ref": "#/$defs/longitudeOrNull"},
+        "altitude_m": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "relative_altitude_m": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "velocity_north_mps": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "velocity_east_mps": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "velocity_down_mps": {"$ref": "#/$defs/finiteNumberOrNull"},
+        "heading_deg": {"$ref": "#/$defs/nonNegativeNumberOrNull"},
+        "coordinate_valid": {"type": "boolean"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_count",
+        "bad_data_count",
+        "record_count",
+        "gps_raw_samples",
+        "gps_raw_qualified_samples",
+        "global_position_samples",
+        "minimum_qualified_samples",
+        "max_horizontal_accuracy_m",
+        "max_vertical_accuracy_m",
+        "max_age_s",
+        "decode_error_count",
+        "stop_reason",
+        "qualified_sample_gate_passed",
+        "threshold_policy_passed",
+        "gate_passed"
+      ],
+      "properties": {
+        "message_count": {"type": "integer", "minimum": 0},
+        "bad_data_count": {"type": "integer", "minimum": 0},
+        "record_count": {"type": "integer", "minimum": 0},
+        "gps_raw_samples": {"type": "integer", "minimum": 0},
+        "gps_raw_qualified_samples": {"type": "integer", "minimum": 0},
+        "global_position_samples": {"type": "integer", "minimum": 0},
+        "minimum_qualified_samples": {"type": "integer", "minimum": 1},
+        "max_horizontal_accuracy_m": {"type": "number", "minimum": 0},
+        "max_vertical_accuracy_m": {"type": "number", "minimum": 0},
+        "max_age_s": {"type": "number", "minimum": 0},
+        "decode_error_count": {"type": "integer", "minimum": 0},
+        "stop_reason": {"enum": ["duration", "max_samples"]},
+        "qualified_sample_gate_passed": {"type": "boolean"},
+        "threshold_policy_passed": {"type": "boolean"},
+        "gate_passed": {"type": "boolean"}
+      }
+    }
+  }
+}

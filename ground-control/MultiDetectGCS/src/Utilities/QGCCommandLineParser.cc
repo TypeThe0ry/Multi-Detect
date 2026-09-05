@@ -25,6 +25,9 @@ constexpr QLatin1StringView kOptLogOutput     = QLatin1StringView("log-output");
 constexpr QLatin1StringView kOptSimpleBoot    = QLatin1StringView("simple-boot-test");
 constexpr QLatin1StringView kOptOffline       = QLatin1StringView("offline");
 constexpr QLatin1StringView kOptIsolatedHil   = QLatin1StringView("isolated-hil");
+constexpr QLatin1StringView kOptIsolatedHilForceCpuVideo = QLatin1StringView("isolated-hil-force-cpu-video");
+constexpr QLatin1StringView kOptIsolatedHilPx4Udp = QLatin1StringView("isolated-hil-px4-udp-port");
+constexpr QLatin1StringView kOptIsolatedHilPx4Target = QLatin1StringView("isolated-hil-px4-target-port");
 
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
 // --- Desktop-only options ---
@@ -172,6 +175,26 @@ CommandLineParseResult parseCommandLine()
         QCoreApplication::translate(
             "main", "Run with isolated settings and no automatic links; explicit software-HIL links remain allowed."));
     (void) parser.addOption(isolatedHilOpt);
+
+    const QCommandLineOption isolatedHilForceCpuVideoOpt(
+        QString(kOptIsolatedHilForceCpuVideo),
+        QCoreApplication::translate(
+            "main", "Force the native QGC video pipeline through CPU memory for an isolated-HIL acceptance A/B."));
+    (void) parser.addOption(isolatedHilForceCpuVideoOpt);
+
+    const QCommandLineOption isolatedHilPx4UdpOpt(
+        QString(kOptIsolatedHilPx4Udp),
+        QCoreApplication::translate(
+            "main", "Create an explicit PX4 SITL UDP link while running isolated HIL (local listen port)."),
+        QCoreApplication::translate("main", "port"));
+    (void) parser.addOption(isolatedHilPx4UdpOpt);
+
+    const QCommandLineOption isolatedHilPx4TargetOpt(
+        QString(kOptIsolatedHilPx4Target),
+        QCoreApplication::translate(
+            "main", "Router target port for the explicit PX4 SITL UDP link (requires --isolated-hil-px4-udp-port)."),
+        QCoreApplication::translate("main", "port"));
+    (void) parser.addOption(isolatedHilPx4TargetOpt);
 
 #ifdef QGC_UNITTEST_BUILD
     // --- Test options (only in test builds) ---
@@ -353,6 +376,58 @@ CommandLineParseResult parseCommandLine()
     out.simpleBootTest = parser.isSet(simpleBootOpt);
     out.offlineMode = parser.isSet(offlineOpt);
     out.isolatedHilMode = parser.isSet(isolatedHilOpt);
+    out.isolatedHilForceCpuVideo = parser.isSet(isolatedHilForceCpuVideoOpt);
+
+    if (out.isolatedHilForceCpuVideo && !out.isolatedHilMode) {
+        out.statusCode = CommandLineParseResult::Status::Error;
+        out.errorString = QCoreApplication::translate(
+            "main", "--isolated-hil-force-cpu-video requires --isolated-hil.");
+        qCWarning(QGCCommandLineParserLog) << out.errorString.value();
+        return out;
+    }
+
+    auto parseUdpPort = [&out](const QCommandLineOption& option, const QString& optionName) -> std::optional<quint16> {
+        const QString text = out.parser->value(option);
+        bool ok = false;
+        const uint value = text.toUInt(&ok);
+        if (!ok || value < 1024 || value > 65535) {
+            out.statusCode = CommandLineParseResult::Status::Error;
+            out.errorString = QCoreApplication::translate("main", "%1 must be a UDP port in the range 1024-65535: %2")
+                .arg(optionName, text);
+            qCWarning(QGCCommandLineParserLog) << out.errorString.value();
+            return std::nullopt;
+        }
+        return static_cast<quint16>(value);
+    };
+
+    if (parser.isSet(isolatedHilPx4UdpOpt)) {
+        if (!out.isolatedHilMode) {
+            out.statusCode = CommandLineParseResult::Status::Error;
+            out.errorString = QCoreApplication::translate(
+                "main", "--isolated-hil-px4-udp-port requires --isolated-hil.");
+            qCWarning(QGCCommandLineParserLog) << out.errorString.value();
+            return out;
+        }
+        const auto value = parseUdpPort(isolatedHilPx4UdpOpt, QString(kOptIsolatedHilPx4Udp));
+        if (!value.has_value()) {
+            return out;
+        }
+        out.isolatedHilPx4UdpPort = value;
+    }
+    if (parser.isSet(isolatedHilPx4TargetOpt)) {
+        if (!out.isolatedHilPx4UdpPort.has_value()) {
+            out.statusCode = CommandLineParseResult::Status::Error;
+            out.errorString = QCoreApplication::translate(
+                "main", "--isolated-hil-px4-target-port requires --isolated-hil-px4-udp-port.");
+            qCWarning(QGCCommandLineParserLog) << out.errorString.value();
+            return out;
+        }
+        const auto value = parseUdpPort(isolatedHilPx4TargetOpt, QString(kOptIsolatedHilPx4Target));
+        if (!value.has_value()) {
+            return out;
+        }
+        out.isolatedHilPx4TargetPort = value;
+    }
 
 #ifdef QGC_UNITTEST_BUILD
     // --- Parse test options ---

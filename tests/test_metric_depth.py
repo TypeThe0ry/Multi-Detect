@@ -220,6 +220,55 @@ def test_metric_depth_applies_single_anchor_calibration_and_exports_grid() -> No
     assert result.depth_grid.depth_at(0.5, 0.5) == pytest.approx(6.8, abs=0.12)
 
 
+def test_metric_depth_applies_piecewise_outdoor_curve_and_reports_mode() -> None:
+    estimator = MetricDepthEstimator(
+        MetricDepthConfig(
+            model_path=Path("unused.onnx"),
+            calibration_profile="outdoor-piecewise-v1",
+            calibration_curve_raw_m=(4.0, 8.0, 14.0, 20.0),
+            calibration_curve_actual_m=(2.0, 4.5, 8.5, 12.0),
+            calibration_extrapolation_sigma_m=4.0,
+        ),
+        session=_DepthSession(np.full((1, 518, 518), 14.0, dtype=np.float32)),
+    )
+    result = estimator.estimate(
+        image_bgr=np.zeros((720, 1280, 3), dtype=np.uint8),
+        target_id="outdoor-piecewise-target",
+        bbox=BoundingBox(0.25, 0.25, 0.75, 0.75),
+        frame_id="frame-piecewise",
+        captured_at_s=40.0,
+    )
+
+    assert result.raw_slant_range_m == pytest.approx(14.0)
+    assert result.slant_range_m == pytest.approx(8.5)
+    assert result.calibration_mode == "piecewise_linear"
+    assert result.calibration_curve_raw_range_m == (4.0, 20.0)
+    assert result.calibration_extrapolated is False
+
+
+def test_metric_depth_inflates_sigma_for_curve_extrapolation() -> None:
+    estimator = MetricDepthEstimator(
+        MetricDepthConfig(
+            model_path=Path("unused.onnx"),
+            calibration_curve_raw_m=(4.0, 8.0, 14.0, 20.0),
+            calibration_curve_actual_m=(2.0, 4.5, 8.5, 12.0),
+            calibration_extrapolation_sigma_m=4.0,
+        ),
+        session=_DepthSession(np.full((1, 518, 518), 30.0, dtype=np.float32)),
+    )
+    result = estimator.estimate(
+        image_bgr=np.zeros((720, 1280, 3), dtype=np.uint8),
+        target_id="outdoor-extrapolated-target",
+        bbox=BoundingBox(0.25, 0.25, 0.75, 0.75),
+        frame_id="frame-extrapolated",
+        captured_at_s=41.0,
+    )
+
+    assert result.calibration_extrapolated is True
+    assert result.slant_range_m > 12.0
+    assert result.sigma_m >= 4.0
+
+
 def test_metric_depth_samples_fire_base_instead_of_translucent_plume_center() -> None:
     depth = np.full((1, 518, 518), 10.0, dtype=np.float32)
     depth[:, 330:, :] = 4.0

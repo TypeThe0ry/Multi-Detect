@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-resolved-task-spec.schema.json",
+  "title": "Multi-Detect ResolvedTaskSpec v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "task_type", "geometry", "target_classes", "on_detection", "constraints", "completion_action", "unresolved_assumptions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "task_type": {"enum": ["area_search", "corridor_visual_search", "target_observation", "survey"]},
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resolved_feature_id", "direction", "length_m", "buffer_m", "centerline", "resolution_confidence"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "resolved_feature_id": {"type": "string", "minLength": 1},
+        "direction": {"type": "string", "minLength": 1},
+        "length_m": {"type": "number", "exclusiveMinimum": 0},
+        "buffer_m": {"type": "number", "minimum": 0},
+        "resolution_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "centerline": {
+          "type": "array", "minItems": 2,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["latitude_deg", "longitude_deg"],
+            "properties": {
+              "latitude_deg": {"type": "number", "minimum": -90, "maximum": 90},
+              "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+              "altitude_m": {"type": "number"},
+              "altitude_reference": {"type": "string", "minLength": 1}
+            },
+            "dependentRequired": {"altitude_m": ["altitude_reference"], "altitude_reference": ["altitude_m"]}
+          }
+        }
+      }
+    },
+    "target_classes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "on_detection": {"type": "array", "items": {"$ref": "#/$defs/action"}},
+    "constraints": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_return_battery_pct", "maximum_duration_s", "remain_inside_geofence"],
+      "properties": {
+        "minimum_return_battery_pct": {"type": "number", "minimum": 0, "maximum": 100},
+        "maximum_duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "remain_inside_geofence": {"type": "boolean"}
+      }
+    },
+    "completion_action": {"enum": ["return", "land"]},
+    "unresolved_assumptions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "action": {"enum": ["takeoff", "transit", "search_area", "search_corridor", "survey", "observe_target", "capture_evidence", "report_geolocation", "revisit", "return", "divert", "land"]}
+  }
+}

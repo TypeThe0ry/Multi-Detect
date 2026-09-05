@@ -1,0 +1,21 @@
+{
+  "schema": "multidetect.candidate-detector-control-annotation",
+  "schema_version": 1,
+  "frame_id": "coco-car-positive-control-v1",
+  "frame_sha256": "474e41d52d62ee83c4f77d530b0591e5901869c374ac58313bdd6deb283fd031",
+  "width": 1536,
+  "height": 1024,
+  "normalized_bbox": [
+    0.078125,
+    0.21484375,
+    0.9375,
+    0.83984375
+  ],
+  "expected_label": "car",
+  "independent_of_model": true,
+  "annotation_method": "manual_visual_annotation_from_rendered_pixels",
+  "derived_from_model": false,
+  "model_generated": false,
+  "model_assisted": false,
+  "detector_generated": false
+}

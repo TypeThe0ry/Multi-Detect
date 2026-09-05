@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "coastal_patrol_fixed_wing_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "operating-area",
+      "properties": {
+        "role": "operating_area",
+        "source": "repository_owned_simulation_asset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [103.8455, 1.2855],
+            [103.8555, 1.2855],
+            [103.8555, 1.2955],
+            [103.8455, 1.2955],
+            [103.8455, 1.2855]
+          ]
+        ]
+      }
+    }
+  ]
+}

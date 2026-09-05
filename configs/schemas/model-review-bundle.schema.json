@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/model-review-bundle.schema.json",
+  "title": "Multi-Detect Model Review Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "model",
+    "reviews",
+    "evidence",
+    "review_status",
+    "production_approval_eligible",
+    "production_approved",
+    "flight_control_enabled",
+    "physical_release_enabled",
+    "failure_reasons",
+    "next_actions"
+  ],
+  "properties": {
+    "event": {"const": "model_review_bundle_prepared"},
+    "schema_version": {"const": 1},
+    "model": {"$ref": "#/$defs/model"},
+    "reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "dataset_rights", "security", "quality"],
+      "properties": {
+        "provenance": {"$ref": "#/$defs/review"},
+        "dataset_rights": {"$ref": "#/$defs/review"},
+        "security": {"$ref": "#/$defs/review"},
+        "quality": {"$ref": "#/$defs/review"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_check", "deployment_accuracy"],
+      "properties": {
+        "model_check": {"$ref": "#/$defs/evidence"},
+        "deployment_accuracy": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "review_status": {"enum": ["pending", "reviewed", "rejected"]},
+    "production_approval_eligible": {"type": "boolean"},
+    "production_approved": {"const": false},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false},
+    "failure_reasons": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "model_version",
+        "model_role",
+        "status",
+        "synthetic_hil_only",
+        "manifest_path",
+        "manifest_sha256",
+        "artifact_path",
+        "artifact_sha256",
+        "output_format",
+        "output_coordinates",
+        "class_names",
+        "manifest_verified"
+      ],
+      "properties": {
+        "model_id": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1},
+        "model_role": {"const": "fire_candidate"},
+        "status": {"type": "string", "minLength": 1},
+        "synthetic_hil_only": {"type": "boolean"},
+        "manifest_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact_path": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "output_format": {"const": "N_x_6"},
+        "output_coordinates": {"type": ["string", "null"]},
+        "class_names": {"const": ["fire", "smoke"]},
+        "manifest_verified": {"const": true}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at_utc"],
+      "properties": {
+        "status": {"enum": ["pending", "passed", "failed"]},
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at_utc": {"type": ["string", "null"]}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "path", "sha256", "bound_to_artifact", "passed", "failure_reasons"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "path": {"type": ["string", "null"]},
+        "sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+        "bound_to_artifact": {"type": "boolean"},
+        "passed": {"type": "boolean"},
+        "failure_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

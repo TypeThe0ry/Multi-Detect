@@ -167,10 +167,22 @@ class VehicleTelemetry:
     armed: bool | None = None
     flight_mode: str | None = None
     mission_sequence: int | None = None
+    # Mission execution feedback has its own wire clocks.  Keeping these
+    # timestamps independent from HEARTBEAT prevents an old MISSION_CURRENT
+    # cursor from remaining actionable merely because the transport is alive.
+    mission_sequence_observed_at_s: float = nan
+    mission_item_reached_sequence: int | None = None
+    mission_item_reached_observed_at_s: float = nan
     attitude_observed_at_s: float = nan
     position_observed_at_s: float = nan
     velocity_north_mps: float = nan
     velocity_east_mps: float = nan
+    # Optional one-sigma horizontal acceleration budget used when a target
+    # frame is time-aligned against the GPS fix.  It is intentionally a
+    # scalar uncertainty rather than an asserted acceleration measurement:
+    # producers may derive it from an estimator/airframe envelope, while
+    # older telemetry remains byte/behavior compatible with ``nan``.
+    acceleration_uncertainty_mps2: float = nan
     airspeed_mps: float = nan
     wind_north_mps: float = nan
     wind_east_mps: float = nan
@@ -187,6 +199,11 @@ class VehicleTelemetry:
     local_east_m: float = nan
     local_down_m: float = nan
     local_position_observed_at_s: float = nan
+    # Absolute MSL altitude from the same complete GPS_RAW_INT sample identified
+    # by gps_observed_at_s.  It is optional so historical replay and GPS-denied
+    # providers remain compatible; DEM ranging requires both fields to be
+    # finite and the canonical GPS quality gate to pass.
+    gps_absolute_altitude_m: float = nan
 
 
 @dataclass(frozen=True, slots=True)

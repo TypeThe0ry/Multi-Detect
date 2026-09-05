@@ -134,6 +134,88 @@ int main(int argc, char* argv[])
     failures += check(std::abs(packet.fields.value(QStringLiteral("estimatedRangeM")).toDouble() - 82.0) < 0.001,
                       "track range mismatch");
 
+    const QByteArray runtimeStatus = vector(
+        "4d4401170000000000740000000000018a9c002402010b00000000000001020311223344"
+        "5566778899aabbccddeeff000123456789abcdef71d117da3f779776df5cff2d9cfd8a3d");
+    failures += check(runtimeStatus.size() == 72, "runtime status must fit the MAVLink TUNNEL payload");
+    failures += check(protocol.decode(runtimeStatus, &packet, &error), "runtime status golden vector must decode");
+    failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatus,
+                      "runtime status message type mismatch");
+    failures += check(packet.fields.value(QStringLiteral("mode")).toString() == QStringLiteral("SIM") &&
+                          packet.fields.value(QStringLiteral("backendHealth")).toString() ==
+                              QStringLiteral("HEALTHY"),
+                      "runtime mode or backend health mismatch");
+    failures += check(packet.fields.value(QStringLiteral("scenarioPresent")).toBool() &&
+                          packet.fields.value(QStringLiteral("groundTruthIsolated")).toBool() &&
+                          !packet.fields.value(QStringLiteral("hardwareOutputsPresent")).toBool() &&
+                          packet.fields.value(QStringLiteral("profileValid")).toBool(),
+                      "runtime status flags mismatch");
+    failures += check(packet.fields.value(QStringLiteral("scenarioSeed")).toString() == QStringLiteral("66051") &&
+                          packet.fields.value(QStringLiteral("scenarioHash64")).toString() ==
+                              QStringLiteral("1122334455667788") &&
+                          packet.fields.value(QStringLiteral("airframeProfileHash64")).toString() ==
+                              QStringLiteral("99aabbccddeeff00") &&
+                          packet.fields.value(QStringLiteral("runHash64")).toString() ==
+                              QStringLiteral("0123456789abcdef"),
+                      "runtime status signed identity mismatch");
+    failures += check(packet.fields.value(QStringLiteral("metadataOnly")).toBool() &&
+                          !packet.fields.value(QStringLiteral("directPixhawkWrites")).toBool() &&
+                          !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
+                      "runtime status must remain display-only");
+
+    const QByteArray expectedRuntimeStatusAck = vector(
+        "4d4401180000000000750000000000018aa1000c000000740123456789abcdef"
+        "4cd881cb1e13f077518cd60dd837383e");
+    const QByteArray runtimeStatusAck = protocol.encodeRuntimeStatusAck(
+        116, static_cast<quint64>(0x0123456789abcdefULL), 117, 101025, &error);
+    failures += check(error.isEmpty(), "runtime-status ACK encoder returned an error");
+    failures += check(runtimeStatusAck == expectedRuntimeStatusAck,
+                      "runtime-status ACK must match the Python golden vector byte-for-byte");
+    failures += check(protocol.decode(runtimeStatusAck, &packet, &error),
+                      "runtime-status ACK golden vector must decode");
+    failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatusAck &&
+                          packet.fields.value(QStringLiteral("acknowledgedRuntimeSequence")).toUInt() == 116 &&
+                          packet.fields.value(QStringLiteral("runHash64")).toString() ==
+                              QStringLiteral("0123456789abcdef"),
+                      "runtime-status ACK correlation mismatch");
+
+    QByteArray tamperedRuntimeStatusAck = runtimeStatusAck;
+    tamperedRuntimeStatusAck[25] = static_cast<char>(tamperedRuntimeStatusAck.at(25) ^ 0x01);
+    failures += check(!protocol.decode(tamperedRuntimeStatusAck, &packet, &error),
+                      "runtime-status ACK mutation must fail authentication");
+    failures += check(protocol.encodeRuntimeStatusAck(116, 0, 117, 101025, &error).isEmpty(),
+                      "runtime-status ACK with a zero run hash must not encode");
+
+    QByteArray runtimeUnknownFlags = runtimeStatus;
+    runtimeUnknownFlags[22] = static_cast<char>(0x1b);
+    runtimeUnknownFlags = resign(runtimeUnknownFlags, key);
+    failures += check(!protocol.decode(runtimeUnknownFlags, &packet, &error),
+                      "authenticated runtime status with unknown flags must fail");
+
+    QByteArray runtimeAbsentScenario = runtimeStatus;
+    runtimeAbsentScenario[22] = static_cast<char>(0x0a);
+    runtimeAbsentScenario = resign(runtimeAbsentScenario, key);
+    failures += check(!protocol.decode(runtimeAbsentScenario, &packet, &error),
+                      "runtime status cannot hide non-zero scenario identity fields");
+
+    QByteArray runtimeMissingIsolation = runtimeStatus;
+    runtimeMissingIsolation[22] = static_cast<char>(0x09);
+    runtimeMissingIsolation = resign(runtimeMissingIsolation, key);
+    failures += check(!protocol.decode(runtimeMissingIsolation, &packet, &error),
+                      "non-REAL runtime status must isolate ground truth");
+
+    QByteArray runtimeHardwareOutputs = runtimeStatus;
+    runtimeHardwareOutputs[22] = static_cast<char>(0x0f);
+    runtimeHardwareOutputs = resign(runtimeHardwareOutputs, key);
+    failures += check(!protocol.decode(runtimeHardwareOutputs, &packet, &error),
+                      "non-REAL runtime status cannot expose hardware outputs");
+
+    QByteArray runtimeRealScenario = runtimeStatus;
+    runtimeRealScenario[20] = static_cast<char>(4);
+    runtimeRealScenario = resign(runtimeRealScenario, key);
+    failures += check(!protocol.decode(runtimeRealScenario, &packet, &error),
+                      "REAL runtime status cannot bind a scenario");
+
     const QByteArray mission = vector(
         "4d44010400000000006400000000000f433a0035f6222a1106eefe4f558674ce263fcabd"
         "050302010003000401ab4656dd28bdab3e01bddd3a6e5dab59faeafebb0274fff2000102"
@@ -236,6 +318,52 @@ int main(int argc, char* argv[])
                           !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
                       "range status must not enable control or physical release");
 
+    // A fresh authenticated envelope must not resurrect an old metric range.
+    // RangeStatus frameAgeMs is the uint16 at payload offset 68 (full frame
+    // offset 20 + 68 = 88).  Re-sign the mutation so the real decoder gate,
+    // rather than authentication, is what rejects it.
+    QByteArray boundaryRange = range;
+    boundaryRange[88] = static_cast<char>(0x05);
+    boundaryRange[89] = static_cast<char>(0xDC);  // exactly 1500 ms is accepted
+    boundaryRange = resign(boundaryRange, key);
+    failures += check(protocol.decode(boundaryRange, &packet, &error),
+                      "range status decoder must accept exact source-age boundary");
+
+    QByteArray staleRange = range;
+    staleRange[88] = static_cast<char>(0x05);
+    staleRange[89] = static_cast<char>(0xDD);  // 1501 ms > 1.5 s gate
+    staleRange = resign(staleRange, key);
+    failures += check(!protocol.decode(staleRange, &packet, &error) &&
+                          error == QStringLiteral("range-status source frame is stale"),
+                      "range status decoder must reject stale source age");
+
+    // dataFreshness uses the common distance codec at 0.1 s resolution and
+    // occupies full-frame offsets 90..91.  VALID/DEGRADED range is usable at
+    // exactly 1.5 s, but both a value beyond the gate and the unavailable
+    // sentinel fail closed even when the authenticated envelope is fresh.
+    QByteArray boundaryFreshnessRange = range;
+    boundaryFreshnessRange[90] = static_cast<char>(0x00);
+    boundaryFreshnessRange[91] = static_cast<char>(0x0F);  // exactly 1.5 s
+    boundaryFreshnessRange = resign(boundaryFreshnessRange, key);
+    failures += check(protocol.decode(boundaryFreshnessRange, &packet, &error),
+                      "range status decoder must accept exact data-freshness boundary");
+
+    QByteArray staleFreshnessRange = range;
+    staleFreshnessRange[90] = static_cast<char>(0x00);
+    staleFreshnessRange[91] = static_cast<char>(0x10);  // 1.6 s > 1.5 s gate
+    staleFreshnessRange = resign(staleFreshnessRange, key);
+    failures += check(!protocol.decode(staleFreshnessRange, &packet, &error) &&
+                          error == QStringLiteral("range-status data freshness is stale"),
+                      "range status decoder must reject stale data freshness");
+
+    QByteArray missingFreshnessRange = range;
+    missingFreshnessRange[90] = static_cast<char>(0xFF);
+    missingFreshnessRange[91] = static_cast<char>(0xFF);
+    missingFreshnessRange = resign(missingFreshnessRange, key);
+    failures += check(!protocol.decode(missingFreshnessRange, &packet, &error) &&
+                          error == QStringLiteral("range-status data freshness is unavailable"),
+                      "range status decoder must reject unavailable data freshness");
+
     const QByteArray targetGeolocation = vector(
         "4d44011600000000006c00000000000f433a001ee65c7f305ba849ec9b383ba6daf97c12"
         "010100c680573ddeb10d00430032d0434fd62d4fed131097ef34f1e1b3f7");
@@ -268,6 +396,32 @@ int main(int argc, char* argv[])
     failures += check(!packet.fields.contains(QStringLiteral("latitudeDeg")) &&
                           !packet.fields.contains(QStringLiteral("longitudeDeg")),
                       "withheld target geolocation must not expose coordinates");
+
+    // An authenticated envelope must not keep an old coordinate alive by
+    // advertising a large source-frame age.  The wire limit mirrors the
+    // backend GPS freshness gate; mutate the age field and re-sign so this
+    // exercises the real decoder rather than an unauthenticated shortcut.
+    QByteArray staleTargetGeolocation = targetGeolocation;
+    staleTargetGeolocation[48] = static_cast<char>(0x05);
+    staleTargetGeolocation[49] = static_cast<char>(0xDD);  // 1501 ms > 1.5 s gate
+    staleTargetGeolocation = resign(staleTargetGeolocation, key);
+    failures += check(!protocol.decode(staleTargetGeolocation, &packet, &error) &&
+                          error == QStringLiteral("target-geolocation-status source frame is stale"),
+                      "target geolocation decoder must reject stale source age");
+
+    // Exact geographic poles have no stable local longitude direction. Keep
+    // the wire decoder aligned with the map/snapshot domain and reject a
+    // freshly authenticated coordinate at +90 degrees instead of deferring
+    // the failure until the QML projection layer.
+    QByteArray poleTargetGeolocation = targetGeolocation;
+    poleTargetGeolocation[38] = static_cast<char>(0x35);
+    poleTargetGeolocation[39] = static_cast<char>(0xA4);
+    poleTargetGeolocation[40] = static_cast<char>(0xE9);
+    poleTargetGeolocation[41] = static_cast<char>(0x00);  // +900000000 E7
+    poleTargetGeolocation = resign(poleTargetGeolocation, key);
+    failures += check(!protocol.decode(poleTargetGeolocation, &packet, &error) &&
+                          error == QStringLiteral("target-geolocation-status content is invalid"),
+                      "target geolocation decoder must reject exact pole coordinates");
 
     QByteArray monocularRange = range;
     // reason bits 28/29 and source bit 6 are appended to the v1 registries so
@@ -306,10 +460,15 @@ int main(int argc, char* argv[])
     failures +=
         check(!protocol.decode(invalidRange, &packet, &error), "range status must reject unsupported control flags");
 
-    invalidRange = range;
-    invalidRange[54] = static_cast<char>(static_cast<quint8>(invalidRange.at(54)) | 0x80);
-    invalidRange = resign(invalidRange, key);
-    failures += check(!protocol.decode(invalidRange, &packet, &error), "range status must reject unknown reason bits");
+    QByteArray geometryUnboundedRange = range;
+    geometryUnboundedRange[54] =
+        static_cast<char>(static_cast<quint8>(geometryUnboundedRange.at(54)) | 0x80);
+    geometryUnboundedRange = resign(geometryUnboundedRange, key);
+    failures += check(protocol.decode(geometryUnboundedRange, &packet, &error),
+                      "range status must decode geometry uncertainty reason bit 31");
+    failures += check(packet.fields.value(QStringLiteral("reasons")).toStringList().contains(
+                          QStringLiteral("target_geometry_uncertainty_unbounded")),
+                      "range status geometry uncertainty reason mismatch");
 
     invalidRange = range;
     invalidRange[52] = static_cast<char>(0x03);

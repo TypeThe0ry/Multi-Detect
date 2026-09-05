@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "scenario_id": "coastal_patrol_fixed_wing_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "orange-marker-001",
+      "label": "orange_rescue_marker",
+      "position": {
+        "latitude_deg": 1.292120,
+        "longitude_deg": 103.852740
+      },
+      "behavior": "stationary"
+    }
+  ]
+}

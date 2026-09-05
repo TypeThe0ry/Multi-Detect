@@ -2,7 +2,6 @@ import QGroundControl
 import QGroundControl.Controls
 import QGroundControl.PlanView
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Item {

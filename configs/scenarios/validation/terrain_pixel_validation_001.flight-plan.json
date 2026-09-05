@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "scenario_id": "terrain_pixel_validation_001",
+  "scenario_version": 1,
+  "evidence_scope": "software_only_gazebo_pixel_validation",
+  "runtime_loaded": false,
+  "truth_channel_separate": true,
+  "expectations_channel_separate": true,
+  "viewpoints": [
+    {
+      "view_id": "V1",
+      "north_m": 0.0,
+      "east_m": 0.0,
+      "agl_m": 30.0,
+      "local_z_m": 30.0,
+      "yaw_deg": 0.0,
+      "target_id": "terrain-pixel-target-v1"
+    },
+    {
+      "view_id": "V2",
+      "north_m": 60.0,
+      "east_m": 0.0,
+      "agl_m": 30.0,
+      "local_z_m": 36.0,
+      "yaw_deg": 0.0,
+      "target_id": "terrain-pixel-target-v2"
+    },
+    {
+      "view_id": "V3",
+      "north_m": 120.0,
+      "east_m": 0.0,
+      "agl_m": 30.0,
+      "local_z_m": 42.0,
+      "yaw_deg": 0.0,
+      "target_id": "terrain-pixel-target-v3"
+    }
+  ]
+}

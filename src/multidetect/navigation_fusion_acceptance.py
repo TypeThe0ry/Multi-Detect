@@ -57,6 +57,11 @@ def run_navigation_fusion_acceptance() -> dict[str, object]:
         airspeed=AirspeedMeasurement(35.0, 0.0, 0.35, 1.0, 10.01),
         wind=WindVelocityMeasurement(0.0, 0.0, 0.4, 10.0),
     )
+    spread = engine.solve(
+        now_s=10.05,
+        gps=GpsVelocityMeasurement(10.0, 0.0, 0.3, 10.0, 3, 12),
+        visual_odometry=VisualOdometryVelocityMeasurement(10.8, 0.0, 0.3, 10.02, True),
+    )
 
     if consistent.validity is not NavigationFusionValidity.VALID:
         raise RuntimeError("consistent three-source navigation fusion did not pass")
@@ -66,6 +71,13 @@ def run_navigation_fusion_acceptance() -> dict[str, object]:
         raise RuntimeError("conflicting metric sources did not fail closed")
     if outlier.validity is not NavigationFusionValidity.DEGRADED:
         raise RuntimeError("single navigation outlier was not rejected")
+    if (
+        spread.validity is not NavigationFusionValidity.DEGRADED
+        or "navigation_velocity_uncertainty_inflated" not in spread.reasons
+        or spread.velocity_sigma_mps is None
+        or spread.velocity_sigma_mps <= 0.3 / 2**0.5
+    ):
+        raise RuntimeError("consistent velocity spread did not inflate uncertainty")
 
     return {
         "event": "navigation_fusion_acceptance",
@@ -73,6 +85,7 @@ def run_navigation_fusion_acceptance() -> dict[str, object]:
         "unscaled_vio_gate": unscaled_vio.to_document(),
         "conflicting_pair_gate": conflicting.to_document(),
         "outlier_rejection": outlier.to_document(),
+        "spread_uncertainty_inflation": spread.to_document(),
         "synthetic_measurements": True,
         "camera_opened": False,
         "pixhawk_opened": False,

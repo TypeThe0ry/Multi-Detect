@@ -253,8 +253,12 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "grep -Fq 'def encode_target_geolocation_status'" in deployer
     assert "grep -Fq 'def _target_geolocation_status_due'" in deployer
     assert "grep -Fq 'TARGET_GEOLOCATION_STATUS = 22'" in deployer
-    assert "grep -Fq 'minimum_gps_fix_type: int = 3'" in deployer
+    assert "grep -Fq 'minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN'" in deployer
+    assert "grep -Fq 'MAVLINK_QUALIFIED_SATELLITES_MIN'" in deployer
     assert "grep -Fq 'gps_horizontal_accuracy_m'" in deployer
+    assert 'src/multidetect/mavlink_gps.py' in deployer
+    assert 'src/multidetect/navigation_fusion.py' in deployer
+    assert "grep -Fq 'minimum_gps_satellites: int = MAVLINK_QUALIFIED_SATELLITES_MIN'" in deployer
     assert "CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1" in deployer
     assert "geometry-accepted target depth events" in deployer
     assert "automatic_calibration_update=false" in deployer
@@ -291,7 +295,10 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert 'MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX:-' in launcher
     assert "OPERATOR_UDP_ENABLED must be auto, 0 or 1" in launcher
     assert '--operator-udp-port "${OPERATOR_UDP_PORT:-14580}"' in launcher
-    assert '--operator-metadata-peer-timeout-seconds "${OPERATOR_METADATA_PEER_TIMEOUT_SECONDS:-5.0}"' in launcher
+    assert (
+        '--operator-metadata-peer-timeout-seconds "${OPERATOR_METADATA_PEER_TIMEOUT_SECONDS:-5.0}"'
+        in launcher
+    )
     assert "--operator-udp-bind-host" in launcher
     assert "--operator-hmac-key-env MULTIDETECT_OPERATOR_KEY" in launcher
     assert '--depth-grid-maximum-rate-hz "${DEPTH_GRID_MAXIMUM_RATE_HZ:-5.0}"' in launcher
@@ -440,7 +447,7 @@ def test_trt86_raw_common_object_contract_has_no_embedded_topk() -> None:
         "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
     )
     assert descriptor["artifact_sha256"] == (
-        "0e54c190865025af36c8e71ba1e7966fb4e11d7e07df9e9a2d1b4ec0999c119f"
+        "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410"
     )
     assert descriptor["output"]["shape"] == [1, 84, 8400]
     assert descriptor["output"]["embedded_nms"] is False

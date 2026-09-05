@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schema/mission-transaction-journal.schema.json",
+  "title": "Multi-Detect PX4 mission transaction journal record",
+  "description": "One newline-terminated, hash-chained record from the durable PX4 Mission transaction journal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "journal_id",
+    "sequence",
+    "transaction_id",
+    "identity_hash",
+    "event_type",
+    "from_state",
+    "to_state",
+    "occurred_at",
+    "payload",
+    "previous_record_hash",
+    "record_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "enum": ["header", "event"] },
+    "journal_id": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "identity_hash": { "$ref": "#/$defs/sha256" },
+    "event_type": { "type": "string", "minLength": 1 },
+    "from_state": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/state" }
+      ]
+    },
+    "to_state": { "$ref": "#/$defs/state" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" },
+    "previous_record_hash": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256" }
+      ]
+    },
+    "record_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "state": {
+      "enum": [
+        "authorized",
+        "uploading",
+        "uploaded",
+        "readback_verified",
+        "committed",
+        "start_permitted",
+        "denied"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction_id",
+        "executable_mission_hash",
+        "protocol_hash",
+        "validation_report_hash",
+        "bindings",
+        "mission_item_count",
+        "airframe_adapter_id"
+      ],
+      "properties": {
+        "transaction_id": { "type": "string", "minLength": 1 },
+        "executable_mission_hash": { "$ref": "#/$defs/sha256" },
+        "protocol_hash": { "$ref": "#/$defs/sha256" },
+        "validation_report_hash": { "$ref": "#/$defs/sha256" },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prompt_hash",
+            "task_spec_hash",
+            "plan_hash",
+            "context_snapshot_hash",
+            "airframe_profile_hash",
+            "geofence_hash",
+            "vehicle_identity_hash",
+            "runtime_descriptor_hash",
+            "runtime_provenance_hash"
+          ],
+          "properties": {
+            "prompt_hash": { "$ref": "#/$defs/sha256" },
+            "task_spec_hash": { "$ref": "#/$defs/sha256" },
+            "plan_hash": { "$ref": "#/$defs/sha256" },
+            "context_snapshot_hash": { "$ref": "#/$defs/sha256" },
+            "airframe_profile_hash": { "$ref": "#/$defs/sha256" },
+            "geofence_hash": { "$ref": "#/$defs/sha256" },
+            "vehicle_identity_hash": { "$ref": "#/$defs/sha256" },
+            "runtime_descriptor_hash": { "$ref": "#/$defs/sha256" },
+            "runtime_provenance_hash": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "mission_item_count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "airframe_adapter_id": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

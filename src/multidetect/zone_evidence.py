@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from .autonomy.serialization import strict_json_loads
 from .domain import VehicleTelemetry
 
 ZONE_EVIDENCE_PROTOCOL_VERSION = 1
@@ -192,8 +193,7 @@ def unavailable_zone_evidence_verification(
 
 
 def _load_zone_evidence_document(path: Path) -> dict[str, object]:
-    with path.open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
+    raw = strict_json_loads(path.read_bytes(), name="zone evidence report")
     if not isinstance(raw, dict):
         raise ValueError("zone evidence report must be a JSON object")
     return raw

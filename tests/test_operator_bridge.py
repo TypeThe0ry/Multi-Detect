@@ -31,8 +31,12 @@ from multidetect.operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
+    TargetGeolocationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -89,7 +93,9 @@ class _Transport:
         self.safety_published = []
         self.patrol_published = []
         self.range_published = []
+        self.target_geolocation_published = []
         self.release_published = []
+        self.runtime_published = []
         self.approach_challenges = []
         self.approach_statuses = []
         self.payload_target_challenges = []
@@ -149,8 +155,14 @@ class _Transport:
     def publish_range_status(self, status, *, peer) -> None:
         self.range_published.append((status, peer))
 
+    def publish_target_geolocation_status(self, status, *, peer) -> None:
+        self.target_geolocation_published.append((status, peer))
+
     def publish_release_status(self, status, *, peer) -> None:
         self.release_published.append((status, peer))
+
+    def publish_runtime_status(self, status, *, peer) -> None:
+        self.runtime_published.append((status, peer))
 
     def publish_approach_challenge(self, status, *, peer) -> None:
         self.approach_challenges.append((status, peer))
@@ -181,6 +193,18 @@ class _PeerAwareTransport(_Transport):
 
     def active_metadata_peer(self):
         return self.metadata_peer
+
+
+class _FailFirstGeolocationTransport(_Transport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.geolocation_attempt_count = 0
+
+    def publish_target_geolocation_status(self, status, *, peer) -> None:
+        self.geolocation_attempt_count += 1
+        if self.geolocation_attempt_count == 1:
+            raise OSError("synthetic geolocation transport failure")
+        super().publish_target_geolocation_status(status, peer=peer)
 
 
 def _bridge(transport: _Transport) -> LiveOperatorBridge:
@@ -218,9 +242,7 @@ def test_bridge_publishes_detection_pool_to_heartbeat_peer_before_selection() ->
     assert result.accepted_command_count == 0
     assert bridge.active_peer is None
     assert result.published_target_pool_statuses == _target_pool_statuses()
-    assert transport.target_pool_statuses == [
-        (status, PEER) for status in _target_pool_statuses()
-    ]
+    assert transport.target_pool_statuses == [(status, PEER) for status in _target_pool_statuses()]
     assert disconnected.published_target_pool_statuses == ()
 
 
@@ -375,6 +397,21 @@ def _range_status() -> RangeStatusMessage:
     )
 
 
+def _target_geolocation_status() -> TargetGeolocationStatusMessage:
+    return TargetGeolocationStatusMessage(
+        sequence=1,
+        target_id="track-fire",
+        source_frame_id="frame-100",
+        source_captured_at_s=100.0,
+        produced_at_s=100.01,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=1.3004,
+        longitude_deg=103.8006,
+        horizontal_sigma_m=3.2,
+    )
+
+
 def _release_status() -> ReleaseStatusMessage:
     return ReleaseStatusMessage(
         sequence=1,
@@ -399,6 +436,23 @@ def _release_status() -> ReleaseStatusMessage:
         payload_descent_time_s=2.5,
         release_lead_distance_m=60.0,
         range_sensor_consistency=0.8,
+    )
+
+
+def _runtime_status() -> RuntimeStatusMessage:
+    return RuntimeStatusMessage(
+        sequence=1,
+        mode=RuntimeMode.SIM,
+        backend_health=RuntimeBackendHealth.HEALTHY,
+        scenario_seed=20260825,
+        scenario_hash64=0x1122334455667788,
+        airframe_profile_hash64=0x2233445566778899,
+        run_hash64=0x33445566778899AA,
+        scenario_present=True,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=100.01,
     )
 
 
@@ -1054,6 +1108,66 @@ def test_bridge_sends_changed_mission_status_immediately_and_unchanged_as_heartb
     assert len(transport.safety_published) == 3
 
 
+def test_bridge_publishes_signed_runtime_identity_on_change_and_one_hz_heartbeat() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+    base = _runtime_status()
+
+    first = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        runtime_status=base,
+    )
+    suppressed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.5,
+        produced_at_s=100.51,
+        runtime_status=replace(base, sequence=2, produced_at_s=100.51),
+    )
+    heartbeat = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-102",
+        captured_at_s=101.0,
+        produced_at_s=101.01,
+        runtime_status=replace(base, sequence=3, produced_at_s=101.01),
+    )
+    changed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-103",
+        captured_at_s=101.1,
+        produced_at_s=101.11,
+        runtime_status=replace(
+            base,
+            sequence=4,
+            backend_health=RuntimeBackendHealth.DEGRADED,
+            produced_at_s=101.11,
+        ),
+    )
+    bridge.close()
+
+    assert first.published_runtime_statuses == (base,)
+    assert suppressed.published_runtime_statuses == ()
+    assert heartbeat.published_runtime_statuses == (
+        replace(base, sequence=3, produced_at_s=101.01),
+    )
+    assert len(changed.published_runtime_statuses) == 1
+    assert changed.published_runtime_statuses[0].backend_health is RuntimeBackendHealth.DEGRADED
+    assert transport.runtime_published == [
+        (first.published_runtime_statuses[0], PEER),
+        (heartbeat.published_runtime_statuses[0], PEER),
+        (changed.published_runtime_statuses[0], PEER),
+    ]
+    assert all(status.metadata_only for status, _peer in transport.runtime_published)
+    assert all(not status.direct_pixhawk_writes for status, _peer in transport.runtime_published)
+    assert all(not status.physical_release_enabled for status, _peer in transport.runtime_published)
+
+
 def test_bridge_range_status_has_fifteen_hz_heartbeat_without_control() -> None:
     transport = _Transport()
     transport.commands.append((_command(), PEER))
@@ -1104,3 +1218,230 @@ def test_bridge_range_status_has_fifteen_hz_heartbeat_without_control() -> None:
     assert all(
         status.flight_control_enabled is False for status, _peer in transport.range_published
     )
+
+
+def test_bridge_range_and_geolocation_share_one_current_frame_cadence() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+    base_range = _range_status()
+    base_geo = _target_geolocation_status()
+
+    first = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=base_range,
+        target_geolocation_status=base_geo,
+    )
+    suppressed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.04,
+        produced_at_s=100.05,
+        range_status=replace(
+            base_range,
+            sequence=2,
+            source_frame_id="frame-101",
+            source_captured_at_s=100.04,
+            produced_at_s=100.05,
+        ),
+        target_geolocation_status=replace(
+            base_geo,
+            sequence=2,
+            source_frame_id="frame-101",
+            source_captured_at_s=100.04,
+            produced_at_s=100.05,
+        ),
+    )
+    heartbeat_range = replace(
+        base_range,
+        sequence=3,
+        source_frame_id="frame-102",
+        source_captured_at_s=100.07,
+        produced_at_s=100.08,
+    )
+    heartbeat_geo = replace(
+        base_geo,
+        sequence=3,
+        source_frame_id="frame-102",
+        source_captured_at_s=100.07,
+        produced_at_s=100.08,
+    )
+    heartbeat = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-102",
+        captured_at_s=100.07,
+        produced_at_s=100.08,
+        range_status=heartbeat_range,
+        target_geolocation_status=heartbeat_geo,
+    )
+    bridge.close()
+
+    assert first.published_range_statuses == (base_range,)
+    assert first.published_target_geolocation_statuses == (base_geo,)
+    assert suppressed.published_range_statuses == ()
+    assert suppressed.published_target_geolocation_statuses == ()
+    assert heartbeat.published_range_statuses == (heartbeat_range,)
+    assert heartbeat.published_target_geolocation_statuses == (heartbeat_geo,)
+    assert [status.source_frame_id for status, _peer in transport.range_published] == [
+        "frame-100",
+        "frame-102",
+    ]
+    assert [status.source_frame_id for status, _peer in transport.target_geolocation_published] == [
+        "frame-100",
+        "frame-102",
+    ]
+    assert all(
+        range_item.source_frame_id == geo_item.source_frame_id
+        and range_item.target_id == geo_item.target_id
+        for (range_item, _), (geo_item, _) in zip(
+            transport.range_published,
+            transport.target_geolocation_published,
+            strict=True,
+        )
+    )
+
+
+def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> None:
+    transport = _FailFirstGeolocationTransport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+    base_range = _range_status()
+    base_geo = _target_geolocation_status()
+
+    first = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=base_range,
+        target_geolocation_status=base_geo,
+    )
+    retry_range = replace(
+        base_range,
+        sequence=2,
+        source_frame_id="frame-101",
+        source_captured_at_s=100.02,
+        produced_at_s=100.03,
+    )
+    retry_geo = replace(
+        base_geo,
+        sequence=2,
+        source_frame_id="frame-101",
+        source_captured_at_s=100.02,
+        produced_at_s=100.03,
+    )
+    retry = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.02,
+        produced_at_s=100.03,
+        range_status=retry_range,
+        target_geolocation_status=retry_geo,
+    )
+    suppressed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-102",
+        captured_at_s=100.04,
+        produced_at_s=100.05,
+        range_status=replace(
+            retry_range,
+            sequence=3,
+            source_frame_id="frame-102",
+            source_captured_at_s=100.04,
+            produced_at_s=100.05,
+        ),
+        target_geolocation_status=replace(
+            retry_geo,
+            sequence=3,
+            source_frame_id="frame-102",
+            source_captured_at_s=100.04,
+            produced_at_s=100.05,
+        ),
+    )
+    bridge.close()
+
+    assert first.published_range_statuses == (base_range,)
+    assert first.published_target_geolocation_statuses == ()
+    assert first.transport_errors[-1] == "OSError"
+    assert retry.published_range_statuses == (retry_range,)
+    assert retry.published_target_geolocation_statuses == (retry_geo,)
+    assert suppressed.published_range_statuses == ()
+    assert suppressed.published_target_geolocation_statuses == ()
+    assert transport.geolocation_attempt_count == 2
+    assert [status.source_frame_id for status, _peer in transport.range_published] == [
+        "frame-100",
+        "frame-101",
+    ]
+    assert [status.source_frame_id for status, _peer in transport.target_geolocation_published] == [
+        "frame-101"
+    ]
+
+
+def test_bridge_rejects_stale_or_unpaired_range_geolocation_metadata() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.1),)
+
+    stale = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.1,
+        produced_at_s=100.11,
+        range_status=_range_status(),
+        target_geolocation_status=_target_geolocation_status(),
+    )
+    missing_range = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-102",
+        captured_at_s=100.2,
+        produced_at_s=100.21,
+        target_geolocation_status=replace(
+            _target_geolocation_status(),
+            sequence=2,
+            source_frame_id="frame-102",
+            source_captured_at_s=100.2,
+            produced_at_s=100.21,
+        ),
+    )
+    pair_mismatch = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-103",
+        captured_at_s=100.3,
+        produced_at_s=100.31,
+        range_status=replace(
+            _range_status(),
+            sequence=3,
+            source_frame_id="frame-103",
+            source_captured_at_s=100.3,
+            produced_at_s=100.31,
+        ),
+        target_geolocation_status=replace(
+            _target_geolocation_status(),
+            sequence=3,
+            target_id="track-other",
+            source_frame_id="frame-103",
+            source_captured_at_s=100.3,
+            produced_at_s=100.31,
+        ),
+    )
+    bridge.close()
+
+    assert stale.published_range_statuses == ()
+    assert stale.published_target_geolocation_statuses == ()
+    assert stale.transport_errors[-1] == "RangeStatusCurrentFrameMismatch"
+    assert missing_range.published_target_geolocation_statuses == ()
+    assert missing_range.transport_errors[-1] == "TargetGeolocationRangeStatusMissing"
+    assert pair_mismatch.published_range_statuses == ()
+    assert pair_mismatch.published_target_geolocation_statuses == ()
+    assert pair_mismatch.transport_errors[-1] == "RangeGeolocationPairMismatch"
+    assert transport.range_published == []
+    assert transport.target_geolocation_published == []

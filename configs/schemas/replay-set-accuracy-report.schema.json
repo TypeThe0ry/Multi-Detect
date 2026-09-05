@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-set-accuracy-report.schema.json",
+  "title": "Multi-Detect Replay-Set Accuracy Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "manifest_path",
+    "manifest_sha256",
+    "canonical_sha256",
+    "dataset_id",
+    "dataset_version",
+    "required_strata",
+    "coverage",
+    "positive_strata",
+    "positive_stratum_coverage",
+    "positive_strata_coverage_passed",
+    "structurally_valid",
+    "deployment_domain_evidence_complete",
+    "predictions_complete",
+    "metrics_evaluated",
+    "metrics_gate_passed",
+    "reviewed",
+    "reviewer",
+    "thresholds",
+    "entries",
+    "metrics",
+    "failure_reasons",
+    "accuracy_validated",
+    "gate_passed"
+  ],
+  "properties": {
+    "event": {"const": "replay_set_accuracy_evaluation_completed"},
+    "schema_version": {"const": 1},
+    "manifest_path": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "canonical_sha256": {"$ref": "#/$defs/sha256"},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "required_strata": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entry_count", "frame_count"],
+        "properties": {
+          "entry_count": {"type": "integer", "minimum": 0},
+          "frame_count": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "positive_strata": {
+      "type": "array",
+      "const": ["day", "night", "haze", "reflection", "smoke_only"]
+    },
+    "positive_stratum_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day", "night", "haze", "reflection", "smoke_only"],
+      "properties": {
+        "day": {"$ref": "#/$defs/positive_coverage"},
+        "night": {"$ref": "#/$defs/positive_coverage"},
+        "haze": {"$ref": "#/$defs/positive_coverage"},
+        "reflection": {"$ref": "#/$defs/positive_coverage"},
+        "smoke_only": {"$ref": "#/$defs/positive_coverage"}
+      }
+    },
+    "positive_strata_coverage_passed": {"type": "boolean"},
+    "structurally_valid": {"type": "boolean"},
+    "deployment_domain_evidence_complete": {"type": "boolean"},
+    "predictions_complete": {"type": "boolean"},
+    "metrics_evaluated": {"type": "boolean"},
+    "metrics_gate_passed": {"type": "boolean"},
+    "reviewed": {"type": "boolean"},
+    "reviewer": {"type": ["string", "null"]},
+    "model_binding": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/model_binding"}
+      ]
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iou_threshold",
+        "confidence_threshold",
+        "minimum_precision",
+        "minimum_recall",
+        "maximum_false_alarm_frame_rate",
+        "maximum_missed_detection_frame_rate",
+        "maximum_latency_p95_ms"
+      ],
+      "properties": {
+        "iou_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_precision": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "minimum_recall": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "maximum_false_alarm_frame_rate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maximum_missed_detection_frame_rate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maximum_latency_p95_ms": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "entries": {"type": "array"},
+    "metrics": {"type": ["object", "null"]},
+    "failure_reasons": {"type": "array", "items": {"type": "string"}},
+    "accuracy_validated": {"type": "boolean"},
+    "gate_passed": {"type": "boolean"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "model_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_sha256"],
+      "properties": {
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "model_id": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "positive_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["positive_truth_object_count", "positive_prediction_count"],
+      "properties": {
+        "positive_truth_object_count": {"type": "integer", "minimum": 0},
+        "positive_prediction_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

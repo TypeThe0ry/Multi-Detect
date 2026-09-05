@@ -1,0 +1,391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/simulator-terrain-ranging-evidence.schema.json",
+  "title": "Multi-Detect deterministic non-flat simulator terrain-ranging evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "product",
+    "release_label",
+    "python_version",
+    "scenario_id",
+    "gate_scope",
+    "gate_passed",
+    "deterministic_gate_passed",
+    "external_gazebo_runtime_gate_passed",
+    "external_runtime_required_for_real_3d",
+    "inputs",
+    "truth_surface",
+    "comparison",
+    "checks",
+    "failure_reasons",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "simulator_terrain_ranging_asset_truth_finished"},
+    "product": {"const": "Multi-Detect"},
+    "release_label": {
+      "type": "string",
+      "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+    },
+    "python_version": {
+      "type": "string",
+      "pattern": "^0\\.3\\.0(?:rc[1-9][0-9]*)?$"
+    },
+    "scenario_id": {"const": "terrain_ranging_validation_001"},
+    "gate_scope": {"const": "deterministic_simulator_asset_truth"},
+    "gate_passed": {"type": "boolean"},
+    "deterministic_gate_passed": {"type": "boolean"},
+    "external_gazebo_runtime_gate_passed": {"const": false},
+    "external_runtime_required_for_real_3d": {"const": true},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["world_sdf", "terrain_dem", "release_parity"],
+      "properties": {
+        "world_sdf": {"$ref": "#/$defs/asset"},
+        "terrain_dem": {"$ref": "#/$defs/asset"},
+        "release_parity": {"$ref": "#/$defs/parityAsset"}
+      }
+    },
+    "truth_surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sdf_version",
+        "world_name",
+        "surface_model",
+        "world_frame_orientation",
+        "origin",
+        "model_name",
+        "model_pose_enu_rpy_rad",
+        "model_normal_enu",
+        "plane_size_m",
+        "north_slope_m_per_m",
+        "east_slope_m_per_m",
+        "surface_elevation_at_local_zero_msl"
+      ],
+      "properties": {
+        "sdf_version": {"type": "string", "minLength": 1},
+        "world_name": {"const": "default"},
+        "surface_model": {"const": "EARTH_WGS84"},
+        "world_frame_orientation": {"const": "ENU"},
+        "origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["latitude_deg", "longitude_deg", "elevation_m"],
+          "properties": {
+            "latitude_deg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+            "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+            "elevation_m": {"type": "number", "minimum": -500, "maximum": 9000}
+          }
+        },
+        "model_name": {"const": "multidetect_dem_truth_surface"},
+        "model_pose_enu_rpy_rad": {"$ref": "#/$defs/vector6"},
+        "model_normal_enu": {"$ref": "#/$defs/vector3"},
+        "plane_size_m": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "number", "exclusiveMinimum": 0},
+            {"type": "number", "exclusiveMinimum": 0}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "north_slope_m_per_m": {"type": "number"},
+        "east_slope_m_per_m": {"type": "number"},
+        "surface_elevation_at_local_zero_msl": {"type": "number"}
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_method",
+        "node_sample_count",
+        "cell_center_sample_count",
+        "total_sample_count",
+        "ray_probe_count",
+        "cross_cell_ray_probe_count",
+        "tolerances",
+        "max_errors",
+        "rays"
+      ],
+      "properties": {
+        "sample_method": {"const": "all DEM nodes plus all bilinear cell centers"},
+        "node_sample_count": {"type": "integer", "minimum": 4},
+        "cell_center_sample_count": {"type": "integer", "minimum": 1},
+        "total_sample_count": {"type": "integer", "minimum": 5},
+        "ray_probe_count": {"type": "integer", "minimum": 5, "maximum": 7},
+        "cross_cell_ray_probe_count": {"type": "integer", "minimum": 5, "maximum": 7},
+        "tolerances": {"$ref": "#/$defs/tolerances"},
+        "max_errors": {"$ref": "#/$defs/maxErrors"},
+        "rays": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 7,
+          "items": {"$ref": "#/$defs/rayProbe"}
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_identity_matches",
+        "world_origin_matches_dem",
+        "surface_origin_matches_dem",
+        "truth_surface_is_non_flat",
+        "truth_plane_covers_dem",
+        "all_grid_samples_compared",
+        "dem_elevation_within_tolerance",
+        "dem_slope_within_tolerance",
+        "all_ray_probes_intersect",
+        "all_ray_probes_within_tolerance",
+        "at_least_five_cross_cell_rays",
+        "release_parity_matches_current_sources"
+      ],
+      "properties": {
+        "scenario_identity_matches": {"type": "boolean"},
+        "world_origin_matches_dem": {"type": "boolean"},
+        "surface_origin_matches_dem": {"type": "boolean"},
+        "truth_surface_is_non_flat": {"type": "boolean"},
+        "truth_plane_covers_dem": {"type": "boolean"},
+        "all_grid_samples_compared": {"type": "boolean"},
+        "dem_elevation_within_tolerance": {"type": "boolean"},
+        "dem_slope_within_tolerance": {"type": "boolean"},
+        "all_ray_probes_intersect": {"type": "boolean"},
+        "all_ray_probes_within_tolerance": {"type": "boolean"},
+        "at_least_five_cross_cell_rays": {"type": "boolean"},
+        "release_parity_matches_current_sources": {"type": "boolean"}
+      }
+    },
+    "failure_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "non_flat_asset_geometry_truth",
+        "shared_dem_intersection_matches_sdf_analytic_truth",
+        "external_gazebo_runtime",
+        "qgc_visual_acceptance",
+        "hardware_acceptance",
+        "outdoor_gnss",
+        "hil_real_flight",
+        "final_v0_3_0"
+      ],
+      "properties": {
+        "non_flat_asset_geometry_truth": {"type": "boolean"},
+        "shared_dem_intersection_matches_sdf_analytic_truth": {"type": "boolean"},
+        "external_gazebo_runtime": {"const": "not_claimed"},
+        "qgc_visual_acceptance": {"const": "not_claimed"},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "outdoor_gnss": {"const": "not_claimed"},
+        "hil_real_flight": {"const": "not_claimed"},
+        "final_v0_3_0": {"const": "not_released"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"gate_passed": {"const": true}},
+        "required": ["gate_passed"]
+      },
+      "then": {
+        "properties": {
+          "deterministic_gate_passed": {"const": true},
+          "failure_reasons": {"maxItems": 0},
+          "claims": {
+            "properties": {
+              "non_flat_asset_geometry_truth": {"const": true},
+              "shared_dem_intersection_matches_sdf_analytic_truth": {"const": true}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parityAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256", "hashes"],
+      "properties": {
+        "path": {"const": "configs/release-parity.json"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ui_contract_hash",
+            "core_algorithm_hash",
+            "task_contract_hash",
+            "safety_policy_hash",
+            "px4_mission_path_hash"
+          ],
+          "properties": {
+            "ui_contract_hash": {"$ref": "#/$defs/sha256"},
+            "core_algorithm_hash": {"$ref": "#/$defs/sha256"},
+            "task_contract_hash": {"$ref": "#/$defs/sha256"},
+            "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+            "px4_mission_path_hash": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "number"}
+    },
+    "vector6": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"type": "number"}
+    },
+    "intersection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slant_range_m",
+        "north_m",
+        "east_m",
+        "elevation_m",
+        "incidence_component"
+      ],
+      "properties": {
+        "slant_range_m": {"type": "number", "exclusiveMinimum": 0},
+        "north_m": {"type": "number"},
+        "east_m": {"type": "number"},
+        "elevation_m": {"type": "number"},
+        "incidence_component": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "absoluteError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slant_range_m",
+        "north_m",
+        "east_m",
+        "elevation_m",
+        "incidence_component"
+      ],
+      "properties": {
+        "slant_range_m": {"type": "number", "minimum": 0},
+        "north_m": {"type": "number", "minimum": 0},
+        "east_m": {"type": "number", "minimum": 0},
+        "elevation_m": {"type": "number", "minimum": 0},
+        "incidence_component": {"type": "number", "minimum": 0}
+      }
+    },
+    "rayProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe_id",
+        "reference_north_m",
+        "reference_east_m",
+        "height_m",
+        "camera_offset_ned",
+        "ray_ned",
+        "truth",
+        "dem",
+        "absolute_error",
+        "traversed_cell_count",
+        "gate_passed"
+      ],
+      "properties": {
+        "probe_id": {"type": "string", "minLength": 1},
+        "reference_north_m": {"type": "number"},
+        "reference_east_m": {"type": "number"},
+        "height_m": {"type": "number", "exclusiveMinimum": 0},
+        "camera_offset_ned": {"$ref": "#/$defs/vector3"},
+        "ray_ned": {"$ref": "#/$defs/vector3"},
+        "truth": {
+          "anyOf": [{"$ref": "#/$defs/intersection"}, {"type": "null"}]
+        },
+        "dem": {
+          "anyOf": [{"$ref": "#/$defs/intersection"}, {"type": "null"}]
+        },
+        "absolute_error": {
+          "anyOf": [{"$ref": "#/$defs/absoluteError"}, {"type": "null"}]
+        },
+        "traversed_cell_count": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "gate_passed": {"type": "boolean"}
+      }
+    },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elevation_m",
+        "slope_m_per_m",
+        "ray_slant_range_m",
+        "ray_north_m",
+        "ray_east_m",
+        "ray_elevation_m",
+        "ray_incidence_component"
+      ],
+      "properties": {
+        "elevation_m": {"type": "number", "exclusiveMinimum": 0},
+        "slope_m_per_m": {"type": "number", "exclusiveMinimum": 0},
+        "ray_slant_range_m": {"type": "number", "exclusiveMinimum": 0},
+        "ray_north_m": {"type": "number", "exclusiveMinimum": 0},
+        "ray_east_m": {"type": "number", "exclusiveMinimum": 0},
+        "ray_elevation_m": {"type": "number", "exclusiveMinimum": 0},
+        "ray_incidence_component": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "maxErrors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elevation_m",
+        "north_slope_m_per_m",
+        "east_slope_m_per_m",
+        "ray_slant_range_m",
+        "ray_north_m",
+        "ray_east_m",
+        "ray_elevation_m",
+        "ray_incidence_component"
+      ],
+      "properties": {
+        "elevation_m": {"type": "number", "minimum": 0},
+        "north_slope_m_per_m": {"type": "number", "minimum": 0},
+        "east_slope_m_per_m": {"type": "number", "minimum": 0},
+        "ray_slant_range_m": {"type": ["number", "null"], "minimum": 0},
+        "ray_north_m": {"type": ["number", "null"], "minimum": 0},
+        "ray_east_m": {"type": ["number", "null"], "minimum": 0},
+        "ray_elevation_m": {"type": ["number", "null"], "minimum": 0},
+        "ray_incidence_component": {"type": ["number", "null"], "minimum": 0}
+      }
+    }
+  }
+}

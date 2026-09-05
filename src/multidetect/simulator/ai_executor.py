@@ -1,0 +1,1279 @@
+"""Deterministic, bounded AI execution for the 3-D SIM runtime.
+
+The simulator has one control path.  This module is the policy/execution
+layer above :class:`SimulatorMavlinkControlAdapter`: it consumes *observed*
+telemetry, produces an explainable bounded axis command and lets the adapter
+perform authority arbitration and MAVLink emission.  It intentionally has no
+access to scenario truth, target ground-truth coordinates, Gazebo internals or
+mission files.
+
+There are two small pieces in the module:
+
+``DeterministicSimulatorAiPolicy``
+    A pure policy.  Given one :class:`SimulatorTelemetrySnapshot` and a clock
+    value it always returns the same action.  It only produces the four
+    normalized ``MANUAL_CONTROL`` axes; it cannot issue mode/mission/arm or
+    payload commands.
+
+``SimulatorAiExecutor``
+    Explicitly enables AI, checks the shared manual/AI authority, runs the
+    policy and submits the resulting axes through the existing MAVLink
+    adapter.  Stale telemetry and adapter watchdog expiry fail closed.
+
+The public names are deliberately self-contained so a future live sensor
+bridge can feed exactly the same contract as PX4/Gazebo without adding a
+SIM-only UI or a second actuator transport.
+"""
+
+from __future__ import annotations
+
+import math
+import threading
+from collections import Counter, deque
+from dataclasses import dataclass
+from enum import Enum
+from time import monotonic
+from typing import Any, Final
+
+from ..mavlink_gps import (
+    GNSS_CANONICAL_MAX_GPS_AGE_S,
+    GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M,
+    GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M,
+    MAVLINK_GPS_FIX_TYPE_MAX,
+    MAVLINK_GPS_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_SATELLITES_MIN,
+    MAVLINK_SATELLITES_MAX,
+    MAVLINK_SATELLITES_MIN,
+    MAVLINK_SATELLITES_UNKNOWN,
+)
+from .control import ControlAuthorityState
+from .mavlink_control import (
+    SimulatorControlReceipt,
+    SimulatorMavlinkControlAdapter,
+    SimulatorMavlinkControlError,
+)
+
+
+class SimulatorAiMode(str, Enum):
+    """Explainable high-level result of one deterministic policy step."""
+
+    HOVER = "hover"
+    TRACK = "track"
+    RETURN = "return"
+    FAILSAFE = "failsafe"
+    PAUSED = "paused"
+    SUPPRESSED = "suppressed"
+
+
+# A couple of aliases make the contract pleasant to use from integrations
+# that call this an action/state rather than a mode.
+SimulatorAiAction = SimulatorAiMode
+SimulatorAiState = SimulatorAiMode
+
+
+def _finite(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _optional_finite(value: object) -> bool:
+    return value is None or _finite(value)
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _angle_delta_deg(angle_deg: float) -> float:
+    """Return an angle in the deterministic shortest-path interval [-180, 180)."""
+
+    return (float(angle_deg) + 180.0) % 360.0 - 180.0
+
+
+def _json_number(value: float) -> float | None:
+    """Convert NaN/inf to JSON-safe ``None`` for evidence documents."""
+
+    return float(value) if math.isfinite(value) else None
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatorTelemetrySnapshot:
+    """Observation-only state handed to the SIM AI policy.
+
+    The fields are sensor/telemetry observations, not simulator truth.  In
+    particular there is no target ground-truth pose, class label, expected
+    result, Gazebo entity handle or scenario truth reference in this type.
+    ``target_*`` values are the output of the production perception/ranging
+    pipeline (bearing/range/confidence), and may all be absent.
+
+    Most values have conservative defaults so a bridge can progressively fill
+    the snapshot.  Lifecycle values deliberately default to ``None``: a
+    bridge must positively observe a healthy link and an armed vehicle before
+    the policy can emit an actuator command.  ``observed_at_s`` is the only
+    required temporal anchor;
+    ``timestamp_s`` is accepted as a keyword alias through
+    :meth:`from_mapping` and exposed as a property for integrations that use
+    that spelling.
+    """
+
+    observed_at_s: float
+    altitude_agl_m: float = 0.0
+    heading_deg: float = 0.0
+    ground_speed_mps: float = 0.0
+    latitude_deg: float = math.nan
+    longitude_deg: float = math.nan
+    gps_fix_type: int | None = None
+    gps_horizontal_accuracy_m: float = math.nan
+    gps_vertical_accuracy_m: float = math.nan
+    satellites_visible: int | None = None
+    target_visible: bool = False
+    target_bearing_deg: float | None = None
+    target_distance_m: float | None = None
+    target_confidence: float | None = None
+    home_bearing_deg: float | None = None
+    home_distance_m: float | None = None
+    obstacle_ahead: bool = False
+    link_healthy: bool | None = None
+    armed: bool | None = None
+    battery_remaining_pct: float = math.nan
+    # Optional external request generated by the mission/safety core.  It is
+    # an observation/intent flag; the executor still emits only bounded axes.
+    return_requested: bool = False
+    # Optional sensor freshness metadata.  They are informational and do not
+    # expose truth.  GPS freshness is intentionally separate from the fused
+    # position timestamp: ``gps_observed_at_s`` identifies the last complete
+    # GPS fix sample, while ``position_observed_at_s`` may come from a global
+    # position/estimator stream.
+    altitude_observed_at_s: float | None = None
+    position_observed_at_s: float | None = None
+    gps_observed_at_s: float | None = None
+
+    def __post_init__(self) -> None:
+        if not _finite(self.observed_at_s) or float(self.observed_at_s) < 0.0:
+            raise ValueError("observed_at_s must be finite and non-negative")
+        finite_fields = (
+            ("altitude_agl_m", self.altitude_agl_m),
+            ("heading_deg", self.heading_deg),
+            ("ground_speed_mps", self.ground_speed_mps),
+            ("latitude_deg", self.latitude_deg),
+            ("longitude_deg", self.longitude_deg),
+            ("gps_horizontal_accuracy_m", self.gps_horizontal_accuracy_m),
+            ("gps_vertical_accuracy_m", self.gps_vertical_accuracy_m),
+            ("battery_remaining_pct", self.battery_remaining_pct),
+        )
+        for name, value in finite_fields:
+            if not _finite(value) and not (isinstance(value, float) and math.isnan(value)):
+                raise ValueError(f"{name} must be finite or NaN when unavailable")
+        if float(self.altitude_agl_m) < 0.0:
+            raise ValueError("altitude_agl_m cannot be negative")
+        if float(self.ground_speed_mps) < 0.0:
+            raise ValueError("ground_speed_mps cannot be negative")
+        if _finite(self.latitude_deg) and not -90.0 < float(self.latitude_deg) < 90.0:
+            raise ValueError("latitude_deg must be strictly within (-90, 90)")
+        if _finite(self.longitude_deg) and not -180.0 <= float(self.longitude_deg) <= 180.0:
+            raise ValueError("longitude_deg must be within [-180, 180]")
+        if _finite(self.gps_horizontal_accuracy_m) and float(self.gps_horizontal_accuracy_m) < 0.0:
+            raise ValueError("gps_horizontal_accuracy_m cannot be negative")
+        if _finite(self.gps_vertical_accuracy_m) and float(self.gps_vertical_accuracy_m) < 0.0:
+            raise ValueError("gps_vertical_accuracy_m cannot be negative")
+        if _finite(self.battery_remaining_pct) and not (
+            0.0 <= float(self.battery_remaining_pct) <= 100.0
+        ):
+            raise ValueError("battery_remaining_pct must be within [0, 100]")
+        if self.gps_fix_type is not None:
+            if isinstance(self.gps_fix_type, bool) or not isinstance(self.gps_fix_type, int):
+                raise ValueError("gps_fix_type must be an integer or None")
+            if not MAVLINK_GPS_FIX_TYPE_MIN <= self.gps_fix_type <= MAVLINK_GPS_FIX_TYPE_MAX:
+                raise ValueError(
+                    "gps_fix_type must be within "
+                    f"[{MAVLINK_GPS_FIX_TYPE_MIN}, {MAVLINK_GPS_FIX_TYPE_MAX}]"
+                )
+        if self.satellites_visible is not None:
+            if isinstance(self.satellites_visible, bool) or not isinstance(
+                self.satellites_visible, int
+            ):
+                raise ValueError("satellites_visible must be an integer or None")
+            if not MAVLINK_SATELLITES_MIN <= self.satellites_visible <= MAVLINK_SATELLITES_UNKNOWN:
+                raise ValueError(
+                    "satellites_visible must be within "
+                    f"[{MAVLINK_SATELLITES_MIN}, {MAVLINK_SATELLITES_UNKNOWN}]"
+                )
+        for name, value in (
+            ("target_bearing_deg", self.target_bearing_deg),
+            ("target_distance_m", self.target_distance_m),
+            ("target_confidence", self.target_confidence),
+            ("home_bearing_deg", self.home_bearing_deg),
+            ("home_distance_m", self.home_distance_m),
+            ("altitude_observed_at_s", self.altitude_observed_at_s),
+            ("position_observed_at_s", self.position_observed_at_s),
+            ("gps_observed_at_s", self.gps_observed_at_s),
+        ):
+            if not _optional_finite(value):
+                raise ValueError(f"{name} must be finite or None")
+        for name, value in (
+            ("target_distance_m", self.target_distance_m),
+            ("home_distance_m", self.home_distance_m),
+        ):
+            if value is not None and float(value) < 0.0:
+                raise ValueError(f"{name} cannot be negative")
+        if self.target_confidence is not None and not 0.0 <= float(self.target_confidence) <= 1.0:
+            raise ValueError("target_confidence must be within [0, 1]")
+        for name, value in (
+            ("altitude_observed_at_s", self.altitude_observed_at_s),
+            ("position_observed_at_s", self.position_observed_at_s),
+            ("gps_observed_at_s", self.gps_observed_at_s),
+        ):
+            if value is not None and float(value) < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        for name, value in (("link_healthy", self.link_healthy), ("armed", self.armed)):
+            if value is not None and not isinstance(value, bool):
+                raise ValueError(f"{name} must be bool or None")
+        for name, value in (
+            ("target_visible", self.target_visible),
+            ("obstacle_ahead", self.obstacle_ahead),
+            ("return_requested", self.return_requested),
+        ):
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be bool")
+
+    @property
+    def timestamp_s(self) -> float:
+        """Alias used by telemetry bridges that call the sample time timestamp."""
+
+        return float(self.observed_at_s)
+
+    @property
+    def gps_quality_valid(self) -> bool:
+        """Whether this snapshot carries a complete, qualified GPS sample.
+
+        This is the timestamp-independent canonical wire/evidence gate.  It
+        includes the outdoor horizontal/vertical accuracy ceilings shared by
+        SIM, HIL, REAL and replay.  Callers that need a decision at a
+        particular instant must additionally compare ``gps_observed_at_s``
+        with their freshness budget (the return policy does that in
+        :meth:`_return_gps_valid`).
+        """
+
+        return (
+            self.gps_fix_type is not None
+            and MAVLINK_QUALIFIED_FIX_TYPE_MIN
+            <= self.gps_fix_type
+            <= MAVLINK_GPS_FIX_TYPE_MAX
+            and self.satellites_visible is not None
+            and MAVLINK_QUALIFIED_SATELLITES_MIN
+            <= self.satellites_visible
+            <= MAVLINK_SATELLITES_MAX
+            and _finite(self.latitude_deg)
+            and -90.0 < float(self.latitude_deg) < 90.0
+            and _finite(self.longitude_deg)
+            and -180.0 <= float(self.longitude_deg) <= 180.0
+            and _finite(self.gps_horizontal_accuracy_m)
+            and 0.0
+            <= float(self.gps_horizontal_accuracy_m)
+            <= GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M
+            and _finite(self.gps_vertical_accuracy_m)
+            and 0.0
+            <= float(self.gps_vertical_accuracy_m)
+            <= GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M
+            and self.gps_observed_at_s is not None
+            and _finite(self.gps_observed_at_s)
+            and float(self.gps_observed_at_s) >= 0.0
+        )
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> SimulatorTelemetrySnapshot:
+        """Build a snapshot from a JSON-like mapping with a timestamp alias."""
+
+        if not isinstance(raw, dict):
+            raise TypeError("telemetry snapshot must be a mapping")
+        values = dict(raw)
+        if "observed_at_s" not in values:
+            if "timestamp_s" in values:
+                values["observed_at_s"] = values.pop("timestamp_s")
+            elif "time_s" in values:
+                values["observed_at_s"] = values.pop("time_s")
+        if "observed_at_s" not in values:
+            raise ValueError("telemetry snapshot requires observed_at_s or timestamp_s")
+        allowed = {
+            item.name for item in SimulatorTelemetrySnapshot.__dataclass_fields__.values()
+        }
+        values = {name: value for name, value in values.items() if name in allowed}
+        return cls(**values)
+
+    def to_mapping(self) -> dict[str, object]:
+        """Return a stable, truth-free evidence representation."""
+
+        return {
+            "observed_at_s": float(self.observed_at_s),
+            "altitude_agl_m": float(self.altitude_agl_m),
+            "heading_deg": float(self.heading_deg),
+            "ground_speed_mps": float(self.ground_speed_mps),
+            "latitude_deg": _json_number(float(self.latitude_deg)),
+            "longitude_deg": _json_number(float(self.longitude_deg)),
+            "gps_fix_type": self.gps_fix_type,
+            "gps_horizontal_accuracy_m": _json_number(float(self.gps_horizontal_accuracy_m)),
+            "gps_vertical_accuracy_m": _json_number(float(self.gps_vertical_accuracy_m)),
+            "satellites_visible": self.satellites_visible,
+            # Keep the canonical wire-domain GPS qualification visible in
+            # every truth-free snapshot/evidence document.  The return policy
+            # still applies freshness and any tighter caller limit separately.
+            "gps_quality_valid": self.gps_quality_valid,
+            "target_visible": self.target_visible,
+            "target_bearing_deg": self.target_bearing_deg,
+            "target_distance_m": self.target_distance_m,
+            "target_confidence": self.target_confidence,
+            "home_bearing_deg": self.home_bearing_deg,
+            "home_distance_m": self.home_distance_m,
+            "obstacle_ahead": self.obstacle_ahead,
+            "link_healthy": self.link_healthy,
+            "armed": self.armed,
+            "battery_remaining_pct": _json_number(float(self.battery_remaining_pct)),
+            "return_requested": self.return_requested,
+            "altitude_observed_at_s": self.altitude_observed_at_s,
+            "position_observed_at_s": self.position_observed_at_s,
+            "gps_observed_at_s": self.gps_observed_at_s,
+            "truth_free": True,
+        }
+
+
+# Short aliases used by a few external integrations.
+SimulatorTelemetry = SimulatorTelemetrySnapshot
+TelemetrySnapshot = SimulatorTelemetrySnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatorAiCommand:
+    """Only actuator output the SIM AI policy is allowed to produce."""
+
+    roll: float
+    pitch: float
+    yaw: float
+    throttle: float
+
+    def __post_init__(self) -> None:
+        values = (self.roll, self.pitch, self.yaw, self.throttle)
+        if not all(_finite(value) for value in values):
+            raise ValueError("AI command axes must be finite")
+        if any(abs(float(value)) > 1.0 for value in values[:3]):
+            raise ValueError("AI roll, pitch and yaw must be within [-1, 1]")
+        if not 0.0 <= float(self.throttle) <= 1.0:
+            raise ValueError("AI throttle must be within [0, 1]")
+
+    def to_mapping(self) -> dict[str, float]:
+        return {
+            "roll": float(self.roll),
+            "pitch": float(self.pitch),
+            "yaw": float(self.yaw),
+            "throttle": float(self.throttle),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatorAiDecision:
+    """Explainable result of one policy/executor step."""
+
+    mode: SimulatorAiMode
+    reason: str
+    confidence: float
+    produced_at_s: float
+    command: SimulatorAiCommand | None = None
+    accepted: bool = False
+    receipt: SimulatorControlReceipt | None = None
+    authority_state: str = ControlAuthorityState.PAUSED.value
+    telemetry_observed_at_s: float | None = None
+    safety_flags: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, SimulatorAiMode):
+            raise ValueError("mode must be SimulatorAiMode")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("decision reason cannot be empty")
+        if not _finite(self.confidence) or not 0.0 <= float(self.confidence) <= 1.0:
+            raise ValueError("decision confidence must be within [0, 1]")
+        if not _finite(self.produced_at_s) or float(self.produced_at_s) < 0.0:
+            raise ValueError("produced_at_s must be finite and non-negative")
+        if self.telemetry_observed_at_s is not None and (
+            not _finite(self.telemetry_observed_at_s) or float(self.telemetry_observed_at_s) < 0.0
+        ):
+            raise ValueError("telemetry_observed_at_s must be finite and non-negative")
+        if not isinstance(self.safety_flags, tuple):
+            object.__setattr__(self, "safety_flags", tuple(self.safety_flags))
+        if self.command is not None and not isinstance(self.command, SimulatorAiCommand):
+            raise ValueError("command must be SimulatorAiCommand or None")
+
+    @property
+    def timestamp_s(self) -> float:
+        return float(self.produced_at_s)
+
+    @property
+    def action(self) -> SimulatorAiMode:
+        return self.mode
+
+    @property
+    def executed(self) -> bool:
+        return self.accepted
+
+    @property
+    def suppressed(self) -> bool:
+        return self.mode is SimulatorAiMode.SUPPRESSED
+
+    @property
+    def roll(self) -> float | None:
+        return None if self.command is None else self.command.roll
+
+    @property
+    def pitch(self) -> float | None:
+        return None if self.command is None else self.command.pitch
+
+    @property
+    def yaw(self) -> float | None:
+        return None if self.command is None else self.command.yaw
+
+    @property
+    def throttle(self) -> float | None:
+        return None if self.command is None else self.command.throttle
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "mode": self.mode.value,
+            "action": self.mode.value,
+            "reason": self.reason,
+            "confidence": float(self.confidence),
+            "produced_at_s": float(self.produced_at_s),
+            "timestamp_s": float(self.produced_at_s),
+            "command": None if self.command is None else self.command.to_mapping(),
+            "accepted": self.accepted,
+            "executed": self.accepted,
+            "receipt": None if self.receipt is None else {
+                "source": self.receipt.source,
+                "state": self.receipt.state,
+                "endpoint": self.receipt.endpoint,
+                "target_system": self.receipt.target_system,
+                "x": self.receipt.x,
+                "y": self.receipt.y,
+                "z": self.receipt.z,
+                "r": self.receipt.r,
+                "timestamp_s": self.receipt.timestamp_s,
+            },
+            "authority_state": self.authority_state,
+            "telemetry_observed_at_s": self.telemetry_observed_at_s,
+            "safety_flags": list(self.safety_flags),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatorAiExecutorConfig:
+    """Deterministic policy limits; all outputs remain inside adapter bounds."""
+
+    policy_version: str = "sim-ai-policy-v1"
+    maximum_telemetry_age_s: float = 1.0
+    minimum_target_confidence: float = 0.35
+    desired_target_distance_m: float = 30.0
+    target_distance_scale_m: float = 30.0
+    target_bearing_full_scale_deg: float = 45.0
+    bearing_gain: float = 0.80
+    roll_coupling: float = 0.55
+    altitude_target_m: float = 30.0
+    altitude_gain: float = 0.025
+    hover_throttle: float = 0.50
+    return_throttle: float = 0.45
+    low_battery_threshold_pct: float = 15.0
+    require_gps_for_return: bool = True
+    minimum_return_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN
+    # Backwards-compatible single accuracy knob.  The return path applies it
+    # per axis after clamping to the canonical outdoor hAcc/vAcc ceilings, so
+    # a relaxed legacy value can never promote a weak GPS fix.
+    maximum_return_gps_accuracy_m: float = GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M
+    # Keep the dedicated raw-GPS cursor separate from the fused telemetry
+    # timestamp.  A fresh heartbeat/position packet must not make an old GPS
+    # fix look usable for an RTL decision.
+    maximum_return_gps_age_s: float = GNSS_CANONICAL_MAX_GPS_AGE_S
+    history_limit: int = 256
+
+    def __post_init__(self) -> None:
+        positive = (
+            self.maximum_telemetry_age_s,
+            self.target_distance_scale_m,
+            self.target_bearing_full_scale_deg,
+            self.desired_target_distance_m,
+            self.altitude_target_m,
+            self.maximum_return_gps_accuracy_m,
+            self.maximum_return_gps_age_s,
+        )
+        if any(not _finite(value) or float(value) <= 0.0 for value in positive):
+            raise ValueError("AI executor positive limits must be finite and greater than zero")
+        bounded = (
+            self.minimum_target_confidence,
+            self.bearing_gain,
+            self.roll_coupling,
+            self.altitude_gain,
+            self.hover_throttle,
+            self.return_throttle,
+        )
+        if any(not _finite(value) for value in bounded):
+            raise ValueError("AI executor gains and throttle values must be finite")
+        if not 0.0 <= self.minimum_target_confidence <= 1.0:
+            raise ValueError("minimum_target_confidence must be within [0, 1]")
+        if not 0.0 < self.bearing_gain <= 1.0 or not 0.0 <= self.roll_coupling <= 1.0:
+            raise ValueError("AI executor gains must be within (0,1] / [0,1]")
+        if not 0.0 < self.altitude_gain <= 1.0:
+            raise ValueError("altitude_gain must be within (0,1]")
+        if not 0.0 <= self.hover_throttle <= 1.0 or not 0.0 <= self.return_throttle <= 1.0:
+            raise ValueError("AI throttle values must be within [0, 1]")
+        if not 0.0 <= self.low_battery_threshold_pct <= 100.0:
+            raise ValueError("low_battery_threshold_pct must be within [0, 100]")
+        if isinstance(self.require_gps_for_return, bool) is False:
+            raise ValueError("require_gps_for_return must be bool")
+        if (
+            isinstance(self.minimum_return_fix_type, bool)
+            or not isinstance(self.minimum_return_fix_type, int)
+            or not MAVLINK_QUALIFIED_FIX_TYPE_MIN
+            <= self.minimum_return_fix_type
+            <= MAVLINK_GPS_FIX_TYPE_MAX
+        ):
+            raise ValueError(
+                "minimum_return_fix_type must be an integer within "
+                f"[{MAVLINK_QUALIFIED_FIX_TYPE_MIN}, {MAVLINK_GPS_FIX_TYPE_MAX}]"
+            )
+        if (
+            isinstance(self.history_limit, bool)
+            or not isinstance(self.history_limit, int)
+            or not 1 <= self.history_limit <= 10_000
+        ):
+            raise ValueError("history_limit must be an integer within [1, 10000]")
+        if not isinstance(self.policy_version, str) or not self.policy_version.strip():
+            raise ValueError("policy_version cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyAction:
+    mode: SimulatorAiMode
+    reason: str
+    confidence: float
+    command: SimulatorAiCommand | None
+    safety_flags: tuple[str, ...] = ()
+
+
+class DeterministicSimulatorAiPolicy:
+    """Pure bounded hover/track/return/failsafe policy.
+
+    The policy is intentionally stateless.  No target ID, scenario truth or
+    random seed is consulted, making repeated calls with identical input
+    bit-for-bit explainable and replayable.
+    """
+
+    def __init__(self, config: SimulatorAiExecutorConfig | None = None) -> None:
+        self.config = config or SimulatorAiExecutorConfig()
+
+    def decide(
+        self,
+        snapshot: SimulatorTelemetrySnapshot,
+        *,
+        now_s: float | None = None,
+        command_limits: Any | None = None,
+    ) -> SimulatorAiDecision:
+        """Return a policy decision without emitting anything.
+
+        ``command_limits`` may be an :class:`AiControlEnvelope`-like object
+        exposing ``max_roll``, ``max_pitch``, ``max_yaw``, ``min_throttle`` and
+        ``max_throttle``.  It is optional to keep this pure policy useful in
+        offline replay tests; the executor always passes the adapter envelope.
+        """
+
+        if not isinstance(snapshot, SimulatorTelemetrySnapshot):
+            raise TypeError("snapshot must be SimulatorTelemetrySnapshot")
+        stamp = snapshot.observed_at_s if now_s is None else float(now_s)
+        if not _finite(stamp) or stamp < 0.0:
+            raise ValueError("now_s must be finite and non-negative")
+        limits = _Limits.from_object(command_limits)
+        action = self._decide_action(snapshot, limits, now_s=stamp)
+        return SimulatorAiDecision(
+            action.mode,
+            action.reason,
+            action.confidence,
+            stamp,
+            action.command,
+            False,
+            None,
+            ControlAuthorityState.AI.value,
+            snapshot.observed_at_s,
+            action.safety_flags,
+        )
+
+    def _decide_action(
+        self,
+        snapshot: SimulatorTelemetrySnapshot,
+        limits: _Limits,
+        *,
+        now_s: float,
+    ) -> _PolicyAction:
+        # ``None`` is an unknown sensor state, not permission to proceed.
+        # Keep the reason distinct from an explicit unhealthy/disarmed report
+        # so evidence can tell a missing telemetry field from a real fault.
+        if snapshot.link_healthy is not True:
+            if snapshot.link_healthy is False:
+                return self._failsafe("flight_controller_link_unhealthy", "link_unhealthy")
+            return self._failsafe("flight_controller_link_unknown", "link_unknown")
+        if snapshot.armed is not True:
+            if snapshot.armed is False:
+                return self._failsafe("vehicle_not_armed", "vehicle_disarmed")
+            return self._failsafe("vehicle_armed_state_unknown", "armed_unknown")
+        if snapshot.obstacle_ahead:
+            return self._failsafe("obstacle_ahead", "obstacle_detected")
+
+        return_reason: str | None = None
+        if snapshot.return_requested:
+            return_reason = "return_requested"
+        elif _finite(snapshot.battery_remaining_pct) and (
+            float(snapshot.battery_remaining_pct) <= self.config.low_battery_threshold_pct
+        ):
+            return_reason = "battery_below_return_threshold"
+        if return_reason is not None:
+            if self.config.require_gps_for_return and not self._return_gps_valid(
+                snapshot, now_s=now_s
+            ):
+                return self._failsafe(
+                    "return_gps_quality_insufficient", "gps_unqualified_for_return"
+                )
+            command = self._return_command(snapshot, limits)
+            if command is None:
+                return self._failsafe("home_vector_unavailable", "home_vector_missing")
+            return _PolicyAction(
+                SimulatorAiMode.RETURN,
+                return_reason,
+                0.90,
+                command,
+                ("return_path",),
+            )
+
+        if (
+            snapshot.target_visible
+            and snapshot.target_bearing_deg is not None
+            and snapshot.target_distance_m is not None
+            and snapshot.target_confidence is not None
+            and float(snapshot.target_confidence) >= self.config.minimum_target_confidence
+        ):
+            command = self._track_command(snapshot, limits)
+            return _PolicyAction(
+                SimulatorAiMode.TRACK,
+                "target_observation_qualified",
+                _clamp(float(snapshot.target_confidence), 0.0, 1.0),
+                command,
+                ("target_observation",),
+            )
+
+        if snapshot.target_visible and snapshot.target_confidence is not None:
+            return _PolicyAction(
+                SimulatorAiMode.HOVER,
+                "target_observation_below_confidence_gate",
+                _clamp(float(snapshot.target_confidence), 0.0, 1.0),
+                self._hover_command(snapshot, limits),
+                ("target_gate",),
+            )
+        return _PolicyAction(
+            SimulatorAiMode.HOVER,
+            "target_observation_unavailable",
+            0.50,
+            self._hover_command(snapshot, limits),
+            ("no_target",),
+        )
+
+    def _hover_command(
+        self, snapshot: SimulatorTelemetrySnapshot, limits: _Limits
+    ) -> SimulatorAiCommand:
+        altitude_error = self.config.altitude_target_m - float(snapshot.altitude_agl_m)
+        throttle = self.config.hover_throttle + self.config.altitude_gain * altitude_error
+        return SimulatorAiCommand(
+            0.0,
+            0.0,
+            0.0,
+            limits.throttle(throttle),
+        )
+
+    def _track_command(
+        self, snapshot: SimulatorTelemetrySnapshot, limits: _Limits
+    ) -> SimulatorAiCommand:
+        assert snapshot.target_bearing_deg is not None
+        assert snapshot.target_distance_m is not None
+        bearing_error = _angle_delta_deg(float(snapshot.target_bearing_deg))
+        yaw = limits.yaw(
+            self.config.bearing_gain
+            * bearing_error
+            / self.config.target_bearing_full_scale_deg
+        )
+        roll = limits.roll(yaw * self.config.roll_coupling)
+        distance_error = float(snapshot.target_distance_m) - self.config.desired_target_distance_m
+        pitch = limits.pitch(distance_error / self.config.target_distance_scale_m)
+        altitude_error = self.config.altitude_target_m - float(snapshot.altitude_agl_m)
+        throttle = self.config.hover_throttle + self.config.altitude_gain * altitude_error
+        return SimulatorAiCommand(roll, pitch, yaw, limits.throttle(throttle))
+
+    def _return_command(
+        self, snapshot: SimulatorTelemetrySnapshot, limits: _Limits
+    ) -> SimulatorAiCommand | None:
+        if snapshot.home_bearing_deg is None or snapshot.home_distance_m is None:
+            return None
+        bearing_error = _angle_delta_deg(float(snapshot.home_bearing_deg))
+        yaw = limits.yaw(
+            self.config.bearing_gain
+            * bearing_error
+            / self.config.target_bearing_full_scale_deg
+        )
+        roll = limits.roll(yaw * self.config.roll_coupling)
+        # A positive pitch is the forward command used by the same normalized
+        # MANUAL_CONTROL contract.  Stop accelerating as the home point nears.
+        pitch = limits.pitch(
+            (float(snapshot.home_distance_m) - self.config.desired_target_distance_m)
+            / self.config.target_distance_scale_m
+        )
+        return SimulatorAiCommand(roll, pitch, yaw, limits.throttle(self.config.return_throttle))
+
+    def _return_gps_valid(
+        self, snapshot: SimulatorTelemetrySnapshot, *, now_s: float
+    ) -> bool:
+        gps_observed_at_s = snapshot.gps_observed_at_s
+        if gps_observed_at_s is None or not _finite(gps_observed_at_s):
+            return False
+        gps_age_s = float(now_s) - float(gps_observed_at_s)
+        if gps_age_s < 0.0 or gps_age_s > min(
+            float(self.config.maximum_return_gps_age_s), GNSS_CANONICAL_MAX_GPS_AGE_S
+        ):
+            return False
+        # Keep the public compatibility knob, but never let it widen the
+        # canonical horizontal/vertical outdoor policy independently.
+        maximum_horizontal_accuracy_m = min(
+            float(self.config.maximum_return_gps_accuracy_m),
+            GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M,
+        )
+        maximum_vertical_accuracy_m = min(
+            float(self.config.maximum_return_gps_accuracy_m),
+            GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M,
+        )
+        return (
+            snapshot.gps_fix_type is not None
+            and self.config.minimum_return_fix_type
+            <= snapshot.gps_fix_type
+            <= MAVLINK_GPS_FIX_TYPE_MAX
+            and _finite(snapshot.latitude_deg)
+            and -90.0 < float(snapshot.latitude_deg) < 90.0
+            and _finite(snapshot.longitude_deg)
+            and -180.0 <= float(snapshot.longitude_deg) <= 180.0
+            and snapshot.satellites_visible is not None
+            and MAVLINK_QUALIFIED_SATELLITES_MIN
+            <= snapshot.satellites_visible
+            <= MAVLINK_SATELLITES_MAX
+            and _finite(snapshot.gps_horizontal_accuracy_m)
+            and 0.0 <= float(snapshot.gps_horizontal_accuracy_m)
+            and float(snapshot.gps_horizontal_accuracy_m)
+            <= maximum_horizontal_accuracy_m
+            and _finite(snapshot.gps_vertical_accuracy_m)
+            and 0.0 <= float(snapshot.gps_vertical_accuracy_m)
+            and float(snapshot.gps_vertical_accuracy_m)
+            <= maximum_vertical_accuracy_m
+        )
+
+    @staticmethod
+    def _failsafe(reason: str, flag: str) -> _PolicyAction:
+        return _PolicyAction(
+            SimulatorAiMode.FAILSAFE,
+            reason,
+            1.0,
+            # The executor uses the adapter's neutral/failsafe path.  Keeping
+            # this command absent prevents a policy caller from mistaking a
+            # proposed axis tuple for an emitted actuator command.
+            None,
+            (flag,),
+        )
+
+
+# Friendly aliases for callers that use a shorter policy name.
+SimulatorAiPolicy = DeterministicSimulatorAiPolicy
+DeterministicAiPolicy = DeterministicSimulatorAiPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class _Limits:
+    max_roll: float = 0.50
+    max_pitch: float = 0.50
+    max_yaw: float = 0.60
+    min_throttle: float = 0.15
+    max_throttle: float = 0.80
+
+    @classmethod
+    def from_object(cls, value: Any | None) -> _Limits:
+        if value is None:
+            return cls()
+        result = cls(
+            float(getattr(value, "max_roll", cls.max_roll)),
+            float(getattr(value, "max_pitch", cls.max_pitch)),
+            float(getattr(value, "max_yaw", cls.max_yaw)),
+            float(getattr(value, "min_throttle", cls.min_throttle)),
+            float(getattr(value, "max_throttle", cls.max_throttle)),
+        )
+        if (
+            not all(_finite(item) for item in (
+                result.max_roll,
+                result.max_pitch,
+                result.max_yaw,
+                result.min_throttle,
+                result.max_throttle,
+            ))
+            or not 0.0 < result.max_roll <= 1.0
+            or not 0.0 < result.max_pitch <= 1.0
+            or not 0.0 < result.max_yaw <= 1.0
+            or not 0.0 <= result.min_throttle <= result.max_throttle <= 1.0
+        ):
+            raise ValueError("invalid AI command limits")
+        return result
+
+    def roll(self, value: float) -> float:
+        return _clamp(float(value), -self.max_roll, self.max_roll)
+
+    def pitch(self, value: float) -> float:
+        return _clamp(float(value), -self.max_pitch, self.max_pitch)
+
+    def yaw(self, value: float) -> float:
+        return _clamp(float(value), -self.max_yaw, self.max_yaw)
+
+    def throttle(self, value: float) -> float:
+        return _clamp(float(value), self.min_throttle, self.max_throttle)
+
+
+class SimulatorAiExecutor:
+    """Run deterministic SIM AI decisions through one shared control adapter."""
+
+    _SCHEMA_VERSION: Final[int] = 1
+
+    def __init__(
+        self,
+        adapter: SimulatorMavlinkControlAdapter,
+        *,
+        config: SimulatorAiExecutorConfig | None = None,
+        policy: DeterministicSimulatorAiPolicy | None = None,
+        clock: Any = monotonic,
+    ) -> None:
+        if not isinstance(adapter, SimulatorMavlinkControlAdapter):
+            raise TypeError("adapter must be a SimulatorMavlinkControlAdapter")
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+        self.adapter = adapter
+        self.authority = adapter.authority
+        self.config = config or SimulatorAiExecutorConfig()
+        if policy is not None and not isinstance(policy, DeterministicSimulatorAiPolicy):
+            raise TypeError("policy must be DeterministicSimulatorAiPolicy")
+        self.policy = policy or DeterministicSimulatorAiPolicy(self.config)
+        self.clock = clock
+        self._lock = threading.RLock()
+        self._enabled = False
+        self._decisions = 0
+        self._accepted = 0
+        self._suppressed = 0
+        self._failsafes = 0
+        self._watchdog_failsafes = 0
+        self._rejected = 0
+        self._mode_counts: Counter[str] = Counter()
+        self._reason_counts: Counter[str] = Counter()
+        self._history: deque[SimulatorAiDecision] = deque(maxlen=self.config.history_limit)
+        self._last_decision: SimulatorAiDecision | None = None
+
+    @property
+    def enabled(self) -> bool:
+        with self._lock:
+            return self._enabled and self.authority.ai_enabled
+
+    @property
+    def last_decision(self) -> SimulatorAiDecision | None:
+        with self._lock:
+            return self._last_decision
+
+    @property
+    def history(self) -> tuple[SimulatorAiDecision, ...]:
+        with self._lock:
+            return tuple(self._history)
+
+    def enable_ai(self) -> None:
+        """Explicitly opt into AI; preserve an active manual takeover."""
+
+        with self._lock:
+            self.authority.enable_ai()
+            self._enabled = True
+            # Starting from the default PAUSED state can be made useful with
+            # one explicit enable call.  A MANUAL or FAILSAFE state is left
+            # untouched; the operator must release/reset it deliberately.
+            if (
+                self.authority.state is ControlAuthorityState.PAUSED
+                and not self.authority.manual_override
+            ):
+                self.authority.release_manual_control()
+
+    enable = enable_ai
+    start = enable_ai
+
+    def disable_ai(self) -> None:
+        with self._lock:
+            # Clear the adapter's watchdog timestamp before changing
+            # authority.  The adapter owns the only neutral MAVLink output.
+            try:
+                self.adapter.shutdown(timestamp_s=self._now())
+            except (RuntimeError, ValueError, TypeError):
+                pass
+            self.authority.disable_ai()
+            self._enabled = False
+
+    disable = disable_ai
+
+    def release_manual_control(self) -> None:
+        with self._lock:
+            if not self.authority.ai_enabled:
+                raise SimulatorMavlinkControlError(
+                    "release_manual_control requires explicit AI enable"
+                )
+            self.authority.release_manual_control()
+
+    def take_manual_control(self) -> None:
+        """Mark manual authority immediately; the next QGC frame supplies axes."""
+
+        with self._lock:
+            self.authority.take_manual_control()
+
+    def stop(self) -> SimulatorControlReceipt | None:
+        """Stop AI and let the adapter neutralize an active stream."""
+
+        with self._lock:
+            receipt = self.adapter.shutdown(timestamp_s=self._now())
+            if self.authority.state is ControlAuthorityState.AI:
+                self.authority.failsafe("SIM AI executor stopped")
+            self._enabled = False
+            return receipt
+
+    def step(
+        self,
+        snapshot: SimulatorTelemetrySnapshot,
+        *,
+        now_s: float | None = None,
+    ) -> SimulatorAiDecision:
+        """Evaluate and, when permitted, execute one AI control step."""
+
+        if not isinstance(snapshot, SimulatorTelemetrySnapshot):
+            raise TypeError("snapshot must be SimulatorTelemetrySnapshot")
+        with self._lock:
+            stamp = self._now() if now_s is None else float(now_s)
+            self._require_time(stamp)
+
+            if not self._enabled or not self.authority.ai_enabled:
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.PAUSED,
+                        "ai_not_enabled",
+                        0.0,
+                        stamp,
+                        None,
+                        False,
+                        None,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("explicit_enable_required",),
+                    )
+                )
+            if self.authority.manual_override or (
+                self.authority.state is ControlAuthorityState.MANUAL
+            ):
+                self._suppressed += 1
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.SUPPRESSED,
+                        "manual_control_priority",
+                        1.0,
+                        stamp,
+                        None,
+                        False,
+                        None,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("manual_takeover",),
+                    )
+                )
+            if self.authority.state is ControlAuthorityState.FAILSAFE:
+                self._failsafes += 1
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.FAILSAFE,
+                        "authority_in_failsafe",
+                        1.0,
+                        stamp,
+                        None,
+                        False,
+                        None,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("authority_failsafe",),
+                    )
+                )
+            if self.authority.state is ControlAuthorityState.PAUSED:
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.PAUSED,
+                        "ai_authority_paused",
+                        0.0,
+                        stamp,
+                        None,
+                        False,
+                        None,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("authority_paused",),
+                    )
+                )
+
+            age_s = stamp - snapshot.observed_at_s
+            if age_s < 0.0 or age_s > self.config.maximum_telemetry_age_s:
+                return self._watchdog_decision(
+                    stamp,
+                    snapshot,
+                    reason="telemetry_stale",
+                    flag="telemetry_stale",
+                )
+
+            watchdog_receipt = self.adapter.check_watchdog(now_s=stamp)
+            if watchdog_receipt is not None:
+                self._watchdog_failsafes += 1
+                self._failsafes += 1
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.FAILSAFE,
+                        "ai_control_watchdog_expired",
+                        1.0,
+                        stamp,
+                        None,
+                        True,
+                        watchdog_receipt,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("watchdog",),
+                    )
+                )
+
+            policy_decision = self.policy.decide(
+                snapshot,
+                now_s=stamp,
+                command_limits=self.adapter.config.ai_envelope,
+            )
+            if policy_decision.mode is SimulatorAiMode.FAILSAFE:
+                return self._emit_policy_failsafe(stamp, snapshot, policy_decision)
+            command = policy_decision.command
+            if command is None:
+                return self._watchdog_decision(
+                    stamp,
+                    snapshot,
+                    reason="policy_command_unavailable",
+                    flag="command_unavailable",
+                )
+            try:
+                receipt = self.adapter.submit_ai(
+                    roll=command.roll,
+                    pitch=command.pitch,
+                    yaw=command.yaw,
+                    throttle=command.throttle,
+                    timestamp_s=stamp,
+                )
+            except (RuntimeError, ValueError, TypeError) as exc:
+                self._rejected += 1
+                return self._publish(
+                    SimulatorAiDecision(
+                        SimulatorAiMode.FAILSAFE,
+                        f"ai_command_rejected:{type(exc).__name__}",
+                        1.0,
+                        stamp,
+                        command,
+                        False,
+                        None,
+                        self.authority.state.value,
+                        snapshot.observed_at_s,
+                        ("adapter_rejected",),
+                    )
+                )
+            decision = SimulatorAiDecision(
+                policy_decision.mode,
+                policy_decision.reason,
+                policy_decision.confidence,
+                stamp,
+                command,
+                True,
+                receipt,
+                self.authority.state.value,
+                snapshot.observed_at_s,
+                policy_decision.safety_flags,
+            )
+            self._accepted += 1
+            return self._publish(decision)
+
+    execute = step
+    tick = step
+
+    def watchdog_tick(self, *, now_s: float | None = None) -> SimulatorAiDecision | None:
+        """Poll the adapter watchdog without requiring a new sensor sample."""
+
+        with self._lock:
+            stamp = self._now() if now_s is None else float(now_s)
+            self._require_time(stamp)
+            receipt = self.adapter.check_watchdog(now_s=stamp)
+            if receipt is None:
+                return None
+            self._watchdog_failsafes += 1
+            self._failsafes += 1
+            return self._publish(
+                SimulatorAiDecision(
+                    SimulatorAiMode.FAILSAFE,
+                    "ai_control_watchdog_expired",
+                    1.0,
+                    stamp,
+                    None,
+                    True,
+                    receipt,
+                    self.authority.state.value,
+                    None,
+                    ("watchdog",),
+                )
+            )
+
+    poll_watchdog = watchdog_tick
+
+    def evidence(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "schema_version": self._SCHEMA_VERSION,
+                "policy_version": self.config.policy_version,
+                "enabled": self.enabled,
+                "authority_state": self.authority.state.value,
+                "truth_free_input_contract": True,
+                "arbitrary_flight_commands": False,
+                "output_transport": "shared SimulatorMavlinkControlAdapter MANUAL_CONTROL",
+                "decisions": self._decisions,
+                "accepted": self._accepted,
+                "rejected": self._rejected,
+                "manual_suppressed": self._suppressed,
+                "failsafe": self._failsafes,
+                "watchdog_failsafe": self._watchdog_failsafes,
+                "mode_counts": dict(sorted(self._mode_counts.items())),
+                "reason_counts": dict(sorted(self._reason_counts.items())),
+                "last_decision": (
+                    None if self._last_decision is None else self._last_decision.to_mapping()
+                ),
+                "recent_decisions": [item.to_mapping() for item in self._history],
+                "adapter": self.adapter.evidence(),
+            }
+
+    def _emit_policy_failsafe(
+        self,
+        stamp: float,
+        snapshot: SimulatorTelemetrySnapshot,
+        policy_decision: SimulatorAiDecision,
+    ) -> SimulatorAiDecision:
+        receipt: SimulatorControlReceipt | None = None
+        # Use the explicit failsafe operation when available.  Unlike
+        # ``shutdown`` (which intentionally no-ops for a fresh stream), this
+        # path must emit a neutral frame even when the first observation is
+        # already unsafe.  That keeps a policy fault fail-closed at the PX4
+        # boundary instead of merely changing local authority state.
+        try:
+            request_failsafe = getattr(self.adapter, "request_failsafe", None)
+            if callable(request_failsafe):
+                receipt = request_failsafe(policy_decision.reason, timestamp_s=stamp)
+            else:  # pragma: no cover - compatibility for older test doubles.
+                receipt = self.adapter.shutdown(timestamp_s=stamp)
+        except (RuntimeError, ValueError, TypeError) as exc:
+            self._rejected += 1
+            policy_reason = f"{policy_decision.reason}:neutral_rejected:{type(exc).__name__}"
+            if self.authority.state is not ControlAuthorityState.FAILSAFE:
+                self.authority.failsafe(policy_decision.reason)
+        else:
+            policy_reason = policy_decision.reason
+            if receipt is None and self.authority.state is not ControlAuthorityState.FAILSAFE:
+                # A fresh stream has no adapter watchdog timestamp yet, but a
+                # safety decision must still transition the shared authority.
+                self.authority.failsafe(policy_decision.reason)
+        self._failsafes += 1
+        return self._publish(
+            SimulatorAiDecision(
+                SimulatorAiMode.FAILSAFE,
+                policy_reason,
+                policy_decision.confidence,
+                stamp,
+                None,
+                receipt is not None,
+                receipt,
+                self.authority.state.value,
+                snapshot.observed_at_s,
+                policy_decision.safety_flags,
+            )
+        )
+
+    def _watchdog_decision(
+        self,
+        stamp: float,
+        snapshot: SimulatorTelemetrySnapshot,
+        *,
+        reason: str,
+        flag: str,
+    ) -> SimulatorAiDecision:
+        receipt = self.adapter.check_watchdog(now_s=stamp)
+        if receipt is not None:
+            self._watchdog_failsafes += 1
+        elif self.authority.state is not ControlAuthorityState.FAILSAFE:
+            # There may be no previous AI frame to neutralize.  Stale input is
+            # nevertheless a hard stop for the authority.
+            self.authority.failsafe(reason)
+        self._failsafes += 1
+        return self._publish(
+            SimulatorAiDecision(
+                SimulatorAiMode.FAILSAFE,
+                reason,
+                1.0,
+                stamp,
+                None,
+                receipt is not None,
+                receipt,
+                self.authority.state.value,
+                snapshot.observed_at_s,
+                (flag,),
+            )
+        )
+
+    def _publish(self, decision: SimulatorAiDecision) -> SimulatorAiDecision:
+        self._decisions += 1
+        self._mode_counts[decision.mode.value] += 1
+        self._reason_counts[decision.reason] += 1
+        self._last_decision = decision
+        self._history.append(decision)
+        return decision
+
+    def _now(self) -> float:
+        value = float(self.clock())
+        self._require_time(value)
+        return value
+
+    @staticmethod
+    def _require_time(value: float) -> None:
+        if not _finite(value) or float(value) < 0.0:
+            raise ValueError("AI executor time must be finite and non-negative")
+
+
+__all__ = [
+    "DeterministicAiPolicy",
+    "DeterministicSimulatorAiPolicy",
+    "SimulatorAiAction",
+    "SimulatorAiCommand",
+    "SimulatorAiDecision",
+    "SimulatorAiExecutor",
+    "SimulatorAiExecutorConfig",
+    "SimulatorAiMode",
+    "SimulatorAiPolicy",
+    "SimulatorAiState",
+    "SimulatorTelemetry",
+    "SimulatorTelemetrySnapshot",
+    "TelemetrySnapshot",
+]

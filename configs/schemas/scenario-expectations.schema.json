@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/scenario-expectations.schema.json",
+  "title": "Multi-Detect ScenarioExpectations channel v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scenario_id", "scenario_version", "allowed_terminal_states", "maximum_geofence_violations", "maximum_false_geolocations", "maximum_unauthorized_commands"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "scenario_version": {"type": "integer", "minimum": 1},
+    "allowed_terminal_states": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "maximum_geofence_violations": {"type": "integer", "minimum": 0},
+    "maximum_false_geolocations": {"type": "integer", "minimum": 0},
+    "maximum_unauthorized_commands": {"type": "integer", "minimum": 0}
+  }
+}

@@ -1,0 +1,28 @@
+# Multi-Detect software-only detector positive-control billboard.
+# Coordinates are metres in the model frame: X normal, Y width, Z height.
+mtllib car_billboard.mtl
+o car_positive_control_billboard
+
+v 0.000000 -1.650000 -1.100000
+v 0.000000  1.650000 -1.100000
+v 0.000000  1.650000  1.100000
+v 0.000000 -1.650000  1.100000
+
+vt 0.000000 0.000000
+vt 1.000000 0.000000
+vt 1.000000 1.000000
+vt 0.000000 1.000000
+
+vn -1.000000 0.000000 0.000000
+vn  1.000000 0.000000 0.000000
+
+usemtl multidetect_coco_car_positive_control_v1
+s off
+
+# Camera-facing side, normal -X.
+f 1/1/1 4/4/1 3/3/1
+f 1/1/1 3/3/1 2/2/1
+
+# Reverse side, normal +X. Duplicate winding makes the fixture renderer-safe.
+f 1/1/2 2/2/2 3/3/2
+f 1/1/2 3/3/2 4/4/2

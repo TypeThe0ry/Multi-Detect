@@ -20,6 +20,7 @@ from .operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextStatusMessage,
     SelectionAction,
@@ -120,6 +121,13 @@ class OperatorStatusTransport(Protocol):
         peer: OperatorPeer,
     ) -> None: ...
 
+    def publish_runtime_status(
+        self,
+        status: RuntimeStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> None: ...
+
     def publish_authorization_challenge(
         self,
         status: AuthorizationChallengeStatusMessage,
@@ -172,6 +180,49 @@ class OperatorStatusTransport(Protocol):
     def close(self) -> None: ...
 
 
+class RuntimeStatusSendReceiptView(Protocol):
+    """Structural view of one completed local runtime-status send."""
+
+    acknowledged_runtime_sequence: int
+    run_hash64: int
+    remote: OperatorPeer
+    sent_at_monotonic_ns: int
+
+
+class RuntimeStatusAckMessageView(Protocol):
+    """Structural view of the type-24 body accepted by the QGC bridge."""
+
+    acknowledged_runtime_sequence: int
+    run_hash64: int
+
+
+class RuntimeStatusAcceptanceReceiptView(Protocol):
+    """Structural view of one authenticated post-adoption type-24 receipt."""
+
+    acknowledgement: RuntimeStatusAckMessageView
+    remote: OperatorPeer
+    sent_at_monotonic_ns: int
+    acknowledged_at_monotonic_ns: int
+
+
+class RuntimeStatusAcceptanceTransport(OperatorStatusTransport, Protocol):
+    """Transport extension required by synchronized QGC acceptance gates."""
+
+    def publish_runtime_status_for_acceptance(
+        self,
+        status: RuntimeStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> RuntimeStatusSendReceiptView: ...
+
+    def wait_runtime_status_ack(
+        self,
+        send_receipt: RuntimeStatusSendReceiptView,
+        *,
+        timeout_s: float,
+    ) -> RuntimeStatusAcceptanceReceiptView: ...
+
+
 @dataclass(frozen=True, slots=True)
 class OperatorBridgeResult:
     accepted_command_count: int
@@ -198,6 +249,7 @@ class OperatorBridgeResult:
     published_payload_target_statuses: tuple[PayloadTargetStatusMessage, ...] = ()
     published_target_pool_statuses: tuple[TargetPoolStatusMessage, ...] = ()
     published_scene_context_statuses: tuple[SceneContextStatusMessage, ...] = ()
+    published_runtime_statuses: tuple[RuntimeStatusMessage, ...] = ()
 
 
 class LiveOperatorBridge:
@@ -214,6 +266,7 @@ class LiveOperatorBridge:
         range_status_heartbeat_s: float = 1.0 / 15.0,
         target_geolocation_status_heartbeat_s: float = 1.0 / 15.0,
         release_status_heartbeat_s: float = 1.0 / 15.0,
+        runtime_status_heartbeat_s: float = 1.0,
         approach_status_heartbeat_s: float = 1.0 / 15.0,
         payload_target_status_heartbeat_s: float = 1.0 / 15.0,
         target_pool_status_heartbeat_s: float = 0.2,
@@ -233,6 +286,8 @@ class LiveOperatorBridge:
             raise ValueError("target geolocation status heartbeat must be finite and positive")
         if not isfinite(release_status_heartbeat_s) or release_status_heartbeat_s <= 0.0:
             raise ValueError("release status heartbeat must be finite and positive")
+        if not isfinite(runtime_status_heartbeat_s) or runtime_status_heartbeat_s <= 0.0:
+            raise ValueError("runtime status heartbeat must be finite and positive")
         if not isfinite(approach_status_heartbeat_s) or approach_status_heartbeat_s <= 0.0:
             raise ValueError("approach status heartbeat must be finite and positive")
         if (
@@ -255,6 +310,7 @@ class LiveOperatorBridge:
         self.range_status_heartbeat_s = range_status_heartbeat_s
         self.target_geolocation_status_heartbeat_s = target_geolocation_status_heartbeat_s
         self.release_status_heartbeat_s = release_status_heartbeat_s
+        self.runtime_status_heartbeat_s = runtime_status_heartbeat_s
         self.approach_status_heartbeat_s = approach_status_heartbeat_s
         self.payload_target_status_heartbeat_s = payload_target_status_heartbeat_s
         self.target_pool_status_heartbeat_s = target_pool_status_heartbeat_s
@@ -276,6 +332,8 @@ class LiveOperatorBridge:
         self._last_target_geolocation_status_at_s: float | None = None
         self._last_release_status_fingerprint: tuple[object, ...] | None = None
         self._last_release_status_at_s: float | None = None
+        self._last_runtime_status_fingerprint: tuple[object, ...] | None = None
+        self._last_runtime_status_at_s: float | None = None
         self._last_approach_challenge_fingerprint: tuple[object, ...] | None = None
         self._last_approach_challenge_at_s: float | None = None
         self._last_approach_status_fingerprint: tuple[object, ...] | None = None
@@ -317,6 +375,7 @@ class LiveOperatorBridge:
         range_status: RangeStatusMessage | None = None,
         target_geolocation_status: TargetGeolocationStatusMessage | None = None,
         release_status: ReleaseStatusMessage | None = None,
+        runtime_status: RuntimeStatusMessage | None = None,
         approach_challenge: ApproachChallengeStatusMessage | None = None,
         approach_status: ApproachStatusMessage | None = None,
         payload_target_challenge: PayloadTargetChallengeStatusMessage | None = None,
@@ -386,9 +445,7 @@ class LiveOperatorBridge:
                     and (
                         active_selection_bbox.iou(command_bbox) > 0.05
                         or (
-                            command_bbox.x1
-                            <= active_selection_bbox.center[0]
-                            <= command_bbox.x2
+                            command_bbox.x1 <= active_selection_bbox.center[0] <= command_bbox.x2
                             and command_bbox.y1
                             <= active_selection_bbox.center[1]
                             <= command_bbox.y2
@@ -611,31 +668,68 @@ class LiveOperatorBridge:
             self._last_patrol_status_fingerprint = self._patrol_status_fingerprint(patrol_status)
             self._last_patrol_status_at_s = patrol_status.produced_at_s
         published_range_statuses: tuple[RangeStatusMessage, ...] = ()
-        if (
+        published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
+        range_geolocation_error = self._range_geolocation_binding_error(
+            frame_id=frame_id,
+            captured_at_s=captured_at_s,
+            range_status=range_status,
+            target_geolocation_status=target_geolocation_status,
+        )
+        if range_geolocation_error is not None:
+            # A mismatched pair would be retained independently by QGC and
+            # fail its strict target/frame equality gate.  Reject both before
+            # transport publication so a caller cannot create that split.
+            errors.append(range_geolocation_error)
+        elif (
             range_status is not None
+            and target_geolocation_status is not None
+            and self._active_peer is not None
+            and (
+                self._range_status_due(range_status)
+                or self._target_geolocation_status_due(target_geolocation_status)
+            )
+        ):
+            # Range and WGS-84 status form one retained QGC state even though
+            # the wire uses two authenticated message types.  Apply one
+            # publication decision and advance the cadence only after both
+            # sends succeed.  A partial transport failure is retried as a pair
+            # on the next frame; QGC remains fail-closed meanwhile.
+            range_published = self._publish_range_status(
+                range_status,
+                self._active_peer,
+                errors,
+            )
+            if range_published:
+                published_range_statuses = (range_status,)
+                geolocation_published = self._publish_target_geolocation_status(
+                    target_geolocation_status,
+                    self._active_peer,
+                    errors,
+                )
+                if geolocation_published:
+                    published_target_geolocation_statuses = (target_geolocation_status,)
+                    self._last_range_status_fingerprint = self._range_status_fingerprint(
+                        range_status
+                    )
+                    self._last_range_status_at_s = range_status.produced_at_s
+                    self._last_target_geolocation_status_fingerprint = (
+                        self._target_geolocation_status_fingerprint(target_geolocation_status)
+                    )
+                    self._last_target_geolocation_status_at_s = (
+                        target_geolocation_status.produced_at_s
+                    )
+        elif (
+            range_status is not None
+            and target_geolocation_status is None
             and self._active_peer is not None
             and self._range_status_due(range_status)
             and self._publish_range_status(range_status, self._active_peer, errors)
         ):
+            # Range-only callers remain supported.  Geolocation, however,
+            # never publishes without its exact current-frame range partner.
             published_range_statuses = (range_status,)
             self._last_range_status_fingerprint = self._range_status_fingerprint(range_status)
             self._last_range_status_at_s = range_status.produced_at_s
-        published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
-        if (
-            target_geolocation_status is not None
-            and self._active_peer is not None
-            and self._target_geolocation_status_due(target_geolocation_status)
-            and self._publish_target_geolocation_status(
-                target_geolocation_status,
-                self._active_peer,
-                errors,
-            )
-        ):
-            published_target_geolocation_statuses = (target_geolocation_status,)
-            self._last_target_geolocation_status_fingerprint = (
-                self._target_geolocation_status_fingerprint(target_geolocation_status)
-            )
-            self._last_target_geolocation_status_at_s = target_geolocation_status.produced_at_s
         published_release_statuses: tuple[ReleaseStatusMessage, ...] = ()
         if (
             release_status is not None
@@ -646,6 +740,16 @@ class LiveOperatorBridge:
             published_release_statuses = (release_status,)
             self._last_release_status_fingerprint = self._release_status_fingerprint(release_status)
             self._last_release_status_at_s = release_status.produced_at_s
+        published_runtime_statuses: tuple[RuntimeStatusMessage, ...] = ()
+        if (
+            runtime_status is not None
+            and self._active_peer is not None
+            and self._runtime_status_due(runtime_status)
+            and self._publish_runtime_status(runtime_status, self._active_peer, errors)
+        ):
+            published_runtime_statuses = (runtime_status,)
+            self._last_runtime_status_fingerprint = self._runtime_status_fingerprint(runtime_status)
+            self._last_runtime_status_at_s = runtime_status.produced_at_s
         published_approach_challenges: tuple[ApproachChallengeStatusMessage, ...] = ()
         if (
             effective_approach_challenge is not None
@@ -774,6 +878,7 @@ class LiveOperatorBridge:
             published_range_statuses=published_range_statuses,
             published_target_geolocation_statuses=published_target_geolocation_statuses,
             published_release_statuses=published_release_statuses,
+            published_runtime_statuses=published_runtime_statuses,
             accepted_approach_confirmations=tuple(accepted_approach_confirmations),
             published_approach_challenges=published_approach_challenges,
             published_approach_statuses=published_approach_statuses,
@@ -809,6 +914,8 @@ class LiveOperatorBridge:
         self._last_target_geolocation_status_at_s = None
         self._last_release_status_fingerprint = None
         self._last_release_status_at_s = None
+        self._last_runtime_status_fingerprint = None
+        self._last_runtime_status_at_s = None
         self._last_approach_challenge_fingerprint = None
         self._last_approach_challenge_at_s = None
         self._last_approach_status_fingerprint = None
@@ -950,6 +1057,23 @@ class LiveOperatorBridge:
             errors.append(type(exc).__name__)
             return False
         return True
+
+    def _publish_runtime_status(
+        self,
+        status: RuntimeStatusMessage,
+        peer: OperatorPeer,
+        errors: list[str],
+    ) -> bool:
+        publish = getattr(self.transport, "publish_runtime_status", None)
+        if not callable(publish):
+            errors.append("RuntimeStatusTransportUnavailable")
+            return False
+        try:
+            publish(status, peer=peer)
+            return True
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(type(exc).__name__)
+            return False
 
     def _publish_approach_challenge(
         self,
@@ -1108,6 +1232,44 @@ class LiveOperatorBridge:
             return True
         return status.produced_at_s - self._last_range_status_at_s >= self.range_status_heartbeat_s
 
+    @staticmethod
+    def _range_geolocation_binding_error(
+        *,
+        frame_id: str,
+        captured_at_s: float,
+        range_status: RangeStatusMessage | None,
+        target_geolocation_status: TargetGeolocationStatusMessage | None,
+    ) -> str | None:
+        """Return one stable fail-closed reason for invalid retained metadata.
+
+        ``process_frame`` is a public boundary, not merely a transport helper.
+        Bind each optional status to the actual image being processed here so
+        a stale producer or future caller cannot rely on QML to discover the
+        mismatch after publication.
+        """
+
+        if range_status is not None and (
+            range_status.source_frame_id != frame_id
+            or range_status.source_captured_at_s != captured_at_s
+        ):
+            return "RangeStatusCurrentFrameMismatch"
+        if target_geolocation_status is not None and (
+            target_geolocation_status.source_frame_id != frame_id
+            or target_geolocation_status.source_captured_at_s != captured_at_s
+        ):
+            return "TargetGeolocationStatusCurrentFrameMismatch"
+        if target_geolocation_status is None:
+            return None
+        if range_status is None:
+            return "TargetGeolocationRangeStatusMissing"
+        if (
+            range_status.target_id != target_geolocation_status.target_id
+            or range_status.source_frame_id != target_geolocation_status.source_frame_id
+            or range_status.source_captured_at_s != target_geolocation_status.source_captured_at_s
+        ):
+            return "RangeGeolocationPairMismatch"
+        return None
+
     def _target_geolocation_status_due(self, status: TargetGeolocationStatusMessage) -> bool:
         fingerprint = self._target_geolocation_status_fingerprint(status)
         if fingerprint != self._last_target_geolocation_status_fingerprint:
@@ -1127,6 +1289,16 @@ class LiveOperatorBridge:
             return True
         return (
             status.produced_at_s - self._last_release_status_at_s >= self.release_status_heartbeat_s
+        )
+
+    def _runtime_status_due(self, status: RuntimeStatusMessage) -> bool:
+        fingerprint = self._runtime_status_fingerprint(status)
+        if fingerprint != self._last_runtime_status_fingerprint:
+            return True
+        if self._last_runtime_status_at_s is None:
+            return True
+        return (
+            status.produced_at_s - self._last_runtime_status_at_s >= self.runtime_status_heartbeat_s
         )
 
     def _approach_challenge_due(self, status: ApproachChallengeStatusMessage) -> bool:
@@ -1302,7 +1474,6 @@ class LiveOperatorBridge:
     ) -> tuple[object, ...]:
         return (
             status.target_id,
-            status.source_frame_id,
             status.available,
             status.reason,
             _quantize(status.latitude_deg, 10_000_000.0),
@@ -1335,6 +1506,21 @@ class LiveOperatorBridge:
             _quantize(status.payload_descent_time_s, 10.0),
             _quantize(status.release_lead_distance_m, 10.0),
             _quantize(status.range_sensor_consistency, 254.0),
+        )
+
+    @staticmethod
+    def _runtime_status_fingerprint(status: RuntimeStatusMessage) -> tuple[object, ...]:
+        return (
+            status.mode,
+            status.backend_health,
+            status.scenario_seed,
+            status.scenario_hash64,
+            status.airframe_profile_hash64,
+            status.run_hash64,
+            status.scenario_present,
+            status.ground_truth_isolated,
+            status.hardware_outputs_present,
+            status.profile_valid,
         )
 
     @staticmethod
@@ -1423,4 +1609,8 @@ __all__ = [
     "OperatorBridgeResult",
     "OperatorPeer",
     "OperatorStatusTransport",
+    "RuntimeStatusAcceptanceReceiptView",
+    "RuntimeStatusAcceptanceTransport",
+    "RuntimeStatusAckMessageView",
+    "RuntimeStatusSendReceiptView",
 ]

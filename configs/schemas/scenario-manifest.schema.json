@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/scenario-manifest.schema.json",
+  "title": "Multi-Detect ScenarioManifestIndex v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scenario_id", "scenario_version", "channels"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "scenario_version": {"type": "integer", "minimum": 1},
+    "channels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime_input", "truth", "expectations"],
+      "properties": {
+        "runtime_input": {"$ref": "#/$defs/channel"},
+        "truth": {"$ref": "#/$defs/channel"},
+        "expectations": {"$ref": "#/$defs/channel"}
+      }
+    }
+  },
+  "$defs": {
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

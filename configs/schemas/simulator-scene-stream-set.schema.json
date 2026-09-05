@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/simulator-scene-stream-set.schema.json",
+  "title": "Multi-Detect three-airframe simulator scene-stream set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "release_label",
+    "runtime_mode",
+    "evidence",
+    "scenario_ids",
+    "modes",
+    "gate_passed",
+    "deterministic",
+    "truth_free",
+    "external_runtime_acceptance",
+    "visual_acceptance",
+    "hardware_acceptance",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "simulator_scene_stream_set_verified"},
+    "release_label": {
+      "type": "string",
+      "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+    },
+    "runtime_mode": {"const": "sim"},
+    "evidence": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/sceneStreamRecord"},
+        {"$ref": "#/$defs/sceneStreamRecord"},
+        {"$ref": "#/$defs/sceneStreamRecord"}
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "scenario_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true
+    },
+    "modes": {
+      "type": "array",
+      "items": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true
+    },
+    "gate_passed": {"const": true},
+    "deterministic": {"const": true},
+    "truth_free": {"const": true},
+    "external_runtime_acceptance": {"const": "not_claimed"},
+    "visual_acceptance": {"const": "not_claimed"},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_count",
+        "all_airframes",
+        "unique_scenarios",
+        "unique_modes",
+        "all_gate_passed",
+        "all_deterministic",
+        "all_truth_free",
+        "all_snapshots_nonempty",
+        "records_hash_bound"
+      ],
+      "properties": {
+        "evidence_count": {"const": true},
+        "all_airframes": {"const": true},
+        "unique_scenarios": {"const": true},
+        "unique_modes": {"const": true},
+        "all_gate_passed": {"const": true},
+        "all_deterministic": {"const": true},
+        "all_truth_free": {"const": true},
+        "all_snapshots_nonempty": {"const": true},
+        "records_hash_bound": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "sceneStreamRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "scenario_id",
+        "mode",
+        "scenario_version",
+        "scenario_manifest_hash",
+        "canonical_sha256",
+        "source_evidence_hash",
+        "snapshot_count",
+        "gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "scenario_version": {"type": "integer", "minimum": 1},
+        "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "source_evidence_hash": {"$ref": "#/$defs/sha256"},
+        "snapshot_count": {"type": "integer", "minimum": 1},
+        "gate_passed": {"const": true}
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/runtime-descriptor.schema.json",
+  "title": "Multi-Detect RuntimeDescriptor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "profile", "backend_id", "airframe_profile_hash", "deterministic", "fault_injection_enabled"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "mode": {"enum": ["replay", "sim", "hil", "real"]},
+    "profile": {"$ref": "runtime-profile.schema.json"},
+    "backend_id": {"type": "string", "minLength": 1},
+    "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+    "scenario_seed": {"type": "integer", "minimum": 0},
+    "recording_hash": {"$ref": "#/$defs/sha256"},
+    "deterministic": {"type": "boolean"},
+    "fault_injection_enabled": {"type": "boolean"}
+  },
+  "dependentRequired": {
+    "scenario_id": ["scenario_manifest_hash", "scenario_seed"],
+    "scenario_manifest_hash": ["scenario_id", "scenario_seed"],
+    "scenario_seed": ["scenario_id", "scenario_manifest_hash"]
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "real"}}, "required": ["mode"]},
+      "then": {
+        "properties": {
+          "profile": {"properties": {"profile_id": {"enum": ["observer", "flight"]}}},
+          "deterministic": {"const": false},
+          "fault_injection_enabled": {"const": false}
+        },
+        "not": {"anyOf": [
+          {"required": ["scenario_id"]},
+          {"required": ["scenario_manifest_hash"]},
+          {"required": ["scenario_seed"]},
+          {"required": ["recording_hash"]}
+        ]}
+      }
+    },
+    {
+      "if": {"properties": {"mode": {"enum": ["sim", "hil"]}}, "required": ["mode"]},
+      "then": {
+        "required": ["scenario_id", "scenario_manifest_hash", "scenario_seed"],
+        "properties": {
+          "profile": {
+            "properties": {
+              "profile_id": {"enum": ["sim", "hil"]}
+            }
+          }
+        },
+        "not": {"required": ["recording_hash"]}
+      }
+    },
+    {
+      "if": {"properties": {"mode": {"const": "replay"}}, "required": ["mode"]},
+      "then": {
+        "required": ["recording_hash"],
+        "properties": {
+          "profile": {"properties": {"profile_id": {"const": "replay"}}},
+          "deterministic": {"const": true}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"mode": {"const": "sim"}}, "required": ["mode"]},
+      "then": {"properties": {"profile": {"properties": {"profile_id": {"const": "sim"}}}}}
+    },
+    {
+      "if": {"properties": {"mode": {"const": "hil"}}, "required": ["mode"]},
+      "then": {"properties": {"profile": {"properties": {"profile_id": {"const": "hil"}}}}}
+    },
+    {
+      "if": {"properties": {"fault_injection_enabled": {"const": true}}, "required": ["fault_injection_enabled"]},
+      "then": {"required": ["scenario_manifest_hash"]}
+    }
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

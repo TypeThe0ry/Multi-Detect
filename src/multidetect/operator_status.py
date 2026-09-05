@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass
+from math import isfinite, isnan
 from uuid import uuid4
 
+from .adaptive_ranging import AdaptiveRangingPolicy
 from .approach_hil import ApproachHilAssessment, SlideConfirmationChallenge
+from .autonomy.serialization import require_sha256
 from .domain import AuthorizationChallenge, DeploymentWindowSolution, MissionPhase, VehicleTelemetry
 from .mission import MissionStatus, ObservationOutcome
 from .multimodal_ranging import RangeSolution, RangeValidity
 from .operator_link import (
+    MAX_RANGE_STATUS_SOURCE_AGE_S,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_S,
     ApproachChallengeStatusMessage,
     ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
@@ -18,6 +24,9 @@ from .operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextRegionEntry,
     SceneContextState,
@@ -33,10 +42,138 @@ from .payload_target_gate import (
     PayloadSlideGrant,
     PayloadTargetResolution,
 )
+from .runtime import RuntimeCapability, RuntimeDescriptor
 from .semantic_environment import SemanticContextSnapshot
 from .semantic_environment import SemanticContextState as ModelContextState
 from .target_geolocation import target_geolocation_from_ned_offset
 from .unified_tracking import UnifiedTrackSnapshot, UnifiedTrackState
+
+_RANGE_REASON_WIRE_ALIASES = {
+    "target_ray_uncertainty_unavailable": "target_geometry_uncertainty_unbounded",
+    "target_ray_uncertainty_crosses_horizon": "target_geometry_uncertainty_unbounded",
+    "camera_offset_uncertainty_unbounded": "target_geometry_uncertainty_unbounded",
+    "terrain_intersection_unavailable": "target_geometry_uncertainty_unbounded",
+    "terrain_uncertainty_unbounded": "target_geometry_uncertainty_unbounded",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RangeSolutionFrameBinding:
+    """Immutable identity/time binding for one range solution source frame.
+
+    ``RangeSolution`` intentionally predates the operator transport and does
+    not carry the camera capture timestamp.  Keeping that timestamp as a loose
+    builder argument allowed a cached solution to be paired with a later
+    frame.  This sidecar freezes the identifiers and timing values at the
+    point where the solution is produced while preserving the legacy builder
+    call shape for existing readers and invalid diagnostics.
+    """
+
+    target_id: str
+    source_frame_id: str
+    calibration_id: str
+    source_captured_at_s: float
+    evaluated_at_s: float
+    data_freshness_s: float | None
+    validity: RangeValidity
+
+    @classmethod
+    def from_solution(
+        cls,
+        solution: RangeSolution,
+        *,
+        source_frame_id: str,
+        source_captured_at_s: float,
+    ) -> RangeSolutionFrameBinding:
+        if not isinstance(solution, RangeSolution):
+            raise TypeError("solution must be a RangeSolution")
+        binding = cls(
+            target_id=solution.target_id,
+            source_frame_id=source_frame_id,
+            calibration_id=solution.calibration_id,
+            source_captured_at_s=source_captured_at_s,
+            evaluated_at_s=solution.evaluated_at_s,
+            data_freshness_s=solution.data_freshness_s,
+            validity=solution.validity,
+        )
+        binding.validate_solution(solution)
+        return binding
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.target_id, "target_id"),
+            (self.source_frame_id, "source_frame_id"),
+            (self.calibration_id, "calibration_id"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"range source binding {name} cannot be empty")
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(value)
+            and value >= 0.0
+            for value in (self.source_captured_at_s, self.evaluated_at_s)
+        ):
+            raise ValueError("range source binding timestamps must be finite and non-negative")
+        if self.evaluated_at_s < self.source_captured_at_s:
+            raise ValueError("range solution cannot predate its bound source frame")
+        if self.data_freshness_s is not None and (
+            not isinstance(self.data_freshness_s, (int, float))
+            or isinstance(self.data_freshness_s, bool)
+            or not isfinite(self.data_freshness_s)
+            or self.data_freshness_s < 0.0
+        ):
+            raise ValueError("range source binding data freshness is invalid")
+        if self.validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
+            source_age_s = self.evaluated_at_s - self.source_captured_at_s
+            if source_age_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError("range source binding frame is stale")
+            if self.data_freshness_s is None:
+                raise ValueError("valid range source binding requires data_freshness_s")
+            if self.data_freshness_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError("range source binding data is stale")
+            if self.data_freshness_s + 1.0e-9 < source_age_s:
+                raise ValueError(
+                    "range source binding data freshness is newer than its source frame"
+                )
+
+    def validate_solution(self, solution: RangeSolution) -> None:
+        """Reject any relabelled/replaced solution against this binding."""
+
+        if not isinstance(solution, RangeSolution):
+            raise TypeError("solution must be a RangeSolution")
+        if (
+            solution.target_id != self.target_id
+            or solution.frame_id != self.source_frame_id
+            or solution.calibration_id != self.calibration_id
+            or solution.evaluated_at_s != self.evaluated_at_s
+            or solution.data_freshness_s != self.data_freshness_s
+            or solution.validity is not self.validity
+        ):
+            raise ValueError("range solution does not match its immutable source binding")
+
+    def effective_data_freshness(self, *, produced_at_s: float) -> float | None:
+        if (
+            not isinstance(produced_at_s, (int, float))
+            or isinstance(produced_at_s, bool)
+            or not isfinite(produced_at_s)
+            or produced_at_s < self.evaluated_at_s
+        ):
+            raise ValueError("range status production time predates its bound solution")
+        if self.data_freshness_s is None:
+            return None
+        return self.data_freshness_s + produced_at_s - self.evaluated_at_s
+
+
+def _range_reasons_for_wire(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Collapse internal geometry diagnostics into the bounded wire vocabulary."""
+
+    normalized: list[str] = []
+    for reason in reasons:
+        wire_reason = _RANGE_REASON_WIRE_ALIASES.get(reason, reason)
+        if wire_reason not in normalized:
+            normalized.append(wire_reason)
+    return tuple(normalized)
 
 _AUTHORIZED_PHASES = frozenset(
     {
@@ -46,6 +183,93 @@ _AUTHORIZED_PHASES = frozenset(
         MissionPhase.EGRESS,
     }
 )
+
+
+def build_runtime_status_message(
+    *,
+    sequence: int,
+    mode: RuntimeMode,
+    backend_health: RuntimeBackendHealth,
+    airframe_profile_hash64: int,
+    run_hash64: int,
+    produced_at_s: float,
+    scenario_seed: int | None = None,
+    scenario_hash64: int | None = None,
+    ground_truth_isolated: bool = False,
+    hardware_outputs_present: bool = False,
+    profile_valid: bool = False,
+) -> RuntimeStatusMessage:
+    """Build the signed environment identity consumed by the shared GCS UI."""
+
+    scenario_present = scenario_seed is not None or scenario_hash64 is not None
+    return RuntimeStatusMessage(
+        sequence=sequence,
+        mode=mode,
+        backend_health=backend_health,
+        scenario_seed=scenario_seed,
+        scenario_hash64=scenario_hash64,
+        airframe_profile_hash64=airframe_profile_hash64,
+        run_hash64=run_hash64,
+        scenario_present=scenario_present,
+        ground_truth_isolated=ground_truth_isolated,
+        hardware_outputs_present=hardware_outputs_present,
+        profile_valid=profile_valid,
+        produced_at_s=produced_at_s,
+    )
+
+
+def build_runtime_status_from_descriptor(
+    *,
+    sequence: int,
+    descriptor: RuntimeDescriptor,
+    backend_health: RuntimeBackendHealth,
+    run_identity_hash: str,
+    produced_at_s: float,
+) -> RuntimeStatusMessage:
+    """Build runtime wire identity from one validated runtime descriptor.
+
+    The full hashes remain in the runtime/audit contracts.  The operator link
+    carries their most-significant 64-bit prefixes, so a zero prefix is
+    rejected instead of publishing an ambiguous "missing" identity.
+    """
+
+    if not isinstance(descriptor, RuntimeDescriptor):
+        raise ValueError("descriptor must be a RuntimeDescriptor")
+
+    scenario_hash64 = (
+        _sha256_prefix64(
+            descriptor.scenario_manifest_hash,
+            "scenario_manifest_hash",
+        )
+        if descriptor.scenario_manifest_hash is not None
+        else None
+    )
+    return build_runtime_status_message(
+        sequence=sequence,
+        mode=descriptor.mode,
+        backend_health=backend_health,
+        scenario_seed=descriptor.scenario_seed,
+        scenario_hash64=scenario_hash64,
+        airframe_profile_hash64=_sha256_prefix64(
+            descriptor.airframe_profile_hash,
+            "airframe_profile_hash",
+        ),
+        run_hash64=_sha256_prefix64(run_identity_hash, "run_identity_hash"),
+        ground_truth_isolated=descriptor.mode is not RuntimeMode.REAL,
+        hardware_outputs_present=(
+            RuntimeCapability.FLIGHT_CONTROL_OUTPUT in descriptor.profile.capabilities
+        ),
+        profile_valid=True,
+        produced_at_s=produced_at_s,
+    )
+
+
+def _sha256_prefix64(value: object, name: str) -> int:
+    digest = require_sha256(value, name)
+    prefix = int(digest[:16], 16)
+    if prefix == 0:
+        raise ValueError(f"{name} 64-bit wire prefix cannot be zero")
+    return prefix
 
 
 def build_mission_status_message(
@@ -193,20 +417,48 @@ def build_range_status_message(
     *,
     sequence: int,
     solution: RangeSolution,
-    source_captured_at_s: float,
+    source_captured_at_s: float | None = None,
+    source_frame_id: str | None = None,
+    source_binding: RangeSolutionFrameBinding | None = None,
+    produced_at_s: float | None = None,
 ) -> RangeStatusMessage:
-    """Build complete read-only range metadata for authenticated operator transport."""
+    """Build complete read-only range metadata for authenticated operator transport.
+
+    New production callers should create ``source_binding`` when the range
+    solution is produced and retain it with the cached solution.  The legacy
+    timestamp argument remains accepted, but is immediately converted into
+    the same frozen binding and may optionally carry ``source_frame_id`` for a
+    strict frame-identity check.
+    """
+
+    if source_binding is not None:
+        if source_captured_at_s is not None or source_frame_id is not None:
+            raise ValueError(
+                "source_binding cannot be combined with loose range source fields"
+            )
+        source_binding.validate_solution(solution)
+        binding = source_binding
+    else:
+        if source_captured_at_s is None:
+            raise ValueError("range source capture timestamp is required")
+        binding = RangeSolutionFrameBinding.from_solution(
+            solution,
+            source_frame_id=(solution.frame_id if source_frame_id is None else source_frame_id),
+            source_captured_at_s=source_captured_at_s,
+        )
+    publish_time = solution.evaluated_at_s if produced_at_s is None else produced_at_s
+    effective_freshness_s = binding.effective_data_freshness(produced_at_s=publish_time)
 
     return RangeStatusMessage(
         status_id=str(uuid4()),
         sequence=sequence,
         target_id=solution.target_id,
         calibration_id=solution.calibration_id,
-        source_frame_id=solution.frame_id,
-        source_captured_at_s=source_captured_at_s,
-        produced_at_s=solution.evaluated_at_s,
+        source_frame_id=binding.source_frame_id,
+        source_captured_at_s=binding.source_captured_at_s,
+        produced_at_s=publish_time,
         validity=solution.validity,
-        reasons=solution.reasons,
+        reasons=_range_reasons_for_wire(solution.reasons),
         sources=solution.sources,
         rejected_sources=solution.rejected_sources,
         slant_range_m=solution.slant_range_m,
@@ -218,7 +470,7 @@ def build_range_status_message(
         bearing_sigma_deg=solution.bearing_sigma_deg,
         north_offset_m=solution.north_offset_m,
         east_offset_m=solution.east_offset_m,
-        data_freshness_s=solution.data_freshness_s,
+        data_freshness_s=effective_freshness_s,
         sensor_consistency=solution.sensor_consistency,
         source_contributions=tuple(
             sorted(
@@ -239,7 +491,11 @@ def build_target_geolocation_status_message(
     sequence: int,
     solution: RangeSolution,
     telemetry: VehicleTelemetry,
-    source_captured_at_s: float,
+    source_captured_at_s: float | None = None,
+    source_frame_id: str | None = None,
+    source_binding: RangeSolutionFrameBinding | None = None,
+    produced_at_s: float | None = None,
+    adaptive_ranging_policy: AdaptiveRangingPolicy | None = None,
 ) -> TargetGeolocationStatusMessage:
     """Build qualified target coordinates or an explicit withholding reason.
 
@@ -247,13 +503,67 @@ def build_target_geolocation_status_message(
     or otherwise unqualified navigation must never be promoted to WGS-84.
     """
 
+    if source_binding is not None:
+        if source_captured_at_s is not None or source_frame_id is not None:
+            raise ValueError(
+                "source_binding cannot be combined with loose geolocation source fields"
+            )
+        source_binding.validate_solution(solution)
+        binding = source_binding
+        source_captured_at_s = binding.source_captured_at_s
+        source_frame_id = binding.source_frame_id
+    else:
+        if source_captured_at_s is None:
+            raise ValueError("target geolocation source capture timestamp is required")
+        source_frame_id = solution.frame_id if source_frame_id is None else source_frame_id
+        if source_frame_id != solution.frame_id:
+            raise ValueError("target geolocation source frame does not match range solution")
+        binding = None
+    publish_time = solution.evaluated_at_s if produced_at_s is None else produced_at_s
     values: dict[str, object] = {
         "sequence": sequence,
         "target_id": solution.target_id,
-        "source_frame_id": solution.frame_id,
+        "source_frame_id": source_frame_id,
         "source_captured_at_s": source_captured_at_s,
-        "produced_at_s": solution.evaluated_at_s,
+        "produced_at_s": publish_time,
     }
+    # A target coordinate is tied to the camera/range frame that produced the
+    # N/E offset.  Keep the producer-side gate aligned with the Python/C++
+    # wire decoders so a new signature cannot revive an old map point.
+    try:
+        source_time = float(source_captured_at_s)
+    except (TypeError, ValueError):
+        source_time = None
+    if source_time is None or not isfinite(source_time) or source_time < 0.0:
+        # A malformed frame timestamp cannot be represented by the target
+        # geolocation wire contract.  Raise here so live.py can drop the
+        # optional metadata atomically instead of constructing a contradictory
+        # ``produced_at_s < source_captured_at_s`` status.
+        raise ValueError("target geolocation source timestamp is invalid")
+    if source_time > solution.evaluated_at_s or source_time > publish_time:
+        # Future frame timestamps are a clock-domain error.  Do not allow them
+        # to enter the motion compensator and create a point ahead of the
+        # range solution's evaluation time.
+        raise ValueError("target geolocation source frame is from the future")
+    if publish_time - source_time > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="geolocation_input_invalid",
+        )
+    if binding is not None:
+        effective_freshness_s = binding.effective_data_freshness(
+            produced_at_s=publish_time
+        )
+        if (
+            effective_freshness_s is None
+            or effective_freshness_s > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
+        ):
+            return TargetGeolocationStatusMessage(
+                **values,
+                available=False,
+                reason="geolocation_input_invalid",
+            )
     if solution.validity is RangeValidity.INVALID:
         return TargetGeolocationStatusMessage(
             **values,
@@ -272,6 +582,20 @@ def build_target_geolocation_status_message(
             available=False,
             reason="target_offset_unavailable",
         )
+    gps_quality = (adaptive_ranging_policy or AdaptiveRangingPolicy()).assess_gps_quality(
+        telemetry,
+        now_s=solution.evaluated_at_s,
+    )
+    if not gps_quality.qualified:
+        return TargetGeolocationStatusMessage(
+            **values,
+            available=False,
+            reason="gps_navigation_not_qualified",
+        )
+    motion_kwargs = _geolocation_motion_kwargs(
+        telemetry,
+        source_captured_at_s=source_captured_at_s,
+    )
     try:
         target = target_geolocation_from_ned_offset(
             aircraft_latitude_deg=telemetry.latitude_deg,
@@ -282,6 +606,7 @@ def build_target_geolocation_status_message(
             ground_range_ci95_m=solution.ground_range_ci95_m,
             ground_range_m=solution.ground_range_m,
             bearing_sigma_deg=solution.bearing_sigma_deg,
+            **motion_kwargs,
         )
     except ValueError:
         return TargetGeolocationStatusMessage(
@@ -303,6 +628,66 @@ def build_target_geolocation_status_message(
         longitude_deg=target.longitude_deg,
         horizontal_sigma_m=target.horizontal_sigma_m,
     )
+
+
+def _geolocation_motion_kwargs(
+    telemetry: VehicleTelemetry,
+    *,
+    source_captured_at_s: float,
+) -> dict[str, object]:
+    """Return optional time-alignment inputs when the telemetry is complete.
+
+    Older telemetry records do not carry a GPS observation timestamp or N/E
+    velocity.  Keep those records on the historical geolocation path rather
+    than turning a missing optional field into a false invalid result.  A
+    complete velocity pair is forwarded only with its own observation time;
+    the WGS-84 projector then validates that timestamp against the GPS/frame
+    horizon before extrapolating.  A finite acceleration uncertainty is
+    forwarded independently of the velocity timestamp and contributes only
+    to the bounded error budget when motion compensation is actually used.
+    """
+
+    try:
+        gps_observed_at_s = float(telemetry.gps_observed_at_s)
+        target_time_s = float(source_captured_at_s)
+    except (TypeError, ValueError):
+        return {}
+    if not (
+        isfinite(gps_observed_at_s)
+        and gps_observed_at_s >= 0.0
+        and isfinite(target_time_s)
+        and target_time_s >= 0.0
+    ):
+        return {}
+    motion_kwargs: dict[str, object] = {
+        "aircraft_observed_at_s": gps_observed_at_s,
+        "target_captured_at_s": target_time_s,
+    }
+    # Velocity is a separate MAVLink stream.  Only use it for temporal
+    # extrapolation when its own observation timestamp is available; otherwise
+    # the projector intentionally keeps the historical no-extrapolation path.
+    try:
+        velocity_time_s = float(telemetry.velocity_observed_at_s)
+    except (TypeError, ValueError):
+        velocity_time_s = float("nan")
+    if isfinite(velocity_time_s) and velocity_time_s >= 0.0:
+        motion_kwargs.update(
+            {
+                "aircraft_velocity_north_mps": telemetry.velocity_north_mps,
+                "aircraft_velocity_east_mps": telemetry.velocity_east_mps,
+                "aircraft_velocity_observed_at_s": velocity_time_s,
+            }
+        )
+    acceleration_uncertainty = telemetry.acceleration_uncertainty_mps2
+    # ``nan`` means that the telemetry producer has no calibrated kinematic
+    # envelope.  Forward every other value so the shared projector validates
+    # it and rejects a malformed/negative uncertainty rather than dropping it.
+    if not (
+        isinstance(acceleration_uncertainty, float)
+        and isnan(acceleration_uncertainty)
+    ):
+        motion_kwargs["acceleration_uncertainty_mps2"] = acceleration_uncertainty
+    return motion_kwargs
 
 
 def build_release_status_message(
@@ -643,6 +1028,7 @@ def _preferred_decision(
 
 
 __all__ = [
+    "RangeSolutionFrameBinding",
     "build_authorization_challenge_status_message",
     "build_approach_challenge_status_message",
     "build_approach_status_message",
@@ -652,6 +1038,8 @@ __all__ = [
     "build_payload_target_status_message",
     "build_range_status_message",
     "build_release_status_message",
+    "build_runtime_status_from_descriptor",
+    "build_runtime_status_message",
     "build_safety_status_message",
     "build_scene_context_status_messages",
     "build_target_pool_status_messages",

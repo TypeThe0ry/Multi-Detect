@@ -17,6 +17,7 @@ from .operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextStatusMessage,
     TargetGeolocationStatusMessage,
@@ -33,6 +34,7 @@ from .operator_protocol import (
     OperatorProtocolError,
     OperatorTunnelCodec,
     PayloadTargetConfirmationAck,
+    RuntimeStatusAck,
     SelectionAck,
 )
 
@@ -162,6 +164,24 @@ class OperatorMavlinkTunnelAdapter:
 
     def encode_release_status(self, status: ReleaseStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(self.codec.encode_release_status(status))
+
+    def encode_runtime_status(self, status: RuntimeStatusMessage) -> bytes:
+        return self.wrap_authenticated_operator_payload(self.codec.encode_runtime_status(status))
+
+    def encode_runtime_status_ack(
+        self,
+        acknowledgement: RuntimeStatusAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        return self.wrap_authenticated_operator_payload(
+            self.codec.encode_runtime_status_ack(
+                acknowledgement,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        )
 
     def encode_approach_challenge(self, status: ApproachChallengeStatusMessage) -> bytes:
         return self.wrap_authenticated_operator_payload(

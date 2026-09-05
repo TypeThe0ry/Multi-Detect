@@ -40,6 +40,7 @@
 #include "QGCLoggingCategoryManager.h"
 #include "QGCNetworkHelper.h"
 #include "SettingsManager.h"
+#include "UDPLink.h"
 #include "Vehicle.h"
 #include "VideoManager.h"
 #include "qgc_version.h"
@@ -57,6 +58,9 @@ QGCApplication::QGCApplication(int& argc, char* argv[], const QGCCommandLinePars
       _simpleBootTest(cli.simpleBootTest),
       _offlineMode(cli.offlineMode),
       _isolatedHilMode(cli.isolatedHilMode),
+      _isolatedHilForceCpuVideo(cli.isolatedHilForceCpuVideo),
+      _isolatedHilPx4UdpPort(cli.isolatedHilPx4UdpPort.value_or(0)),
+      _isolatedHilPx4TargetPort(cli.isolatedHilPx4TargetPort.value_or(14667)),
       _fakeMobile(cli.fakeMobile),
       _logOutput(cli.logOutput),
       _systemId(cli.systemId.value_or(0))
@@ -180,6 +184,12 @@ QGCApplication::QGCApplication(int& argc, char* argv[], const QGCCommandLinePars
         settings.beginGroup(QStringLiteral("Video"));
         settings.setValue(QStringLiteral("streamEnabled"), false);
         settings.setValue(QStringLiteral("videoSource"), QString());
+        if (_isolatedHilForceCpuVideo) {
+            // This is deliberately applied after the isolated profile is cleared
+            // and before SettingsManager constructs VideoSettings. Do not set
+            // forceVideoDecoder: the acceptance run changes one backend variable.
+            settings.setValue(QStringLiteral("forceCpuVideoPath"), true);
+        }
         settings.endGroup();
         settings.sync();
     }
@@ -282,6 +292,15 @@ void QGCApplication::init()
     }
 
     LogManager::instance()->init();
+
+    if (_isolatedHilForceCpuVideo) {
+        // QGCApplication is constructed before main() installs LogManager's
+        // message handler. Emit the acceptance marker here so --log-output
+        // captures it deterministically instead of losing the constructor-time
+        // qCInfo message while preserving the earlier settings write/sync.
+        qCInfo(QGCApplicationLog)
+            << "isolated HIL CPU-video A/B enabled: Video/forceCpuVideoPath=true; forceVideoDecoder=default";
+    }
 
     // Although this should really be in _initForNormalAppBoot putting it here allowws us to create unit tests which pop
     // up more easily
@@ -404,6 +423,8 @@ void QGCApplication::_initForNormalAppBoot()
     // Load known link configurations
     linkManager->loadLinkConfigurationList();
 
+    _createIsolatedHilPx4Link();
+
     // Probe for joysticks
     JoystickManager::instance()->init();
 
@@ -417,6 +438,35 @@ void QGCApplication::_initForNormalAppBoot()
     if (!_offlineMode && !_isolatedHilMode) {
         linkManager->startAutoConnectedLinks();
     }
+}
+
+void QGCApplication::_createIsolatedHilPx4Link()
+{
+    if (!_isolatedHilMode || _isolatedHilPx4UdpPort == 0) {
+        return;
+    }
+
+    auto* configuration = new UDPConfiguration(QStringLiteral("Isolated HIL PX4 SITL (ephemeral)"));
+    configuration->setDynamic(true);
+    configuration->setAutoConnect(false);
+    configuration->setLocalPort(_isolatedHilPx4UdpPort);
+    configuration->addHost(QStringLiteral("127.0.0.1"), _isolatedHilPx4TargetPort);
+
+    LinkManager* const linkManager = LinkManager::instance();
+    SharedLinkConfigurationPtr sharedConfiguration = linkManager->addConfiguration(configuration);
+    if (!sharedConfiguration || !linkManager->createConnectedLink(sharedConfiguration)) {
+        if (sharedConfiguration) {
+            linkManager->removeConfiguration(sharedConfiguration.get());
+        }
+        qCWarning(QGCApplicationLog).nospace()
+            << "failed to create isolated HIL PX4 UDP link local_port=" << _isolatedHilPx4UdpPort
+            << " target_port=" << _isolatedHilPx4TargetPort;
+        return;
+    }
+
+    qCInfo(QGCApplicationLog).nospace()
+        << "isolated HIL PX4 UDP link listening on port " << _isolatedHilPx4UdpPort
+        << " target=127.0.0.1:" << _isolatedHilPx4TargetPort;
 }
 
 void QGCApplication::reportMissingParameter(int componentId, const QString& name)
@@ -779,6 +829,21 @@ bool QGCApplication::event(QEvent* e)
     return QGuiApplication::event(e);
 }
 
+void QGCApplication::quitForIsolatedHilAcceptance()
+{
+    if (!_isolatedHilMode || !qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+        return;
+    }
+
+    // Run the same close path as the native QGC window instead of calling
+    // QCoreApplication::exit directly. The latter skips ApplicationWindow's
+    // link/video teardown and can make QML-owned objects outlive the engine.
+    QObject* const root = _rootQmlObject();
+    if (!root || !QMetaObject::invokeMethod(root, "finishCloseProcess", Qt::DirectConnection)) {
+        qCWarning(QGCApplicationLog) << "isolated HIL acceptance close path is unavailable";
+    }
+}
+
 QGCImageProvider* QGCApplication::qgcImageProvider()
 {
     return dynamic_cast<QGCImageProvider*>(_qmlAppEngine->imageProvider(_qgcImageProviderId));
@@ -829,5 +894,19 @@ void QGCApplication::shutdown()
     }
 
     // This is bad, but currently qobject inheritances are incorrect and cause crashes on exit without
+    // deleting the QML engine.  The isolated HIL acceptance driver is a short-lived
+    // process which deliberately exercises the complete native Fly View close path;
+    // keep the engine alive until the OS tears the process down instead of allowing
+    // QML-owned objects to race the QObject tree during teardown.  This is scoped to
+    // the acceptance-only environment and does not change normal QGC shutdown.
+    if (_isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+        if (_qmlAppEngine) {
+            _qmlAppEngine->setParent(nullptr);
+            _qmlAppEngine = nullptr;
+        }
+        return;
+    }
+
     delete _qmlAppEngine;
+    _qmlAppEngine = nullptr;
 }

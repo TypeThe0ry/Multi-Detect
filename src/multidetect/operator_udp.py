@@ -6,7 +6,7 @@ from collections import deque
 from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, SimpleQueue
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 
 from .operator_link import (
     ApproachChallengeStatusMessage,
@@ -27,6 +27,7 @@ from .operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextStatusMessage,
     SelectionCommandGuard,
@@ -44,6 +45,7 @@ from .operator_protocol import (
     OperatorProtocolError,
     PayloadTargetConfirmationAck,
     PayloadTargetConfirmationAckReason,
+    RuntimeStatusAck,
     SelectionAck,
     WireMessageType,
 )
@@ -91,6 +93,33 @@ class UdpPayloadTargetConfirmationReceipt:
     attempts: int
     elapsed_s: float
     remote: tuple[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class UdpRuntimeStatusSendReceipt:
+    """One locally completed type-23 send armed for a canonical QGC ACK."""
+
+    acknowledged_runtime_sequence: int
+    run_hash64: int
+    remote: tuple[str, int]
+    sent_at_monotonic_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class UdpRuntimeStatusAckReceipt:
+    """Authenticated type-24 acceptance correlated to one local type-23 send."""
+
+    acknowledgement: RuntimeStatusAck
+    remote: tuple[str, int]
+    sent_at_monotonic_ns: int
+    acknowledged_at_monotonic_ns: int
+
+    @property
+    def latency_ms(self) -> float:
+        return max(
+            0,
+            self.acknowledged_at_monotonic_ns - self.sent_at_monotonic_ns,
+        ) / 1_000_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +181,22 @@ class UdpOperatorSelectionServer:
         self._payload_target_peer: tuple[str, int] | None = None
         self._metadata_peer: tuple[str, int] | None = None
         self._metadata_peer_seen_at_s: float | None = None
+        self._metadata_peer_has_heartbeat = False
         self._metadata_peer_lock = Lock()
+        self._runtime_status_ack_condition = Condition(Lock())
+        self._pending_runtime_status_send: UdpRuntimeStatusSendReceipt | None = None
+        self._pending_runtime_status_ack: UdpRuntimeStatusAckReceipt | None = None
+        self._pending_runtime_status_ack_deadline_ns: int | None = None
+        self._pending_runtime_status_ack_failure: Exception | None = None
+        self._runtime_status_ack_waiting = False
+        self._retired_runtime_status_ack_sequence_by_run_peer: dict[
+            tuple[int, tuple[str, int]], int
+        ] = {}
+        self._last_runtime_status_ack_sequence_by_run: dict[int, int] = {}
+        # Tests replace only this private clock. Condition timeouts continue to
+        # use the real OS clock, while acceptance ordering is decided from one
+        # monotonic timestamp domain under the condition lock.
+        self._runtime_status_clock_ns = time.monotonic_ns
         self._accepted_commands: SimpleQueue[tuple[TargetSelectionCommand, tuple[str, int]]] = (
             SimpleQueue()
         )
@@ -200,11 +244,18 @@ class UdpOperatorSelectionServer:
         inner = datagram.operator_payload
         if inner is None:
             if datagram.is_heartbeat:
-                self._register_metadata_peer(peer)
+                self._register_metadata_peer(peer, from_heartbeat=True)
             return None
-        # A valid signed+HMAC TUNNEL packet also refreshes the same peer lease.
-        self._register_metadata_peer(peer)
         packet = self.mavlink.codec.decode(inner)
+        if packet.message_type is WireMessageType.RUNTIME_STATUS_ACK:
+            if not isinstance(packet.message, RuntimeStatusAck):
+                raise OperatorProtocolError("decoded runtime-status ACK has the wrong type")
+            self._accept_runtime_status_ack(packet.message, peer=peer)
+            return None
+        # Existing command traffic may discover a metadata peer for interactive
+        # operation, but only an authenticated HEARTBEAT marks it eligible for
+        # the synchronized runtime-status acceptance barrier.
+        self._register_metadata_peer(peer, from_heartbeat=False)
         self._acknowledgement_sequence = (self._acknowledgement_sequence + 1) & 0xFFFFFFFF
         if packet.message_type is WireMessageType.TARGET_SELECTION:
             result = self.selection_server.handle_selection(
@@ -348,9 +399,21 @@ class UdpOperatorSelectionServer:
         with self._metadata_peer_lock:
             if self._metadata_peer is None or self._metadata_peer_seen_at_s is None:
                 return None
-            if time.monotonic() - self._metadata_peer_seen_at_s > self.metadata_peer_timeout_s:
-                self._metadata_peer = None
-                self._metadata_peer_seen_at_s = None
+            if self._expire_metadata_peer_locked(now_s=time.monotonic()):
+                return None
+            return self._metadata_peer
+
+    def active_heartbeat_peer(self) -> tuple[str, int] | None:
+        """Return the live peer only when QGC proved it with a signed HEARTBEAT."""
+
+        with self._metadata_peer_lock:
+            if self._expire_metadata_peer_locked(now_s=time.monotonic()):
+                return None
+            if (
+                self._metadata_peer is None
+                or self._metadata_peer_seen_at_s is None
+                or not self._metadata_peer_has_heartbeat
+            ):
                 return None
             return self._metadata_peer
 
@@ -464,6 +527,172 @@ class UdpOperatorSelectionServer:
     ) -> None:
         self._channel.sendto(self.mavlink.encode_release_status(status), peer)
 
+    def publish_runtime_status(
+        self,
+        status: RuntimeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_runtime_status(status), peer)
+
+    def publish_runtime_status_for_acceptance(
+        self,
+        status: RuntimeStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> UdpRuntimeStatusSendReceipt:
+        """Arm correlation, then complete the local type-23 send exactly once."""
+
+        # Lock order is always metadata -> runtime ACK condition. That makes a
+        # heartbeat-peer change atomic with arming or accepting one type-24 ACK.
+        with self._metadata_peer_lock:
+            self._expire_metadata_peer_locked(now_s=time.monotonic())
+            active_peer = (
+                self._metadata_peer if self._metadata_peer_has_heartbeat else None
+            )
+            if active_peer is None:
+                raise RuntimeError(
+                    "runtime-status acceptance requires an active QGC heartbeat peer"
+                )
+            if peer != active_peer:
+                raise RuntimeError(
+                    "runtime-status recipient is not the active QGC heartbeat peer"
+                )
+            receipt = UdpRuntimeStatusSendReceipt(
+                acknowledged_runtime_sequence=status.sequence,
+                run_hash64=status.run_hash64,
+                remote=peer,
+                sent_at_monotonic_ns=self._runtime_status_clock_ns(),
+            )
+            with self._runtime_status_ack_condition:
+                if self._pending_runtime_status_send is not None:
+                    raise RuntimeError(
+                        "a runtime-status acceptance acknowledgement is already pending"
+                    )
+                last_sequence = self._last_runtime_status_ack_sequence_by_run.get(
+                    status.run_hash64
+                )
+                retired_sequence = (
+                    self._retired_runtime_status_ack_sequence_by_run_peer.get(
+                        (status.run_hash64, peer)
+                    )
+                )
+                if (
+                    (last_sequence is not None and status.sequence <= last_sequence)
+                    or (
+                        retired_sequence is not None
+                        and status.sequence <= retired_sequence
+                    )
+                ):
+                    raise RuntimeError(
+                        "runtime-status acceptance sequence is duplicate or out of order"
+                    )
+                self._pending_runtime_status_send = receipt
+                self._pending_runtime_status_ack = None
+                self._pending_runtime_status_ack_deadline_ns = None
+                self._pending_runtime_status_ack_failure = None
+                self._runtime_status_ack_waiting = False
+        try:
+            self._channel.sendto(self.mavlink.encode_runtime_status(status), peer)
+        except BaseException:
+            with self._runtime_status_ack_condition:
+                if self._pending_runtime_status_send == receipt:
+                    self._clear_pending_runtime_status_locked()
+                    self._runtime_status_ack_condition.notify_all()
+            raise
+        return receipt
+
+    def wait_runtime_status_ack(
+        self,
+        send_receipt: UdpRuntimeStatusSendReceipt,
+        *,
+        timeout_s: float,
+    ) -> UdpRuntimeStatusAckReceipt:
+        """Wait for one exact, authenticated type-24 QGC acceptance proof."""
+
+        if not isfinite(timeout_s) or timeout_s <= 0.0:
+            raise ValueError("runtime-status ACK timeout must be finite and positive")
+        deadline_ns = self._runtime_status_clock_ns() + int(timeout_s * 1_000_000_000)
+        with self._runtime_status_ack_condition:
+            if self._pending_runtime_status_send != send_receipt:
+                raise RuntimeError(
+                    "runtime-status send receipt is no longer the pending acceptance"
+                )
+            if self._runtime_status_ack_waiting:
+                raise RuntimeError(
+                    "runtime-status acceptance acknowledgement already has a waiter"
+                )
+            self._runtime_status_ack_waiting = True
+            self._pending_runtime_status_ack_deadline_ns = deadline_ns
+            while True:
+                background_error = self.poll_error()
+                if background_error is not None:
+                    self._retire_runtime_status_send_locked(send_receipt)
+                    self._clear_pending_runtime_status_locked()
+                    raise RuntimeError(
+                        "runtime-status ACK transport rejected a datagram"
+                    ) from background_error
+
+                failure = self._pending_runtime_status_ack_failure
+                if failure is not None:
+                    self._retire_runtime_status_send_locked(send_receipt)
+                    self._clear_pending_runtime_status_locked()
+                    raise failure
+
+                acknowledgement = self._pending_runtime_status_ack
+                if acknowledgement is not None:
+                    if acknowledgement.remote != send_receipt.remote:
+                        self._retire_runtime_status_send_locked(send_receipt)
+                        self._clear_pending_runtime_status_locked()
+                        raise OperatorProtocolError(
+                            "runtime-status ACK peer does not match"
+                        )
+                    if (
+                        acknowledgement.acknowledgement.acknowledged_runtime_sequence
+                        != send_receipt.acknowledged_runtime_sequence
+                    ):
+                        self._retire_runtime_status_send_locked(send_receipt)
+                        self._clear_pending_runtime_status_locked()
+                        raise OperatorProtocolError(
+                            "runtime-status ACK sequence does not match"
+                        )
+                    if (
+                        acknowledgement.acknowledgement.run_hash64
+                        != send_receipt.run_hash64
+                    ):
+                        self._retire_runtime_status_send_locked(send_receipt)
+                        self._clear_pending_runtime_status_locked()
+                        raise OperatorProtocolError(
+                            "runtime-status ACK run hash does not match"
+                        )
+                    if (
+                        acknowledgement.sent_at_monotonic_ns
+                        != send_receipt.sent_at_monotonic_ns
+                    ):
+                        self._retire_runtime_status_send_locked(send_receipt)
+                        self._clear_pending_runtime_status_locked()
+                        raise OperatorProtocolError(
+                            "runtime-status ACK send receipt does not match"
+                        )
+                    if acknowledgement.acknowledged_at_monotonic_ns > deadline_ns:
+                        self._retire_runtime_status_send_locked(send_receipt)
+                        self._clear_pending_runtime_status_locked()
+                        raise TimeoutError(
+                            "runtime-status acceptance acknowledgement arrived after deadline"
+                        )
+                    self._retire_runtime_status_send_locked(send_receipt)
+                    self._clear_pending_runtime_status_locked()
+                    return acknowledgement
+
+                remaining_ns = deadline_ns - self._runtime_status_clock_ns()
+                if remaining_ns <= 0:
+                    self._retire_runtime_status_send_locked(send_receipt)
+                    self._clear_pending_runtime_status_locked()
+                    raise TimeoutError(
+                        "runtime-status acceptance acknowledgement timed out"
+                    ) from None
+                self._runtime_status_ack_condition.wait(remaining_ns / 1_000_000_000)
+
     def publish_approach_challenge(
         self,
         status: ApproachChallengeStatusMessage,
@@ -526,10 +755,197 @@ class UdpOperatorSelectionServer:
         self._authorization_peer = peer
         self._channel.sendto(self.mavlink.encode_authorization_challenge(status), peer)
 
-    def _register_metadata_peer(self, peer: tuple[str, int]) -> None:
+    def _register_metadata_peer(
+        self,
+        peer: tuple[str, int],
+        *,
+        from_heartbeat: bool,
+    ) -> None:
         with self._metadata_peer_lock:
+            previous_heartbeat_peer = (
+                self._metadata_peer if self._metadata_peer_has_heartbeat else None
+            )
+            same_heartbeat_peer = (
+                self._metadata_peer_has_heartbeat and self._metadata_peer == peer
+            )
             self._metadata_peer = peer
             self._metadata_peer_seen_at_s = time.monotonic()
+            self._metadata_peer_has_heartbeat = from_heartbeat or same_heartbeat_peer
+            current_heartbeat_peer = (
+                self._metadata_peer if self._metadata_peer_has_heartbeat else None
+            )
+            if previous_heartbeat_peer != current_heartbeat_peer:
+                self._fail_pending_runtime_status_for_peer_change_locked(
+                    previous_peer=previous_heartbeat_peer,
+                    current_peer=current_heartbeat_peer,
+                )
+
+    def _expire_metadata_peer_locked(self, *, now_s: float) -> bool:
+        """Expire one peer lease while preserving metadata -> ACK lock order."""
+
+        if self._metadata_peer is None or self._metadata_peer_seen_at_s is None:
+            return False
+        if now_s - self._metadata_peer_seen_at_s <= self.metadata_peer_timeout_s:
+            return False
+        previous_heartbeat_peer = (
+            self._metadata_peer if self._metadata_peer_has_heartbeat else None
+        )
+        self._metadata_peer = None
+        self._metadata_peer_seen_at_s = None
+        self._metadata_peer_has_heartbeat = False
+        if previous_heartbeat_peer is not None:
+            self._fail_pending_runtime_status_for_peer_change_locked(
+                previous_peer=previous_heartbeat_peer,
+                current_peer=None,
+            )
+        return True
+
+    def _fail_pending_runtime_status_for_peer_change_locked(
+        self,
+        *,
+        previous_peer: tuple[str, int] | None,
+        current_peer: tuple[str, int] | None,
+    ) -> None:
+        """Invalidate an armed ACK without allowing its late packet into a later send."""
+
+        with self._runtime_status_ack_condition:
+            pending = self._pending_runtime_status_send
+            if pending is None or self._pending_runtime_status_ack_failure is not None:
+                return
+            if pending.remote == current_peer:
+                return
+            self._retire_runtime_status_send_locked(pending)
+            self._pending_runtime_status_ack_failure = RuntimeError(
+                "active QGC heartbeat peer changed before runtime-status acceptance "
+                f"({previous_peer!r} -> {current_peer!r})"
+            )
+            self._runtime_status_ack_condition.notify_all()
+
+    def _accept_runtime_status_ack(
+        self,
+        acknowledgement: RuntimeStatusAck,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        acknowledged_at_monotonic_ns = self._runtime_status_clock_ns()
+        with self._runtime_status_ack_condition:
+            if self._runtime_status_ack_is_retired_locked(acknowledgement, peer=peer):
+                return
+
+        # Match the lock order used by publish and heartbeat replacement so a
+        # peer cannot change between validation and the ACK state transition.
+        with self._metadata_peer_lock:
+            self._expire_metadata_peer_locked(now_s=time.monotonic())
+            active_peer = (
+                self._metadata_peer if self._metadata_peer_has_heartbeat else None
+            )
+            with self._runtime_status_ack_condition:
+                if self._runtime_status_ack_is_retired_locked(
+                    acknowledgement,
+                    peer=peer,
+                ):
+                    return
+                if active_peer is None:
+                    raise OperatorProtocolError(
+                        "runtime-status ACK arrived without an active QGC heartbeat peer"
+                    )
+                if peer != active_peer:
+                    raise OperatorProtocolError(
+                        "runtime-status ACK peer is not the active QGC heartbeat peer"
+                    )
+                pending = self._pending_runtime_status_send
+                if pending is None:
+                    raise OperatorProtocolError(
+                        "runtime-status ACK is duplicate, stale or was not requested"
+                    )
+                if pending.remote != peer:
+                    raise OperatorProtocolError("runtime-status ACK peer does not match")
+                if (
+                    acknowledgement.acknowledged_runtime_sequence
+                    != pending.acknowledged_runtime_sequence
+                ):
+                    raise OperatorProtocolError(
+                        "runtime-status ACK sequence does not match"
+                    )
+                if acknowledgement.run_hash64 != pending.run_hash64:
+                    raise OperatorProtocolError("runtime-status ACK run hash does not match")
+
+                deadline_ns = self._pending_runtime_status_ack_deadline_ns
+                if (
+                    deadline_ns is not None
+                    and acknowledged_at_monotonic_ns > deadline_ns
+                ):
+                    self._retire_runtime_status_send_locked(pending)
+                    self._pending_runtime_status_ack_failure = TimeoutError(
+                        "runtime-status acceptance acknowledgement arrived after deadline"
+                    )
+                    self._runtime_status_ack_condition.notify_all()
+                    return
+
+                previous = self._last_runtime_status_ack_sequence_by_run.get(
+                    acknowledgement.run_hash64
+                )
+                if (
+                    previous is not None
+                    and acknowledgement.acknowledged_runtime_sequence <= previous
+                ):
+                    raise OperatorProtocolError(
+                        "runtime-status ACK sequence is duplicate or out of order"
+                    )
+                receipt = UdpRuntimeStatusAckReceipt(
+                    acknowledgement=acknowledgement,
+                    remote=peer,
+                    sent_at_monotonic_ns=pending.sent_at_monotonic_ns,
+                    acknowledged_at_monotonic_ns=acknowledged_at_monotonic_ns,
+                )
+                self._last_runtime_status_ack_sequence_by_run[
+                    acknowledgement.run_hash64
+                ] = acknowledgement.acknowledged_runtime_sequence
+                self._retire_runtime_status_send_locked(pending)
+                self._pending_runtime_status_ack = receipt
+                self._runtime_status_ack_condition.notify_all()
+
+    def _runtime_status_ack_is_retired_locked(
+        self,
+        acknowledgement: RuntimeStatusAck,
+        *,
+        peer: tuple[str, int],
+    ) -> bool:
+        retired_sequence = self._retired_runtime_status_ack_sequence_by_run_peer.get(
+            (acknowledgement.run_hash64, peer)
+        )
+        return (
+            retired_sequence is not None
+            and acknowledgement.acknowledged_runtime_sequence <= retired_sequence
+        )
+
+    def _retire_runtime_status_send_locked(
+        self,
+        send_receipt: UdpRuntimeStatusSendReceipt,
+    ) -> None:
+        key = (send_receipt.run_hash64, send_receipt.remote)
+        previous = self._retired_runtime_status_ack_sequence_by_run_peer.get(key)
+        if previous is None or send_receipt.acknowledged_runtime_sequence > previous:
+            self._retired_runtime_status_ack_sequence_by_run_peer[key] = (
+                send_receipt.acknowledged_runtime_sequence
+            )
+
+    def _clear_pending_runtime_status_locked(self) -> None:
+        self._pending_runtime_status_send = None
+        self._pending_runtime_status_ack = None
+        self._pending_runtime_status_ack_deadline_ns = None
+        self._pending_runtime_status_ack_failure = None
+        self._runtime_status_ack_waiting = False
+
+    def _cancel_pending_runtime_status_send(
+        self,
+        send_receipt: UdpRuntimeStatusSendReceipt,
+    ) -> None:
+        with self._runtime_status_ack_condition:
+            if self._pending_runtime_status_send == send_receipt:
+                self._retire_runtime_status_send_locked(send_receipt)
+                self._clear_pending_runtime_status_locked()
+                self._runtime_status_ack_condition.notify_all()
 
     def _background_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -540,9 +956,13 @@ class UdpOperatorSelectionServer:
             except OSError as exc:
                 if not self._stop_event.is_set():
                     self._background_errors.put(exc)
+                    with self._runtime_status_ack_condition:
+                        self._runtime_status_ack_condition.notify_all()
                 return
             except (RuntimeError, ValueError, TypeError) as exc:
                 self._background_errors.put(exc)
+                with self._runtime_status_ack_condition:
+                    self._runtime_status_ack_condition.notify_all()
 
     def close(self) -> None:
         self._stop_event.set()
@@ -616,6 +1036,8 @@ class UdpOperatorSessionClient:
         self._last_range_status_sequence: int | None = None
         self._last_target_geolocation_status_sequence: int | None = None
         self._last_release_status_sequence: int | None = None
+        self._last_runtime_status_sequence: int | None = None
+        self._runtime_status_ack_sequence = 0
         self._last_approach_challenge_sequence: int | None = None
         self._last_approach_status_sequence: int | None = None
         self._last_payload_target_challenge_sequence: int | None = None
@@ -631,6 +1053,7 @@ class UdpOperatorSessionClient:
             WireMessageType.RANGE_STATUS: deque(maxlen=1),
             WireMessageType.TARGET_GEOLOCATION_STATUS: deque(maxlen=1),
             WireMessageType.RELEASE_STATUS: deque(maxlen=1),
+            WireMessageType.RUNTIME_STATUS: deque(maxlen=1),
             WireMessageType.APPROACH_CHALLENGE: deque(maxlen=1),
             WireMessageType.APPROACH_STATUS: deque(maxlen=1),
             WireMessageType.PAYLOAD_TARGET_CHALLENGE: deque(maxlen=1),
@@ -683,6 +1106,7 @@ class UdpOperatorSessionClient:
             self._last_patrol_status_sequence = None
             self._last_range_status_sequence = None
             self._last_release_status_sequence = None
+            self._last_runtime_status_sequence = None
             self._last_approach_challenge_sequence = None
             self._last_approach_status_sequence = None
             self._last_payload_target_challenge_sequence = None
@@ -964,6 +1388,44 @@ class UdpOperatorSessionClient:
         self._last_release_status_sequence = status.sequence
         return status
 
+    def receive_runtime_status(self, *, timeout_s: float) -> RuntimeStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("runtime status timeout must be positive")
+        status = self._receive_message(WireMessageType.RUNTIME_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, RuntimeStatusMessage):
+            raise OperatorProtocolError("decoded runtime status has the wrong type")
+        if (
+            self._last_runtime_status_sequence is not None
+            and status.sequence <= self._last_runtime_status_sequence
+        ):
+            raise OperatorProtocolError("runtime status sequence is not newer")
+        self._last_runtime_status_sequence = status.sequence
+        return status
+
+    def acknowledge_runtime_status(
+        self,
+        status: RuntimeStatusMessage,
+        *,
+        sent_at_s: float | None = None,
+    ) -> RuntimeStatusAck:
+        """Send the same canonical type-24 proof used by QGC diagnostics."""
+
+        if self._last_runtime_status_sequence != status.sequence:
+            raise RuntimeError("runtime status must be freshly received before acknowledgement")
+        self._runtime_status_ack_sequence = (self._runtime_status_ack_sequence + 1) & 0xFFFFFFFF
+        acknowledgement = RuntimeStatusAck(
+            acknowledged_runtime_sequence=status.sequence,
+            run_hash64=status.run_hash64,
+        )
+        self._channel.send(
+            self.mavlink.encode_runtime_status_ack(
+                acknowledgement,
+                sequence=self._runtime_status_ack_sequence,
+                sent_at_s=time.time() if sent_at_s is None else sent_at_s,
+            )
+        )
+        return acknowledgement
+
     def receive_approach_challenge(
         self,
         *,
@@ -1166,5 +1628,7 @@ __all__ = [
     "UdpAuthorizationDecisionReceipt",
     "UdpApproachConfirmationReceipt",
     "UdpPayloadTargetConfirmationReceipt",
+    "UdpRuntimeStatusAckReceipt",
+    "UdpRuntimeStatusSendReceipt",
     "UdpSelectionReceipt",
 ]

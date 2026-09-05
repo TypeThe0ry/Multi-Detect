@@ -5,6 +5,7 @@ import hmac
 import math
 import socket
 import struct
+import threading
 import time
 import zlib
 from dataclasses import dataclass
@@ -197,6 +198,11 @@ class DepthGridUdpPublisher:
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("0.0.0.0", local_port))
         self._socket.setblocking(False)
+        # publish() may be called from a frame worker while shutdown runs on
+        # the owner thread.  Keep the limiter timestamp, sequence and socket
+        # lifecycle as one state machine so concurrent calls cannot both pass
+        # the gate before the first frame records its completion time.
+        self._state_lock = threading.RLock()
         self._sequence = 0
         self._closed = False
         self._minimum_interval_s = 1.0 / maximum_rate_hz
@@ -206,23 +212,29 @@ class DepthGridUdpPublisher:
         self.suppressed_frames = 0
 
     def publish(self, grid: MetricDepthGrid) -> int:
-        if self._closed:
-            raise RuntimeError("depth-grid UDP publisher is closed")
-        self._drain_keepalives()
-        now_s = time.monotonic()
-        if now_s - self._last_published_at_s < self._minimum_interval_s:
-            self.suppressed_frames += 1
-            return 0
-        self._sequence = (self._sequence + 1) & 0xFFFFFFFF
-        datagrams = self._codec.encode(grid, sequence=self._sequence)
-        sent = 0
-        for datagram in datagrams:
-            self._socket.sendto(datagram, self._destination)
-            sent += 1
-        self.published_frames += 1
-        self.published_datagrams += sent
-        self._last_published_at_s = now_s
-        return sent
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("depth-grid UDP publisher is closed")
+            self._drain_keepalives()
+            now_s = time.monotonic()
+            if now_s - self._last_published_at_s < self._minimum_interval_s:
+                self.suppressed_frames += 1
+                return 0
+            self._sequence = (self._sequence + 1) & 0xFFFFFFFF
+            datagrams = self._codec.encode(grid, sequence=self._sequence)
+            sent = 0
+            for datagram in datagrams:
+                self._socket.sendto(datagram, self._destination)
+                sent += 1
+            self.published_frames += 1
+            self.published_datagrams += sent
+            # Start the coalescing interval after the complete frame has been
+            # emitted.  Encoding and sending a fragmented depth frame can take
+            # longer than one nominal interval on a busy Windows host; recording
+            # the timestamp captured before that work would make the very next
+            # call appear eligible and violate the configured maximum rate.
+            self._last_published_at_s = time.monotonic()
+            return sent
 
     def _drain_keepalives(self) -> None:
         while True:
@@ -232,7 +244,8 @@ class DepthGridUdpPublisher:
                 return
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._socket.close()
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._socket.close()

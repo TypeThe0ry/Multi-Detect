@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-platform-neutral-plan.schema.json",
+  "title": "Multi-Detect PlatformNeutralPlan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "task_spec_hash", "context_snapshot_hash", "steps"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string", "minLength": 1},
+    "task_spec_hash": {"$ref": "#/$defs/sha256"},
+    "context_snapshot_hash": {"$ref": "#/$defs/sha256"},
+    "steps": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequence", "action"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 0},
+          "action": {"enum": ["takeoff", "transit", "search_area", "search_corridor", "survey", "observe_target", "capture_evidence", "report_geolocation", "revisit", "return", "divert", "land"]},
+          "reference_id": {"type": "string", "minLength": 1},
+          "quantity": {"type": "number", "minimum": 0}
+        }
+      }
+    }
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

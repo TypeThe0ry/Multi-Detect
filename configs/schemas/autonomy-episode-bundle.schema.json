@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-episode-bundle.schema.json",
+  "title": "Multi-Detect EpisodeBundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "episode_id", "runtime_descriptor_hash", "runtime_provenance_hash", "task_spec_hash", "plan_hash", "executable_mission_hash", "validation_report_hash", "operator_grant_hash", "outcome", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "episode_id": {"type": "string", "minLength": 1},
+    "runtime_descriptor_hash": {"$ref": "#/$defs/sha256"},
+    "runtime_provenance_hash": {"$ref": "#/$defs/sha256"},
+    "task_spec_hash": {"$ref": "#/$defs/sha256"},
+    "plan_hash": {"$ref": "#/$defs/sha256"},
+    "executable_mission_hash": {"$ref": "#/$defs/sha256"},
+    "validation_report_hash": {"$ref": "#/$defs/sha256"},
+    "operator_grant_hash": {"$ref": "#/$defs/sha256"},
+    "outcome": {"enum": ["completed", "safe_rtl", "aborted", "failed"]},
+    "artifacts": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "path", "sha256"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    }
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

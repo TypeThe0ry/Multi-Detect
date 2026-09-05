@@ -33,8 +33,8 @@ from multidetect.operator_link import (
     TrackStatusMessage,
     VideoGeometry,
 )
+from multidetect.operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter
 from multidetect.operator_protocol import (
-    OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
     AuthorizationDecisionAck,
     AuthorizationDecisionAckReason,
     OperatorTunnelCodec,
@@ -66,7 +66,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument(
+        "--local-port",
+        type=int,
+        default=0,
+        help="fixed localhost source port for the signed operator endpoint (0 selects an ephemeral port)",
+    )
     parser.add_argument("--key-env", default="MULTIDETECT_OPERATOR_KEY")
+    parser.add_argument("--signing-key-hex-env", default="MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX")
     parser.add_argument("--stream-id", default="camera-main")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
@@ -82,21 +89,17 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _send_tunnel(
-    channel: socket.socket,
-    serializer: mavlink.MAVLink,
-    destination: tuple[str, int],
-    payload: bytes,
-) -> None:
-    padded = payload.ljust(128, b"\0")
-    message = mavlink.MAVLink_tunnel_message(
-        255,
-        190,
-        OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
-        len(payload),
-        list(padded),
-    )
-    channel.sendto(message.pack(serializer), destination)
+def _signing_timestamp() -> int:
+    return max(1, int((time.time() - 1_420_070_400) * 100_000))
+
+
+def _signed_serializer(key: bytes, *, system_id: int, component_id: int) -> mavlink.MAVLink:
+    serializer = mavlink.MAVLink(None, srcSystem=system_id, srcComponent=component_id)
+    serializer.signing.secret_key = bytes(key)
+    serializer.signing.link_id = 1
+    serializer.signing.timestamp = _signing_timestamp()
+    serializer.signing.sign_outgoing = True
+    return serializer
 
 
 def _status_payloads(
@@ -275,20 +278,41 @@ def _status_payloads(
 
 def run(args: argparse.Namespace) -> dict[str, object]:
     if args.host != "127.0.0.1":
-        raise HilFailure("the unsigned outer-MAVLink HIL driver is restricted to 127.0.0.1")
+        raise HilFailure("the signed operator HIL driver is restricted to 127.0.0.1")
     if not 1024 <= args.port <= 65535:
         raise HilFailure("HIL UDP port must be in 1024..65535")
+    if not 0 <= args.local_port <= 65535:
+        raise HilFailure("local operator UDP port must be in 0..65535")
     key_text = os.environ.get(args.key_env, "")
     key = key_text.encode("utf-8")
     if len(key) < 32:
         raise HilFailure(f"{args.key_env} must contain at least 32 UTF-8 bytes")
+    signing_key_text = os.environ.get(args.signing_key_hex_env, "").strip()
+    try:
+        signing_key = bytes.fromhex(signing_key_text)
+    except ValueError as error:
+        raise HilFailure(f"{args.signing_key_hex_env} must contain 64 hexadecimal digits") from error
+    if len(signing_key) != 32 or signing_key.hex() != signing_key_text.lower():
+        raise HilFailure(f"{args.signing_key_hex_env} must contain 64 hexadecimal digits")
 
     geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
     codec = OperatorTunnelCodec(hmac_key=key, geometries=(geometry,))
     destination = (args.host, args.port)
-    receiver = mavlink.MAVLink(None)
-    heartbeat_serializer = mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
-    jetson_serializer = mavlink.MAVLink(None, srcSystem=1, srcComponent=191)
+    endpoint = OperatorMavlinkEndpoint(
+        local_system_id=1,
+        local_component_id=191,
+        remote_system_id=255,
+        remote_component_id=190,
+    )
+    adapter = OperatorMavlinkTunnelAdapter(
+        codec,
+        endpoint,
+        signing_key=signing_key,
+        signing_link_id=1,
+        initial_signing_timestamp=_signing_timestamp(),
+    )
+    heartbeat_serializer = _signed_serializer(signing_key, system_id=1, component_id=191)
+    autopilot_serializer = _signed_serializer(signing_key, system_id=1, component_id=1)
     autopilot_heartbeat = mavlink.MAVLink_heartbeat_message(
         mavlink.MAV_TYPE_FIXED_WING,
         mavlink.MAV_AUTOPILOT_PX4,
@@ -307,7 +331,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
 
     channel = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    channel.bind(("127.0.0.1", 0))
+    channel.bind(("127.0.0.1", args.local_port))
     channel.settimeout(0.1)
     deadline = time.monotonic() + args.timeout
     next_heartbeat = 0.0
@@ -323,10 +347,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             now_monotonic = time.monotonic()
             if selection is None and now_monotonic >= next_heartbeat:
                 if args.metadata_only:
-                    channel.sendto(jetson_heartbeat.pack(jetson_serializer), destination)
+                    channel.sendto(jetson_heartbeat.pack(heartbeat_serializer), destination)
                     jetson_component_heartbeats_sent += 1
                 else:
-                    channel.sendto(autopilot_heartbeat.pack(heartbeat_serializer), destination)
+                    channel.sendto(autopilot_heartbeat.pack(autopilot_serializer), destination)
                     autopilot_heartbeats_sent += 1
                 next_heartbeat = now_monotonic + 0.25
             try:
@@ -339,124 +363,120 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 # localhost HIL alive until the listener appears.
                 udp_connection_resets += 1
                 continue
-            for outer in receiver.parse_buffer(datagram) or ():
-                if outer.get_type() != "TUNNEL":
-                    continue
-                tunnel = cast("mavlink.MAVLink_tunnel_message", outer)
-                inbound_tunnel_count += 1
-                if tunnel.get_srcSystem() != 255 or tunnel.get_srcComponent() != 190:
-                    raise HilFailure("QGC TUNNEL source endpoint is not 255/190")
-                if tunnel.target_system != 1 or tunnel.target_component != 191:
-                    raise HilFailure("QGC TUNNEL target endpoint is not 1/191")
-                if tunnel.payload_type != OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL:
-                    continue
-                payload = bytes(tunnel.payload[: tunnel.payload_length])
-                packet = codec.decode(payload)
+            try:
+                payload = adapter.extract_authenticated_operator_payload(
+                    datagram,
+                    ignore_unrelated_message=True,
+                )
+            except Exception as error:
+                raise HilFailure(f"QGC signed operator datagram rejected: {error}") from error
+            if payload is None:
+                continue
+            inbound_tunnel_count += 1
+            packet = codec.decode(payload)
 
-                if packet.message_type is WireMessageType.TARGET_SELECTION:
-                    if not isinstance(packet.message, TargetSelectionCommand):
-                        raise HilFailure("decoded target selection has the wrong type")
-                    decoded_selection = packet.message
-                    if (
-                        decoded_selection.action is not SelectionAction.SELECT
-                        or decoded_selection.bbox is None
-                    ):
-                        raise HilFailure("QGC did not send the expected SELECT rectangle")
-                    selection = decoded_selection
-                    acknowledgement = SelectionAck(
-                        decoded_selection.command_id,
-                        True,
-                        SelectionAckReason.ACCEPTED,
-                        decoded_selection.sequence,
-                    )
-                    _send_tunnel(
-                        channel,
-                        jetson_serializer,
-                        destination,
+            if packet.message_type is WireMessageType.TARGET_SELECTION:
+                if not isinstance(packet.message, TargetSelectionCommand):
+                    raise HilFailure("decoded target selection has the wrong type")
+                decoded_selection = packet.message
+                if (
+                    decoded_selection.action not in (SelectionAction.SELECT, SelectionAction.SELECT_TRK)
+                    or decoded_selection.bbox is None
+                ):
+                    raise HilFailure("QGC did not send the expected SELECT/TRK rectangle")
+                selection = decoded_selection
+                acknowledgement = SelectionAck(
+                    decoded_selection.command_id,
+                    True,
+                    SelectionAckReason.ACCEPTED,
+                    decoded_selection.sequence,
+                )
+                channel.sendto(
+                    adapter.wrap_authenticated_operator_payload(
                         codec.encode_ack(
                             acknowledgement,
                             sequence=201,
                             sent_at_s=time.time(),
-                        ),
-                    )
-                    status_payloads, challenge = _status_payloads(
-                        codec, geometry, decoded_selection
-                    )
-                    for status_payload in status_payloads:
-                        time.sleep(0.05)
-                        _send_tunnel(channel, jetson_serializer, destination, status_payload)
-                    continue
+                        )
+                    ),
+                    destination,
+                )
+                status_payloads, challenge = _status_payloads(codec, geometry, decoded_selection)
+                for status_payload in status_payloads:
+                    time.sleep(0.05)
+                    channel.sendto(adapter.wrap_authenticated_operator_payload(status_payload), destination)
+                continue
 
-                if packet.message_type is WireMessageType.AUTHORIZATION_DECISION:
-                    if not isinstance(packet.message, AuthorizationDecisionCommand):
-                        raise HilFailure("decoded authorization decision has the wrong type")
-                    decision = packet.message
-                    if selection is None or selection.bbox is None or challenge is None:
-                        raise HilFailure("authorization arrived before selection/status setup")
-                    selection_bbox = selection.bbox
-                    if decision.decision is not AuthorizationDecision.APPROVE:
-                        raise HilFailure("QGC HIL did not send the expected APPROVE decision")
-                    binding = (
-                        decision.challenge_token,
-                        decision.mission_token,
-                        decision.target_token,
-                        decision.scene_token,
-                        decision.ruleset_token,
-                        decision.payload_slot_token,
-                        decision.target_revision,
-                    )
-                    expected_binding = (
-                        challenge.challenge_token,
-                        challenge.mission_token,
-                        challenge.target_token,
-                        challenge.scene_token,
-                        challenge.ruleset_token,
-                        challenge.payload_slot_token,
-                        challenge.target_revision,
-                    )
-                    if binding != expected_binding:
-                        raise HilFailure("QGC authorization decision is not challenge-bound")
-                    acknowledgement = AuthorizationDecisionAck(
-                        command_token=decision.command_token,
-                        accepted=True,
-                        reason=AuthorizationDecisionAckReason.ACCEPTED,
-                        acknowledged_sequence=decision.sequence,
-                    )
-                    _send_tunnel(
-                        channel,
-                        jetson_serializer,
-                        destination,
+            if packet.message_type is WireMessageType.AUTHORIZATION_DECISION:
+                if not isinstance(packet.message, AuthorizationDecisionCommand):
+                    raise HilFailure("decoded authorization decision has the wrong type")
+                decision = packet.message
+                if selection is None or selection.bbox is None or challenge is None:
+                    raise HilFailure("authorization arrived before selection/status setup")
+                selection_bbox = selection.bbox
+                if decision.decision is not AuthorizationDecision.APPROVE:
+                    raise HilFailure("QGC HIL did not send the expected APPROVE decision")
+                binding = (
+                    decision.challenge_token,
+                    decision.mission_token,
+                    decision.target_token,
+                    decision.scene_token,
+                    decision.ruleset_token,
+                    decision.payload_slot_token,
+                    decision.target_revision,
+                )
+                expected_binding = (
+                    challenge.challenge_token,
+                    challenge.mission_token,
+                    challenge.target_token,
+                    challenge.scene_token,
+                    challenge.ruleset_token,
+                    challenge.payload_slot_token,
+                    challenge.target_revision,
+                )
+                if binding != expected_binding:
+                    raise HilFailure("QGC authorization decision is not challenge-bound")
+                acknowledgement = AuthorizationDecisionAck(
+                    command_token=decision.command_token,
+                    accepted=True,
+                    reason=AuthorizationDecisionAckReason.ACCEPTED,
+                    acknowledged_sequence=decision.sequence,
+                )
+                channel.sendto(
+                    adapter.wrap_authenticated_operator_payload(
                         codec.encode_authorization_ack(
                             acknowledgement,
                             sequence=206,
                             sent_at_s=time.time(),
-                        ),
-                    )
-                    time.sleep(0.5)
-                    return {
-                        "authorization": "APPROVE",
-                        "authorization_bound": True,
-                        "bbox": [
-                            selection_bbox.x1,
-                            selection_bbox.y1,
-                            selection_bbox.x2,
-                            selection_bbox.y2,
-                        ],
-                        "inbound_tunnel_count": inbound_tunnel_count,
-                        "metadata_only": args.metadata_only,
-                        "autopilot_heartbeats_sent": autopilot_heartbeats_sent,
-                        "jetson_component_heartbeats_sent": jetson_component_heartbeats_sent,
-                        "patrol_status_sent": True,
-                        "target_pool_page_count": 2,
-                        "target_pool_track_count": 3,
-                        "tracking_metadata_packets_sent": TRACK_STATUS_SAMPLE_COUNT,
-                        "tracking_metadata_rate_hz": TRACK_STATUS_RATE_HZ,
-                        "udp_connection_resets": udp_connection_resets,
-                        "external_autopilot_required": args.metadata_only,
-                        "real_v6x_contacted": False,
-                        "selection": selection.action.value,
-                        "selection_sequence": selection.sequence,
-                    }
+                        )
+                    ),
+                    destination,
+                )
+                time.sleep(0.5)
+                return {
+                    "authorization": "APPROVE",
+                    "authorization_bound": True,
+                    "bbox": [
+                        selection_bbox.x1,
+                        selection_bbox.y1,
+                        selection_bbox.x2,
+                        selection_bbox.y2,
+                    ],
+                    "inbound_tunnel_count": inbound_tunnel_count,
+                    "metadata_only": args.metadata_only,
+                    "autopilot_heartbeats_sent": autopilot_heartbeats_sent,
+                    "jetson_component_heartbeats_sent": jetson_component_heartbeats_sent,
+                    "patrol_status_sent": True,
+                    "target_pool_page_count": 2,
+                    "target_pool_track_count": 3,
+                    "tracking_metadata_packets_sent": TRACK_STATUS_SAMPLE_COUNT,
+                    "tracking_metadata_rate_hz": TRACK_STATUS_RATE_HZ,
+                    "udp_connection_resets": udp_connection_resets,
+                    "external_autopilot_required": args.metadata_only,
+                    "real_v6x_contacted": False,
+                    "selection": selection.action.value,
+                    "selection_sequence": selection.sequence,
+                }
     finally:
         channel.close()
     raise HilFailure("timed out before the selection/authorization metadata loop completed")

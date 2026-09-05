@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_geolocation_positive_control_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "gazebo-car-geolocation-positive-control-billboard-v1",
+      "label": "car",
+      "position": {
+        "latitude_deg": 1.2999999999989706,
+        "longitude_deg": 103.8005718836011,
+        "altitude_m": 26.15,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary_software_only_billboard"
+    }
+  ]
+}

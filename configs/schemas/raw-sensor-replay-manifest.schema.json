@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/raw-sensor-replay-manifest.schema.json",
+  "title": "Multi-Detect RawSensorReplayManifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "recording_id",
+    "started_at_utc",
+    "airframe_profile_hash",
+    "recording_hash",
+    "events"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "recording_id": {"type": "string", "minLength": 1},
+    "started_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|\\+00:00)$"
+    },
+    "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+    "recording_hash": {"$ref": "#/$defs/sha256"},
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"$ref": "#/$defs/contained_path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "scenario_manifest_hash", "scenario_seed"],
+      "properties": {
+        "scenario_id": {"type": "string", "minLength": 1},
+        "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "scenario_seed": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contained_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+    }
+  }
+}

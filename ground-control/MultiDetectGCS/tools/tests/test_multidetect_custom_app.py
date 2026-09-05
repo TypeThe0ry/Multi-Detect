@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CUSTOM_ROOT = REPO_ROOT / "custom"
+PRODUCT_VERSION_MANIFEST = REPO_ROOT.parents[1] / "configs" / "product-version.json"
 
 
 def _read(relative_path: str) -> str:
@@ -38,6 +40,7 @@ def test_custom_build_contains_the_required_native_qgc_surfaces() -> None:
         "src/PlanViewRightPanel.qml",
         "res/Custom/MultiDetect/MultiDetectState.qml",
         "res/Custom/MultiDetect/MultiDetectVideoOverlay.qml",
+        "res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml",
     }
 
     missing = sorted(path for path in required if not (CUSTOM_ROOT / path).is_file())
@@ -45,12 +48,189 @@ def test_custom_build_contains_the_required_native_qgc_surfaces() -> None:
     assert not missing
 
 
+def test_multidetect_overlay_reuses_native_qgc_surface_and_palette() -> None:
+    video = _read("src/FlyViewVideo.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+    overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
+
+    # Multi-Detect is an overlay layer inside QGC's existing Fly View.  Keep
+    # this contract explicit so a future feature cannot silently introduce a
+    # second simulator window or a parallel control style.
+    assert "PipState {" in video
+    assert "FlightDisplayViewVideo {" in video
+    assert "import QGroundControl.Controls" in video
+    assert "QGCPalette {" in layer
+    assert "ScreenTools.defaultFontPixelWidth" in layer
+    assert "QGCLabel {" in layer
+    assert "QGCButton {" in layer
+    assert "QGCButton {" in overlay
+    assert re.search(r"^\s*Button\s*{", overlay, re.MULTILINE) is None
+    assert "color: qgcPal.window" in layer
+    assert "QGCPalette {" in indicator
+    assert "color: control._healthColor" in indicator
+    assert "qgcPal.warningText" in indicator
+    assert "qgcPal.colorGreen" in layer
+    # Runtime identity must inherit QGC's palette inside the native toolbar
+    # instead of introducing a parallel hard-coded status palette.
+    assert not re.search(r"#[0-9a-fA-F]{6,8}", indicator)
+    # The target card and action overlay inherit QGC's palette.
+    # The only fixed colours left in the video surface are the depth false-
+    # colour legend, which is data encoding rather than control styling.
+    assert not re.search(r"#[0-9a-fA-F]{6,8}", layer)
+    overlay_controls = overlay[:overlay.index("// Fixed depth false-colour ramp")]
+    assert not re.search(r"#[0-9a-fA-F]{6,8}", overlay_controls)
+    assert "Qt.rgba(qgcPal.warningText.r, qgcPal.warningText.g, qgcPal.warningText.b, 0.10)" in overlay_controls
+    assert "Qt.rgba(1.0, 0.83, 0.23, 0.10)" not in overlay_controls
+    assert "readonly property color _lockActionTextColor: qgcPal.colorRed" in overlay
+    assert "return qgcPal.warningText" in overlay
+    assert not re.search(r"\b(ApplicationWindow|Window)\s*{", video + layer + indicator)
+
+
+def test_isolated_hil_grabs_only_the_unique_native_qgc_video_output() -> None:
+    plugin = _read("src/CustomPlugin.cc")
+    video = _read("src/FlyViewVideo.qml")
+
+    # The export is an acceptance-only capability, not a permissive runtime
+    # environment flag. A relative/empty prefix or a production launch must
+    # leave both context properties entirely unexposed.
+    export_start = plugin.index("const QString configuredVideoGrabPrefix")
+    export_end = plugin.index("_selector = new CustomOverrideInterceptor", export_start)
+    export_block = plugin[export_start:export_end]
+    assert '#include <QtCore/QFileInfo>' in plugin
+    assert 'contains(QStringLiteral("--isolated-hil"))' in export_block
+    assert (
+        'runtimeEnvironmentExplicitlyTrue("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")'
+        in export_block
+    )
+    assert "QFileInfo(configuredVideoGrabPrefix).isAbsolute()" in export_block
+    assert (
+        'runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")'
+        not in plugin
+    )
+    guarded_properties = export_block[export_block.index("if (hilVideoGrabExport) {") :]
+    assert 'QStringLiteral("multiDetectHilVideoGrabExport")' in guarded_properties
+    assert 'QStringLiteral("multiDetectHilVideoGrabPrefix")' in guarded_properties
+
+    # Discovery and the sole grab call stay inside the existing additive
+    # MultiDetectVideoOverlay. They traverse the native FlightDisplayViewVideo
+    # tree and fail closed unless objectName=videoContent is unique.
+    overlay_start = video.index("MultiDetectVideoOverlay {")
+    overlay_end = video.index("ProximityRadarVideoView", overlay_start)
+    hook = video[overlay_start:overlay_end]
+    assert 'candidate.objectName === "videoContent"' in hook
+    assert "function _isActiveNativeVideoOutput(candidate)" in hook
+    assert "current.visible !== true || current.width <= 0 || current.height <= 0" in hook
+    assert "current === videoStreaming" in hook
+    assert "_collectNativeVideoOutputs(videoStreaming, matches)" in hook
+    assert "if (matches.length !== 1)" in hook
+    assert "function _nativeOutputDevicePixelRatio(nativeOutput)" in hook
+    assert "nativeOutput.window" in hook
+    assert "nativeOutput.Window.window" in hook
+    assert "quickWindow.devicePixelRatio" in hook
+    assert "Number.isFinite(snapshot.device_pixel_ratio)" in hook
+    assert hook.count(".grabToImage(") == 1
+    assert video.count(".grabToImage(") == 1
+    assert "QGroundControl.multiVehicleManager.activeVehicle" in hook
+    assert "activeVehicle.vtol && activeVehicle.vtolInFwdFlight" in hook
+    assert '_queueNativeVideoGrab("pip-swapped")' in hook
+    assert '_queueNativeVideoGrab("fixed-wing")' in hook
+    assert hook.index('_queueNativeVideoGrab("pip-swapped")') < hook.index(
+        '_queueNativeVideoGrab("fixed-wing")'
+    )
+    assert "_root.pipState.state !== _root.pipState.fullState" in hook
+    assert 'multiDetectHilVideoGrabPrefix + "-" + role + ".png"' in hook
+
+    for field in (
+        '"schema": "multidetect.qgc-hil-video-grab"',
+        '"schema_version": 1',
+        '"sequence": _hilVideoGrabSequence',
+        '"recorded_at_utc": new Date().toISOString()',
+        '"role": role',
+        '"object_name": snapshot.object_name',
+        '"native_output_match_count": snapshot.native_output_match_count',
+        '"output_width": snapshot.output_width',
+        '"output_height": snapshot.output_height',
+        '"device_pixel_ratio": snapshot.device_pixel_ratio',
+        '"decoded_width": snapshot.decoded_width',
+        '"decoded_height": snapshot.decoded_height',
+        '"capture_width": snapshot.capture_width',
+        '"capture_height": snapshot.capture_height',
+        '"decoding": snapshot.decoding',
+        '"output_visible": snapshot.output_visible',
+        '"video_full_state": snapshot.video_full_state',
+        '"vtol_in_fwd_flight": snapshot.vtol_in_fwd_flight',
+        '"queued": queued',
+        '"saved": saved',
+        '"path": path',
+    ):
+        assert field in hook
+    assert "Qt.size(snapshot.grab_width, snapshot.grab_height)" in hook
+    assert "result.image" not in hook
+    assert 'console.info("MULTIDETECT_HIL_VIDEO_GRAB " + JSON.stringify({' in hook
+
+    # No parallel presentation or decoder surface is accepted by this hook.
+    forbidden_component = re.compile(
+        r"^\s*(?:ApplicationWindow|Window|VideoOutput|MediaPlayer)\s*\{",
+        re.MULTILINE,
+    )
+    assert forbidden_component.search(video) is None
+    assert "import QtMultimedia" not in video
+
+
+def test_fly_view_actions_use_qgc_native_dialog_and_slider_controls() -> None:
+    layer = _read("src/FlyViewCustomLayer.qml")
+
+    # Confirmation, authorization and evidence history stay inside QGC's
+    # standard dialog lifecycle and control theme.  Raw Qt Quick Controls here
+    # would silently reintroduce independent margins, focus and handle styling.
+    assert re.search(r"^\s*Popup\s*{", layer, re.MULTILINE) is None
+    assert re.search(r"^\s*Slider\s*{", layer, re.MULTILINE) is None
+    assert layer.count("QGCPopupDialogFactory {") >= 4
+    assert layer.count("QGCPopupDialog {") >= 4
+    assert layer.count("QGCSlider {") == 2
+    for dialog in (
+        "targetEvidenceHistoryDialog",
+        "payloadActionDialog",
+        "approachActionDialog",
+        "authorizationDialog",
+    ):
+        assert f"id: {dialog}Factory" in layer
+        assert f"id: {dialog}Component" in layer
+
+
+def test_isolated_hil_acceptance_keeps_native_close_path_and_avoids_windows_qml_teardown_race() -> None:
+    application = (REPO_ROOT / "src" / "QGCApplication.cc").read_text(encoding="utf-8")
+    main = (REPO_ROOT / "src" / "main.cc").read_text(encoding="utf-8")
+    main_window = (REPO_ROOT / "src" / "MainWindow" / "MainWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    # The acceptance driver must still invoke QGC's production close function,
+    # not invent a second shutdown path.  Windows QML/global-singleton
+    # destruction is intentionally skipped only for this short-lived process;
+    # otherwise a post-Exit SEH can make a passed UI gate look failed.
+    assert 'QMetaObject::invokeMethod(root, "finishCloseProcess", Qt::DirectConnection)' in application
+    assert 'qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")' in application
+    assert "_qmlAppEngine->setParent(nullptr);" in application
+    assert "std::_Exit(exitCode);" in main
+    assert 'args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")' in main
+    assert "function finishCloseProcess()" in main_window
+    assert "QGroundControl.linkManager.shutdown()" in main_window
+    assert "QGroundControl.videoManager.stopVideo()" in main_window
+
+
 def test_closed_loop_driver_can_require_a_real_external_sitl_vehicle() -> None:
     driver = _read("tests/operator_closed_loop_hil.py")
 
     assert '"--metadata-only"' in driver
     assert "MAV_TYPE_ONBOARD_CONTROLLER" in driver
-    assert "srcSystem=1, srcComponent=191" in driver
+    # The driver constructs both the Jetson component-191 and PX4 autopilot
+    # serializers through one parameterized signed-MAVLink helper.  Keep the
+    # assertion tied to the helper contract rather than a single call-site
+    # formatting detail.
+    assert "def _signed_serializer(key: bytes, *, system_id: int, component_id: int)" in driver
+    assert "heartbeat_serializer = _signed_serializer(signing_key, system_id=1, component_id=191)" in driver
     assert "if args.metadata_only:" in driver
     assert '"autopilot_heartbeats_sent": autopilot_heartbeats_sent' in driver
     assert '"external_autopilot_required": args.metadata_only' in driver
@@ -69,7 +249,7 @@ def test_custom_app_uses_a_valid_cmake_target_name() -> None:
     )
 
 
-def test_compact_fixed_wing_instrument_uses_display_only_airspeed_noise_gate() -> None:
+def test_native_telemetry_grid_uses_display_only_airspeed_noise_gate() -> None:
     core_plugin = (REPO_ROOT / "src/API/QGCCorePlugin.cc").read_text(encoding="utf-8")
     fact_header = (
         REPO_ROOT / "src/Vehicle/FactGroups/VehicleFactGroup.h"
@@ -80,8 +260,6 @@ def test_compact_fixed_wing_instrument_uses_display_only_airspeed_noise_gate() -
     grid_source = (REPO_ROOT / "src/QmlControls/FactValueGrid.cc").read_text(
         encoding="utf-8"
     )
-    video_hud = _read("res/Custom/MultiDetect/FixedWingVideoHud.qml")
-
     assert core_plugin.count('QStringLiteral("AirSpeedDisplay")') == 1
     assert 'setFact("Vehicle", "AirSpeedDisplay")' in core_plugin
     assert "Fact *airSpeedDisplay()" in fact_header
@@ -92,23 +270,34 @@ def test_compact_fixed_wing_instrument_uses_display_only_airspeed_noise_gate() -
     assert "kAirSpeedDisplayExitThresholdMps = 1.5" in fact_source
     assert 'QStringLiteral("TelemetryBarUserSettings")' in grid_source
     assert 'factName = QStringLiteral("AirSpeedDisplay")' in grid_source
-    assert "root.vehicle ? root.vehicle.airSpeedDisplay : null" in video_hud
 
 
-def test_custom_app_has_a_stable_semantic_product_version() -> None:
+def test_custom_app_has_numeric_and_human_facing_product_versions() -> None:
     overrides = _read("cmake/CustomOverrides.cmake")
     options = (REPO_ROOT / "cmake/CustomOptions.cmake").read_text(encoding="utf-8")
     git_cmake = (REPO_ROOT / "cmake/modules/Git.cmake").read_text(encoding="utf-8")
     install_cmake = (REPO_ROOT / "cmake/install/Install.cmake").read_text(encoding="utf-8")
+    version = json.loads(PRODUCT_VERSION_MANIFEST.read_text(encoding="utf-8"))
 
-    assert _cmake_string_value(overrides, "QGC_APP_VERSION_OVERRIDE") == "0.2.0"
+    assert version["release_label"] == "0.3.0-pre.8"
+    assert version["numeric"] == "0.3.0"
+    assert version["python"] == "0.3.0rc8"
+    assert version["channel"] == "prerelease"
+    assert "configs/product-version.json" in overrides
+    assert _cmake_string_value(overrides, "QGC_APP_VERSION_OVERRIDE") == (
+        "${_multidetect_numeric_version}"
+    )
+    assert _cmake_string_value(overrides, "QGC_APP_RELEASE_LABEL") == (
+        "${_multidetect_release_label}"
+    )
     assert _cmake_string_value(overrides, "QGC_WINDOWS_INSTALLER_FILENAME") == (
-        "MultiDetectGCS-v0.2.0-windows-amd64.exe"
+        "MultiDetectGCS-v${_multidetect_release_label}-windows-amd64.exe"
     )
     assert 'set(QGC_APP_VERSION_OVERRIDE ""' in options
+    assert 'set(QGC_APP_RELEASE_LABEL ""' in options
     assert "if(QGC_APP_VERSION_OVERRIDE)" in git_cmake
     assert 'set(QGC_APP_VERSION "${QGC_APP_VERSION_OVERRIDE}")' in git_cmake
-    assert 'set(QGC_APP_VERSION_STR "v${QGC_APP_VERSION_OVERRIDE}-${QGC_GIT_HASH}")' in git_cmake
+    assert 'set(QGC_APP_VERSION_STR "v${QGC_APP_RELEASE_LABEL}-${QGC_GIT_HASH}")' in git_cmake
     assert "QGC_WINDOWS_INSTALLER_FILENAME" in install_cmake
 
 
@@ -239,6 +428,190 @@ def test_operator_metadata_bridge_has_compile_reviewed_fail_closed_boundaries() 
     assert not {token for token in forbidden_control_paths if token in implementation}
 
 
+def test_signed_runtime_status_uses_one_shared_fly_view_badge_and_fails_closed() -> None:
+    plugin = _read("src/CustomPlugin.cc")
+    protocol_header = _read("src/MultiDetectOperatorProtocol.h")
+    protocol_source = _read("src/MultiDetectOperatorProtocol.cc")
+    controller_header = _read("src/MultiDetectOperatorController.h")
+    controller_source = _read("src/MultiDetectOperatorController.cc")
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
+
+    assert "RuntimeStatus = 23" in protocol_header
+    assert 'QStringLiteral("REPLAY")' in protocol_source
+    assert 'QStringLiteral("SIM")' in protocol_source
+    assert 'QStringLiteral("HIL")' in protocol_source
+    assert 'QStringLiteral("REAL")' in protocol_source
+    assert 'QStringLiteral("backendHealth")' in protocol_source
+    assert 'QStringLiteral("scenarioHash64")' in protocol_source
+    assert 'QStringLiteral("airframeProfileHash64")' in protocol_source
+    assert 'QStringLiteral("runHash64")' in protocol_source
+    assert 'QStringLiteral("directPixhawkWrites"), false' in protocol_source
+    assert 'Q_PROPERTY(QVariantMap runtimeStatus' in controller_header
+    assert 'Q_PROPERTY(QString expectedRuntimeMode' in controller_header
+    assert 'Q_PROPERTY(QString runtimeDisplayMode' in controller_header
+    assert 'environmentValue("MULTIDETECT_EXPECTED_RUNTIME_MODE")' in controller_source
+    assert 'return QStringLiteral("UNKNOWN")' in controller_source
+    assert 'return QStringLiteral("MISMATCH")' in controller_source
+    assert "!profileValid" in controller_source
+    assert "!groundTruthIsolated || hardwareOutputsPresent" in controller_source
+    assert "kRuntimeStatusStaleMs = 2000" in controller_source
+    assert "readonly property string runtimeDisplayMode" in state
+    assert "readonly property string runtimeRemoteMode" in state
+    assert "readonly property string runtimeBackendHealth" in state
+    assert "readonly property bool runtimeProfileValid" in state
+    assert "readonly property bool runtimeEnvironmentHealthy" in state
+    assert 'readonly property bool replayRuntimeIdentity: runtimeDisplayMode === "REPLAY"' in state
+    assert "readonly property bool replayIsolationRequested" in state
+    assert "readonly property bool vehicleLinkIsolationActive: vehicleLinkDisabled" in state
+    assert "readonly property bool physicalActionIsolationActive" in state
+    assert 'runtimeEnvironmentValue("MULTIDETECT_EXPECTED_RUNTIME_MODE")' in plugin
+    assert 'runtimeEnvironmentFlagEnabled("MULTIDETECT_DISABLE_VEHICLE_LINK")' in plugin
+    assert 'expectedRuntimeMode == QStringLiteral("REPLAY")' in plugin
+    assert 'QStringLiteral("multiDetectVehicleLinkDisabled")' in plugin
+    assert "id: runtimeIdentityBadge" not in layer
+    assert 'qsTr("环境 UNKNOWN · 签名状态缺失、过期或配置无效")' in indicator
+    assert 'qsTr("环境 MISMATCH · 期望 %1 / 收到 %2")' in indicator
+    assert "MultiDetectState.runtimeDisplayMode" in indicator
+    assert "property string runtimeDisplayMode" not in layer
+    assert "MULTIDETECT_OPERATOR_ALLOW_UNSIGNED_HIL" not in controller_source
+    assert not list(CUSTOM_ROOT.rglob("*Sim*.qml"))
+
+
+def test_runtime_badge_keeps_runtime_identity_separate_from_vehicle_link_isolation() -> None:
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
+
+    # Safety remains fail-closed for the same three REPLAY signals plus the
+    # process-level link isolation flag, but only runtimeDisplayMode owns the
+    # user-facing REPLAY identity.
+    assert 'readonly property bool replayRuntimeIdentity: runtimeDisplayMode === "REPLAY"' in state
+    assert 'expectedRuntimeMode === "REPLAY"' in state
+    assert 'runtimeRemoteMode === "REPLAY"' in state
+    assert "replayIsolationRequested || vehicleLinkIsolationActive" in state
+    assert "readonly property bool replaySafetyActive: physicalActionIsolationActive" in state
+    assert "function physicalActionIsolationStatusText()" in state
+
+    badge_text = indicator[
+        indicator.index("function _runtimeDetailText()") : indicator.index(
+            "function _runtimeHealthShortText()"
+        )
+    ]
+    replay_branch = badge_text.index("if (MultiDetectState.replayRuntimeIdentity)")
+    vehicle_isolation_branch = badge_text.index(
+        "if (MultiDetectState.vehicleLinkIsolationActive)"
+    )
+    assert badge_text.index('if (mode === "MISMATCH")') < replay_branch
+    assert badge_text.index('if (mode === "UNKNOWN")') < replay_branch
+    assert replay_branch < vehicle_isolation_branch
+    assert "MultiDetectState.replaySafetyActive" not in badge_text
+    assert 'qsTr("环境 REPLAY · 只读回放 · 车辆链路/执行/授权已隔离")' in badge_text
+    assert 'qsTr("环境 %1 · 车辆链路/执行/授权已隔离").arg(mode)' in badge_text
+    assert 'qsTr("REPLAY · 只读回放 · 车辆链路/执行/授权已隔离 · %1")' not in badge_text
+    assert "MultiDetectState.replaySafetyStatusText()" not in layer + indicator
+    assert layer.count("MultiDetectState.physicalActionIsolationStatusText()") >= 2
+
+    # MISMATCH/UNKNOWN own the compact warning state, so a fail-closed process
+    # flag cannot visually mask bad signed runtime identity.
+    runtime_warning = indicator[
+        indicator.index("readonly property bool _runtimeWarning") : indicator.index(
+            "readonly property color _healthColor"
+        )
+    ]
+    assert 'runtimeDisplayMode === "MISMATCH"' in runtime_warning
+    assert 'runtimeDisplayMode === "UNKNOWN"' in runtime_warning
+    assert "vehicleLinkIsolationActive" not in runtime_warning
+
+
+def test_runtime_status_ack_is_type24_and_is_sent_only_after_native_adoption() -> None:
+    protocol_header = _read("src/MultiDetectOperatorProtocol.h")
+    controller_source = _read("src/MultiDetectOperatorController.cc")
+
+    assert "RuntimeStatusAck = 24" in protocol_header
+    invalid_direction = controller_source.index(
+        "packet.type == MultiDetectOperatorProtocol::MessageType::RuntimeStatusAck"
+    )
+    authenticated_count = controller_source.index("_authenticatedPackets++")
+    assert invalid_direction < authenticated_count
+
+    adoption = controller_source.index("_runtimeStatus = fields;")
+    timestamp = controller_source.index(
+        "_lastRuntimeStatusAtMs = _lastAuthenticatedAtMs;", adoption
+    )
+    notify = controller_source.index("emit runtimeStatusChanged();", timestamp)
+    encode = controller_source.index("_protocol.encodeRuntimeStatusAck(", notify)
+    send = controller_source.index("_sendPayload(acknowledgement)", encode)
+    success_log = controller_source.index(
+        '"runtime status adopted and acknowledged sequence="', send
+    )
+    assert adoption < timestamp < notify < encode < send < success_log
+    assert controller_source.index("_isNewStatus(") < adoption
+
+
+def test_replay_isolates_the_persisted_vehicle_profile_and_all_physical_ui_actions() -> None:
+    plugin = _read("src/CustomPlugin.cc")
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
+
+    isolation_branch = plugin[
+        plugin.index("if (vehicleLinkIsolationRequested())") : plugin.index(
+            "int profileIndex = -1;"
+        )
+    ]
+    assert "isDefaultVehicleProfile" in isolation_branch
+    assert "settings.remove(root);" in isolation_branch
+    assert "settings.sync();" in isolation_branch
+    assert "return;" in isolation_branch
+    assert 'settings.setValue(root + QStringLiteral("/auto"), true);' in plugin
+
+    assert "readonly property bool vehicleLinkDisabled" in state
+    assert 'readonly property bool replayRuntimeIdentity: runtimeDisplayMode === "REPLAY"' in state
+    assert "readonly property bool replayIsolationRequested" in state
+    assert "readonly property bool vehicleLinkIsolationActive: vehicleLinkDisabled" in state
+    assert "readonly property bool physicalActionIsolationActive" in state
+    assert 'expectedRuntimeMode === "REPLAY"' in state
+    assert 'runtimeRemoteMode === "REPLAY"' in state
+    assert "readonly property bool replaySafetyActive" in state
+    assert "readonly property bool physicalActionsAllowed: !replaySafetyActive" in state
+    assert (
+        "readonly property bool executionActionable: physicalActionsAllowed && vehicleArmed && "
+        "lckActionable"
+    ) in state
+    assert 'qsTr("REPLAY 只读隔离：车辆链路、执行、授权、载荷与飞控动作均已禁用；' in state  # noqa: RUF001
+
+    for function_name in (
+        "refreshLockForExecution",
+        "confirmApproachSlide",
+        "confirmPayloadTargetSlide",
+        "approveAuthorization",
+        "denyAuthorization",
+    ):
+        function_start = state.index(f"function {function_name}(")
+        function_body = state[function_start : function_start + 450]
+        assert "if (replaySafetyActive)" in function_body
+        assert "return false;" in function_body
+
+    # Replay keeps only target-metadata interactions: selection, TRK/LCK and
+    # exact-target cancellation still use the signed operator channel.
+    for action in ("SELECT_TRK", "PROMOTE_LCK", "DEMOTE_TRK", "CANCEL_TRK"):
+        assert f'_operator.sendTargetSelection("{action}"' in state
+
+    assert 'qsTr("环境 REPLAY · 只读回放 · 车辆链路/执行/授权已隔离")' in indicator
+    assert 'qsTr("环境 %1 · 车辆链路/执行/授权已隔离").arg(mode)' in indicator
+    assert "function onReplaySafetyActiveChanged()" in layer
+    assert "root._closePayloadActionDialog();" in layer
+    assert "root._closeApproachActionDialog();" in layer
+    assert "root._closeAuthorizationDialog();" in layer
+    # Native QGCPopupDialog acceptance is fail-closed as well: both execution
+    # dialogs require ARMED, while authorization requires the safety gate.
+    assert layer.count("acceptButtonEnabled: !MultiDetectState.replaySafetyActive") >= 3
+    assert layer.count("MultiDetectState.vehicleArmed") >= 2
+    assert layer.count("MultiDetectState.safetyAllowed") >= 2
+
+
 def test_depth_grid_rendering_is_coalesced_off_the_receive_path() -> None:
     controller = _read("src/MultiDetectOperatorController.cc")
     header = _read("src/MultiDetectOperatorController.h")
@@ -255,13 +628,16 @@ def test_touch_selection_owns_the_pointer_only_in_explicit_selection_mode() -> N
     overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
 
-    assert "!MultiDetectState.selectionMode" in video
+    # Keep QGC's native full-view pointer surface alive.  The Multi-Detect
+    # overlay accepts only target hits and otherwise lets the stock
+    # gimbal/camera click-drag path handle the event.
+    assert "enabled:                    pipState.state === pipState.fullState" in video
     assert "enabled: root.interactionEnabled && MultiDetectState.selectionMode" in overlay
     assert "preventStealing: true" in overlay
     assert "propagateComposedEvents: false" in overlay
     assert "mouse.accepted = true" in overlay
-    assert "interactionEnabled: root.pipState.state === root.pipState.fullState" in video
-    assert "z: 1000" in video
+    assert "interactionEnabled:     _root.pipState.state === _root.pipState.fullState" in video
+    assert "MultiDetectVideoOverlay {" in video
     assert "MultiDetectVideoOverlay {" not in layer
     assert "root._dragStartX / root.width" in overlay
     assert "root._dragCurrentY / root.height" in overlay
@@ -281,7 +657,7 @@ def test_touch_selection_owns_the_pointer_only_in_explicit_selection_mode() -> N
 def test_candidate_pool_hides_generic_and_lost_boxes_before_rendering() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
-    layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
     assert "readonly property var selectableTargetPoolEntries" in state
     assert 'String(entry.state || "").toUpperCase() !== "LOST"' in state
@@ -301,11 +677,11 @@ def test_candidate_pool_hides_generic_and_lost_boxes_before_rendering() -> None:
     assert "nowMs - speedUpdatedAtMs <= 1500" in overlay
     assert 'String(rendered.fingerprint || "") !== displayFingerprint' in overlay
     assert 'renderTargetPool.setProperty(renderedIndex, "entry", displayEntry)' in overlay
-    assert "MultiDetectState.selectableTargetPoolEntries.length" in layer
+    assert "MultiDetectState.selectableTargetPoolEntries.length" in indicator
     assert '"person", "pedestrian", "people", "firefighter"' in overlay
     assert '"vehicle", "car", "van", "truck", "bus", "train"' in overlay
     assert '"aircraft", "airplane", "aeroplane", "plane", "helicopter"' in overlay
-    assert 'return "#22d3ee";' in overlay
+    assert "return qgcPal.brandingBlue;" in overlay
     assert "MultiDetectState.isLockEligibleTarget(parent.parent.entry)" in overlay
     assert "parent.parent.modelData" not in overlay
 
@@ -381,7 +757,7 @@ def test_trk_is_local_session_scoped_cancellable_and_multi_target() -> None:
     assert "MultiDetectState.lockTrackedCandidate" in overlay
     assert 'text: qsTr("取消")' in overlay
     assert 'text: "LCK"' in overlay
-    assert 'readonly property color _lockActionTextColor: "#ff3b30"' in overlay
+    assert "readonly property color _lockActionTextColor: qgcPal.colorRed" in overlay
     assert overlay.count("textColor: root._lockActionTextColor") == 3
     assert "exclusiveLockPendingTargetId" in state
     assert "property string demotedPrimaryLockTargetId" in state
@@ -431,8 +807,11 @@ def test_qualified_target_geolocation_renders_read_only_map_evidence() -> None:
 
     assert "import QtPositioning" in layer
     assert "readonly property bool _targetGeolocationQualified" in layer
+    assert "readonly property bool _mapControlReady" in layer
+    assert 'typeof mapControl !== "undefined"' in layer
     assert "readonly property bool _targetMapContextVisible" in layer
     assert "function _updateTargetMapProjection()" in layer
+    assert "if (!_targetMapVisible || !_mapControlReady ||" in layer
     assert "mapControl.fromCoordinate" in layer
     assert "root.mapFromItem(mapControl" in layer
     assert "_targetMapSigmaRadiusPx" in layer
@@ -440,15 +819,101 @@ def test_qualified_target_geolocation_renders_read_only_map_evidence() -> None:
     assert 'qsTr("目标落图 · 不可定位")' in layer
     assert "QGroundControl.copyToClipboard" in layer
     assert "multiDetectTargetEvidenceStore.saveSnapshot" in layer
-    assert 'qsTr("距离：%1 m")' in layer
-    assert 'qsTr("相对方位：%1°")' in layer
-    assert 'qsTr("更新时间：%1 ms 前 · 源帧 %2")' in layer
-    assert 'qsTr("仅显示与记录；不产生飞控指令")' in layer
-    assert 'qsTr("不可定位：")' in state
+    assert 'qsTr("距离：%1 m")' in layer  # noqa: RUF001
+    assert 'qsTr("相对方位：%1°")' in layer  # noqa: RUF001
+    assert 'qsTr("更新时间：%1 ms 前 · 源帧 %2")' in layer  # noqa: RUF001
+    assert 'qsTr("仅显示与记录；不产生飞控指令")' in layer  # noqa: RUF001
+    assert 'qsTr("不可定位：")' in state  # noqa: RUF001
     assert "class MultiDetectTargetEvidenceStore" in store_header
     assert "multidetect.target-evidence.v1" in store_source
     assert "QStandardPaths::AppLocalDataLocation" in store_source
     assert "kMaximumSnapshots = 500" in store_header
+    assert "validSnapshotRecord" in store_source
+    assert "Valid or degraded range evidence requires a distance." in store_source
+    assert "Unavailable range evidence cannot contain distance or bearing." in store_source
+    assert "rangeValidity = boundedText(snapshot, \"range_validity\", 48).toUpper()" in store_source
+
+
+def test_target_evidence_coordinate_domain_matches_qualified_map_contract() -> None:
+    """Poles are rejected consistently by storage, live map, and history copy."""
+
+    layer = _read("src/FlyViewCustomLayer.qml")
+    store = _read("src/MultiDetectTargetEvidenceStore.cc")
+
+    qualified_block = layer[
+        layer.index("readonly property bool _targetGeolocationQualified") : layer.index(
+            "readonly property bool _mapControlReady"
+        )
+    ]
+    copy_block = layer[
+        layer.index("function _copySavedEvidenceCoordinates(snapshot)") : layer.index(
+            "function _saveTargetEvidenceSnapshot()"
+        )
+    ]
+
+    # The qualified map path and history-copy path must both reject exact poles
+    # while retaining the inclusive longitude wire domain.
+    assert "targetLatitudeDeg > -90.0" in qualified_block
+    assert "targetLatitudeDeg < 90.0" in qualified_block
+    assert "latitude <= -90.0 || latitude >= 90.0" in copy_block
+    assert "longitude < -180.0 || longitude > 180.0" in copy_block
+
+    # Both newly saved records and records reloaded from the v1 JSONL file use
+    # the same strict-interior latitude policy.  Keep this source-level guard
+    # because the store is compiled into QGC rather than exposed to Python.
+    assert "latitudeDeg <= -90.0 || latitudeDeg >= 90.0" in store
+    assert "latitude > -90.0 && latitude < 90.0" in store
+
+
+def test_target_geolocation_source_age_is_fail_closed_before_map_refresh() -> None:
+    """Old signed coordinates must not be kept alive by a refreshed envelope."""
+
+    protocol_header = _read("src/MultiDetectOperatorProtocol.h")
+    protocol = _read("src/MultiDetectOperatorProtocol.cc")
+    controller_header = _read("src/MultiDetectOperatorController.h")
+    controller = _read("src/MultiDetectOperatorController.cc")
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+
+    assert "kMaximumTargetGeolocationSourceAgeMs = 1500" in protocol_header
+    assert "kMaximumTargetGeolocationFrameHoldMs = 3000" in protocol_header
+    assert "frameAgeMs > kMaximumTargetGeolocationSourceAgeMs" in protocol
+    assert "target-geolocation-status source frame is stale" in protocol
+    assert "_acceptTargetGeolocationSource(fields, packet.sentAtMs, _lastAuthenticatedAtMs)" in controller
+    assert "target-geolocation source frame is stale or regressed" in controller
+    assert "TargetGeolocationSourceState" in controller_header
+    assert "_targetGeolocationSourceStates" in controller_header
+    assert "sourceAgeMs < state.lastSourceAgeMs" in controller
+    assert "sourceCapturedAtMs < state.lastSourceCaptureAtMs" in controller
+    assert "kMaximumTargetGeolocationFrameHoldMs" in controller
+    assert "_clearTargetGeolocationSourceState();" in controller
+    assert "maximumTargetGeolocationSourceAgeMs: 1500.0" in state
+    assert "targetGeolocationSourceFresh" in state
+    assert "targetGeolocationSourceFresh" in layer
+
+
+def test_range_source_age_is_fail_closed_before_evidence_snapshot() -> None:
+    """Actual distance must expire with its source, not its envelope."""
+
+    protocol_header = _read("src/MultiDetectOperatorProtocol.h")
+    protocol = _read("src/MultiDetectOperatorProtocol.cc")
+    state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
+    layer = _read("src/FlyViewCustomLayer.qml")
+
+    assert "kMaximumRangeStatusSourceAgeMs = 1500" in protocol_header
+    assert "frameAgeMs > kMaximumRangeStatusSourceAgeMs" in protocol
+    assert "range-status source frame is stale" in protocol
+    assert "range-status data freshness is unavailable" in protocol
+    assert "range-status data freshness is stale" in protocol
+    assert "maximumRangeSourceAgeMs: 1500.0" in state
+    assert "maximumRangeDataFreshnessS: 1.5" in state
+    assert "rangeDataFresh: Number.isFinite(rangeDataFreshnessS)" in state
+    assert "rangeStatusFresh: rangeSourceFresh && rangeDataFresh" in state
+    assert "targetGeolocationRangeBindingValid" in state
+    assert "targetGeolocationSourceFrameId === rangeSourceFrameId" in state
+    assert "const rangeFresh = root.rangeStatusFresh" in state
+    assert "MultiDetectState.rangeStatusFresh" in layer
+    assert "if (!MultiDetectState.rangeStatusFresh)" in layer
 
 
 def test_mode3_active_aim_has_prominent_cancel_and_pilot_override_status() -> None:
@@ -462,18 +927,31 @@ def test_mode3_active_aim_has_prominent_cancel_and_pilot_override_status() -> No
     assert "property bool mode3ExecutionLatched: false" in state
     assert "readonly property bool fixedWingAimActive" in state
     assert "readonly property bool mode3AimUiActive" in state
+    fixed_wing_active = state[
+        state.index("readonly property bool fixedWingAimActive") : state.index(
+            "readonly property bool mode3AimUiActive"
+        )
+    ]
+    assert "fixedWingAimControlEnabled" in fixed_wing_active
     assert "function cancelMode3Aim()" in state
+    assert "function mode3AimBannerTitleText()" in state
+    assert "function mode3AimBannerDetailText()" in state
     assert "signal lckCueRequested()" in state
     assert "function _requestLckCue(targetIdToAnnounce)" in state
     assert "_requestLckCue(entry.targetId)" in state
     assert 'interactionState !== "LCK" && interactionState !== "TGT"' in state
     assert 'qsTr("遥控输入已接管 · 模式 3 瞄准已取消")' in state
     assert "id: mode3AimBanner" in layer
-    assert 'qsTr("模式 3 正在瞄准")' in layer
-    assert 'qsTr("模式 3 瞄准状态异常")' in layer
-    assert 'qsTr("模式 3 瞄准状态待确认")' in layer
+    assert 'qsTr("模式 3 正在瞄准")' in state
+    assert 'qsTr("模式 3 瞄准状态异常")' in state
+    assert 'qsTr("模式 3 瞄准状态待确认")' in state
+    assert 'qsTr("模式 3 目标已确认 · 飞控输出锁定")' in state
+    assert 'qsTr("模式 3 等待控制接管")' in state
+    assert 'qsTr("仅显示姿态建议；不会发送姿态或模式命令")' in state  # noqa: RUF001
+    assert "text: MultiDetectState.mode3AimBannerTitleText()" in layer
+    assert "text: MultiDetectState.mode3AimBannerDetailText()" in layer
     assert 'qsTr("立即取消瞄准")' in layer
-    assert 'qsTr("遥控器任意按钮、拨杆或右侧按钮均可立即取消")' in layer
+    assert 'qsTr("遥控器任意按钮、拨杆或右侧按钮均可立即取消")' in state
     assert "MultiDetectState.cancelMode3Aim()" in layer
     assert "SoundEffect" in layer
     assert 'source: "qrc:/Custom/audio/locked.wav"' in layer
@@ -601,9 +1079,12 @@ def test_execution_requires_arm_and_rebinds_selection_after_operator_reconnect()
     controller = _read("src/MultiDetectOperatorController.cc")
 
     assert "readonly property bool vehicleArmed" in state
-    assert "readonly property bool executionActionable: vehicleArmed && lckActionable" in state
-    assert 'statusMessage = qsTr("请先 ARM，再确认模式 3 执行")' in state
-    assert 'statusMessage = qsTr("请先 ARM，再确认模式 2 执行")' in state
+    assert (
+        "readonly property bool executionActionable: physicalActionsAllowed && vehicleArmed && "
+        "lckActionable"
+    ) in state
+    assert 'statusMessage = qsTr("请先 ARM，再确认模式 3 执行")' in state  # noqa: RUF001
+    assert 'statusMessage = qsTr("请先 ARM，再确认模式 2 执行")' in state  # noqa: RUF001
     assert "enabled: MultiDetectState.operatorConfigured && MultiDetectState.executionActionable" in layer
     assert "property bool reconnectSelectionPending" in state
     assert "function _resumeSelectionAfterReconnect()" in state
@@ -653,7 +1134,7 @@ def test_depth_display_mode_persists_independently_of_lck() -> None:
     assert "interactionState" not in pip
     assert "id: compactStatusPanel" in overlay
     assert "anchors.top: compactStatusPanel.bottom" in overlay
-    assert "visible: root.depthDisplayMode === 1" in overlay
+    assert "visible: root.interactionEnabled && root.depthDisplayMode === 1" in overlay
     assert 'qsTr("等待 Jetson 深度网格")' in overlay
 
 
@@ -780,10 +1261,23 @@ def test_operator_commands_use_authenticated_jetson_clock_but_local_retry_deadli
     assert "_pendingTrackSelections.insert(commandId, delivery);" in controller
 
 
-def test_status_panel_is_large_readable_and_jetson_ai_only() -> None:
+def test_status_uses_compact_native_toolbar_and_detailed_qgc_drawer() -> None:
     layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
-    assert "readonly property var _statusRows" in layer
+    assert "id: statusPanel" not in layer
+    assert "id: runtimeIdentityBadge" not in layer
+    assert "mainWindow.showIndicatorDrawer(indicatorPage, control)" in indicator
+    assert "ToolIndicatorPage {" in indicator
+    assert "showExpand: true" in indicator
+    assert "expandedComponent: Component {" in indicator
+    assert 'objectName: "toolbar_multiDetectIndicator"' in indicator
+    assert 'Accessible.name: "MultiDetect AI Status"' in indicator
+    assert "Accessible.role: Accessible.Button" in indicator
+    assert 'Accessible.name: "MultiDetect AI Status Drawer"' in indicator
+    assert "Accessible.role: Accessible.Pane" in indicator
+    assert indicator.count("SettingsGroupLayout {") >= 3
+    assert indicator.count("LabelledLabel {") >= 15
     for label in (
         "模式",
         "识别",
@@ -792,7 +1286,7 @@ def test_status_panel_is_large_readable_and_jetson_ai_only() -> None:
         "数据",
         "场景",
     ):
-        assert f'"label": qsTr("{label}")' in layer
+        assert f'label: qsTr("{label}")' in indicator
     for forbidden in (
         "_activeVehicle",
         "_primaryBattery",
@@ -808,26 +1302,39 @@ def test_status_panel_is_large_readable_and_jetson_ai_only() -> None:
         '"label": qsTr("定位")',
         '"label": qsTr("电池")',
     ):
-        assert forbidden not in layer
-    assert "_debugExpanded" not in layer
-    assert "_debugStatusRows" not in layer
-    assert 'text: root._debugExpanded ? "BASIC" : "DEBUG"' not in layer
-    assert "ScreenTools.fixedFontFamily" not in layer
-    assert "model: root._statusRows" in layer
-    assert "ScreenTools.defaultFontPixelWidth * 40" in layer
-    assert "Layout.minimumHeight: Math.max(26" in layer
-    assert "font.pointSize: ScreenTools.largeFontPointSize" in layer
-    assert "font.pointSize: ScreenTools.defaultFontPointSize" in layer
-    assert 'text: "JETSON · AI"' in layer
-    assert 'return qsTr("等待数据")' in layer
-    assert "text: MultiDetectState.metadataLinkState" not in layer
-    assert "MultiDetectState.trackingMetadataRateHz" in layer
-    assert "MultiDetectState.totalTrackCount" not in layer
-    assert "MultiDetectState.lockedTrackCount" in layer
-    assert "MultiDetectState.selectableTargetPoolEntries" in layer
-    assert "MultiDetectState.targetConfidence" in layer
-    assert "MultiDetectState.trackingQuality" in layer
-    assert "MultiDetectState.sceneContextRegions" in layer
+        assert forbidden not in layer + indicator
+    assert "_debugExpanded" not in indicator
+    assert "_debugStatusRows" not in indicator
+    assert "ScreenTools.fixedFontFamily" not in indicator
+    assert 'text: "AI " + MultiDetectState.runtimeDisplayMode' in indicator
+    indicator_row = indicator[
+        indicator.index("id: indicatorRow") : indicator.index("MouseArea {")
+    ]
+    assert 'text: "JETSON "' not in indicator_row
+    assert "_activeAlgorithmCount()" not in indicator_row
+    compact = indicator[
+        indicator.index("contentComponent: Component {") : indicator.index(
+            "expandedComponent: Component {"
+        )
+    ]
+    assert compact.count("LabelledLabel {") == 5
+    assert 'label: qsTr("签名链路")' in compact
+    assert 'label: qsTr("算法")' in compact
+    expanded = indicator[indicator.index("expandedComponent: Component {") :]
+    assert 'heading: qsTr("Jetson · AI")' in expanded
+    assert 'heading: qsTr("室外测距质量")' in expanded
+    assert 'label: qsTr("GPS/GNSS")' in expanded
+    assert 'label: qsTr("RANGE_STATUS")' in expanded
+    assert "function _gpsQualityValue()" in indicator
+    assert "function _rangeStatusValue()" in indicator
+    assert 'return qsTr("等待数据")' in indicator
+    assert "MultiDetectState.trackingMetadataRateHz" in indicator
+    assert "MultiDetectState.totalTrackCount" not in indicator
+    assert "MultiDetectState.lockedTrackCount" in indicator
+    assert "MultiDetectState.selectableTargetPoolEntries" in indicator
+    assert "MultiDetectState.targetConfidence" in indicator
+    assert "MultiDetectState.trackingQuality" in indicator
+    assert "MultiDetectState.sceneContextRegions" in indicator
 
 
 def test_patrol_and_payload_ui_paths_keep_authorization_separate_from_selection() -> None:
@@ -838,10 +1345,15 @@ def test_patrol_and_payload_ui_paths_keep_authorization_separate_from_selection(
     assert 'missionMode === "PAYLOAD"' in state
     assert 'missionPhase = "AWAITING_AUTHORIZATION"' in state
     assert "function approveAuthorization()" in state
-    assert "Popup {" in layer
+    assert "QGCPopupDialog {" in layer
+    assert "function _openAuthorizationDialog()" in layer
     assert "MultiDetectState.approveAuthorization()" in layer
     assert "MultiDetectState.beginSelection()" in layer
-    assert layer.index("MultiDetectState.approveAuthorization()") > layer.index("Popup {")
+    # The acceptance-only auto-exercise calls the same production function
+    # before the dialog declarations.  The user-facing approval must still be
+    # owned by the final native QGC authorization dialog itself.
+    authorization_dialog = layer[layer.rindex("QGCPopupDialog {") :]
+    assert "MultiDetectState.approveAuthorization()" in authorization_dialog
 
 
 def test_patrol_status_is_authenticated_read_only_and_rendered_in_qgc_style() -> None:
@@ -892,6 +1404,7 @@ def test_new_selection_and_target_switch_revoke_stale_safety_and_authorization()
 
 def test_qml_module_and_plugin_interceptor_are_wired_into_the_custom_build() -> None:
     cmake = _read("CMakeLists.txt")
+    plugin_header = _read("src/CustomPlugin.h")
     plugin = _read("src/CustomPlugin.cc")
     video = _read("src/FlyViewVideo.qml")
 
@@ -903,6 +1416,11 @@ def test_qml_module_and_plugin_interceptor_are_wired_into_the_custom_build() -> 
     assert 'QStringLiteral("qrc:/qml")' in plugin
     assert 'QStringLiteral("multiDetectOperator")' in plugin
     assert "import Custom.MultiDetect" in video
+    assert "const QVariantList& toolBarIndicators() final;" in plugin_header
+    assert "_toolBarIndicatorList = QGCCorePlugin::toolBarIndicators();" in plugin
+    assert "_toolBarIndicatorList.append" in plugin
+    assert 'qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml' in plugin
+    assert "QT_RESOURCE_ALIAS MultiDetectToolbarIndicator.qml" in cmake
 
 
 def test_production_operator_link_has_no_simulation_or_unsigned_hil_path() -> None:
@@ -984,10 +1502,9 @@ def test_configure_owns_preflight_module_and_rc_release_configuration() -> None:
     assert "manualReleaseRequestLatched" in state
     assert layer.count('text: qsTr("执行")') >= 2
     assert "ScreenTools.isMobile" in layer
-    assert 'text: qsTr("确认")' in layer
-    assert 'text: qsTr("取消")' in layer
-    assert "payloadActionPopup.open()" in layer
-    assert "approachActionPopup.open()" in layer
+    assert layer.count("buttons: ScreenTools.isMobile ? Dialog.Cancel : (Dialog.Ok | Dialog.Cancel)") == 2
+    assert "root._openPayloadActionDialog()" in layer
+    assert "root._openApproachActionDialog()" in layer
     assert 'qsTr("等待 Jetson 执行挑战")' in state
     assert "sendMavCommand" not in state + plan + configure + layer
 
@@ -1030,25 +1547,24 @@ def test_mode_three_video_has_fixed_reticle_and_dynamic_target_lock_box() -> Non
     assert "id: approachReticleCanvas" in overlay
     assert "function drawCrosshair" in overlay
     assert "ctx.arc" not in overlay
-    assert 'property color reticleColor: "white"' in overlay
+    assert "property color reticleColor: qgcPal.text" in overlay
     assert 'MultiDetectState.interactionState === "LCK"' in overlay
     assert 'MultiDetectState.interactionState === "TGT"' in overlay
     assert overlay.index('visible: MultiDetectState.missionMode === "OBSERVE"') < overlay.index(
-        'property color reticleColor: "white"'
+        'property color reticleColor: qgcPal.text'
     )
     assert 'text: "+"' in overlay
     assert "MultiDetectState.selectCandidate" in overlay
     assert "MultiDetectState.promoteLock" in overlay
     assert 'MultiDetectState.interactionState === "LCK"' in overlay
     assert 'MultiDetectState.trackingState === "LOST"' in overlay
-    assert 'return "#ff6b6b"' in overlay
+    assert "return qgcPal.warningText;" in overlay
     assert "anchors.centerIn: parent\n            color: targetBox.border.color" not in overlay
 
 
-def test_trk_cancel_preempts_pending_manual_selection_and_hud_regions_do_not_overlap() -> None:
+def test_trk_cancel_preempts_pending_manual_selection_and_flyview_insets_cover_overlays() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
-    hud = _read("res/Custom/MultiDetect/FixedWingVideoHud.qml")
     layer = _read("src/FlyViewCustomLayer.qml")
 
     assert "function _cancelCurrentTrackByBox()" in state
@@ -1063,12 +1579,20 @@ def test_trk_cancel_preempts_pending_manual_selection_and_hud_regions_do_not_ove
     assert "anchors.top: compactStatusPanel.bottom" in overlay
     assert "anchors.left: depthModeButton.left" in overlay
     assert "enabled: root.interactionEnabled" in overlay
-    assert "readonly property real _headingTopClearance" in hud
-    assert "anchors.topMargin: root._headingTopClearance" in hud
-    assert "id: speedPanel" in hud
-    assert "anchors.top: speedPanel.bottom" in hud
-    assert "anchors.topMargin: 6" in hud
-    assert "ScreenTools.defaultFontPixelHeight * 7.4" in layer
+    assert "id: toolInsets" in layer
+    for item in (
+        "targetGeolocationCard.x + targetGeolocationCard.width",
+        "targetGeolocationCard.y + targetGeolocationCard.height",
+        "mode3AimBanner.y + mode3AimBanner.height",
+        "root.height - actionBar.y",
+    ):
+        assert item in layer
+    assert "rightEdgeCenterInset: parentToolInsets.rightEdgeCenterInset" in layer
+    assert "rightEdgeTopInset: parentToolInsets.rightEdgeTopInset" in layer
+    assert "topEdgeRightInset: parentToolInsets.topEdgeRightInset" in layer
+    assert "runtimeIdentityBadge" not in layer
+    assert "statusPanel" not in layer
+    assert "ScreenTools.defaultFontPixelHeight * 7.4" not in layer
 
 
 def test_lck_cancel_demotes_once_and_trk_cancel_hides_the_exact_box_immediately() -> None:
@@ -1180,7 +1704,7 @@ def test_direct_jetson_metadata_plane_is_signed_ephemeral_and_separate_from_vehi
     assert "_isNewStatus(packet.type, packet.sequence, _lastAuthenticatedAtMs)" in controller
 
 
-def test_tracking_status_is_an_implicit_selection_ack_and_video_starts_on_open() -> None:
+def test_tracking_status_is_an_implicit_selection_ack_and_video_restarts_on_pip_transition() -> None:
     controller = _read("src/MultiDetectOperatorController.cc")
     fly_video = _read("src/FlyViewVideo.qml")
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
@@ -1189,20 +1713,11 @@ def test_tracking_status_is_an_implicit_selection_ack_and_video_starts_on_open()
     assert "_lastStatusSequence.remove(trackStatusKey)" in controller
     assert "_pendingSelection.clear();" in controller
     assert "emit selectionAcknowledged(acknowledgement);" in controller
-    assert "Component.onCompleted: videoStartDelay.start()" in fly_video
+    assert "onWindowAboutToOpen" in fly_video
+    assert "onWindowAboutToClose" in fly_video
+    assert fly_video.count("videoStartDelay.start()") == 2
+    assert "onTriggered:  QGroundControl.videoManager.startVideo()" in fly_video
     assert 'status.state === "INITIALIZING"' in state
-
-
-def test_fixed_rgb_camera_has_no_gimbal_or_camera_tracking_input_path() -> None:
-    fly_video = _read("src/FlyViewVideo.qml")
-
-    assert "OnScreenGimbalController" not in fly_video
-    assert "OnScreenCameraTrackingController" not in fly_video
-    assert "mouseDragStart" not in fly_video
-    assert "mouseDragPositionChanged" not in fly_video
-    assert "mouseDragEnd" not in fly_video
-    assert "mouseClicked" not in fly_video
-    assert "onDoubleClicked: QGroundControl.videoManager.fullScreen" in fly_video
 
 
 def test_authenticated_depth_grid_is_exposed_as_pip_overlay_and_click_range() -> None:
@@ -1215,6 +1730,7 @@ def test_authenticated_depth_grid_is_exposed_as_pip_overlay_and_click_range() ->
 
     assert "Q_PROPERTY(bool depthMapAvailable" in controller_header
     assert "Q_INVOKABLE double depthAtNormalized" in controller_header
+    assert "if (_protocol.configured() && _depthGridUdpPort >= 1024" in controller
     assert 'environmentInteger("MULTIDETECT_DEPTH_GRID_UDP_PORT", 14582)' in controller
     assert 'environmentInteger("MULTIDETECT_DEPTH_GRID_JETSON_PORT", 14583)' in controller
     assert "QMessageAuthenticationCode::hash" in protocol
@@ -1231,12 +1747,12 @@ def test_authenticated_depth_grid_is_exposed_as_pip_overlay_and_click_range() ->
 
 
 def test_outdoor_fusion_metadata_shows_source_distance_weight_and_log_depth_grid() -> None:
-    controller = _read("src/MultiDetectOperatorController.cc")
     depth_protocol = _read("src/MultiDetectDepthGridProtocol.cc")
     operator_protocol = _read("src/MultiDetectOperatorProtocol.cc")
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
     layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
     assert 'QStringLiteral("rgb_slam")' in operator_protocol
     assert 'fields.insert(QStringLiteral("sourceContributions")' in operator_protocol
@@ -1246,7 +1762,9 @@ def test_outdoor_fusion_metadata_shows_source_distance_weight_and_log_depth_grid
     assert "function rangeFusionText()" in state
     assert "function rangeContributionText()" in state
     assert "MultiDetectState.rangeContributionText()" in overlay
-    assert "MultiDetectState.rangeFusionText()" in layer
+    assert "MultiDetectState.rangeFusionText()" in indicator
+    assert "function _rangeContribution(sources)" in indicator
+    assert "MultiDetectState.rangeFusionText()" not in layer
     assert 'return "DEP " + depthMinimumM.toFixed(1)' in state
 
 
@@ -1261,27 +1779,33 @@ def test_target_evidence_history_exposes_recent_read_only_records() -> None:
     assert "_recentSnapshots.prepend(snapshot);" in store_source
     assert "while (_recentSnapshots.size() > kRecentSnapshotLimit)" in store_source
     assert "emit recentSnapshotsChanged();" in store_source
-    assert "id: targetEvidenceHistoryPopup" in layer
+    assert "id: targetEvidenceHistoryDialogFactory" in layer
+    assert "id: targetEvidenceHistoryDialogComponent" in layer
+    assert "function _openTargetEvidenceHistoryDialog()" in layer
+    assert "QGCPopupDialog {" in layer
     assert "multiDetectTargetEvidenceStore.recentSnapshots" in layer
     assert "function _copySavedEvidenceCoordinates(snapshot)" in layer
-    assert 'text: qsTr("目标事件记录 · 只读")' in layer
-    assert 'text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")' in layer
+    assert "function _snapshotRangeValidity()" in layer
+    assert '"range_m": _snapshotRangeM()' in layer
+    assert '"relative_bearing_deg": _snapshotBearingDeg()' in layer
+    assert 'title: qsTr("目标事件记录 · 只读")' in layer
+    assert 'text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")' in layer  # noqa: RUF001
 
 
 def test_fly_view_shows_per_algorithm_ranging_status_and_weight_rows() -> None:
     layer = _read("src/FlyViewCustomLayer.qml")
+    indicator = _read("res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
-    assert "function _rangeContribution(sources)" in layer
+    assert "function _rangeContribution(sources)" in indicator
     for name in ("Depth Anything V2", "VIO-SLAM", "RGB-SLAM", "PX4 地面几何"):
-        assert name in layer
-    assert 'qsTr("测距中") + " · " + _percent(contribution.weight)' in layer
-    assert '"label": qsTr("融合")' not in layer
-    assert "telemetryRow.modelData.algorithm" in layer
-    assert "function _rangingAlgorithmActive(sources)" in layer
-    assert '"active": root._rangingAlgorithmActive(["vio"])' in layer
-    assert 'color: telemetryRow.modelData.active ? "#28c76f" : "#df3b3b"' in layer
-    assert "Layout.minimumHeight: Math.max(26" in layer
-    assert "visible: showForInteraction" not in layer
+        assert name in indicator
+    assert 'qsTr("测距中") + " · " + _percent(contribution.weight)' in indicator
+    assert 'label: qsTr("融合")' in indicator
+    assert "function _rangingAlgorithmActive(sources)" in indicator
+    assert 'control._rangingAlgorithmValue(["vio"], qsTr("等待运动"))' in indicator
+    assert "function _activeAlgorithmCount()" in indicator
+    assert "visible: showForInteraction" not in indicator
+    assert "function _rangeContribution(sources)" not in layer
 
 
 def test_armed_execution_refreshes_the_lck_command_before_waiting_for_challenge() -> None:
@@ -1290,7 +1814,7 @@ def test_armed_execution_refreshes_the_lck_command_before_waiting_for_challenge(
 
     assert "function refreshLockForExecution()" in state
     assert 'sendTargetSelection("PROMOTE_LCK", targetX1, targetY1, targetX2, targetY2)' in state
-    assert 'statusMessage = qsTr("LCK 已刷新，正在获取执行确认")' in state
+    assert 'statusMessage = qsTr("LCK 已刷新，正在获取执行确认")' in state  # noqa: RUF001
     assert "function _requestExecutionPopup(kind)" in layer
     assert 'root._requestExecutionPopup("payload")' in layer
     assert 'root._requestExecutionPopup("approach")' in layer
@@ -1298,16 +1822,31 @@ def test_armed_execution_refreshes_the_lck_command_before_waiting_for_challenge(
     assert "MultiDetectState.payloadTargetChallengeActive" in layer
     assert "MultiDetectState.approachChallengeActive" in layer
     assert "if (_pendingExecutionPopup !== \"\")" in layer
-    assert "payloadActionPopup.open();" in layer
-    assert "approachActionPopup.open();" in layer
+    assert "root._openPayloadActionDialog();" in layer
+    assert "root._openApproachActionDialog();" in layer
     assert "root._pendingExecutionPopup === \"\"" in layer
 
 
-def test_video_hud_moves_altitude_and_heading_clear_of_flyview_overlays() -> None:
-    hud = _read("res/Custom/MultiDetect/FixedWingVideoHud.qml")
+def test_fly_view_video_preserves_qgc_camera_and_pip_interactions() -> None:
+    native_video = (REPO_ROOT / "src/FlyView/FlyViewVideo.qml").read_text(encoding="utf-8")
+    custom_video = _read("src/FlyViewVideo.qml")
 
-    assert "readonly property real _headingTopClearance: Math.max(96" in hud
-    assert "anchors.bottom: parent.bottom" in hud
-    assert "id: speedPanel" in hud
-    assert "anchors.top: speedPanel.bottom" in hud
-    assert "anchors.topMargin: 6" in hud
+    # The custom resource is an additive overlay on the current QGC video
+    # surface.  It must not fork away the native gimbal/camera tracking input
+    # stack or add a second hand-drawn fixed-wing instrument theme.
+    for token in (
+        "PipState {",
+        "FlightDisplayViewVideo {",
+        "OnScreenGimbalController {",
+        "OnScreenCameraTrackingController {",
+        "mouseDragStart(",
+        "mouseDragPositionChanged(",
+        "mouseDragEnd(",
+        "mouseClicked(",
+        "ProximityRadarVideoView",
+        "ObstacleDistanceOverlayVideo",
+    ):
+        assert token in native_video
+        assert token in custom_video
+
+    assert "MultiDetectVideoOverlay {" in custom_video

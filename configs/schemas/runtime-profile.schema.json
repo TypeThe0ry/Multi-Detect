@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/runtime-profile.schema.json",
+  "title": "Multi-Detect RuntimeProfile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "capabilities", "endpoint_class"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile_id": {"enum": ["observer", "replay", "sim", "hil", "flight"]},
+    "capabilities": {
+      "type": "array",
+      "items": {"enum": ["observe", "replay_input", "simulation_transport", "hil_transport", "flight_control_output"]},
+      "uniqueItems": true
+    },
+    "endpoint_class": {"enum": ["read_only", "recording", "simulator", "hil_autopilot", "real_vehicle"]},
+    "vehicle_identity_hash": {"$ref": "#/$defs/sha256"},
+    "firmware_identity_hash": {"$ref": "#/$defs/sha256"},
+    "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+    "signing_identity_hash": {"$ref": "#/$defs/sha256"},
+    "endpoint_binding_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "oneOf": [
+    {"properties": {"profile_id": {"const": "observer"}, "capabilities": {"const": ["observe"]}, "endpoint_class": {"const": "read_only"}}, "not": {"anyOf": [{"required": ["vehicle_identity_hash"]}, {"required": ["firmware_identity_hash"]}, {"required": ["airframe_profile_hash"]}, {"required": ["signing_identity_hash"]}, {"required": ["endpoint_binding_hash"]}]}},
+    {"properties": {"profile_id": {"const": "replay"}, "capabilities": {"const": ["observe", "replay_input"]}, "endpoint_class": {"const": "recording"}}, "not": {"anyOf": [{"required": ["vehicle_identity_hash"]}, {"required": ["firmware_identity_hash"]}, {"required": ["airframe_profile_hash"]}, {"required": ["signing_identity_hash"]}, {"required": ["endpoint_binding_hash"]}]}},
+    {"properties": {"profile_id": {"const": "sim"}, "capabilities": {"const": ["observe", "simulation_transport"]}, "endpoint_class": {"const": "simulator"}}, "not": {"anyOf": [{"required": ["vehicle_identity_hash"]}, {"required": ["firmware_identity_hash"]}, {"required": ["airframe_profile_hash"]}, {"required": ["signing_identity_hash"]}, {"required": ["endpoint_binding_hash"]}]}},
+    {"required": ["vehicle_identity_hash", "airframe_profile_hash", "endpoint_binding_hash"], "properties": {"profile_id": {"const": "hil"}, "capabilities": {"const": ["observe", "hil_transport"]}, "endpoint_class": {"const": "hil_autopilot"}}, "not": {"required": ["signing_identity_hash"]}},
+    {"required": ["vehicle_identity_hash", "airframe_profile_hash", "signing_identity_hash", "endpoint_binding_hash"], "properties": {"profile_id": {"const": "flight"}, "capabilities": {"const": ["observe", "flight_control_output"]}, "endpoint_class": {"const": "real_vehicle"}}}
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

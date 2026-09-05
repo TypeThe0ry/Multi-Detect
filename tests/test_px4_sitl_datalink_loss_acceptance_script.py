@@ -29,6 +29,16 @@ def test_datalink_loss_acceptance_is_digest_pinned_and_loopback_isolated() -> No
     assert '"--mount"' not in text
 
 
+def test_datalink_loss_acceptance_resolves_docker_outside_path() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "$DockerCandidates = @(" in text
+    assert r"C:\Program Files\Docker\Docker\resources\bin\docker.exe" in text
+    assert r"C:\Program Files (x86)\Docker\Docker\resources\bin\docker.exe" in text
+    assert "-FilePath $Docker" in text
+    assert '-FilePath "docker"' not in text
+
+
 def test_datalink_parameters_are_legal_and_confined_to_owned_sitl() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     upper = text.upper()

@@ -22,6 +22,16 @@ def test_auto_mission_acceptance_is_digest_pinned_and_port_isolated() -> None:
     assert '"PX4_SIM_MODEL=sihsim_airplane"' in text
 
 
+def test_auto_mission_acceptance_resolves_docker_outside_path() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "$DockerCandidates = @(" in text
+    assert r"C:\Program Files\Docker\Docker\resources\bin\docker.exe" in text
+    assert r"C:\Program Files (x86)\Docker\Docker\resources\bin\docker.exe" in text
+    assert "-FilePath $Docker" in text
+    assert '-FilePath "docker"' not in text
+
+
 def test_auto_mission_commands_are_confined_to_new_container() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     upper = text.upper()

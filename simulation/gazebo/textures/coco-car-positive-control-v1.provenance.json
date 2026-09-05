@@ -1,0 +1,28 @@
+{
+  "schema": "multidetect.simulator-generated-texture-provenance",
+  "schema_version": 1,
+  "asset_id": "coco-car-positive-control-v1",
+  "asset_path": "simulation/gazebo/textures/coco-car-positive-control-v1.png",
+  "asset_sha256": "474e41d52d62ee83c4f77d530b0591e5901869c374ac58313bdd6deb283fd031",
+  "width": 1536,
+  "height": 1024,
+  "pixel_format": "RGB24",
+  "created_at_utc": "2026-09-05T00:46:01Z",
+  "source_type": "built_in_image_generation",
+  "source_imported_from_external_dataset": false,
+  "intended_scope": "software_only_simulator_candidate_detector_positive_control",
+  "generation_prompt": "Use case: photorealistic-natural. Asset type: repository-owned Gazebo simulator positive-detection texture for a COCO object detector. Create one highly recognizable modern passenger SUV as the only semantic foreground object. Use a flat, evenly lit light-gray studio cyclorama with no horizon clutter. Show a full dark-blue SUV in front three-quarter view, centered, with all wheels and body fully visible, occupying about 78 percent of the image width and 68 percent of the image height. Use sharp photorealistic vehicle photography, realistic proportions and materials, bright diffuse daylight-like studio lighting, high contrast between vehicle and background, and minimal shadow. Exactly one car or SUV; no people; no other vehicles; no road signs; no logos; no license plate text; no captions; no watermark; no border; no UI; no stylization; do not crop the vehicle.",
+  "governance": {
+    "asset_review": "pending",
+    "dataset_rights_review": "not_applicable_no_external_dataset_import",
+    "production_approved": false
+  },
+  "claims": {
+    "synthetic_asset": true,
+    "gazebo_rendered_frame": false,
+    "real_camera_frame": false,
+    "hardware_evidence": false,
+    "hil_evidence": false,
+    "real_evidence": false
+  }
+}

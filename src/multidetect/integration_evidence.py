@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .autonomy.serialization import strict_json_loads
 from .compat import UTC
 
 INTEGRATION_EVIDENCE_SCHEMA_VERSION = 1
@@ -343,8 +343,8 @@ def _gate_result(
 
 def _load_object(path: Path, *, description: str) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = strict_json_loads(path.read_text(encoding="utf-8-sig"), name=description)
+    except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError(f"{description} cannot be read as JSON") from exc
     if not isinstance(value, dict):
         raise ValueError(f"{description} must be a JSON object")

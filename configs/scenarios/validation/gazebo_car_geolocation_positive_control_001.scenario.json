@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_geolocation_positive_control_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "gazebo_car_geolocation_positive_control_001.runtime.json",
+      "sha256": "ec595600960668d46478ffd0cd39e61c1658baaf45dfb14da4e57aad3c5ef18f"
+    },
+    "truth": {
+      "path": "gazebo_car_geolocation_positive_control_001.truth.json",
+      "sha256": "46ef8d82d880edfe3d4b958dfa7bef7de677346b550f663511a94951c60434f2"
+    },
+    "expectations": {
+      "path": "gazebo_car_geolocation_positive_control_001.expectations.json",
+      "sha256": "3e11c17bf5c5b9b22fc44d1864b21c94cf52377039e6d22b7a95df8faa1ea7ed"
+    }
+  }
+}

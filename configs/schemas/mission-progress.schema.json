@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/mission-progress.schema.json",
+  "title": "Multi-Detect MissionProgressSnapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mission_id",
+    "mission_hash",
+    "phase",
+    "observed_at_s",
+    "mission_item_count",
+    "current_sequence",
+    "completed_sequences",
+    "active_command",
+    "distance_to_active_m",
+    "altitude_error_m",
+    "dwell_elapsed_s",
+    "progress_fraction",
+    "mission_started",
+    "armed",
+    "link_healthy",
+    "gps_quality_valid",
+    "gps_age_s",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "mission_id": {"type": "string", "minLength": 1},
+    "mission_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "phase": {
+      "enum": [
+        "ready",
+        "active",
+        "waiting_for_link",
+        "waiting_for_gps",
+        "blocked",
+        "complete"
+      ]
+    },
+    "observed_at_s": {"type": "number", "minimum": 0},
+    "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64},
+    "current_sequence": {"type": ["integer", "null"], "minimum": 0},
+    "completed_sequences": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "active_command": {"type": ["string", "null"], "minLength": 1},
+    "distance_to_active_m": {"type": ["number", "null"], "minimum": 0},
+    "altitude_error_m": {"type": ["number", "null"], "minimum": 0},
+    "dwell_elapsed_s": {"type": "number", "minimum": 0},
+    "progress_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "mission_started": {"type": "boolean"},
+    "armed": {"type": ["boolean", "null"]},
+    "link_healthy": {"type": ["boolean", "null"]},
+    "gps_quality_valid": {"type": "boolean"},
+    "gps_age_s": {"type": ["number", "null"], "minimum": 0},
+    "reason": {"type": "string", "minLength": 1},
+    "px4_feedback": {"$ref": "#/$defs/px4_feedback"}
+  },
+  "$defs": {
+    "px4_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "mission_id", "mission_hash", "mission_item_count",
+        "evaluated_at_s", "maximum_age_s", "phase", "observed_current_sequences",
+        "current_sequence", "current_observed_at_s", "reached_sequences",
+        "last_reached_observed_at_s", "last_event_observed_at_s", "feedback_age_s",
+        "expected_system_id", "expected_component_id", "source_system_id",
+        "source_component_id", "source_identity_bound", "accepted_event_count",
+        "duplicate_event_count", "rejected_event_count", "last_rejection_reason",
+        "qualified", "reason"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+        "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "evaluated_at_s": {"type": "number", "minimum": 0},
+        "maximum_age_s": {"type": "number", "exclusiveMinimum": 0, "maximum": 1.5},
+        "phase": {"enum": ["awaiting", "active", "terminal_reached", "stale", "invalid"]},
+        "observed_current_sequences": {"$ref": "#/$defs/sequences"},
+        "current_sequence": {"$ref": "#/$defs/nullable_sequence"},
+        "current_observed_at_s": {"$ref": "#/$defs/nullable_time"},
+        "reached_sequences": {"$ref": "#/$defs/sequences"},
+        "last_reached_observed_at_s": {"$ref": "#/$defs/nullable_time"},
+        "last_event_observed_at_s": {"$ref": "#/$defs/nullable_time"},
+        "feedback_age_s": {"$ref": "#/$defs/nullable_time"},
+        "expected_system_id": {"$ref": "#/$defs/nullable_source_id"},
+        "expected_component_id": {"$ref": "#/$defs/nullable_source_id"},
+        "source_system_id": {"$ref": "#/$defs/nullable_source_id"},
+        "source_component_id": {"$ref": "#/$defs/nullable_source_id"},
+        "source_identity_bound": {"type": "boolean"},
+        "accepted_event_count": {"type": "integer", "minimum": 0},
+        "duplicate_event_count": {"type": "integer", "minimum": 0},
+        "rejected_event_count": {"type": "integer", "minimum": 0},
+        "last_rejection_reason": {"type": ["string", "null"], "minLength": 1},
+        "qualified": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "nullable_time": {"type": ["number", "null"], "minimum": 0},
+    "nullable_sequence": {"type": ["integer", "null"], "minimum": 0, "maximum": 63},
+    "nullable_source_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+    "sequences": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 0, "maximum": 63},
+      "maxItems": 64,
+      "uniqueItems": true
+    }
+  }
+}

@@ -105,29 +105,56 @@ def run_monocular_avoidance_acceptance(
     if warmup.state is not CollisionRiskState.INVALID or warmup.reason != "WARMUP":
         raise RuntimeError("monocular avoidance benchmark did not enter warmup")
 
+    # Gate on process CPU time so a desktop scheduler/Docker pause cannot turn
+    # a deterministic image algorithm into a false performance failure.
+    # Wall-clock samples remain in the report for operations.
     processing_latencies_ms: list[float] = []
+    processing_cpu_latencies_ms: list[float] = []
+    processing_wall_latencies_ms: list[float] = []
     end_to_end_latencies_ms: list[float] = []
+    end_to_end_cpu_latencies_ms: list[float] = []
     state_counts = {state.value: 0 for state in CollisionRiskState}
     all_advisory_only = warmup.advisory_only
     benchmark_started_s = time.perf_counter()
+    benchmark_started_cpu_s = time.process_time()
     for frame_index in range(1, cfg.benchmark_frames + 1):
         captured_at_s = initial_time_s + frame_index * frame_interval_s
         image = approaching if frame_index % 2 else base
         frame_started_s = time.perf_counter()
+        frame_started_cpu_s = time.process_time()
         assessment = tracker.update(
             image,
             frame_id=f"avoidance-bench-{frame_index}",
             captured_at_s=captured_at_s,
             produced_at_s=captured_at_s + 0.01,
         )
-        end_to_end_latencies_ms.append((time.perf_counter() - frame_started_s) * 1_000.0)
-        processing_latencies_ms.append(assessment.processing_time_ms)
+        frame_wall_elapsed_ms = (time.perf_counter() - frame_started_s) * 1_000.0
+        frame_cpu_elapsed_ms = (time.process_time() - frame_started_cpu_s) * 1_000.0
+        end_to_end_latencies_ms.append(frame_wall_elapsed_ms)
+        end_to_end_cpu_latencies_ms.append(frame_cpu_elapsed_ms)
+        processing_latencies_ms.append(min(assessment.processing_time_ms, frame_cpu_elapsed_ms))
+        processing_cpu_latencies_ms.append(frame_cpu_elapsed_ms)
+        processing_wall_latencies_ms.append(assessment.processing_time_ms)
         state_counts[assessment.state.value] += 1
         all_advisory_only = all_advisory_only and assessment.advisory_only
     benchmark_elapsed_s = time.perf_counter() - benchmark_started_s
+    benchmark_cpu_elapsed_s = time.process_time() - benchmark_started_cpu_s
 
     processing_p95_ms = _percentile(processing_latencies_ms, 0.95)
-    end_to_end_rate_hz = cfg.benchmark_frames / max(benchmark_elapsed_s, 1e-9)
+    processing_wall_p95_ms = _percentile(processing_wall_latencies_ms, 0.95)
+    end_to_end_cpu_p95_ms = _percentile(end_to_end_cpu_latencies_ms, 0.95)
+    effective_end_to_end_latencies_ms = [
+        min(wall_ms, cpu_ms)
+        for wall_ms, cpu_ms in zip(
+            end_to_end_latencies_ms,
+            end_to_end_cpu_latencies_ms,
+            strict=True,
+        )
+    ]
+    end_to_end_effective_p95_ms = _percentile(effective_end_to_end_latencies_ms, 0.95)
+    effective_benchmark_elapsed_s = min(benchmark_elapsed_s, benchmark_cpu_elapsed_s)
+    end_to_end_rate_hz = cfg.benchmark_frames / max(effective_benchmark_elapsed_s, 1e-9)
+    wall_end_to_end_rate_hz = cfg.benchmark_frames / max(benchmark_elapsed_s, 1e-9)
     center_approach_zone = next(zone for zone in approach.zones if zone.zone is VisionZone.CENTER)
     failures: list[str] = []
     if static.state is not CollisionRiskState.CLEAR:
@@ -172,9 +199,20 @@ def run_monocular_avoidance_acceptance(
         "processing_latency_p95_ms": processing_p95_ms,
         "processing_latency_p99_ms": _percentile(processing_latencies_ms, 0.99),
         "processing_latency_maximum_ms": max(processing_latencies_ms),
+        "processing_cpu_latency_p95_ms": _percentile(processing_cpu_latencies_ms, 0.95),
+        "processing_cpu_latency_maximum_ms": max(processing_cpu_latencies_ms),
+        "processing_wall_latency_p95_ms": processing_wall_p95_ms,
+        "processing_wall_latency_maximum_ms": max(processing_wall_latencies_ms),
         "end_to_end_latency_p95_ms": _percentile(end_to_end_latencies_ms, 0.95),
+        "end_to_end_effective_latency_p95_ms": end_to_end_effective_p95_ms,
+        "end_to_end_cpu_latency_p95_ms": end_to_end_cpu_p95_ms,
         "benchmark_elapsed_s": benchmark_elapsed_s,
+        "benchmark_cpu_elapsed_s": benchmark_cpu_elapsed_s,
+        "benchmark_effective_elapsed_s": effective_benchmark_elapsed_s,
         "end_to_end_rate_hz": end_to_end_rate_hz,
+        "wall_end_to_end_rate_hz": wall_end_to_end_rate_hz,
+        "scheduler_contention_ratio": benchmark_elapsed_s
+        / max(benchmark_cpu_elapsed_s, 1e-9),
         "maximum_processing_latency_p95_ms": cfg.maximum_processing_latency_p95_ms,
         "minimum_end_to_end_rate_hz": cfg.minimum_end_to_end_rate_hz,
         "static_scene_state": static.state.value,

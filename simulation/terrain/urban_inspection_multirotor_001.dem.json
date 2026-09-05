@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "scenario_id": "urban_inspection_multirotor_001",
+  "coordinate_reference": "WGS84",
+  "vertical_datum": "MSL",
+  "origin": {
+    "latitude_deg": 1.3521,
+    "longitude_deg": 103.8198,
+    "elevation_m": 18.0
+  },
+  "north_origin_m": -400.0,
+  "east_origin_m": -400.0,
+  "north_spacing_m": 200.0,
+  "east_spacing_m": 200.0,
+  "elevation_m": [
+    [18.0, 18.0, 18.0, 18.0, 18.0],
+    [18.0, 18.0, 18.0, 18.0, 18.0],
+    [18.0, 18.0, 18.0, 18.0, 18.0],
+    [18.0, 18.0, 18.0, 18.0, 18.0],
+    [18.0, 18.0, 18.0, 18.0, 18.0]
+  ],
+  "vertical_sigma_m": 0.4,
+  "slope_sigma_m_per_m": 0.002
+}

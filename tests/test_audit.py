@@ -98,6 +98,29 @@ def test_streaming_audit_bounds_memory_and_persists_every_event(tmp_path) -> Non
         log.append("late", 4.0)
 
 
+def test_streaming_audit_accepts_deterministic_sha256_session_id(tmp_path) -> None:
+    destination = tmp_path / "deterministic.jsonl"
+    session_id = "a" * 64
+    log = AuditLog(stream_path=destination, stream_session_id=session_id)
+
+    log.append("replay.started", 1.0, {"mode": "replay"})
+    log.close()
+
+    record = json.loads(destination.read_text(encoding="utf-8"))
+    assert record["session_id"] == session_id
+
+
+@pytest.mark.parametrize("session_id", ("", "A" * 64, "g" * 64, "a" * 31))
+def test_streaming_audit_rejects_invalid_explicit_session_id(tmp_path, session_id: str) -> None:
+    with pytest.raises(ValueError, match="stream_session_id"):
+        AuditLog(stream_path=tmp_path / "invalid.jsonl", stream_session_id=session_id)
+
+
+def test_streaming_audit_session_id_requires_stream_path() -> None:
+    with pytest.raises(ValueError, match="requires stream_path"):
+        AuditLog(stream_session_id="a" * 64)
+
+
 def test_streaming_append_preserves_previous_sessions(tmp_path) -> None:
     destination = tmp_path / "live.audit.jsonl"
     first = AuditLog(stream_path=destination, stream_append=True)

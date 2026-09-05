@@ -14,6 +14,11 @@ from typing import Any, Protocol
 from .adapters.fire_smoke_legacy import adapt_yolov5_detections
 from .assignment import rectangular_linear_assignment
 from .domain import BoundingBox, Detection
+from .inference_provider import (
+    InferenceProviderError,
+    OrtSessionSelection,
+    create_onnxruntime_session,
+)
 
 
 class VisionDependencyError(RuntimeError):
@@ -278,6 +283,7 @@ class SyntheticFrameSource:
         self._period_s = 1.0 / self._fps
         self._frame_index = 0
         self._next_frame_at_s: float | None = None
+        self._last_captured_at_s: float | None = None
 
     @property
     def reconnect_count(self) -> int:
@@ -299,6 +305,13 @@ class SyntheticFrameSource:
         if deadline > now_s:
             time.sleep(deadline - now_s)
         captured_at_s = time.monotonic()
+        # Windows' GetTickCount64-backed ``time.monotonic`` can return the
+        # same value for two high-rate synthetic frames.  Preserve the source
+        # clock while applying a microsecond tie-breaker so replay/tracking
+        # consumers always receive a strictly ordered frame stream.
+        if self._last_captured_at_s is not None and captured_at_s <= self._last_captured_at_s:
+            captured_at_s = self._last_captured_at_s + 1e-6
+        self._last_captured_at_s = captured_at_s
         self._next_frame_at_s = max(deadline + self._period_s, captured_at_s + self._period_s)
         self._frame_index += 1
         image = self._render(self._frame_index)
@@ -672,6 +685,7 @@ class OnnxNx6Detector:
     def __init__(self, config: OnnxNx6Config, *, session: Any | None = None) -> None:
         self.config = config
         self._np = _require_numpy()
+        self._provider_selection = None
         if session is None:
             if config.model_path.suffix.lower() in {".engine", ".plan"}:
                 from .tensorrt_session import TensorRtNx6Session
@@ -684,41 +698,15 @@ class OnnxNx6Detector:
                     raise VisionDependencyError(
                         "Install ONNX Runtime: pip install -e '.[vision]'"
                     ) from exc
-                available = set(ort.get_available_providers())
-                requested = self.config.providers or (
-                    "TensorrtExecutionProvider",
-                    "CUDAExecutionProvider",
-                    "CPUExecutionProvider",
-                )
-                providers = [provider for provider in requested if provider in available]
-                if not providers:
-                    raise VisionDependencyError(
-                        "No requested ONNX Runtime provider is available; "
-                        f"available={sorted(available)}"
+                try:
+                    session, self._provider_selection = create_onnxruntime_session(
+                        ort,
+                        config.model_path,
+                        providers=config.providers,
+                        trt_engine_cache_path=config.trt_engine_cache_path,
                     )
-                configured_providers: list[str | tuple[str, dict[str, str | bool]]] = []
-                for provider in providers:
-                    if (
-                        provider == "TensorrtExecutionProvider"
-                        and self.config.trt_engine_cache_path is not None
-                    ):
-                        cache_path = self.config.trt_engine_cache_path
-                        cache_path.mkdir(parents=True, exist_ok=True)
-                        configured_providers.append(
-                            (
-                                provider,
-                                {
-                                    "trt_engine_cache_enable": True,
-                                    "trt_engine_cache_path": str(cache_path),
-                                },
-                            )
-                        )
-                    else:
-                        configured_providers.append(provider)
-                session = ort.InferenceSession(
-                    str(config.model_path),
-                    providers=configured_providers,
-                )
+                except InferenceProviderError as exc:
+                    raise VisionDependencyError(str(exc)) from exc
         self._session = session
         input_meta = self._session.get_inputs()[0]
         self._input_name = input_meta.name
@@ -733,6 +721,12 @@ class OnnxNx6Detector:
         if hasattr(self._session, "get_providers"):
             return tuple(self._session.get_providers())
         return ()
+
+    @property
+    def provider_selection(self) -> OrtSessionSelection | None:
+        """Return construction evidence when this instance created the ORT session."""
+
+        return self._provider_selection
 
     def detect(self, image_bgr: Any) -> tuple[Detection, ...]:
         rows = self.infer_nx6(image_bgr)
@@ -946,9 +940,18 @@ class OnnxRawYoloDetector(OnnxNx6Detector):
         for class_id in sorted(int(value) for value in self._np.unique(class_ids)):
             indices = self._np.flatnonzero(class_ids == class_id)
             order = indices[self._np.argsort(-scores[indices], kind="stable")]
-            while order.size and len(selected) < self.raw_config.maximum_detections:
+            # The limit is global, but applying it to ``len(selected)`` here
+            # makes class-id order an accidental priority policy: enough
+            # class-0 candidates can prevent a higher-confidence class-1
+            # candidate from ever reaching the final score sort.  No class can
+            # contribute more than the global result limit, so bound each
+            # class independently and apply the real global cap only after all
+            # classes have participated.
+            class_selected_count = 0
+            while order.size and class_selected_count < self.raw_config.maximum_detections:
                 current = int(order[0])
                 selected.append(current)
+                class_selected_count += 1
                 if order.size == 1:
                     break
                 rest = order[1:]

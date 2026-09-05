@@ -649,6 +649,12 @@ class UnifiedTargetPool:
     def primary_track_id(self) -> str | None:
         return self._primary_track_id
 
+    @property
+    def last_frame_time_s(self) -> float | None:
+        """Timestamp of the last accepted pool update, if any."""
+
+        return self._last_frame_time_s
+
     def update(
         self,
         *,

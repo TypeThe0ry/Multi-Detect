@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-operator-grant.schema.json",
+  "title": "Multi-Detect OperatorGrant v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "grant_id", "transaction_id", "operator_id", "prompt_hash", "task_spec_hash", "plan_hash", "executable_mission_hash", "validation_report_hash", "context_snapshot_hash", "airframe_profile_hash", "geofence_hash", "vehicle_identity_hash", "runtime_descriptor_hash", "runtime_provenance_hash", "expires_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "grant_id": {"type": "string", "minLength": 1},
+    "transaction_id": {"type": "string", "minLength": 1},
+    "operator_id": {"type": "string", "minLength": 1},
+    "prompt_hash": {"$ref": "#/$defs/sha256"},
+    "task_spec_hash": {"$ref": "#/$defs/sha256"},
+    "plan_hash": {"$ref": "#/$defs/sha256"},
+    "executable_mission_hash": {"$ref": "#/$defs/sha256"},
+    "validation_report_hash": {"$ref": "#/$defs/sha256"},
+    "context_snapshot_hash": {"$ref": "#/$defs/sha256"},
+    "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+    "geofence_hash": {"$ref": "#/$defs/sha256"},
+    "vehicle_identity_hash": {"$ref": "#/$defs/sha256"},
+    "runtime_descriptor_hash": {"$ref": "#/$defs/sha256"},
+    "runtime_provenance_hash": {"$ref": "#/$defs/sha256"},
+    "expires_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

@@ -5,6 +5,14 @@ import math
 from dataclasses import dataclass
 
 from .compat import StrEnum
+from .mavlink_gps import (
+    MAVLINK_GPS_FIX_TYPE_MAX,
+    MAVLINK_GPS_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_SATELLITES_MIN,
+    MAVLINK_SATELLITES_MAX,
+    MAVLINK_SATELLITES_UNKNOWN,
+)
 
 
 class NavigationFusionValidity(StrEnum):
@@ -42,13 +50,13 @@ class GpsVelocityMeasurement:
         _validate_velocity(self.north_mps, self.east_mps, self.sigma_mps, self.captured_at_s)
         if isinstance(self.fix_type, bool) or not isinstance(self.fix_type, int):
             raise ValueError("GPS fix type must be an integer")
-        if not 0 <= self.fix_type <= 8:
+        if not MAVLINK_GPS_FIX_TYPE_MIN <= self.fix_type <= MAVLINK_GPS_FIX_TYPE_MAX:
             raise ValueError("GPS fix type is outside the MAVLink domain")
         if isinstance(self.satellites_visible, bool) or not isinstance(
             self.satellites_visible, int
         ):
             raise ValueError("GPS satellite count must be an integer")
-        if not 0 <= self.satellites_visible <= 255:
+        if not 0 <= self.satellites_visible <= MAVLINK_SATELLITES_UNKNOWN:
             raise ValueError("GPS satellite count is outside the MAVLink domain")
 
 
@@ -120,8 +128,12 @@ class NavigationFusionConfig:
     maximum_airspeed_age_s: float = 0.75
     maximum_wind_age_s: float = 2.0
     maximum_airdata_wind_skew_s: float = 0.50
-    minimum_gps_fix_type: int = 3
-    minimum_gps_satellites: int = 6
+    # The velocity path shares the same minimum quality floor as global
+    # target geolocation.  A caller may tighten these values (for example,
+    # require RTK), but may not relax them and silently promote a 2-D/unknown
+    # fix into a usable outdoor navigation source.
+    minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN
+    minimum_gps_satellites: int = MAVLINK_QUALIFIED_SATELLITES_MIN
     consistency_gate_sigma: float = 3.5
     minimum_velocity_sigma_mps: float = 0.15
     maximum_ground_speed_mps: float = 120.0
@@ -149,15 +161,25 @@ class NavigationFusionConfig:
         if (
             isinstance(self.minimum_gps_fix_type, bool)
             or not isinstance(self.minimum_gps_fix_type, int)
-            or not 2 <= self.minimum_gps_fix_type <= 6
+            or not MAVLINK_QUALIFIED_FIX_TYPE_MIN
+            <= self.minimum_gps_fix_type
+            <= MAVLINK_GPS_FIX_TYPE_MAX
         ):
-            raise ValueError("minimum GPS fix type must be an integer in [2, 6]")
+            raise ValueError(
+                "minimum GPS fix type must be an integer in "
+                f"[{MAVLINK_QUALIFIED_FIX_TYPE_MIN}, {MAVLINK_GPS_FIX_TYPE_MAX}]"
+            )
         if (
             isinstance(self.minimum_gps_satellites, bool)
             or not isinstance(self.minimum_gps_satellites, int)
-            or not 0 <= self.minimum_gps_satellites <= 64
+            or not MAVLINK_QUALIFIED_SATELLITES_MIN
+            <= self.minimum_gps_satellites
+            <= 64
         ):
-            raise ValueError("minimum GPS satellite count must be an integer in [0, 64]")
+            raise ValueError(
+                "minimum GPS satellite count must be an integer in "
+                f"[{MAVLINK_QUALIFIED_SATELLITES_MIN}, 64]"
+            )
         if (
             isinstance(self.minimum_independent_sources, bool)
             or not isinstance(self.minimum_independent_sources, int)
@@ -488,7 +510,11 @@ class NavigationVelocityFusionEngine:
     ) -> str | None:
         if measurement.fix_type < self.config.minimum_gps_fix_type:
             return "fix_invalid"
-        if measurement.satellites_visible < self.config.minimum_gps_satellites:
+        if (
+            measurement.satellites_visible == MAVLINK_SATELLITES_UNKNOWN
+            or not 0 <= measurement.satellites_visible <= MAVLINK_SATELLITES_MAX
+            or measurement.satellites_visible < self.config.minimum_gps_satellites
+        ):
             return "satellites_insufficient"
         age_s = now_s - measurement.captured_at_s
         if age_s < 0.0 or age_s > self.config.maximum_gps_age_s:
@@ -592,6 +618,30 @@ class NavigationVelocityFusionEngine:
         if ground_speed_mps > 1e-9:
             track_deg = math.degrees(math.atan2(east_mps, north_mps)) % 360.0
         sigma_mps = math.sqrt(1.0 / weight_sum)
+        # Each accepted candidate contributes a two-dimensional (N/E)
+        # velocity observation. After estimating the two components of the
+        # fused mean, the residual has ``2 * (N - 1)`` degrees of freedom.
+        # Sources can remain inside the pairwise hard gate while still being
+        # noisier than their declared sigmas; the nominal inverse-variance
+        # result would then be overconfident. Apply a conservative Birge
+        # ratio, matching the multimodal ranging path, and keep the result
+        # advisory-only/degraded.
+        residual_chi2 = math.fsum(
+            (
+                (candidate.north_mps - north_mps) ** 2
+                + (candidate.east_mps - east_mps) ** 2
+            )
+            / max(candidate.sigma_mps**2, self.config.minimum_velocity_sigma_mps**2)
+            for candidate in accepted
+        )
+        degrees_of_freedom = max(1, 2 * (len(accepted) - 1))
+        uncertainty_inflated = (
+            len(accepted) > 1
+            and math.isfinite(residual_chi2)
+            and residual_chi2 > degrees_of_freedom
+        )
+        if uncertainty_inflated:
+            sigma_mps *= math.sqrt(residual_chi2 / degrees_of_freedom)
         pairwise = [
             _normalized_distance(first, second)
             for first, second in itertools.combinations(accepted, 2)
@@ -602,12 +652,19 @@ class NavigationVelocityFusionEngine:
             min(1.0, 1.0 - maximum_pairwise / self.config.consistency_gate_sigma),
         )
         validity = NavigationFusionValidity.VALID
-        if rejected or len(accepted) < self.config.minimum_independent_sources:
+        if (
+            rejected
+            or len(accepted) < self.config.minimum_independent_sources
+            or uncertainty_inflated
+        ):
             validity = NavigationFusionValidity.DEGRADED
+        resolved_reasons = list(reasons)
+        if uncertainty_inflated:
+            resolved_reasons.append("navigation_velocity_uncertainty_inflated")
         return NavigationVelocitySolution(
             evaluated_at_s=now_s,
             validity=validity,
-            reasons=reasons,
+            reasons=tuple(resolved_reasons),
             source_diagnostics=tuple(diagnostics),
             sources=tuple(candidate.source.value for candidate in accepted),
             rejected_sources=tuple(

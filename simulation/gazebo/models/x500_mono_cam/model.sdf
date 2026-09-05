@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!--
+    Repository-owned composition for the PX4 x500 multirotor path.
+
+    PX4-gazebo-models supplies the x500 aerodynamic/actuator model.  The
+    checked-in mono_cam composition gives every airframe the same camera
+    topic and QGC metadata contract used by the VTOL and fixed-wing scenes.
+  -->
+  <model name="x500_mono_cam">
+    <include merge="true">
+      <uri>model://x500</uri>
+    </include>
+    <include merge="true">
+      <uri>model://mono_cam</uri>
+      <!-- Downward-tilted camera for inspection and target geolocation. -->
+      <!--
+        Keep the include and fixed-joint transforms in the same base_link
+        frame. Without relative_to, SDFormat interprets this merged include
+        pose in the composite-model frame and places the camera below the
+        terrain on the x500, whose base_link origin is elevated.
+      -->
+      <pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose>
+    </include>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <pose relative_to="base_link">0.18 0 -0.12 0 0.18 0</pose>
+    </joint>
+    <plugin
+      filename="gz-sim-odometry-publisher-system"
+      name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+  </model>
+</sdf>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import socket
 import threading
@@ -21,6 +22,8 @@ from multidetect.alerts import (
     SqliteAlertOutbox,
     UdpAcknowledgedAlertTransport,
 )
+from multidetect.backends import RawSensorRuntimeBackend
+from multidetect.clock import ManualClock, SystemClock
 from multidetect.config import MissionConfig
 from multidetect.domain import BoundingBox, Detection, MissionPhase, SensorKind, VehicleTelemetry
 from multidetect.evaluation import JsonlPredictionWriter, load_prediction_jsonl
@@ -41,6 +44,7 @@ from multidetect.monocular_avoidance import (
 from multidetect.multimodal_ranging import (
     CameraCalibration,
     MultiModalRangingEngine,
+    RangeSolution,
     RangeValidity,
 )
 from multidetect.operator_bridge import LiveOperatorBridge, OperatorBridgeResult
@@ -80,6 +84,7 @@ from multidetect.rgb_fire_corroboration import (
     IndependentRgbFireCorroborationConfig,
     IndependentRgbFireCorroborator,
 )
+from multidetect.runtime import RuntimeDescriptor, RuntimeMode, RuntimeProfile
 from multidetect.selection_target_pool import UnifiedSelectionTargetPool
 from multidetect.semantic_environment import (
     AsyncSemanticContextRunner,
@@ -89,7 +94,9 @@ from multidetect.short_term_tracking import (
     ShortTermTrackingResult,
     ShortTermTrackingStatus,
 )
+from multidetect.simulator.perception_bridge import SimulatorPerceptionBridge
 from multidetect.telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
+from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid
 from multidetect.tracking_evaluation import (
     JsonlIdentityPredictionWriter,
     load_identity_prediction_jsonl,
@@ -570,6 +577,81 @@ class _SafeTelemetryProvider:
         )
 
 
+class _CountingTelemetryProvider(_SafeTelemetryProvider):
+    def __init__(self) -> None:
+        self.snapshot_calls = 0
+        self.close_calls = 0
+
+    def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+        self.snapshot_calls += 1
+        return super().snapshot(now_s=now_s)
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+class _CountingDetector(_Detector):
+    def __init__(self) -> None:
+        self.detect_calls = 0
+
+    def detect(self, image) -> tuple[Detection, ...]:
+        self.detect_calls += 1
+        return super().detect(image)
+
+
+class _RawSensorBackend:
+    def __init__(self, frame_source: _FrameSource, telemetry_provider) -> None:
+        self.descriptor = RuntimeDescriptor(
+            mode=RuntimeMode.REAL,
+            profile=RuntimeProfile.observer(),
+            backend_id="test:raw-real-observer",
+            airframe_profile_hash="a" * 64,
+        )
+        self.clock = ManualClock()
+        self.frame_source = frame_source
+        self.telemetry_provider = telemetry_provider
+
+
+class _ClockAdvancingFrameSource:
+    def __init__(self, clock: ManualClock, frame_times_s: tuple[float, ...]) -> None:
+        self.clock = clock
+        self.frame_times_s = frame_times_s
+        self._next = 0
+        self.opened = False
+        self.closed = False
+
+    def open(self) -> None:
+        self.opened = True
+
+    def read(self) -> CapturedFrame:
+        captured_at_s = self.frame_times_s[self._next]
+        self._next += 1
+        self.clock.advance_to(captured_at_s)
+        return CapturedFrame(
+            frame_id=f"replay-clock-{self._next}",
+            captured_at_s=captured_at_s,
+            image_bgr=object(),
+            width=640,
+            height=480,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _TimestampRecordingTelemetryProvider(_SafeTelemetryProvider):
+    def __init__(self) -> None:
+        self.now_values: list[float] = []
+        self.closed = False
+
+    def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+        self.now_values.append(now_s)
+        return super().snapshot(now_s=now_s)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _TimestampedRangingTelemetryProvider:
     def __init__(self, *, include_timestamps: bool = True) -> None:
         self.include_timestamps = include_timestamps
@@ -591,6 +673,38 @@ class _TimestampedRangingTelemetryProvider:
             attitude_observed_at_s=observed_at_s,
             position_observed_at_s=observed_at_s,
             altitude_observed_at_s=observed_at_s,
+        )
+
+
+class _TerrainRangingTelemetryProvider:
+    def __init__(self, *, gps_lag_s: float = 0.0) -> None:
+        self.gps_lag_s = gps_lag_s
+
+    def snapshot(self, *, now_s: float) -> VehicleTelemetry:
+        return VehicleTelemetry(
+            altitude_agl_m=50.0,
+            roll_deg=0.0,
+            pitch_deg=0.0,
+            ground_speed_mps=15.0,
+            in_allowed_zone=True,
+            geofence_healthy=True,
+            position_healthy=True,
+            link_healthy=True,
+            flight_mode_allows_deploy=False,
+            release_zone_clear=None,
+            latitude_deg=1.3,
+            longitude_deg=103.8005,
+            heading_deg=90.0,
+            satellites_visible=14,
+            gps_fix_type=3,
+            gps_horizontal_accuracy_m=0.8,
+            gps_vertical_accuracy_m=1.2,
+            gps_observed_at_s=now_s - self.gps_lag_s,
+            gps_absolute_altitude_m=55.0,
+            armed=True,
+            attitude_observed_at_s=now_s,
+            position_observed_at_s=now_s,
+            altitude_observed_at_s=now_s,
         )
 
 
@@ -696,6 +810,281 @@ def _payload_config() -> MissionConfig:
     )
 
 
+def test_raw_sensor_backend_binds_shared_detector_to_production_live_pipeline() -> None:
+    source = _FrameSource(1)
+    telemetry = _CountingTelemetryProvider()
+    detector = _CountingDetector()
+    backend = _RawSensorBackend(source, telemetry)
+
+    assert isinstance(backend, RawSensorRuntimeBackend)
+    assert not hasattr(backend, "detector")
+    assert not hasattr(backend, "detections")
+    assert not hasattr(backend, "truth")
+
+    runner = LiveMissionRunner.from_runtime_backend(
+        backend=backend,
+        mission=MissionController(_patrol_config()),
+        detector=detector,
+        config=LiveRunConfig(max_frames=1, display=False),
+    )
+    result = runner.run()
+
+    assert result.processed_frames == 1
+    assert runner.clock is backend.clock
+    assert runner.runtime_descriptor is backend.descriptor
+    assert isinstance(runner.performance_clock, ManualClock)
+    assert runner.performance_clock is not backend.clock
+    assert source.opened is True
+    assert source.closed is True
+    assert detector.detect_calls == 1
+    assert telemetry.snapshot_calls == 1
+    assert telemetry.close_calls == 1
+
+
+def test_live_mission_runner_has_no_direct_operating_system_clock_reads() -> None:
+    source = inspect.getsource(LiveMissionRunner)
+
+    assert "time.monotonic(" not in source
+    assert "time.perf_counter(" not in source
+    assert "time.time(" not in source
+
+
+def test_deterministic_runtime_backend_rejects_system_clock() -> None:
+    backend = _RawSensorBackend(_FrameSource(1), _SafeTelemetryProvider())
+    backend.descriptor = RuntimeDescriptor(
+        mode=RuntimeMode.REPLAY,
+        profile=RuntimeProfile.replay(),
+        backend_id="test:raw-replay-invalid-clock",
+        airframe_profile_hash="a" * 64,
+        recording_hash="b" * 64,
+        deterministic=True,
+    )
+    backend.clock = SystemClock()
+
+    with pytest.raises(ValueError, match="deterministic runtime backend requires ManualClock"):
+        LiveMissionRunner.from_runtime_backend(
+            backend=backend,
+            mission=MissionController(_patrol_config()),
+            detector=_Detector(),
+            config=LiveRunConfig(max_frames=1, display=False),
+        )
+
+
+def test_runtime_backend_clock_drives_live_timestamps_and_deterministic_metrics() -> None:
+    clock = ManualClock()
+    source = _ClockAdvancingFrameSource(clock, (1.0, 2.0, 5.0))
+    telemetry = _TimestampRecordingTelemetryProvider()
+    backend = _RawSensorBackend(source, telemetry)
+    backend.clock = clock
+    backend.descriptor = RuntimeDescriptor(
+        mode=RuntimeMode.REPLAY,
+        profile=RuntimeProfile.replay(),
+        backend_id="test:raw-replay-manual-clock",
+        airframe_profile_hash="a" * 64,
+        recording_hash="b" * 64,
+        deterministic=True,
+    )
+    mission = MissionController(_patrol_config())
+    runner = LiveMissionRunner.from_runtime_backend(
+        backend=backend,
+        mission=mission,
+        detector=_Detector(),
+        config=LiveRunConfig(max_frames=3, display=False),
+    )
+
+    result = runner.run()
+
+    assert result.processed_frames == 3
+    assert result.average_fps == pytest.approx(0.6)
+    assert result.steady_source_fps == pytest.approx(0.5)
+    assert result.capture_latency_p95_ms == 0.0
+    assert result.inference_latency_p95_ms == 0.0
+    assert telemetry.now_values == [1.0, 2.0, 5.0]
+    assert source.opened is True
+    assert source.closed is True
+    assert telemetry.closed is True
+    performance_summary = next(
+        event for event in mission.audit.events() if event.event_type == "live.performance_summary"
+    )
+    assert performance_summary.timestamp_s == 5.0
+
+
+def test_live_simulator_sink_receives_exact_current_frame_identity() -> None:
+    clock = ManualClock(initial_monotonic_s=12.0)
+    calls: list[dict[str, object]] = []
+
+    def sink(
+        _telemetry,
+        _track,
+        _ranging,
+        _avoidance,
+        *,
+        tracks,
+        selected_track_id,
+        frame_id,
+        frame_captured_at_s,
+        now_s,
+    ) -> None:
+        calls.append(
+            {
+                "tracks": tracks,
+                "selected_track_id": selected_track_id,
+                "frame_id": frame_id,
+                "frame_captured_at_s": frame_captured_at_s,
+                "now_s": now_s,
+            }
+        )
+
+    result = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_ClockAdvancingFrameSource(clock, (12.5,)),
+        detector=_Detector(),
+        telemetry_provider=_SafeTelemetryProvider(),
+        config=LiveRunConfig(max_frames=1, display=False),
+        clock=clock,
+        simulator_perception_sink=sink,
+    ).run()
+
+    assert result.simulator_perception_feed_count == 1
+    assert result.simulator_perception_error_count == 0
+    assert calls == [
+        {
+            "tracks": (),
+            "selected_track_id": None,
+            "frame_id": "replay-clock-1",
+            "frame_captured_at_s": 12.5,
+            "now_s": 12.5,
+        }
+    ]
+
+
+def test_live_simulator_sink_preserves_closed_legacy_keyword_signature() -> None:
+    calls: list[dict[str, object]] = []
+
+    def legacy_sink(
+        _telemetry,
+        _track,
+        _ranging,
+        _avoidance,
+        *,
+        tracks,
+        selected_track_id,
+        now_s,
+    ) -> None:
+        calls.append(
+            {
+                "tracks": tracks,
+                "selected_track_id": selected_track_id,
+                "now_s": now_s,
+            }
+        )
+
+    result = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_FrameSource(1),
+        detector=_Detector(),
+        telemetry_provider=_SafeTelemetryProvider(),
+        config=LiveRunConfig(max_frames=1, display=False),
+        simulator_perception_sink=legacy_sink,
+    ).run()
+
+    assert result.simulator_perception_feed_count == 1
+    assert result.simulator_perception_error_count == 0
+    assert len(calls) == 1
+
+
+def test_live_simulator_bridge_enforces_range_frame_identity_and_time_contract() -> None:
+    clock = ManualClock(initial_monotonic_s=9.9)
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    seeded = target_pool.update(
+        frame_id="range-seed",
+        captured_at_s=9.9,
+        observations=tuple(
+            TargetObservation.from_detection(detection) for detection in _Detector().detect(None)
+        ),
+    )
+    target_pool.lock(seeded.created_track_ids[0], now_s=9.9)
+    bridge = SimulatorPerceptionBridge(clock=clock.monotonic)
+
+    def sink(
+        telemetry,
+        track,
+        _ranging,
+        avoidance,
+        *,
+        tracks,
+        selected_track_id,
+        frame_id,
+        frame_captured_at_s,
+        now_s,
+    ):
+        assert selected_track_id is not None
+        if frame_id == "replay-clock-2":
+            range_frame_id = "replay-clock-1"
+            range_evaluated_at_s = 10.0
+        elif frame_id == "replay-clock-3":
+            range_frame_id = frame_id
+            range_evaluated_at_s = frame_captured_at_s - 0.5e-6
+        elif frame_id == "replay-clock-4":
+            range_frame_id = frame_id
+            range_evaluated_at_s = frame_captured_at_s - 2.0e-6
+        else:
+            range_frame_id = frame_id
+            range_evaluated_at_s = frame_captured_at_s
+        range_solution = RangeSolution(
+            target_id=selected_track_id,
+            frame_id=range_frame_id,
+            calibration_id="camera-main-test-v1",
+            evaluated_at_s=range_evaluated_at_s,
+            validity=RangeValidity.DEGRADED,
+            reasons=("single_source",),
+            sources=("camera_ground",),
+            rejected_sources=(),
+            slant_range_m=20.0,
+            ground_range_m=18.0,
+            relative_bearing_deg=0.0,
+            bearing_sigma_deg=1.0,
+            north_offset_m=18.0,
+            east_offset_m=0.0,
+            data_freshness_s=0.0,
+            sensor_consistency=1.0,
+        )
+        return bridge.feed_result(
+            telemetry,
+            track,
+            range_solution,
+            avoidance,
+            tracks=tracks,
+            selected_track_id=selected_track_id,
+            frame_id=frame_id,
+            frame_captured_at_s=frame_captured_at_s,
+            now_s=now_s,
+        )
+
+    result = LiveMissionRunner(
+        mission=MissionController(_patrol_config()),
+        frame_source=_ClockAdvancingFrameSource(clock, (10.0, 10.1, 10.2, 10.3)),
+        detector=_Detector(),
+        telemetry_provider=_SafeTelemetryProvider(),
+        config=LiveRunConfig(max_frames=4, display=False),
+        unified_target_pool=target_pool,
+        clock=clock,
+        simulator_perception_sink=sink,
+    ).run()
+
+    assert result.simulator_perception_feed_count == 4
+    assert result.simulator_perception_error_count == 0
+    recent_results = bridge.evidence()["recent_results"]
+    assert len(recent_results) == 4
+    assert recent_results[0]["snapshot"]["target_distance_m"] == pytest.approx(18.0)
+    assert recent_results[1]["snapshot"]["target_distance_m"] is None
+    assert "range_frame_mismatch" in recent_results[1]["reasons"]
+    assert recent_results[2]["snapshot"]["target_distance_m"] == pytest.approx(18.0)
+    assert "range_frame_timestamp_mismatch" not in recent_results[2]["reasons"]
+    assert recent_results[3]["snapshot"]["target_distance_m"] is None
+    assert "range_frame_timestamp_mismatch" in recent_results[3]["reasons"]
+
+
 def test_live_patrol_delivers_confirmed_alert_without_payload() -> None:
     publisher = RecordingAlertPublisher()
     source = _FrameSource(4)
@@ -781,6 +1170,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
             self.mission_published = []
             self.safety_published = []
             self.range_published = []
+            self.target_geolocation_published = []
             self.closed = False
 
         def start_background(self) -> None:
@@ -803,6 +1193,9 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
 
         def publish_range_status(self, status, *, peer) -> None:
             self.range_published.append((status, peer))
+
+        def publish_target_geolocation_status(self, status, *, peer) -> None:
+            self.target_geolocation_published.append((status, peer))
 
         def close(self) -> None:
             self.closed = True
@@ -842,6 +1235,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
     assert 1 <= result.remote_safety_status_count <= 5
     assert result.remote_transport_error_count == 0
     assert result.remote_range_status_count >= 1
+    assert result.remote_target_geolocation_status_count >= 1
     assert result.selection_target_pool_binding_count == 1
     assert result.selection_target_pool_error_count == 0
     assert unified_target_pool.primary_track_id is not None
@@ -850,6 +1244,9 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
     assert len(transport.mission_published) == result.remote_mission_status_count
     assert len(transport.safety_published) == result.remote_safety_status_count
     assert len(transport.range_published) == result.remote_range_status_count
+    assert (
+        len(transport.target_geolocation_published) == result.remote_target_geolocation_status_count
+    )
     assert all(status.advisory_only for status, _peer in transport.mission_published)
     assert all(status.advisory_only for status, _peer in transport.safety_published)
     assert all(
@@ -866,9 +1263,23 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
     assert any(
         event.event_type == "operator.remote_safety_status" for event in mission.audit.events()
     )
-    assert any(
-        event.event_type == "operator.remote_range_status" for event in mission.audit.events()
-    )
+    range_events = [
+        event
+        for event in mission.audit.events()
+        if event.event_type == "operator.remote_range_status"
+    ]
+    assert range_events
+    assert all(event.details["source_age_s"] >= 0.0 for event in range_events)
+    assert all("source_frame_id" in event.details for event in range_events)
+    geolocation_events = [
+        event
+        for event in mission.audit.events()
+        if event.event_type == "operator.remote_target_geolocation_status"
+    ]
+    assert len(geolocation_events) == result.remote_target_geolocation_status_count
+    assert all(event.details["source_age_s"] >= 0.0 for event in geolocation_events)
+    assert all(event.details["advisory_only"] is True for event in geolocation_events)
+    assert all(event.details["flight_control_enabled"] is False for event in geolocation_events)
 
 
 def test_remote_manual_tracking_without_detections_cannot_create_mission_events() -> None:
@@ -2165,7 +2576,7 @@ def _seed_locked_primary_target(pool: UnifiedTargetPool) -> None:
     pool.lock(update.created_track_ids[0], now_s=seeded_at_s)
 
 
-def _live_ranging_config() -> LiveRangingConfig:
+def _live_ranging_config(*, terrain_dem: LocalDemGrid | None = None) -> LiveRangingConfig:
     return LiveRangingConfig(
         calibration=CameraCalibration(
             calibration_id="camera-main-test-v1",
@@ -2176,7 +2587,8 @@ def _live_ranging_config() -> LiveRangingConfig:
             cx_px=320.0,
             cy_px=240.0,
             mount_pitch_down_deg=35.0,
-        )
+        ),
+        terrain_dem=terrain_dem,
     )
 
 
@@ -2353,6 +2765,66 @@ def test_live_primary_target_ranging_is_timestamped_degraded_and_read_only() -> 
     assert details["advisory_only"] is True
     assert details["flight_control_enabled"] is False
     assert details["physical_release_enabled"] is False
+
+
+def test_live_ranging_uses_qualified_gps_and_bound_dem_in_shared_engine() -> None:
+    mission = MissionController(_patrol_config())
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    _seed_locked_primary_target(target_pool)
+    terrain = load_local_dem_grid(
+        ROOT / "simulation" / "terrain" / "river_rescue_vtol_001.dem.json"
+    )
+
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(1),
+        detector=_Detector(),
+        telemetry_provider=_TerrainRangingTelemetryProvider(),
+        config=LiveRunConfig(max_frames=1, display=False),
+        unified_target_pool=target_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(terrain_dem=terrain),
+    ).run()
+
+    assert result.ranging_degraded_count == 1
+    solution = next(
+        event
+        for event in mission.audit.events()
+        if event.event_type == "ranging.primary_target_solution"
+    )
+    assert solution.details["validity"] == RangeValidity.DEGRADED.value
+    assert solution.details["sources"] == ("dem_gps", "camera_ground")
+    assert solution.details["slant_range_m"] is not None
+
+
+def test_live_ranging_does_not_flat_fallback_when_qualified_dem_gps_is_skewed() -> None:
+    mission = MissionController(_patrol_config())
+    target_pool = UnifiedTargetPool(UnifiedTargetPoolConfig(minimum_confirmed_hits=1))
+    _seed_locked_primary_target(target_pool)
+    terrain = load_local_dem_grid(
+        ROOT / "simulation" / "terrain" / "river_rescue_vtol_001.dem.json"
+    )
+
+    result = LiveMissionRunner(
+        mission=mission,
+        frame_source=_FrameSource(1),
+        detector=_Detector(),
+        telemetry_provider=_TerrainRangingTelemetryProvider(gps_lag_s=0.25),
+        config=LiveRunConfig(max_frames=1, display=False),
+        unified_target_pool=target_pool,
+        ranging_engine=MultiModalRangingEngine(),
+        ranging_config=_live_ranging_config(terrain_dem=terrain),
+    ).run()
+
+    assert result.ranging_invalid_count == 1
+    solution = next(
+        event
+        for event in mission.audit.events()
+        if event.event_type == "ranging.primary_target_solution"
+    )
+    assert solution.details["validity"] == RangeValidity.INVALID.value
+    assert solution.details["reasons"] == ("attitude_position_time_skew_exceeded",)
+    assert solution.details["slant_range_m"] is None
 
 
 def test_range_wire_build_failure_does_not_stop_locked_target_tracking(

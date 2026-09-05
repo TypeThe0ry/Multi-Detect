@@ -33,6 +33,9 @@ class RgbSlamRangeConfig:
     minimum_ray_separation_deg: float = 0.12
     minimum_camera_motion_confidence: float = 0.35
     maximum_position_age_s: float = 0.60
+    maximum_velocity_age_s: float = 0.60
+    maximum_airspeed_age_s: float = 0.80
+    maximum_dead_reckoning_gap_s: float = 0.50
     minimum_range_m: float = 0.4
     maximum_range_m: float = 800.0
 
@@ -46,6 +49,9 @@ class RgbSlamRangeConfig:
             and 0.0 < self.minimum_range_m < self.maximum_range_m
             and self.window_seconds > 0.0
             and self.maximum_position_age_s > 0.0
+            and self.maximum_velocity_age_s > 0.0
+            and self.maximum_airspeed_age_s > 0.0
+            and self.maximum_dead_reckoning_gap_s > 0.0
         ):
             raise ValueError("RGB-SLAM ranging configuration is invalid")
 
@@ -78,6 +84,13 @@ class RgbSlamRangeEstimator:
         camera_motion: CameraMotionEstimate | None,
     ) -> DirectRangeMeasurement | None:
         if (
+            isinstance(captured_at_s, bool)
+            or not isinstance(captured_at_s, (int, float))
+            or not math.isfinite(captured_at_s)
+            or captured_at_s < 0.0
+        ):
+            raise ValueError("RGB-SLAM frame timestamp must be finite and non-negative")
+        if (
             camera_motion is None
             or camera_motion.confidence < self.config.minimum_camera_motion_confidence
         ):
@@ -94,7 +107,10 @@ class RgbSlamRangeEstimator:
         ):
             return None
         pose = self._pose(telemetry)
-        if pose is None or abs(captured_at_s - pose.captured_at_s) > 0.35:
+        if pose is None:
+            return None
+        pose_age = _past_age(captured_at_s, pose.captured_at_s)
+        if pose_age is None or pose_age > 0.35:
             return None
         position = self._position(telemetry, captured_at_s=captured_at_s)
         if position is None:
@@ -114,7 +130,13 @@ class RgbSlamRangeEstimator:
         )
         history = self._history.setdefault(track.track_id, deque())
         if history and captured_at_s <= history[-1].captured_at_s:
-            return self._estimate(track_id=track.track_id, history=tuple(history))
+            # A duplicate or out-of-order camera frame is not a new
+            # observation. Returning the previous triangulation here would
+            # let a transport retry re-publish an old range and make the
+            # fusion layer count it as fresh evidence. Keep the estimator
+            # fail-closed at the source-frame boundary; the next monotonic
+            # frame can continue using the existing keyframe history.
+            return None
         # Keyframe admission uses visual transform quality and a bounded amount
         # of rotation/scale evidence.  This suppresses repeated near-identical
         # frames while preserving fixed-wing high-rate baselines.
@@ -157,10 +179,11 @@ class RgbSlamRangeEstimator:
     def _position(
         self, telemetry: VehicleTelemetry, *, captured_at_s: float
     ) -> tuple[float, float, float] | None:
-        age = abs(captured_at_s - telemetry.local_position_observed_at_s)
+        age = _past_age(captured_at_s, telemetry.local_position_observed_at_s)
         values = (telemetry.local_north_m, telemetry.local_east_m, telemetry.local_down_m)
         if (
             all(math.isfinite(value) for value in values)
+            and age is not None
             and age <= self.config.maximum_position_age_s
         ):
             position = tuple(float(value) for value in values)
@@ -169,10 +192,14 @@ class RgbSlamRangeEstimator:
         if self._last_position is None or self._last_time_s is None:
             return None
         elapsed = captured_at_s - self._last_time_s
-        if elapsed <= 0.0 or elapsed > 0.50:
+        if elapsed <= 0.0 or elapsed > self.config.maximum_dead_reckoning_gap_s:
             return None
-        if math.isfinite(telemetry.velocity_north_mps) and math.isfinite(
-            telemetry.velocity_east_mps
+        velocity_age = _past_age(captured_at_s, telemetry.velocity_observed_at_s)
+        if (
+            velocity_age is not None
+            and velocity_age <= self.config.maximum_velocity_age_s
+            and math.isfinite(telemetry.velocity_north_mps)
+            and math.isfinite(telemetry.velocity_east_mps)
         ):
             north_v, east_v = telemetry.velocity_north_mps, telemetry.velocity_east_mps
         elif (
@@ -180,6 +207,9 @@ class RgbSlamRangeEstimator:
             and math.isfinite(telemetry.airspeed_mps)
             and telemetry.airspeed_mps > 0.5
             and math.isfinite(telemetry.heading_deg)
+            and (airspeed_age := _past_age(captured_at_s, telemetry.airspeed_observed_at_s))
+            is not None
+            and airspeed_age <= self.config.maximum_airspeed_age_s
         ):
             heading = math.radians(telemetry.heading_deg)
             north_v = telemetry.airspeed_mps * math.cos(heading)
@@ -290,6 +320,28 @@ def _ray_angle(first: tuple[float, float, float], second: tuple[float, float, fl
 
 def _distance(first: tuple[float, float, float], second: tuple[float, float, float]) -> float:
     return math.sqrt(_dot(_subtract(first, second), _subtract(first, second)))
+
+
+def _past_age(now_s: float, observed_at_s: float) -> float | None:
+    """Return the age of a sample only when it is finite and not from the future.
+
+    Sensor clocks are not interchangeable: a future local-position or pose
+    sample can look fresh under ``abs(now - observed)`` while describing a
+    state that had not happened when the camera frame was captured.  Returning
+    ``None`` for that case keeps RGB-SLAM fail-closed and matches the GPS and
+    multimodal-ranging freshness contracts.
+    """
+
+    if (
+        isinstance(observed_at_s, bool)
+        or not isinstance(observed_at_s, (int, float))
+        or not math.isfinite(observed_at_s)
+    ):
+        return None
+    age_s = now_s - observed_at_s
+    if age_s < 0.0 or not math.isfinite(age_s):
+        return None
+    return age_s
 
 
 def _subtract(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from .approach_hil import (
@@ -47,11 +48,15 @@ class LiveApproachHilCoordinator:
         *,
         controller: ApproachHilController,
         calibration: CameraCalibration,
-        flight_control_enabled: bool = False,
+        flight_control_enabled: bool | Callable[[], bool] = False,
     ) -> None:
+        if not isinstance(flight_control_enabled, bool) and not callable(
+            flight_control_enabled
+        ):
+            raise TypeError("flight_control_enabled must be boolean or a callable")
         self.controller = controller
         self.calibration = calibration
-        self.flight_control_enabled = flight_control_enabled
+        self._flight_control_enabled = flight_control_enabled
         self._binding: tuple[str, str, int] | None = None
         self._challenge_sequence = 0
         self._status_sequence = 0
@@ -61,6 +66,17 @@ class LiveApproachHilCoordinator:
     @property
     def active_binding(self) -> tuple[str, str, int] | None:
         return self._binding
+
+    @property
+    def flight_control_enabled(self) -> bool:
+        source = self._flight_control_enabled
+        if isinstance(source, bool):
+            return source
+        try:
+            value = source()
+        except Exception:
+            return False
+        return value if isinstance(value, bool) else False
 
     def clear(self) -> None:
         self.controller.clear_target()

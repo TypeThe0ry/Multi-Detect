@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -110,3 +111,111 @@ def test_rgb_slam_requires_background_motion_confidence() -> None:
     )
 
     assert measurement is None
+
+
+def test_rgb_slam_rejects_future_pose_and_local_position_samples() -> None:
+    estimator = RgbSlamRangeEstimator()
+    telemetry = _telemetry(t=10.1, east=0.0)
+
+    # A future pose is not a valid substitute for the frame's state, even when
+    # it is within the old absolute-skew window.
+    assert (
+        estimator.observe(
+            track=_track(t=10.0, center_x=0.6),
+            telemetry=telemetry,
+            calibration=CALIBRATION,
+            frame_id="future-pose",
+            captured_at_s=10.0,
+            camera_motion=CameraMotionEstimate(dx=0.01, dy=0.0, confidence=0.9),
+        )
+        is None
+    )
+
+    # Keep pose time valid, but make the local-position sample future.  With
+    # no prior position this must fail closed instead of seeding the history.
+    local_future = replace(
+        _telemetry(t=10.0, east=0.0),
+        local_position_observed_at_s=10.2,
+    )
+    assert (
+        estimator.observe(
+            track=_track(t=10.0, center_x=0.6),
+            telemetry=local_future,
+            calibration=CALIBRATION,
+            frame_id="future-position",
+            captured_at_s=10.0,
+            camera_motion=CameraMotionEstimate(dx=0.01, dy=0.0, confidence=0.9),
+        )
+        is None
+    )
+
+
+def test_rgb_slam_rejects_dead_reckoning_from_stale_velocity_and_airspeed() -> None:
+    estimator = RgbSlamRangeEstimator()
+    first = estimator.observe(
+        track=_track(t=10.0, center_x=0.6),
+        telemetry=_telemetry(t=10.0, east=0.0),
+        calibration=CALIBRATION,
+        frame_id="seed",
+        captured_at_s=10.0,
+        camera_motion=CameraMotionEstimate(dx=0.01, dy=0.0, confidence=0.9),
+    )
+    assert first is None
+
+    stale = replace(
+        _telemetry(t=10.1, east=0.0),
+        local_north_m=float("nan"),
+        local_east_m=float("nan"),
+        local_down_m=float("nan"),
+        local_position_observed_at_s=float("nan"),
+        velocity_observed_at_s=0.0,
+        airspeed_observed_at_s=0.0,
+        armed=True,
+    )
+    assert (
+        estimator.observe(
+            track=_track(t=10.1, center_x=0.6),
+            telemetry=stale,
+            calibration=CALIBRATION,
+            frame_id="stale-dead-reckoning",
+            captured_at_s=10.1,
+            camera_motion=CameraMotionEstimate(dx=0.01, dy=0.0, confidence=0.9),
+        )
+        is None
+    )
+
+
+def test_rgb_slam_drops_duplicate_and_out_of_order_frames() -> None:
+    estimator = RgbSlamRangeEstimator()
+    for index in range(8):
+        timestamp = 20.0 + index * 0.1
+        east = float(index)
+        center_x = (CALIBRATION.cx_px + CALIBRATION.fx_px * (20.0 - east) / 50.0) / 1280.0
+        estimator.observe(
+            track=_track(t=timestamp, center_x=center_x),
+            telemetry=_telemetry(t=timestamp, east=east),
+            calibration=CALIBRATION,
+            frame_id=f"frame-{index}",
+            captured_at_s=timestamp,
+            camera_motion=CameraMotionEstimate(dx=0.005, dy=0.0, confidence=0.95),
+        )
+
+    duplicate = estimator.observe(
+        track=_track(t=20.7, center_x=0.6),
+        telemetry=_telemetry(t=20.7, east=7.0),
+        calibration=CALIBRATION,
+        frame_id="duplicate",
+        captured_at_s=20.7,
+        camera_motion=CameraMotionEstimate(dx=0.005, dy=0.0, confidence=0.95),
+    )
+    out_of_order = estimator.observe(
+        track=_track(t=20.65, center_x=0.6),
+        telemetry=_telemetry(t=20.65, east=6.5),
+        calibration=CALIBRATION,
+        frame_id="out-of-order",
+        captured_at_s=20.65,
+        camera_motion=CameraMotionEstimate(dx=0.005, dy=0.0, confidence=0.95),
+    )
+
+    assert duplicate is None
+    assert out_of_order is None

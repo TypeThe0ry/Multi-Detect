@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/field-evidence-bundle.schema.json",
+  "title": "Multi-Detect field evidence bundle v1",
+  "description": "Hash-bound, read-only join of field link, GNSS, execution, target-event, raw replay timeline and WGS-84 accuracy evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "evidence_type",
+    "release_label",
+    "bundle_id",
+    "inputs",
+    "strata",
+    "checks",
+    "bindings",
+    "blocking_reasons",
+    "next_actions",
+    "gate_passed",
+    "release_eligible",
+    "hardware_acceptance",
+    "real_flight_acceptance",
+    "software_only",
+    "read_only_evidence",
+    "advisory_only",
+    "ground_truth_isolated",
+    "contains_flight_control",
+    "contains_truth"
+  ],
+  "properties": {
+    "event": {"const": "field_evidence_bundle_checked"},
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "multidetect.field-evidence-bundle.v1"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"},
+    "bundle_id": {"type": "string", "pattern": "^field-evidence-[0-9a-f]{24}$"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "inputs": {"$ref": "#/$defs/inputs"},
+    "strata": {"$ref": "#/$defs/strata"},
+    "checks": {"$ref": "#/$defs/checks"},
+    "bindings": {"type": "object"},
+    "blocking_reasons": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}},
+    "gate_passed": {"type": "boolean"},
+    "release_eligible": {"const": false},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "real_flight_acceptance": {"const": "not_claimed"},
+    "software_only": {"type": "boolean"},
+    "read_only_evidence": {"const": true},
+    "advisory_only": {"const": true},
+    "ground_truth_isolated": {"const": true},
+    "contains_flight_control": {"const": false},
+    "contains_truth": {"const": true}
+  },
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_telemetry_age_s", "require_real_domain"],
+      "properties": {
+        "maximum_telemetry_age_s": {"type": "number", "minimum": 0, "maximum": 1.5},
+        "require_real_domain": {"type": "boolean"}
+      }
+    },
+    "sha256OrNull": {
+      "anyOf": [
+        {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+        {"type": "null"}
+      ]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "present", "path", "sha256", "bytes"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "present": {"type": "boolean"},
+        "path": {"type": ["string", "null"]},
+        "sha256": {"$ref": "#/$defs/sha256OrNull"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "error": {"type": "string", "minLength": 1}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_session_report",
+        "gnss_capture_report",
+        "target_event_manifest",
+        "recording_manifest",
+        "telemetry_sidecar",
+        "link_preflight",
+        "accuracy_report"
+      ],
+      "properties": {
+        "field_session_report": {"$ref": "#/$defs/input"},
+        "gnss_capture_report": {"$ref": "#/$defs/input"},
+        "target_event_manifest": {"$ref": "#/$defs/input"},
+        "recording_manifest": {"$ref": "#/$defs/input"},
+        "telemetry_sidecar": {"$ref": "#/$defs/input"},
+        "link_preflight": {"$ref": "#/$defs/input"},
+        "accuracy_report": {"$ref": "#/$defs/input"}
+      }
+    },
+    "stratum": {
+      "type": "object",
+      "required": ["name", "input_names", "present", "gate_passed", "reasons"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "input_names": {"type": "array", "items": {"type": "string"}},
+        "present": {"type": "boolean"},
+        "gate_passed": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "strata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field_link", "gnss", "execution", "target_event", "media_timeline", "accuracy"],
+      "properties": {
+        "field_link": {"$ref": "#/$defs/stratum"},
+        "gnss": {"$ref": "#/$defs/stratum"},
+        "execution": {"$ref": "#/$defs/stratum"},
+        "target_event": {"$ref": "#/$defs/stratum"},
+        "media_timeline": {"$ref": "#/$defs/stratum"},
+        "accuracy": {"$ref": "#/$defs/stratum"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_inputs_present",
+        "all_strata_passed",
+        "cross_bindings_passed",
+        "hashes_complete",
+        "read_only_inputs",
+        "flight_control_output_present",
+        "real_domain_required"
+      ],
+      "properties": {
+        "all_inputs_present": {"type": "boolean"},
+        "all_strata_passed": {"type": "boolean"},
+        "cross_bindings_passed": {"type": "boolean"},
+        "hashes_complete": {"type": "boolean"},
+        "read_only_inputs": {"const": true},
+        "flight_control_output_present": {"const": false},
+        "real_domain_required": {"type": "boolean"}
+      }
+    }
+  }
+}

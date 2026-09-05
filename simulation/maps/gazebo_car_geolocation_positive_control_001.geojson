@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_geolocation_positive_control_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "gazebo-car-geolocation-positive-control-area",
+      "properties": {
+        "role": "operating_area",
+        "source": "repository_owned_software_simulation_asset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [103.79915145415007, 1.2991860713781134],
+            [103.80184854584993, 1.2991860713781134],
+            [103.80184854584993, 1.3008139286218867],
+            [103.79915145415007, 1.3008139286218867],
+            [103.79915145415007, 1.2991860713781134]
+          ]
+        ]
+      }
+    }
+  ]
+}

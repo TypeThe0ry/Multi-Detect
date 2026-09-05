@@ -4,6 +4,10 @@ import math
 
 import pytest
 
+from multidetect.mavlink_gps import (
+    MAVLINK_QUALIFIED_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_SATELLITES_MIN,
+)
 from multidetect.navigation_fusion import (
     AirspeedMeasurement,
     GpsVelocityMeasurement,
@@ -156,6 +160,26 @@ def test_consistent_pair_rejects_air_data_outlier() -> None:
     assert solution.north_mps == pytest.approx(10.05, abs=0.1)
 
 
+def test_consistent_but_spread_velocity_sources_inflate_uncertainty() -> None:
+    solution = NavigationVelocityFusionEngine().solve(
+        now_s=10.05,
+        gps=_gps(north_mps=10.0, east_mps=0.0, sigma_mps=0.3),
+        visual_odometry=_vio(north_mps=10.8, east_mps=0.0, sigma_mps=0.3),
+    )
+
+    # The pair is still inside the 3.5-sigma hard consistency gate, but its
+    # residual is larger than the two-dimensional degrees-of-freedom budget.
+    # The fused sigma must therefore be inflated and the result demoted to
+    # degraded rather than presenting a falsely precise outdoor velocity.
+    assert solution.validity is NavigationFusionValidity.DEGRADED
+    assert solution.sources == ("gps", "vio")
+    assert "navigation_velocity_uncertainty_inflated" in solution.reasons
+    assert solution.velocity_sigma_mps == pytest.approx(0.2828427, rel=1e-4)
+    assert solution.north_mps == pytest.approx(10.4)
+    assert solution.advisory_only is True
+    assert solution.flight_control_enabled is False
+
+
 def test_invalid_gps_and_missing_metric_vio_publish_no_velocity() -> None:
     solution = NavigationVelocityFusionEngine().solve(
         now_s=10.05,
@@ -230,12 +254,25 @@ def test_navigation_supervisor_marks_rejected_gps_as_suspect() -> None:
     assert state.solution.validity is NavigationFusionValidity.INVALID
 
 
+def test_navigation_fusion_defaults_share_canonical_gps_quality_floor() -> None:
+    config = NavigationFusionConfig()
+
+    assert config.minimum_gps_fix_type == MAVLINK_QUALIFIED_FIX_TYPE_MIN
+    assert config.minimum_gps_satellites == MAVLINK_QUALIFIED_SATELLITES_MIN
+
+    with pytest.raises(ValueError, match="minimum GPS fix type"):
+        NavigationFusionConfig(minimum_gps_fix_type=MAVLINK_QUALIFIED_FIX_TYPE_MIN - 1)
+    with pytest.raises(ValueError, match="minimum GPS satellite count"):
+        NavigationFusionConfig(minimum_gps_satellites=MAVLINK_QUALIFIED_SATELLITES_MIN - 1)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     (
         ("maximum_gps_age_s", 0.0),
         ("maximum_vio_age_s", float("nan")),
-        ("minimum_gps_fix_type", 1),
+        ("minimum_gps_fix_type", 2),
+        ("minimum_gps_satellites", 5),
         ("minimum_gps_satellites", 65),
         ("minimum_independent_sources", 1),
     ),

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multi-detect"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Safety-first mission orchestration prototype for non-hazardous UAV payload deployment"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [{ name = "Multi-Detect contributors" }]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "ruff>=0.6", "jsonschema>=4.20"]
 vision = ["numpy>=1.26", "opencv-contrib-python>=4.10", "onnxruntime>=1.18"]
 vision-gpu = [
   "numpy>=1.26",
@@ -27,14 +27,46 @@ model-tools = ["onnx>=1.16,<2"]
 
 [project.scripts]
 multi-detect = "multidetect.cli:main"
+multidetect-sim = "multidetect.simulator.__main__:main"
+multidetect-release-gate = "multidetect.release_gate:main"
+multidetect-release-mode-evidence = "multidetect.release_mode_evidence:main"
+multidetect-field-preflight = "multidetect.field_link_preflight:main"
+multidetect-field-preflight-verify = "multidetect.field_link_preflight:verify_main"
+multidetect-field-session = "multidetect.field_session_acceptance:main"
+multidetect-field-capture = "multidetect.field_session_capture:main"
+multidetect-field-capture-verify = "multidetect.field_session_capture:verify_main"
+multidetect-gnss-capture = "multidetect.gnss_capture:main"
+multidetect-gnss-capture-verify = "multidetect.gnss_capture:verify_main"
+multidetect-gnss-to-replay-sidecar = "multidetect.gnss_capture_sidecar:main"
+multidetect-field-evidence-check = "multidetect.field_evidence_bundle:main"
+multidetect-alert-link-bench = "multidetect.alert_link_bench:main"
+multidetect-alert-link-bench-verify = "multidetect.alert_link_bench:verify_main"
+multidetect-target-accuracy-from-replay = "multidetect.geolocation_survey:main"
+multidetect-target-survey-template = "multidetect.geolocation_survey_template:main"
+multidetect-mission-journal = "multidetect.mission_journal:main"
+multidetect-sim-external-evidence = "multidetect.simulator_external_evidence:main"
+multidetect-sim-combined-evidence = "multidetect.simulator_combined_evidence:main"
+multidetect-sim-safety-evidence = "multidetect.simulator.safety_evidence:main"
+multidetect-sim-scenario-matrix = "multidetect.simulator.scenario_matrix:main"
+multidetect-sim-3d-control-verify = "multidetect.simulator.three_d_control:main"
+multidetect-sim-scene-stream = "multidetect.simulator.scene_state:main"
+multidetect-sim-scene-stream-verify = "multidetect.simulator.scene_state:verify_main"
+multidetect-sim-scene-stream-set-verify = "multidetect.simulator.scene_stream_set:main"
+multidetect-plan = "multidetect.autonomy.planner_cli:main"
+multidetect-mission-compile = "multidetect.mission_compile_cli:main"
+multidetect-px4-mission-feedback = "multidetect.px4_mission_feedback_cli:main"
+multidetect-px4-mission-feedback-verify = "multidetect.px4_mission_feedback_cli:verify_main"
+multidetect-px4-runtime-profile-provision = "multidetect.px4_mission_feedback_cli:provision_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.dynamic]
+version = { attr = "multidetect.product_version.__version__" }
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

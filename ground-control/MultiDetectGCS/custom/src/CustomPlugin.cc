@@ -1,7 +1,9 @@
 #include "CustomPlugin.h"
 
 #include <QtCore/QApplicationStatic>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QSettings>
 #include <QtCore/QUrl>
 #include <QtQml/QQmlApplicationEngine>
@@ -10,6 +12,7 @@
 #include "MultiDetectOperatorController.h"
 #include "MultiDetectTargetEvidenceStore.h"
 #include "LinkConfiguration.h"
+#include "QGCApplication.h"
 #include "SettingsManager.h"
 #include "TCPLink.h"
 #include "VideoSettings.h"
@@ -36,6 +39,50 @@ QString runtimeEnvironmentValue(const char* name)
 #endif
 }
 
+bool runtimeEnvironmentFlagEnabled(const char* name)
+{
+    if (!qEnvironmentVariableIsSet(name)) {
+        return false;
+    }
+
+    const QString value = runtimeEnvironmentValue(name).trimmed().toLower();
+    // A malformed opt-in must fail closed.  Only explicit false spellings
+    // re-enable vehicle I/O once the isolation variable exists.
+    return value != QStringLiteral("0") && value != QStringLiteral("false") &&
+           value != QStringLiteral("no") && value != QStringLiteral("off");
+}
+
+bool runtimeEnvironmentExplicitlyTrue(const char* name)
+{
+    if (!qEnvironmentVariableIsSet(name)) {
+        return false;
+    }
+
+    const QString value = qEnvironmentVariable(name).trimmed().toLower();
+    return value == QStringLiteral("1") || value == QStringLiteral("true") ||
+           value == QStringLiteral("yes") || value == QStringLiteral("on");
+}
+
+bool vehicleLinkIsolationRequested()
+{
+    const QString expectedRuntimeMode =
+        runtimeEnvironmentValue("MULTIDETECT_EXPECTED_RUNTIME_MODE").trimmed().toUpper();
+    return expectedRuntimeMode == QStringLiteral("REPLAY") ||
+           runtimeEnvironmentFlagEnabled("MULTIDETECT_DISABLE_VEHICLE_LINK");
+}
+
+bool isDefaultVehicleProfile(const QSettings& settings, const QString& root,
+                             const QString& vehicleHost, quint16 vehiclePort)
+{
+    const QString name = settings.value(root + QStringLiteral("/name")).toString();
+    const auto type = static_cast<LinkConfiguration::LinkType>(
+        settings.value(root + QStringLiteral("/type"), LinkConfiguration::TypeLast).toInt());
+    const QString host = settings.value(root + QStringLiteral("/host")).toString();
+    const quint16 port = settings.value(root + QStringLiteral("/port"), 0).toUInt();
+    return name == QString::fromLatin1(kDefaultVehicleLinkName) ||
+           (type == LinkConfiguration::TypeTcp && host == vehicleHost && port == vehiclePort);
+}
+
 }  // namespace
 
 CustomPlugin::CustomPlugin(QObject* parent) : QGCCorePlugin(parent) {}
@@ -43,6 +90,19 @@ CustomPlugin::CustomPlugin(QObject* parent) : QGCCorePlugin(parent) {}
 QGCCorePlugin* CustomPlugin::instance()
 {
     return _customPluginInstance();
+}
+
+const QVariantList& CustomPlugin::toolBarIndicators()
+{
+    if (_toolBarIndicatorList.isEmpty()) {
+        // A custom build extends the native application indicators; it must
+        // never replace QGC's RTK or any future base indicator.
+        _toolBarIndicatorList = QGCCorePlugin::toolBarIndicators();
+        _toolBarIndicatorList.append(QVariant::fromValue(
+            QUrl(QStringLiteral("qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml"))));
+    }
+
+    return _toolBarIndicatorList;
 }
 
 void CustomPlugin::init()
@@ -64,23 +124,52 @@ void CustomPlugin::init()
                                     : kDefaultVehiclePort;
     const QString settingsRoot = LinkConfiguration::settingsRoot();
     int count = qMax(0, settings.value(settingsRoot + QStringLiteral("/count"), 0).toInt());
+
+    if (vehicleLinkIsolationRequested()) {
+        // REPLAY is an observation/metadata environment.  Remove the custom
+        // GR01/V6X profile before LinkManager loads persistent configurations,
+        // and do not recreate it on this boot.  Deliberately keep unrelated
+        // user profiles and the ephemeral signed Jetson metadata link intact.
+        // Leaving an empty index is supported by LinkManager and avoids
+        // rewriting any unrelated, type-specific settings while still making
+        // the physical vehicle profile non-persistent and non-autoconnecting.
+        for (int index = 0; index < count; ++index) {
+            const QString root = settingsRoot + QStringLiteral("/Link%1").arg(index);
+            if (isDefaultVehicleProfile(settings, root, vehicleHost, vehiclePort)) {
+                settings.remove(root);
+            }
+        }
+        while (count > 0 &&
+               !settings.contains(settingsRoot + QStringLiteral("/Link%1/type").arg(count - 1))) {
+            --count;
+        }
+        settings.setValue(settingsRoot + QStringLiteral("/count"), count);
+        settings.sync();
+        return;
+    }
+
     int profileIndex = -1;
+    int freeProfileIndex = -1;
     for (int index = 0; index < count; ++index) {
         const QString root = settingsRoot + QStringLiteral("/Link%1").arg(index);
-        const QString name = settings.value(root + QStringLiteral("/name")).toString();
-        const auto type = static_cast<LinkConfiguration::LinkType>(
-            settings.value(root + QStringLiteral("/type"), LinkConfiguration::TypeLast).toInt());
-        const QString host = settings.value(root + QStringLiteral("/host")).toString();
-        const quint16 port = settings.value(root + QStringLiteral("/port"), 0).toUInt();
-        if (name == QString::fromLatin1(kDefaultVehicleLinkName)
-            || (type == LinkConfiguration::TypeTcp && host == vehicleHost && port == vehiclePort)) {
+        if (!settings.contains(root + QStringLiteral("/type"))) {
+            if (freeProfileIndex < 0) {
+                freeProfileIndex = index;
+            }
+            continue;
+        }
+        if (isDefaultVehicleProfile(settings, root, vehicleHost, vehiclePort)) {
             profileIndex = index;
             break;
         }
     }
     if (profileIndex < 0) {
-        profileIndex = count++;
-        settings.setValue(settingsRoot + QStringLiteral("/count"), count);
+        if (freeProfileIndex >= 0) {
+            profileIndex = freeProfileIndex;
+        } else {
+            profileIndex = count++;
+            settings.setValue(settingsRoot + QStringLiteral("/count"), count);
+        }
     }
     const QString root = settingsRoot + QStringLiteral("/Link%1").arg(profileIndex);
     settings.setValue(root + QStringLiteral("/name"), QString::fromLatin1(kDefaultVehicleLinkName));
@@ -153,6 +242,48 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectOperator"), _operatorController);
     _qmlEngine->rootContext()->setContextProperty(
         QStringLiteral("multiDetectTargetEvidenceStore"), _targetEvidenceStore);
+    _qmlEngine->rootContext()->setContextProperty(
+        QStringLiteral("multiDetectVehicleLinkDisabled"), vehicleLinkIsolationRequested());
+    // The closed-loop HIL acceptance driver may exercise the same QML state
+    // machine that the operator clicks in Fly View.  It is opt-in, requires
+    // the explicit isolated-HIL command-line boundary, and never changes the
+    // production controller or adds a second UI surface.
+    const bool hilUiAutoExercise = QCoreApplication::arguments().contains(QStringLiteral("--isolated-hil")) &&
+                                   runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_UI_AUTO_EXERCISE");
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiAutoExercise"),
+                                                   hilUiAutoExercise);
+    const bool hilUiAutoExit = hilUiAutoExercise &&
+                               runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_UI_AUTO_EXIT");
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiAutoExit"), hilUiAutoExit);
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiExitController"),
+                                                   qobject_cast<QGCApplication*>(QCoreApplication::instance()));
+    // Native toolbar acceptance may export the actual QML scene geometry used
+    // by the one QGC main window. This is deliberately fail-closed: both the
+    // isolated-HIL command-line boundary and an explicitly true process
+    // environment value are required. Production launches therefore expose
+    // the context property as false and emit no geometry telemetry.
+    const bool hilUiGeometryExport =
+        QCoreApplication::arguments().contains(QStringLiteral("--isolated-hil")) &&
+        runtimeEnvironmentExplicitlyTrue("MULTIDETECT_HIL_UI_GEOMETRY_EXPORT");
+    _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiGeometryExport"),
+                                                   hilUiGeometryExport);
+
+    // An acceptance run may export the pixels rendered by QGC's one native
+    // VideoOutput. Do not expose this hook to a normal application launch:
+    // the command-line isolation boundary, an explicit true value, and an
+    // absolute output prefix are all mandatory.
+    const QString configuredVideoGrabPrefix =
+        runtimeEnvironmentValue("MULTIDETECT_HIL_VIDEO_GRAB_PREFIX").trimmed();
+    const bool hilVideoGrabExport =
+        QCoreApplication::arguments().contains(QStringLiteral("--isolated-hil")) &&
+        runtimeEnvironmentExplicitlyTrue("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT") &&
+        QFileInfo(configuredVideoGrabPrefix).isAbsolute();
+    if (hilVideoGrabExport) {
+        _qmlEngine->rootContext()->setContextProperty(
+            QStringLiteral("multiDetectHilVideoGrabExport"), true);
+        _qmlEngine->rootContext()->setContextProperty(
+            QStringLiteral("multiDetectHilVideoGrabPrefix"), configuredVideoGrabPrefix);
+    }
 
     _selector = new CustomOverrideInterceptor();
     _qmlEngine->addUrlInterceptor(_selector);

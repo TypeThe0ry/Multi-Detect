@@ -47,6 +47,7 @@ Testing/
 # Qt Generated Files
 # ------------------------------------------------------------------------------
 *_qmlcache.qrc
+*.qmlc
 qrc_*.cpp
 moc_*
 ui_*

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_positive_control_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "gazebo_car_positive_control_001.runtime.json",
+      "sha256": "fb11ab995a3ac85d3945f2073656c569515a9584926e72b62bc1fe8b45122c85"
+    },
+    "truth": {
+      "path": "gazebo_car_positive_control_001.truth.json",
+      "sha256": "a081917695dcc4be1410a434f054e8119e47a251dc3dd4ca7a1e6e60d1c8169c"
+    },
+    "expectations": {
+      "path": "gazebo_car_positive_control_001.expectations.json",
+      "sha256": "084f623d255e84c73d1401e7382ae795a61862a2064806b74c3657b69c6356e2"
+    }
+  }
+}

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .compat import UTC
+from .inference_provider import provider_selection_document
 from .vision import CameraReadError
 
 GPU_PROVIDERS = frozenset({"TensorrtExecutionProvider", "CUDAExecutionProvider"})
@@ -210,6 +211,9 @@ def run_jetson_vision_bench(
         "device_model_raw": raw_model or None,
         "active_inference_provider": active_provider,
         "available_inference_providers": list(providers),
+        "provider_selection": provider_selection_document(
+            getattr(detector, "provider_selection", None)
+        ),
         "processed_frames": processed_frames,
         "detections_processed": detection_count,
         "frames_with_raw_candidates": frames_with_raw_candidates,

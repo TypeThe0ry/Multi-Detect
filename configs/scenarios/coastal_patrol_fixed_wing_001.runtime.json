@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "scenario_id": "coastal_patrol_fixed_wing_001",
+  "scenario_version": 1,
+  "seed": 62031,
+  "world": {
+    "world_asset": "builtin://gazebo/coastal_patrol_fixed_wing_001",
+    "map_asset": "builtin://maps/coastal_patrol_fixed_wing_001.geojson",
+    "dem_asset": "builtin://terrain/coastal_patrol_fixed_wing_001.dem.json",
+    "wind_north_mps": 2.0,
+    "wind_east_mps": -0.8,
+    "gust_mps": 1.5
+  },
+  "vehicle": {
+    "model": "px4_fixed_wing_standard",
+    "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+    "spawn_id": "coastal_runway_fixed_wing"
+  },
+  "sensors": [
+    {
+      "sensor_id": "front-camera",
+      "kind": "rgb_camera",
+      "stream_uri": "gazebo://coastal_patrol_fixed_wing_001/front-camera",
+      "calibration_id": "gazebo-fixed-wing-front-camera-v1"
+    },
+    {
+      "sensor_id": "px4-telemetry",
+      "kind": "mavlink_telemetry",
+      "stream_uri": "udp://127.0.0.1:14541"
+    },
+    {
+      "sensor_id": "airspeed",
+      "kind": "airspeed",
+      "stream_uri": "gazebo://coastal_patrol_fixed_wing_001/airspeed",
+      "calibration_id": "gazebo-fixed-wing-airspeed-v1"
+    }
+  ],
+  "faults": [
+    {
+      "event_id": "gps-drift-001",
+      "at_s": 45.0,
+      "kind": "gps_drift",
+      "duration_s": 12.0,
+      "magnitude": 0.75
+    },
+    {
+      "event_id": "airspeed-freeze-001",
+      "at_s": 90.0,
+      "kind": "airspeed_freeze",
+      "duration_s": 6.0
+    },
+    {
+      "event_id": "wind-gust-001",
+      "at_s": 120.0,
+      "kind": "wind_gust",
+      "duration_s": 4.0,
+      "magnitude": 3.0
+    },
+    {
+      "event_id": "camera-loss-001",
+      "at_s": 180.0,
+      "kind": "camera_dropout",
+      "duration_s": 5.0
+    }
+  ]
+}

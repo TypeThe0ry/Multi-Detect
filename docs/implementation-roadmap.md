@@ -2,6 +2,36 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
+## 当前 pre.8 户外定位/SIM 资源收口
+
+- [x] 将三轴射线不确定性失败映射为 Python/QGC 共用的 `RANGE_STATUS` bit 31，保持内部诊断细粒度并
+  让操作端稳定显示 fail-closed 状态。
+- [x] 为三种机型场景加入仓库自带 GeoJSON 地图和严格 `.dem.json` 网格，校验场景 ID、WGS-84、
+  Gazebo world origin、网格边界、文件 containment 与 SHA-256。
+- [x] 将 map/DEM 纳入 simulator aggregate asset identity、外部 runtime 环境和 VTOL acceptance 的
+  真实文件 availability 判断。
+- [x] 在共享 `MultiModalRangingEngine` 中加入局部 DEM 高程/坡度采样、射线-地形交点和坡度不确定性
+  传播；REPLAY/SIM/HIL/REAL 必须复用同一实现。
+- [x] 将同一合格 raw GPS 样本的绝对 MSL 高度贯通 Pixhawk、live、raw replay 和 GNSS sidecar；配置
+  DEM 后，时间偏斜/越界/无交点禁止平地回退，并避免同源 AGL 二次融合。
+- [x] 增加 `--ranging-dem` CLI、严格 WGS-84/MSL/原点/100 km 域校验和三机型 v52 确定性 hash binding。
+- [x] 建立非平坦 `terrain_ranging_validation_001` SDF/DEM 对，并从 SDF transform 独立恢复解析平面
+  truth；41 个表面样本与 7 条射线（6 条跨单元、1 条垂直基准）通过严格误差门。该结果只关闭
+  deterministic asset-geometry 子门。
+- [x] 在外部 PX4/Gazebo 中实际加载非平坦 world，采集 image/NavSat/Odometry，并由 qualified NavSat
+  MSL − scenario DEM MSL 产生 AGL；v54 关闭 sensor-runtime/高度基准子门，但该记录只在 home 采样。
+- [x] 在 x500 disposable PX4/Gazebo 中让 truth-free synthetic target 经过共享 perception → AI →
+  `MANUAL_CONTROL` 路径，观察 PX4 `GLOBAL_POSITION_INT` 最大 `0.818282 m` 位移；v55 不使用
+  truth/pose injection，只关闭单机型 reported-position response 机器子门。
+- [x] 对 v55 current-code 执行全仓库回归：2,907 tests 中 `2906 passed, 1 skipped, 0 failed, 0 errors`；
+  唯一跳过为 Windows symlink 权限项，JUnit SHA-256 为
+  `A2C2595C49D0B663468D09274D22976CC1B4D9128425BB23458445B1C5397F51`。
+- [ ] 使用真实 Gazebo camera detection 经过共享 ranging、target geolocation、evidence card 和原生 QGC
+  Fly View，在多个坡高上完成动态精度与人工视觉验收。
+- [ ] 生成 fixed-wing 与 VTOL 对等动态 response evidence；只有明确纳入发布门并重跑 E7 wrapper 后，
+  才能更新三机型 external source 或 blocker 数。
+- [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。
+
 ## Phase 1: software-only mission loop
 
 ### 1. Unified aircraft configuration
@@ -75,6 +105,8 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Add an HMAC-SHA256 authenticated UDP sender/receiver with signed correlation, timestamp checks and persistent receiver deduplication.
 - [x] Run the camera/ONNX/tracker task and ground receiver as separate local processes: 105 predictions, one authenticated alert, one correlated ACK, delivered aircraft outbox row and matching ground dedup row.
 - [x] Prove restart recovery with the real UDP adapter: ground offline leaves the original alert pending; the next run retransmits the same alert ID before new frames and clears it only after authenticated ACK.
+- [x] Add a bounded authenticated alert-link bench that emits new alert IDs, retry/missing-ACK accounting and ACK P50/P95 metrics; loopback output is explicitly software baseline and cannot satisfy a hardware gate.
+- [x] Hash-bind a passing REAL authenticated alert-link bench into the E7 manifest; re-open and re-verify its source report on every evaluation while keeping prerelease manifests backward-compatible.
 - [ ] Implement and validate the authenticated ACK transport on the selected real data link.
 
 ### 4. Model and replay validation
@@ -86,7 +118,17 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Verify every supplied model manifest before loading any ONNX graph, and keep person-detector health false unless safety-object role evidence is verified.
 - [x] Stream normalized predictions and inference latency for every processed frame.
 - [x] Add a frame-aligned IoU evaluator for per-class/overall precision, recall, false alarms, misses and P50/P95 latency.
+- [x] Add an optional GNSS-to-camera body-NED lever-arm correction to the shared ranging/WGS-84
+  projector; rotate it with roll/pitch/heading, propagate survey sigma into ground/bearing
+  uncertainty, persist it in ChArUco calibration provenance, and keep zero-valued legacy files
+  byte/behavior compatible.
+- [x] Propagate the common camera-mount survey sigma independently through pitch/yaw/roll NED ray
+  endpoints for range and bearing, and fail closed when any one-sigma mount-axis endpoint crosses
+  the horizon; keep REPLAY/SIM/HIL/REAL on the same ranging implementation.
 - [x] Run the full local-camera path through a real constant-output ONNX HIL artifact: 120 frames, one multi-frame-confirmed patrol alert, zero authorization/payload events and complete prediction/audit logs.
+- [x] Add a hash-bound model review envelope that joins the candidate manifest, post-NMS `N x 6`
+  model-check report, deployment-domain accuracy report and four independent governance decisions;
+  it never mutates the manifest, and synthetic HIL remains ineligible for production approval.
 - [ ] Add a reviewed post-NMS `N x 6` fire/smoke ONNX artifact and manifest.
 - [ ] Build day, night, haze, reflection, smoke-only and no-fire replay sets.
 - [ ] Measure deployment-domain per-class precision, recall, false alarms, missed detections and latency with the completed evaluator.
@@ -109,7 +151,10 @@ Phase 1 exit criteria:
   model class/coordinate contract, RTSP syntax, read-only Pixhawk endpoint and authenticated alert
   settings without opening hardware or ONNX Runtime.
 - [ ] Install and validate the package on the actual Orin Nano/JetPack image.
-- Select TensorRT, CUDA or CPU provider by validated fallback order.
+- [x] Implement deterministic TensorRT → CUDA → CPU provider ordering and bounded suffix fallback
+  when default session construction fails; explicit provider lists remain strict and selection attempts
+  are emitted in model-check/Jetson bench evidence.
+- [ ] Validate the provider order and failover on the actual Orin Nano/JetPack image.
 - [x] Add bounded capture/inference P50/P95 metrics, average FPS and reconnect counters.
 - [x] Add configurable RTSP/local-camera reconnect attempts without a stale-frame queue.
 - [x] Keep credential-bearing RTSP URIs out of service process arguments and redact them from application camera errors.
@@ -132,6 +177,26 @@ Exit criteria: representative RTSP video runs for the required mission duration 
 - [x] Decode geographic position, relative altitude, attitude, speed, heading, battery, satellite count, armed state, flight mode and mission sequence.
 - [x] Display link/position freshness, aircraft coordinates and a relative aircraft trail in the live console.
 - [x] Add a standalone `pixhawk-check` sampler that proves the diagnostic path transmits zero messages.
+- [x] Passively parse a complete `AUTOPILOT_VERSION` only from the accepted heartbeat
+  system/component, redact raw `uid2`/`uid` behind a domain-separated SHA-256, expose version age and
+  rejection counters, and add a zero-transmit `--require-autopilot-version` diagnostic gate.
+- [x] Promote the sanitized `AUTOPILOT_VERSION` identity hash into newly provisioned signed HIL/REAL
+  RuntimeProfiles and all six Mission-feedback E7 leaves while keeping legacy profile documents
+  readable for diagnostics; provision now requires a same-source version frame observed during its
+  own receive-only, zero-transmit probe window.
+- [x] Separate legacy RuntimeProfile diagnostics from flight authority: every HIL/REAL launcher and
+  REAL output request now requires a profile-bound, live-matching firmware identity, and the
+  low-level flight provider independently rejects firmwareless profiles.
+- [x] Separate launcher-probe authorization from actual-provider liveness: every new flight provider
+  starts output-locked, must independently re-attest a fresh same-source heartbeat and firmware
+  identity before any stream request or control output, and revokes/clears that attestation on
+  timeout, stable identity change or close. CLI, Mode-3 approach status and fixed-wing audit events
+  consume this dynamic state instead of a startup snapshot.
+- [x] Make the native QGC Mode-3 banner consume the same dynamic authority: “aim active” requires
+  current flight-control enablement, while locked/stale/abort/cancel states explicitly state that no
+  attitude or mode command is being sent. Keep the shared Fly View and QGC-native controls.
+- [ ] Capture `AUTOPILOT_VERSION` from the real V6X and use that exact identity in six independent
+  HIL/REAL × fixed-wing/multirotor/VTOL profile/report leaves.
 - [x] Add a separate, single-use `pixhawk-param-backup` path that requires explicit acknowledgement,
   sends exactly one `PARAM_REQUEST_LIST`, preserves PX4 bytewise integer values and raw wire bytes,
   rejects incomplete lists, and has no parameter-write, command, mission or actuator send path. Its

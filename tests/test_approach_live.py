@@ -164,6 +164,40 @@ def test_live_coordinator_binds_challenge_and_consumes_continuous_slide() -> Non
     assert second.assessment.physical_release_enabled is False
 
 
+def test_live_coordinator_resolves_flight_control_state_for_every_status() -> None:
+    state = {"enabled": False}
+    coordinator = LiveApproachHilCoordinator(
+        controller=ApproachHilController(),
+        calibration=_calibration(),
+        flight_control_enabled=lambda: state["enabled"],
+    )
+
+    locked = _prepare(coordinator)
+    assert locked.status.flight_control_enabled is False
+    state["enabled"] = True
+    attested = _prepare(coordinator, now_s=10.06, wire_now_s=1000.06)
+    assert attested.status.flight_control_enabled is True
+
+
+def test_live_coordinator_fails_closed_for_broken_control_state_supplier() -> None:
+    def _raise() -> bool:
+        raise RuntimeError("link status unavailable")
+
+    raising = LiveApproachHilCoordinator(
+        controller=ApproachHilController(),
+        calibration=_calibration(),
+        flight_control_enabled=_raise,
+    )
+    malformed = LiveApproachHilCoordinator(
+        controller=ApproachHilController(),
+        calibration=_calibration(),
+        flight_control_enabled=lambda: "yes",  # type: ignore[return-value]
+    )
+
+    assert _prepare(raising).status.flight_control_enabled is False
+    assert _prepare(malformed).status.flight_control_enabled is False
+
+
 def test_live_coordinator_issues_challenge_on_immediate_locked_pool_state() -> None:
     coordinator = LiveApproachHilCoordinator(
         controller=ApproachHilController(), calibration=_calibration()

@@ -26,6 +26,7 @@ void QGCCommandLineParserTest::_testDefaultResult()
     QCOMPARE(result.simpleBootTest,       false);
     QCOMPARE(result.offlineMode,          false);
     QCOMPARE(result.isolatedHilMode,      false);
+    QCOMPARE(result.isolatedHilForceCpuVideo, false);
 
     QCOMPARE(result.runningUnitTests,     false);
     QVERIFY(result.unitTests.isEmpty());

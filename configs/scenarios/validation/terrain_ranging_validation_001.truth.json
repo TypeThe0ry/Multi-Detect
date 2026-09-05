@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "scenario_id": "terrain_ranging_validation_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "north-slope-target",
+      "label": "orange_terrain_marker",
+      "position": {
+        "latitude_deg": 1.3007234917612922,
+        "longitude_deg": 103.80112898168858
+      },
+      "behavior": "stationary"
+    },
+    {
+      "target_id": "south-slope-target",
+      "label": "blue_terrain_marker",
+      "position": {
+        "latitude_deg": 1.2994573809563008,
+        "longitude_deg": 103.79960145517822
+      },
+      "behavior": "stationary"
+    }
+  ]
+}

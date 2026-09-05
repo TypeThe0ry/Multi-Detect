@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-set-calibration-report.schema.json",
+  "title": "Multi-Detect Replay-Set Threshold Calibration Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "manifest_path",
+    "manifest_sha256",
+    "canonical_sha256",
+    "dataset_id",
+    "dataset_version",
+    "required_strata",
+    "coverage",
+    "deployment_domain_evidence_complete",
+    "predictions_complete",
+    "threshold_grid",
+    "iou_threshold",
+    "beta",
+    "minimum_recall",
+    "stability_tolerance",
+    "current_thresholds",
+    "current_metrics",
+    "entries",
+    "strata",
+    "stability",
+    "calibration",
+    "reviewed",
+    "reviewer",
+    "promotion_ready",
+    "failure_reasons"
+  ],
+  "properties": {
+    "event": {"const": "replay_set_threshold_calibration_completed"},
+    "schema_version": {"const": 1},
+    "manifest_path": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "canonical_sha256": {"$ref": "#/$defs/sha256"},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "required_strata": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]}
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entry_count", "frame_count"],
+        "properties": {
+          "entry_count": {"type": "integer", "minimum": 0},
+          "frame_count": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "deployment_domain_evidence_complete": {"type": "boolean"},
+    "predictions_complete": {"type": "boolean"},
+    "threshold_grid": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "iou_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "beta": {"type": "number", "exclusiveMinimum": 0},
+    "minimum_recall": {"type": "number", "minimum": 0, "maximum": 1},
+    "stability_tolerance": {"type": "number", "minimum": 0, "maximum": 1},
+    "current_thresholds": {
+      "type": ["object", "null"],
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "current_metrics": {"type": ["object", "null"]},
+    "entries": {"type": "array"},
+    "strata": {"type": "object"},
+    "stability": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recommended_strata",
+          "missing_recommendation_strata",
+          "recommendation_count",
+          "available_strata_count",
+          "coverage_ratio",
+          "thresholds_by_stratum",
+          "threshold_min",
+          "threshold_max",
+          "threshold_range",
+          "threshold_mean",
+          "stable_at_tolerance"
+        ],
+        "properties": {
+          "recommended_strata": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]}
+          },
+          "missing_recommendation_strata": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]}
+          },
+          "recommendation_count": {"type": "integer", "minimum": 1},
+          "available_strata_count": {"type": "integer", "minimum": 0},
+          "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+          "thresholds_by_stratum": {
+            "type": "object",
+            "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+          },
+          "threshold_min": {"type": "number", "minimum": 0, "maximum": 1},
+          "threshold_max": {"type": "number", "minimum": 0, "maximum": 1},
+          "threshold_range": {"type": "number", "minimum": 0, "maximum": 1},
+          "threshold_mean": {"type": "number", "minimum": 0, "maximum": 1},
+          "stable_at_tolerance": {"type": "boolean"}
+        }
+      }
+    },
+    "calibration": {"type": ["object", "null"]},
+    "reviewed": {"type": "boolean"},
+    "reviewer": {"type": ["string", "null"]},
+    "promotion_ready": {"type": "boolean"},
+    "failure_reasons": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+  }
+}

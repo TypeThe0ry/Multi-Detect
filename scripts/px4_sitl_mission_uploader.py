@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
@@ -59,6 +60,21 @@ class MissionUploadResult:
     request_message_types: tuple[str, ...]
     transmitted_message_count: int
     retry_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class MissionReadbackResult:
+    """Readback and hash comparison for the mission stored by PX4."""
+
+    mission_count: int
+    received_sequences: tuple[int, ...]
+    received_message_types: tuple[str, ...]
+    retry_count: int
+    uploaded_sha256: str
+    readback_sha256: str
+    items_match: bool
+    hash_match: bool
+    mismatch_fields: tuple[str, ...]
 
 
 def validate_disarmed_upload_heartbeat(heartbeat: Any) -> dict[str, object]:
@@ -126,6 +142,106 @@ def build_hil_patrol_mission(
             longitude_e7=home_longitude_e7 + 13_200,
             relative_altitude_m=5.0,
         ),
+    )
+
+
+def _canonical_mission_items(items: Sequence[MissionItem]) -> bytes:
+    """Serialize only the mission contract fields used for the acceptance hash."""
+
+    payload = []
+    for item in items:
+        serialized = asdict(item)
+        # PX4 stores command-specific defaults in its mission table: a NaN yaw
+        # is read back as zero and TAKEOFF's optional pitch is normalized to 0.
+        # Hash those protocol-canonical values so upload/readback proves the
+        # mission PX4 actually stores rather than float sentinel spelling.
+        serialized["param1"] = (
+            0.0
+            if item.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
+            else item.param1
+        )
+        serialized["param4"] = 0.0 if math.isnan(item.param4) else item.param4
+        payload.append(serialized)
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+        "utf-8"
+    )
+
+
+def mission_sha256(items: Sequence[MissionItem]) -> str:
+    """Return a deterministic SHA-256 for an ordered mission item sequence."""
+
+    return hashlib.sha256(_canonical_mission_items(items)).hexdigest()
+
+
+def _mavlink_command_name(command: int) -> str:
+    entry = mavutil.mavlink.enums["MAV_CMD"].get(command)
+    return entry.name if entry is not None else f"MAV_CMD_{command}"
+
+
+def _mission_item_from_message(message: Any) -> MissionItem:
+    """Normalize either MISSION_ITEM_INT or MISSION_ITEM into our contract."""
+
+    message_type = str(message.get_type())
+    if message_type == "MISSION_ITEM_INT":
+        latitude_e7 = int(message.x)
+        longitude_e7 = int(message.y)
+    elif message_type == "MISSION_ITEM":
+        latitude_e7 = int(round(float(message.x) * 10_000_000.0))
+        longitude_e7 = int(round(float(message.y) * 10_000_000.0))
+    else:
+        raise SitlMissionUploadError(f"unsupported mission readback message: {message_type}")
+    return MissionItem(
+        sequence=int(message.seq),
+        command=int(message.command),
+        command_name=_mavlink_command_name(int(message.command)),
+        param1=float(message.param1),
+        param2=float(message.param2),
+        param3=float(message.param3),
+        param4=float(message.param4),
+        latitude_e7=latitude_e7,
+        longitude_e7=longitude_e7,
+        relative_altitude_m=float(message.z),
+    )
+
+
+def _float_matches(expected: float, actual: float, *, tolerance: float) -> bool:
+    if math.isnan(expected):
+        return math.isnan(actual)
+    return math.isfinite(actual) and abs(expected - actual) <= tolerance
+
+
+def _mission_item_matches(expected: MissionItem, actual: MissionItem) -> bool:
+    return not _mission_item_mismatch_fields(expected, actual)
+
+
+def _mission_item_mismatch_fields(expected: MissionItem, actual: MissionItem) -> tuple[str, ...]:
+    expected_param1 = (
+        0.0
+        if expected.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
+        else expected.param1
+    )
+    actual_param1 = (
+        0.0
+        if actual.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
+        else actual.param1
+    )
+    expected_param4 = 0.0 if math.isnan(expected.param4) else expected.param4
+    actual_param4 = 0.0 if math.isnan(actual.param4) else actual.param4
+    checks = {
+        "sequence": expected.sequence == actual.sequence,
+        "command": expected.command == actual.command,
+        "latitude_e7": expected.latitude_e7 == actual.latitude_e7,
+        "longitude_e7": expected.longitude_e7 == actual.longitude_e7,
+        "param1": _float_matches(expected_param1, actual_param1, tolerance=1.0e-3),
+        "param2": _float_matches(expected.param2, actual.param2, tolerance=1.0e-3),
+        "param3": _float_matches(expected.param3, actual.param3, tolerance=1.0e-3),
+        "param4": _float_matches(expected_param4, actual_param4, tolerance=1.0e-3),
+        "relative_altitude_m": _float_matches(
+            expected.relative_altitude_m, actual.relative_altitude_m, tolerance=0.05
+        ),
+    }
+    return tuple(
+        f"{expected.sequence}:{field}" for field, passed in checks.items() if not passed
     )
 
 
@@ -352,6 +468,105 @@ def upload_mission(
     raise SitlMissionUploadError("mission upload exceeded its total duration limit")
 
 
+def readback_mission(
+    connection: Any,
+    *,
+    target_system: int,
+    target_component: int,
+    expected_items: Sequence[MissionItem],
+    message_timeout_s: float = 1.5,
+    maximum_retries: int = 5,
+    maximum_duration_s: float = 20.0,
+) -> MissionReadbackResult:
+    """Request PX4's stored mission and prove it matches the uploaded hash."""
+
+    if not expected_items:
+        raise SitlMissionUploadError("the SITL mission readback cannot be empty")
+    expected_sequences = tuple(range(len(expected_items)))
+    if tuple(item.sequence for item in expected_items) != expected_sequences:
+        raise SitlMissionUploadError("mission readback expects contiguous zero-based sequences")
+
+    deadline = time.monotonic() + maximum_duration_s
+    retries = 0
+    mission_count: int | None = None
+    while mission_count is None and time.monotonic() < deadline:
+        connection.mav.mission_request_list_send(target_system, target_component)
+        message = connection.recv_match(
+            type="MISSION_COUNT", blocking=True, timeout=message_timeout_s
+        )
+        if message is None:
+            retries += 1
+            if retries > maximum_retries:
+                raise SitlMissionUploadError(
+                    "mission readback count timed out after bounded retries"
+                )
+            continue
+        mission_count = int(message.count)
+
+    if mission_count != len(expected_items):
+        raise SitlMissionUploadError(
+            "PX4 mission readback count mismatch: "
+            f"expected {len(expected_items)}, observed {mission_count}"
+        )
+
+    received: list[MissionItem] = []
+    received_message_types: list[str] = []
+    for sequence in expected_sequences:
+        item: MissionItem | None = None
+        while item is None and time.monotonic() < deadline:
+            connection.mav.mission_request_int_send(target_system, target_component, sequence)
+            message = connection.recv_match(
+                type=["MISSION_ITEM_INT", "MISSION_ITEM", "MISSION_ACK"],
+                blocking=True,
+                timeout=message_timeout_s,
+            )
+            if message is None:
+                retries += 1
+                if retries > maximum_retries:
+                    raise SitlMissionUploadError(
+                        f"mission item {sequence} readback timed out after bounded retries"
+                    )
+                continue
+            message_type = str(message.get_type())
+            if message_type == "MISSION_ACK":
+                acknowledgement = int(message.type)
+                result_name = mavutil.mavlink.enums["MAV_MISSION_RESULT"][acknowledgement].name
+                raise SitlMissionUploadError(
+                    "PX4 rejected mission readback item "
+                    f"{sequence}: {result_name} ({acknowledgement})"
+                )
+            candidate = _mission_item_from_message(message)
+            if candidate.sequence != sequence:
+                raise SitlMissionUploadError(
+                    f"PX4 returned mission sequence {candidate.sequence} while reading {sequence}"
+                )
+            received_message_types.append(message_type)
+            item = candidate
+        if item is None:
+            raise SitlMissionUploadError("mission readback exceeded its total duration limit")
+        received.append(item)
+
+    uploaded_hash = mission_sha256(expected_items)
+    readback_hash = mission_sha256(received)
+    mismatch_fields = tuple(
+        field
+        for expected, actual in zip(expected_items, received, strict=True)
+        for field in _mission_item_mismatch_fields(expected, actual)
+    )
+    items_match = not mismatch_fields
+    return MissionReadbackResult(
+        mission_count=mission_count,
+        received_sequences=tuple(item.sequence for item in received),
+        received_message_types=tuple(received_message_types),
+        retry_count=retries,
+        uploaded_sha256=uploaded_hash,
+        readback_sha256=readback_hash,
+        items_match=items_match,
+        hash_match=items_match and uploaded_hash == readback_hash,
+        mismatch_fields=mismatch_fields,
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -415,6 +630,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_component=1,
             items=mission,
         )
+        readback = readback_mission(
+            connection,
+            target_system=1,
+            target_component=1,
+            expected_items=mission,
+        )
+        if not readback.hash_match:
+            raise SitlMissionUploadError(
+                "PX4 mission readback did not match the uploaded mission hash: "
+                f"items_match={readback.items_match}, "
+                f"mismatch_fields={','.join(readback.mismatch_fields)}, "
+                f"uploaded={readback.uploaded_sha256}, readback={readback.readback_sha256}"
+            )
     finally:
         connection.close()
 
@@ -444,6 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for item in mission
         ],
         "protocol": asdict(result),
+        "mission_readback": asdict(readback),
         "allowed_transmitted_message_types": [
             "MISSION_COUNT",
             "MISSION_ITEM_INT",

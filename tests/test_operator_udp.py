@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 from pymavlink.dialects.v20 import common as mavlink2
@@ -31,6 +32,9 @@ from multidetect.operator_link import (
     PayloadTargetConfirmationCommand,
     PayloadTargetStatusMessage,
     RangeStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
@@ -50,6 +54,7 @@ from multidetect.operator_protocol import (
     AuthorizationDecisionAck,
     OperatorTunnelCodec,
     PayloadTargetConfirmationAck,
+    RuntimeStatusAck,
 )
 from multidetect.operator_udp import (
     UdpOperatorSelectionClient,
@@ -85,6 +90,467 @@ def _signed_qgc_heartbeat() -> bytes:
     serializer.signing.sign_outgoing = True
     message = mavlink2.MAVLink_heartbeat_message(6, 8, 0, 0, 3, 3)
     return bytes(message.pack(serializer, force_mavlink1=False))
+
+
+def _runtime_status(
+    sequence: int,
+    *,
+    run_hash64: int = 0xAABBCCDDEEFF0011,
+) -> RuntimeStatusMessage:
+    return RuntimeStatusMessage(
+        sequence=sequence,
+        mode=RuntimeMode.REPLAY,
+        backend_health=RuntimeBackendHealth.HEALTHY,
+        scenario_seed=None,
+        scenario_hash64=None,
+        airframe_profile_hash64=0x1122334455667788,
+        run_hash64=run_hash64,
+        scenario_present=False,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=time.time(),
+    )
+
+
+def test_runtime_status_round_trips_over_direct_signed_udp_metadata_link() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server.start_background()
+        with UdpOperatorSessionClient(
+            host="127.0.0.1",
+            port=server.bound_address[1],
+            mavlink=g20,
+        ) as client:
+            now_s = time.time()
+            command = TargetSelectionCommand(
+                command_id="99999999-9999-4999-8999-999999999999",
+                session_id="88888888-8888-4888-8888-888888888888",
+                sequence=1,
+                action=SelectionAction.SELECT,
+                geometry=GEOMETRY,
+                issued_at_s=now_s,
+                expires_at_s=now_s + 3.0,
+                bbox=BoundingBox(0.1, 0.1, 0.3, 0.4),
+            )
+            assert client.deliver(command).acknowledgement.accepted is True
+            queued = None
+            deadline = time.monotonic() + 1.0
+            while queued is None and time.monotonic() < deadline:
+                queued = server.poll_selection()
+                time.sleep(0.005)
+            assert queued is not None
+            status = RuntimeStatusMessage(
+                sequence=2,
+                mode=RuntimeMode.SIM,
+                backend_health=RuntimeBackendHealth.HEALTHY,
+                scenario_seed=1234,
+                scenario_hash64=0x1122334455667788,
+                airframe_profile_hash64=0x2233445566778899,
+                run_hash64=0x33445566778899AA,
+                scenario_present=True,
+                ground_truth_isolated=True,
+                hardware_outputs_present=False,
+                profile_valid=True,
+                produced_at_s=now_s + 0.1,
+            )
+
+            server.publish_runtime_status(status, peer=queued[1])
+            received = client.receive_runtime_status(timeout_s=1.0)
+
+    assert received.sequence == status.sequence
+    assert received.mode is status.mode
+    assert received.backend_health is status.backend_health
+    assert received.scenario_seed == status.scenario_seed
+    assert received.scenario_hash64 == status.scenario_hash64
+    assert received.airframe_profile_hash64 == status.airframe_profile_hash64
+    assert received.run_hash64 == status.run_hash64
+    assert received.produced_at_s == pytest.approx(status.produced_at_s, abs=0.001)
+    assert received.metadata_only is True
+    assert received.direct_pixhawk_writes is False
+    assert received.physical_release_enabled is False
+
+
+def test_runtime_status_requires_matching_post_adoption_acceptance_ack() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server.start_background()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as qgc:
+            qgc.bind(("127.0.0.1", 0))
+            qgc.settimeout(1.0)
+            qgc.sendto(_signed_qgc_heartbeat(), server.bound_address)
+            deadline = time.monotonic() + 1.0
+            while server.active_heartbeat_peer() is None and time.monotonic() < deadline:
+                time.sleep(0.005)
+            peer = ("127.0.0.1", qgc.getsockname()[1])
+            assert server.active_heartbeat_peer() == peer
+            status = RuntimeStatusMessage(
+                sequence=22,
+                mode=RuntimeMode.SIM,
+                backend_health=RuntimeBackendHealth.HEALTHY,
+                scenario_seed=1234,
+                scenario_hash64=0x1122334455667788,
+                airframe_profile_hash64=0x2233445566778899,
+                run_hash64=0x33445566778899AA,
+                scenario_present=True,
+                ground_truth_isolated=True,
+                hardware_outputs_present=False,
+                profile_valid=True,
+                produced_at_s=time.time(),
+            )
+
+            send_receipt = server.publish_runtime_status_for_acceptance(status, peer=peer)
+            runtime_datagram, _ = qgc.recvfrom(1024)
+            runtime_packet = g20.decode_frame(runtime_datagram)
+            assert runtime_packet.message.sequence == status.sequence
+            assert runtime_packet.message.run_hash64 == status.run_hash64
+            acknowledgement = RuntimeStatusAck(
+                acknowledged_runtime_sequence=status.sequence,
+                run_hash64=status.run_hash64,
+            )
+            qgc.sendto(
+                g20.encode_runtime_status_ack(
+                    acknowledgement,
+                    sequence=1,
+                    sent_at_s=time.time(),
+                ),
+                server.bound_address,
+            )
+            receipt = server.wait_runtime_status_ack(send_receipt, timeout_s=1.0)
+
+    assert receipt.acknowledgement == acknowledgement
+    assert receipt.remote == peer
+    assert receipt.acknowledged_at_monotonic_ns >= receipt.sent_at_monotonic_ns
+    assert receipt.latency_ms >= 0.0
+
+
+@pytest.mark.parametrize("corruption", ["sequence", "run"])
+def test_runtime_status_acceptance_ack_fails_closed_on_wrong_binding(corruption: str) -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server.start_background()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as qgc:
+            qgc.bind(("127.0.0.1", 0))
+            qgc.settimeout(1.0)
+            qgc.sendto(_signed_qgc_heartbeat(), server.bound_address)
+            deadline = time.monotonic() + 1.0
+            while server.active_heartbeat_peer() is None and time.monotonic() < deadline:
+                time.sleep(0.005)
+            peer = ("127.0.0.1", qgc.getsockname()[1])
+            status = RuntimeStatusMessage(
+                sequence=30,
+                mode=RuntimeMode.REPLAY,
+                backend_health=RuntimeBackendHealth.HEALTHY,
+                scenario_seed=None,
+                scenario_hash64=None,
+                airframe_profile_hash64=1,
+                run_hash64=2,
+                scenario_present=False,
+                ground_truth_isolated=True,
+                hardware_outputs_present=False,
+                profile_valid=True,
+                produced_at_s=time.time(),
+            )
+            send_receipt = server.publish_runtime_status_for_acceptance(status, peer=peer)
+            qgc.recvfrom(1024)
+            acknowledgement = RuntimeStatusAck(
+                acknowledged_runtime_sequence=status.sequence + (corruption == "sequence"),
+                run_hash64=status.run_hash64 + (corruption == "run"),
+            )
+            qgc.sendto(
+                g20.encode_runtime_status_ack(
+                    acknowledgement,
+                    sequence=1,
+                    sent_at_s=time.time(),
+                ),
+                server.bound_address,
+            )
+
+            with pytest.raises(RuntimeError, match="rejected a datagram"):
+                server.wait_runtime_status_ack(send_receipt, timeout_s=1.0)
+
+
+def test_runtime_status_acceptance_ack_rejects_wrong_peer_timeout_and_out_of_order() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server.start_background()
+        with (
+            socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as qgc,
+            socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as attacker,
+        ):
+            qgc.bind(("127.0.0.1", 0))
+            attacker.bind(("127.0.0.1", 0))
+            qgc.settimeout(1.0)
+            qgc.sendto(_signed_qgc_heartbeat(), server.bound_address)
+            deadline = time.monotonic() + 1.0
+            while server.active_heartbeat_peer() is None and time.monotonic() < deadline:
+                time.sleep(0.005)
+            peer = ("127.0.0.1", qgc.getsockname()[1])
+            status = RuntimeStatusMessage(
+                sequence=40,
+                mode=RuntimeMode.REPLAY,
+                backend_health=RuntimeBackendHealth.HEALTHY,
+                scenario_seed=None,
+                scenario_hash64=None,
+                airframe_profile_hash64=1,
+                run_hash64=2,
+                scenario_present=False,
+                ground_truth_isolated=True,
+                hardware_outputs_present=False,
+                profile_valid=True,
+                produced_at_s=time.time(),
+            )
+            send_receipt = server.publish_runtime_status_for_acceptance(status, peer=peer)
+            qgc.recvfrom(1024)
+            attacker.sendto(
+                g20.encode_runtime_status_ack(
+                    RuntimeStatusAck(status.sequence, status.run_hash64),
+                    sequence=1,
+                    sent_at_s=time.time(),
+                ),
+                server.bound_address,
+            )
+            with pytest.raises(RuntimeError, match="rejected a datagram"):
+                server.wait_runtime_status_ack(send_receipt, timeout_s=1.0)
+
+            # Re-arm after the rejected peer; absence of a canonical ACK must
+            # remain a hard timeout and may never increment the barrier.
+            second_status = replace(status, sequence=41, produced_at_s=time.time())
+            timeout_receipt = server.publish_runtime_status_for_acceptance(
+                second_status,
+                peer=peer,
+            )
+            qgc.recvfrom(1024)
+            with pytest.raises(TimeoutError, match="timed out"):
+                server.wait_runtime_status_ack(timeout_receipt, timeout_s=0.02)
+
+            accepted_status = replace(status, sequence=42, produced_at_s=time.time())
+            accepted_send = server.publish_runtime_status_for_acceptance(
+                accepted_status,
+                peer=peer,
+            )
+            qgc.recvfrom(1024)
+            qgc.sendto(
+                g20.encode_runtime_status_ack(
+                    RuntimeStatusAck(accepted_status.sequence, accepted_status.run_hash64),
+                    sequence=2,
+                    sent_at_s=time.time(),
+                ),
+                server.bound_address,
+            )
+            server.wait_runtime_status_ack(accepted_send, timeout_s=1.0)
+
+            with pytest.raises(RuntimeError, match="duplicate or out of order"):
+                server.publish_runtime_status_for_acceptance(second_status, peer=peer)
+
+
+def test_runtime_status_ack_timestamp_before_deadline_succeeds_deterministically() -> None:
+    peer = ("127.0.0.1", 49_001)
+    clock_ns = [1_000_000_000]
+    status = _runtime_status(100)
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server._runtime_status_clock_ns = lambda: clock_ns[0]
+        server._register_metadata_peer(peer, from_heartbeat=True)
+        send_receipt = server.publish_runtime_status_for_acceptance(status, peer=peer)
+        clock_ns[0] += 10_000_000
+        acknowledgement = RuntimeStatusAck(status.sequence, status.run_hash64)
+        server._accept_runtime_status_ack(acknowledgement, peer=peer)
+
+        receipt = server.wait_runtime_status_ack(send_receipt, timeout_s=0.1)
+
+    assert receipt.acknowledgement == acknowledgement
+    assert receipt.acknowledged_at_monotonic_ns - receipt.sent_at_monotonic_ns == 10_000_000
+
+
+def test_runtime_status_ack_timestamp_after_deadline_fails_deterministically() -> None:
+    peer = ("127.0.0.1", 49_002)
+    clock_ns = [2_000_000_000]
+    status = _runtime_status(110)
+    wait_errors: list[BaseException] = []
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server._runtime_status_clock_ns = lambda: clock_ns[0]
+        server._register_metadata_peer(peer, from_heartbeat=True)
+        send_receipt = server.publish_runtime_status_for_acceptance(status, peer=peer)
+
+        def wait_for_ack() -> None:
+            try:
+                server.wait_runtime_status_ack(send_receipt, timeout_s=60.0)
+            except BaseException as exc:  # captured for the test thread
+                wait_errors.append(exc)
+
+        waiter = threading.Thread(target=wait_for_ack)
+        waiter.start()
+        with server._runtime_status_ack_condition:
+            assert server._runtime_status_ack_condition.wait_for(
+                lambda: server._pending_runtime_status_ack_deadline_ns is not None,
+                timeout=1.0,
+            )
+            deadline_ns = server._pending_runtime_status_ack_deadline_ns
+        assert deadline_ns is not None
+        clock_ns[0] = deadline_ns + 1
+        server._accept_runtime_status_ack(
+            RuntimeStatusAck(status.sequence, status.run_hash64),
+            peer=peer,
+        )
+        waiter.join(timeout=1.0)
+
+    assert waiter.is_alive() is False
+    assert len(wait_errors) == 1
+    assert isinstance(wait_errors[0], TimeoutError)
+    assert "after deadline" in str(wait_errors[0])
+
+
+def test_runtime_status_timeout_enqueue_race_does_not_poison_next_ack() -> None:
+    peer = ("127.0.0.1", 49_003)
+    clock_ns = [3_000_000_000]
+    timed_out_status = _runtime_status(120)
+    wait_errors: list[BaseException] = []
+    enqueue_errors: list[BaseException] = []
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server._runtime_status_clock_ns = lambda: clock_ns[0]
+        server._register_metadata_peer(peer, from_heartbeat=True)
+        timed_out_send = server.publish_runtime_status_for_acceptance(
+            timed_out_status,
+            peer=peer,
+        )
+
+        def wait_for_timed_out_ack() -> None:
+            try:
+                server.wait_runtime_status_ack(timed_out_send, timeout_s=60.0)
+            except BaseException as exc:  # captured for the test thread
+                wait_errors.append(exc)
+
+        def enqueue_at_timeout() -> None:
+            try:
+                server._accept_runtime_status_ack(
+                    RuntimeStatusAck(timed_out_status.sequence, timed_out_status.run_hash64),
+                    peer=peer,
+                )
+            except BaseException as exc:  # captured for the test thread
+                enqueue_errors.append(exc)
+
+        waiter = threading.Thread(target=wait_for_timed_out_ack)
+        waiter.start()
+        with server._runtime_status_ack_condition:
+            assert server._runtime_status_ack_condition.wait_for(
+                lambda: server._pending_runtime_status_ack_deadline_ns is not None,
+                timeout=1.0,
+            )
+            deadline_ns = server._pending_runtime_status_ack_deadline_ns
+            assert deadline_ns is not None
+            clock_ns[0] = deadline_ns + 1
+            enqueuer = threading.Thread(target=enqueue_at_timeout)
+            enqueuer.start()
+            server._runtime_status_ack_condition.notify_all()
+
+        waiter.join(timeout=1.0)
+        enqueuer.join(timeout=1.0)
+        assert waiter.is_alive() is False
+        assert enqueuer.is_alive() is False
+        assert len(wait_errors) == 1
+        assert isinstance(wait_errors[0], TimeoutError)
+        assert enqueue_errors == []
+
+        next_status = replace(
+            timed_out_status,
+            sequence=timed_out_status.sequence + 1,
+            produced_at_s=time.time(),
+        )
+        next_send = server.publish_runtime_status_for_acceptance(next_status, peer=peer)
+        clock_ns[0] += 1
+        next_acknowledgement = RuntimeStatusAck(
+            next_status.sequence,
+            next_status.run_hash64,
+        )
+        server._accept_runtime_status_ack(next_acknowledgement, peer=peer)
+        next_receipt = server.wait_runtime_status_ack(next_send, timeout_s=1.0)
+
+    assert next_receipt.acknowledgement == next_acknowledgement
+
+
+def test_runtime_status_peer_change_and_old_ack_cannot_revive_next_send() -> None:
+    old_peer = ("127.0.0.1", 49_004)
+    new_peer = ("127.0.0.1", 49_005)
+    old_status = _runtime_status(130)
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=_adapter(OperatorMavlinkEndpoint(1, 191, 255, 190)),
+        guard=SelectionCommandGuard(GEOMETRY),
+    ) as server:
+        server._register_metadata_peer(old_peer, from_heartbeat=True)
+        old_send = server.publish_runtime_status_for_acceptance(old_status, peer=old_peer)
+        server._register_metadata_peer(new_peer, from_heartbeat=True)
+
+        with pytest.raises(RuntimeError, match="heartbeat peer changed"):
+            server.wait_runtime_status_ack(old_send, timeout_s=1.0)
+
+        new_status = replace(
+            old_status,
+            sequence=old_status.sequence + 1,
+            produced_at_s=time.time(),
+        )
+        new_send = server.publish_runtime_status_for_acceptance(new_status, peer=new_peer)
+
+        # The exact old proof is retired before it reaches active-peer checks;
+        # it neither revives the old send nor rejects the new transaction.
+        server._accept_runtime_status_ack(
+            RuntimeStatusAck(old_status.sequence, old_status.run_hash64),
+            peer=old_peer,
+        )
+        new_acknowledgement = RuntimeStatusAck(new_status.sequence, new_status.run_hash64)
+        server._accept_runtime_status_ack(new_acknowledgement, peer=new_peer)
+        receipt = server.wait_runtime_status_ack(new_send, timeout_s=1.0)
+
+    assert receipt.acknowledgement == new_acknowledgement
+    assert receipt.remote == new_peer
 
 
 def test_background_server_registers_qgc_heartbeat_before_selection() -> None:

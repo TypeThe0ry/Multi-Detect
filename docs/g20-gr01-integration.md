@@ -328,7 +328,9 @@ operator `TUNNEL` 不进入 PX4。完整证据见项目 README。下一步是把
    端到端延迟和相机温度。
 3. 从 Jetson 经 GR01 以太网向 G20 运行
    [`data-link-alerts.md`](data-link-alerts.md) 的认证UDP/ACK回环，再反向测试；确认是否
-   真正双向，并记录时延、丢包和MTU。
+   真正双向，并记录时延、丢包和MTU。告警方向使用
+   `scripts/run_alert_link_bench.py --hardware-mode`，每次探测生成新的 `alert_id`，避免把
+   旧的去重记录误当成实时 ACK。
 4. 直连可用时跑 MAVLink2 `TUNNEL` 回环：命令 ACK、序号、过期、断链重连和签名。
 5. 仅接 Pixhawk 标准遥测，与 QGC 数值逐字段比对；此阶段不发飞控命令。
 6. 用录制视频测试触摸框选、切换、取消、目标丢失和视频比例变化。

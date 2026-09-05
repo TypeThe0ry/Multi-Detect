@@ -1,0 +1,9 @@
+# Repository-owned material for the Multi-Detect Gazebo positive control.
+newmtl multidetect_coco_car_positive_control_v1
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.050000 0.050000 0.050000
+Ns 4.000000
+d 1.000000
+illum 2
+map_Kd ../materials/textures/coco-car-positive-control-v1.png

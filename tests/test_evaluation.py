@@ -48,6 +48,33 @@ def test_evaluation_requires_exact_frame_alignment(tmp_path: Path) -> None:
         )
 
 
+def test_evaluation_jsonl_rejects_duplicate_keys_and_nonfinite_numbers(
+    tmp_path: Path,
+) -> None:
+    duplicate = tmp_path / "duplicate.jsonl"
+    duplicate.write_text(
+        '{"frame_id":"frame-1","frame_id":"shadow","objects":[]}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="strict JSON.*duplicate JSON key 'frame_id'"):
+        load_ground_truth_jsonl(duplicate)
+
+    nonfinite = tmp_path / "nonfinite.jsonl"
+    nonfinite.write_text(
+        '{"frame_id":"frame-1","inference_latency_ms":NaN,"detections":[]}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="strict JSON.*non-finite JSON number NaN"):
+        load_prediction_jsonl(nonfinite)
+
+
+def test_evaluation_jsonl_accepts_windows_utf8_bom(tmp_path: Path) -> None:
+    path = tmp_path / "bom.jsonl"
+    path.write_bytes(b"\xef\xbb\xbf{\"frame_id\":\"frame-1\",\"objects\":[]}\n")
+    frames = load_ground_truth_jsonl(path)
+    assert frames[0].frame_id == "frame-1"
+
+
 def test_prediction_writer_streams_every_processed_frame(tmp_path: Path) -> None:
     path = tmp_path / "predictions.jsonl"
     writer = JsonlPredictionWriter(path)

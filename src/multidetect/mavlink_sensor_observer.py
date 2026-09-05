@@ -9,6 +9,13 @@ from typing import Any, Final
 
 from pymavlink import mavutil
 
+from .mavlink_gps import (
+    MAVLINK_GPS_FIX_TYPE_MAX,
+    MAVLINK_QUALIFIED_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_SATELLITES_MIN,
+    MAVLINK_SATELLITES_MAX,
+)
+
 MAG_MESSAGE_TYPES: Final = frozenset(
     {"RAW_IMU", "SCALED_IMU", "SCALED_IMU2", "SCALED_IMU3", "HIGHRES_IMU"}
 )
@@ -294,9 +301,9 @@ def build_sensor_fusion_readiness(
     gps_velocity_cm_s = _finite_number(gps.get("velocity_cm_s", gps.get("vel")))
     gps_fix_valid = bool(
         fix_type is not None
-        and fix_type >= 3
+        and MAVLINK_QUALIFIED_FIX_TYPE_MIN <= fix_type <= MAVLINK_GPS_FIX_TYPE_MAX
         and satellites is not None
-        and satellites >= 6
+        and MAVLINK_QUALIFIED_SATELLITES_MIN <= satellites <= MAVLINK_SATELLITES_MAX
     )
     gps_velocity_ready = bool(
         gps_fix_valid

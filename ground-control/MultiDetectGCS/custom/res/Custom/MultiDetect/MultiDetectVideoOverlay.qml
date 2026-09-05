@@ -1,7 +1,6 @@
 import QGroundControl
 import QGroundControl.Controls
 import QtQuick
-import QtQuick.Controls
 
 Item {
     id: root
@@ -10,16 +9,18 @@ Item {
         id: qgcPal
     }
 
-    Button {
+    QGCButton {
         id: cancelActionSizer
 
+        enabled: false
         text: qsTr("取消")
         visible: false
     }
 
-    Button {
+    QGCButton {
         id: returnTrackActionSizer
 
+        enabled: false
         text: qsTr("返回 TRK")
         visible: false
     }
@@ -27,6 +28,7 @@ Item {
     QGCButton {
         id: lockActionSizer
 
+        enabled: false
         text: "LCK"
         textColor: root._lockActionTextColor
         visible: false
@@ -38,6 +40,7 @@ Item {
     property real _dragStartY: 0
     property bool _dragging: false
     property bool interactionEnabled: true
+    readonly property bool annotationsOnly: !interactionEnabled
     property string selectionHintText: qsTr("框选目标")
     property bool showCompactStatus: true
     readonly property int depthDisplayMode: MultiDetectState.persistedSettings.depthDisplayMode // 0=off, 1=picture-in-picture, 2=overlay
@@ -49,13 +52,20 @@ Item {
     readonly property real _cancelActionWidth: Math.max(54, cancelActionSizer.implicitWidth,
                                                         returnTrackActionSizer.implicitWidth)
     readonly property real _lockActionWidth: Math.max(48, lockActionSizer.implicitWidth)
-    // Reserve the top band for the native QGC toolbar and the fixed-wing
-    // heading tape.  The Jetson panel owns upper-right; depth owns upper-left.
-    readonly property real _topHudClearance: Math.max(72, ScreenTools.defaultFontPixelHeight * 4.6)
+    // Reserve the native QGC Fly View top band. The Jetson panel owns the
+    // upper-right area while the optional depth controls own upper-left.
+    readonly property real _topHudClearance: Math.max(ScreenTools.toolbarHeight,
+                                                       ScreenTools.defaultFontPixelHeight * 4.6)
     // Red is reserved for the LCK action and the confirmed primary lock.  It
     // must not inherit the neutral Qt Button text colour, otherwise the action
     // is too easy to confuse with the nearby TRK/cancel controls.
-    readonly property color _lockActionTextColor: "#ff3b30"
+    readonly property color _lockActionTextColor: qgcPal.colorRed
+
+    onInteractionEnabledChanged: {
+        if (!interactionEnabled)
+            _dragging = false;
+    }
+
     // Keep the visual box cadence independent from the metadata cadence.  The
     // Jetson emits a complete target-pool snapshot at a bounded rate, while a
     // 720p RTSP frame can still arrive a little later than the advertised
@@ -247,35 +257,35 @@ Item {
     function _classColor(label) {
         const normalized = String(label || "").toLowerCase();
         if (["flame", "fire", "hotspot", "burned_area"].indexOf(normalized) >= 0)
-            return "#ff6b35";
+            return qgcPal.warningText;
         if (["smoke", "smoldering_area", "smolder_area"].indexOf(normalized) >= 0)
-            return "#b48efd";
+            return qgcPal.colorGrey;
         if (["person", "pedestrian", "people", "firefighter"].indexOf(normalized) >= 0)
-            return "#4ea1ff";
+            return qgcPal.brandingBlue;
         if (["vehicle", "car", "van", "truck", "bus", "train",
              "motorcycle", "bicycle", "motor", "boat"].indexOf(normalized) >= 0)
-            return "#45d483";
+            return qgcPal.colorGreen;
         if (["aircraft", "airplane", "aeroplane", "plane", "helicopter",
              "drone", "uav"].indexOf(normalized) >= 0)
-            return "#22d3ee";
+            return qgcPal.brandingBlue;
         if (["building", "road", "power_line", "tank"].indexOf(normalized) >= 0)
-            return "#f6c85f";
-        return "#e8eaed";
+            return qgcPal.text;
+        return qgcPal.text;
     }
 
     function _trackColor() {
         if (MultiDetectState.interactionState === "LCK" || MultiDetectState.interactionState === "TGT")
-            return "#ff3b30";
+            return qgcPal.colorRed;
         if (MultiDetectState.trackingState === "TRACKING") {
             return _classColor(MultiDetectState.targetLabel);
         }
         if (MultiDetectState.trackingState === "LOST") {
-            return "#ff6b6b";
+            return qgcPal.warningText;
         }
         if (MultiDetectState.trackingState === "CANCELLED") {
-            return "#9aa0a6";
+            return qgcPal.colorGrey;
         }
-        return "#ffd43b";
+        return qgcPal.warningText;
     }
 
     function _metricText(entry) {
@@ -318,10 +328,10 @@ Item {
                "  " + qsTr("速") + " " + speedText;
     }
 
-    function _selectCandidateAt(pixelX, pixelY) {
+    function _candidateHitAt(pixelX, pixelY) {
         const entries = MultiDetectState.selectableTargetPoolEntries;
         if (entries === undefined || entries === null)
-            return false;
+            return null;
         const hitRadius = Math.max(24, ScreenTools.defaultFontPixelHeight * 1.8);
         const maximumDistanceSquared = hitRadius * hitRadius;
         let bestEntry = null;
@@ -343,6 +353,11 @@ Item {
                 bestEntry = entry;
             }
         }
+        return bestEntry;
+    }
+
+    function _selectCandidateAt(pixelX, pixelY) {
+        const bestEntry = _candidateHitAt(pixelX, pixelY);
         if (bestEntry === null)
             return false;
         return MultiDetectState.isOperatorTrackedTarget(bestEntry) ?
@@ -376,10 +391,10 @@ Item {
                pixelY >= geometry.y && pixelY <= geometry.y + geometry.height;
     }
 
-    function _handleTrackedActionAt(pixelX, pixelY) {
+    function _trackedActionHitAt(pixelX, pixelY) {
         const entries = MultiDetectState.operatorTrackedTargetPoolEntries;
         if (entries === undefined || entries === null)
-            return false;
+            return null;
         for (let index = entries.length - 1; index >= 0; --index) {
             const entry = entries[index];
             if (!entry.bboxValid)
@@ -393,25 +408,37 @@ Item {
             const geometry = _actionGeometry(entry.x1, entry.y1, entry.x2, lockVisible);
             if (!_insideActionRow(pixelX, pixelY, geometry))
                 continue;
-            if (pixelX <= geometry.cancelRight) {
-                if (primaryLocked)
-                    MultiDetectState.demoteTrack();
-                else
-                    MultiDetectState.cancelTrackedCandidate(entry);
-            }
-            else if (lockVisible && pixelX >= geometry.lockLeft &&
-                     !MultiDetectState.hasPendingTargetSelection)
-                MultiDetectState.lockTrackedCandidate(entry);
-            return true;
+            return {
+                entry: entry,
+                geometry: geometry,
+                lockVisible: lockVisible,
+                primaryLocked: primaryLocked,
+            };
         }
-        return false;
+        return null;
     }
 
-    function _handleSelectedActionAt(pixelX, pixelY) {
+    function _handleTrackedActionAt(pixelX, pixelY) {
+        const hit = _trackedActionHitAt(pixelX, pixelY);
+        if (hit === null)
+            return false;
+        if (pixelX <= hit.geometry.cancelRight) {
+            if (hit.primaryLocked)
+                MultiDetectState.demoteTrack();
+            else
+                MultiDetectState.cancelTrackedCandidate(hit.entry);
+        }
+        else if (hit.lockVisible && pixelX >= hit.geometry.lockLeft &&
+                 !MultiDetectState.hasPendingTargetSelection)
+            MultiDetectState.lockTrackedCandidate(hit.entry);
+        return true;
+    }
+
+    function _selectedActionHitAt(pixelX, pixelY) {
         if (!MultiDetectState.targetBoxValid ||
                 MultiDetectState.hasPoolTrackedTarget(MultiDetectState.targetId) ||
                 MultiDetectState.interactionState !== "TRK")
-            return false;
+            return null;
         const lockVisible = MultiDetectState.missionMode !== "PATROL";
         const geometry = _actionGeometry(
             MultiDetectState.targetX1,
@@ -420,13 +447,29 @@ Item {
             lockVisible
         );
         if (!_insideActionRow(pixelX, pixelY, geometry))
+            return null;
+        return {
+            geometry: geometry,
+            lockVisible: lockVisible,
+        };
+    }
+
+    function _handleSelectedActionAt(pixelX, pixelY) {
+        const hit = _selectedActionHitAt(pixelX, pixelY);
+        if (hit === null)
             return false;
-        if (pixelX <= geometry.cancelRight)
+        if (pixelX <= hit.geometry.cancelRight)
             MultiDetectState.cancelTarget();
-        else if (lockVisible && pixelX >= geometry.lockLeft &&
+        else if (hit.lockVisible && pixelX >= hit.geometry.lockLeft &&
                  !MultiDetectState.hasPendingTargetSelection)
             MultiDetectState.promoteLock();
         return true;
+    }
+
+    function _hasStablePointerHitAt(pixelX, pixelY) {
+        return _trackedActionHitAt(pixelX, pixelY) !== null ||
+               _selectedActionHitAt(pixelX, pixelY) !== null ||
+               _candidateHitAt(pixelX, pixelY) !== null;
     }
 
     function _handleStablePointerAt(pixelX, pixelY) {
@@ -452,12 +495,14 @@ Item {
         opacity: 0.46
         smooth: true
         source: MultiDetectState.depthMapDataUrl
-        visible: root.depthDisplayMode === 2 && MultiDetectState.depthMapAvailable
+        visible: root.interactionEnabled && root.depthDisplayMode === 2 &&
+                 MultiDetectState.depthMapAvailable
         z: 20
 
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
+            enabled: root.interactionEnabled
             propagateComposedEvents: true
 
             onClicked: mouse => {
@@ -468,7 +513,7 @@ Item {
     }
 
     Rectangle {
-        color: "transparent"
+        color: Qt.transparent
         height: Math.max(18, ScreenTools.defaultFontPixelHeight * 1.2)
         visible: fullDepthMap.visible && root.depthSampleX >= 0 && root.depthSampleY >= 0
         width: height
@@ -478,9 +523,9 @@ Item {
 
         Rectangle {
             anchors.centerIn: parent
-            border.color: "white"
+            border.color: qgcPal.text
             border.width: 2
-            color: "transparent"
+            color: Qt.transparent
             height: parent.height * 0.62
             radius: height * 0.5
             width: height
@@ -490,10 +535,10 @@ Item {
             anchors.left: parent.right
             anchors.leftMargin: 4
             anchors.verticalCenter: parent.verticalCenter
-            color: "white"
+            color: qgcPal.text
             font.bold: true
             style: Text.Outline
-            styleColor: "#cc000000"
+            styleColor: qgcPal.windowShadeDark
             text: root.depthSampleText
         }
     }
@@ -512,7 +557,7 @@ Item {
                                                       MultiDetectState.confirmedPrimaryLockTargetId === entry.targetId) ||
                                                      (MultiDetectState.interactionState === "LCK" &&
                                                       entry.targetId === MultiDetectState.targetId))
-            readonly property color displayColor: primaryLocked ? "#ff3b30" : root._classColor(entry.label)
+            readonly property color displayColor: primaryLocked ? qgcPal.colorRed : root._classColor(entry.label)
             readonly property real markerDiameter: Math.max(34, ScreenTools.defaultFontPixelHeight * 2.2)
             readonly property bool candidateVisible: entry.bboxValid && !cancellationPending &&
                                                       (operatorTracked || !MultiDetectState.targetBoxValid ||
@@ -546,13 +591,13 @@ Item {
                 anchors.fill: parent
                 border.color: parent.displayColor
                 border.width: Math.max(2, ScreenTools.defaultFontPixelWidth * 0.25)
-                color: "#00000000"
+                color: Qt.transparent
                 visible: parent.operatorTracked
 
                 Rectangle {
                     anchors.bottom: parent.top
                     anchors.left: parent.left
-                    color: Qt.rgba(0, 0, 0, 0.72)
+                    color: Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.84)
                     height: poolTrackLabel.contentHeight + ScreenTools.defaultFontPixelHeight * 0.35
                     width: poolTrackLabel.contentWidth + ScreenTools.defaultFontPixelWidth * 2
 
@@ -576,20 +621,20 @@ Item {
                 font.bold: true
                 font.pixelSize: parent.height * 0.9
                 style: Text.Outline
-                styleColor: "#aa000000"
+                styleColor: qgcPal.windowShadeDark
                 text: "+"
                 visible: !parent.operatorTracked
             }
 
             Row {
                 spacing: root._actionSpacing
-                visible: parent.operatorTracked
+                visible: root.interactionEnabled && parent.operatorTracked
                 x: parent.x + parent.width + implicitWidth <= root.width ?
                    parent.width + 4 : -implicitWidth - 4
                 y: 0
                 z: 20
 
-                Button {
+                QGCButton {
                     enabled: root.interactionEnabled
                     height: root._actionButtonHeight
                     text: parent.parent.primaryLocked ? qsTr("返回 TRK") : qsTr("取消")
@@ -619,6 +664,7 @@ Item {
             }
 
             HoverHandler {
+                enabled: root.interactionEnabled
                 cursorShape: Qt.PointingHandCursor
             }
         }
@@ -633,15 +679,19 @@ Item {
         propagateComposedEvents: true
         z: 115
 
+        // Reject the press itself on empty video, rather than forwarding only
+        // the later composed click. This preserves QGC's native press/move/
+        // release stream and therefore its gimbal and camera-tracking drags.
+        onPressed: mouse => mouse.accepted = root._hasStablePointerHitAt(mouse.x, mouse.y)
         onClicked: mouse => mouse.accepted = root._handleStablePointerAt(mouse.x, mouse.y)
         onDoubleClicked: mouse => mouse.accepted = false
     }
 
     Rectangle {
         anchors.fill: parent
-        border.color: "#ffd43b"
-        border.width: MultiDetectState.selectionMode ? 2 : 0
-        color: "#00000000"
+        border.color: qgcPal.warningText
+        border.width: root.interactionEnabled && MultiDetectState.selectionMode ? 2 : 0
+        color: Qt.transparent
     }
 
     Repeater {
@@ -676,7 +726,7 @@ Item {
 
         border.color: root._trackColor()
         border.width: Math.max(2, ScreenTools.defaultFontPixelWidth * 0.25)
-        color: "#00000000"
+        color: Qt.transparent
         height: (MultiDetectState.targetY2 - MultiDetectState.targetY1) * root.height
         visible: MultiDetectState.targetBoxValid &&
                  !MultiDetectState.hasPoolTrackedBoxForFallback(
@@ -708,7 +758,7 @@ Item {
         Rectangle {
             anchors.bottom: parent.top
             anchors.left: parent.left
-            color: Qt.rgba(0, 0, 0, 0.72)
+            color: Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.84)
             height: targetLabel.contentHeight + ScreenTools.defaultFontPixelHeight * 0.35
             width: targetLabel.contentWidth + ScreenTools.defaultFontPixelWidth * 2
 
@@ -727,12 +777,12 @@ Item {
 
         Row {
             spacing: root._actionSpacing
-            visible: MultiDetectState.interactionState === "TRK"
+            visible: root.interactionEnabled && MultiDetectState.interactionState === "TRK"
             x: targetBox.x + targetBox.width + implicitWidth <= root.width ?
                targetBox.width + 4 : -implicitWidth - 4
             y: 0
 
-            Button {
+            QGCButton {
                 enabled: root.interactionEnabled
                 height: root._actionButtonHeight
                 text: MultiDetectState.interactionState === "LCK" ? qsTr("返回 TRK") : qsTr("取消")
@@ -770,7 +820,7 @@ Item {
             id: approachReticleCanvas
 
             anchors.fill: parent
-            property color reticleColor: "white"
+            property color reticleColor: qgcPal.text
 
             onReticleColorChanged: requestPaint()
             onVisibleChanged: requestPaint()
@@ -795,18 +845,18 @@ Item {
                 }
 
                 ctx.clearRect(0, 0, w, h);
-                drawCrosshair("#99000000", Math.max(4, w * 0.07));
+                drawCrosshair(Qt.rgba(qgcPal.windowShadeDark.r, qgcPal.windowShadeDark.g, qgcPal.windowShadeDark.b, 0.72), Math.max(4, w * 0.07));
                 drawCrosshair(reticleColor, Math.max(2, w * 0.03));
             }
         }
     }
 
     Rectangle {
-        border.color: "#ffd43b"
+        border.color: qgcPal.warningText
         border.width: 2
-        color: Qt.rgba(1.0, 0.83, 0.23, 0.10)
+        color: Qt.rgba(qgcPal.warningText.r, qgcPal.warningText.g, qgcPal.warningText.b, 0.10)
         height: Math.abs(root._dragCurrentY - root._dragStartY)
-        visible: root._dragging
+        visible: root.interactionEnabled && root._dragging
         width: Math.abs(root._dragCurrentX - root._dragStartX)
         x: Math.min(root._dragStartX, root._dragCurrentX)
         y: Math.min(root._dragStartY, root._dragCurrentY)
@@ -819,17 +869,17 @@ Item {
         anchors.leftMargin: ScreenTools.defaultFontPixelWidth
         anchors.top: parent.top
         anchors.topMargin: root._topHudClearance
-        color: Qt.rgba(0, 0, 0, 0.68)
+        color: Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.84)
         height: compactStatus.contentHeight + ScreenTools.defaultFontPixelHeight * 0.6
-        radius: 3
-        visible: root.showCompactStatus
+        radius: ScreenTools.defaultBorderRadius
+        visible: root.interactionEnabled && root.showCompactStatus
         width: compactStatus.contentWidth + ScreenTools.defaultFontPixelWidth * 2
 
         QGCLabel {
             id: compactStatus
 
             anchors.centerIn: parent
-            color: MultiDetectState.fireAlert ? "#ff6b6b" : "white"
+            color: MultiDetectState.fireAlert ? qgcPal.warningText : qgcPal.text
             font.bold: MultiDetectState.fireAlert
             text: (MultiDetectState.missionMode === "PAYLOAD" ? "M2" :
                    MultiDetectState.missionMode === "OBSERVE" ? "M3" : "M1") +
@@ -841,17 +891,17 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: ScreenTools.defaultFontPixelHeight
         anchors.horizontalCenter: parent.horizontalCenter
-        color: Qt.rgba(0, 0, 0, 0.78)
+        color: Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.88)
         height: selectionHint.contentHeight + ScreenTools.defaultFontPixelHeight
-        radius: 4
-        visible: MultiDetectState.selectionMode
+        radius: ScreenTools.defaultBorderRadius
+        visible: root.interactionEnabled && MultiDetectState.selectionMode
         width: selectionHint.contentWidth + ScreenTools.defaultFontPixelWidth * 3
 
         QGCLabel {
             id: selectionHint
 
             anchors.centerIn: parent
-            color: "#ffd43b"
+            color: qgcPal.warningText
             text: root.selectionHintText
         }
     }
@@ -863,10 +913,10 @@ Item {
         anchors.leftMargin: ScreenTools.defaultFontPixelWidth
         anchors.top: compactStatusPanel.bottom
         anchors.topMargin: 6
-        enabled: MultiDetectState.operatorConfigured
+        enabled: root.interactionEnabled && MultiDetectState.operatorConfigured
         text: "DEPTH"
-        textColor: root.depthDisplayMode === 0 ? "white" : "#22d3ee"
-        visible: MultiDetectState.operatorConfigured
+        textColor: root.depthDisplayMode === 0 ? qgcPal.text : qgcPal.brandingBlue
+        visible: root.interactionEnabled && MultiDetectState.operatorConfigured
         z: 190
 
         onClicked: MultiDetectState.persistedSettings.depthDisplayMode =
@@ -879,12 +929,12 @@ Item {
         anchors.left: depthModeButton.left
         anchors.top: depthModeButton.bottom
         anchors.topMargin: 6
-        border.color: "#d8e1e8"
+        border.color: qgcPal.text
         border.width: 1
-        color: "#d9000000"
+        color: Qt.rgba(qgcPal.window.r, qgcPal.window.g, qgcPal.window.b, 0.84)
         height: width * 9 / 16
-        radius: 3
-        visible: root.depthDisplayMode === 1
+        radius: ScreenTools.defaultBorderRadius
+        visible: root.interactionEnabled && root.depthDisplayMode === 1
         width: Math.max(240, Math.min(root.width * 0.28, 360))
         z: 185
 
@@ -901,6 +951,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
+                enabled: root.interactionEnabled
 
                 onClicked: mouse => root._sampleDepth(mouse.x / width, mouse.y / height)
             }
@@ -913,10 +964,10 @@ Item {
             anchors.leftMargin: 7
             anchors.top: parent.top
             anchors.topMargin: 4
-            color: "white"
+            color: qgcPal.text
             font.bold: true
             style: Text.Outline
-            styleColor: "#cc000000"
+            styleColor: qgcPal.windowShadeDark
             text: "DEPTH  " + MultiDetectState.depthMinimumM.toFixed(1) + "–" +
                   MultiDetectState.depthMaximumM.toFixed(1) + " m"
             visible: MultiDetectState.depthMapAvailable
@@ -924,10 +975,10 @@ Item {
 
         QGCLabel {
             anchors.centerIn: parent
-            color: "white"
+            color: qgcPal.text
             font.bold: true
             style: Text.Outline
-            styleColor: "#cc000000"
+            styleColor: qgcPal.windowShadeDark
             text: qsTr("等待 Jetson 深度网格")
             visible: !MultiDetectState.depthMapAvailable
         }
@@ -938,16 +989,16 @@ Item {
             anchors.rightMargin: 7
             anchors.top: depthHeader.bottom
             anchors.topMargin: 1
-            color: "white"
+            color: qgcPal.text
             elide: Text.ElideRight
             font.pixelSize: Math.max(10, ScreenTools.defaultFontPixelHeight * 0.72)
             style: Text.Outline
-            styleColor: "#cc000000"
+            styleColor: qgcPal.windowShadeDark
             text: MultiDetectState.rangeContributionText()
         }
 
         Rectangle {
-            color: "transparent"
+            color: Qt.transparent
             height: Math.max(16, ScreenTools.defaultFontPixelHeight)
             visible: root.depthSampleX >= 0 && root.depthSampleY >= 0
             width: height
@@ -956,9 +1007,9 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                border.color: "white"
+                border.color: qgcPal.text
                 border.width: 2
-                color: "transparent"
+                color: Qt.transparent
                 height: parent.height * 0.62
                 radius: height * 0.5
                 width: height
@@ -968,10 +1019,10 @@ Item {
                 anchors.left: parent.right
                 anchors.leftMargin: 3
                 anchors.verticalCenter: parent.verticalCenter
-                color: "white"
+                color: qgcPal.text
                 font.bold: true
                 style: Text.Outline
-                styleColor: "#cc000000"
+                styleColor: qgcPal.windowShadeDark
                 text: root.depthSampleText
             }
         }
@@ -980,11 +1031,13 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 5
             anchors.horizontalCenter: parent.horizontalCenter
-            border.color: "#bbffffff"
+            border.color: qgcPal.text
             border.width: 1
             height: Math.max(5, ScreenTools.defaultFontPixelHeight * 0.32)
             width: parent.width * 0.52
 
+            // Fixed depth false-colour ramp is a data legend, not a UI theme;
+            // all surrounding controls and labels still use QGC palette tokens.
             gradient: Gradient {
                 orientation: Gradient.Horizontal
                 GradientStop { position: 0.0; color: "#ff0000" }

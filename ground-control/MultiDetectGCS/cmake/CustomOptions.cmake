@@ -16,6 +16,8 @@ set(QGC_CUSTOM_DIR "custom" CACHE STRING "Custom build overlay directory, relati
 
 set(QGC_APP_NAME "QGroundControl" CACHE STRING "Application name")
 set(QGC_APP_VERSION_OVERRIDE "" CACHE STRING "Optional semantic application version override (major.minor.patch)")
+set(QGC_APP_RELEASE_LABEL "" CACHE STRING "Human-facing release label (may contain a prerelease suffix)")
+set(MULTIDETECT_PRODUCT_VERSION_MANIFEST "" CACHE FILEPATH "Canonical Multi-Detect product version manifest")
 string(TIMESTAMP _copyright_year "%Y")
 set(QGC_APP_COPYRIGHT "Copyright (c) ${_copyright_year} QGroundControl. All rights reserved." CACHE STRING "Copyright notice")
 set(QGC_APP_DESCRIPTION "Open Source Ground Control App" CACHE STRING "Application description")

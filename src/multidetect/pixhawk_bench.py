@@ -271,6 +271,9 @@ def _telemetry_document(telemetry: VehicleTelemetry) -> dict[str, Any]:
         "armed",
         "flight_mode",
         "mission_sequence",
+        "mission_sequence_observed_at_s",
+        "mission_item_reached_sequence",
+        "mission_item_reached_observed_at_s",
         "link_healthy",
         "position_healthy",
     )

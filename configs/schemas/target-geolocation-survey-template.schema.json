@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-geolocation-survey-template.schema.json",
+  "title": "Multi-Detect target geolocation survey template v1",
+  "description": "A truth-free worksheet derived from a verified target-event replay. It is not accuracy evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "ground_truth_isolated",
+    "advisory_only",
+    "contains_flight_control",
+    "contains_truth",
+    "gate_passed",
+    "source_manifest_sha256",
+    "source_manifest_bytes",
+    "target_id",
+    "start_s",
+    "end_s",
+    "selected_event_count",
+    "eligible_event_count",
+    "skipped_event_count",
+    "skipped_event_ids",
+    "skipped_reasons",
+    "row_count",
+    "required_truth_columns",
+    "rows"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "multidetect.target-geolocation-survey-template.v1"},
+    "ground_truth_isolated": {"const": true},
+    "advisory_only": {"const": true},
+    "contains_flight_control": {"const": false},
+    "contains_truth": {"const": false},
+    "gate_passed": {"const": false},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_manifest_bytes": {"type": "integer", "minimum": 1},
+    "target_id": {"type": ["string", "null"], "minLength": 1},
+    "start_s": {"type": ["number", "null"], "minimum": 0},
+    "end_s": {"type": ["number", "null"], "minimum": 0},
+    "selected_event_count": {"type": "integer", "minimum": 0},
+    "eligible_event_count": {"type": "integer", "minimum": 0},
+    "skipped_event_count": {"type": "integer", "minimum": 0},
+    "skipped_event_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "skipped_reasons": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "row_count": {"type": "integer", "minimum": 0},
+    "required_truth_columns": {
+      "const": ["ground_truth_latitude_deg", "ground_truth_longitude_deg"]
+    },
+    "rows": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/row"}
+    }
+  },
+  "$defs": {
+    "coordinateLatitude": {
+      "type": "number",
+      "exclusiveMinimum": -90,
+      "exclusiveMaximum": 90
+    },
+    "coordinateLongitude": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "optionalLatitude": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": -90,
+      "exclusiveMaximum": 90
+    },
+    "optionalLongitude": {
+      "type": ["number", "null"],
+      "minimum": -180,
+      "maximum": 180
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_id",
+        "event_id",
+        "source_frame_id",
+        "target_id",
+        "target_label",
+        "captured_at_s",
+        "gps_observed_at_s",
+        "gps_age_s",
+        "gps_freshness",
+        "estimated_latitude_deg",
+        "estimated_longitude_deg",
+        "reported_sigma_m",
+        "ground_truth_latitude_deg",
+        "ground_truth_longitude_deg",
+        "surveyed_at_utc",
+        "survey_method",
+        "operator_notes"
+      ],
+      "properties": {
+        "sample_id": {"type": "string", "minLength": 1},
+        "event_id": {"type": "string", "minLength": 1},
+        "source_frame_id": {"type": "string", "minLength": 1},
+        "target_id": {"type": "string", "minLength": 1},
+        "target_label": {"type": "string", "minLength": 1},
+        "captured_at_s": {"type": "number", "minimum": 0},
+        "gps_observed_at_s": {"type": "number", "minimum": 0},
+        "gps_age_s": {"type": "number", "minimum": 0},
+        "gps_freshness": {"const": "fresh"},
+        "estimated_latitude_deg": {"$ref": "#/$defs/coordinateLatitude"},
+        "estimated_longitude_deg": {"$ref": "#/$defs/coordinateLongitude"},
+        "reported_sigma_m": {"type": "number", "minimum": 0},
+        "ground_truth_latitude_deg": {"$ref": "#/$defs/optionalLatitude"},
+        "ground_truth_longitude_deg": {"$ref": "#/$defs/optionalLongitude"},
+        "surveyed_at_utc": {"type": ["string", "null"]},
+        "survey_method": {"type": ["string", "null"]},
+        "operator_notes": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

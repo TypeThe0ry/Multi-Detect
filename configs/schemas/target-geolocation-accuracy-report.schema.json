@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-geolocation-accuracy-report.schema.json",
+  "title": "Multi-Detect target geolocation accuracy report v1",
+  "description": "Offline WGS-84 comparison of estimated target coordinates and independently surveyed truth. It contains no runtime, mission, or flight-control input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "ground_truth_isolated",
+    "advisory_only",
+    "contains_flight_control",
+    "requirements",
+    "measurement",
+    "distance_error_m",
+    "signed_north_error_m",
+    "signed_east_error_m",
+    "samples",
+    "reasons",
+    "gate_passed"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "multidetect.target-geolocation-accuracy.v1"},
+    "ground_truth_isolated": {"const": true},
+    "advisory_only": {"const": true},
+    "contains_flight_control": {"const": false},
+    "requirements": {"$ref": "#/$defs/requirements"},
+    "measurement": {"$ref": "#/$defs/measurement"},
+    "distance_error_m": {"$ref": "#/$defs/nonNegativeMetrics"},
+    "signed_north_error_m": {"$ref": "#/$defs/signedMetrics"},
+    "signed_east_error_m": {"$ref": "#/$defs/signedMetrics"},
+    "error_ellipse": {"$ref": "#/$defs/errorEllipse"},
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sample"}
+    },
+    "selection": {"$ref": "#/$defs/selection"},
+    "reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "gate_passed": {"type": "boolean"}
+  },
+  "$defs": {
+    "optionalNonNegative": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "optionalCoverage": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_samples",
+        "maximum_p95_m",
+        "minimum_one_sigma_coverage",
+        "minimum_two_sigma_coverage"
+      ],
+      "properties": {
+        "minimum_samples": {"type": "integer", "minimum": 1},
+        "maximum_p95_m": {"$ref": "#/$defs/optionalPositive"},
+        "minimum_one_sigma_coverage": {"$ref": "#/$defs/optionalCoverage"},
+        "minimum_two_sigma_coverage": {"$ref": "#/$defs/optionalCoverage"}
+      }
+    },
+    "optionalPositive": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_count",
+        "sigma_sample_count",
+        "one_sigma_coverage",
+        "two_sigma_coverage"
+      ],
+      "properties": {
+        "sample_count": {"type": "integer", "minimum": 1},
+        "sigma_sample_count": {"type": "integer", "minimum": 0},
+        "one_sigma_coverage": {"$ref": "#/$defs/optionalCoverage"},
+        "two_sigma_coverage": {"$ref": "#/$defs/optionalCoverage"}
+      }
+    },
+    "nonNegativeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean_m", "median_m", "p95_m", "rmse_m", "maximum_m"],
+      "properties": {
+        "mean_m": {"type": "number", "minimum": 0},
+        "median_m": {"type": "number", "minimum": 0},
+        "p95_m": {"type": "number", "minimum": 0},
+        "rmse_m": {"type": "number", "minimum": 0},
+        "maximum_m": {"type": "number", "minimum": 0}
+      }
+    },
+    "signedMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean_m", "median_m", "p95_m", "rmse_m", "maximum_m"],
+      "properties": {
+        "mean_m": {"type": "number"},
+        "median_m": {"type": "number"},
+        "p95_m": {"type": "number"},
+        "rmse_m": {"type": "number", "minimum": 0},
+        "maximum_m": {"type": "number"}
+      }
+    },
+    "errorEllipse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_count",
+        "bias_north_m",
+        "bias_east_m",
+        "covariance_north_m2",
+        "covariance_east_m2",
+        "covariance_north_east_m2",
+        "major_1sigma_m",
+        "minor_1sigma_m",
+        "orientation_deg",
+        "major_95_m",
+        "minor_95_m"
+      ],
+      "properties": {
+        "sample_count": {"type": "integer", "minimum": 1},
+        "bias_north_m": {"type": "number"},
+        "bias_east_m": {"type": "number"},
+        "covariance_north_m2": {"type": "number", "minimum": 0},
+        "covariance_east_m2": {"type": "number", "minimum": 0},
+        "covariance_north_east_m2": {"type": "number"},
+        "major_1sigma_m": {"type": "number", "minimum": 0},
+        "minor_1sigma_m": {"type": "number", "minimum": 0},
+        "orientation_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "major_95_m": {"type": "number", "minimum": 0},
+        "minor_95_m": {"type": "number", "minimum": 0}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_manifest_sha256",
+        "source_manifest_bytes",
+        "truth_row_count",
+        "selected_event_count",
+        "eligible_event_count",
+        "matched_event_count",
+        "skipped_event_count",
+        "unmatched_event_ids",
+        "unused_truth_ids",
+        "target_id",
+        "allow_unmatched_events",
+        "allow_extra_truth",
+        "max_truth_time_delta_s"
+      ],
+      "properties": {
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "source_manifest_bytes": {"type": "integer", "minimum": 1},
+        "truth_row_count": {"type": "integer", "minimum": 0},
+        "selected_event_count": {"type": "integer", "minimum": 0},
+        "eligible_event_count": {"type": "integer", "minimum": 0},
+        "matched_event_count": {"type": "integer", "minimum": 0},
+        "skipped_event_count": {"type": "integer", "minimum": 0},
+        "unmatched_event_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "unused_truth_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "target_id": {"type": ["string", "null"], "minLength": 1},
+        "allow_unmatched_events": {"type": "boolean"},
+        "allow_extra_truth": {"type": "boolean"},
+        "max_truth_time_delta_s": {"$ref": "#/$defs/optionalNonNegative"}
+      }
+    },
+    "coordinateLatitude": {
+      "type": "number",
+      "exclusiveMinimum": -90,
+      "exclusiveMaximum": 90
+    },
+    "coordinateLongitude": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_id",
+        "target_id",
+        "captured_at_s",
+        "estimated_latitude_deg",
+        "estimated_longitude_deg",
+        "ground_truth_latitude_deg",
+        "ground_truth_longitude_deg",
+        "error_distance_m",
+        "signed_north_error_m",
+        "signed_east_error_m",
+        "reported_sigma_m",
+        "within_one_sigma",
+        "within_two_sigma"
+      ],
+      "properties": {
+        "sample_id": {"type": "string", "minLength": 1},
+        "target_id": {"type": ["string", "null"], "minLength": 1},
+        "captured_at_s": {"type": ["number", "null"], "minimum": 0},
+        "estimated_latitude_deg": {"$ref": "#/$defs/coordinateLatitude"},
+        "estimated_longitude_deg": {"$ref": "#/$defs/coordinateLongitude"},
+        "ground_truth_latitude_deg": {"$ref": "#/$defs/coordinateLatitude"},
+        "ground_truth_longitude_deg": {"$ref": "#/$defs/coordinateLongitude"},
+        "error_distance_m": {"type": "number", "minimum": 0},
+        "signed_north_error_m": {"type": "number"},
+        "signed_east_error_m": {"type": "number"},
+        "reported_sigma_m": {"$ref": "#/$defs/optionalNonNegative"},
+        "within_one_sigma": {"type": ["boolean", "null"]},
+        "within_two_sigma": {"type": ["boolean", "null"]}
+      }
+    }
+  },
+  "$comment": "The producer and release-gate verifier additionally reject non-finite JSON values, duplicate keys, stale/unknown GPS, and reports whose metrics do not recompute from samples."
+}

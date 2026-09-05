@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/runtime-profile-document.schema.json",
+  "title": "Multi-Detect RuntimeProfile document v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"$ref": "runtime-profile.schema.json"},
+    "key_id": {"type": "string", "minLength": 1},
+    "signature_hmac_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    }
+  }
+}

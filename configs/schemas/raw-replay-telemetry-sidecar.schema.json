@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/raw-replay-telemetry-sidecar.schema.json",
+  "title": "Multi-Detect RawReplayTelemetrySample JSONL line v1",
+  "description": "Schema for one strict JSONL telemetry line consumed by the raw replay sidecar joiner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "observed_at_s", "telemetry"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "telemetry"},
+    "observed_at_s": {"type": "number", "minimum": 0},
+    "telemetry": {"$ref": "#/$defs/vehicle_telemetry"}
+  },
+  "$defs": {
+    "nullable_bool": {"type": ["boolean", "null"]},
+    "nullable_int": {"type": ["integer", "null"]},
+    "nullable_real": {"type": ["number", "null"]},
+    "nullable_non_negative_real": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "nullable_text": {"type": ["string", "null"]},
+    "vehicle_telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "altitude_agl_m",
+        "roll_deg",
+        "pitch_deg",
+        "ground_speed_mps",
+        "in_allowed_zone",
+        "geofence_healthy",
+        "position_healthy",
+        "link_healthy",
+        "flight_mode_allows_deploy",
+        "release_zone_clear"
+      ],
+      "properties": {
+        "altitude_agl_m": {"$ref": "#/$defs/nullable_real"},
+        "roll_deg": {"$ref": "#/$defs/nullable_real"},
+        "pitch_deg": {"$ref": "#/$defs/nullable_real"},
+        "ground_speed_mps": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "in_allowed_zone": {"$ref": "#/$defs/nullable_bool"},
+        "geofence_healthy": {"$ref": "#/$defs/nullable_bool"},
+        "position_healthy": {"$ref": "#/$defs/nullable_bool"},
+        "link_healthy": {"$ref": "#/$defs/nullable_bool"},
+        "flight_mode_allows_deploy": {"$ref": "#/$defs/nullable_bool"},
+        "release_zone_clear": {"$ref": "#/$defs/nullable_bool"},
+        "person_detector_healthy": {"$ref": "#/$defs/nullable_bool"},
+        "latitude_deg": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": -90,
+          "exclusiveMaximum": 90
+        },
+        "longitude_deg": {
+          "type": ["number", "null"],
+          "minimum": -180,
+          "maximum": 180
+        },
+        "heading_deg": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 360
+        },
+        "battery_remaining_pct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "satellites_visible": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 254
+        },
+        "gps_fix_type": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gps_horizontal_accuracy_m": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "gps_vertical_accuracy_m": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "gps_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "gps_absolute_altitude_m": {"$ref": "#/$defs/nullable_real"},
+        "armed": {"$ref": "#/$defs/nullable_bool"},
+        "flight_mode": {"$ref": "#/$defs/nullable_text"},
+        "mission_sequence": {"$ref": "#/$defs/nullable_int"},
+        "mission_sequence_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "mission_item_reached_sequence": {"$ref": "#/$defs/nullable_int"},
+        "mission_item_reached_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "attitude_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "position_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "velocity_north_mps": {"$ref": "#/$defs/nullable_real"},
+        "velocity_east_mps": {"$ref": "#/$defs/nullable_real"},
+        "acceleration_uncertainty_mps2": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "airspeed_mps": {"$ref": "#/$defs/nullable_real"},
+        "wind_north_mps": {"$ref": "#/$defs/nullable_real"},
+        "wind_east_mps": {"$ref": "#/$defs/nullable_real"},
+        "velocity_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "airspeed_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "wind_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "altitude_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"},
+        "altitude_reference": {"$ref": "#/$defs/nullable_text"},
+        "local_north_m": {"$ref": "#/$defs/nullable_real"},
+        "local_east_m": {"$ref": "#/$defs/nullable_real"},
+        "local_down_m": {"$ref": "#/$defs/nullable_real"},
+        "local_position_observed_at_s": {"$ref": "#/$defs/nullable_non_negative_real"}
+      }
+    }
+  }
+}

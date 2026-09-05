@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "calibration": {
+    "calibration_id": "gazebo-front-camera-v1",
+    "width_px": 1280,
+    "height_px": 960,
+    "fx_px": 539.93636802453,
+    "fy_px": 539.93636802453,
+    "cx_px": 640.0,
+    "cy_px": 480.0,
+    "mount_pitch_down_deg": 0.0,
+    "mount_yaw_right_deg": 0.0,
+    "mount_roll_clockwise_deg": 0.0,
+    "k1": 0.0,
+    "k2": 0.0,
+    "p1": 0.0,
+    "p2": 0.0,
+    "k3": 0.0,
+    "boresight_sigma_deg": 0.01,
+    "camera_offset_forward_m": 0.35,
+    "camera_offset_right_m": 0.0,
+    "camera_offset_down_m": 0.02,
+    "camera_offset_sigma_m": 0.001
+  }
+}

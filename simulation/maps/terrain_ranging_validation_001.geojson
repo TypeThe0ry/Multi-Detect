@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "terrain_ranging_validation_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "terrain-validation-area",
+      "properties": {
+        "role": "operating_area",
+        "source": "repository_owned_simulation_asset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [103.79847827210017, 1.2979651783632489],
+            [103.80252172466288, 1.2979651783632489],
+            [103.80252172466288, 1.302034819974877],
+            [103.79847827210017, 1.302034819974877],
+            [103.79847827210017, 1.2979651783632489]
+          ]
+        ]
+      }
+    }
+  ]
+}

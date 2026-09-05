@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-prompt-envelope.schema.json",
+  "title": "Multi-Detect PromptEnvelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prompt_id", "text", "language", "issued_at", "operator_id", "aircraft_id"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "prompt_id": {"type": "string", "minLength": 1},
+    "text": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "minLength": 1},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "operator_id": {"type": "string", "minLength": 1},
+    "aircraft_id": {"type": "string", "minLength": 1}
+  }
+}

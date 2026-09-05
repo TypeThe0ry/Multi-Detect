@@ -15,7 +15,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$pythonPath = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$qgcRoot = Join-Path $repoRoot "ground-control\MultiDetectGCS"
+$pythonPath = Join-Path $qgcRoot ".venv\Scripts\python.exe"
 $logDirectory = Join-Path $repoRoot "artifacts\evaluation"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $bridgeOutput = Join-Path $logDirectory "qgc-gr01-readonly-$timestamp.json"
@@ -25,9 +26,8 @@ if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
     throw "Multi-Detect Python environment was not found: $pythonPath"
 }
 if ([string]::IsNullOrWhiteSpace($QgcPath)) {
-    $githubRoot = Split-Path -Parent $repoRoot
     $qgcCandidates = @(
-        (Join-Path $githubRoot "QGroundControl-MultiDetect\build-multidetect-release\staging\bin\MultiDetectGCS.exe")
+        (Join-Path $repoRoot "build\windows-v0.2.0-release\portable-v0.2.0\bin\MultiDetectGCS.exe")
         (Join-Path $env:USERPROFILE "Apps\QGroundControl-Daily-2026-07-10\bin\QGroundControl.exe")
         (Join-Path $env:ProgramFiles "QGroundControl\bin\QGroundControl.exe")
     )

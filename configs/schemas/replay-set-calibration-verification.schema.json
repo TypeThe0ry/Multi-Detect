@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-set-calibration-verification.schema.json",
+  "title": "Multi-Detect Replay-Set Threshold Calibration Verification Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "report_path",
+    "report_sha256",
+    "report_bytes",
+    "manifest_path",
+    "report_promotion_ready",
+    "recomputed_promotion_ready",
+    "checks",
+    "gate_passed",
+    "reasons"
+  ],
+  "properties": {
+    "event": {"const": "replay_set_threshold_calibration_verified"},
+    "schema_version": {"const": 1},
+    "report_path": {"type": "string", "minLength": 1},
+    "report_sha256": {"$ref": "#/$defs/sha256"},
+    "report_bytes": {"type": "integer", "minimum": 1},
+    "manifest_path": {"type": ["string", "null"]},
+    "report_promotion_ready": {"type": ["boolean", "null"]},
+    "recomputed_promotion_ready": {"type": ["boolean", "null"]},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_json_valid",
+        "report_event_valid",
+        "report_schema_version_valid",
+        "manifest_available",
+        "manifest_sha256_matches",
+        "canonical_sha256_matches",
+        "recomputed_report_matches"
+      ],
+      "properties": {
+        "report_json_valid": {"type": "boolean"},
+        "report_event_valid": {"type": "boolean"},
+        "report_schema_version_valid": {"type": "boolean"},
+        "manifest_available": {"type": "boolean"},
+        "manifest_sha256_matches": {"type": "boolean"},
+        "canonical_sha256_matches": {"type": "boolean"},
+        "recomputed_report_matches": {"type": "boolean"}
+      }
+    },
+    "gate_passed": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+  }
+}

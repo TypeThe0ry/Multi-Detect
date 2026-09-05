@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+import multidetect.alerts as alerts_module
 from multidetect.alerts import (
     AlertAcknowledgementError,
     AlertAuthenticationError,
@@ -222,6 +223,40 @@ def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
     assert len(received) == 1
     assert received[0].document["target_id"] == "track-1"
     assert received[0].duplicate is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("version", True, "unsupported data-link protocol or version"),
+        ("version", 1.0, "unsupported data-link protocol or version"),
+        ("sent_at_unix_s", True, "data-link packet timestamp is invalid"),
+    ],
+)
+def test_authenticated_udp_header_rejects_boolean_and_float_version_fields(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    document: dict[str, object] = {
+        "protocol": "multi-detect-alert-udp",
+        "version": 1,
+        "message_type": "fire_alert",
+        "sender_id": "aircraft-1",
+        "receiver_id": "ground-1",
+        "sent_at_unix_s": 100.0,
+    }
+    document[field] = value
+
+    with pytest.raises(AlertAuthenticationError, match=message):
+        alerts_module._validate_packet_header(
+            document,
+            message_type="fire_alert",
+            expected_sender_id="aircraft-1",
+            expected_receiver_id="ground-1",
+            now_unix_s=100.0,
+            maximum_clock_skew_seconds=1.0,
+        )
 
 
 def test_authenticated_udp_receiver_deduplicates_retransmitted_alert_id() -> None:

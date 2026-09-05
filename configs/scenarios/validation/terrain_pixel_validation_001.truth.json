@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "scenario_id": "terrain_pixel_validation_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "terrain-pixel-target-v1",
+      "label": "red_vertical_stripe_marker",
+      "position": {
+        "latitude_deg": 1.3003617459195584,
+        "longitude_deg": 103.80057188361133,
+        "altitude_m": 31.0,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary"
+    },
+    {
+      "target_id": "terrain-pixel-target-v2",
+      "label": "cyan_roundel_marker",
+      "position": {
+        "latitude_deg": 1.3009043647984875,
+        "longitude_deg": 103.80057188362667,
+        "altitude_m": 37.0,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary"
+    },
+    {
+      "target_id": "terrain-pixel-target-v3",
+      "label": "magenta_cross_marker",
+      "position": {
+        "latitude_deg": 1.3014469836750862,
+        "longitude_deg": 103.80057188364202,
+        "altitude_m": 43.0,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary"
+    }
+  ]
+}

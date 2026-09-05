@@ -18,6 +18,9 @@ from multidetect.operator_link import (
     AuthorizationDisplayState,
     MissionStatusMessage,
     PatrolStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
@@ -34,6 +37,7 @@ from multidetect.operator_protocol import (
     OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL,
     OperatorProtocolError,
     OperatorTunnelCodec,
+    RuntimeStatusAck,
     SelectionAck,
     SelectionAckReason,
     WireMessageType,
@@ -186,6 +190,52 @@ def test_jetson_safety_status_round_trip_to_g20_is_explanatory_only() -> None:
     assert decoded.message.unknown_count == 1
     assert decoded.message.advisory_only is True
     assert decoded.message.physical_release_enabled is False
+
+
+def test_jetson_runtime_status_round_trip_uses_signed_mavlink_tunnel() -> None:
+    status = RuntimeStatusMessage(
+        sequence=12,
+        mode=RuntimeMode.HIL,
+        backend_health=RuntimeBackendHealth.DEGRADED,
+        scenario_seed=7,
+        scenario_hash64=0x1122334455667788,
+        airframe_profile_hash64=0x2233445566778899,
+        run_hash64=0x33445566778899AA,
+        scenario_present=True,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=100.4,
+    )
+
+    frame = _adapter(JETSON_ENDPOINT).encode_runtime_status(status)
+    decoded = _adapter(G20_ENDPOINT).decode_frame(frame)
+
+    assert frame[0] == mavlink2.PROTOCOL_MARKER_V2
+    assert frame[2] & mavlink2.MAVLINK_IFLAG_SIGNED
+    assert decoded.message_type is WireMessageType.RUNTIME_STATUS
+    assert decoded.message == status
+    assert decoded.message.direct_pixhawk_writes is False
+    assert decoded.message.physical_release_enabled is False
+
+
+def test_qgc_runtime_status_acceptance_ack_uses_signed_mavlink_tunnel() -> None:
+    acknowledgement = RuntimeStatusAck(
+        acknowledged_runtime_sequence=12,
+        run_hash64=0x33445566778899AA,
+    )
+
+    frame = _adapter(G20_ENDPOINT).encode_runtime_status_ack(
+        acknowledgement,
+        sequence=13,
+        sent_at_s=100.405,
+    )
+    decoded = _adapter(JETSON_ENDPOINT).decode_frame(frame)
+
+    assert frame[0] == mavlink2.PROTOCOL_MARKER_V2
+    assert frame[2] & mavlink2.MAVLINK_IFLAG_SIGNED
+    assert decoded.message_type is WireMessageType.RUNTIME_STATUS_ACK
+    assert decoded.message == acknowledgement
 
 
 def test_jetson_patrol_status_round_trip_to_g20_is_advisory_only() -> None:

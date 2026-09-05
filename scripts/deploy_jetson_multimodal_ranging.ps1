@@ -30,8 +30,10 @@ $files = @(
     "src/multidetect/cli.py",
     "src/multidetect/depth_grid_udp.py",
     "src/multidetect/live.py",
+    "src/multidetect/mavlink_gps.py",
     "src/multidetect/metric_depth.py",
     "src/multidetect/multimodal_ranging.py",
+    "src/multidetect/navigation_fusion.py",
     "src/multidetect/operator_link.py",
     "src/multidetect/operator_bridge.py",
     "src/multidetect/operator_mavlink.py",
@@ -160,7 +162,11 @@ grep -Fq 'def encode_target_geolocation_status' "`$root/src/multidetect/operator
 grep -Fq 'def _target_geolocation_status_due' "`$root/src/multidetect/operator_bridge.py"
 grep -Fq 'TARGET_GEOLOCATION_STATUS = 22' "`$root/src/multidetect/operator_protocol.py"
 grep -Fq 'maximum_local_position_age_s: float = 0.60' "`$root/src/multidetect/adaptive_ranging.py"
-grep -Fq 'minimum_gps_fix_type: int = 3' "`$root/src/multidetect/adaptive_ranging.py"
+grep -Fq 'minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN' "`$root/src/multidetect/adaptive_ranging.py"
+grep -Fq 'MAVLINK_QUALIFIED_SATELLITES_MIN' "`$root/src/multidetect/adaptive_ranging.py"
+grep -Fq 'MAVLINK_QUALIFIED_FIX_TYPE_MIN' "`$root/src/multidetect/mavlink_gps.py"
+grep -Fq 'minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN' "`$root/src/multidetect/navigation_fusion.py"
+grep -Fq 'minimum_gps_satellites: int = MAVLINK_QUALIFIED_SATELLITES_MIN' "`$root/src/multidetect/navigation_fusion.py"
 grep -Fq 'gps_horizontal_accuracy_m' "`$root/src/multidetect/pixhawk.py"
 grep -Fq 'CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1' "`$root/src/multidetect/depth_calibration.py"
 grep -Fq 'geometry-accepted target depth events' "`$root/scripts/export_outdoor_depth_calibration_candidates.py"

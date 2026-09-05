@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/camera-calibration.schema.json",
+  "title": "Multi-Detect camera calibration v1",
+  "description": "Strict ChArUco intrinsics, mounting attitude and optional GNSS-to-camera lever-arm survey.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "calibration"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "calibration": {"$ref": "#/$defs/calibration"}
+  },
+  "$defs": {
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calibration_id",
+        "width_px",
+        "height_px",
+        "fx_px",
+        "fy_px",
+        "cx_px",
+        "cy_px"
+      ],
+      "properties": {
+        "calibration_id": {"type": "string", "minLength": 1},
+        "width_px": {"type": "integer", "minimum": 1},
+        "height_px": {"type": "integer", "minimum": 1},
+        "fx_px": {"type": "number", "exclusiveMinimum": 0},
+        "fy_px": {"type": "number", "exclusiveMinimum": 0},
+        "cx_px": {"type": "number", "minimum": 0},
+        "cy_px": {"type": "number", "minimum": 0},
+        "mount_pitch_down_deg": {"type": "number"},
+        "mount_yaw_right_deg": {"type": "number"},
+        "mount_roll_clockwise_deg": {"type": "number"},
+        "k1": {"type": "number"},
+        "k2": {"type": "number"},
+        "p1": {"type": "number"},
+        "p2": {"type": "number"},
+        "k3": {"type": "number"},
+        "boresight_sigma_deg": {
+          "description": "Common one-sigma survey uncertainty applied independently to mount pitch, yaw and roll during calibrated ray propagation.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "camera_offset_forward_m": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "camera_offset_right_m": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "camera_offset_down_m": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "camera_offset_sigma_m": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    }
+  }
+}

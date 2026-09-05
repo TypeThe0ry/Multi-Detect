@@ -12,6 +12,11 @@ import cv2
 import numpy as np
 
 from .domain import BoundingBox
+from .inference_provider import (
+    InferenceProviderError,
+    OrtSessionSelection,
+    create_onnxruntime_session,
+)
 
 CITYSEMSEGFORMER_LABELS = (
     "road",
@@ -213,6 +218,7 @@ class OnnxCategoricalSemanticContext:
     ) -> None:
         self.config = config
         self.adapter = adapter or CategoricalSemanticMaskAdapter()
+        self._provider_selection: OrtSessionSelection | None = None
         if session is None:
             if not config.model_path.is_file():
                 raise ValueError(f"semantic ONNX model does not exist: {config.model_path}")
@@ -222,8 +228,14 @@ class OnnxCategoricalSemanticContext:
                 raise RuntimeError(
                     "onnxruntime is required for semantic context inference"
                 ) from exc
-            providers = list(config.providers) or ort.get_available_providers()
-            session = ort.InferenceSession(str(config.model_path), providers=providers)
+            try:
+                session, self._provider_selection = create_onnxruntime_session(
+                    ort,
+                    config.model_path,
+                    providers=config.providers,
+                )
+            except InferenceProviderError as exc:
+                raise RuntimeError(str(exc)) from exc
         inputs = tuple(session.get_inputs())
         outputs = tuple(session.get_outputs())
         if len(inputs) != 1 or len(outputs) != 1:
@@ -238,6 +250,12 @@ class OnnxCategoricalSemanticContext:
     def provider_names(self) -> tuple[str, ...]:
         getter = getattr(self._session, "get_providers", None)
         return tuple(getter()) if callable(getter) else ()
+
+    @property
+    def provider_selection(self) -> OrtSessionSelection | None:
+        """Return construction evidence when this instance created the ORT session."""
+
+        return self._provider_selection
 
     def warmup(self) -> None:
         image = np.zeros((self.config.input_height, self.config.input_width, 3), dtype=np.uint8)

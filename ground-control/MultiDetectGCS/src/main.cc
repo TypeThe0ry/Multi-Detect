@@ -4,6 +4,8 @@
 #include "QGCLoggingCategory.h"
 #include "Platform.h"
 
+#include <cstdlib>
+
 #ifdef QGC_UNITTEST_BUILD
     #include "UnitTestList.h"
 #endif
@@ -63,6 +65,19 @@ int main(int argc, char *argv[])
     app.shutdown();
 
     qCInfo(MainLog) << "Exiting main";
+
+    // The isolated HIL acceptance driver has already exercised the native QGC
+    // close path and collected its evidence.  Qt/QML and QGC's global singleton
+    // destruction order is not deterministic on Windows (the upstream code
+    // already documents this around QGCApplication::shutdown), and a normal
+    // stack unwind can produce a post-Exit SEH after the gate has passed.  End
+    // this deliberately short-lived acceptance process without running the
+    // remaining static destructors; normal GUI and test modes keep the complete
+    // QGC cleanup path below.
+    if (args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")) {
+        std::fflush(nullptr);
+        std::_Exit(exitCode);
+    }
 
     // Destroy LogManager while Qt is still fully functional (before static destruction).
     delete LogManager::instance();

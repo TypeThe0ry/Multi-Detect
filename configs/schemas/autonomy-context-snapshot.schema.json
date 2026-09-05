@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-context-snapshot.schema.json",
+  "title": "Multi-Detect ContextSnapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "snapshot_id", "captured_at_s", "captured_at_utc",
+    "aircraft_position", "home_position", "airframe_profile_id",
+    "battery_remaining_pct", "estimated_flight_time_s", "ground_speed_mps",
+    "airspeed_mps", "wind_north_mps", "wind_east_mps", "gps_fix_type",
+    "gps_horizontal_accuracy_m", "geofence_valid", "camera_available",
+    "perception_available", "map_cache_available", "dem_available"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "captured_at_s": {"type": "number", "minimum": 0},
+    "captured_at_utc": {"type": "string", "format": "date-time"},
+    "aircraft_position": {"$ref": "#/$defs/geo_point"},
+    "home_position": {"$ref": "#/$defs/geo_point"},
+    "airframe_profile_id": {"type": "string", "minLength": 1},
+    "battery_remaining_pct": {"type": "number", "minimum": 0, "maximum": 100},
+    "estimated_flight_time_s": {"type": "number", "minimum": 0},
+    "ground_speed_mps": {"type": "number", "minimum": 0},
+    "airspeed_mps": {"type": "number", "minimum": 0},
+    "wind_north_mps": {"type": "number"},
+    "wind_east_mps": {"type": "number"},
+    "gps_fix_type": {"type": "integer", "minimum": 0},
+    "gps_horizontal_accuracy_m": {"type": "number", "minimum": 0},
+    "geofence_valid": {"type": "boolean"},
+    "camera_available": {"type": "boolean"},
+    "perception_available": {"type": "boolean"},
+    "map_cache_available": {"type": "boolean"},
+    "dem_available": {"type": "boolean"}
+  },
+  "$defs": {
+    "geo_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["latitude_deg", "longitude_deg"],
+      "properties": {
+        "latitude_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+        "altitude_m": {"type": "number"},
+        "altitude_reference": {"type": "string", "minLength": 1}
+      },
+      "dependentRequired": {
+        "altitude_m": ["altitude_reference"],
+        "altitude_reference": ["altitude_m"]
+      }
+    }
+  }
+}

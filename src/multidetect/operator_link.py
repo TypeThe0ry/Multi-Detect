@@ -18,11 +18,23 @@ from .domain import (
 from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .patrol_advisory import AdvisoryValidity, PatrolPhase, ReturnObserveDirection
 from .payload_target_gate import PayloadTargetEligibility
+from .runtime import RuntimeMode
 from .unified_tracking import UnifiedTrackState
 
 OPERATOR_LINK_PROTOCOL_VERSION = 1
 MAX_SELECTION_TTL_S = 5.0
 MAX_AUTHORIZATION_DECISION_TTL_S = 5.0
+# A range packet is display/evidence metadata, but it must not keep an old
+# measurement alive merely because its authenticated transport envelope is
+# fresh.  Keep this transport bound aligned with the QGC target/evidence
+# freshness timer and the outdoor GPS freshness contract.
+MAX_RANGE_STATUS_SOURCE_AGE_MS = 1500
+MAX_RANGE_STATUS_SOURCE_AGE_S = MAX_RANGE_STATUS_SOURCE_AGE_MS / 1000.0
+# Target coordinates are derived from the same camera/range frame as the
+# range-status stream.  Keep the source-age ceiling identical so a freshly
+# authenticated packet cannot resurrect an old map point.
+MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS = MAX_RANGE_STATUS_SOURCE_AGE_MS
+MAX_TARGET_GEOLOCATION_SOURCE_AGE_S = MAX_RANGE_STATUS_SOURCE_AGE_S
 SAFETY_RULE_REGISTRY_VERSION = 1
 OPERATOR_SAFETY_RULE_IDS = (
     "target.confirmed_track",
@@ -91,6 +103,7 @@ RANGING_REASON_IDS = (
     "direct_degraded_metric_range",
     "vertical_reference_unavailable",
     "direct_range_unavailable",
+    "target_geometry_uncertainty_unbounded",
 )
 
 TARGET_GEOLOCATION_REASON_IDS = (
@@ -210,12 +223,106 @@ class AuthorizationDecision(StrEnum):
     DENY = "deny"
 
 
+class RuntimeBackendHealth(StrEnum):
+    """Coarse backend health; detailed diagnostics stay off the 128-byte link."""
+
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+
+
 def operator_identifier_token(value: str) -> int:
     """Return the stable 64-bit wire token used for bound operator metadata."""
 
     if not isinstance(value, str) or not value.strip():
         raise ValueError("operator identifier cannot be empty")
     return int.from_bytes(hashlib.sha256(value.strip().encode("utf-8")).digest()[:8], "big")
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeStatusMessage:
+    """Authenticated, compact identity of the active runtime backend.
+
+    This is display/audit metadata only. The hashes bind the shared GCS badge
+    to the scenario, airframe profile and exact run without carrying full
+    manifests through MAVLink TUNNEL.
+    """
+
+    sequence: int
+    mode: RuntimeMode
+    backend_health: RuntimeBackendHealth
+    scenario_seed: int | None
+    scenario_hash64: int | None
+    airframe_profile_hash64: int
+    run_hash64: int
+    scenario_present: bool
+    ground_truth_isolated: bool
+    hardware_outputs_present: bool
+    profile_valid: bool
+    produced_at_s: float
+    metadata_only: bool = True
+    direct_pixhawk_writes: bool = False
+    physical_release_enabled: bool = False
+    protocol_version: int = OPERATOR_LINK_PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if self.protocol_version != OPERATOR_LINK_PROTOCOL_VERSION:
+            raise ValueError("unsupported operator-link protocol version")
+        _require_uint(self.sequence, bits=32, name="runtime status sequence")
+        if not isinstance(self.mode, RuntimeMode):
+            raise ValueError("runtime mode is invalid")
+        if not isinstance(self.backend_health, RuntimeBackendHealth):
+            raise ValueError("runtime backend health is invalid")
+        if not isfinite(self.produced_at_s) or self.produced_at_s < 0.0:
+            raise ValueError("runtime status timestamp must be finite and non-negative")
+        for value, name in (
+            (self.airframe_profile_hash64, "airframe profile hash"),
+            (self.run_hash64, "run hash"),
+        ):
+            _require_uint(value, bits=64, name=name)
+        if self.scenario_seed is not None:
+            _require_uint(self.scenario_seed, bits=64, name="scenario seed")
+        if self.scenario_hash64 is not None:
+            _require_uint(self.scenario_hash64, bits=64, name="scenario hash")
+        scenario_fields_present = (
+            self.scenario_seed is not None and self.scenario_hash64 is not None
+        )
+        if self.scenario_present != scenario_fields_present:
+            raise ValueError("runtime scenario flag and identity fields are inconsistent")
+        if (self.scenario_seed is None) != (self.scenario_hash64 is None):
+            raise ValueError("runtime scenario seed and hash must be present together")
+        if self.scenario_present and self.scenario_hash64 == 0:
+            raise ValueError("runtime scenario hash cannot be zero when a scenario is present")
+        if self.profile_valid and self.airframe_profile_hash64 == 0:
+            raise ValueError("a valid runtime profile requires a non-zero hash")
+        if self.run_hash64 == 0:
+            raise ValueError("runtime run hash cannot be zero")
+        for value, name in (
+            (self.scenario_present, "scenario_present"),
+            (self.ground_truth_isolated, "ground_truth_isolated"),
+            (self.hardware_outputs_present, "hardware_outputs_present"),
+            (self.profile_valid, "profile_valid"),
+            (self.metadata_only, "metadata_only"),
+            (self.direct_pixhawk_writes, "direct_pixhawk_writes"),
+            (self.physical_release_enabled, "physical_release_enabled"),
+        ):
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be boolean")
+        if self.mode is RuntimeMode.REAL:
+            if self.scenario_present:
+                raise ValueError("REAL runtime status cannot bind a scenario")
+        else:
+            if not self.ground_truth_isolated:
+                raise ValueError(
+                    "REPLAY, SIM, and HIL runtime status must isolate ground truth"
+                )
+            if self.hardware_outputs_present:
+                raise ValueError(
+                    "hardware outputs may only be present for REAL runtime status"
+                )
+        if not self.metadata_only or self.direct_pixhawk_writes or self.physical_release_enabled:
+            raise ValueError("runtime status transport must remain display-only")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1092,7 +1199,10 @@ class RangeStatusMessage:
         if set(self.sources) & set(self.rejected_sources):
             raise ValueError("accepted and rejected ranging sources must be disjoint")
         if not all(
-            isfinite(value) and value >= 0.0
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(value)
+            and value >= 0.0
             for value in (self.source_captured_at_s, self.produced_at_s)
         ):
             raise ValueError("ranging timestamps must be finite and non-negative")
@@ -1138,6 +1248,20 @@ class RangeStatusMessage:
             value is not None for value in distance_values
         ):
             raise ValueError("invalid ranging status cannot publish distance")
+        if self.validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
+            source_age_s = self.produced_at_s - self.source_captured_at_s
+            if source_age_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError(
+                    "ranging source frame age exceeds the "
+                    f"{MAX_RANGE_STATUS_SOURCE_AGE_S:.3f}s freshness limit"
+                )
+            if self.data_freshness_s is None:
+                raise ValueError("valid ranging status requires data_freshness_s")
+            if self.data_freshness_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError(
+                    "ranging data freshness exceeds the "
+                    f"{MAX_RANGE_STATUS_SOURCE_AGE_S:.3f}s freshness limit"
+                )
         if not isfinite(self.sensor_consistency) or not 0.0 <= self.sensor_consistency <= 1.0:
             raise ValueError("sensor_consistency must be in [0, 1]")
         if len(self.source_contributions) > 3 or any(
@@ -1207,6 +1331,12 @@ class TargetGeolocationStatusMessage:
             raise ValueError("target geolocation timestamps must be finite and non-negative")
         if self.produced_at_s < self.source_captured_at_s:
             raise ValueError("target geolocation cannot predate its source frame")
+        if (
+            self.available
+            and self.produced_at_s - self.source_captured_at_s
+            > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
+        ):
+            raise ValueError("target geolocation source frame is stale")
         if self.reason not in TARGET_GEOLOCATION_REASON_IDS:
             raise ValueError("target geolocation reason must use the registered wire vocabulary")
         values = (self.latitude_deg, self.longitude_deg, self.horizontal_sigma_m)
@@ -1217,7 +1347,10 @@ class TargetGeolocationStatusMessage:
                 raise ValueError(
                     "available target geolocation requires finite coordinates and uncertainty"
                 )
-            if not -90.0 <= float(self.latitude_deg) <= 90.0:
+            # A geographic pole has no stable local longitude direction, so it
+            # cannot be represented as an actionable map point.  Keep the
+            # message domain aligned with QGC's map/snapshot gate.
+            if not -90.0 < float(self.latitude_deg) < 90.0:
                 raise ValueError("target geolocation latitude is outside the WGS-84 domain")
             if not -180.0 <= float(self.longitude_deg) <= 180.0:
                 raise ValueError("target geolocation longitude is outside the WGS-84 domain")
@@ -2041,6 +2174,10 @@ __all__ = [
     "AuthorizationDecisionCommandGuard",
     "AuthorizationDisplayState",
     "MAX_AUTHORIZATION_DECISION_TTL_S",
+    "MAX_RANGE_STATUS_SOURCE_AGE_MS",
+    "MAX_RANGE_STATUS_SOURCE_AGE_S",
+    "MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS",
+    "MAX_TARGET_GEOLOCATION_SOURCE_AGE_S",
     "MAX_SELECTION_TTL_S",
     "MissionStatusMessage",
     "OPERATOR_SAFETY_RULE_IDS",
@@ -2050,6 +2187,9 @@ __all__ = [
     "RELEASE_REASON_IDS",
     "RangeStatusMessage",
     "ReleaseStatusMessage",
+    "RuntimeBackendHealth",
+    "RuntimeMode",
+    "RuntimeStatusMessage",
     "SceneContextRegionEntry",
     "SceneContextState",
     "SceneContextStatusMessage",

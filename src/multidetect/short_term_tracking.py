@@ -58,6 +58,12 @@ class ShortTermTrackingConfig:
     # a material off-axis perspective warp but above observed affine-fit noise.
     camera_motion_minimum_projective: float = 0.008
     camera_motion_maximum_projective: float = 0.35
+    # A homography has eight degrees of freedom and can over-fit sparse LK
+    # noise even when the scene is a plain roll/zoom/pan.  Require it to beat
+    # the affine fit by a measurable margin before exposing the projective
+    # representation to the tracker.
+    camera_motion_homography_minimum_inlier_gain: float = 0.08
+    camera_motion_homography_maximum_inlier_error_ratio: float = 0.80
     camera_motion_phase_correlation_minimum_response: float = 0.50
 
     def __post_init__(self) -> None:
@@ -102,6 +108,14 @@ class ShortTermTrackingConfig:
             ("camera_motion_maximum_anisotropy", self.camera_motion_maximum_anisotropy),
             ("camera_motion_minimum_projective", self.camera_motion_minimum_projective),
             ("camera_motion_maximum_projective", self.camera_motion_maximum_projective),
+            (
+                "camera_motion_homography_minimum_inlier_gain",
+                self.camera_motion_homography_minimum_inlier_gain,
+            ),
+            (
+                "camera_motion_homography_maximum_inlier_error_ratio",
+                self.camera_motion_homography_maximum_inlier_error_ratio,
+            ),
         ):
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
@@ -480,6 +494,19 @@ class OpenCVShortTermTargetTracker:
                 gray,
                 initial_feature_count,
             )
+        # Fit the affine model first.  Besides being the preferred estimator
+        # for ordinary camera motion, it gives the homography gate a baseline
+        # so RANSAC cannot promote numerical projective noise to a perspective
+        # update merely because the eight-parameter model has more freedom.
+        transform, inliers = cv2.estimateAffine2D(
+            previous,
+            current,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=2.5,
+            maxIters=500,
+            confidence=0.98,
+            refineIters=5,
+        )
         if hasattr(cv2, "findHomography"):
             homography, homography_inliers = cv2.findHomography(
                 previous,
@@ -495,18 +522,13 @@ class OpenCVShortTermTargetTracker:
                 homography_inliers,
                 width=width,
                 height=height,
+                previous_points=previous,
+                current_points=current,
+                affine_transform=transform,
+                affine_inliers=inliers,
             )
             if perspective_motion is not None:
                 return perspective_motion, feature_count, "background_homography_flow"
-        transform, inliers = cv2.estimateAffine2D(
-            previous,
-            current,
-            method=cv2.RANSAC,
-            ransacReprojThreshold=2.5,
-            maxIters=500,
-            confidence=0.98,
-            refineIters=5,
-        )
         camera_motion_source = "background_affine_flow"
         if transform is None or inliers is None:
             # Full affine absorbs the small shear/non-uniform scale caused by yaw
@@ -608,6 +630,10 @@ class OpenCVShortTermTargetTracker:
         *,
         width: int,
         height: int,
+        previous_points: Any | None = None,
+        current_points: Any | None = None,
+        affine_transform: Any | None = None,
+        affine_inliers: Any | None = None,
     ) -> CameraMotionEstimate | None:
         """Accept only bounded, material perspective motion from target-excluded flow."""
 
@@ -643,6 +669,73 @@ class OpenCVShortTermTargetTracker:
             # A numerically-near-affine fit is intentionally handled by the faster,
             # more stable affine estimator below instead of adding perspective jitter.
             return None
+
+        # Reject a numerically projective homography when the affine fit is
+        # just as good.  This is important for outdoor video: rolling-shutter
+        # noise, foliage and compression can perturb the bottom row of an
+        # otherwise affine warp by >0.008 in normalized coordinates.  Compare
+        # only RANSAC inliers and accept perspective when it either recovers a
+        # materially larger consensus set or reduces the inlier residual by a
+        # configured ratio.
+        if (
+            previous_points is not None
+            and current_points is not None
+            and affine_transform is not None
+            and affine_inliers is not None
+        ):
+            try:
+                previous_array = np.asarray(previous_points, dtype=np.float64).reshape(-1, 2)
+                current_array = np.asarray(current_points, dtype=np.float64).reshape(-1, 2)
+                affine_matrix = np.asarray(affine_transform, dtype=np.float64)
+                affine_mask = np.asarray(affine_inliers).reshape(-1).astype(bool)
+                homography_mask = np.asarray(inliers).reshape(-1).astype(bool)
+                if (
+                    affine_matrix.shape == (2, 3)
+                    and len(previous_array) == len(current_array) == len(affine_mask)
+                    and len(homography_mask) == len(previous_array)
+                    and np.all(np.isfinite(affine_matrix))
+                    and np.any(affine_mask)
+                    and np.any(homography_mask)
+                ):
+                    homogeneous = np.concatenate(
+                        (previous_array, np.ones((len(previous_array), 1), dtype=np.float64)),
+                        axis=1,
+                    )
+                    affine_projected = homogeneous @ affine_matrix.T
+                    affine_error = np.linalg.norm(affine_projected - current_array, axis=1)
+                    homography_projected = homogeneous @ matrix.T
+                    denominator = homography_projected[:, 2]
+                    valid_denominator = np.isfinite(denominator) & (np.abs(denominator) > 1e-9)
+                    if np.all(valid_denominator):
+                        homography_projected = (
+                            homography_projected[:, :2] / denominator[:, None]
+                        )
+                        homography_error = np.linalg.norm(
+                            homography_projected - current_array, axis=1
+                        )
+                        affine_ratio = float(np.mean(affine_mask))
+                        homography_ratio = float(np.mean(homography_mask))
+                        affine_inlier_error = float(np.median(affine_error[affine_mask]))
+                        homography_inlier_error = float(
+                            np.median(homography_error[homography_mask])
+                        )
+                        gain = homography_ratio - affine_ratio
+                        error_ratio = homography_inlier_error / max(
+                            affine_inlier_error, 1e-6
+                        )
+                        material_consensus_gain = (
+                            gain >= self.config.camera_motion_homography_minimum_inlier_gain
+                        )
+                        material_error_reduction = (
+                            error_ratio
+                            <= self.config.camera_motion_homography_maximum_inlier_error_ratio
+                        )
+                        if not (material_consensus_gain or material_error_reduction):
+                            return None
+            except (TypeError, ValueError, FloatingPointError):
+                # Keep the previous fail-closed behavior when an OpenCV build
+                # returns an unexpected shape or non-finite point array.
+                return None
         h00, h01, h02 = (float(value) for value in normalized[0])
         h10, h11, h12 = (float(value) for value in normalized[1])
         h20, h21, h22 = (float(value) for value in normalized[2])

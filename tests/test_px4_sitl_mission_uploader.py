@@ -47,6 +47,12 @@ class _MavRecorder:
     def mission_item_send(self, *args: Any) -> None:
         self.calls.append(("MISSION_ITEM", args))
 
+    def mission_request_list_send(self, *args: Any) -> None:
+        self.calls.append(("MISSION_REQUEST_LIST", args))
+
+    def mission_request_int_send(self, *args: Any) -> None:
+        self.calls.append(("MISSION_REQUEST_INT", args))
+
 
 class _Connection:
     def __init__(self, messages: list[_Message | None]) -> None:
@@ -142,6 +148,85 @@ def test_upload_implements_bounded_request_int_sequence_only() -> None:
         "MISSION_ITEM_INT",
         "MISSION_ITEM_INT",
     ]
+
+
+def test_readback_proves_ordered_item_contract_and_hash() -> None:
+    module = _load_script()
+    mission = module.build_hil_patrol_mission(
+        home_latitude_e7=473_977_430,
+        home_longitude_e7=85_455_940,
+    )
+    messages = [_Message("MISSION_COUNT", count=3)]
+    for item in mission:
+        messages.append(
+            _Message(
+                "MISSION_ITEM_INT",
+                seq=item.sequence,
+                command=item.command,
+                param1=item.param1,
+                param2=item.param2,
+                param3=item.param3,
+                param4=item.param4,
+                x=item.latitude_e7,
+                y=item.longitude_e7,
+                z=item.relative_altitude_m,
+            )
+        )
+    connection = _Connection(messages)
+
+    result = module.readback_mission(
+        connection,
+        target_system=1,
+        target_component=1,
+        expected_items=mission,
+    )
+
+    assert result.mission_count == 3
+    assert result.received_sequences == (0, 1, 2)
+    assert result.received_message_types == ("MISSION_ITEM_INT",) * 3
+    assert result.items_match is True
+    assert result.hash_match is True
+    assert result.uploaded_sha256 == result.readback_sha256 == module.mission_sha256(mission)
+    assert [name for name, _ in connection.mav.calls] == [
+        "MISSION_REQUEST_LIST",
+        "MISSION_REQUEST_INT",
+        "MISSION_REQUEST_INT",
+        "MISSION_REQUEST_INT",
+    ]
+
+
+def test_readback_hash_fails_closed_on_changed_coordinate() -> None:
+    module = _load_script()
+    mission = module.build_hil_patrol_mission(
+        home_latitude_e7=473_977_430,
+        home_longitude_e7=85_455_940,
+    )
+    messages = [_Message("MISSION_COUNT", count=3)]
+    for item in mission:
+        messages.append(
+            _Message(
+                "MISSION_ITEM_INT",
+                seq=item.sequence,
+                command=item.command,
+                param1=item.param1,
+                param2=item.param2,
+                param3=item.param3,
+                param4=item.param4,
+                x=item.latitude_e7 + (1 if item.sequence == 1 else 0),
+                y=item.longitude_e7,
+                z=item.relative_altitude_m,
+            )
+        )
+
+    result = module.readback_mission(
+        _Connection(messages),
+        target_system=1,
+        target_component=1,
+        expected_items=mission,
+    )
+
+    assert result.items_match is False
+    assert result.hash_match is False
 
 
 def test_upload_rejects_invalid_sequence_and_nonaccepted_ack() -> None:

@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!--
+    Repository-owned fixed-wing outdoor scene for Multi-Detect SIM.
+
+    The world keeps the PX4/Gazebo namespace "default" so the camera,
+    NavSat and odometry topic contract is the same one used by QGC.  Geometry
+    is made from local SDF primitives; no Fuel or other network asset is
+    needed to load the scene.
+  -->
+  <world name="default">
+    <physics name="px4_ode" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+
+    <gravity>0 0 -9.80665</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+    <!-- Crosswind is intentionally non-zero for fixed-wing approach checks. -->
+    <wind>
+      <linear_velocity>2.0 -0.8 0</linear_velocity>
+    </wind>
+
+    <scene>
+      <grid>false</grid>
+      <ambient>0.42 0.45 0.48 1</ambient>
+      <background>0.58 0.76 0.90 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <!-- WGS-84 reference used by the NavSat sensor. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>1.290500</latitude_deg>
+      <longitude_deg>103.850500</longitude_deg>
+      <elevation>8</elevation>
+    </spherical_coordinates>
+
+    <light name="sun" type="directional">
+      <pose>0 0 500 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1.05</intensity>
+      <direction>-0.25 0.35 -0.902</direction>
+      <diffuse>0.96 0.94 0.88 1</diffuse>
+      <specular>0.25 0.25 0.22 1</specular>
+      <attenuation>
+        <range>2000</range>
+        <linear>0</linear>
+        <constant>1</constant>
+        <quadratic>0</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- Large dry collision plane for runway and low-altitude manoeuvres. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="ground_link">
+        <collision name="ground_collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1200 900</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="ground_visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>1200 900</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.20 0.42 0.18 1</ambient>
+            <diffuse>0.26 0.52 0.22 1</diffuse>
+            <specular>0.03 0.04 0.03 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Straight 220 m runway aligned with the vehicle +X axis. -->
+    <model name="fixed_wing_runway">
+      <static>true</static>
+      <pose>0 0 0.035 0 0 0</pose>
+      <link name="runway_link">
+        <collision name="runway_collision">
+          <geometry><box><size>220 24 0.06</size></box></geometry>
+        </collision>
+        <visual name="runway_visual">
+          <geometry><box><size>220 24 0.06</size></box></geometry>
+          <material>
+            <ambient>0.10 0.11 0.12 1</ambient>
+            <diffuse>0.16 0.17 0.19 1</diffuse>
+            <specular>0.18 0.18 0.18 1</specular>
+          </material>
+        </visual>
+        <visual name="runway_centerline">
+          <pose>0 0 0.034 0 0 0</pose>
+          <geometry><box><size>210 0.32 0.012</size></box></geometry>
+          <material>
+            <ambient>0.90 0.88 0.68 1</ambient>
+            <diffuse>1.0 0.98 0.78 1</diffuse>
+          </material>
+        </visual>
+        <visual name="threshold_west">
+          <pose>-96 0 0.036 0 0 0</pose>
+          <geometry><box><size>1.2 19 0.014</size></box></geometry>
+          <material>
+            <ambient>0.94 0.94 0.90 1</ambient>
+            <diffuse>1.0 1.0 0.96 1</diffuse>
+          </material>
+        </visual>
+        <visual name="threshold_east">
+          <pose>96 0 0.036 0 0 0</pose>
+          <geometry><box><size>1.2 19 0.014</size></box></geometry>
+          <material>
+            <ambient>0.94 0.94 0.90 1</ambient>
+            <diffuse>1.0 1.0 0.96 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Taxiway and apron make the 3-D scene readable in the QGC Fly View. -->
+    <model name="fixed_wing_apron">
+      <static>true</static>
+      <pose>0 34 0.025 0 0 0</pose>
+      <link name="apron_link">
+        <collision name="apron_collision">
+          <geometry><box><size>65 42 0.04</size></box></geometry>
+        </collision>
+        <visual name="apron_visual">
+          <geometry><box><size>65 42 0.04</size></box></geometry>
+          <material>
+            <ambient>0.25 0.27 0.28 1</ambient>
+            <diffuse>0.34 0.36 0.37 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Raised spawn pad for deterministic cold-start placement. -->
+    <model name="fixed_wing_home_pad">
+      <static>true</static>
+      <pose>-82 0 0.08 0 0 0</pose>
+      <link name="pad_link">
+        <collision name="pad_collision">
+          <geometry><cylinder><radius>4.5</radius><length>0.08</length></cylinder></geometry>
+        </collision>
+        <visual name="pad_visual">
+          <geometry><cylinder><radius>4.5</radius><length>0.08</length></cylinder></geometry>
+          <material>
+            <ambient>0.16 0.17 0.18 1</ambient>
+            <diffuse>0.23 0.24 0.25 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pad_arrow">
+          <pose>0 0 0.052 0 0 0</pose>
+          <geometry><box><size>3.2 0.38 0.015</size></box></geometry>
+          <material>
+            <ambient>0.92 0.92 0.88 1</ambient>
+            <diffuse>1.0 1.0 0.96 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Approach beacons define the landing corridor without hidden labels. -->
+    <model name="approach_beacon_west">
+      <static>true</static>
+      <pose>-108 -18 0 0 0 0</pose>
+      <link name="beacon_link">
+        <visual name="pole">
+          <pose>0 0 1.7 0 0 0</pose>
+          <geometry><cylinder><radius>0.12</radius><length>3.4</length></cylinder></geometry>
+          <material><ambient>0.85 0.72 0.02 1</ambient><diffuse>1 0.88 0.02 1</diffuse></material>
+        </visual>
+        <visual name="top">
+          <pose>0 0 3.55 0 0 0</pose>
+          <geometry><sphere><radius>0.32</radius></sphere></geometry>
+          <material><ambient>0.9 0.05 0.02 1</ambient><diffuse>1 0.08 0.02 1</diffuse><emissive>0.25 0.01 0 1</emissive></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="approach_beacon_east">
+      <static>true</static>
+      <pose>108 18 0 0 0 0</pose>
+      <link name="beacon_link">
+        <visual name="pole">
+          <pose>0 0 1.7 0 0 0</pose>
+          <geometry><cylinder><radius>0.12</radius><length>3.4</length></cylinder></geometry>
+          <material><ambient>0.85 0.72 0.02 1</ambient><diffuse>1 0.88 0.02 1</diffuse></material>
+        </visual>
+        <visual name="top">
+          <pose>0 0 3.55 0 0 0</pose>
+          <geometry><sphere><radius>0.32</radius></sphere></geometry>
+          <material><ambient>0.02 0.12 0.85 1</ambient><diffuse>0.02 0.20 1 1</diffuse><emissive>0 0.02 0.25 1</emissive></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Sparse local scenery for altitude/scale cues; all assets are primitives. -->
+    <model name="coastal_hangar">
+      <static>true</static>
+      <pose>30 78 6 0 0 0</pose>
+      <link name="hangar_link">
+        <collision name="hangar_collision"><geometry><box><size>48 20 12</size></box></geometry></collision>
+        <visual name="hangar_visual">
+          <geometry><box><size>48 20 12</size></box></geometry>
+          <material><ambient>0.34 0.36 0.38 1</ambient><diffuse>0.43 0.46 0.49 1</diffuse></material>
+        </visual>
+        <visual name="hangar_door">
+          <pose>-24 0 -1.5 0 0 0</pose>
+          <geometry><box><size>0.12 12 7</size></box></geometry>
+          <material><ambient>0.06 0.07 0.08 1</ambient><diffuse>0.08 0.09 0.10 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="coastal_water_strip">
+      <static>true</static>
+      <pose>0 270 0.03 0 0 0</pose>
+      <link name="water_link">
+        <visual name="water_visual">
+          <geometry><box><size>1200 180 0.05</size></box></geometry>
+          <material><ambient>0.03 0.28 0.43 0.92</ambient><diffuse>0.05 0.43 0.65 0.92</diffuse><specular>0.65 0.78 0.88 1</specular></material>
+          <transparency>0.08</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <!-- High-contrast floating rescue object for the RGB perception path. -->
+    <model name="rescue_buoy_orange">
+      <static>true</static>
+      <!-- ENU offset is approximately +249 m east / +180 m north from home. -->
+      <pose>249 180 0.12 0 0 0</pose>
+      <link name="buoy_link">
+        <visual name="buoy_body">
+          <pose>0 0 0.38 0 1.5708 0</pose>
+          <geometry><cylinder><radius>0.34</radius><length>1.35</length></cylinder></geometry>
+          <material>
+            <ambient>0.90 0.12 0.01 1</ambient>
+            <diffuse>1.0 0.25 0.015 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <visual name="buoy_float">
+          <pose>0 0 0.44 0 0 0</pose>
+          <geometry><sphere><radius>0.43</radius></sphere></geometry>
+          <material>
+            <ambient>0.95 0.20 0.01 1</ambient>
+            <diffuse>1.0 0.38 0.015 1</diffuse>
+          </material>
+        </visual>
+        <visual name="buoy_strip">
+          <pose>0 0 0.52 0 0 0</pose>
+          <geometry><box><size>1.45 0.09 0.12</size></box></geometry>
+          <material>
+            <ambient>0.96 0.96 0.80 1</ambient>
+            <diffuse>1 1 0.86 1</diffuse>
+            <emissive>0.25 0.25 0.16 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

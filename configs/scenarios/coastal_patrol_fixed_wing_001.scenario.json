@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "coastal_patrol_fixed_wing_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "coastal_patrol_fixed_wing_001.runtime.json",
+      "sha256": "5f35086a67a7fffe295a62c9057562633aa9ddc2eb33eaed55162dea92807c3f"
+    },
+    "truth": {
+      "path": "coastal_patrol_fixed_wing_001.truth.json",
+      "sha256": "6e81874adcd3225f506cf212d4e9e032e2c7ac193cb98660832181084a3e6e61"
+    },
+    "expectations": {
+      "path": "coastal_patrol_fixed_wing_001.expectations.json",
+      "sha256": "bd06c40f841fe90a4e91175ca0d02c8985dd9fbccce4bff64f768047ab6210b1"
+    }
+  }
+}

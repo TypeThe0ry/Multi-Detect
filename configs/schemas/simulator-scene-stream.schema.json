@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/simulator-scene-stream.schema.json",
+  "title": "Multi-Detect deterministic simulator scene stream v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "product",
+    "scenario_id",
+    "scenario_version",
+    "scenario_manifest_hash",
+    "seed",
+    "mode",
+    "release_label",
+    "world_origin",
+    "source_evidence_hash",
+    "snapshot_count",
+    "snapshots",
+    "deterministic",
+    "truth_free",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "simulator_scene_stream_finished"},
+    "product": {"const": "Multi-Detect"},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "scenario_version": {"type": "integer", "minimum": 1},
+    "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+    "seed": {"type": "integer", "minimum": 0},
+    "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+    "release_label": {
+      "type": "string",
+      "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+    },
+    "world_origin": {"$ref": "#/$defs/world_origin"},
+    "source_evidence_hash": {"$ref": "#/$defs/sha256"},
+    "snapshot_count": {"type": "integer", "minimum": 1},
+    "snapshots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/snapshot"}
+    },
+    "deterministic": {"const": true},
+    "truth_free": {"const": true},
+    "sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "runtime_property_name": {
+      "type": "string",
+      "not": {
+        "enum": [
+          "truth",
+          "ground_truth",
+          "evaluation_truth",
+          "evaluator_truth",
+          "ground_truth_target",
+          "truth_targets",
+          "expected_answer",
+          "expectations",
+          "truth_loaded"
+        ]
+      }
+    },
+    "nullable_boolean": {
+      "anyOf": [
+        {"type": "boolean"},
+        {"type": "null"}
+      ]
+    },
+    "world_origin": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {"$ref": "#/$defs/runtime_property_name"},
+      "required": ["latitude_deg", "longitude_deg"],
+      "properties": {
+        "latitude_deg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+        "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+        "elevation_m": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "resolved": {"type": "boolean"},
+        "source": {"type": "string", "minLength": 1},
+        "world_asset": {"type": "string", "minLength": 1}
+      }
+    },
+    "pose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latitude_deg",
+        "longitude_deg",
+        "altitude_m",
+        "north_m",
+        "east_m",
+        "heading_deg",
+        "roll_deg",
+        "pitch_deg",
+        "yaw_deg",
+        "ground_speed_mps",
+        "airspeed_mps",
+        "armed",
+        "link_healthy",
+        "flight_mode",
+        "mission_started",
+        "step_count"
+      ],
+      "properties": {
+        "latitude_deg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+        "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+        "altitude_m": {"type": "number", "minimum": 0},
+        "north_m": {"type": "number"},
+        "east_m": {"type": "number"},
+        "heading_deg": {"type": "number"},
+        "roll_deg": {"type": "number"},
+        "pitch_deg": {"type": "number"},
+        "yaw_deg": {"type": "number"},
+        "ground_speed_mps": {"type": "number", "minimum": 0},
+        "airspeed_mps": {"type": "number", "minimum": 0},
+        "armed": {"$ref": "#/$defs/nullable_boolean"},
+        "link_healthy": {"$ref": "#/$defs/nullable_boolean"},
+        "flight_mode": {"type": "string", "minLength": 1},
+        "mission_started": {"type": "boolean"},
+        "step_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {"$ref": "#/$defs/runtime_property_name"}
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {"$ref": "#/$defs/runtime_property_name"},
+      "required": ["observed_at_s", "truth_free"],
+      "properties": {
+        "observed_at_s": {"type": "number", "minimum": 0},
+        "truth_free": {"const": true},
+        "latitude_deg": {
+          "anyOf": [
+            {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+            {"type": "null"}
+          ]
+        },
+        "longitude_deg": {
+          "anyOf": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "optional_mapping": {
+      "type": "object",
+      "additionalProperties": true,
+      "propertyNames": {"$ref": "#/$defs/runtime_property_name"}
+    },
+    "optional_mapping_or_null": {
+      "anyOf": [
+        {"$ref": "#/$defs/optional_mapping"},
+        {"type": "null"}
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "sequence",
+        "simulation_time_s",
+        "scenario_id",
+        "scenario_version",
+        "scenario_manifest_hash",
+        "mode",
+        "pose",
+        "telemetry",
+        "observation",
+        "decision",
+        "control",
+        "watchdog",
+        "authority_state",
+        "active_fault_ids",
+        "truth_free",
+        "sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "sequence": {"type": "integer", "minimum": 0},
+        "simulation_time_s": {"type": "number", "minimum": 0},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "scenario_version": {"type": "integer", "minimum": 1},
+        "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "pose": {"$ref": "#/$defs/pose"},
+        "telemetry": {"$ref": "#/$defs/telemetry"},
+        "observation": {"$ref": "#/$defs/observation"},
+        "decision": {"$ref": "#/$defs/optional_mapping_or_null"},
+        "control": {"$ref": "#/$defs/optional_mapping_or_null"},
+        "watchdog": {
+          "anyOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "mission_progress": {"$ref": "#/$defs/mission_progress"},
+        "authority_state": {"enum": ["paused", "manual", "ai", "failsafe"]},
+        "active_fault_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "truth_free": {"const": true},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "mission_progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "mission_id",
+        "mission_hash",
+        "phase",
+        "observed_at_s",
+        "mission_item_count",
+        "current_sequence",
+        "completed_sequences",
+        "active_command",
+        "distance_to_active_m",
+        "altitude_error_m",
+        "dwell_elapsed_s",
+        "progress_fraction",
+        "mission_started",
+        "armed",
+        "link_healthy",
+        "gps_quality_valid",
+        "gps_age_s",
+        "reason"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"$ref": "#/$defs/sha256"},
+        "phase": {
+          "enum": [
+            "ready",
+            "active",
+            "waiting_for_link",
+            "waiting_for_gps",
+            "blocked",
+            "complete"
+          ]
+        },
+        "observed_at_s": {"type": "number", "minimum": 0},
+        "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "current_sequence": {"type": ["integer", "null"], "minimum": 0},
+        "completed_sequences": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 0},
+          "uniqueItems": true
+        },
+        "active_command": {"type": ["string", "null"], "minLength": 1},
+        "distance_to_active_m": {"type": ["number", "null"], "minimum": 0},
+        "altitude_error_m": {"type": ["number", "null"], "minimum": 0},
+        "dwell_elapsed_s": {"type": "number", "minimum": 0},
+        "progress_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "mission_started": {"type": "boolean"},
+        "armed": {"$ref": "#/$defs/nullable_boolean"},
+        "link_healthy": {"$ref": "#/$defs/nullable_boolean"},
+        "gps_quality_valid": {"type": "boolean"},
+        "gps_age_s": {"type": ["number", "null"], "minimum": 0},
+        "reason": {"type": "string", "minLength": 1},
+        "px4_feedback": {"$ref": "#/$defs/px4_mission_feedback"}
+      }
+    },
+    "px4_mission_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "mission_id", "mission_hash", "mission_item_count",
+        "evaluated_at_s", "maximum_age_s", "phase", "observed_current_sequences",
+        "current_sequence", "current_observed_at_s", "reached_sequences",
+        "last_reached_observed_at_s", "last_event_observed_at_s", "feedback_age_s",
+        "expected_system_id", "expected_component_id", "source_system_id",
+        "source_component_id", "source_identity_bound", "accepted_event_count",
+        "duplicate_event_count", "rejected_event_count", "last_rejection_reason",
+        "qualified", "reason"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"$ref": "#/$defs/sha256"},
+        "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "evaluated_at_s": {"type": "number", "minimum": 0},
+        "maximum_age_s": {"type": "number", "exclusiveMinimum": 0, "maximum": 1.5},
+        "phase": {"enum": ["awaiting", "active", "terminal_reached", "stale", "invalid"]},
+        "observed_current_sequences": {
+          "type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 63},
+          "maxItems": 64, "uniqueItems": true
+        },
+        "current_sequence": {"type": ["integer", "null"], "minimum": 0, "maximum": 63},
+        "current_observed_at_s": {"type": ["number", "null"], "minimum": 0},
+        "reached_sequences": {
+          "type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 63},
+          "maxItems": 64, "uniqueItems": true
+        },
+        "last_reached_observed_at_s": {"type": ["number", "null"], "minimum": 0},
+        "last_event_observed_at_s": {"type": ["number", "null"], "minimum": 0},
+        "feedback_age_s": {"type": ["number", "null"], "minimum": 0},
+        "expected_system_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "expected_component_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "source_system_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "source_component_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "source_identity_bound": {"type": "boolean"},
+        "accepted_event_count": {"type": "integer", "minimum": 0},
+        "duplicate_event_count": {"type": "integer", "minimum": 0},
+        "rejected_event_count": {"type": "integer", "minimum": 0},
+        "last_rejection_reason": {"type": ["string", "null"], "minLength": 1},
+        "qualified": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

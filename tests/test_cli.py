@@ -142,6 +142,210 @@ def test_operator_udp_listeners_default_to_loopback() -> None:
     assert live.identity_tracking_session_id is None
 
 
+def test_profile_bound_runtime_cli_requires_an_explicit_mode() -> None:
+    parser = cli_module.build_parser()
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+        ]
+    )
+    assert cli_module._profile_bound_runtime_config_from_args(live) is None
+
+    live_with_profile_option = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--runtime-profile",
+            "profile.json",
+        ]
+    )
+    with pytest.raises(ValueError, match="require --runtime-mode hil or --runtime-mode real"):
+        cli_module._profile_bound_runtime_config_from_args(live_with_profile_option)
+
+
+def test_profile_bound_hil_cli_binds_scenario_and_runtime_inputs(tmp_path, monkeypatch) -> None:
+    parser = cli_module.build_parser()
+    scenario_manifest = tmp_path / "scenario.json"
+    scenario_manifest.write_text('{"scenario_id":"river-rescue"}\n', encoding="utf-8")
+    monkeypatch.setenv("RUNTIME_PROFILE_HMAC", "h" * 40)
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--runtime-mode",
+            "hil",
+            "--runtime-profile",
+            str(tmp_path / "hil-profile.json"),
+            "--runtime-profile-hmac-key-env",
+            "RUNTIME_PROFILE_HMAC",
+            "--runtime-profile-key-id",
+            "key-v1",
+            "--runtime-airframe-profile-hash",
+            "a" * 64,
+            "--runtime-scenario-id",
+            "river-rescue",
+            "--runtime-scenario-manifest",
+            str(scenario_manifest),
+            "--runtime-scenario-seed",
+            "42",
+            "--runtime-target-component-id",
+            "7",
+            "--pixhawk-endpoint",
+            "udp:127.0.0.1:14550",
+            "--aim-rc-input-rate-hz",
+            "24",
+        ]
+    )
+
+    config = cli_module._profile_bound_runtime_config_from_args(live)
+    assert config is not None
+    assert config.mode.value == "hil"
+    assert config.profile_path == tmp_path / "hil-profile.json"
+    assert config.hmac_key == b"h" * 40
+    assert config.expected_key_id == "key-v1"
+    assert config.airframe_profile_hash == "a" * 64
+    assert config.signing_identity_hash is None
+    assert config.allow_flight_control_output is False
+    assert config.scenario_id == "river-rescue"
+    assert (
+        config.scenario_manifest_hash == hashlib.sha256(scenario_manifest.read_bytes()).hexdigest()
+    )
+    assert config.scenario_seed == 42
+    assert config.target_component_id == 7
+    assert config.rc_input_rate_hz == 24.0
+
+
+def test_profile_bound_real_cli_hashes_signing_key_and_preserves_opt_in(
+    tmp_path, monkeypatch
+) -> None:
+    parser = cli_module.build_parser()
+    monkeypatch.setenv("RUNTIME_PROFILE_HMAC", "r" * 40)
+    monkeypatch.setenv("MAVLINK_SIGNING_KEY", "01" * 32)
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--runtime-mode",
+            "real",
+            "--runtime-profile",
+            str(tmp_path / "real-profile.json"),
+            "--runtime-profile-hmac-key-env",
+            "RUNTIME_PROFILE_HMAC",
+            "--runtime-profile-key-id",
+            "key-v1",
+            "--runtime-airframe-profile-hash",
+            "b" * 64,
+            "--runtime-signing-key-hex-env",
+            "MAVLINK_SIGNING_KEY",
+            "--runtime-allow-flight-control-output",
+            "--pixhawk-endpoint",
+            "serial://COM7",
+        ]
+    )
+
+    config = cli_module._profile_bound_runtime_config_from_args(live)
+    assert config is not None
+    assert config.mode.value == "real"
+    assert config.signing_identity_hash == hashlib.sha256(bytes.fromhex("01" * 32)).hexdigest()
+    assert config.allow_flight_control_output is True
+    assert config.scenario_id is None
+    assert config.scenario_manifest_hash is None
+    assert config.scenario_seed is None
+
+
+def test_profile_bound_cli_rejects_conflicting_signing_inputs(tmp_path, monkeypatch) -> None:
+    parser = cli_module.build_parser()
+    monkeypatch.setenv("RUNTIME_PROFILE_HMAC", "s" * 40)
+    monkeypatch.setenv("MAVLINK_SIGNING_KEY", "02" * 32)
+    live = parser.parse_args(
+        [
+            "live-camera",
+            str(CONFIG),
+            "--onnx-model",
+            "model.onnx",
+            "--runtime-mode",
+            "real",
+            "--runtime-profile",
+            str(tmp_path / "real-profile.json"),
+            "--runtime-profile-hmac-key-env",
+            "RUNTIME_PROFILE_HMAC",
+            "--runtime-profile-key-id",
+            "key-v1",
+            "--runtime-airframe-profile-hash",
+            "c" * 64,
+            "--runtime-signing-identity-hash",
+            "d" * 64,
+            "--runtime-signing-key-hex-env",
+            "MAVLINK_SIGNING_KEY",
+            "--pixhawk-endpoint",
+            "udp:127.0.0.1:14550",
+        ]
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        cli_module._profile_bound_runtime_config_from_args(live)
+
+
+def test_profile_bound_hil_cli_rejects_real_signing_and_output_flags(tmp_path, monkeypatch) -> None:
+    parser = cli_module.build_parser()
+    monkeypatch.setenv("RUNTIME_PROFILE_HMAC", "t" * 40)
+    monkeypatch.setenv("MAVLINK_SIGNING_KEY", "03" * 32)
+    common = [
+        "live-camera",
+        str(CONFIG),
+        "--onnx-model",
+        "model.onnx",
+        "--runtime-mode",
+        "hil",
+        "--runtime-profile",
+        str(tmp_path / "hil-profile.json"),
+        "--runtime-profile-hmac-key-env",
+        "RUNTIME_PROFILE_HMAC",
+        "--runtime-profile-key-id",
+        "key-v1",
+        "--runtime-airframe-profile-hash",
+        "e" * 64,
+        "--runtime-scenario-id",
+        "scenario-1",
+        "--runtime-scenario-seed",
+        "1",
+        "--runtime-scenario-manifest",
+        str(tmp_path / "scenario.json"),
+        "--pixhawk-endpoint",
+        "udp:127.0.0.1:14550",
+    ]
+    (tmp_path / "scenario.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot carry signing_identity_hash"):
+        cli_module._profile_bound_runtime_config_from_args(
+            parser.parse_args([*common, "--runtime-signing-identity-hash", "f" * 64])
+        )
+
+    with pytest.raises(ValueError, match="cannot carry signing_identity_hash"):
+        cli_module._profile_bound_runtime_config_from_args(
+            parser.parse_args(
+                [
+                    *common,
+                    "--runtime-signing-key-hex-env",
+                    "MAVLINK_SIGNING_KEY",
+                ]
+            )
+        )
+
+    with pytest.raises(ValueError, match="cannot enable flight-control output"):
+        cli_module._profile_bound_runtime_config_from_args(
+            parser.parse_args([*common, "--runtime-allow-flight-control-output"])
+        )
+
+
 def test_live_independent_rgb_fire_verifier_cli_is_explicit() -> None:
     parser = cli_module.build_parser()
 
@@ -326,6 +530,8 @@ def test_live_multimodal_ranging_cli_is_explicit_and_read_only() -> None:
             "--multimodal-ranging",
             "--ranging-calibration",
             "camera.json",
+            "--ranging-dem",
+            "terrain.dem.json",
             "--ranging-agl-sigma-m",
             "2.0",
         ]
@@ -333,6 +539,7 @@ def test_live_multimodal_ranging_cli_is_explicit_and_read_only() -> None:
 
     assert live.multimodal_ranging is True
     assert live.ranging_calibration == Path("camera.json")
+    assert live.ranging_dem == Path("terrain.dem.json")
     assert live.ranging_agl_sigma_m == 2.0
 
 
@@ -449,6 +656,12 @@ def test_live_multimodal_ranging_requires_pool_pixhawk_and_calibration(capsys) -
         == 1
     )
     assert "requires --ranging-calibration" in json.loads(capsys.readouterr().err)["message"]
+
+    assert main([*base, "--ranging-dem", "terrain.dem.json"]) == 1
+    assert (
+        "--ranging-dem requires --multimodal-ranging"
+        in json.loads(capsys.readouterr().err)["message"]
+    )
 
 
 def test_validate_config_command(capsys) -> None:
@@ -985,6 +1198,83 @@ def test_model_check_production_gate_requires_manifest(tmp_path, capsys) -> None
     assert "model manifest is required" in error["message"]
 
 
+def test_model_check_supports_raw_ultralytics_contract(tmp_path, monkeypatch, capsys) -> None:
+    model = tmp_path / "raw.onnx"
+    model.write_bytes(b"deterministic-raw-test-model")
+
+    class _RawDetector:
+        class_names = ("person", "car")
+        provider_names = ("CPUExecutionProvider",)
+        provider_selection = None
+        received_config = None
+
+        def __init__(self, config) -> None:
+            type(self).received_config = config
+
+        def detect(self, _image) -> tuple:
+            return ()
+
+    monkeypatch.setattr(cli_module, "OnnxRawYoloDetector", _RawDetector)
+
+    assert (
+        main(
+            [
+                "model-check",
+                "--onnx-model",
+                str(model),
+                "--model-format",
+                "ultralytics_raw",
+                "--class-names",
+                "person,car",
+                "--iou-threshold",
+                "0.35",
+                "--maximum-detections",
+                "17",
+                "--warmup-iterations",
+                "0",
+                "--benchmark-iterations",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    result = parsed_stdout(capsys)[-1]
+    assert result["event"] == "onnx_model_validated"
+    assert result["model_format"] == "ultralytics_raw"
+    assert result["native_output_contract"] == "ultralytics_raw_xywh_class_scores"
+    assert result["post_nms_output_contract"] == "Nx6"
+    assert result["raw_contract_passed"] is True
+    assert result["accuracy_validated"] is False
+    assert _RawDetector.received_config.iou_threshold == pytest.approx(0.35)
+    assert _RawDetector.received_config.maximum_detections == 17
+
+
+def test_model_check_rejects_normalized_coordinates_for_raw_contract(
+    tmp_path, capsys
+) -> None:
+    model = tmp_path / "raw.onnx"
+    model.write_bytes(b"deterministic-raw-test-model")
+
+    assert (
+        main(
+            [
+                "model-check",
+                "--onnx-model",
+                str(model),
+                "--model-format",
+                "ultralytics_raw",
+                "--output-coordinates",
+                "normalized_xyxy",
+            ]
+        )
+        == 1
+    )
+
+    error = json.loads(capsys.readouterr().err)
+    assert "requires --output-coordinates letterbox_xyxy_px" in error["message"]
+
+
 def test_model_manifest_init_creates_quarantined_hash_bound_manifest(
     tmp_path: Path,
     capsys,
@@ -1126,13 +1416,32 @@ def test_legacy_checkpoint_verify_only_checks_bytes(tmp_path: Path, capsys) -> N
 
 
 def test_pixhawk_check_reports_read_only_telemetry(monkeypatch, capsys) -> None:
+    class _VersionIdentity:
+        def to_document(self) -> dict[str, object]:
+            return {
+                "flight_sw_version_text": "1.18.3",
+                "identity_hash": "a" * 64,
+                "raw_device_uid_serialized": False,
+            }
+
     class _Provider:
         is_read_only = True
         messages_transmitted = 0
+        messages_received = 4
+        rejected_system_messages = 0
+        ignored_non_autopilot_heartbeats = 0
+        rejected_autopilot_version_messages = 0
+        message_type_counts = {"AUTOPILOT_VERSION": 1, "HEARTBEAT": 3}
+        autopilot_version_identity = _VersionIdentity()
+        autopilot_version_observed_at_s = 10.0
 
         def __init__(self, config) -> None:
             self.config = config
             self.closed = False
+
+        def autopilot_version_age_s(self, *, now_s: float) -> float:
+            assert now_s >= 0
+            return 0.05
 
         def snapshot(self, *, now_s: float) -> VehicleTelemetry:
             assert now_s >= 0
@@ -1173,6 +1482,7 @@ def test_pixhawk_check_reports_read_only_telemetry(monkeypatch, capsys) -> None:
                 "--interval-seconds",
                 "0",
                 "--require-fresh-link",
+                "--require-autopilot-version",
             ]
         )
         == 0
@@ -1183,6 +1493,10 @@ def test_pixhawk_check_reports_read_only_telemetry(monkeypatch, capsys) -> None:
     assert result["fresh_link_sample_count"] == 3
     assert result["fresh_transport_link_sample_count"] == 3
     assert result["latest"]["flight_mode"] == "AUTO"
+    assert result["requirements"]["autopilot_version"] is True
+    assert result["autopilot_version_identity"]["flight_sw_version_text"] == "1.18.3"
+    assert result["autopilot_version_age_s"] == pytest.approx(0.05)
+    assert result["rejected_autopilot_version_messages"] == 0
     assert result["gate_passed"] is True
     assert result["messages_transmitted"] == 0
     assert result["hardware_control_enabled"] is False
@@ -1264,6 +1578,7 @@ def test_pixhawk_check_reports_identity_gate_failures(monkeypatch, capsys) -> No
                 "0",
                 "--require-fresh-link",
                 "--require-fresh-position",
+                "--require-autopilot-version",
                 "--expected-system-id",
                 "1",
                 "--expected-autopilot",
@@ -1282,6 +1597,7 @@ def test_pixhawk_check_reports_identity_gate_failures(monkeypatch, capsys) -> No
     assert result["fresh_position_sample_count"] == 0
     assert result["gate_passed"] is False
     assert "no fresh global position was received" in result["gate_failures"]
+    assert any("AUTOPILOT_VERSION" in item for item in result["gate_failures"])
     assert any("vehicle type mismatch" in item for item in result["gate_failures"])
     assert result["heartbeat_identity"]["autopilot_name"] == "MAV_AUTOPILOT_PX4"
 

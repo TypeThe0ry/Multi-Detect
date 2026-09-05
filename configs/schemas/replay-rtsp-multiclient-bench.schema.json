@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-rtsp-multiclient-bench.schema.json",
+  "title": "Multi-Detect replay RTSP multi-client bench",
+  "description": "Software-only raw RTSP/RTP fan-out evidence. It never promotes a loopback run to HIL or REAL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "version",
+    "generated_at_unix_s",
+    "source_kind",
+    "hardware_claim",
+    "helper",
+    "helper_sha256",
+    "client_transport",
+    "url",
+    "bind",
+    "mount",
+    "width",
+    "height",
+    "clients_requested",
+    "frames_requested",
+    "warmup_frame",
+    "frame_results",
+    "gate_passed",
+    "failure",
+    "client_stats",
+    "release_impact"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.replay-rtsp.multiclient-bench"},
+    "schema_version": {"const": 1},
+    "version": {"const": 1},
+    "generated_at_unix_s": {"type": "number"},
+    "source_kind": {"const": "software_only_local_rtsp"},
+    "hardware_claim": {"const": "none"},
+    "helper": {"type": "string", "minLength": 1},
+    "helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "client_transport": {"const": "rtsp_interleaved_tcp_raw"},
+    "shared_media": {"type": "boolean"},
+    "gstreamer_root": {"type": ["string", "null"]},
+    "gst_launch": {"type": ["string", "null"]},
+    "decoder": {"type": ["string", "null"]},
+    "decoder_error": {"type": ["string", "null"]},
+    "url": {"type": "string", "pattern": "^rtsp://127\\.0\\.0\\.1:[1-9][0-9]*/multidetect-replay-multiclient$"},
+    "bind": {"const": "127.0.0.1"},
+    "mount": {"const": "/multidetect-replay-multiclient"},
+    "width": {"type": "integer", "minimum": 2},
+    "height": {"type": "integer", "minimum": 2},
+    "clients_requested": {"type": "integer", "minimum": 2, "maximum": 64},
+    "frames_requested": {"type": "integer", "minimum": 1},
+    "warmup_frame": {"$ref": "#/$defs/frame_result"},
+    "frame_results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/frame_result"}
+    },
+    "gate_passed": {"type": "boolean"},
+    "failure": {"type": ["string", "null"]},
+    "helper_stderr": {"type": "string"},
+    "client_stats": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/client_stat"}
+    },
+    "release_impact": {"const": "does_not_close_hil_or_real_release_gates"}
+  },
+  "$defs": {
+    "frame_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "captured_at_ns",
+        "fanout_count",
+        "client_count",
+        "fanout_attempts",
+        "generation_retry_count"
+      ],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 0},
+        "captured_at_ns": {"type": "integer", "minimum": 0},
+        "fanout_count": {"type": "integer", "minimum": 1},
+        "client_count": {"type": "integer", "minimum": 1},
+        "fanout_attempts": {"type": "integer", "minimum": 1},
+        "generation_retry_count": {"type": "integer", "minimum": 0},
+        "rtp_packets_delta": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "client_stat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "ready",
+        "finished",
+        "packet_count",
+        "rtp_bytes",
+        "response_codes",
+        "error",
+        "sdp_has_h264",
+        "sdp_has_positive_framerate"
+      ],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "ready": {"type": "boolean"},
+        "finished": {"type": "boolean"},
+        "packet_count": {"type": "integer", "minimum": 0},
+        "rtp_bytes": {"type": "integer", "minimum": 0},
+        "last_rtp_sequence": {"type": ["integer", "null"]},
+        "response_codes": {
+          "type": "array",
+          "items": {"const": 200}
+        },
+        "error": {"type": ["string", "null"]},
+        "sdp_has_h264": {"const": true},
+        "sdp_has_positive_framerate": {"const": true}
+      }
+    }
+  }
+}

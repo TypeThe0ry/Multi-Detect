@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/simulator-external-evidence.schema.json",
+  "title": "Multi-Detect external SIM runtime and AI evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "release_label",
+    "vehicles",
+    "shared",
+    "parity",
+    "claims",
+    "gate_passed",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "simulator_external_runtime_ai_evidence_verified"},
+    "generated_at_utc": {"type": "string"},
+    "release_label": {"type": ["string", "null"]},
+    "vehicles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vtol", "fixed-wing", "multirotor"],
+      "properties": {
+        "vtol": {"$ref": "#/$defs/vehicleRecord"},
+        "fixed-wing": {"$ref": "#/$defs/vehicleRecord"},
+        "multirotor": {"$ref": "#/$defs/vehicleRecord"}
+      }
+    },
+    "shared": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image",
+        "image_digest_consistent",
+        "release_label_consistent",
+        "truth_free_perception",
+        "hardware_control_disabled",
+        "visual_accuracy",
+        "real_hardware"
+      ],
+      "properties": {
+        "image": {"anyOf": [{"$ref": "#/$defs/digestPinnedImage"}, {"type": "null"}]},
+        "image_digest_consistent": {"type": "boolean"},
+        "release_label_consistent": {"type": "boolean"},
+        "truth_free_perception": {"type": "boolean"},
+        "hardware_control_disabled": {"type": "boolean"},
+        "visual_accuracy": {"type": "string"},
+        "real_hardware": {"type": "string"}
+      }
+    },
+    "parity": {
+      "type": "object",
+      "required": ["path", "sha256", "bytes", "release_label", "hashes"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "release_label": {"type": ["string", "null"]},
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ui_contract_hash",
+            "core_algorithm_hash",
+            "task_contract_hash",
+            "safety_policy_hash",
+            "px4_mission_path_hash"
+          ],
+          "properties": {
+            "ui_contract_hash": {"$ref": "#/$defs/sha256"},
+            "core_algorithm_hash": {"$ref": "#/$defs/sha256"},
+            "task_contract_hash": {"$ref": "#/$defs/sha256"},
+            "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+            "px4_mission_path_hash": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_runtime_gate",
+        "ai_target_policy_gate",
+        "hardware_acceptance",
+        "operator_visual_acceptance",
+        "truth_free"
+      ],
+      "properties": {
+        "external_runtime_gate": {"type": "string"},
+        "ai_target_policy_gate": {"type": "string"},
+        "hardware_acceptance": {"type": "string"},
+        "operator_visual_acceptance": {"type": "string"},
+        "truth_free": {"type": "boolean"}
+      }
+    },
+    "gate_passed": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digestPinnedImage": {
+      "type": "string",
+      "pattern": "^.+@sha256:[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path", "sha256", "bytes", "scenario_id", "scenario_manifest_sha256", "image", "gate_passed"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "scenario_id": {"type": ["string", "null"]},
+        "scenario_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "image": {"anyOf": [{"$ref": "#/$defs/digestPinnedImage"}, {"type": "null"}]},
+        "gate_passed": {"type": "boolean"}
+      }
+    },
+    "vehicleRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "ai"],
+      "properties": {
+        "runtime": {"$ref": "#/$defs/artifact"},
+        "ai": {
+          "allOf": [
+            {"$ref": "#/$defs/artifact"},
+            {
+              "type": "object",
+              "required": [
+                "ai_policy_gate_passed",
+                "target_policy_gate_passed",
+                "target_exercise_accepted"
+              ],
+              "properties": {
+                "ai_policy_gate_passed": {"type": "boolean"},
+                "target_policy_gate_passed": {"type": "boolean"},
+                "target_exercise_accepted": {"type": "boolean"}
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

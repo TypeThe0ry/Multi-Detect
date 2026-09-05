@@ -39,6 +39,9 @@ struct CommandLineParseResult
     bool simpleBootTest = false;
     bool offlineMode = false;  ///< Isolated UI validation with all vehicle links inhibited
     bool isolatedHilMode = false;  ///< Clean settings, no auto-connect, explicit HIL links allowed
+    bool isolatedHilForceCpuVideo = false;  ///< Acceptance A/B: disable GPU zero-copy in isolated HIL only
+    std::optional<quint16> isolatedHilPx4UdpPort;  ///< Explicit PX4 SITL UDP link local port for isolated HIL
+    std::optional<quint16> isolatedHilPx4TargetPort;  ///< Explicit PX4 SITL router target port for isolated HIL
 
     // --- Test options (command-line parsing only in QGC_UNITTEST_BUILD) ---
     bool runningUnitTests = false;

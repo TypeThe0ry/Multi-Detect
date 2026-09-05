@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/actuator-safety-evidence.schema.json",
+  "title": "Multi-Detect actuator safety software evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "release_label",
+    "gate_passed",
+    "software_only",
+    "physical_outputs_present",
+    "propulsion_disconnected",
+    "checks",
+    "configuration",
+    "active_command",
+    "cancel",
+    "lost_lock",
+    "watchdog",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "actuator_safety_software_acceptance_finished"},
+    "runtime_mode": {"const": "HIL"},
+    "release_label": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+-pre\\.[1-9]\\d*$"},
+    "gate_passed": {"const": true},
+    "software_only": {"const": true},
+    "physical_outputs_present": {"const": false},
+    "propulsion_disconnected": {"const": "not_applicable_in_software_fixture"},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction_mapping",
+        "absolute_limits",
+        "cancel_emits_neutral",
+        "cancel_clears_target_binding",
+        "lost_lock_emits_neutral",
+        "lost_lock_restores_entry_mode",
+        "watchdog_emits_neutral_once",
+        "no_command_after_failsafe"
+      ],
+      "properties": {
+        "direction_mapping": {"const": true},
+        "absolute_limits": {"const": true},
+        "cancel_emits_neutral": {"const": true},
+        "cancel_clears_target_binding": {"const": true},
+        "lost_lock_emits_neutral": {"const": true},
+        "lost_lock_restores_entry_mode": {"const": true},
+        "watchdog_emits_neutral_once": {"const": true},
+        "no_command_after_failsafe": {"const": true}
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channels", "command_domain"],
+      "properties": {
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "channel", "minimum_us", "neutral_us", "maximum_us", "direction"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "channel": {"type": "integer", "minimum": 1, "maximum": 32},
+              "minimum_us": {"type": "integer"},
+              "neutral_us": {"type": "integer"},
+              "maximum_us": {"type": "integer"},
+              "direction": {"enum": [-1, 1]}
+            }
+          }
+        },
+        "command_domain": {
+          "const": [-1.0, 1.0]
+        }
+      }
+    },
+    "active_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roll_left", "roll_right", "pitch", "pwm_us"],
+      "properties": {
+        "roll_left": {"const": 0.75},
+        "roll_right": {"const": 0.75},
+        "pitch": {"const": -0.5},
+        "pwm_us": {"type": "object", "additionalProperties": false, "required": ["roll_left", "roll_right", "pitch"], "properties": {"roll_left": {"const": 1800}, "roll_right": {"const": 1200}, "pitch": {"const": 1350}}}
+      }
+    },
+    "cancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "pwm_us", "target_cleared"],
+      "properties": {
+        "state": {"const": "cancelled"},
+        "pwm_us": {"const": {"roll_left": 1500, "roll_right": 1500, "pitch": 1500}},
+        "target_cleared": {"const": true}
+      }
+    },
+    "lost_lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "pwm_us", "restored_entry_mode", "target_cleared"],
+      "properties": {
+        "state": {"const": "lost_lock_returned"},
+        "pwm_us": {"const": {"roll_left": 1500, "roll_right": 1500, "pitch": 1500}},
+        "restored_entry_mode": {"const": "POSCTL"},
+        "target_cleared": {"const": true}
+      }
+    },
+    "watchdog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "neutral_frame_count", "second_watchdog_returned_none", "post_failsafe_error", "output_count_after_watchdog"],
+      "properties": {
+        "state": {"const": "failsafe"},
+        "neutral_frame_count": {"const": 1},
+        "second_watchdog_returned_none": {"const": true},
+        "post_failsafe_error": {"type": "string", "minLength": 1},
+        "output_count_after_watchdog": {"const": 6}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardware_acceptance", "operator_visual_acceptance", "real_actuator_acceptance", "physical_output_enabled"],
+      "properties": {
+        "hardware_acceptance": {"const": "not_claimed"},
+        "operator_visual_acceptance": {"const": "not_claimed"},
+        "real_actuator_acceptance": {"const": "not_claimed"},
+        "physical_output_enabled": {"const": false}
+      }
+    },
+    "generated_at_utc": {"type": "string", "format": "date-time"}
+  }
+}

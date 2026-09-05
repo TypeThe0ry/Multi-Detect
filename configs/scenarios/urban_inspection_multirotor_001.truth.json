@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "scenario_id": "urban_inspection_multirotor_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "inspection-roof-001",
+      "label": "orange_inspection_marker",
+      "position": {
+        "latitude_deg": 1.35272,
+        "longitude_deg": 103.82045
+      },
+      "behavior": "stationary"
+    },
+    {
+      "target_id": "inspection-road-002",
+      "label": "blue_survey_pylon",
+      "position": {
+        "latitude_deg": 1.35161,
+        "longitude_deg": 103.82200
+      },
+      "behavior": "stationary"
+    }
+  ]
+}

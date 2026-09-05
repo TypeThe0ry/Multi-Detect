@@ -12,34 +12,62 @@ Item {
     id: root
 
     property real _margin: ScreenTools.defaultFontPixelWidth * 0.9
-    property real _panelWidth: Math.min(
-        Math.max(1, width - _margin * 2),
-        Math.max(
-            ScreenTools.defaultFontPixelWidth * 40,
-            Math.min(width * 0.38, ScreenTools.defaultFontPixelWidth * 52)
-        )
-    )
     readonly property bool _targetActionable: MultiDetectState.lckActionable
-    readonly property string _modeCode: MultiDetectState.missionMode === "PAYLOAD" ? "M2" :
-                                        MultiDetectState.missionMode === "OBSERVE" ? "M3" : "M1"
+    readonly property bool _replaySafetyActive: MultiDetectState.replaySafetyActive
+    // Acceptance-only driver for the native Fly View state machine.  It is
+    // hosted by this already-rendered QGC layer, so the same mode selector,
+    // target overlay and authorization functions are exercised without
+    // creating a second window, simulator UI, or custom visual style.
+    readonly property bool _hilUiAutoExercise: (typeof multiDetectHilUiAutoExercise !== "undefined") &&
+                                               multiDetectHilUiAutoExercise === true
+    readonly property bool _hilUiAutoExit: (typeof multiDetectHilUiAutoExit !== "undefined") &&
+                                           multiDetectHilUiAutoExit === true
+    property int _hilUiAutoExerciseStage: 0
     property var mapControl
     property var parentToolInsets
     property var totalToolInsets: toolInsets
     property string _pendingExecutionPopup: ""
     property double _pendingExecutionStartedAtMs: 0
+    property var _targetEvidenceHistoryDialog: null
+    property var _payloadActionDialog: null
+    property var _approachActionDialog: null
+    property var _authorizationDialog: null
+    // Keep the map-only uncertainty projection on the same WGS-84 ellipsoid
+    // as the Python geolocation backend.  These values are used solely to
+    // convert metres to the two local degree offsets needed by QGC's map
+    // projection; the backend's Vincenty result remains authoritative.
+    readonly property real _wgs84SemiMajorAxisM: 6378137.0
+    readonly property real _wgs84EccentricitySquared: 0.0066943799901413165
     readonly property bool _targetGeolocationQualified: MultiDetectState.targetGeolocationAvailable &&
+                                                       MultiDetectState.targetGeolocationSourceFresh &&
                                                        MultiDetectState.targetGeolocationTargetId !== "" &&
                                                        MultiDetectState.targetId !== "" &&
                                                        MultiDetectState.targetGeolocationTargetId === MultiDetectState.targetId &&
                                                        Number.isFinite(MultiDetectState.targetLatitudeDeg) &&
+                                                       MultiDetectState.targetLatitudeDeg > -90.0 &&
+                                                       MultiDetectState.targetLatitudeDeg < 90.0 &&
                                                        Number.isFinite(MultiDetectState.targetLongitudeDeg) &&
+                                                       MultiDetectState.targetLongitudeDeg >= -180.0 &&
+                                                       MultiDetectState.targetLongitudeDeg <= 180.0 &&
+                                                       Number.isFinite(MultiDetectState.targetHorizontalSigmaM) &&
                                                        MultiDetectState.targetHorizontalSigmaM >= 0.0
-    readonly property bool _targetMapVisible: _targetGeolocationQualified && mapControl !== null &&
+    // QGC creates this layer before the map assigns its control object.  An
+    // uninitialised QML var is `undefined` (not `null`), so checking only
+    // `mapControl !== null` would dereference `pipState` during the first
+    // qualified GPS update and throw a QML TypeError.  Keep all map bindings
+    // behind one readiness gate; the card can still be shown once the native
+    // map control has finished initialising.
+    readonly property bool _mapControlReady: mapControl !== null &&
+                                              typeof mapControl !== "undefined" &&
+                                              mapControl.pipState !== null &&
+                                              typeof mapControl.pipState !== "undefined" &&
+                                              typeof mapControl.pipState.state !== "undefined" &&
+                                              typeof mapControl.pipState.fullState !== "undefined"
+    readonly property bool _targetMapVisible: _targetGeolocationQualified && _mapControlReady &&
                                               mapControl.pipState.state === mapControl.pipState.fullState
-    readonly property bool _targetMapContextVisible: mapControl !== null &&
+    readonly property bool _targetMapContextVisible: _mapControlReady &&
                                                      mapControl.pipState.state === mapControl.pipState.fullState &&
-                                                     (MultiDetectState.targetId !== "" ||
-                                                      MultiDetectState.targetGeolocationTargetId !== "")
+                                                     MultiDetectState.targetId !== ""
     property point _targetMapPoint: Qt.point(-1, -1)
     property real _targetMapSigmaRadiusPx: 0.0
     property string _targetEvidenceFeedback: ""
@@ -49,6 +77,7 @@ Item {
 
     function _currentTargetRangeM() {
         if (MultiDetectState.rangeTargetId === MultiDetectState.targetId &&
+                MultiDetectState.rangeStatusFresh &&
                 Number.isFinite(MultiDetectState.rangeSlantM) && MultiDetectState.rangeSlantM >= 0.0) {
             return MultiDetectState.rangeSlantM;
         }
@@ -66,6 +95,7 @@ Item {
 
     function _currentTargetBearingDeg() {
         if (MultiDetectState.rangeTargetId === MultiDetectState.targetId &&
+                MultiDetectState.rangeStatusFresh &&
                 MultiDetectState.rangeBearingAvailable &&
                 Number.isFinite(MultiDetectState.rangeRelativeBearingDeg)) {
             return MultiDetectState.rangeRelativeBearingDeg;
@@ -77,11 +107,44 @@ Item {
         return NaN;
     }
 
+    // A target card may still have a visual/SLAM estimate when the qualified
+    // range packet is absent.  Keep that estimate useful for display, but do
+    // not persist it as "actual" distance alongside an UNAVAILABLE/INVALID
+    // range state.  Snapshots follow the stricter target-event replay schema.
+    function _snapshotRangeValidity() {
+        if (MultiDetectState.rangeTargetId !== MultiDetectState.targetId)
+            return "UNAVAILABLE";
+        const validity = String(MultiDetectState.rangeValidity || "").toUpperCase();
+        if (validity !== "VALID" && validity !== "DEGRADED")
+            return "UNAVAILABLE";
+        if (!MultiDetectState.rangeStatusFresh)
+            return "UNAVAILABLE";
+        if (!Number.isFinite(MultiDetectState.rangeSlantM) || MultiDetectState.rangeSlantM < 0.0)
+            return "UNAVAILABLE";
+        return validity;
+    }
+
+    function _snapshotRangeM() {
+        return _snapshotRangeValidity() === "UNAVAILABLE" ? null : MultiDetectState.rangeSlantM;
+    }
+
+    function _snapshotBearingDeg() {
+        if (_snapshotRangeValidity() === "UNAVAILABLE")
+            return null;
+        const bearing = _currentTargetBearingDeg();
+        return Number.isFinite(bearing) ? bearing : null;
+    }
+
     function _targetBearingText() {
         const bearingDeg = _currentTargetBearingDeg();
         return Number.isFinite(bearingDeg) ?
                     qsTr("相对方位：%1°").arg(bearingDeg.toFixed(1)) :
                     qsTr("相对方位：等待估计");
+    }
+
+    function _optionalNumberText(value, precision, suffix) {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : "--";
     }
 
     function _targetCoordinateClipboardText() {
@@ -107,7 +170,8 @@ Item {
     function _copySavedEvidenceCoordinates(snapshot) {
         const latitude = Number(snapshot.latitude_deg);
         const longitude = Number(snapshot.longitude_deg);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        if (!Number.isFinite(latitude) || latitude <= -90.0 || latitude >= 90.0 ||
+                !Number.isFinite(longitude) || longitude < -180.0 || longitude > 180.0) {
             _setTargetEvidenceFeedback(qsTr("记录没有可复制的有效坐标"), true);
             return;
         }
@@ -132,10 +196,9 @@ Item {
             "latitude_deg": MultiDetectState.targetLatitudeDeg,
             "longitude_deg": MultiDetectState.targetLongitudeDeg,
             "horizontal_sigma_m": MultiDetectState.targetHorizontalSigmaM,
-            "range_m": _currentTargetRangeM(),
-            "relative_bearing_deg": _currentTargetBearingDeg(),
-            "range_validity": MultiDetectState.rangeTargetId === MultiDetectState.targetId ?
-                                  MultiDetectState.rangeValidity : "UNAVAILABLE",
+            "range_m": _snapshotRangeM(),
+            "relative_bearing_deg": _snapshotBearingDeg(),
+            "range_validity": _snapshotRangeValidity(),
             "source_age_ms": MultiDetectState.targetGeolocationSourceAgeMs
         });
         if (saved) {
@@ -226,8 +289,31 @@ Item {
         mode3AimLoopCue.stop();
     }
 
+    function _wgs84MetersPerDegree(latitudeDeg) {
+        if (!Number.isFinite(latitudeDeg) || latitudeDeg <= -90.0 || latitudeDeg >= 90.0)
+            return null;
+        const latitudeRad = latitudeDeg * Math.PI / 180.0;
+        const sineLatitude = Math.sin(latitudeRad);
+        const eccentricityTerm = 1.0 - _wgs84EccentricitySquared * sineLatitude * sineLatitude;
+        if (!Number.isFinite(eccentricityTerm) || eccentricityTerm <= 0.0)
+            return null;
+        const denominator = Math.sqrt(eccentricityTerm);
+        const primeVerticalM = _wgs84SemiMajorAxisM / denominator;
+        const meridionalM = _wgs84SemiMajorAxisM * (1.0 - _wgs84EccentricitySquared) /
+                            Math.pow(eccentricityTerm, 1.5);
+        const north = Math.PI / 180.0 * meridionalM;
+        const east = Math.PI / 180.0 * primeVerticalM * Math.cos(latitudeRad);
+        if (!Number.isFinite(north) || !Number.isFinite(east) || north <= 0.0 || east <= 0.0)
+            return null;
+        return {"north": north, "east": east};
+    }
+
+    function _normalizeLongitudeDeg(longitudeDeg) {
+        return ((longitudeDeg + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+    }
+
     function _updateTargetMapProjection() {
-        if (!_targetMapVisible || mapControl === null ||
+        if (!_targetMapVisible || !_mapControlReady ||
                 typeof mapControl.fromCoordinate !== "function") {
             _targetMapPoint = Qt.point(-1, -1);
             _targetMapSigmaRadiusPx = 0.0;
@@ -236,6 +322,14 @@ Item {
 
         const latitude = MultiDetectState.targetLatitudeDeg;
         const longitude = MultiDetectState.targetLongitudeDeg;
+        const sigmaM = Number(MultiDetectState.targetHorizontalSigmaM);
+        if (!Number.isFinite(latitude) || latitude <= -90.0 || latitude >= 90.0 ||
+                !Number.isFinite(longitude) || longitude < -180.0 || longitude > 180.0 ||
+                !Number.isFinite(sigmaM) || sigmaM < 0.0) {
+            _targetMapPoint = Qt.point(-1, -1);
+            _targetMapSigmaRadiusPx = 0.0;
+            return;
+        }
         const targetCoordinate = QtPositioning.coordinate(latitude, longitude);
         const targetMapPoint = mapControl.fromCoordinate(targetCoordinate, false);
         const targetOverlayPoint = root.mapFromItem(mapControl, targetMapPoint.x, targetMapPoint.y);
@@ -245,22 +339,34 @@ Item {
             return;
         }
 
+        _targetMapPoint = targetOverlayPoint;
+        _targetMapSigmaRadiusPx = 0.0;
+        if (sigmaM === 0.0)
+            return;
+
         // Convert the reported one-sigma horizontal uncertainty to the current
         // map scale. The circle is a display of uncertainty, not a command or a
         // navigation radius. Use both axes so it remains useful on rotated maps.
-        const sigmaM = MultiDetectState.targetHorizontalSigmaM;
-        const latitudeOffsetDeg = sigmaM / 111132.0;
-        const longitudeDenominator = Math.max(1.0e-6,
-                                              111320.0 * Math.cos(latitude * Math.PI / 180.0));
-        const longitudeOffsetDeg = sigmaM / longitudeDenominator;
+        const metersPerDegree = _wgs84MetersPerDegree(latitude);
+        if (metersPerDegree === null)
+            return;
+        const latitudeOffsetDeg = sigmaM / metersPerDegree.north;
+        const northLatitude = latitude + latitudeOffsetDeg;
+        if (!Number.isFinite(northLatitude) || northLatitude <= -90.0 || northLatitude >= 90.0)
+            return;
+        const longitudeOffsetDeg = sigmaM / metersPerDegree.east;
+        const eastLongitude = _normalizeLongitudeDeg(longitude + longitudeOffsetDeg);
+        if (!Number.isFinite(eastLongitude))
+            return;
         const northMapPoint = mapControl.fromCoordinate(
-                    QtPositioning.coordinate(latitude + latitudeOffsetDeg, longitude), false);
+                    QtPositioning.coordinate(northLatitude, longitude), false);
         const eastMapPoint = mapControl.fromCoordinate(
-                    QtPositioning.coordinate(latitude, longitude + longitudeOffsetDeg), false);
+                    QtPositioning.coordinate(latitude, eastLongitude), false);
         const northOverlayPoint = root.mapFromItem(mapControl, northMapPoint.x, northMapPoint.y);
         const eastOverlayPoint = root.mapFromItem(mapControl, eastMapPoint.x, eastMapPoint.y);
-
-        _targetMapPoint = targetOverlayPoint;
+        if (!Number.isFinite(northOverlayPoint.x) || !Number.isFinite(northOverlayPoint.y) ||
+                !Number.isFinite(eastOverlayPoint.x) || !Number.isFinite(eastOverlayPoint.y))
+            return;
         _targetMapSigmaRadiusPx = Math.max(
                     0.0,
                     Math.abs(northOverlayPoint.y - targetOverlayPoint.y),
@@ -268,17 +374,22 @@ Item {
     }
 
     function _requestExecutionPopup(kind) {
+        if (_replaySafetyActive) {
+            _pendingExecutionPopup = "";
+            MultiDetectState.statusMessage = MultiDetectState.physicalActionIsolationStatusText();
+            return;
+        }
         if (_pendingExecutionPopup !== "")
             return;
 
         // A challenge remains valid for its signed lifetime. Reuse it instead
         // of replacing it with another PROMOTE_LCK request on a second click.
         if (kind === "payload" && MultiDetectState.payloadTargetChallengeActive) {
-            payloadActionPopup.open();
+            _openPayloadActionDialog();
             return;
         }
         if (kind === "approach" && MultiDetectState.approachChallengeActive) {
-            approachActionPopup.open();
+            _openApproachActionDialog();
             return;
         }
 
@@ -289,9 +400,53 @@ Item {
         executionChallengeWaitTimer.restart();
     }
 
+    function _openTargetEvidenceHistoryDialog() {
+        if (_targetEvidenceHistoryDialog === null)
+            _targetEvidenceHistoryDialog = targetEvidenceHistoryDialogFactory.open();
+    }
+
+    function _closeTargetEvidenceHistoryDialog() {
+        if (_targetEvidenceHistoryDialog !== null)
+            _targetEvidenceHistoryDialog.close();
+    }
+
+    function _openPayloadActionDialog() {
+        if (_payloadActionDialog === null)
+            _payloadActionDialog = payloadActionDialogFactory.open();
+    }
+
+    function _closePayloadActionDialog() {
+        if (_payloadActionDialog !== null)
+            _payloadActionDialog.close();
+    }
+
+    function _openApproachActionDialog() {
+        if (_approachActionDialog === null)
+            _approachActionDialog = approachActionDialogFactory.open();
+    }
+
+    function _closeApproachActionDialog() {
+        if (_approachActionDialog !== null)
+            _approachActionDialog.close();
+    }
+
+    function _openAuthorizationDialog() {
+        if (_authorizationDialog === null)
+            _authorizationDialog = authorizationDialogFactory.open();
+    }
+
+    function _closeAuthorizationDialog() {
+        if (_authorizationDialog !== null)
+            _authorizationDialog.close();
+    }
+
     Component.onCompleted: {
         _syncMode3AimLoopCue();
         _updateTargetMapProjection();
+        if (root._hilUiAutoExercise)
+            console.log("MultiDetect HIL UI auto exercise layer ready; configured=" +
+                        MultiDetectState.operatorConfigured + ", linkState=" +
+                        MultiDetectState.metadataLinkState);
     }
 
     Timer {
@@ -305,25 +460,84 @@ Item {
     }
 
     Timer {
+        id: hilUiAutoExerciseTimer
+
+        interval: 100
+        repeat: true
+        running: root._hilUiAutoExercise
+
+        onTriggered: {
+            if (!root._hilUiAutoExercise) {
+                stop();
+                return;
+            }
+            if (root._hilUiAutoExerciseStage === 0) {
+                if (MultiDetectState.replaySafetyActive)
+                    return;
+                if (MultiDetectState.missionMode !== "PAYLOAD" &&
+                        !MultiDetectState.setMissionMode("PAYLOAD"))
+                    return;
+                root._hilUiAutoExerciseStage = 1;
+                console.log("MultiDetect HIL UI auto exercise stage=1");
+                return;
+            }
+            if (root._hilUiAutoExerciseStage === 1) {
+                const metadataLinkReady = MultiDetectState.metadataLinkState === "AUTHENTICATED" ||
+                        MultiDetectState.metadataLinkState === "DIRECT_SIGNED_METADATA_READY" ||
+                        MultiDetectState.metadataLinkState === "WAITING_FOR_SIGNED_METADATA";
+                if (MultiDetectState.operatorConfigured && metadataLinkReady &&
+                        !MultiDetectState.hasPendingTargetSelection &&
+                        !MultiDetectState.targetBoxValid) {
+                    if (MultiDetectState.applySelection(0.30, 0.20, 0.62, 0.72))
+                        root._hilUiAutoExerciseStage = 2;
+                    if (root._hilUiAutoExerciseStage === 2)
+                        console.log("MultiDetect HIL UI auto exercise stage=2");
+                }
+                return;
+            }
+            if (root._hilUiAutoExerciseStage === 2 &&
+                    MultiDetectState.authorizationChallengeActive &&
+                    MultiDetectState.safetyAllowed) {
+                if (MultiDetectState.approveAuthorization()) {
+                    root._hilUiAutoExerciseStage = 3;
+                    console.log("MultiDetect HIL UI auto exercise stage=3");
+                    if (root._hilUiAutoExit)
+                        Qt.callLater(function() {
+                            if (typeof multiDetectHilUiExitController !== "undefined" &&
+                                    multiDetectHilUiExitController !== null) {
+                                multiDetectHilUiExitController.quitForIsolatedHilAcceptance();
+                            }
+                        });
+                }
+            }
+        }
+    }
+
+    Timer {
         id: executionChallengeWaitTimer
 
         interval: 75
         repeat: true
 
         onTriggered: {
+            if (root._replaySafetyActive) {
+                root._pendingExecutionPopup = "";
+                stop();
+                return;
+            }
             const elapsedMs = Date.now() - root._pendingExecutionStartedAtMs;
             if (root._pendingExecutionPopup === "payload" &&
                     MultiDetectState.payloadTargetChallengeActive) {
                 root._pendingExecutionPopup = "";
                 stop();
-                payloadActionPopup.open();
+                root._openPayloadActionDialog();
                 return;
             }
             if (root._pendingExecutionPopup === "approach" &&
                     MultiDetectState.approachChallengeActive) {
                 root._pendingExecutionPopup = "";
                 stop();
-                approachActionPopup.open();
+                root._openApproachActionDialog();
                 return;
             }
             if (elapsedMs < 5000)
@@ -355,6 +569,17 @@ Item {
             root._syncMode3AimLoopCue();
         }
 
+        function onReplaySafetyActiveChanged() {
+            if (!MultiDetectState.replaySafetyActive)
+                return;
+            root._pendingExecutionPopup = "";
+            executionChallengeWaitTimer.stop();
+            root._closePayloadActionDialog();
+            root._closeApproachActionDialog();
+            root._closeAuthorizationDialog();
+            root._syncMode3AimLoopCue();
+        }
+
         function onTargetGeolocationAvailableChanged() {
             root._updateTargetMapProjection();
         }
@@ -380,202 +605,6 @@ Item {
         }
     }
 
-    function _number(value, precision, suffix) {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : "--";
-    }
-
-    function _percent(value) {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? (numeric * 100.0).toFixed(0) + "%" : "--";
-    }
-
-    function _metadataLabel() {
-        switch (MultiDetectState.metadataLinkState) {
-        case "AUTHENTICATED":
-            return qsTr("在线");
-        case "STALE":
-            return qsTr("数据超时");
-        case "DIRECT_SIGNED_METADATA_READY":
-            return qsTr("等待数据");
-        case "WAITING_FOR_SIGNED_METADATA":
-            return qsTr("等待连接");
-        case "DISABLED":
-        case "UNAVAILABLE":
-            return qsTr("未连接");
-        default:
-            return qsTr("连接中");
-        }
-    }
-
-    function _classLabel(label) {
-        const normalized = String(label || "").toLowerCase();
-        if (["flame", "fire", "hotspot", "burned_area"].indexOf(normalized) >= 0)
-            return qsTr("火情");
-        if (["smoke", "smoldering_area", "smolder_area"].indexOf(normalized) >= 0)
-            return qsTr("烟雾");
-        if (["person", "pedestrian", "people", "firefighter"].indexOf(normalized) >= 0)
-            return qsTr("人员");
-        if (["car", "van", "truck", "bus", "train", "motorcycle", "bicycle", "motor"].indexOf(normalized) >= 0)
-            return qsTr("车辆");
-        return label === "" ? qsTr("未知目标") : label;
-    }
-
-    function _trackingLabel() {
-        switch (MultiDetectState.trackingState) {
-        case "LOCKED":
-            return qsTr("已锁定");
-        case "TRACKING":
-            return qsTr("跟踪中");
-        case "RECOVERED":
-            return qsTr("跟踪恢复");
-        case "INITIALIZING":
-            return qsTr("正在建立跟踪");
-        case "LOST":
-            return qsTr("目标丢失");
-        case "CANCELLED":
-            return qsTr("已取消");
-        default:
-            return qsTr("未跟踪");
-        }
-    }
-
-    function _recognitionText() {
-        if (MultiDetectState.metadataLinkState !== "AUTHENTICATED")
-            return qsTr("等待 Jetson 目标数据");
-        const candidateCount = MultiDetectState.selectableTargetPoolEntries ?
-            MultiDetectState.selectableTargetPoolEntries.length : 0;
-        return qsTr("候选 ") + candidateCount + " · " +
-               qsTr("锁定 ") + MultiDetectState.lockedTrackCount;
-    }
-
-    function _targetText() {
-        if (!MultiDetectState.targetBoxValid)
-            return qsTr("未选择");
-        return _classLabel(MultiDetectState.targetLabel) + " · " +
-               _percent(MultiDetectState.targetConfidence);
-    }
-
-    function _trackingText() {
-        if (!MultiDetectState.targetBoxValid)
-            return qsTr("未跟踪");
-        return _trackingLabel() + " · " +
-               qsTr("质量 ") + _percent(MultiDetectState.trackingQuality);
-    }
-
-    function _dataText() {
-        if (MultiDetectState.metadataLinkState !== "AUTHENTICATED")
-            return qsTr("等待实时元数据");
-        if (MultiDetectState.trackingMetadataRateHz > 0.0)
-            return qsTr("目标框 ") + _number(MultiDetectState.trackingMetadataRateHz, 1, " Hz");
-        if (MultiDetectState.selectableTargetPoolEntries &&
-                MultiDetectState.selectableTargetPoolEntries.length > 0)
-            return qsTr("实时目标池已接收");
-        return qsTr("链路在线 · 等待识别结果");
-    }
-
-    function _sceneText() {
-        if (MultiDetectState.fireAlert)
-            return qsTr("检测到火情");
-        if (MultiDetectState.sceneContextState === "VALID" &&
-                MultiDetectState.sceneContextRegions &&
-                MultiDetectState.sceneContextRegions.length > 0)
-            return qsTr("场景区域 ") + MultiDetectState.sceneContextRegions.length;
-        return qsTr("视觉识别运行中");
-    }
-
-    function _rangeContribution(sources) {
-        const contributions = MultiDetectState.rangeSourceContributions || [];
-        let weight = 0.0;
-        let hasMeasurement = false;
-        for (let index = 0; index < contributions.length; ++index) {
-            const contribution = contributions[index];
-            if (sources.indexOf(String(contribution.source || "")) < 0)
-                continue;
-            const candidateWeight = Number(contribution.weight);
-            if (Number.isFinite(candidateWeight))
-                weight += candidateWeight;
-            hasMeasurement = true;
-        }
-        return {
-            "hasMeasurement": hasMeasurement,
-            "weight": weight
-        };
-    }
-
-    function _rangingAlgorithmValue(sources, inactiveStatus) {
-        const contribution = _rangeContribution(sources);
-        return contribution.hasMeasurement ?
-               qsTr("测距中") + " · " + _percent(contribution.weight) : inactiveStatus;
-    }
-
-    function _rangingAlgorithmActive(sources) {
-        const contribution = _rangeContribution(sources);
-        return contribution.hasMeasurement ||
-               (sources.indexOf("monocular_metric") >= 0 &&
-                MultiDetectState.depthMapAvailable);
-    }
-
-    readonly property var _statusRows: [
-        {
-            "label": qsTr("模式"),
-            "value": root._modeCode + " · " + MultiDetectState.interactionState
-        },
-        {
-            "label": qsTr("识别"),
-            "value": _recognitionText()
-        },
-        {
-            "label": qsTr("目标"),
-            "value": _targetText()
-        },
-        {
-            "label": qsTr("跟踪"),
-            "value": _trackingText()
-        },
-        {
-            "label": qsTr("数据"),
-            "value": _dataText()
-        },
-        {
-            "label": qsTr("测距"),
-            "value": MultiDetectState.rangeFusionText()
-        },
-        {
-            "algorithm": true,
-            "label": "Depth Anything V2",
-            "active": root._rangingAlgorithmActive(["monocular_metric", "monocular_size"]),
-            "value": root._rangingAlgorithmValue(
-                         ["monocular_metric", "monocular_size"], qsTr("等待深度")
-                     )
-        },
-        {
-            "algorithm": true,
-            "label": "VIO-SLAM",
-            "active": root._rangingAlgorithmActive(["vio"]),
-            "value": root._rangingAlgorithmValue(["vio"], qsTr("等待运动"))
-        },
-        {
-            "algorithm": true,
-            "label": "RGB-SLAM",
-            "active": root._rangingAlgorithmActive(["rgb_slam"]),
-            "value": root._rangingAlgorithmValue(["rgb_slam"], qsTr("等待视差"))
-        },
-        {
-            "algorithm": true,
-            "label": "PX4 地面几何",
-            "active": root._rangingAlgorithmActive(["camera_ground", "pixhawk_agl"]),
-            "value": root._rangingAlgorithmValue(
-                         ["camera_ground", "pixhawk_agl"], qsTr("等待高度")
-                     )
-        },
-        {
-            "label": qsTr("场景"),
-            "value": _sceneText(),
-            "warning": MultiDetectState.fireAlert
-        }
-    ]
-
     QGCPalette {
         id: qgcPal
 
@@ -585,17 +614,31 @@ Item {
     QGCToolInsets {
         id: toolInsets
 
-        bottomEdgeCenterInset: actionBar.visible ? root.height - actionBar.y : parentToolInsets.bottomEdgeCenterInset
+        bottomEdgeCenterInset: Math.max(
+                                   parentToolInsets.bottomEdgeCenterInset,
+                                   actionBar.visible ? root.height - actionBar.y + root._margin : 0)
         bottomEdgeLeftInset: parentToolInsets.bottomEdgeLeftInset
         bottomEdgeRightInset: parentToolInsets.bottomEdgeRightInset
         leftEdgeBottomInset: parentToolInsets.leftEdgeBottomInset
-        leftEdgeCenterInset: parentToolInsets.leftEdgeCenterInset
-        leftEdgeTopInset: parentToolInsets.leftEdgeTopInset
+        leftEdgeCenterInset: Math.max(
+                                 parentToolInsets.leftEdgeCenterInset,
+                                 targetGeolocationCard.visible ?
+                                     targetGeolocationCard.x + targetGeolocationCard.width + root._margin : 0)
+        leftEdgeTopInset: Math.max(
+                              parentToolInsets.leftEdgeTopInset,
+                              targetGeolocationCard.visible ?
+                                  targetGeolocationCard.x + targetGeolocationCard.width + root._margin : 0)
         rightEdgeBottomInset: parentToolInsets.rightEdgeBottomInset
-        rightEdgeCenterInset: statusPanel.visible ? root.width - statusPanel.x : parentToolInsets.rightEdgeCenterInset
+        rightEdgeCenterInset: parentToolInsets.rightEdgeCenterInset
         rightEdgeTopInset: parentToolInsets.rightEdgeTopInset
-        topEdgeCenterInset: parentToolInsets.topEdgeCenterInset
-        topEdgeLeftInset: parentToolInsets.topEdgeLeftInset
+        topEdgeCenterInset: Math.max(
+                                parentToolInsets.topEdgeCenterInset,
+                                mode3AimBanner.visible ?
+                                    mode3AimBanner.y + mode3AimBanner.height + root._margin : 0)
+        topEdgeLeftInset: Math.max(
+                              parentToolInsets.topEdgeLeftInset,
+                              targetGeolocationCard.visible ?
+                                  targetGeolocationCard.y + targetGeolocationCard.height + root._margin : 0)
         topEdgeRightInset: parentToolInsets.topEdgeRightInset
     }
 
@@ -616,9 +659,9 @@ Item {
             id: targetUncertaintyRing
 
             anchors.centerIn: parent
-            border.color: "#ffd43b"
+            border.color: qgcPal.warningText
             border.width: Math.max(1, ScreenTools.defaultFontPixelWidth * 0.16)
-            color: "#00ffffff"
+            color: Qt.transparent
             height: Math.max(2, root._targetMapSigmaRadiusPx * 2.0)
             radius: width * 0.5
             visible: root._targetMapSigmaRadiusPx > 0.0
@@ -627,9 +670,9 @@ Item {
 
         Rectangle {
             anchors.centerIn: parent
-            border.color: "#ffffff"
+            border.color: qgcPal.text
             border.width: 1
-            color: "#e63946"
+            color: qgcPal.colorRed
             height: parent.height
             radius: width * 0.5
             width: height
@@ -639,7 +682,7 @@ Item {
             anchors.bottom: parent.top
             anchors.bottomMargin: ScreenTools.defaultFontPixelHeight * 0.25
             anchors.horizontalCenter: parent.horizontalCenter
-            color: "#ffd43b"
+            color: qgcPal.warningText
             font.bold: true
             text: qsTr("目标 ±%1 m (1σ)").arg(MultiDetectState.targetHorizontalSigmaM.toFixed(1))
         }
@@ -651,9 +694,8 @@ Item {
         anchors.left: parent.left
         anchors.leftMargin: root._margin
         anchors.top: parent.top
-        anchors.topMargin: parentToolInsets.topEdgeLeftInset +
-                           Math.max(root._margin, ScreenTools.defaultFontPixelHeight * 7.4)
-        border.color: root._targetGeolocationQualified ? "#ffd43b" : qgcPal.warningText
+        anchors.topMargin: parentToolInsets.topEdgeLeftInset + root._margin
+        border.color: root._targetGeolocationQualified ? qgcPal.colorGreen : qgcPal.warningText
         border.width: 1
         color: qgcPal.window
         height: targetGeolocationColumn.implicitHeight + root._margin * 1.4
@@ -672,7 +714,7 @@ Item {
 
             QGCLabel {
                 Layout.fillWidth: true
-                color: root._targetGeolocationQualified ? "#ffd43b" : qgcPal.warningText
+                color: root._targetGeolocationQualified ? qgcPal.colorGreen : qgcPal.warningText
                 font.bold: true
                 text: root._targetGeolocationQualified ? qsTr("目标落图 · 只读") :
                                                         qsTr("目标落图 · 不可定位")
@@ -733,7 +775,7 @@ Item {
                              multiDetectTargetEvidenceStore !== null &&
                              multiDetectTargetEvidenceStore.snapshotCount > 0
                     text: qsTr("记录")
-                    onClicked: targetEvidenceHistoryPopup.open()
+                    onClicked: root._openTargetEvidenceHistoryDialog()
                 }
             }
 
@@ -754,246 +796,124 @@ Item {
         }
     }
 
-    Popup {
-        id: targetEvidenceHistoryPopup
+    QGCPopupDialogFactory {
+        id: targetEvidenceHistoryDialogFactory
 
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        focus: true
-        height: Math.min(root.height * 0.56, ScreenTools.defaultFontPixelHeight * 25)
-        modal: false
-        padding: root._margin * 0.75
-        width: Math.min(root.width - root._margin * 2, ScreenTools.defaultFontPixelWidth * 50)
-        x: Math.max(root._margin, Math.min(root.width - width - root._margin, targetGeolocationCard.x))
-        y: Math.max(root._margin, Math.min(root.height - height - root._margin,
-                                          targetGeolocationCard.y + targetGeolocationCard.height + root._margin))
-        z: 80
+        dialogComponent: targetEvidenceHistoryDialogComponent
+    }
 
-        background: Rectangle {
-            border.color: "#ffd43b"
-            border.width: 1
-            color: qgcPal.window
-            opacity: 0.97
-            radius: ScreenTools.defaultBorderRadius
-        }
+    Component {
+        id: targetEvidenceHistoryDialogComponent
 
-        contentItem: ColumnLayout {
-            spacing: root._margin * 0.35
+        QGCPopupDialog {
+            id: targetEvidenceHistoryDialog
 
-            QGCLabel {
-                Layout.fillWidth: true
-                color: "#ffd43b"
-                font.bold: true
-                text: qsTr("目标事件记录 · 只读")
-            }
+            buttons: Dialog.Close
+            title: qsTr("目标事件记录 · 只读")
 
-            QGCLabel {
-                Layout.fillWidth: true
-                color: qgcPal.text
-                text: qsTr("最近 %1 条 · 本地保存").arg(
-                          typeof multiDetectTargetEvidenceStore !== "undefined" &&
-                          multiDetectTargetEvidenceStore !== null ?
-                              multiDetectTargetEvidenceStore.recentSnapshots.length : 0)
-            }
+            Component.onDestruction: root._targetEvidenceHistoryDialog = null
 
-            ListView {
-                id: targetEvidenceHistoryList
-
-                Layout.fillHeight: true
-                Layout.fillWidth: true
-                clip: true
-                model: typeof multiDetectTargetEvidenceStore !== "undefined" &&
-                       multiDetectTargetEvidenceStore !== null ?
-                           multiDetectTargetEvidenceStore.recentSnapshots : []
+            ColumnLayout {
+                height: Math.min(targetEvidenceHistoryDialog.maxContentAvailableHeight,
+                                 ScreenTools.defaultFontPixelHeight * 25)
                 spacing: root._margin * 0.35
+                width: Math.min(targetEvidenceHistoryDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 50)
 
-                delegate: Rectangle {
-                    required property var modelData
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.text
+                    text: qsTr("最近 %1 条 · 本地保存").arg(
+                              typeof multiDetectTargetEvidenceStore !== "undefined" &&
+                              multiDetectTargetEvidenceStore !== null ?
+                                  multiDetectTargetEvidenceStore.recentSnapshots.length : 0)
+                }
 
-                    readonly property var entry: modelData
-                    border.color: qgcPal.button
-                    border.width: 1
-                    color: qgcPal.windowShade
-                    height: evidenceRecordColumn.implicitHeight + root._margin
-                    radius: ScreenTools.defaultBorderRadius
-                    width: targetEvidenceHistoryList.width
+                ListView {
+                    id: targetEvidenceHistoryList
 
-                    ColumnLayout {
-                        id: evidenceRecordColumn
+                    Layout.fillHeight: true
+                    Layout.fillWidth: true
+                    clip: true
+                    model: typeof multiDetectTargetEvidenceStore !== "undefined" &&
+                           multiDetectTargetEvidenceStore !== null ?
+                               multiDetectTargetEvidenceStore.recentSnapshots : []
+                    spacing: root._margin * 0.35
 
-                        anchors.fill: parent
-                        anchors.margins: root._margin * 0.5
-                        spacing: root._margin * 0.16
+                    delegate: Rectangle {
+                        required property var modelData
 
-                        QGCLabel {
-                            Layout.fillWidth: true
-                            font.bold: true
-                            text: qsTr("%1 · %2").arg(
-                                      String(parent.parent.entry.target_label || "--"),
-                                      String(parent.parent.entry.saved_at_utc || "--"))
-                            wrapMode: Text.WordWrap
-                        }
+                        readonly property var entry: modelData
+                        border.color: qgcPal.button
+                        border.width: 1
+                        color: qgcPal.windowShade
+                        height: evidenceRecordColumn.implicitHeight + root._margin
+                        radius: ScreenTools.defaultBorderRadius
+                        width: targetEvidenceHistoryList.width
 
-                        QGCLabel {
-                            Layout.fillWidth: true
-                            text: "GPS " + Number(parent.parent.entry.latitude_deg).toFixed(7) + ", " +
-                                  Number(parent.parent.entry.longitude_deg).toFixed(7) + " ± " +
-                                  Number(parent.parent.entry.horizontal_sigma_m).toFixed(1) + " m (1σ)"
-                            wrapMode: Text.WordWrap
-                        }
+                        ColumnLayout {
+                            id: evidenceRecordColumn
 
-                        QGCLabel {
-                            Layout.fillWidth: true
-                            text: qsTr("距离：%1 m · 方位：%2° · %3").arg(
-                                      Number(parent.parent.entry.range_m).toFixed(1),
-                                      Number(parent.parent.entry.relative_bearing_deg).toFixed(1),
-                                      String(parent.parent.entry.range_validity || "--"))
-                            wrapMode: Text.WordWrap
-                        }
+                            anchors.fill: parent
+                            anchors.margins: root._margin * 0.5
+                            spacing: root._margin * 0.16
 
-                        QGCButton {
-                            Layout.alignment: Qt.AlignRight
-                            text: qsTr("复制坐标")
-                            onClicked: root._copySavedEvidenceCoordinates(parent.parent.entry)
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                font.bold: true
+                                text: qsTr("%1 · %2").arg(
+                                          String(parent.parent.entry.target_label || "--"),
+                                          String(parent.parent.entry.saved_at_utc || "--"))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: "GPS " + root._optionalNumberText(parent.parent.entry.latitude_deg, 7, "") + ", " +
+                                      root._optionalNumberText(parent.parent.entry.longitude_deg, 7, "") + " ± " +
+                                      root._optionalNumberText(parent.parent.entry.horizontal_sigma_m, 1, " m") + " (1σ)"
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("距离：%1 · 方位：%2 · %3").arg(
+                                          root._optionalNumberText(parent.parent.entry.range_m, 1, " m"),
+                                          root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, "°"),
+                                          String(parent.parent.entry.range_validity || "--"))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCButton {
+                                Layout.alignment: Qt.AlignRight
+                                text: qsTr("复制坐标")
+                                onClicked: root._copySavedEvidenceCoordinates(parent.parent.entry)
+                            }
                         }
                     }
-                }
-            }
-
-            QGCLabel {
-                Layout.fillWidth: true
-                color: qgcPal.warningText
-                text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")
-                wrapMode: Text.WordWrap
-            }
-        }
-    }
-
-    Rectangle {
-        id: statusPanel
-
-        anchors.right: parent.right
-        anchors.rightMargin: root._margin
-        anchors.top: parent.top
-        // Keep the upper centre clear for the fixed-wing heading tape.  The
-        // right panel then ends above the relocated ALT/VS strip.
-        anchors.topMargin: parentToolInsets.topEdgeRightInset +
-                           Math.max(root._margin, ScreenTools.defaultFontPixelHeight * 7.4)
-        border.color: MultiDetectState.fireAlert ? qgcPal.warningText : qgcPal.windowShadeDark
-        border.width: 1
-        color: qgcPal.window
-        height: statusColumn.implicitHeight + root._margin * 2
-        opacity: 0.92
-        radius: ScreenTools.defaultBorderRadius
-        width: root._panelWidth
-        z: 20
-
-        ColumnLayout {
-            id: statusColumn
-
-            anchors.fill: parent
-            anchors.margins: root._margin
-            spacing: root._margin * 0.3
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: root._margin * 0.5
-
-                Rectangle {
-                    color: MultiDetectState.metadataLinkState === "AUTHENTICATED" ? qgcPal.colorGreen :
-                           MultiDetectState.metadataLinkState === "STALE" ? qgcPal.warningText : qgcPal.text
-                    height: width
-                    radius: width / 2
-                    width: ScreenTools.defaultFontPixelHeight * 0.72
                 }
 
                 QGCLabel {
                     Layout.fillWidth: true
-                    font.bold: true
-                    font.pointSize: ScreenTools.largeFontPointSize
-                    text: "JETSON · AI"
+                    color: qgcPal.warningText
+                    text: qsTr("记录只用于态势回看与核对；不会发送飞控指令")
+                    wrapMode: Text.WordWrap
                 }
-
-                QGCLabel {
-                    color: MultiDetectState.metadataLinkState === "AUTHENTICATED" ? qgcPal.colorGreen : qgcPal.text
-                    font.bold: true
-                    font.pointSize: ScreenTools.defaultFontPointSize
-                    text: root._metadataLabel()
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: qgcPal.windowShadeDark
-                height: 1
-            }
-
-            Repeater {
-                model: root._statusRows
-
-                delegate: RowLayout {
-                    id: telemetryRow
-
-                    required property var modelData
-
-                    Layout.fillWidth: true
-                    Layout.minimumHeight: Math.max(26, ScreenTools.defaultFontPixelHeight * 1.38)
-                    spacing: root._margin * 0.8
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 0.62
-                        Layout.preferredWidth: Layout.preferredHeight
-                        color: telemetryRow.modelData.active ? "#28c76f" : "#df3b3b"
-                        radius: width / 2
-                        visible: telemetryRow.modelData.algorithm === true
-                    }
-
-                    QGCLabel {
-                        Layout.preferredWidth: telemetryRow.modelData.algorithm ?
-                                                   ScreenTools.defaultFontPixelWidth * 15.5 :
-                                                   ScreenTools.defaultFontPixelWidth * 5.5
-                        color: qgcPal.text
-                        font.bold: true
-                        font.pointSize: ScreenTools.defaultFontPointSize
-                        text: telemetryRow.modelData.label
-                    }
-
-                    QGCLabel {
-                        Layout.fillWidth: true
-                        color: telemetryRow.modelData.warning ? qgcPal.warningText : qgcPal.text
-                        elide: Text.ElideRight
-                        font.pointSize: ScreenTools.defaultFontPointSize
-                        horizontalAlignment: Text.AlignLeft
-                        text: telemetryRow.modelData.value
-                    }
-                }
-            }
-
-            QGCButton {
-                Layout.fillWidth: true
-                enabled: MultiDetectState.safetyAllowed
-                primary: true
-                text: qsTr("确认")
-                visible: MultiDetectState.authorizationChallengeActive
-
-                onClicked: authorizationPopup.open()
             }
         }
     }
 
-    Rectangle {
+    // Keep target operations as native QGCButton controls without wrapping
+    // them in a second, custom-styled HUD card. The Fly View data overlays
+    // remain spatial, while operational chrome inherits QGC's own controls.
+    Item {
         id: actionBar
 
         anchors.bottom: parent.bottom
         anchors.bottomMargin: parentToolInsets.bottomEdgeCenterInset + root._margin
         anchors.horizontalCenter: parent.horizontalCenter
-        border.color: qgcPal.windowShadeDark
-        border.width: 1
-        color: qgcPal.window
-        height: actionRow.implicitHeight + root._margin * 1.25
-        opacity: 0.92
-        radius: ScreenTools.defaultBorderRadius
-        width: actionRow.implicitWidth + root._margin * 2
+        height: actionRow.implicitHeight
+        width: actionRow.implicitWidth
         z: 20
 
         RowLayout {
@@ -1028,6 +948,7 @@ Item {
 
             QGCButton {
                 enabled: MultiDetectState.operatorConfigured && MultiDetectState.executionActionable &&
+                         !MultiDetectState.replaySafetyActive &&
                          root._pendingExecutionPopup === ""
                 primary: true
                 text: qsTr("执行")
@@ -1040,6 +961,7 @@ Item {
 
             QGCButton {
                 enabled: MultiDetectState.operatorConfigured && MultiDetectState.executionActionable &&
+                         !MultiDetectState.replaySafetyActive &&
                          root._pendingExecutionPopup === ""
                 primary: true
                 text: qsTr("执行")
@@ -1059,12 +981,12 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: parentToolInsets.topEdgeCenterInset + root._margin
-        border.color: "white"
-        border.width: 3
-        color: MultiDetectState.mode3AimUiActive ? "#c62828" : "#6d1b1b"
+        border.color: qgcPal.warningText
+        border.width: 2
+        color: qgcPal.windowShadeDark
         height: mode3AimBannerContent.implicitHeight + root._margin * 1.5
         opacity: 0.96
-        radius: Math.max(ScreenTools.defaultBorderRadius, 8)
+        radius: ScreenTools.defaultBorderRadius
         scale: 1.0
         visible: MultiDetectState.mode3AimUiActive || MultiDetectState.approachPilotInputCancelled
         width: Math.min(root.width - root._margin * 2,
@@ -1084,27 +1006,18 @@ Item {
 
                 QGCLabel {
                     Layout.fillWidth: true
-                    color: "white"
+                    color: qgcPal.text
                     font.bold: true
-                    font.pointSize: ScreenTools.largeFontPointSize + 3
-                    text: MultiDetectState.mode3AimUiActive ?
-                              (MultiDetectState.approachPhase === "ABORT" ?
-                                   qsTr("模式 3 瞄准状态异常") :
-                               !MultiDetectState.approachStatusFresh ||
-                               MultiDetectState.metadataLinkState === "STALE" ?
-                                   qsTr("模式 3 瞄准状态待确认") :
-                                   qsTr("模式 3 正在瞄准")) :
-                              qsTr("遥控输入已接管 · 瞄准已取消")
+                    font.pointSize: ScreenTools.largeFontPointSize
+                    text: MultiDetectState.mode3AimBannerTitleText()
                 }
 
                 QGCLabel {
                     Layout.fillWidth: true
-                    color: "white"
+                    color: qgcPal.text
                     font.bold: true
                     font.pointSize: ScreenTools.defaultFontPointSize
-                    text: MultiDetectState.mode3AimUiActive ?
-                              qsTr("遥控器任意按钮、拨杆或右侧按钮均可立即取消") :
-                              qsTr("目标保持 LCK")
+                    text: MultiDetectState.mode3AimBannerDetailText()
                 }
             }
 
@@ -1122,385 +1035,275 @@ Item {
         }
     }
 
-    Popup {
-        id: payloadActionPopup
+    QGCPopupDialogFactory {
+        id: payloadActionDialogFactory
 
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        focus: true
-        modal: true
-        parent: Overlay.overlay
-        width: Math.min(root.width * 0.64, ScreenTools.defaultFontPixelWidth * 62)
-        x: Math.round((parent.width - width) * 0.5)
-        y: Math.round((parent.height - height) * 0.5)
+        dialogComponent: payloadActionDialogComponent
+    }
 
-        background: Rectangle {
-            border.color: qgcPal.windowShadeDark
-            border.width: 1
-            color: qgcPal.window
-            radius: ScreenTools.defaultBorderRadius
-        }
+    Component {
+        id: payloadActionDialogComponent
 
-        contentItem: ColumnLayout {
-            spacing: root._margin
+        QGCPopupDialog {
+            id: payloadActionDialog
 
-            QGCLabel {
-                Layout.fillWidth: true
-                font.bold: true
-                font.pointSize: ScreenTools.largeFontPointSize
-                text: qsTr("模式 2 · 执行")
+            acceptButtonEnabled: !MultiDetectState.replaySafetyActive &&
+                                 MultiDetectState.vehicleArmed &&
+                                 MultiDetectState.payloadTargetChallengeActive &&
+                                 root._targetActionable
+            buttons: ScreenTools.isMobile ? Dialog.Cancel : (Dialog.Ok | Dialog.Cancel)
+            title: qsTr("模式 2 · 执行")
+
+            Component.onDestruction: root._payloadActionDialog = null
+
+            onAccepted: {
+                if (!MultiDetectState.confirmPayloadTargetSlide(600, 1.0, true))
+                    preventClose = true;
             }
 
-            QGCLabel {
-                Layout.fillWidth: true
-                text: qsTr("当前目标：") + (MultiDetectState.targetId === "" ? qsTr("等待 Jetson 确认") :
-                      MultiDetectState.targetLabel + " · " + MultiDetectState.targetId)
-                wrapMode: Text.WordWrap
-            }
+            ColumnLayout {
+                spacing: root._margin
+                width: Math.min(payloadActionDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 62)
 
-            QGCLabel {
-                Layout.fillWidth: true
-                color: MultiDetectState.payloadTargetChallengeActive ? qgcPal.warningText : qgcPal.text
-                font.bold: true
-                text: !MultiDetectState.vehicleArmed ? qsTr("请先 ARM") :
-                      MultiDetectState.payloadTargetChallengeActive ?
-                          (ScreenTools.isMobile ? qsTr("滑动确认") : qsTr("确认执行")) +
-                          " · " + MultiDetectState.payloadTargetChallengeExpiresInS + " s" :
-                          MultiDetectState.payloadTargetEligibility
-                wrapMode: Text.WordWrap
-            }
-
-            Slider {
-                id: payloadTargetSlide
-
-                property bool continuousEvidence: false
-                property double pressedAtMs: 0
-                property real previousValue: 0.0
-
-                Layout.fillWidth: true
-                enabled: MultiDetectState.vehicleArmed &&
-                         MultiDetectState.payloadTargetChallengeActive
-                visible: ScreenTools.isMobile
-                from: 0.0
-                live: true
-                to: 1.0
-                value: 0.0
-
-                onMoved: {
-                    if (value + 0.02 < previousValue)
-                        continuousEvidence = false;
-                    previousValue = value;
-                }
-                onPressedChanged: {
-                    if (pressed) {
-                        pressedAtMs = Date.now();
-                        previousValue = value;
-                        continuousEvidence = value <= 0.02;
-                        return;
-                    }
-                    const completion = value;
-                    const durationMs = Math.max(0, Math.round(Date.now() - pressedAtMs));
-                    const valid = continuousEvidence && completion >= 0.98 && durationMs >= 600;
-                    if (completion >= 0.98)
-                        MultiDetectState.confirmPayloadTargetSlide(durationMs, completion, valid);
-                    value = 0.0;
-                    previousValue = 0.0;
-                    continuousEvidence = false;
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("当前目标：") + (MultiDetectState.targetId === "" ?
+                              qsTr("等待 Jetson 确认") :
+                              MultiDetectState.targetLabel + " · " + MultiDetectState.targetId)
+                    wrapMode: Text.WordWrap
                 }
 
-                background: Rectangle {
-                    color: qgcPal.windowShadeDark
-                    height: Math.max(4, ScreenTools.defaultFontPixelHeight * 0.28)
-                    radius: height / 2
-                    x: payloadTargetSlide.leftPadding
-                    y: payloadTargetSlide.topPadding + payloadTargetSlide.availableHeight / 2 - height / 2
-                    width: payloadTargetSlide.availableWidth
-
-                    Rectangle {
-                        color: qgcPal.warningText
-                        height: parent.height
-                        radius: parent.radius
-                        width: payloadTargetSlide.visualPosition * parent.width
-                    }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: MultiDetectState.payloadTargetChallengeActive ?
+                               qgcPal.warningText : qgcPal.text
+                    font.bold: true
+                    text: MultiDetectState.replaySafetyActive ?
+                              MultiDetectState.physicalActionIsolationStatusText() :
+                          !MultiDetectState.vehicleArmed ? qsTr("请先 ARM") :
+                          MultiDetectState.payloadTargetChallengeActive ?
+                              (ScreenTools.isMobile ? qsTr("滑动确认") : qsTr("确认执行")) +
+                              " · " + MultiDetectState.payloadTargetChallengeExpiresInS + " s" :
+                              MultiDetectState.payloadTargetEligibility
+                    wrapMode: Text.WordWrap
                 }
 
-                handle: Rectangle {
-                    border.color: qgcPal.windowShadeDark
-                    border.width: 1
-                    color: payloadTargetSlide.enabled ? qgcPal.warningText : qgcPal.button
-                    height: ScreenTools.defaultFontPixelHeight * 1.35
-                    radius: height / 2
-                    width: height
-                    x: payloadTargetSlide.leftPadding +
-                       payloadTargetSlide.visualPosition * (payloadTargetSlide.availableWidth - width)
-                    y: payloadTargetSlide.topPadding + payloadTargetSlide.availableHeight / 2 - height / 2
-                }
-            }
+                QGCSlider {
+                    id: payloadTargetSlide
 
-            RowLayout {
-                Layout.fillWidth: true
-                visible: !ScreenTools.isMobile
+                    property bool continuousEvidence: false
+                    property double pressedAtMs: 0
+                    property real previousValue: 0.0
 
-                Item { Layout.fillWidth: true }
-
-                QGCButton {
-                    text: qsTr("取消")
-                    onClicked: payloadActionPopup.close()
-                }
-
-                QGCButton {
-                    enabled: MultiDetectState.vehicleArmed &&
-                             MultiDetectState.payloadTargetChallengeActive && root._targetActionable
-                    primary: true
-                    text: qsTr("确认")
-                    onClicked: {
-                        if (MultiDetectState.confirmPayloadTargetSlide(600, 1.0, true))
-                            payloadActionPopup.close();
-                    }
-                }
-            }
-
-            QGCLabel {
-                Layout.fillWidth: true
-                text: qsTr("手动投放：") + MultiDetectState.rcReleaseState +
-                      (MultiDetectState.rcReleaseChannel > 0 ? qsTr(" · 通道 %1").arg(MultiDetectState.rcReleaseChannel) : "")
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.alignment: Qt.AlignRight
-
-                QGCButton {
-                    text: ScreenTools.isMobile ? qsTr("取消") : qsTr("关闭")
+                    Layout.fillWidth: true
+                    enabled: !MultiDetectState.replaySafetyActive &&
+                             MultiDetectState.vehicleArmed &&
+                             MultiDetectState.payloadTargetChallengeActive
+                    from: 0.0
+                    live: true
+                    to: 1.0
+                    value: 0.0
                     visible: ScreenTools.isMobile
-                    onClicked: payloadActionPopup.close()
+
+                    onMoved: {
+                        if (value + 0.02 < previousValue)
+                            continuousEvidence = false;
+                        previousValue = value;
+                    }
+                    onPressedChanged: {
+                        if (pressed) {
+                            pressedAtMs = Date.now();
+                            previousValue = value;
+                            continuousEvidence = value <= 0.02;
+                            return;
+                        }
+                        const completion = value;
+                        const durationMs = Math.max(0, Math.round(Date.now() - pressedAtMs));
+                        const valid = continuousEvidence && completion >= 0.98 && durationMs >= 600;
+                        if (completion >= 0.98)
+                            MultiDetectState.confirmPayloadTargetSlide(durationMs, completion, valid);
+                        value = 0.0;
+                        previousValue = 0.0;
+                        continuousEvidence = false;
+                    }
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("手动投放：") + MultiDetectState.rcReleaseState +
+                          (MultiDetectState.rcReleaseChannel > 0 ?
+                               qsTr(" · 通道 %1").arg(MultiDetectState.rcReleaseChannel) : "")
+                    wrapMode: Text.WordWrap
                 }
 
                 QGCButton {
-                    enabled: MultiDetectState.safetyAllowed && MultiDetectState.authorizationChallengeActive
+                    Layout.alignment: Qt.AlignRight
+                    enabled: !MultiDetectState.replaySafetyActive &&
+                             MultiDetectState.safetyAllowed &&
+                             MultiDetectState.authorizationChallengeActive
                     primary: true
                     text: qsTr("进入任务授权")
                     visible: MultiDetectState.authorizationChallengeActive
 
                     onClicked: {
-                        payloadActionPopup.close();
-                        authorizationPopup.open();
+                        root._closePayloadActionDialog();
+                        Qt.callLater(root._openAuthorizationDialog);
                     }
                 }
             }
         }
     }
 
-    Popup {
-        id: approachActionPopup
+    QGCPopupDialogFactory {
+        id: approachActionDialogFactory
 
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        focus: true
-        modal: true
-        parent: Overlay.overlay
-        width: Math.min(root.width * 0.64, ScreenTools.defaultFontPixelWidth * 62)
-        x: Math.round((parent.width - width) * 0.5)
-        y: Math.round((parent.height - height) * 0.5)
+        dialogComponent: approachActionDialogComponent
+    }
 
-        background: Rectangle {
-            border.color: qgcPal.windowShadeDark
-            border.width: 1
-            color: qgcPal.window
-            radius: ScreenTools.defaultBorderRadius
-        }
+    Component {
+        id: approachActionDialogComponent
 
-        contentItem: ColumnLayout {
-            spacing: root._margin
+        QGCPopupDialog {
+            id: approachActionDialog
 
-            QGCLabel {
-                Layout.fillWidth: true
-                font.bold: true
-                font.pointSize: ScreenTools.largeFontPointSize
-                text: qsTr("载荷模块 · 执行")
+            acceptButtonEnabled: !MultiDetectState.replaySafetyActive &&
+                                 MultiDetectState.vehicleArmed &&
+                                 MultiDetectState.approachChallengeActive &&
+                                 root._targetActionable
+            buttons: ScreenTools.isMobile ? Dialog.Cancel : (Dialog.Ok | Dialog.Cancel)
+            title: qsTr("载荷模块 · 执行")
+
+            Component.onDestruction: root._approachActionDialog = null
+
+            onAccepted: {
+                if (!MultiDetectState.confirmApproachSlide(600, 1.0, true))
+                    preventClose = true;
             }
 
-            QGCLabel {
-                Layout.fillWidth: true
-                text: qsTr("当前目标：") + (MultiDetectState.targetId === "" ? qsTr("等待 Jetson 确认") :
-                      MultiDetectState.targetLabel + " · " + MultiDetectState.targetId)
-                wrapMode: Text.WordWrap
-            }
+            ColumnLayout {
+                spacing: root._margin
+                width: Math.min(approachActionDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 62)
 
-            QGCLabel {
-                Layout.fillWidth: true
-                color: MultiDetectState.approachChallengeActive ? qgcPal.warningText : qgcPal.text
-                font.bold: true
-                text: MultiDetectState.approachChallengePromptText(root._targetActionable,
-                                                                     ScreenTools.isMobile)
-                wrapMode: Text.WordWrap
-            }
-
-            Slider {
-                id: approachSlide
-
-                property bool continuousEvidence: false
-                property double pressedAtMs: 0
-                property real previousValue: 0.0
-
-                Layout.fillWidth: true
-                enabled: MultiDetectState.vehicleArmed &&
-                         MultiDetectState.approachChallengeActive && root._targetActionable
-                visible: ScreenTools.isMobile
-                from: 0.0
-                live: true
-                to: 1.0
-                value: 0.0
-
-                onMoved: {
-                    if (value + 0.02 < previousValue)
-                        continuousEvidence = false;
-                    previousValue = value;
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("当前目标：") + (MultiDetectState.targetId === "" ?
+                              qsTr("等待 Jetson 确认") :
+                              MultiDetectState.targetLabel + " · " + MultiDetectState.targetId)
+                    wrapMode: Text.WordWrap
                 }
-                onPressedChanged: {
-                    if (pressed) {
-                        pressedAtMs = Date.now();
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: MultiDetectState.approachChallengeActive ?
+                               qgcPal.warningText : qgcPal.text
+                    font.bold: true
+                    text: MultiDetectState.approachChallengePromptText(root._targetActionable,
+                                                                       ScreenTools.isMobile)
+                    wrapMode: Text.WordWrap
+                }
+
+                QGCSlider {
+                    id: approachSlide
+
+                    property bool continuousEvidence: false
+                    property double pressedAtMs: 0
+                    property real previousValue: 0.0
+
+                    Layout.fillWidth: true
+                    enabled: !MultiDetectState.replaySafetyActive &&
+                             MultiDetectState.vehicleArmed &&
+                             MultiDetectState.approachChallengeActive &&
+                             root._targetActionable
+                    from: 0.0
+                    live: true
+                    to: 1.0
+                    value: 0.0
+                    visible: ScreenTools.isMobile
+
+                    onMoved: {
+                        if (value + 0.02 < previousValue)
+                            continuousEvidence = false;
                         previousValue = value;
-                        continuousEvidence = value <= 0.02;
-                        return;
                     }
-                    const completion = value;
-                    const durationMs = Math.max(0, Math.round(Date.now() - pressedAtMs));
-                    const valid = continuousEvidence && completion >= 0.98 && durationMs >= 600;
-                    if (completion >= 0.98)
-                        MultiDetectState.confirmApproachSlide(durationMs, completion, valid);
-                    value = 0.0;
-                    previousValue = 0.0;
-                    continuousEvidence = false;
-                }
-
-                background: Rectangle {
-                    color: qgcPal.windowShadeDark
-                    height: Math.max(4, ScreenTools.defaultFontPixelHeight * 0.28)
-                    radius: height / 2
-                    x: approachSlide.leftPadding
-                    y: approachSlide.topPadding + approachSlide.availableHeight / 2 - height / 2
-                    width: approachSlide.availableWidth
-
-                    Rectangle {
-                        color: qgcPal.warningText
-                        height: parent.height
-                        radius: parent.radius
-                        width: approachSlide.visualPosition * parent.width
+                    onPressedChanged: {
+                        if (pressed) {
+                            pressedAtMs = Date.now();
+                            previousValue = value;
+                            continuousEvidence = value <= 0.02;
+                            return;
+                        }
+                        const completion = value;
+                        const durationMs = Math.max(0, Math.round(Date.now() - pressedAtMs));
+                        const valid = continuousEvidence && completion >= 0.98 && durationMs >= 600;
+                        if (completion >= 0.98)
+                            MultiDetectState.confirmApproachSlide(durationMs, completion, valid);
+                        value = 0.0;
+                        previousValue = 0.0;
+                        continuousEvidence = false;
                     }
                 }
-
-                handle: Rectangle {
-                    border.color: qgcPal.windowShadeDark
-                    border.width: 1
-                    color: approachSlide.enabled ? qgcPal.warningText : qgcPal.button
-                    height: ScreenTools.defaultFontPixelHeight * 1.35
-                    radius: height / 2
-                    width: height
-                    x: approachSlide.leftPadding + approachSlide.visualPosition * (approachSlide.availableWidth - width)
-                    y: approachSlide.topPadding + approachSlide.availableHeight / 2 - height / 2
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                visible: !ScreenTools.isMobile
-
-                Item { Layout.fillWidth: true }
-
-                QGCButton {
-                    text: qsTr("取消")
-                    onClicked: approachActionPopup.close()
-                }
-
-                QGCButton {
-                    enabled: MultiDetectState.vehicleArmed &&
-                             MultiDetectState.approachChallengeActive && root._targetActionable
-                    primary: true
-                    text: qsTr("确认")
-                    onClicked: {
-                        if (MultiDetectState.confirmApproachSlide(600, 1.0, true))
-                            approachActionPopup.close();
-                    }
-                }
-            }
-
-            QGCButton {
-                Layout.alignment: Qt.AlignRight
-                text: qsTr("取消")
-                visible: ScreenTools.isMobile
-                onClicked: approachActionPopup.close()
             }
         }
     }
 
-    Popup {
-        id: authorizationPopup
+    QGCPopupDialogFactory {
+        id: authorizationDialogFactory
 
-        closePolicy: Popup.CloseOnEscape
-        focus: true
-        modal: true
-        parent: Overlay.overlay
-        width: Math.min(root.width * 0.62, ScreenTools.defaultFontPixelWidth * 58)
-        x: Math.round((parent.width - width) * 0.5)
-        y: Math.round((parent.height - height) * 0.5)
+        dialogComponent: authorizationDialogComponent
+    }
 
-        background: Rectangle {
-            border.color: qgcPal.windowShadeDark
-            border.width: 1
-            color: qgcPal.window
-            radius: ScreenTools.defaultBorderRadius
-        }
-        contentItem: ColumnLayout {
-            spacing: root._margin
+    Component {
+        id: authorizationDialogComponent
 
-            QGCLabel {
-                Layout.fillWidth: true
-                font.bold: true
-                font.pointSize: ScreenTools.largeFontPointSize
-                text: qsTr("任务授权")
+        QGCPopupDialog {
+            id: authorizationDialog
+
+            acceptButtonEnabled: !MultiDetectState.replaySafetyActive &&
+                                 MultiDetectState.safetyAllowed &&
+                                 MultiDetectState.authorizationChallengeActive
+            buttons: Dialog.Yes | Dialog.No
+            rejectButtonEnabled: !MultiDetectState.replaySafetyActive
+            title: qsTr("任务授权")
+
+            Component.onDestruction: root._authorizationDialog = null
+
+            onAccepted: {
+                if (!MultiDetectState.approveAuthorization())
+                    preventClose = true;
+            }
+            onRejected: {
+                if (!MultiDetectState.denyAuthorization())
+                    preventClose = true;
             }
 
-            QGCLabel {
-                Layout.fillWidth: true
-                text: qsTr("目标绑定：") + MultiDetectState.authorizationBinding
-                wrapMode: Text.WordWrap
-            }
+            ColumnLayout {
+                spacing: root._margin
+                width: Math.min(authorizationDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 58)
 
-            QGCLabel {
-                Layout.fillWidth: true
-                color: MultiDetectState.safetyAllowed ? qgcPal.colorGreen : qgcPal.warningText
-                text: qsTr("安全规则：") + MultiDetectState.safetyPassCount + qsTr(" 通过，") + MultiDetectState.safetyDenyCount + qsTr(" 拒绝，") + MultiDetectState.safetyUnknownCount + qsTr(" 未知")
-                wrapMode: Text.WordWrap
-            }
-
-            QGCLabel {
-                Layout.fillWidth: true
-                color: qgcPal.warningText
-                font.bold: true
-                text: qsTr("授权只返回 Jetson 任务状态机；物理投放由遥控器开关请求，当前输出仍锁定。")
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.alignment: Qt.AlignRight
-
-                QGCButton {
-                    text: qsTr("拒绝")
-
-                    onClicked: {
-                        MultiDetectState.denyAuthorization();
-                        authorizationPopup.close();
-                    }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("目标绑定：") + MultiDetectState.authorizationBinding
+                    wrapMode: Text.WordWrap
                 }
 
-                QGCButton {
-                    enabled: MultiDetectState.safetyAllowed && MultiDetectState.authorizationChallengeActive
-                    primary: true
-                    text: qsTr("批准任务")
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: MultiDetectState.safetyAllowed ? qgcPal.colorGreen : qgcPal.warningText
+                    text: qsTr("安全规则：") + MultiDetectState.safetyPassCount +
+                          qsTr(" 通过，") + MultiDetectState.safetyDenyCount +
+                          qsTr(" 拒绝，") + MultiDetectState.safetyUnknownCount + qsTr(" 未知")
+                    wrapMode: Text.WordWrap
+                }
 
-                    onClicked: {
-                        MultiDetectState.approveAuthorization();
-                        authorizationPopup.close();
-                    }
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.warningText
+                    font.bold: true
+                    text: qsTr("授权只返回 Jetson 任务状态机；物理投放由遥控器开关请求，当前输出仍锁定。")
+                    wrapMode: Text.WordWrap
                 }
             }
         }

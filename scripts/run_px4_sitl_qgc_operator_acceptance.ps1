@@ -1,37 +1,69 @@
 param(
     [string]$QgcRoot = "",
+    [string]$QgcBuildRoot = "",
     [string]$EvidencePath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Python = Join-Path $Root ".venv\Scripts\python.exe"
+$ProductVersionPath = Join-Path $Root "configs\product-version.json"
+if (-not (Test-Path -LiteralPath $ProductVersionPath -PathType Leaf)) {
+    throw "Product version manifest is unavailable: $ProductVersionPath"
+}
+$ProductVersion = Get-Content -LiteralPath $ProductVersionPath -Raw | ConvertFrom-Json
+$ReleaseLabel = [string]$ProductVersion.release_label
+if ([string]::IsNullOrWhiteSpace($ReleaseLabel) -or [string]$ProductVersion.channel -ne "prerelease") {
+    throw "QGC operator acceptance requires a validated prerelease product version."
+}
 $RouterModule = "multidetect.px4_sitl_qgc_router"
 $ImageReference = "px4io/px4-sitl@sha256:bab4270c4849b7027df4bd760c79d743d738c81d7830dde14c4cc5714f781216"
 $ImageReleaseContext = "v1.18.0-beta1"
 $ContainerName = "multidetect-px4-qgc-operator-acceptance"
 $PurposeLabel = "px4-sitl-qgc-operator-acceptance"
-$QgcPort = 14669
+$QgcPort = 14669 # QGC direct signed operator metadata listener
+$OperatorDriverPort = 14666 # localhost metadata driver source
+$Px4QgcPort = 14670 # QGC's explicit isolated PX4 SITL UDP listener
 $RouterPort = 14667
 $SitlTelemetryPort = 14668
 $SitlInputPort = 18570
 $SitlInputBinding = "127.0.0.1:$($SitlInputPort):$($SitlInputPort)/udp"
 $ProtectedGroundStationPort = 14550
 $RouterDurationSeconds = 45
+$DockerCandidates = @(
+    (Get-Command docker -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    "C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+$DockerCandidates = @($DockerCandidates)
+if ($DockerCandidates.Count -eq 0) {
+    throw "Docker Desktop is unavailable; install/start Docker or add docker.exe to PATH."
+}
+$Docker = $DockerCandidates[0]
 $RunId = "{0}-{1}" -f (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"), $PID
 $ArtifactDirectory = Join-Path $Root "artifacts\evaluation"
 if ([string]::IsNullOrWhiteSpace($QgcRoot)) {
-    $QgcRoot = Join-Path (Split-Path -Parent $Root) "QGroundControl-MultiDetect"
+    $QgcRoot = Join-Path $Root "ground-control\MultiDetectGCS"
 }
 elseif (-not [IO.Path]::IsPathRooted($QgcRoot)) {
     $QgcRoot = Join-Path $Root $QgcRoot
 }
 $QgcRoot = [IO.Path]::GetFullPath($QgcRoot)
-$QgcExecutable = Join-Path $QgcRoot "build-multidetect-release\Release\MultiDetectGCS.exe"
+$QgcBuildRoot = if ([string]::IsNullOrWhiteSpace($QgcBuildRoot)) {
+    Join-Path $Root "build\windows-v$ReleaseLabel-release"
+}
+elseif ([IO.Path]::IsPathRooted($QgcBuildRoot)) {
+    $QgcBuildRoot
+}
+else {
+    Join-Path $Root $QgcBuildRoot
+}
+$QgcBuildRoot = [IO.Path]::GetFullPath($QgcBuildRoot)
+$Python = Join-Path $QgcRoot ".venv\Scripts\python.exe"
+$QgcExecutable = Join-Path $QgcBuildRoot "Release\MultiDetectGCS.exe"
 $QgcDriver = Join-Path $QgcRoot "custom\tests\operator_closed_loop_hil.py"
 $QgcCustomOptions = Join-Path $QgcRoot "custom\cmake\CustomOverrides.cmake"
 $QgcControllerSource = Join-Path $QgcRoot "custom\src\MultiDetectOperatorController.cc"
-$QgcCmakeCache = Join-Path $QgcRoot "build-multidetect-release\CMakeCache.txt"
+$QgcApplicationSource = Join-Path $QgcRoot "src\QGCApplication.cc"
+$QgcCmakeCache = Join-Path $QgcBuildRoot "CMakeCache.txt"
 $RouterStdoutPath = Join-Path $ArtifactDirectory "px4-qgc-router-$RunId.stdout.jsonl"
 $RouterStderrPath = Join-Path $ArtifactDirectory "px4-qgc-router-$RunId.stderr.log"
 $DriverStdoutPath = Join-Path $ArtifactDirectory "px4-qgc-jetson-metadata-$RunId.stdout.jsonl"
@@ -166,7 +198,7 @@ function Get-CrashDumpSignatures {
 function Wait-OwnedContainerRemoved {
     param([string]$Name)
     for ($attempt = 1; $attempt -le 20; $attempt++) {
-        $inspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $inspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "container", "inspect", $Name
         )
         if ($inspect.ExitCode -ne 0) {
@@ -196,7 +228,7 @@ function Get-OwnedContainerEvidence {
         [string]$Name,
         [string]$ExpectedId
     )
-    $inspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $inspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "container", "inspect", $Name
     )
     Assert-True ($inspect.ExitCode -eq 0) "Owned PX4 SITL container is unavailable."
@@ -256,6 +288,7 @@ foreach ($requiredPath in @(
     $QgcDriver,
     $QgcCustomOptions,
     $QgcControllerSource,
+    $QgcApplicationSource,
     $QgcCmakeCache
 )) {
     Assert-True (Test-Path -LiteralPath $requiredPath) "Required PX4/QGC HIL path is missing: $requiredPath"
@@ -283,13 +316,15 @@ foreach ($runtimePath in @(
 
 $customOptionsText = Get-Content -LiteralPath $QgcCustomOptions -Raw
 $controllerSourceText = Get-Content -LiteralPath $QgcControllerSource -Raw
-Assert-True ($customOptionsText -match "MULTIDETECT_FLIGHT_CONTROL_WRITES=0") "QGC flight-control compile gate is not disabled."
+$applicationSourceText = Get-Content -LiteralPath $QgcApplicationSource -Raw
+Assert-True ($customOptionsText -match "MULTIDETECT_QGC_DIRECT_PIXHAWK_WRITES=0") "QGC direct Pixhawk write compile gate is not disabled."
 Assert-True ($customOptionsText -match "MULTIDETECT_PHYSICAL_RELEASE=0") "QGC physical-release compile gate is not disabled."
-Assert-True ($controllerSourceText -match "static_assert\(MULTIDETECT_FLIGHT_CONTROL_WRITES == 0") "QGC flight-control static assertion is missing."
+Assert-True ($controllerSourceText -match "static_assert\(MULTIDETECT_QGC_DIRECT_PIXHAWK_WRITES == 0") "QGC direct Pixhawk write static assertion is missing."
 Assert-True ($controllerSourceText -match "static_assert\(MULTIDETECT_PHYSICAL_RELEASE == 0") "QGC physical-release static assertion is missing."
-Assert-True ($controllerSourceText -match "software HIL requires the --isolated-hil") "QGC isolated-HIL runtime guard is missing."
+Assert-True ($applicationSourceText -match "_isolatedHilMode") "QGC isolated-HIL application mode is missing."
+Assert-True ($applicationSourceText -match "isolated-hil-settings") "QGC isolated-HIL clean settings boundary is missing."
 
-$allTestPorts = @($QgcPort, $RouterPort, $SitlTelemetryPort, $SitlInputPort)
+$allTestPorts = @($QgcPort, $OperatorDriverPort, $Px4QgcPort, $RouterPort, $SitlTelemetryPort, $SitlInputPort)
 Assert-True (($allTestPorts | Select-Object -Unique).Count -eq $allTestPorts.Count) "PX4/QGC HIL ports must be distinct."
 Assert-True ($allTestPorts -notcontains $ProtectedGroundStationPort) "PX4/QGC HIL must not use protected UDP 14550."
 foreach ($port in $allTestPorts) {
@@ -298,17 +333,17 @@ foreach ($port in $allTestPorts) {
 $protectedOwnersBefore = @(Get-UdpPortOwners -Port $ProtectedGroundStationPort)
 $crashDumpsBefore = @(Get-CrashDumpSignatures)
 
-$dockerInfo = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$dockerInfo = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "info", "--format", "{{.ServerVersion}}"
 )
 Assert-True ($dockerInfo.ExitCode -eq 0) "Docker engine is unavailable. Start Docker Desktop and retry."
 $dockerServerVersion = ($dockerInfo.Lines | Select-Object -Last 1).Trim()
-$imageInspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$imageInspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "image", "inspect", $ImageReference, "--format", "{{.Id}}"
 )
 Assert-True ($imageInspect.ExitCode -eq 0) "Pinned PX4 SITL image is unavailable."
 $imageId = ($imageInspect.Lines | Select-Object -Last 1).Trim()
-$existingContainer = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$existingContainer = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "container", "inspect", $ContainerName
 )
 Assert-True ($existingContainer.ExitCode -ne 0) "Container name already exists; refusing to replace it: $ContainerName"
@@ -316,11 +351,12 @@ Assert-True ($existingContainer.ExitCode -ne 0) "Container name already exists; 
 $environmentNames = @(
     "MULTIDETECT_OPERATOR_KEY",
     "MULTIDETECT_OPERATOR_ID",
-    "MULTIDETECT_OPERATOR_ALLOW_UNSIGNED_HIL",
-    "MULTIDETECT_OPERATOR_HIL_UDP_PORT",
-    "MULTIDETECT_OPERATOR_HIL_AUTO_EXIT",
-    "MULTIDETECT_OPERATOR_HIL_AUTO_EXERCISE",
-    "MULTIDETECT_OPERATOR_HIL_REQUIRE_INITIAL_CONNECT",
+    "MULTIDETECT_OPERATOR_UDP_HOST",
+    "MULTIDETECT_OPERATOR_UDP_PORT",
+    "MULTIDETECT_OPERATOR_UDP_LOCAL_PORT",
+    "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX",
+    "MULTIDETECT_HIL_UI_AUTO_EXERCISE",
+    "MULTIDETECT_HIL_UI_AUTO_EXIT",
     "MULTIDETECT_OPERATOR_GCS_SYSTEM_ID",
     "MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID",
     "MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID",
@@ -343,13 +379,23 @@ finally {
     $randomNumberGenerator.Dispose()
 }
 $temporaryKey = [Convert]::ToBase64String($temporaryKeyBytes)
+$temporarySigningKeyBytes = New-Object byte[] 32
+$randomNumberGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+    $randomNumberGenerator.GetBytes($temporarySigningKeyBytes)
+}
+finally {
+    $randomNumberGenerator.Dispose()
+}
+$temporarySigningKeyHex = ([BitConverter]::ToString($temporarySigningKeyBytes) -replace "-", "").ToLowerInvariant()
 $env:MULTIDETECT_OPERATOR_KEY = $temporaryKey
 $env:MULTIDETECT_OPERATOR_ID = "software-hil-operator"
-$env:MULTIDETECT_OPERATOR_ALLOW_UNSIGNED_HIL = "1"
-$env:MULTIDETECT_OPERATOR_HIL_UDP_PORT = "$QgcPort"
-$env:MULTIDETECT_OPERATOR_HIL_AUTO_EXIT = "1"
-$env:MULTIDETECT_OPERATOR_HIL_AUTO_EXERCISE = "1"
-$env:MULTIDETECT_OPERATOR_HIL_REQUIRE_INITIAL_CONNECT = "1"
+$env:MULTIDETECT_OPERATOR_UDP_HOST = "127.0.0.1"
+$env:MULTIDETECT_OPERATOR_UDP_PORT = "$OperatorDriverPort"
+$env:MULTIDETECT_OPERATOR_UDP_LOCAL_PORT = "$QgcPort"
+$env:MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $temporarySigningKeyHex
+$env:MULTIDETECT_HIL_UI_AUTO_EXERCISE = "1"
+$env:MULTIDETECT_HIL_UI_AUTO_EXIT = "1"
 $env:MULTIDETECT_OPERATOR_GCS_SYSTEM_ID = "255"
 $env:MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID = "1"
 $env:MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID = "191"
@@ -370,7 +416,7 @@ try {
     $routerArguments = @(
         "-u",
         "-m", $RouterModule,
-        "--qgc-port", "$QgcPort",
+        "--qgc-port", "$Px4QgcPort",
         "--router-port", "$RouterPort",
         "--sitl-telemetry-port", "$SitlTelemetryPort",
         "--sitl-input-port", "$SitlInputPort",
@@ -396,6 +442,8 @@ try {
         "-u",
         $QgcDriver,
         "--port", "$QgcPort",
+        "--local-port", "$OperatorDriverPort",
+        "--signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX",
         "--timeout", "40",
         "--metadata-only"
     )
@@ -414,9 +462,11 @@ try {
     $qgcArguments = @(
         "--system-id", "255",
         "--isolated-hil",
+        "--isolated-hil-px4-udp-port", "$Px4QgcPort",
+        "--isolated-hil-px4-target-port", "$RouterPort",
         "--allow-multiple",
         "--log-output",
-        "--logging", "MultiDetect.Operator.debug=true;MultiDetect.Operator.info=true"
+        "--logging", "MultiDetect.Operator,API.QGCApplication"
     )
     $qgcStart = @{
         FilePath = $QgcExecutable
@@ -430,26 +480,32 @@ try {
     $qgcProcess = Start-Process @qgcStart
     $null = $qgcProcess.Handle
 
-    $hilListening = $false
-    for ($attempt = 1; $attempt -le 150; $attempt++) {
+    $operatorListening = $false
+    $px4Listening = $false
+    # QGC startup includes Qt Multimedia/GStreamer and can exceed 15 seconds
+    # on a cold Windows desktop (especially while Docker Desktop is waking).
+    # Keep the gate bounded, but allow a realistic 45-second initialization
+    # window so slow startup is not misreported as a protocol failure.
+    for ($attempt = 1; $attempt -le 450; $attempt++) {
         if ($qgcProcess.HasExited -or $driverProcess.HasExited -or $routerProcess.HasExited) {
             break
         }
         $qgcLog = (Get-TextIfPresent -Path $QgcStdoutPath) + (Get-TextIfPresent -Path $QgcStderrPath)
-        if ($qgcLog -match "ephemeral HIL UDP link listening on port $QgcPort") {
-            $hilListening = $true
-            break
-        }
+        if ($qgcLog -match "direct signed operator metadata ready") { $operatorListening = $true }
+        if ($qgcLog -match "isolated HIL PX4 UDP link listening on port $Px4QgcPort") { $px4Listening = $true }
+        if ($operatorListening -and $px4Listening) { break }
         Start-Sleep -Milliseconds 100
     }
     $qgcEarlyLog = (Get-TextIfPresent -Path $QgcStdoutPath) + (Get-TextIfPresent -Path $QgcStderrPath)
-    Assert-True $hilListening "QGC did not open the isolated HIL link. log=$qgcEarlyLog"
+    Assert-True $operatorListening "QGC did not open the signed operator metadata link. log=$qgcEarlyLog"
+    Assert-True $px4Listening "QGC did not open the explicit isolated PX4 SITL link. log=$qgcEarlyLog"
     Assert-True (-not $driverProcess.HasExited) "Jetson metadata driver exited before PX4 SITL startup."
     Assert-True (-not $routerProcess.HasExited) "PX4/QGC router exited before PX4 SITL startup."
 
     $qgcUdpEndpointsDuring = @(Get-ProcessUdpEndpoints -ProcessId $qgcProcess.Id)
     $qgcUdpPortsDuring = @($qgcUdpEndpointsDuring | ForEach-Object { $_.local_port })
-    Assert-True ($qgcUdpPortsDuring -contains $QgcPort) "QGC process did not own the isolated HIL UDP port."
+    Assert-True ($qgcUdpPortsDuring -contains $QgcPort) "QGC process did not own the signed operator metadata UDP port."
+    Assert-True ($qgcUdpPortsDuring -contains $Px4QgcPort) "QGC process did not own the isolated PX4 SITL UDP port."
     Assert-True ($qgcUdpPortsDuring -notcontains $ProtectedGroundStationPort) "QGC isolated HIL unexpectedly opened protected UDP 14550."
     $protectedOwnersDuring = @(Get-UdpPortOwners -Port $ProtectedGroundStationPort)
     Assert-True (
@@ -460,7 +516,7 @@ try {
 sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_port_local -o __SITL_TELEMETRY_PORT__|' /opt/px4/etc/init.d-posix/px4-rc.mavlink && exec /opt/px4/bin/px4-entrypoint.sh
 '@
     $containerCommand = $containerCommand.Replace("__SITL_TELEMETRY_PORT__", "$SitlTelemetryPort")
-    $run = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $run = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "run",
         "--rm",
         "-d",
@@ -484,7 +540,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Wait-ProcessCompleted -Process $driverProcess -TimeoutMilliseconds 45000 -Name "Jetson metadata-only HIL driver" | Out-Null
     Wait-ProcessCompleted -Process $qgcProcess -TimeoutMilliseconds 20000 -Name "Multi-Detect QGC" | Out-Null
 
-    $stop = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $stop = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "stop", "--timeout", "1", $ContainerName
     )
     Assert-True ($stop.ExitCode -eq 0) "Unable to stop the owned PX4/QGC SITL container."
@@ -497,7 +553,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     $routerEvidence = Get-JsonEventFromFile -Path $RouterStdoutPath -Event "px4_sitl_qgc_readonly_router_finished"
     Assert-True ($driverEvidence.authorization -eq "APPROVE") "QGC did not complete the bound authorization decision."
     Assert-True ($driverEvidence.authorization_bound -eq $true) "QGC authorization was not challenge-bound."
-    Assert-True ($driverEvidence.selection -eq "SELECT") "QGC did not send the expected target selection."
+    Assert-True ($driverEvidence.selection -in @("SELECT", "SELECT_TRK", "select", "select_trk")) "QGC did not send the expected target selection."
     Assert-True ($driverEvidence.metadata_only -eq $true) "Jetson HIL driver was not metadata-only."
     Assert-True ($driverEvidence.external_autopilot_required -eq $true) "Jetson HIL driver did not require an external autopilot."
     Assert-True ($driverEvidence.autopilot_heartbeats_sent -eq 0) "Jetson HIL driver spoofed an autopilot heartbeat."
@@ -510,7 +566,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($routerEvidence.px4_frames_forwarded -gt 0) "Router received no PX4 SITL telemetry."
     Assert-True ($routerEvidence.px4_autopilot_heartbeats_forwarded -gt 0) "Router received no PX4 autopilot heartbeat."
     Assert-True ($routerEvidence.px4_unexpected_system_frames_blocked -eq 0) "Router observed an unexpected PX4 source system."
-    Assert-True ($routerEvidence.qgc_operator_tunnel_frames_local_only -ge 2) "Router did not observe both QGC operator commands."
+    Assert-True ($routerEvidence.qgc_operator_tunnel_frames_local_only -eq 0) "The signed direct operator link must bypass the PX4 router."
     Assert-True ($routerEvidence.qgc_forbidden_frames_blocked -eq 0) "QGC attempted a forbidden PX4-bound message."
     Assert-True ($routerEvidence.file_mutating_ftp_opcodes_forwarded -eq 0) "Router forwarded a file-mutating MAVLink FTP opcode."
     Assert-True ($routerEvidence.system_time_frames_forwarded -eq 0) "Router forwarded QGC SYSTEM_TIME into PX4 SITL."
@@ -521,22 +577,18 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($routerEvidence.qgc_discarded_bytes -eq 0) "Router discarded malformed QGC bytes."
 
     $qgcLog = (Get-TextIfPresent -Path $QgcStdoutPath) + (Get-TextIfPresent -Path $QgcStderrPath)
-    Assert-True ($qgcLog -match "ephemeral HIL UDP link listening on port $QgcPort") "QGC log lacks isolated HIL startup."
-    Assert-True ($qgcLog -match "HIL target-selection metadata sent") "QGC log lacks target-selection transmission."
-    Assert-True ($qgcLog -match "HIL PX4 initial connection ready") "QGC did not wait for PX4 initial connection readiness."
-    Assert-True ($qgcLog -match "HIL authenticated message set complete") "QGC log lacks authenticated-loop completion."
+    Assert-True ($qgcLog -match "direct signed operator metadata ready") "QGC log lacks signed operator startup."
+    Assert-True ($qgcLog -match "isolated HIL PX4 UDP link listening on port $Px4QgcPort") "QGC log lacks isolated PX4 startup."
     Assert-True ($qgcLog -match "target-pool snapshot complete revision=3 tracks=3 pages=2") "QGC did not atomically assemble the paged target pool."
     Assert-True ($qgcLog -notmatch "rejected metadata:") "QGC rejected operator metadata during acceptance."
-    $authenticatedSetMatch = [regex]::Match(
-        $qgcLog,
-        "HIL authenticated message set complete; authenticated_packets=(\d+)"
-    )
-    Assert-True $authenticatedSetMatch.Success "QGC completion log lacks its authenticated packet count."
-    $authenticatedMetadataPackets = [int]$authenticatedSetMatch.Groups[1].Value
+    $authenticatedMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=").Count
     $trackingMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=3 ").Count
     $trackingRateMatch = [regex]::Match(
         $qgcLog,
-        "tracking metadata rate samples=(\d+) hz=([0-9]+(?:\.[0-9]+)?)"
+        # Qt's structured logging renders the numeric field as either
+        # `hz=20.000` or `hz="20.000"` depending on the active message
+        # handler. Accept both forms without weakening the numeric check.
+        'tracking metadata rate samples=(\d+) hz="?([0-9]+(?:\.[0-9]+)?)"?'
     )
     Assert-True $trackingRateMatch.Success "QGC log lacks its measured tracking metadata rate."
     $trackingMetadataRateHz = [double]::Parse(
@@ -603,7 +655,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
                 gstreamer_root = $GstreamerRoot
             }
             compile_gates = [ordered]@{
-                MULTIDETECT_FLIGHT_CONTROL_WRITES = 0
+                MULTIDETECT_QGC_DIRECT_PIXHAWK_WRITES = 0
                 MULTIDETECT_PHYSICAL_RELEASE = 0
                 static_assertions_present = $true
             }
@@ -653,7 +705,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             "PX4 is the pinned fixed-wing SIH image, not a build matched to the real V6X firmware.",
             "Jetson component 191 and operator metadata are simulated on localhost; no real Jetson, GR01, G20 or V6X is contacted.",
             "QGC core read-only discovery traffic may reach PX4 SITL through an allowlist; parameter writes, flight commands, mission writes, actuators and payload commands are blocked.",
-            "Unsigned outer MAVLink is allowed only by the isolated localhost HIL boundary; production requires MAVLink 2 signing.",
+            "All operator metadata uses strict MAVLink 2 signing on a dedicated localhost link; PX4 SITL telemetry uses a separate read-only UDP link.",
             "Authorization reaches only DEPLOYMENT_READY / RELEASE INHIBITED; no physical release path exists."
         )
     }
@@ -688,7 +740,7 @@ finally {
         }
     }
     if ($containerStarted -and -not $containerStopped) {
-        $identity = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $identity = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "container", "inspect", $ContainerName, "--format", "{{.Id}}"
         )
         if (
@@ -696,7 +748,7 @@ finally {
             -not [string]::IsNullOrWhiteSpace($containerId) -and
             ($identity.Lines | Select-Object -Last 1).Trim().StartsWith($containerId)
         ) {
-            Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+            Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
                 "stop", "--timeout", "1", $ContainerName
             ) | Out-Null
         }
@@ -709,4 +761,13 @@ finally {
         [Array]::Clear($temporaryKeyBytes, 0, $temporaryKeyBytes.Length)
         $temporaryKeyBytes = $null
     }
+    if ($null -ne $temporarySigningKeyBytes) {
+        [Array]::Clear($temporarySigningKeyBytes, 0, $temporarySigningKeyBytes.Length)
+        $temporarySigningKeyBytes = $null
+    }
 }
+
+# The success JSON is emitted before cleanup.  Cleanup runs native Docker
+# commands whose exit code can otherwise leak through `$LASTEXITCODE`, making
+# a passed gate look like a failed PowerShell invocation to CI or a caller.
+exit 0

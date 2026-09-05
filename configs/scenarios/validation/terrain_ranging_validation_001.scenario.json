@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "terrain_ranging_validation_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "terrain_ranging_validation_001.runtime.json",
+      "sha256": "f408158e4ce4896fc9fbf3c44710d1e2648366186522d6b6384a4f9f5c96e8b8"
+    },
+    "truth": {
+      "path": "terrain_ranging_validation_001.truth.json",
+      "sha256": "636a613c5d580065bfe86739e9a68c64cad3da463b8046e9da75eed379743175"
+    },
+    "expectations": {
+      "path": "terrain_ranging_validation_001.expectations.json",
+      "sha256": "8e40baa120ad6b35ecd9f434107623898d1673c15bfc9f8241641b7dc14c1c3a"
+    }
+  }
+}

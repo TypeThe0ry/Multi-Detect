@@ -21,6 +21,10 @@ from .domain import (
 from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .operator_link import (
     APPROACH_REASON_IDS,
+    MAX_RANGE_STATUS_SOURCE_AGE_MS,
+    MAX_RANGE_STATUS_SOURCE_AGE_S,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_S,
     OPERATOR_LINK_PROTOCOL_VERSION,
     OPERATOR_SAFETY_RULE_IDS,
     RANGING_REASON_IDS,
@@ -42,6 +46,9 @@ from .operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextRegionEntry,
     SceneContextState,
@@ -89,6 +96,8 @@ _PAYLOAD_TARGET_CHALLENGE = struct.Struct(">QQIQI16sQQB")
 _PAYLOAD_TARGET_CONFIRMATION = struct.Struct(">QQQQIQI16sHHBB")
 _PAYLOAD_TARGET_ACK = struct.Struct(">QBBI")
 _PAYLOAD_TARGET_STATUS = struct.Struct(">16sQIQIBHB")
+_RUNTIME_STATUS = struct.Struct(">BBBBQQQQ")
+_RUNTIME_STATUS_ACK = struct.Struct(">IQ")
 
 
 class OperatorProtocolError(ValueError):
@@ -118,6 +127,8 @@ class WireMessageType(IntEnum):
     PAYLOAD_TARGET_ACK = 20
     PAYLOAD_TARGET_STATUS = 21
     TARGET_GEOLOCATION_STATUS = 22
+    RUNTIME_STATUS = 23
+    RUNTIME_STATUS_ACK = 24
 
 
 class SelectionAckReason(IntEnum):
@@ -243,6 +254,24 @@ class PayloadTargetConfirmationAck:
             raise ValueError("payload target ACK acceptance and reason are inconsistent")
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeStatusAck:
+    """QGC acceptance proof for one fresh, adopted runtime-status packet."""
+
+    acknowledged_runtime_sequence: int
+    run_hash64: int
+
+    def __post_init__(self) -> None:
+        _bounded_uint(
+            self.acknowledged_runtime_sequence,
+            bits=32,
+            field_name="acknowledged runtime-status sequence",
+        )
+        _bounded_uint(self.run_hash64, bits=64, field_name="runtime-status ACK run hash")
+        if self.run_hash64 == 0:
+            raise ValueError("runtime-status ACK run hash cannot be zero")
+
+
 OperatorMessage: TypeAlias = (
     TargetSelectionCommand
     | SelectionAck
@@ -265,6 +294,8 @@ OperatorMessage: TypeAlias = (
     | PayloadTargetConfirmationCommand
     | PayloadTargetConfirmationAck
     | PayloadTargetStatusMessage
+    | RuntimeStatusMessage
+    | RuntimeStatusAck
 )
 
 
@@ -560,11 +591,31 @@ class OperatorTunnelCodec:
         )
         slant_ci = status.slant_range_ci95_m or (None, None)
         ground_ci = status.ground_range_ci95_m or (None, None)
+        source_age_s = status.produced_at_s - status.source_captured_at_s
         source_age_ms = _bounded_uint(
-            round((status.produced_at_s - status.source_captured_at_s) * 1000.0),
+            round(source_age_s * 1000.0),
             bits=16,
             field_name="ranging source frame age milliseconds",
         )
+        if status.validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
+            # Do not put an old metric measurement on the wire as a seemingly
+            # current packet.  The QGC decoder applies the same gate after
+            # authentication, so both sides fail closed on stale evidence.
+            if (
+                source_age_s > MAX_RANGE_STATUS_SOURCE_AGE_S
+                or source_age_ms > MAX_RANGE_STATUS_SOURCE_AGE_MS
+            ):
+                raise ValueError(
+                    "ranging source frame age exceeds the "
+                    f"{MAX_RANGE_STATUS_SOURCE_AGE_S:.3f}s wire freshness limit"
+                )
+            if status.data_freshness_s is None:
+                raise ValueError("valid ranging status requires data freshness")
+            if status.data_freshness_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError(
+                    "ranging data freshness exceeds the "
+                    f"{MAX_RANGE_STATUS_SOURCE_AGE_S:.3f}s wire freshness limit"
+                )
         contributions = tuple(
             _encode_range_contribution(contribution)
             for contribution in status.source_contributions
@@ -610,8 +661,11 @@ class OperatorTunnelCodec:
     def encode_target_geolocation_status(self, status: TargetGeolocationStatusMessage) -> bytes:
         """Encode a compact, qualified target coordinate display status."""
 
+        source_age_s = status.produced_at_s - status.source_captured_at_s
+        if status.available and source_age_s > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S:
+            raise ValueError("target geolocation source frame is stale")
         source_age_ms = _bounded_uint(
-            round((status.produced_at_s - status.source_captured_at_s) * 1000.0),
+            round(source_age_s * 1000.0),
             bits=16,
             field_name="target geolocation source frame age milliseconds",
         )
@@ -630,6 +684,60 @@ class OperatorTunnelCodec:
             WireMessageType.TARGET_GEOLOCATION_STATUS,
             sequence=status.sequence,
             sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_runtime_status(self, status: RuntimeStatusMessage) -> bytes:
+        mode = {
+            RuntimeMode.REPLAY: 1,
+            RuntimeMode.SIM: 2,
+            RuntimeMode.HIL: 3,
+            RuntimeMode.REAL: 4,
+        }[status.mode]
+        backend_health = {
+            RuntimeBackendHealth.UNKNOWN: 0,
+            RuntimeBackendHealth.HEALTHY: 1,
+            RuntimeBackendHealth.DEGRADED: 2,
+            RuntimeBackendHealth.UNHEALTHY: 3,
+        }[status.backend_health]
+        flags = (
+            int(status.scenario_present)
+            | (int(status.ground_truth_isolated) << 1)
+            | (int(status.hardware_outputs_present) << 2)
+            | (int(status.profile_valid) << 3)
+        )
+        body = _RUNTIME_STATUS.pack(
+            mode,
+            backend_health,
+            flags,
+            0,
+            status.scenario_seed or 0,
+            status.scenario_hash64 or 0,
+            status.airframe_profile_hash64,
+            status.run_hash64,
+        )
+        return self._encode_frame(
+            WireMessageType.RUNTIME_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_runtime_status_ack(
+        self,
+        acknowledgement: RuntimeStatusAck,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> bytes:
+        body = _RUNTIME_STATUS_ACK.pack(
+            acknowledgement.acknowledged_runtime_sequence,
+            acknowledgement.run_hash64,
+        )
+        return self._encode_frame(
+            WireMessageType.RUNTIME_STATUS_ACK,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
             body=body,
         )
 
@@ -1146,12 +1254,22 @@ class OperatorTunnelCodec:
             )
         elif message_type is WireMessageType.PAYLOAD_TARGET_ACK:
             message = self._decode_payload_target_ack(body)
-        else:
+        elif message_type is WireMessageType.PAYLOAD_TARGET_STATUS:
             message = self._decode_payload_target_status(
                 body,
                 sequence=sequence,
                 sent_at_s=sent_at_s,
             )
+        elif message_type is WireMessageType.RUNTIME_STATUS:
+            message = self._decode_runtime_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.RUNTIME_STATUS_ACK:
+            message = self._decode_runtime_status_ack(body)
+        else:  # pragma: no cover - exhaustive IntEnum dispatch guard
+            raise OperatorProtocolError("unsupported operator-link message type")
         return DecodedOperatorPacket(message_type, sequence, sent_at_s, message)
 
     def _encode_frame(
@@ -1233,6 +1351,74 @@ class OperatorTunnelCodec:
             )
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid target-selection content: {exc}") from exc
+
+    def _decode_runtime_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> RuntimeStatusMessage:
+        if len(body) != _RUNTIME_STATUS.size:
+            raise OperatorProtocolError("runtime-status body has an invalid size")
+        (
+            mode_value,
+            health_value,
+            flags,
+            reserved,
+            scenario_seed,
+            scenario_hash64,
+            airframe_profile_hash64,
+            run_hash64,
+        ) = _RUNTIME_STATUS.unpack(body)
+        if reserved != 0 or flags & ~0x0F:
+            raise OperatorProtocolError("runtime-status flags are invalid")
+        mode = {
+            1: RuntimeMode.REPLAY,
+            2: RuntimeMode.SIM,
+            3: RuntimeMode.HIL,
+            4: RuntimeMode.REAL,
+        }.get(mode_value)
+        health = {
+            0: RuntimeBackendHealth.UNKNOWN,
+            1: RuntimeBackendHealth.HEALTHY,
+            2: RuntimeBackendHealth.DEGRADED,
+            3: RuntimeBackendHealth.UNHEALTHY,
+        }.get(health_value)
+        if mode is None or health is None:
+            raise OperatorProtocolError("runtime-status mode or backend health is invalid")
+        scenario_present = bool(flags & 0x01)
+        if not scenario_present and (scenario_seed != 0 or scenario_hash64 != 0):
+            raise OperatorProtocolError("runtime-status absent scenario fields must be zero")
+        try:
+            return RuntimeStatusMessage(
+                sequence=sequence,
+                mode=mode,
+                backend_health=health,
+                scenario_seed=scenario_seed if scenario_present else None,
+                scenario_hash64=scenario_hash64 if scenario_present else None,
+                airframe_profile_hash64=airframe_profile_hash64,
+                run_hash64=run_hash64,
+                scenario_present=scenario_present,
+                ground_truth_isolated=bool(flags & 0x02),
+                hardware_outputs_present=bool(flags & 0x04),
+                profile_valid=bool(flags & 0x08),
+                produced_at_s=sent_at_s,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid runtime-status content: {exc}") from exc
+
+    def _decode_runtime_status_ack(self, body: bytes) -> RuntimeStatusAck:
+        if len(body) != _RUNTIME_STATUS_ACK.size:
+            raise OperatorProtocolError("runtime-status-ack body has an invalid size")
+        acknowledged_runtime_sequence, run_hash64 = _RUNTIME_STATUS_ACK.unpack(body)
+        try:
+            return RuntimeStatusAck(
+                acknowledged_runtime_sequence=acknowledged_runtime_sequence,
+                run_hash64=run_hash64,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid runtime-status-ack content: {exc}") from exc
 
     def _decode_ack(self, body: bytes) -> SelectionAck:
         if len(body) != _ACK.size:
@@ -1711,6 +1897,20 @@ class OperatorTunnelCodec:
         }.get(validity_value)
         if validity is None:
             raise OperatorProtocolError("range-status validity is invalid")
+        if validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
+            if frame_age_ms > MAX_RANGE_STATUS_SOURCE_AGE_MS:
+                raise OperatorProtocolError(
+                    "range-status source frame is stale"
+                )
+            decoded_freshness = _decode_duration(data_freshness)
+            if decoded_freshness is None:
+                raise OperatorProtocolError(
+                    "range-status data freshness is unavailable"
+                )
+            if decoded_freshness > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise OperatorProtocolError(
+                    "range-status data freshness is stale"
+                )
         decoded_consistency = _decode_ratio(consistency)
         if decoded_consistency is None:
             raise OperatorProtocolError("range-status consistency is unavailable")
@@ -1787,6 +1987,10 @@ class OperatorTunnelCodec:
         reason = TARGET_GEOLOCATION_REASON_IDS[reason_value - 1]
         coordinates = (_decode_coordinate_e7(latitude_e7), _decode_coordinate_e7(longitude_e7))
         sigma_m = _decode_distance(horizontal_sigma)
+        if available and frame_age_ms > MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS:
+            raise OperatorProtocolError(
+                "target-geolocation-status source frame is stale"
+            )
         if available:
             if (
                 reason != "gps_qualified"
@@ -2660,6 +2864,7 @@ __all__ = [
     "OperatorTunnelCodec",
     "PayloadTargetConfirmationAck",
     "PayloadTargetConfirmationAckReason",
+    "RuntimeStatusAck",
     "SelectionAck",
     "SelectionAckReason",
     "WireMessageType",

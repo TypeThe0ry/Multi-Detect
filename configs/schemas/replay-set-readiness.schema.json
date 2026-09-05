@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-set-readiness.schema.json",
+  "title": "Multi-Detect Replay-Set Readiness Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "manifest_path",
+    "manifest_sha256",
+    "canonical_sha256",
+    "dataset_id",
+    "dataset_version",
+    "required_strata",
+    "missing_strata",
+    "entries",
+    "strata",
+    "checks",
+    "manifest_gate_passed",
+    "accuracy_gate_passed",
+    "accuracy_report",
+    "blocking_reasons",
+    "next_actions",
+    "gate_passed"
+  ],
+  "properties": {
+    "event": {"const": "replay_set_readiness_checked"},
+    "schema_version": {"const": 1},
+    "manifest_path": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "canonical_sha256": {"$ref": "#/$defs/sha256"},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "required_strata": {"$ref": "#/$defs/strata"},
+    "missing_strata": {"$ref": "#/$defs/strata"},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}},
+    "strata": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/stratum"}
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_strata",
+        "deployment_recording_source",
+        "annotations_reviewed",
+        "ground_truth_complete",
+        "predictions_complete",
+        "positive_truth_evidence",
+        "positive_prediction_evidence",
+        "positive_truth_by_stratum",
+        "positive_prediction_by_stratum",
+        "manifest_gate_passed",
+        "accuracy_report_bound",
+        "accuracy_report_gate_passed"
+      ],
+      "properties": {
+        "required_strata": {"type": "boolean"},
+        "deployment_recording_source": {"type": "boolean"},
+        "annotations_reviewed": {"type": "boolean"},
+        "ground_truth_complete": {"type": "boolean"},
+        "predictions_complete": {"type": "boolean"},
+        "positive_truth_evidence": {"type": "boolean"},
+        "positive_prediction_evidence": {"type": "boolean"},
+        "positive_truth_by_stratum": {"type": "boolean"},
+        "positive_prediction_by_stratum": {"type": "boolean"},
+        "manifest_gate_passed": {"type": "boolean"},
+        "accuracy_report_bound": {"type": "boolean"},
+        "accuracy_report_gate_passed": {"type": "boolean"}
+      }
+    },
+    "manifest_gate_passed": {"type": "boolean"},
+    "accuracy_gate_passed": {"type": "boolean"},
+    "accuracy_report": {"$ref": "#/$defs/accuracy_report"},
+    "blocking_reasons": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}},
+    "gate_passed": {"type": "boolean"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "strata": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_id",
+        "strata",
+        "source_kind",
+        "annotations_reviewed",
+        "frame_count",
+        "ground_truth",
+        "predictions",
+        "checks"
+      ],
+      "properties": {
+        "entry_id": {"type": "string", "minLength": 1},
+        "strata": {"$ref": "#/$defs/strata"},
+        "source_kind": {"enum": ["deployment_recording", "lab_recording", "synthetic_demo"]},
+        "annotations_reviewed": {"type": "boolean"},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "ground_truth": {"$ref": "#/$defs/stream"},
+        "predictions": {"anyOf": [{"$ref": "#/$defs/prediction_stream"}, {"type": "null"}]},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deployment_recording_source",
+            "annotations_reviewed",
+            "ground_truth_present",
+            "prediction_stream_present",
+            "positive_truth_evidence",
+            "positive_prediction_evidence"
+          ],
+          "properties": {
+            "deployment_recording_source": {"type": "boolean"},
+            "annotations_reviewed": {"type": "boolean"},
+            "ground_truth_present": {"type": "boolean"},
+            "prediction_stream_present": {"type": "boolean"},
+            "positive_truth_evidence": {"type": "boolean"},
+            "positive_prediction_evidence": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "frame_count", "positive_object_count", "label_counts"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "frame_count": {"type": "integer", "minimum": 0},
+        "positive_object_count": {"type": "integer", "minimum": 0},
+        "label_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      }
+    },
+    "prediction_stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "frame_count", "detection_count", "label_counts"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "frame_count": {"type": "integer", "minimum": 0},
+        "detection_count": {"type": "integer", "minimum": 0},
+        "label_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      }
+    },
+    "stratum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_count",
+        "positive_truth_object_count",
+        "prediction_detection_count",
+        "truth_labels",
+        "prediction_labels",
+        "entry_ids"
+      ],
+      "properties": {
+        "frame_count": {"type": "integer", "minimum": 0},
+        "positive_truth_object_count": {"type": "integer", "minimum": 0},
+        "prediction_detection_count": {"type": "integer", "minimum": 0},
+        "truth_labels": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "prediction_labels": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "entry_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "accuracy_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present",
+        "path",
+        "sha256",
+        "manifest_bound",
+        "canonical_bound",
+        "recomputed",
+        "reported_gate_passed",
+        "recomputed_gate_passed",
+        "gate_passed",
+        "failure_reasons"
+      ],
+      "properties": {
+        "present": {"type": "boolean"},
+        "path": {"type": ["string", "null"]},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "manifest_bound": {"type": "boolean"},
+        "canonical_bound": {"type": "boolean"},
+        "recomputed": {"type": "boolean"},
+        "reported_gate_passed": {"type": "boolean"},
+        "recomputed_gate_passed": {"type": "boolean"},
+        "gate_passed": {"type": "boolean"},
+        "failure_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

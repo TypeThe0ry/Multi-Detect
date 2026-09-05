@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/autonomy-validation-report.schema.json",
+  "title": "Multi-Detect ValidationReport v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "report_id", "executable_mission_hash", "verdict", "findings"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "report_id": {"type": "string", "minLength": 1},
+    "executable_mission_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verdict": {"enum": ["pass", "deny"]},
+    "findings": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["rule_id", "verdict", "reason"],
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1},
+          "verdict": {"enum": ["pass", "deny"]},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"findings": {"contains": {"properties": {"verdict": {"const": "deny"}}, "required": ["verdict"]}}}, "required": ["findings"]},
+      "then": {"properties": {"verdict": {"const": "deny"}}}
+    },
+    {
+      "if": {"properties": {"findings": {"not": {"contains": {"properties": {"verdict": {"const": "deny"}}, "required": ["verdict"]}}}}, "required": ["findings"]},
+      "then": {"properties": {"verdict": {"const": "pass"}}}
+    }
+  ]
+}

@@ -13,12 +13,16 @@ import csv
 import json
 import math
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from multidetect.autonomy.serialization import (  # noqa: E402
+    AutonomyContractError,
+    strict_json_loads,
+)
 from multidetect.depth_calibration import load_calibration_document  # noqa: E402
 
 
@@ -68,7 +72,15 @@ def validation_report(
     calibration_path: Path,
 ) -> dict[str, object]:
     profile = load_calibration_document(calibration_path)
-    document = json.loads(calibration_path.read_text(encoding="utf-8"))
+    try:
+        document = strict_json_loads(
+            calibration_path.read_bytes(),
+            name="calibration document",
+        )
+    except (OSError, AutonomyContractError, TypeError) as exc:
+        raise ValueError(f"calibration document is not valid strict JSON: {exc}") from exc
+    if not isinstance(document, Mapping):
+        raise ValueError("calibration document root must be an object")
     fitted_ids = {
         str(sample["sample_id"])
         for sample in document["samples"]
@@ -76,16 +88,19 @@ def validation_report(
     }
     values = tuple(samples)
     fitted = tuple(sample for sample in values if sample.sample_id in fitted_ids)
-    all_residuals = _residuals(values, scale=profile.scale, offset_m=profile.offset_m)
+    all_residuals = _residuals(values, mapper=profile.map_depth)
     holdout = tuple(sample for sample in values if sample.sample_id not in fitted_ids)
     return {
         "schema_version": 1,
         "calibration": {
             "profile": profile.profile,
+            "mode": profile.calibration_mode,
             "document_path": str(profile.document_path),
             "document_sha256": profile.document_sha256,
             "scale": profile.scale,
             "offset_m": profile.offset_m,
+            "raw_breakpoints_m": list(profile.raw_breakpoints_m),
+            "actual_breakpoints_m": list(profile.actual_breakpoints_m),
             "fit_sample_count": profile.sample_count,
             "fit_inlier_count": profile.inlier_count,
         },
@@ -104,11 +119,9 @@ def validation_report(
             ],
         },
         "all_measured": _metrics(all_residuals),
-        "fitted_samples": _metrics(
-            _residuals(fitted, scale=profile.scale, offset_m=profile.offset_m)
-        ),
+        "fitted_samples": _metrics(_residuals(fitted, mapper=profile.map_depth)),
         "independent_holdout": _metrics(
-            _residuals(holdout, scale=profile.scale, offset_m=profile.offset_m)
+            _residuals(holdout, mapper=profile.map_depth)
         ),
         "advisory_only": True,
         "automatic_calibration_update": False,
@@ -148,7 +161,15 @@ def _load_rows(path: Path) -> tuple[Mapping[str, object], ...]:
         with path.open("r", encoding="utf-8", newline="") as handle:
             return tuple(csv.DictReader(handle))
     if path.suffix.lower() == ".json":
-        decoded = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            decoded = strict_json_loads(
+                path.read_bytes(),
+                name="outdoor depth calibration samples",
+            )
+        except (OSError, AutonomyContractError, TypeError) as exc:
+            raise ValueError(
+                f"JSON samples are not valid strict JSON: {exc}"
+            ) from exc
         if isinstance(decoded, list) and all(isinstance(row, Mapping) for row in decoded):
             return tuple(decoded)
         raise ValueError("JSON samples must be a list of objects")
@@ -158,11 +179,10 @@ def _load_rows(path: Path) -> tuple[Mapping[str, object], ...]:
 def _residuals(
     samples: Iterable[_MeasuredSample],
     *,
-    scale: float,
-    offset_m: float,
+    mapper: Callable[[float], float],
 ) -> tuple[float, ...]:
     return tuple(
-        scale * sample.raw_depth_m + offset_m - sample.actual_distance_m
+        mapper(sample.raw_depth_m) - sample.actual_distance_m
         for sample in samples
     )
 

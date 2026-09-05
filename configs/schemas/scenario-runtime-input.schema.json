@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/scenario-runtime-input.schema.json",
+  "title": "Multi-Detect ScenarioRuntimeInput channel v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scenario_id", "scenario_version", "seed", "world", "vehicle", "sensors", "faults"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "scenario_version": {"type": "integer", "minimum": 1},
+    "seed": {"type": "integer", "minimum": 0},
+    "world": {"type": "object", "additionalProperties": false, "required": ["world_asset", "map_asset", "dem_asset", "wind_north_mps", "wind_east_mps", "gust_mps"], "properties": {"world_asset": {"type": "string", "minLength": 1}, "map_asset": {"type": "string", "minLength": 1}, "dem_asset": {"type": "string", "minLength": 1}, "wind_north_mps": {"type": "number"}, "wind_east_mps": {"type": "number"}, "gust_mps": {"type": "number", "minimum": 0}}},
+    "vehicle": {"type": "object", "additionalProperties": false, "required": ["model", "airframe_profile_id", "spawn_id"], "properties": {"model": {"type": "string", "minLength": 1}, "airframe_profile_id": {"type": "string", "minLength": 1}, "spawn_id": {"type": "string", "minLength": 1}, "spawn_pose": {"type": "object", "additionalProperties": false, "required": ["x_east_m", "y_north_m", "z_up_m", "roll_rad", "pitch_rad", "yaw_rad"], "properties": {"x_east_m": {"type": "number", "minimum": -10000, "maximum": 10000}, "y_north_m": {"type": "number", "minimum": -10000, "maximum": 10000}, "z_up_m": {"type": "number", "minimum": 0, "maximum": 1000}, "roll_rad": {"type": "number", "minimum": -3.141592653589793, "maximum": 3.141592653589793}, "pitch_rad": {"type": "number", "minimum": -1.5707963267948966, "maximum": 1.5707963267948966}, "yaw_rad": {"type": "number", "minimum": -3.141592653589793, "maximum": 3.141592653589793}}}}},
+    "sensors": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["sensor_id", "kind", "stream_uri"], "properties": {"sensor_id": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "stream_uri": {"type": "string", "minLength": 1}, "calibration_id": {"type": "string", "minLength": 1}}}},
+    "faults": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["event_id", "at_s", "kind"], "properties": {"event_id": {"type": "string", "minLength": 1}, "at_s": {"type": "number", "minimum": 0}, "kind": {"enum": ["camera_dropout", "battery_step_drop", "gps_dropout", "gps_drift", "target_drift", "target_bearing_drift", "timestamp_skew", "airspeed_freeze", "wind_gust", "vtol_transition_timeout", "autonomy_process_exit"]}, "duration_s": {"type": "number", "minimum": 0}, "magnitude": {"type": "number"}}}}
+  }
+}

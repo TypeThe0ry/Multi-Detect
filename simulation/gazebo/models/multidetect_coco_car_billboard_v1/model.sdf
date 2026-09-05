@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <model name="multidetect_coco_car_billboard_v1">
+    <static>true</static>
+    <link name="billboard_link">
+      <!--
+        The collision remains a thin 3.3:2.2 box. The visual is an explicit
+        two-sided OBJ with UV coordinates and an MTL texture binding so the
+        camera-facing Y/Z plane is deterministic across Gazebo renderers.
+        This is a software-only visual fixture; it does not encode a detector
+        bounding box or expected output.
+      -->
+      <collision name="billboard_collision">
+        <geometry>
+          <box><size>0.08 3.3 2.2</size></box>
+        </geometry>
+      </collision>
+      <visual name="car_positive_control_visual">
+        <geometry>
+          <mesh>
+            <uri>model://multidetect_coco_car_billboard_v1/meshes/car_billboard.obj</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.05 0.05 0.05 1</specular>
+          <double_sided>true</double_sided>
+          <pbr>
+            <metal>
+              <albedo_map>model://multidetect_coco_car_billboard_v1/materials/textures/coco-car-positive-control-v1.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>1.0</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

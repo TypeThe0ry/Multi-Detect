@@ -140,7 +140,7 @@ def test_launcher_prefers_the_standalone_custom_qgc_deployment() -> None:
         Path(__file__).resolve().parents[1] / "scripts" / "start_qgc_gr01_readonly.ps1"
     ).read_text(encoding="utf-8")
 
-    assert "QGroundControl-MultiDetect\\build-multidetect-release\\staging" in launcher
+    assert "build\\windows-v0.2.0-release\\portable-v0.2.0\\bin\\MultiDetectGCS.exe" in launcher
     assert "bin\\MultiDetectGCS.exe" in launcher
     assert "[IO.Path]::GetFileNameWithoutExtension($QgcPath)" in launcher
     assert "-WorkingDirectory (Split-Path -Parent $QgcPath)" in launcher

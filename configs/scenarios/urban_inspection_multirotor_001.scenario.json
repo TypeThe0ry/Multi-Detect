@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "urban_inspection_multirotor_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "urban_inspection_multirotor_001.runtime.json",
+      "sha256": "5c43ff22d3037c5e999de1974e687231860e0e933dfa21eed2dd1054f5c1ad93"
+    },
+    "truth": {
+      "path": "urban_inspection_multirotor_001.truth.json",
+      "sha256": "5f678ca4c9dff875c32d7b56d4fa30e7e8ed0bf289f333d444dcf3de34325df5"
+    },
+    "expectations": {
+      "path": "urban_inspection_multirotor_001.expectations.json",
+      "sha256": "f391dd16e6476e7dd53769b6bf95ff0c6f6ecc12b89be1839055fff1de344c51"
+    }
+  }
+}

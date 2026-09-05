@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/alert-link-bench.schema.json",
+  "title": "Multi-Detect authenticated alert-link bench report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "observed_at_utc",
+    "hardware_observed",
+    "simulation_only",
+    "passed",
+    "reasons",
+    "transport_protocol",
+    "remote_host",
+    "remote_port",
+    "remote_is_loopback",
+    "hardware_id",
+    "requested_round_trips",
+    "round_trip_samples",
+    "failed_round_trips",
+    "transmission_attempts",
+    "missing_ack_attempts",
+    "packet_loss_rate",
+    "ack_latency_p50_ms",
+    "ack_latency_p95_ms",
+    "correlated_ack_verified",
+    "authenticated_ack_verified",
+    "failure_types",
+    "thresholds",
+    "alert_hardware_control_enabled",
+    "flight_control_enabled",
+    "physical_release_enabled",
+    "payload_release_requested",
+    "production_approved",
+    "physical_release_approved"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {
+      "enum": [
+        "alert_link_bench_passed",
+        "alert_link_bench_failed",
+        "alert_link_software_baseline_bench_passed",
+        "alert_link_software_baseline_bench_failed"
+      ]
+    },
+    "observed_at_utc": {"type": "string", "minLength": 1},
+    "hardware_observed": {"type": "boolean"},
+    "simulation_only": {"type": "boolean"},
+    "passed": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "transport_protocol": {"type": "string", "minLength": 1},
+    "remote_host": {"type": ["string", "null"]},
+    "remote_port": {"type": ["integer", "null"], "minimum": 1, "maximum": 65535},
+    "remote_is_loopback": {"type": "boolean"},
+    "hardware_id": {"type": ["string", "null"]},
+    "requested_round_trips": {"type": "integer", "minimum": 1},
+    "round_trip_samples": {"type": "integer", "minimum": 0},
+    "failed_round_trips": {"type": "integer", "minimum": 0},
+    "transmission_attempts": {"type": "integer", "minimum": 0},
+    "missing_ack_attempts": {"type": "integer", "minimum": 0},
+    "packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "ack_latency_p50_ms": {"type": ["number", "null"], "minimum": 0},
+    "ack_latency_p95_ms": {"type": ["number", "null"], "minimum": 0},
+    "correlated_ack_verified": {"type": "boolean"},
+    "authenticated_ack_verified": {"type": "boolean"},
+    "failure_types": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_packet_loss_rate",
+        "maximum_ack_latency_p95_ms",
+        "maximum_attempts"
+      ],
+      "properties": {
+        "maximum_packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "maximum_ack_latency_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_attempts": {"type": "integer", "minimum": 1}
+      }
+    },
+    "alert_hardware_control_enabled": {"const": false},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false},
+    "payload_release_requested": {"const": false},
+    "production_approved": {"const": false},
+    "physical_release_approved": {"const": false}
+  }
+}

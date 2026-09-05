@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/px4-mission-feedback-observation.schema.json",
+  "title": "Multi-Detect PX4 Mission Feedback Observation v1",
+  "description": "Receive-only, hash-bound observation of PX4 MISSION_CURRENT and MISSION_ITEM_REACHED. A passing feedback gate is not a HIL, REAL, flight, or operator-visual acceptance claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "observed_at_utc",
+    "mission",
+    "sampling",
+    "transport",
+    "feedback",
+    "feedback_sha256",
+    "feedback_gate_passed",
+    "reasons",
+    "claims",
+    "evidence_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "px4_mission_feedback_observed"},
+    "runtime_mode": {"enum": ["sim", "hil", "real"]},
+    "observed_at_utc": {"type": "string", "format": "date-time"},
+    "mission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mission_id", "mission_hash", "mission_item_count"],
+      "properties": {
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"$ref": "#/$defs/sha256"},
+        "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "duration_s",
+        "poll_interval_s",
+        "started_at_s",
+        "completed_at_s",
+        "sample_count",
+        "receive_error_count",
+        "receive_error_samples"
+      ],
+      "properties": {
+        "duration_s": {"type": "number", "minimum": 0, "maximum": 3600},
+        "poll_interval_s": {"type": "number", "minimum": 0.001, "maximum": 5},
+        "started_at_s": {"type": "number", "minimum": 0},
+        "completed_at_s": {"type": "number", "minimum": 0},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "receive_error_count": {"type": "integer", "minimum": 0},
+        "receive_error_samples": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["error_type", "message"],
+            "properties": {
+              "error_type": {"type": "string", "minLength": 1},
+              "message": {"type": "string", "minLength": 1, "maxLength": 512}
+            }
+          }
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured_endpoint",
+        "resolved_endpoint",
+        "baud",
+        "expected_system_id",
+        "expected_component_id",
+        "read_only",
+        "messages_received",
+        "messages_transmitted",
+        "message_type_counts"
+      ],
+      "properties": {
+        "configured_endpoint": {"type": "string", "minLength": 1},
+        "resolved_endpoint": {"type": ["string", "null"], "minLength": 1},
+        "baud": {"type": "integer", "minimum": 1},
+        "expected_system_id": {"$ref": "#/$defs/nullable_source_id"},
+        "expected_component_id": {"$ref": "#/$defs/nullable_source_id"},
+        "read_only": {"type": "boolean"},
+        "messages_received": {"type": "integer", "minimum": 0},
+        "messages_transmitted": {"type": "integer", "minimum": 0},
+        "message_type_counts": {
+          "type": "object",
+          "propertyNames": {"type": "string", "minLength": 1},
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "feedback": {"$ref": "px4-mission-feedback.schema.json"},
+    "feedback_sha256": {"$ref": "#/$defs/sha256"},
+    "feedback_gate_passed": {"type": "boolean"},
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_kind",
+        "release_eligible",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "operator_visual_acceptance"
+      ],
+      "properties": {
+        "source_kind": {"const": "live_mavlink_receive_only"},
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "operator_visual_acceptance": {"const": false}
+      }
+    },
+    "evidence_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullable_source_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 255
+    }
+  }
+}

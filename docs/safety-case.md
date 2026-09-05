@@ -27,6 +27,10 @@ safe to operate.
     automatic path exists only behind both explicit simulation flags and can call only the in-memory
     fake port or the authenticated inert HIL coordinator; every request still performs the atomic
     safety/inventory/authorization recheck and uncertain results are never automatically retried.
+14. PX4 Mission upload/readback/commit/start transactions are journaled by the same
+    hash-bound, fsync append-only checkpoint in REPLAY, SIM, HIL and REAL. A process interruption,
+    partial JSONL tail, broken hash chain or binding mismatch enters `recovery_required`; it cannot
+    synthesize an ACK, skip readback or automatically send `AUTO.MISSION` after restart.
 
 ## Before any field integration
 
@@ -35,7 +39,10 @@ safe to operate.
   deployment-domain false positives, temporal continuity and spatial agreement. Reusing the same
   output as both pieces of evidence is not independent corroboration.
 - Establish geofence, altitude and platform-envelope sources with freshness and integrity checks.
-- Add persistent event/outbox storage and test power-loss recovery at every transition.
+- Extend the local PX4 Mission journal to the field controller's durable transaction store and test
+  power-loss recovery at every physical transition. `src/multidetect/mission_journal.py` now covers
+  the local hash-bound JSONL checkpoint, explicit tail quarantine and resume plan; remote audit,
+  multi-device commit and actuator feedback still require hardware integration.
 - Define authenticated, acknowledged and versioned device protocols with physical interlocks.
 - The current inert-load HIL codec and localhost UDP transport cover authentication, correlation,
   expiry, monotonic sequence, idempotency, single-slot exclusion and independent confirmation, but

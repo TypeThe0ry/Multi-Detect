@@ -18,7 +18,11 @@ constexpr char kMagic[] = {'M', 'D'};
 constexpr quint8 kProtocolVersion = 1;
 constexpr int kHeaderBytes = 20;
 constexpr int kAuthenticationTagBytes = 16;
-constexpr int kSafetyRuleCount = 19;
+// Keep this in lockstep with OPERATOR_SAFETY_RULE_IDS in
+// src/multidetect/operator_link.py.  The person-exclusion and independent
+// RGB/thermal consistency rules are both part of the wire registry, so the
+// full registry currently contains twenty bits (0..19).
+constexpr int kSafetyRuleCount = 20;
 
 class Reader final
 {
@@ -157,6 +161,11 @@ bool fail(QString* error, const QString& message)
 QString uuidString(const QByteArray& bytes)
 {
     return QUuid::fromRfc4122(bytes).toString(QUuid::WithoutBraces);
+}
+
+QString hex64(quint64 value)
+{
+    return QStringLiteral("%1").arg(value, 16, 16, QLatin1Char('0'));
 }
 
 QString trackingState(quint8 value)
@@ -430,7 +439,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::TargetGeolocationStatus)) {
+        typeValue > static_cast<quint8>(MessageType::RuntimeStatusAck)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
@@ -773,6 +782,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             QStringLiteral("direct_degraded_metric_range"),
             QStringLiteral("vertical_reference_unavailable"),
             QStringLiteral("direct_range_unavailable"),
+            QStringLiteral("target_geometry_uncertainty_unbounded"),
         };
         static const QStringList sourceRegistry = {
             QStringLiteral("pixhawk_agl"),    QStringLiteral("dem_gps"),
@@ -782,7 +792,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             QStringLiteral("rgb_slam"),
         };
         constexpr quint16 kUnavailable = std::numeric_limits<quint16>::max();
-        constexpr quint32 kReasonMask = (static_cast<quint32>(1) << 31) - 1;
+        constexpr quint32 kReasonMask = 0xFFFFFFFFU;
         constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 9) - 1;
         static const QStringList vehicleProfiles = {
             QStringLiteral("auto"),
@@ -809,6 +819,19 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             consistency == 255 || statusId == 0 || targetId == 0 || calibrationId == 0 || frameId == 0 ||
             sentAtMs < frameAgeMs) {
             return fail(error, QStringLiteral("range-status content is invalid"));
+        }
+        if ((validity == QStringLiteral("VALID") || validity == QStringLiteral("DEGRADED")) &&
+            frameAgeMs > kMaximumRangeStatusSourceAgeMs) {
+            return fail(error, QStringLiteral("range-status source frame is stale"));
+        }
+        const double dataFreshnessS = decodeDistance(dataFreshness);
+        if (validity == QStringLiteral("VALID") || validity == QStringLiteral("DEGRADED")) {
+            if (!std::isfinite(dataFreshnessS)) {
+                return fail(error, QStringLiteral("range-status data freshness is unavailable"));
+            }
+            if (dataFreshnessS > kMaximumRangeStatusSourceAgeMs / 1000.0) {
+                return fail(error, QStringLiteral("range-status data freshness is stale"));
+            }
         }
         if ((slantIntervalAvailable &&
              (slantLow == kUnavailable || slantHigh == kUnavailable || slantLow > slantHigh)) ||
@@ -868,7 +891,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         fields.insert(QStringLiteral("northOffsetM"), decodeSignedDistance32(northOffset));
         fields.insert(QStringLiteral("eastOffsetM"), decodeSignedDistance32(eastOffset));
         fields.insert(QStringLiteral("sourceAgeMs"), frameAgeMs);
-        fields.insert(QStringLiteral("dataFreshnessS"), decodeDistance(dataFreshness));
+        fields.insert(QStringLiteral("dataFreshnessS"), dataFreshnessS);
         fields.insert(QStringLiteral("sensorConsistency"), decodeRatio(consistency));
         fields.insert(QStringLiteral("sourceContributions"), sourceContributions);
         fields.insert(QStringLiteral("fusionProfile"), QStringLiteral("outdoor-multimodal-v1"));
@@ -905,14 +928,19 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         const bool coordinatesUnavailable = !latitudePresent && !longitudePresent;
         if (targetId == 0 || frameId == 0 || availableValue > 1 || reasonValue == 0 ||
             static_cast<int>(reasonValue) > reasonRegistry.size() || sentAtMs < frameAgeMs ||
-            (!coordinatesPresent && !coordinatesUnavailable)) {
+            (!coordinatesPresent && !coordinatesUnavailable) ||
+            (coordinatesPresent &&
+             (latitudeE7 <= -900000000 || latitudeE7 >= 900000000 || longitudeE7 < -1800000000 ||
+              longitudeE7 > 1800000000))) {
             return fail(error, QStringLiteral("target-geolocation-status content is invalid"));
         }
         if ((available &&
-             (reasonValue != 1 || !coordinatesPresent || horizontalSigma == kUnavailable || latitudeE7 < -900000000 ||
-              latitudeE7 > 900000000 || longitudeE7 < -1800000000 || longitudeE7 > 1800000000)) ||
+             (reasonValue != 1 || !coordinatesPresent || horizontalSigma == kUnavailable)) ||
             (!available && (reasonValue == 1 || coordinatesPresent || horizontalSigma != kUnavailable))) {
             return fail(error, QStringLiteral("target-geolocation-status availability is inconsistent"));
+        }
+        if (available && frameAgeMs > kMaximumTargetGeolocationSourceAgeMs) {
+            return fail(error, QStringLiteral("target-geolocation-status source frame is stale"));
         }
         fields.insert(QStringLiteral("targetId"), hashedIdentifier(targetId));
         fields.insert(QStringLiteral("sourceFrameId"), hashedIdentifier(frameId));
@@ -927,6 +955,63 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         fields.insert(QStringLiteral("advisoryOnly"), true);
         fields.insert(QStringLiteral("flightControlEnabled"), false);
         fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+    } else if (type == MessageType::RuntimeStatus) {
+        quint8 modeValue = 0, healthValue = 0, statusFlags = 0, reserved = 0;
+        quint64 scenarioSeed = 0, scenarioHash = 0, airframeProfileHash = 0, runHash = 0;
+        if (!reader.readU8(&modeValue) || !reader.readU8(&healthValue) || !reader.readU8(&statusFlags) ||
+            !reader.readU8(&reserved) || !reader.readU64(&scenarioSeed) || !reader.readU64(&scenarioHash) ||
+            !reader.readU64(&airframeProfileHash) || !reader.readU64(&runHash) || !reader.atEnd()) {
+            return fail(error, QStringLiteral("runtime-status body has an invalid size"));
+        }
+        static const QStringList runtimeModes = {
+            QStringLiteral("REPLAY"),
+            QStringLiteral("SIM"),
+            QStringLiteral("HIL"),
+            QStringLiteral("REAL"),
+        };
+        static const QStringList backendHealthStates = {
+            QStringLiteral("UNKNOWN"),
+            QStringLiteral("HEALTHY"),
+            QStringLiteral("DEGRADED"),
+            QStringLiteral("UNHEALTHY"),
+        };
+        const bool scenarioPresent = (statusFlags & 0x01U) != 0;
+        const bool groundTruthIsolated = (statusFlags & 0x02U) != 0;
+        const bool hardwareOutputsPresent = (statusFlags & 0x04U) != 0;
+        const bool profileValid = (statusFlags & 0x08U) != 0;
+        const bool realRuntime = modeValue == 4;
+        if (modeValue < 1 || static_cast<int>(modeValue) > runtimeModes.size() ||
+            static_cast<int>(healthValue) >= backendHealthStates.size() || (statusFlags & ~0x0FU) != 0 ||
+            reserved != 0 || runHash == 0 || (!scenarioPresent && (scenarioSeed != 0 || scenarioHash != 0)) ||
+            (scenarioPresent && scenarioHash == 0) || (profileValid && airframeProfileHash == 0) ||
+            (realRuntime && scenarioPresent) ||
+            (!realRuntime && (!groundTruthIsolated || hardwareOutputsPresent))) {
+            return fail(error, QStringLiteral("runtime-status content is invalid"));
+        }
+        fields.insert(QStringLiteral("mode"), runtimeModes.at(modeValue - 1));
+        fields.insert(QStringLiteral("backendHealth"), backendHealthStates.at(healthValue));
+        fields.insert(QStringLiteral("scenarioPresent"), scenarioPresent);
+        fields.insert(QStringLiteral("groundTruthIsolated"), groundTruthIsolated);
+        fields.insert(QStringLiteral("hardwareOutputsPresent"), hardwareOutputsPresent);
+        fields.insert(QStringLiteral("profileValid"), profileValid);
+        fields.insert(QStringLiteral("scenarioSeed"), scenarioPresent ? QString::number(scenarioSeed) : QString());
+        fields.insert(QStringLiteral("scenarioHash64"), scenarioPresent ? hex64(scenarioHash) : QString());
+        fields.insert(QStringLiteral("airframeProfileHash64"), hex64(airframeProfileHash));
+        fields.insert(QStringLiteral("runHash64"), hex64(runHash));
+        fields.insert(QStringLiteral("metadataOnly"), true);
+        fields.insert(QStringLiteral("directPixhawkWrites"), false);
+        fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+    } else if (type == MessageType::RuntimeStatusAck) {
+        quint32 acknowledgedRuntimeSequence = 0;
+        quint64 runHash64 = 0;
+        if (!reader.readU32(&acknowledgedRuntimeSequence) || !reader.readU64(&runHash64) || !reader.atEnd()) {
+            return fail(error, QStringLiteral("runtime-status-ack body has an invalid size"));
+        }
+        if (runHash64 == 0) {
+            return fail(error, QStringLiteral("runtime-status-ack run hash is invalid"));
+        }
+        fields.insert(QStringLiteral("acknowledgedRuntimeSequence"), acknowledgedRuntimeSequence);
+        fields.insert(QStringLiteral("runHash64"), hex64(runHash64));
     } else if (type == MessageType::ReleaseStatus) {
         quint64 targetId = 0, rangeTargetId = 0, rangeFrameId = 0, calibrationId = 0;
         quint8 timingValue = 0, statusFlags = 0, consistency = 0;
@@ -1690,6 +1775,21 @@ QByteArray MultiDetectOperatorProtocol::encodePayloadTargetConfirmation(
     appendU8(body, static_cast<quint8>(std::llround(completionFraction * 254.0)));
     appendU8(body, continuous ? 1 : 0);
     return _encodeFrame(MessageType::PayloadTargetConfirmation, sequence, issuedAtMs, body, error);
+}
+
+QByteArray MultiDetectOperatorProtocol::encodeRuntimeStatusAck(quint32 acknowledgedRuntimeSequence, quint64 runHash64,
+                                                               quint32 sequence, quint64 sentAtMs,
+                                                               QString* error) const
+{
+    if (!configured() || runHash64 == 0) {
+        fail(error, QStringLiteral("runtime-status acknowledgement binding is invalid"));
+        return {};
+    }
+    QByteArray body;
+    body.reserve(12);
+    appendU32(body, acknowledgedRuntimeSequence);
+    appendU64(body, runHash64);
+    return _encodeFrame(MessageType::RuntimeStatusAck, sequence, sentAtMs, body, error);
 }
 
 quint32 MultiDetectOperatorProtocol::hash32(const QString& value)

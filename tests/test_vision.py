@@ -630,6 +630,43 @@ def test_raw_yolo_output_rejects_wrong_feature_count() -> None:
         model.detect(np.zeros((640, 640, 3), dtype=np.uint8))
 
 
+def test_raw_yolo_global_limit_is_score_ordered_across_classes() -> None:
+    # With a global limit of one, class ID must not outrank confidence.  The
+    # former implementation consumed the limit while processing class 0 and
+    # never admitted the stronger class-1 candidate to the final score sort.
+    output = np.array(
+        [
+            [
+                [120, 520],
+                [120, 520],
+                [80, 80],
+                [80, 80],
+                [0.60, 0.05],
+                [0.05, 0.95],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    model = OnnxRawYoloDetector(
+        OnnxRawYoloConfig(
+            model_path=Path("raw.onnx"),
+            class_names=("person", "car"),
+            input_width=640,
+            input_height=640,
+            confidence_threshold=0.25,
+            iou_threshold=0.45,
+            maximum_detections=1,
+        ),
+        session=_Session(output),
+    )
+
+    (result,) = model.detect(np.zeros((640, 640, 3), dtype=np.uint8))
+
+    assert result.label == "car"
+    assert result.confidence == pytest.approx(0.95)
+    assert result.bbox == BoundingBox(480 / 640, 480 / 640, 560 / 640, 560 / 640)
+
+
 def test_tiled_detection_recovers_small_objects_and_respects_scan_interval() -> None:
     class _TiledDetector:
         class_names = ("person",)

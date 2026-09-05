@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/replay-set-manifest.schema.json",
+  "title": "Multi-Detect Stratified ReplaySetManifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "dataset_version",
+    "class_names",
+    "required_strata",
+    "entries",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "class_names": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "required_strata": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_ground_truth",
+        "contains_predictions",
+        "deployment_domain_evidence_complete",
+        "accuracy_validated"
+      ],
+      "properties": {
+        "contains_ground_truth": {"type": "boolean"},
+        "contains_predictions": {"type": "boolean"},
+        "deployment_domain_evidence_complete": {"type": "boolean"},
+        "accuracy_validated": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contained_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"$ref": "#/$defs/contained_path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_id",
+        "strata",
+        "recording_manifest",
+        "ground_truth",
+        "frame_count",
+        "source_kind",
+        "annotations_reviewed"
+      ],
+      "properties": {
+        "entry_id": {"type": "string", "minLength": 1},
+        "strata": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+          }
+        },
+        "recording_manifest": {"$ref": "#/$defs/artifact"},
+        "ground_truth": {"$ref": "#/$defs/artifact"},
+        "predictions": {"$ref": "#/$defs/artifact"},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "source_kind": {
+          "enum": ["deployment_recording", "lab_recording", "synthetic_demo"]
+        },
+        "annotations_reviewed": {"type": "boolean"}
+      }
+    }
+  }
+}

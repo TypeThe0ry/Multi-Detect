@@ -216,6 +216,17 @@ def test_executor_prestreams_then_enters_offboard_and_returns_on_lck_loss() -> N
     assert transport.modes == ["OFFBOARD", "AUTO"]
 
 
+def test_executor_exposes_dynamic_transport_control_state_fail_closed() -> None:
+    transport = _RecordingTransport()
+    executor = FixedWingAimExecutor(FixedWingAimController(_calibration()), transport)
+    assert executor.flight_control_enabled is True
+
+    transport.flight_control_enabled = False
+    assert executor.flight_control_enabled is False
+    transport.flight_control_enabled = "yes"
+    assert executor.flight_control_enabled is False
+
+
 def test_executor_restores_the_mode_observed_before_offboard() -> None:
     transport = _RecordingTransport()
     executor = FixedWingAimExecutor(

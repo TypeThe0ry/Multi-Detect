@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "scenario_id": "river_rescue_vtol_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "life-jacket-001",
+      "label": "red_life_jacket",
+      "position": {
+        "latitude_deg": 1.30042,
+        "longitude_deg": 103.80118
+      },
+      "behavior": "drifting"
+    }
+  ]
+}

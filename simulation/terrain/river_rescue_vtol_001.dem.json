@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "scenario_id": "river_rescue_vtol_001",
+  "coordinate_reference": "WGS84",
+  "vertical_datum": "MSL",
+  "origin": {
+    "latitude_deg": 1.3,
+    "longitude_deg": 103.8005,
+    "elevation_m": 5.0
+  },
+  "north_origin_m": -400.0,
+  "east_origin_m": -400.0,
+  "north_spacing_m": 200.0,
+  "east_spacing_m": 200.0,
+  "elevation_m": [
+    [5.0, 5.0, 5.0, 5.0, 5.0],
+    [5.0, 5.0, 5.0, 5.0, 5.0],
+    [5.0, 5.0, 5.0, 5.0, 5.0],
+    [5.0, 5.0, 5.0, 5.0, 5.0],
+    [5.0, 5.0, 5.0, 5.0, 5.0]
+  ],
+  "vertical_sigma_m": 0.35,
+  "slope_sigma_m_per_m": 0.002
+}

@@ -26,10 +26,12 @@ public:
     void init() final;
     void cleanup() final;
     QQmlApplicationEngine* createQmlApplicationEngine(QObject* parent) final;
+    const QVariantList& toolBarIndicators() final;
 
 private:
     QQmlApplicationEngine* _qmlEngine = nullptr;
     CustomOverrideInterceptor* _selector = nullptr;
     MultiDetectOperatorController* _operatorController = nullptr;
     MultiDetectTargetEvidenceStore* _targetEvidenceStore = nullptr;
+    QVariantList _toolBarIndicatorList;
 };

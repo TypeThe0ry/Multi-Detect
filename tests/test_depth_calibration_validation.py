@@ -73,3 +73,39 @@ def test_validation_reports_independent_holdout_without_mutating_calibration(
     assert decoded["independent_holdout"]["sample_count"] == 3
     assert decoded["automatic_calibration_update"] is False
     assert "automatic_calibration_update=false" in completed.stdout
+
+
+def test_json_sample_inputs_reject_duplicate_keys_and_nonfinite_numbers(
+    tmp_path: Path,
+) -> None:
+    for name, payload, needle in (
+        (
+            "duplicate",
+            '[{"sample_id":"a","sample_id":"b"}]',
+            "duplicate JSON key",
+        ),
+        (
+            "nonfinite",
+            '[{"sample_id":"a","raw_depth_m":NaN,"actual_distance_m":2}]',
+            "non-finite JSON number NaN",
+        ),
+    ):
+        samples = tmp_path / f"{name}.json"
+        samples.write_text(payload, encoding="utf-8")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/fit_outdoor_depth_calibration.py"),
+                str(samples),
+                "--output",
+                str(tmp_path / f"{name}.calibration.json"),
+                "--profile",
+                "strict-input-test",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode != 0
+        assert needle in completed.stderr

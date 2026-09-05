@@ -4,8 +4,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Python = Join-Path $Root ".venv\Scripts\python.exe"
-$Executable = Join-Path $Root ".venv\Scripts\multi-detect.exe"
+$QgcRoot = Join-Path $Root "ground-control\MultiDetectGCS"
+$Python = Join-Path $QgcRoot ".venv\Scripts\python.exe"
+$Executable = Join-Path $QgcRoot ".venv\Scripts\multi-detect.exe"
 $MissionUploader = Join-Path $Root "scripts\px4_sitl_mission_uploader.py"
 $HeartbeatSender = Join-Path $Root "scripts\px4_sitl_gcs_heartbeat.py"
 $ImageReference = "px4io/px4-sitl@sha256:bab4270c4849b7027df4bd760c79d743d738c81d7830dde14c4cc5714f781216"
@@ -41,6 +42,21 @@ function Assert-True {
         throw $Message
     }
 }
+
+# Docker Desktop is sometimes installed but intentionally omitted from PATH
+# (for example when the script is launched from a plain PowerShell session).
+# Resolve an absolute CLI path once so every container operation uses the same
+# executable and the evidence remains reproducible.
+$DockerCandidates = @(
+    (Get-Command docker -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    "C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+    "C:\Program Files (x86)\Docker\Docker\resources\bin\docker.exe"
+) |
+    Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    Select-Object -Unique
+Assert-True ($DockerCandidates.Count -gt 0) "Docker Desktop CLI was not found on PATH or in its standard install locations."
+$Docker = [string]$DockerCandidates[0]
 
 function Invoke-CapturedCommand {
     param(
@@ -95,7 +111,7 @@ function Get-UdpPortOwners {
 function Wait-OwnedContainerRemoved {
     param([string]$Name)
     for ($attempt = 1; $attempt -le 20; $attempt++) {
-        $inspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $inspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "container", "inspect", $Name
         )
         if ($inspect.ExitCode -ne 0) {
@@ -111,7 +127,7 @@ function Get-Px4Parameter {
         [string]$Name,
         [string]$OwnedContainerName
     )
-    $show = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $show = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $OwnedContainerName, "/opt/px4/bin/px4-param", "show", $Name
     )
     Assert-True ($show.ExitCode -eq 0) "Unable to read SITL-only parameter $Name."
@@ -136,7 +152,7 @@ function Get-Px4TopicSnapshot {
         [string]$Topic,
         [string]$OwnedContainerName
     )
-    $snapshot = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $snapshot = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $OwnedContainerName, "/opt/px4/bin/px4-listener", $Topic, "-n", "1"
     )
     Assert-True ($snapshot.ExitCode -eq 0) "Unable to read PX4 SITL topic $Topic."
@@ -262,26 +278,26 @@ $groundStationOwnersBefore = @(Get-UdpPortOwners -Port $ProtectedGroundStationPo
 Assert-True ($sitlPortOwnersBefore.Count -eq 0) "Isolated SITL UDP $SitlPort is already in use."
 Assert-True ($gcsInputPortOwnersBefore.Count -eq 0) "Loopback GCS UDP $GcsInputPort is already in use."
 
-$dockerInfo = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$dockerInfo = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "info", "--format", "{{.ServerVersion}}"
 )
 Assert-True ($dockerInfo.ExitCode -eq 0) "Docker engine is unavailable. Start Docker Desktop and retry."
 $dockerServerVersion = ($dockerInfo.Lines | Select-Object -Last 1).Trim()
 
-$imageInspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$imageInspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "image", "inspect", $ImageReference, "--format", "{{.Id}}"
 )
 if ($imageInspect.ExitCode -ne 0) {
-    $pull = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @("pull", $ImageReference)
+    $pull = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @("pull", $ImageReference)
     Assert-True ($pull.ExitCode -eq 0) "Unable to pull the pinned PX4 SITL image."
-    $imageInspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $imageInspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "image", "inspect", $ImageReference, "--format", "{{.Id}}"
     )
 }
 Assert-True ($imageInspect.ExitCode -eq 0) "Pinned PX4 SITL image is unavailable after pull."
 $imageId = ($imageInspect.Lines | Select-Object -Last 1).Trim()
 
-$existingContainer = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$existingContainer = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "container", "inspect", $ContainerName
 )
 Assert-True ($existingContainer.ExitCode -ne 0) "Container name already exists; refusing to replace it: $ContainerName"
@@ -301,7 +317,7 @@ try {
 sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_port_local -o __SITL_PORT__|' /opt/px4/etc/init.d-posix/px4-rc.mavlink && exec /opt/px4/bin/px4-entrypoint.sh
 '@
     $containerCommand = $containerCommand.Replace("__SITL_PORT__", "$SitlPort")
-    $run = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $run = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "run",
         "--rm",
         "-d",
@@ -337,7 +353,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True $ready "PX4 datalink-loss SITL did not become ready: $($readyOutput -join ' ')"
     Assert-True ($readyTelemetry.latest.armed -eq $false) "Fresh SITL was unexpectedly armed."
 
-    $version = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $version = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $ContainerName, "/opt/px4/bin/px4-ver", "all"
     )
     Assert-True ($version.ExitCode -eq 0) "Unable to read the PX4 SITL build identity."
@@ -370,7 +386,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
         @("MIS_TAKEOFF_ALT", "3"),
         @("SIM_BAT_DRAIN", "300")
     )) {
-        $setResult = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $setResult = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "exec", $ContainerName, "/opt/px4/bin/px4-param", "set", $parameter[0], $parameter[1]
         )
         Assert-True ($setResult.ExitCode -eq 0) "Unable to set SITL-only parameter $($parameter[0])."
@@ -412,12 +428,12 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-TopicBoolean -Snapshot $connectedFlags -Field "gcs_connection_lost" -Expected $false
     Assert-TopicBoolean -Snapshot $connectedStatus -Field "gcs_connection_lost" -Expected $false
 
-    $arm = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $arm = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $ContainerName, "/opt/px4/bin/px4-commander", "arm", "-f"
     )
     Assert-True ($arm.ExitCode -eq 0) "Unable to arm the owned disposable PX4 SITL instance."
     $simulatedVehicleArmed = $true
-    $missionMode = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $missionMode = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $ContainerName, "/opt/px4/bin/px4-commander", "mode", "auto:mission"
     )
     Assert-True ($missionMode.ExitCode -eq 0) "Unable to request Mission mode inside owned PX4 SITL."
@@ -497,7 +513,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
         "(?m)^\s*failsafe:\s*True\s*$"
     )
 
-    $disarm = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $disarm = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $ContainerName, "/opt/px4/bin/px4-commander", "disarm", "-f"
     )
     Assert-True ($disarm.ExitCode -eq 0) "Unable to disarm the owned disposable PX4 SITL instance."
@@ -507,7 +523,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     $reconnectHeartbeatProcess = $null
     Assert-True ($reconnectHeartbeatEvidence.messages_transmitted -gt 0) "Reconnect GCS heartbeat sender transmitted no heartbeats."
 
-    $stop = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $stop = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "stop", "--timeout", "1", $ContainerName
     )
     Assert-True ($stop.ExitCode -eq 0) "Unable to stop the owned PX4 datalink-loss SITL container."
@@ -668,7 +684,7 @@ finally {
         }
     }
     if ($containerStarted -and -not $containerStopped) {
-        $identity = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $identity = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "container", "inspect", $ContainerName, "--format", "{{.Id}}"
         )
         if (
@@ -677,11 +693,11 @@ finally {
             ($identity.Lines | Select-Object -Last 1).Trim().StartsWith($containerId)
         ) {
             if ($simulatedVehicleArmed) {
-                Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+                Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
                     "exec", $ContainerName, "/opt/px4/bin/px4-commander", "disarm", "-f"
                 ) | Out-Null
             }
-            Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+            Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
                 "stop", "--timeout", "1", $ContainerName
             ) | Out-Null
         }

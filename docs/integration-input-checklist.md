@@ -361,15 +361,22 @@ Pixhawk 通用遥测不会自动证明允许区域、围栏健康或投放区净
 ### C3. 摄像头内参与安装外参标定
 
 多模态测距不得由厂商水平视场角反推内参。三体摄像头中每一个实际使用的镜头、RTSP 码流
-分辨率、数字裁切、变焦或对焦档位都视为独立相机，必须分别标定。先生成 7×5、方格 40 mm、
-标记 20 mm 的 ChArUco 板：
+分辨率、数字裁切、变焦或对焦档位都视为独立相机，必须分别标定。仓库已经提供固定规格的
+7×5、方格 40 mm、标记 20 mm ChArUco 打印板
+[`configs/calibration/charuco-7x5-40mm-20mm-4200px.png`](../configs/calibration/charuco-7x5-40mm-20mm-4200px.png)，
+不需要现场重新生成。若 OpenCV 版本升级确实需要重建，先写到临时路径并核对 SHA-256，
+不要直接覆盖仓库资产：
 
 ```bash
 python3 -m multidetect.camera_calibration board \
-  --output artifacts/calibration/charuco-7x5-40mm-20mm.png \
+  --output tmp/charuco-7x5-40mm-20mm-4200px.png \
   --width-px 4200 \
   --margin-px 0
 ```
+
+当前可追踪板的 SHA-256 为
+`66AAF16F10689E9EDFF68B4684128E028AD89B09AABC55AB9CDC4D02521B23AC`；重建结果只有在
+规格、像素尺寸和哈希都经过复核后，才能替换该输入资产。
 
 打印后板体有效尺寸必须实测为 280×200 mm；打印缩放必须关闭。固定摄像头最终焦距、分辨率、
 编码裁切和安装结构后，采集至少 30 张原始帧，覆盖画面四角和中央、远近尺度及左右/上下倾斜，
@@ -417,7 +424,9 @@ python3 -m multidetect.camera_calibration calibrate \
 软件已经提供 HMAC-SHA256 UDP、双向关联ACK、有限重试、SQLite飞端发件箱和地面端
 持久化去重。它们已通过本机真实UDP socket测试，但仍不代表GR01实际链路可用。台架
 阶段按 [`data-link-alerts.md`](data-link-alerts.md) 同时运行飞端和地面端，测量双向连通、
-时延、丢包、MTU、断链恢复和时钟偏差；如果设备只提供串口，再单独实现有界分帧适配。
+时延、丢包、MTU、断链恢复和时钟偏差；先用 `scripts/run_alert_link_bench.py` 完成至少
+100 次新的 `alert_id`/ACK round-trip，再把报告与 GR01 设备编号、天线和链路配置一起归档。
+如果设备只提供串口，再单独实现有界分帧适配。
 
 定制 QGC 还需确认视频 Item 使用 `PreserveAspectFit` 还是 `PreserveAspectCrop`、视频实际
 绘制矩形、Android 屏幕旋转和安全区域 inset。使用

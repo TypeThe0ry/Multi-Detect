@@ -12,7 +12,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Executable = Join-Path $Root ".venv\Scripts\multi-detect.exe"
+$QgcRoot = Join-Path $Root "ground-control\MultiDetectGCS"
+$Executable = Join-Path $QgcRoot ".venv\Scripts\multi-detect.exe"
 $MissionConfig = Join-Path $Root "configs\missions\fire_suppression_fixed_wing.demo.json"
 $PatrolMissionConfig = Join-Path $Root "configs\missions\fire_patrol.demo.json"
 $SyntheticModel = Join-Path $Root "artifacts\synthetic-hil\synthetic-fire-nx6-hil.onnx"
@@ -43,6 +44,23 @@ function Assert-True {
         throw $Message
     }
 }
+
+# Docker Desktop may be installed but intentionally omitted from PATH (a
+# common state on a freshly migrated Windows workstation).  Resolve the CLI
+# once and use the same absolute executable for every operation below.  The
+# candidate list is deliberately limited to the process-local PATH entry and
+# the standard Docker Desktop install locations; no shell lookup or remote
+# endpoint is introduced.
+$DockerCandidates = @(
+    (Get-Command docker -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    "C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+    "C:\Program Files (x86)\Docker\Docker\resources\bin\docker.exe"
+) |
+    Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    Select-Object -Unique
+Assert-True ($DockerCandidates.Count -gt 0) "Docker Desktop CLI was not found on PATH or in its standard install locations."
+$Docker = [string]$DockerCandidates[0]
 
 function Invoke-CapturedCommand {
     param(
@@ -105,24 +123,24 @@ $selectedPortOwners = @(Get-UdpPortOwners -Port $HostPort)
 Assert-True ($selectedPortOwners.Count -eq 0) "Selected SITL receive port $HostPort is already in use."
 $groundStationOwnersBefore = @(Get-UdpPortOwners -Port $ProtectedGroundStationPort)
 
-$dockerInfo = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @("info", "--format", "{{.ServerVersion}}")
+$dockerInfo = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @("info", "--format", "{{.ServerVersion}}")
 Assert-True ($dockerInfo.ExitCode -eq 0) "Docker engine is unavailable. Start Docker Desktop and retry."
 $dockerServerVersion = ($dockerInfo.Lines | Select-Object -Last 1).Trim()
 
-$imageInspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$imageInspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "image", "inspect", $ImageReference, "--format", "{{.Id}}"
 )
 if ($imageInspect.ExitCode -ne 0) {
-    $pull = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @("pull", $ImageReference)
+    $pull = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @("pull", $ImageReference)
     Assert-True ($pull.ExitCode -eq 0) "Unable to pull the pinned PX4 SITL image."
-    $imageInspect = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $imageInspect = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "image", "inspect", $ImageReference, "--format", "{{.Id}}"
     )
 }
 Assert-True ($imageInspect.ExitCode -eq 0) "Pinned PX4 SITL image is unavailable after pull."
 $imageId = ($imageInspect.Lines | Select-Object -Last 1).Trim()
 
-$existingContainer = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+$existingContainer = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
     "container", "inspect", $ContainerName
 )
 Assert-True ($existingContainer.ExitCode -ne 0) "Container name already exists; refusing to replace it: $ContainerName"
@@ -148,7 +166,7 @@ $positiveFlameCandidateFrames = 0
 
 try {
     $containerCommand = "sed -i 's|mavlink start -x -u `$udp_gcs_port_local|mavlink start -x -u `$udp_gcs_port_local -o $HostPort|' /opt/px4/etc/init.d-posix/px4-rc.mavlink && exec /opt/px4/bin/px4-entrypoint.sh"
-    $run = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $run = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "run",
         "--rm",
         "-d",
@@ -188,7 +206,7 @@ try {
     }
     Assert-True $probePassed "PX4 SITL did not become ready: $($probeOutput -join ' ')"
 
-    $version = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+    $version = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
         "exec", $ContainerName, "/opt/px4/bin/px4-ver", "all"
     )
     Assert-True ($version.ExitCode -eq 0) "Unable to read the PX4 SITL build identity."
@@ -222,6 +240,8 @@ try {
         "--width", "640",
         "--height", "480",
         "--fps", "30",
+        "--input-width", "64",
+        "--input-height", "64",
         "--onnx-model", $SyntheticModel,
         "--model-manifest", $SyntheticManifest,
         "--class-names", "fire,smoke",
@@ -271,13 +291,13 @@ try {
     Assert-True ($payloadEvents.Count -eq 0) "Payload events were recorded while the vehicle was not flight-ready."
 
     if ($IncludeInContainerArmedPatrolHil) {
-        $arm = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $arm = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "exec", $ContainerName, "/opt/px4/bin/px4-commander", "arm", "-f"
         )
         Assert-True ($arm.ExitCode -eq 0) "Unable to arm the owned disposable PX4 SITL instance."
         $simulatedVehicleArmed = $true
 
-        $loiter = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $loiter = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "exec", $ContainerName, "/opt/px4/bin/px4-commander", "mode", "auto:loiter"
         )
         Assert-True ($loiter.ExitCode -eq 0) "Unable to select auto:loiter inside the owned PX4 SITL instance."
@@ -309,6 +329,8 @@ try {
             "--width", "640",
             "--height", "480",
             "--fps", "30",
+            "--input-width", "64",
+            "--input-height", "64",
             "--onnx-model", $SyntheticModel,
             "--model-manifest", $SyntheticManifest,
             "--class-names", "fire,smoke",
@@ -374,14 +396,14 @@ try {
         Assert-True ($positiveAuthorizationEvents.Count -eq 0) "Positive patrol HIL recorded an authorization event."
         Assert-True ($positivePayloadActionEvents.Count -eq 0) "Positive patrol HIL recorded a payload action event."
 
-        $disarm = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $disarm = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "exec", $ContainerName, "/opt/px4/bin/px4-commander", "disarm", "-f"
         )
         Assert-True ($disarm.ExitCode -eq 0) "Unable to disarm the owned disposable PX4 SITL instance."
         $simulatedVehicleArmed = $false
     }
 
-    $stop = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @("stop", "--timeout", "1", $ContainerName)
+    $stop = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @("stop", "--timeout", "1", $ContainerName)
     Assert-True ($stop.ExitCode -eq 0) "Unable to stop the owned PX4 SITL container."
     $containerStopped = $true
 
@@ -556,16 +578,16 @@ try {
 }
 finally {
     if ($containerStarted -and -not $containerStopped) {
-        $ownedContainer = Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+        $ownedContainer = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
             "container", "inspect", $ContainerName
         )
         if ($ownedContainer.ExitCode -eq 0) {
             if ($simulatedVehicleArmed) {
-                Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+                Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
                     "exec", $ContainerName, "/opt/px4/bin/px4-commander", "disarm", "-f"
                 ) | Out-Null
             }
-            Invoke-CapturedCommand -FilePath "docker" -ArgumentList @(
+            Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(
                 "stop", "--timeout", "1", $ContainerName
             ) | Out-Null
         }

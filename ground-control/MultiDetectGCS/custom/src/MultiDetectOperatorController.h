@@ -36,6 +36,9 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(QVariantMap rangeStatus READ rangeStatus NOTIFY rangeStatusChanged)
     Q_PROPERTY(QVariantMap targetGeolocationStatus READ targetGeolocationStatus NOTIFY targetGeolocationStatusChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
+    Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
+    Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
+    Q_PROPERTY(QString runtimeDisplayMode READ runtimeDisplayMode NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QVariantMap approachChallenge READ approachChallenge NOTIFY approachChallengeChanged)
     Q_PROPERTY(QVariantMap approachStatus READ approachStatus NOTIFY approachStatusChanged)
     Q_PROPERTY(QVariantMap payloadTargetChallenge READ payloadTargetChallenge NOTIFY payloadTargetChallengeChanged)
@@ -93,6 +96,12 @@ public:
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
+    QVariantMap runtimeStatus() const { return _runtimeStatus; }
+
+    QString expectedRuntimeMode() const { return _expectedRuntimeMode; }
+
+    QString runtimeDisplayMode() const;
+
     QVariantMap approachChallenge() const { return _approachChallenge; }
 
     QVariantMap approachStatus() const { return _approachStatus; }
@@ -143,6 +152,7 @@ signals:
     void rangeStatusChanged();
     void targetGeolocationStatusChanged();
     void releaseStatusChanged();
+    void runtimeStatusChanged();
     void approachChallengeChanged();
     void approachStatusChanged();
     void payloadTargetChallengeChanged();
@@ -225,6 +235,19 @@ private:
         void clear() { *this = {}; }
     };
 
+    // State used to keep an authenticated target coordinate bound to the
+    // camera source that produced it.  A signed packet can still be stale if
+    // a producer refreshes its envelope while replaying an old frame, so the
+    // controller tracks the source-frame lifetime and age progression before
+    // exposing coordinates to the Fly View map.
+    struct TargetGeolocationSourceState
+    {
+        quint64 firstSeenAtMs = 0;
+        quint64 lastSentAtMs = 0;
+        quint64 lastSourceCaptureAtMs = 0;
+        quint16 lastSourceAgeMs = 0;
+    };
+
     bool _sendPayload(const QByteArray& payload);
     bool _sendDirectHeartbeat();
     void _recordTargetPoolMetadataSnapshot(quint64 receivedAtMs);
@@ -239,6 +262,8 @@ private:
     void _setLastError(const QString& error);
     void _setLinkState(const QString& state);
     bool _isNewStatus(MultiDetectOperatorProtocol::MessageType type, quint32 sequence, quint64 receivedAtMs);
+    bool _acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs, quint64 receivedAtMs);
+    void _clearTargetGeolocationSourceState();
     quint64 _operatorWireNowMs(quint64 localNowMs) const;
     void _observeRemoteWireTime(quint64 remoteSentAtMs, quint64 localReceivedAtMs);
     static quint64 _unsignedValue(const QVariantMap& fields, const QString& name, bool* ok);
@@ -253,6 +278,7 @@ private:
     int _remoteSystemId = 1;
     int _remoteComponentId = 191;
     QString _operatorId;
+    QString _expectedRuntimeMode;
     QString _operatorUdpHost;
     int _operatorUdpPort = 14580;
     int _operatorUdpLocalPort = 14581;
@@ -267,6 +293,7 @@ private:
     quint32 _authorizationSequence = 0;
     quint32 _approachSequence = 0;
     quint32 _payloadTargetSequence = 0;
+    quint32 _runtimeStatusAckSequence = 0;
     QString _lastSelectionCommandId;
     QString _linkState;
     QString _lastError;
@@ -281,6 +308,7 @@ private:
     quint64 _lastRangeStatusAtMs = 0;
     quint64 _lastTargetGeolocationStatusAtMs = 0;
     quint64 _lastReleaseStatusAtMs = 0;
+    quint64 _lastRuntimeStatusAtMs = 0;
     quint64 _lastApproachStatusAtMs = 0;
     quint64 _lastPayloadTargetStatusAtMs = 0;
     quint64 _lastTargetPoolStatusAtMs = 0;
@@ -296,7 +324,10 @@ private:
     QVariantMap _patrolStatus;
     QVariantMap _rangeStatus;
     QVariantMap _targetGeolocationStatus;
+    QHash<QString, TargetGeolocationSourceState> _targetGeolocationSourceStates;
+    QHash<QString, quint64> _targetGeolocationLatestCaptureAtMs;
     QVariantMap _releaseStatus;
+    QVariantMap _runtimeStatus;
     QVariantMap _approachChallenge;
     QVariantMap _approachStatus;
     QVariantMap _payloadTargetChallenge;

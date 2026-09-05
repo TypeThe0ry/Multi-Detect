@@ -59,14 +59,17 @@ RANGING_CALIBRATION_PATH="${RANGING_CALIBRATION_PATH:-}"
 METRIC_DEPTH_SCENE_PROFILE="${METRIC_DEPTH_SCENE_PROFILE:-outdoor}"
 METRIC_DEPTH_MODEL_PATH="${METRIC_DEPTH_MODEL_PATH:-}"
 # Temporary single-anchor calibration from the measured 6.8 m target versus the
-# stable 7.99-8.01 m raw indoor model result. Override with a multi-point profile
-# after collecting 2/4/6.8/10/15 m ground truth.
+# stable 7.99-8.01 m raw indoor model result. Override with a versioned affine
+# (schema-v1) or outdoor piecewise (schema-v2) profile after collecting measured
+# multi-distance ground truth; the runtime never learns a scale from live frames.
 METRIC_DEPTH_CALIBRATION_SCALE="${METRIC_DEPTH_CALIBRATION_SCALE:-}"
 METRIC_DEPTH_CALIBRATION_OFFSET_M="${METRIC_DEPTH_CALIBRATION_OFFSET_M:-0.0}"
 METRIC_DEPTH_CALIBRATION_PROFILE="${METRIC_DEPTH_CALIBRATION_PROFILE:-}"
-# A fitted document only overrides the temporary field anchor after it contains
-# at least four MAD-gated measured samples. It must already exist on the Jetson;
-# the launch script deliberately never creates or modifies calibration evidence.
+# A fitted document only overrides the temporary field anchor after the CLI has
+# validated its schema, monotonic curve (when present), sample/inlier counts and
+# residual gate. Piecewise profiles require six measured samples and four knots.
+# The document must already exist on the Jetson; this launch script deliberately
+# never creates or modifies calibration evidence.
 METRIC_DEPTH_CALIBRATION_DOCUMENT="${METRIC_DEPTH_CALIBRATION_DOCUMENT:-}"
 METRIC_DEPTH_MINIMUM_DEPTH_M="${METRIC_DEPTH_MINIMUM_DEPTH_M:-0.4}"
 METRIC_DEPTH_MAXIMUM_DEPTH_M="${METRIC_DEPTH_MAXIMUM_DEPTH_M:-}"

@@ -301,6 +301,10 @@ def calibrate_charuco_directory(
     mount_yaw_right_deg: float,
     mount_roll_clockwise_deg: float,
     boresight_sigma_deg: float,
+    camera_offset_forward_m: float = 0.0,
+    camera_offset_right_m: float = 0.0,
+    camera_offset_down_m: float = 0.0,
+    camera_offset_sigma_m: float = 0.0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not calibration_id.strip():
         raise ValueError("calibration ID cannot be empty")
@@ -309,11 +313,25 @@ def calibrate_charuco_directory(
         mount_yaw_right_deg,
         mount_roll_clockwise_deg,
         boresight_sigma_deg,
+        camera_offset_forward_m,
+        camera_offset_right_m,
+        camera_offset_down_m,
+        camera_offset_sigma_m,
     )
     if not all(math.isfinite(value) for value in mount_values):
         raise ValueError("camera mount values must be finite")
     if not 0.0 < boresight_sigma_deg <= 10.0:
         raise ValueError("boresight uncertainty must be in (0, 10] degrees")
+    if camera_offset_sigma_m < 0.0:
+        raise ValueError("camera offset uncertainty cannot be negative")
+    if any(abs(value) > 100.0 for value in (
+        camera_offset_forward_m,
+        camera_offset_right_m,
+        camera_offset_down_m,
+    )):
+        raise ValueError("camera offset is outside the supported 100 m domain")
+    if camera_offset_sigma_m > 100.0:
+        raise ValueError("camera offset uncertainty is outside the supported 100 m domain")
 
     image_paths = discover_images(image_directory)
     observations, rejected, (width, height) = _detect_observations(
@@ -406,6 +424,10 @@ def calibrate_charuco_directory(
             "p2": float(coefficients[3]),
             "k3": float(coefficients[4]),
             "boresight_sigma_deg": boresight_sigma_deg,
+            "camera_offset_forward_m": camera_offset_forward_m,
+            "camera_offset_right_m": camera_offset_right_m,
+            "camera_offset_down_m": camera_offset_down_m,
+            "camera_offset_sigma_m": camera_offset_sigma_m,
         },
     }
     report = {
@@ -447,6 +469,10 @@ def calibrate_charuco_directory(
             "yaw_right_deg": mount_yaw_right_deg,
             "roll_clockwise_deg": mount_roll_clockwise_deg,
             "boresight_sigma_deg": boresight_sigma_deg,
+            "camera_offset_forward_m": camera_offset_forward_m,
+            "camera_offset_right_m": camera_offset_right_m,
+            "camera_offset_down_m": camera_offset_down_m,
+            "camera_offset_sigma_m": camera_offset_sigma_m,
             "explicit_operator_input": True,
         },
         "capabilities": {
@@ -509,6 +535,10 @@ def _parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--mount-yaw-right-deg", type=float, required=True)
     calibrate.add_argument("--mount-roll-clockwise-deg", type=float, required=True)
     calibrate.add_argument("--boresight-sigma-deg", type=float, required=True)
+    calibrate.add_argument("--camera-offset-forward-m", type=float, default=0.0)
+    calibrate.add_argument("--camera-offset-right-m", type=float, default=0.0)
+    calibrate.add_argument("--camera-offset-down-m", type=float, default=0.0)
+    calibrate.add_argument("--camera-offset-sigma-m", type=float, default=0.0)
     calibrate.add_argument("--calibration-out", type=Path, required=True)
     calibrate.add_argument("--report-out", type=Path, required=True)
     return parser
@@ -534,6 +564,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         mount_yaw_right_deg=args.mount_yaw_right_deg,
         mount_roll_clockwise_deg=args.mount_roll_clockwise_deg,
         boresight_sigma_deg=args.boresight_sigma_deg,
+        camera_offset_forward_m=args.camera_offset_forward_m,
+        camera_offset_right_m=args.camera_offset_right_m,
+        camera_offset_down_m=args.camera_offset_down_m,
+        camera_offset_sigma_m=args.camera_offset_sigma_m,
     )
     _atomic_json(args.report_out, report)
     if not report["passed"]:

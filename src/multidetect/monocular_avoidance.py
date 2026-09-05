@@ -8,6 +8,8 @@ from typing import Any
 
 from .vision import VisionDependencyError
 
+_CLOCK_QUANTIZATION_TOLERANCE_S = 1e-3
+
 
 class CollisionRiskState(str, Enum):
     CLEAR = "clear"
@@ -178,7 +180,12 @@ class MonocularCollisionRiskEvaluator:
         if not isfinite(captured_at_s) or not isfinite(produced_at_s):
             raise ValueError("avoidance timestamps must be finite")
         if captured_at_s > produced_at_s:
-            raise ValueError("avoidance source frame cannot postdate its result")
+            if captured_at_s - produced_at_s > _CLOCK_QUANTIZATION_TOLERANCE_S:
+                raise ValueError("avoidance source frame cannot postdate its result")
+            # A tie-broken frame timestamp can be a few microseconds ahead of
+            # a coarse Windows ``time.monotonic`` sample. Treat that bounded
+            # skew as same-cycle processing rather than rejecting the frame.
+            produced_at_s = captured_at_s
         if not isfinite(frame_interval_s) or frame_interval_s <= 0:
             raise ValueError("frame_interval_s must be finite and positive")
 

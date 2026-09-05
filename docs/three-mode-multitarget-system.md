@@ -334,7 +334,9 @@ QGC 需要显示：
 - `src/multidetect/multimodal_ranging.py`：实现相机内参、Brown-Conrady 畸变反解、相机到
   机体外参、Pixhawk 姿态、AGL/DEM/地面平面、带绝对尺度的 VIO 和可选激光测距融合；
   使用时间同步、年龄、归一化残差和最大一致子集门禁，输出斜距/地距、相对/绝对方位、
-  N/E 偏移、95% 区间、新鲜度、一致性与 `VALID/DEGRADED/INVALID`。相机标定 JSON 采用
+  N/E 偏移、95% 区间、新鲜度、一致性与 `VALID/DEGRADED/INVALID`。多源即使在硬门内仍有
+  超出声明协方差的残差，也会按 `χ²/(N-1)` 的 Birge ratio 放大融合 `σ` 并保持 `DEGRADED`，
+  防止室外目标落图出现过窄的误差圆。相机标定 JSON 采用
   严格模式：字段缺失、拼写错误或未知字段均拒绝启动，禁止使用猜测内参。实时循环只对当前
   统一主目标求解，并校验画面、姿态、位置和 AGL 的独立时间戳；该模块只读且无飞控、舵机
   或载荷接口。
@@ -370,7 +372,7 @@ QGC 需要显示：
   并与模式 3 `--approach-hil` 互斥。QGC 已加入原生风格模式 2 状态和连续滑动控件；滑动 ACK
   之后仍只进入火区安全规则与独立授权流程，不能直接触发模拟或物理释放。Python/C++ 双端使用
   同一组四帧黄金向量逐字节验证；协议自测、21 项定制 UI/安全测试、QML AOT 和完整 Windows
-  Release 链接均通过。最新 `MultiDetectGCS.exe` SHA-256 为
+  Release 链接均通过。该历史 pre.8 构建的 `MultiDetectGCS.exe` SHA-256 为
   `985FC06429C28F5A9E26A7C286112B7084D7D9C3275D313A4B2CA7074F73FA0B`。
 - `src/multidetect/approach_hil.py`：模式 3 的独立软件 HIL 状态机已实现。任何类别都可作为
   人工框选对象，但必须是当前锁定主目标；连续滑动令牌绑定目标 ID、修订号和短时有效期，
@@ -440,7 +442,7 @@ QGC 需要显示：
   挑战，遮挡、重捕获、恢复、失锁、测距/避障/遥测失效会锁存 `ABORT_CLIMB_SIM`。相邻定制
   QGC 已完成 12–15 类型的严格解码、Python/C++ 黄金向量、1 秒失鲜清除、Plan 第三模式、
   原生状态行和真实连续滑动控件；滑动必须从左端连续到 98% 以上并持续至少 600 ms。完整
-  Windows Release 编译和协议自测均通过，所有输出仍为 SITL/HIL 建议。2026-07-15 最新
+  Windows Release 编译和协议自测均通过，所有输出仍为 SITL/HIL 建议。2026-07-15 历史构建
   `MultiDetectGCS.exe` SHA-256 为
   `985FC06429C28F5A9E26A7C286112B7084D7D9C3275D313A4B2CA7074F73FA0B`；QGC 接收端还会
   依据连续 `TRACK_STATUS` 的源时间戳计算实际元数据频率，1 秒失鲜即清零。闭环 HIL 驱动

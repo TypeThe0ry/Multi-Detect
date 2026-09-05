@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import random
 from dataclasses import replace
 
@@ -16,6 +18,10 @@ from multidetect.domain import (
 )
 from multidetect.multimodal_ranging import RangeSourceContribution, RangeValidity
 from multidetect.operator_link import (
+    MAX_RANGE_STATUS_SOURCE_AGE_MS,
+    MAX_RANGE_STATUS_SOURCE_AGE_S,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_S,
     ApproachChallengeStatusMessage,
     ApproachConfirmationCommand,
     ApproachStatusMessage,
@@ -30,6 +36,9 @@ from multidetect.operator_link import (
     PayloadTargetStatusMessage,
     RangeStatusMessage,
     ReleaseStatusMessage,
+    RuntimeBackendHealth,
+    RuntimeMode,
+    RuntimeStatusMessage,
     SafetyStatusMessage,
     SceneContextRegionEntry,
     SceneContextState,
@@ -53,6 +62,7 @@ from multidetect.operator_protocol import (
     OperatorTunnelCodec,
     PayloadTargetConfirmationAck,
     PayloadTargetConfirmationAckReason,
+    RuntimeStatusAck,
     SelectionAck,
     SelectionAckReason,
     WireMessageType,
@@ -74,6 +84,11 @@ STATUS_ID = "33333333-3333-4333-8333-333333333333"
 
 def _codec() -> OperatorTunnelCodec:
     return OperatorTunnelCodec(hmac_key=KEY, geometries=(GEOMETRY,))
+
+
+def _resign(frame: bytes) -> bytes:
+    signed = frame[:-16]
+    return signed + hmac.new(KEY, signed, hashlib.sha256).digest()[:16]
 
 
 def _selection(**overrides: object) -> TargetSelectionCommand:
@@ -346,6 +361,86 @@ def test_range_status_round_trip_carries_uncertainty_and_consistency() -> None:
     assert message.physical_release_enabled is False
 
 
+def test_range_status_round_trip_supports_geometry_uncertainty_bit_31() -> None:
+    status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=104,
+        target_id="target-horizon",
+        calibration_id="camera-main-v2",
+        source_frame_id="jetson-frame-geometry-invalid",
+        source_captured_at_s=1_000.20,
+        produced_at_s=1_000.25,
+        validity=RangeValidity.INVALID,
+        reasons=("target_geometry_uncertainty_unbounded",),
+        sources=(),
+        rejected_sources=(),
+    )
+
+    encoded = _codec().encode_range_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert decoded.message_type is WireMessageType.RANGE_STATUS
+    message = decoded.message
+    assert isinstance(message, RangeStatusMessage)
+    assert message.validity is RangeValidity.INVALID
+    assert message.reasons == ("target_geometry_uncertainty_unbounded",)
+    assert message.slant_range_m is None
+    assert message.ground_range_m is None
+
+
+def test_range_status_rejects_stale_source_and_data_freshness() -> None:
+    status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=104,
+        target_id="target-fire-7",
+        calibration_id="camera-main-v2",
+        source_frame_id="jetson-frame-stale",
+        source_captured_at_s=100.0,
+        produced_at_s=100.0 + MAX_RANGE_STATUS_SOURCE_AGE_S,
+        validity=RangeValidity.VALID,
+        reasons=("multimodal_range_consistent",),
+        sources=("camera_ground",),
+        rejected_sources=(),
+        slant_range_m=20.0,
+        data_freshness_s=MAX_RANGE_STATUS_SOURCE_AGE_S,
+    )
+    # The exact 1.5 s contract boundary is inclusive before wire
+    # quantization; one microsecond past it is rejected fail-closed.
+    _codec().decode(_codec().encode_range_status(status))
+    with pytest.raises(ValueError, match="source frame age"):
+        replace(status, produced_at_s=100.0 + MAX_RANGE_STATUS_SOURCE_AGE_S + 0.000001)
+    with pytest.raises(ValueError, match="data freshness"):
+        replace(status, data_freshness_s=MAX_RANGE_STATUS_SOURCE_AGE_S + 0.000001)
+    with pytest.raises(ValueError, match="requires data_freshness_s"):
+        replace(status, data_freshness_s=None)
+    with pytest.raises(ValueError, match="timestamps"):
+        replace(status, source_captured_at_s=None)  # type: ignore[arg-type]
+
+    fresh_status = replace(status, produced_at_s=100.1, data_freshness_s=0.1)
+
+    encoded = bytearray(_codec().encode_range_status(fresh_status))
+    # The range body starts after the 20-byte envelope header; frameAgeMs is
+    # body bytes 68..69.  Re-sign to exercise the authenticated decoder gate.
+    encoded[88] = (MAX_RANGE_STATUS_SOURCE_AGE_MS + 1) >> 8
+    encoded[89] = (MAX_RANGE_STATUS_SOURCE_AGE_MS + 1) & 0xFF
+    with pytest.raises(OperatorProtocolError, match="source frame is stale"):
+        _codec().decode(_resign(bytes(encoded)))
+
+    encoded = bytearray(_codec().encode_range_status(fresh_status))
+    # dataFreshness is encoded as deciseconds at payload offset 70 (full
+    # frame offset 90).  1.6 s is outside the same 1.5 s evidence window.
+    encoded[90] = 0
+    encoded[91] = 16
+    with pytest.raises(OperatorProtocolError, match="data freshness is stale"):
+        _codec().decode(_resign(bytes(encoded)))
+
+    encoded = bytearray(_codec().encode_range_status(fresh_status))
+    encoded[90] = 0xFF
+    encoded[91] = 0xFF
+    with pytest.raises(OperatorProtocolError, match="data freshness is unavailable"):
+        _codec().decode(_resign(bytes(encoded)))
+
+
 def test_range_status_rejects_unregistered_reasons_and_control_flags() -> None:
     values = dict(
         status_id=STATUS_ID,
@@ -423,6 +518,54 @@ def test_target_geolocation_status_withholds_coordinates_when_gps_is_not_qualifi
 
     with pytest.raises(ValueError, match="cannot publish coordinates"):
         replace(status, latitude_deg=1.3)
+
+
+def test_target_geolocation_decoder_rejects_stale_source_age() -> None:
+    frame = bytes.fromhex(
+        "4d44011600000000006c00000000000f433a001ee65c7f305ba849ec9b383ba6daf97c12"
+        "010100c680573ddeb10d00430032d0434fd62d4fed131097ef34f1e1b3f7"
+    )
+    stale = bytearray(frame)
+    # The target-geolocation frame age is the final uint16 in the 46-byte
+    # tunnel body (full-frame offsets 48..49).  Re-sign so the freshness gate
+    # is exercised after authentication, matching the QGC self-test.
+    stale[48] = (MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS + 1) >> 8
+    stale[49] = (MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS + 1) & 0xFF
+    with pytest.raises(OperatorProtocolError, match="source frame is stale"):
+        _codec().decode(_resign(bytes(stale)))
+
+
+def test_target_geolocation_status_rejects_stale_available_source() -> None:
+    with pytest.raises(ValueError, match="source frame is stale"):
+        TargetGeolocationStatusMessage(
+            sequence=110,
+            target_id="target-fire-7",
+            source_frame_id="jetson-frame-stale",
+            source_captured_at_s=100.0,
+            produced_at_s=100.0 + MAX_TARGET_GEOLOCATION_SOURCE_AGE_S + 0.001,
+            available=True,
+            reason="gps_qualified",
+            latitude_deg=1.3008983,
+            longitude_deg=103.8004493,
+            horizontal_sigma_m=6.71,
+        )
+
+
+@pytest.mark.parametrize("latitude_deg", (-90.0, 90.0))
+def test_target_geolocation_status_rejects_exact_pole_coordinates(latitude_deg: float) -> None:
+    with pytest.raises(ValueError, match="outside the WGS-84 domain"):
+        TargetGeolocationStatusMessage(
+            sequence=111,
+            target_id="target-fire-7",
+            source_frame_id="jetson-frame-pole",
+            source_captured_at_s=100.0,
+            produced_at_s=100.1,
+            available=True,
+            reason="gps_qualified",
+            latitude_deg=latitude_deg,
+            longitude_deg=0.0,
+            horizontal_sigma_m=6.71,
+        )
 
 
 def test_release_status_round_trip_carries_bound_impact_uncertainty() -> None:
@@ -792,6 +935,162 @@ def test_payload_target_frames_match_qgc_golden_vectors_byte_for_byte() -> None:
         "00000000000002be0000000700000000000002bf00000008020028038bf2773d9e4deff1"
         "ca97368e7b4b0870"
     )
+
+
+def test_runtime_status_round_trip_fits_tunnel_payload_and_matches_qgc_golden() -> None:
+    status = RuntimeStatusMessage(
+        sequence=116,
+        mode=RuntimeMode.SIM,
+        backend_health=RuntimeBackendHealth.HEALTHY,
+        scenario_seed=0x0000000000010203,
+        scenario_hash64=0x1122334455667788,
+        airframe_profile_hash64=0x99AABBCCDDEEFF00,
+        run_hash64=0x0123456789ABCDEF,
+        scenario_present=True,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=101.02,
+    )
+
+    encoded = _codec().encode_runtime_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 72
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.RUNTIME_STATUS
+    assert decoded.message == status
+    assert encoded.hex() == (
+        "4d4401170000000000740000000000018a9c002402010b00000000000001020311223344"
+        "5566778899aabbccddeeff000123456789abcdef71d117da3f779776df5cff2d9cfd8a3d"
+    )
+
+
+def test_runtime_status_acceptance_ack_round_trip_and_golden_vector() -> None:
+    acknowledgement = RuntimeStatusAck(
+        acknowledged_runtime_sequence=116,
+        run_hash64=0x0123456789ABCDEF,
+    )
+
+    encoded = _codec().encode_runtime_status_ack(
+        acknowledgement,
+        sequence=117,
+        sent_at_s=101.025,
+    )
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 48
+    assert decoded.message_type is WireMessageType.RUNTIME_STATUS_ACK
+    assert decoded.sequence == 117
+    assert decoded.message == acknowledgement
+    assert encoded.hex() == (
+        "4d4401180000000000750000000000018aa1000c000000740123456789abcdef"
+        "4cd881cb1e13f077518cd60dd837383e"
+    )
+
+
+def test_runtime_status_acceptance_ack_rejects_mutation_and_zero_run_hash() -> None:
+    acknowledgement = RuntimeStatusAck(
+        acknowledged_runtime_sequence=9,
+        run_hash64=0x1122334455667788,
+    )
+    encoded = _codec().encode_runtime_status_ack(
+        acknowledgement,
+        sequence=10,
+        sent_at_s=10.5,
+    )
+
+    for index in range(len(encoded)):
+        mutated = bytearray(encoded)
+        mutated[index] ^= 0x01
+        with pytest.raises(OperatorProtocolError):
+            _codec().decode(bytes(mutated))
+
+    with pytest.raises(ValueError, match="run hash cannot be zero"):
+        RuntimeStatusAck(acknowledged_runtime_sequence=9, run_hash64=0)
+
+
+def test_runtime_status_every_single_byte_mutation_is_rejected() -> None:
+    status = RuntimeStatusMessage(
+        sequence=9,
+        mode=RuntimeMode.HIL,
+        backend_health=RuntimeBackendHealth.DEGRADED,
+        scenario_seed=0,
+        scenario_hash64=1,
+        airframe_profile_hash64=2,
+        run_hash64=3,
+        scenario_present=True,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=10.0,
+    )
+    encoded = _codec().encode_runtime_status(status)
+
+    for index in range(len(encoded)):
+        mutated = bytearray(encoded)
+        mutated[index] ^= 0x01
+        with pytest.raises(OperatorProtocolError):
+            _codec().decode(bytes(mutated))
+
+
+def test_runtime_status_rejects_authenticated_noncanonical_flags_and_fields() -> None:
+    status = RuntimeStatusMessage(
+        sequence=10,
+        mode=RuntimeMode.REAL,
+        backend_health=RuntimeBackendHealth.HEALTHY,
+        scenario_seed=None,
+        scenario_hash64=None,
+        airframe_profile_hash64=4,
+        run_hash64=5,
+        scenario_present=False,
+        ground_truth_isolated=True,
+        hardware_outputs_present=True,
+        profile_valid=True,
+        produced_at_s=11.0,
+    )
+    encoded = bytearray(_codec().encode_runtime_status(status))
+
+    encoded[22] |= 0x10
+    with pytest.raises(OperatorProtocolError, match="flags"):
+        _codec().decode(_resign(bytes(encoded)))
+
+    encoded = bytearray(_codec().encode_runtime_status(status))
+    encoded[31] = 1  # absent scenario seed must remain the canonical all-zero value
+    with pytest.raises(OperatorProtocolError, match="absent scenario"):
+        _codec().decode(_resign(bytes(encoded)))
+
+
+def test_runtime_status_rejects_authenticated_cross_mode_semantic_mismatch() -> None:
+    status = RuntimeStatusMessage(
+        sequence=11,
+        mode=RuntimeMode.SIM,
+        backend_health=RuntimeBackendHealth.HEALTHY,
+        scenario_seed=1,
+        scenario_hash64=2,
+        airframe_profile_hash64=3,
+        run_hash64=4,
+        scenario_present=True,
+        ground_truth_isolated=True,
+        hardware_outputs_present=False,
+        profile_valid=True,
+        produced_at_s=12.0,
+    )
+
+    missing_isolation = bytearray(_codec().encode_runtime_status(status))
+    missing_isolation[22] &= ~0x02
+    with pytest.raises(OperatorProtocolError, match="isolate ground truth"):
+        _codec().decode(_resign(bytes(missing_isolation)))
+
+    non_real_hardware = bytearray(_codec().encode_runtime_status(status))
+    non_real_hardware[22] |= 0x04
+    with pytest.raises(OperatorProtocolError, match="hardware outputs"):
+        _codec().decode(_resign(bytes(non_real_hardware)))
+
+    real_scenario = bytearray(_codec().encode_runtime_status(status))
+    real_scenario[20] = 4
+    with pytest.raises(OperatorProtocolError, match="cannot bind a scenario"):
+        _codec().decode(_resign(bytes(real_scenario)))
 
 
 def test_payload_target_ineligible_status_cannot_fabricate_aimpoint_or_confirmation() -> None:

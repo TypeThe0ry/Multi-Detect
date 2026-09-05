@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "river_rescue_vtol_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "river_rescue_vtol_001.runtime.json",
+      "sha256": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587"
+    },
+    "truth": {
+      "path": "river_rescue_vtol_001.truth.json",
+      "sha256": "30c10cb7db71edd297819a5b3d62174c89ead12491f895b0db5f61318f6b2896"
+    },
+    "expectations": {
+      "path": "river_rescue_vtol_001.expectations.json",
+      "sha256": "41f78b407a68d03684cadf6357d4aa981c99cd1342c48e02f0b542c1856d41a3"
+    }
+  }
+}

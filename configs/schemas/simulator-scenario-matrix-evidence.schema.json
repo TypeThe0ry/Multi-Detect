@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/simulator-scenario-matrix-evidence.schema.json",
+  "title": "Multi-Detect deterministic simulator scenario matrix evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "product",
+    "release_label",
+    "python_version",
+    "scenario_directory",
+    "scenario_count",
+    "scenario_ids",
+    "modes",
+    "requested_frames",
+    "dt_s",
+    "enable_ai",
+    "arm_on_start",
+    "repeatability_checked",
+    "required_modes",
+    "scenarios",
+    "gate_passed",
+    "deterministic_gate_passed",
+    "claims",
+    "external_runtime_required_for_real_3d",
+    "truth_loaded",
+    "truth_free",
+    "sha256"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["release_label"],
+        "properties": {"release_label": {"const": "0.3.0"}}
+      },
+      "then": {
+        "required": ["fault_coverage_required", "fault_coverage_auto_extended"],
+        "properties": {
+          "fault_coverage_required": {"const": true},
+          "fault_coverage_auto_extended": {"const": true},
+          "scenarios": {
+            "items": {"required": ["fault_coverage"]}
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "simulator_scenario_matrix_finished"},
+    "product": {"const": "Multi-Detect"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"},
+    "python_version": {"type": "string", "pattern": "^0\\.3\\.0(?:rc[1-9][0-9]*)?$"},
+    "scenario_directory": {"type": "string", "minLength": 1},
+    "scenario_count": {"type": "integer", "minimum": 1},
+    "scenario_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "modes": {
+      "type": "array",
+      "items": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+      "uniqueItems": true
+    },
+    "requested_frames": {"type": "integer", "minimum": 1},
+    "requested_frames_before_fault_coverage": {"type": "integer", "minimum": 1},
+    "dt_s": {"type": "number", "exclusiveMinimum": 0},
+    "enable_ai": {"type": "boolean"},
+    "arm_on_start": {"type": "boolean"},
+    "repeatability_checked": {"type": "boolean"},
+    "fault_coverage_required": {"type": "boolean"},
+    "fault_coverage_auto_extended": {"type": "boolean"},
+    "fault_coverage_tail_s": {"type": "number", "minimum": 0},
+    "required_modes": {
+      "const": ["fixed-wing", "multirotor", "vtol"]
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "manifest",
+          "scenario_id",
+          "scenario_version",
+          "scenario_manifest_hash",
+          "mode",
+          "seed",
+          "requested_frames",
+          "completed_frames",
+          "terminal_reason",
+          "active_fault_ids",
+          "fault_events",
+          "closed",
+          "truth_loaded",
+          "truth_free",
+          "evidence_hash",
+          "repeat_evidence_hash",
+          "runtime_descriptor_hash",
+          "runtime_descriptor",
+          "world_origin",
+          "clock",
+          "flight_model_mode",
+          "ai_attempted_steps",
+          "ai_accepted_steps",
+          "ai_rejected_steps",
+          "ai_failsafe_steps",
+          "ai_watchdog_failsafe_steps",
+          "control_messages_sent",
+          "gate_passed",
+          "failure_reasons"
+        ],
+        "properties": {
+          "manifest": {"type": "string", "minLength": 1},
+          "scenario_id": {"type": "string", "minLength": 1},
+          "scenario_version": {"type": "integer", "minimum": 1},
+          "scenario_manifest_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+          "seed": {"type": "integer", "minimum": 0},
+          "requested_frames": {"type": "integer", "minimum": 1},
+          "completed_frames": {"type": "integer", "minimum": 0},
+          "terminal_reason": {"type": "string", "minLength": 1},
+          "active_fault_ids": {"type": "array", "items": {"type": "string"}},
+          "fault_events": {"type": "array", "items": {"type": "object"}},
+          "fault_coverage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "declared_event_count",
+              "fired_event_count",
+              "active_event_count",
+              "fired_event_ids",
+              "active_event_ids",
+              "uncovered_event_ids",
+              "duplicate_event_ids",
+              "invalid_event_count",
+              "coverage_ratio",
+              "all_declared_faults_exercised"
+            ],
+            "properties": {
+              "declared_event_count": {"type": "integer", "minimum": 0},
+              "fired_event_count": {"type": "integer", "minimum": 0},
+              "active_event_count": {"type": "integer", "minimum": 0},
+              "fired_event_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+              "active_event_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+              "uncovered_event_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+              "duplicate_event_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+              "invalid_event_count": {"type": "integer", "minimum": 0},
+              "coverage_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+              "all_declared_faults_exercised": {"type": "boolean"}
+            }
+          },
+          "closed": {"type": "boolean"},
+          "truth_loaded": {"const": false},
+          "truth_free": {"const": true},
+          "evidence_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "repeat_evidence_hash": {
+            "anyOf": [
+              {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+              {"type": "null"}
+            ]
+          },
+          "runtime_descriptor_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "runtime_descriptor": {"type": "object"},
+          "world_origin": {"type": ["object", "null"]},
+          "clock": {"type": ["object", "null"]},
+          "flight_model_mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+          "ai_attempted_steps": {"type": "integer", "minimum": 0},
+          "ai_accepted_steps": {"type": "integer", "minimum": 0},
+          "ai_rejected_steps": {"type": "integer", "minimum": 0},
+          "ai_failsafe_steps": {"type": "integer", "minimum": 0},
+          "ai_watchdog_failsafe_steps": {"type": "integer", "minimum": 0},
+          "control_messages_sent": {"type": "integer", "minimum": 0},
+          "gate_passed": {"type": "boolean"},
+          "failure_reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "gate_passed": {"type": "boolean"},
+    "deterministic_gate_passed": {"type": "boolean"},
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shared_truth_free_scenario_runner",
+        "shared_ai_authority_watchdog_path",
+        "all_selected_scenarios_passed",
+        "external_3d_runtime",
+        "qgc_visual_acceptance",
+        "hardware_acceptance",
+        "real_flight_acceptance"
+      ],
+      "properties": {
+        "shared_truth_free_scenario_runner": {"type": "boolean"},
+        "shared_ai_authority_watchdog_path": {"type": "boolean"},
+        "all_selected_scenarios_passed": {"type": "boolean"},
+        "external_3d_runtime": {"const": "not_claimed"},
+        "qgc_visual_acceptance": {"const": "not_claimed"},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "real_flight_acceptance": {"const": "not_claimed"}
+      }
+    },
+    "external_runtime_required_for_real_3d": {"const": true},
+    "truth_loaded": {"const": false},
+    "truth_free": {"const": true},
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+  }
+}

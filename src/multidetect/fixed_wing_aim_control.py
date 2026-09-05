@@ -360,6 +360,13 @@ class FixedWingAimExecutor:
         self._last_rc_sample_at_s: float | None = None
         self._pilot_cancelled_binding: tuple[str, int] | None = None
 
+    @property
+    def flight_control_enabled(self) -> bool:
+        """Return the transport's live output state, failing closed when malformed."""
+
+        value = getattr(self.transport, "flight_control_enabled", True)
+        return value if isinstance(value, bool) else False
+
     def step(
         self,
         *,

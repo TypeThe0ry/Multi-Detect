@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/local-dem-grid.schema.json",
+  "title": "Multi-Detect Repository-Owned Local DEM Grid",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "coordinate_reference",
+    "vertical_datum",
+    "origin",
+    "north_origin_m",
+    "east_origin_m",
+    "north_spacing_m",
+    "east_spacing_m",
+    "elevation_m",
+    "vertical_sigma_m",
+    "slope_sigma_m_per_m"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "coordinate_reference": {"const": "WGS84"},
+    "vertical_datum": {"const": "MSL"},
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["latitude_deg", "longitude_deg", "elevation_m"],
+      "properties": {
+        "latitude_deg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+        "longitude_deg": {"type": "number", "minimum": -180, "maximum": 180},
+        "elevation_m": {"type": "number", "minimum": -500, "maximum": 9000}
+      }
+    },
+    "north_origin_m": {"type": "number"},
+    "east_origin_m": {"type": "number"},
+    "north_spacing_m": {"type": "number", "exclusiveMinimum": 0},
+    "east_spacing_m": {"type": "number", "exclusiveMinimum": 0},
+    "elevation_m": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": {"type": "number", "minimum": -500, "maximum": 9000}
+      }
+    },
+    "vertical_sigma_m": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
+    "slope_sigma_m_per_m": {"type": "number", "minimum": 0, "maximum": 1}
+  }
+}

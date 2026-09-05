@@ -148,6 +148,24 @@ def test_strict_ranging_loader_accepts_calibrator_output_shape(tmp_path: Path) -
     assert load_camera_calibration(path).calibration_id == "camera-main-test"
 
 
+def test_camera_calibration_schema_declares_optional_lever_arm_contract() -> None:
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "schemas"
+        / "camera-calibration.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert schema["additionalProperties"] is False
+    calibration = schema["$defs"]["calibration"]
+    assert calibration["additionalProperties"] is False
+    assert calibration["properties"]["camera_offset_forward_m"]["minimum"] == -100
+    assert calibration["properties"]["camera_offset_right_m"]["maximum"] == 100
+    assert calibration["properties"]["camera_offset_sigma_m"]["minimum"] == 0
+
+
 def test_physical_projection_dataset_passes_and_recovers_intrinsics(tmp_path: Path) -> None:
     spec = CharucoBoardSpec()
     board_image = spec.create().generateImage((1400, 1000), marginSize=0, borderBits=1)
@@ -227,9 +245,18 @@ def test_physical_projection_dataset_passes_and_recovers_intrinsics(tmp_path: Pa
         mount_yaw_right_deg=0.0,
         mount_roll_clockwise_deg=0.0,
         boresight_sigma_deg=0.5,
+        camera_offset_forward_m=0.42,
+        camera_offset_right_m=-0.08,
+        camera_offset_down_m=0.16,
+        camera_offset_sigma_m=0.03,
     )
 
     assert report["passed"] is True
     assert all(report["gates"].values())
     assert calibration["calibration"]["fx_px"] == pytest.approx(900.0, rel=0.02)
     assert calibration["calibration"]["fy_px"] == pytest.approx(910.0, rel=0.02)
+    assert calibration["calibration"]["camera_offset_forward_m"] == pytest.approx(0.42)
+    assert calibration["calibration"]["camera_offset_right_m"] == pytest.approx(-0.08)
+    assert calibration["calibration"]["camera_offset_down_m"] == pytest.approx(0.16)
+    assert calibration["calibration"]["camera_offset_sigma_m"] == pytest.approx(0.03)
+    assert report["mount_survey"]["camera_offset_sigma_m"] == pytest.approx(0.03)

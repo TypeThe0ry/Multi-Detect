@@ -142,6 +142,17 @@ class IoUMultiObjectTracker:
     def remembered_frame_id_count(self) -> int:
         return len(self._frame_id_history)
 
+    @property
+    def last_frame_time_s(self) -> float | None:
+        """Timestamp of the last accepted frame, if this tracker has seen one.
+
+        Windows Python can expose ``time.monotonic`` with a coarse clock
+        quantum.  The live runner uses this read-only watermark to tie-break
+        duplicate source timestamps without reaching into tracker internals.
+        """
+
+        return self._last_frame_time_s
+
     def update(self, observation: FrameObservation) -> tuple[TrackSnapshot, ...]:
         """Process one strictly ordered frame and return all active tracks."""
 

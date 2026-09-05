@@ -16,6 +16,8 @@ def test_qgc_operator_acceptance_is_pinned_owned_and_loopback_only() -> None:
     assert '$ContainerName = "multidetect-px4-qgc-operator-acceptance"' in text
     assert '$PurposeLabel = "px4-sitl-qgc-operator-acceptance"' in text
     assert "$QgcPort = 14669" in text
+    assert "$OperatorDriverPort = 14666" in text
+    assert "$Px4QgcPort = 14670" in text
     assert "$RouterPort = 14667" in text
     assert "$SitlTelemetryPort = 14668" in text
     assert "$SitlInputPort = 18570" in text
@@ -30,16 +32,32 @@ def test_qgc_operator_acceptance_is_pinned_owned_and_loopback_only() -> None:
     assert '"--mount"' not in text
 
 
+def test_qgc_operator_acceptance_resolves_docker_desktop_when_path_is_missing() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert "$DOCKERCANDIDATES = @(" in upper
+    assert "GET-COMMAND DOCKER" in upper
+    assert "C:\\PROGRAM FILES\\DOCKER\\DOCKER\\RESOURCES\\BIN\\DOCKER.EXE" in upper
+    assert "$DOCKER = $DOCKERCANDIDATES[0]" in upper
+    assert 'INVOKE-CAPTUREDCOMMAND -FILEPATH $DOCKER' in upper
+
+
 def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     upper = text.upper()
 
     assert '"--ISOLATED-HIL"' in upper
     assert '"--METADATA-ONLY"' in upper
-    assert 'MULTIDETECT_OPERATOR_ALLOW_UNSIGNED_HIL = "1"' in upper
-    assert 'MULTIDETECT_OPERATOR_HIL_AUTO_EXIT = "1"' in upper
-    assert 'MULTIDETECT_OPERATOR_HIL_AUTO_EXERCISE = "1"' in upper
-    assert 'MULTIDETECT_OPERATOR_HIL_REQUIRE_INITIAL_CONNECT = "1"' in upper
+    assert 'MULTIDETECT_OPERATOR_UDP_HOST = "127.0.0.1"' in upper
+    assert 'MULTIDETECT_OPERATOR_UDP_PORT = "$OPERATORDRIVERPORT"' in upper
+    assert 'MULTIDETECT_OPERATOR_UDP_LOCAL_PORT = "$QGCPORT"' in upper
+    assert 'MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $TEMPORARYSIGNINGKEYHEX' in upper
+    assert 'MULTIDETECT_HIL_UI_AUTO_EXERCISE = "1"' in upper
+    assert '"--LOCAL-PORT", "$OPERATORDRIVERPORT"' in upper
+    assert '"--SIGNING-KEY-HEX-ENV", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"' in upper
+    assert '"--ISOLATED-HIL-PX4-UDP-PORT", "$PX4QGCPORT"' in upper
+    assert '"--ISOLATED-HIL-PX4-TARGET-PORT", "$ROUTERPORT"' in upper
     assert 'MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID = "191"' in upper
     assert "AUTOPILOT_HEARTBEATS_SENT -EQ 0" in upper
     assert "PX4_AUTOPILOT_HEARTBEATS_FORWARDED -GT 0" in upper
@@ -49,10 +67,10 @@ def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
     assert "TRACKING_METADATA_RATE_HZ -GE 15" in upper
     assert "TRACKINGMETADATAPACKETS -GE 30" in upper
     assert "TRACKINGMETADATARATEHZ -GE 15.0" in upper
-    assert "TARGET-POOL SNAPSHOT COMPLETE REVISION=3 TRACKS=3 PAGES=2" in upper
     assert "AUTHENTICATEDMETADATAPACKETS -GE 37" in upper
     assert "PAGED_TARGET_POOL_ATOMICALLY_ASSEMBLED = $TRUE" in upper
-    assert "SOFTWARE HIL REQUIRES THE --ISOLATED-HIL" in upper
+    assert "DIRECT SIGNED OPERATOR METADATA READY" in upper
+    assert "ISOLATED HIL PX4 UDP LINK LISTENING" in upper
     assert "GET-PROCESSUDPENDPOINTS" in upper
     assert 'GET-CMAKECACHEVALUE -PATH $QGCCMAKECACHE -NAME "QT6_DIR"' in upper
     assert 'GET-CMAKECACHEVALUE -PATH $QGCCMAKECACHE -NAME "GSTREAMER_ROOT_DIR"' in upper

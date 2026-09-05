@@ -103,18 +103,47 @@ QtObject {
     property bool payloadTargetAimpointPresent: false
     property bool payloadTargetConfirmationAccepted: false
     property bool fireAlert: false
-    readonly property bool fixedWingAimControlEnabled: approachStatusFresh &&
+    readonly property bool fixedWingAimControlEnabled: !replaySafetyActive && approachStatusFresh &&
                                                          approachFlightControlEnabled
-    readonly property bool fixedWingAimActive: missionMode === "OBSERVE" &&
-                                                 approachStatusFresh &&
-                                                 approachAimControlActive &&
-                                                 !approachPilotInputCancelled
-    readonly property bool mode3AimUiActive: missionMode === "OBSERVE" &&
-                                              !approachPilotInputCancelled &&
-                                              (mode3ExecutionLatched || fixedWingAimActive)
+    readonly property bool fixedWingAimActive: !replaySafetyActive && missionMode === "OBSERVE" &&
+                                                   approachStatusFresh &&
+                                                   fixedWingAimControlEnabled &&
+                                                   approachAimControlActive &&
+                                                   !approachPilotInputCancelled
+    readonly property bool mode3AimUiActive: !replaySafetyActive && missionMode === "OBSERVE" &&
+                                               !approachPilotInputCancelled &&
+                                               (mode3ExecutionLatched || fixedWingAimActive)
     property real jetsonFps: 0.0
     property real jetsonTemperatureC: 0.0
     readonly property string metadataLinkState: _operator !== null ? _operator.linkState : "UNAVAILABLE"
+    // This is derived only from an outer-MAVLink-signed and inner-HMAC-
+    // authenticated RuntimeStatus packet. Missing or expired metadata is
+    // cleared by C++ and therefore always renders UNKNOWN here.
+    readonly property var runtimeStatus: _operator !== null ? _operator.runtimeStatus : ({})
+    readonly property string expectedRuntimeMode: _operator !== null ? _operator.expectedRuntimeMode : ""
+    readonly property string runtimeDisplayMode: _operator !== null ? _operator.runtimeDisplayMode : "UNKNOWN"
+    readonly property string runtimeRemoteMode: runtimeStatus.mode !== undefined ? runtimeStatus.mode : "UNKNOWN"
+    readonly property string runtimeBackendHealth: runtimeStatus.backendHealth !== undefined ?
+                                                       runtimeStatus.backendHealth : "UNKNOWN"
+    readonly property bool runtimeProfileValid: runtimeStatus.profileValid === true
+    readonly property bool runtimeEnvironmentHealthy: runtimeProfileValid &&
+                                                       runtimeBackendHealth === "HEALTHY" &&
+                                                       ["REPLAY", "SIM", "HIL", "REAL"].indexOf(runtimeDisplayMode) >= 0
+    readonly property bool runtimeModeMismatch: runtimeDisplayMode === "MISMATCH"
+    readonly property bool vehicleLinkDisabled: (typeof multiDetectVehicleLinkDisabled !== "undefined") &&
+                                                multiDetectVehicleLinkDisabled === true
+    // Runtime identity and process-level vehicle-link isolation are separate
+    // facts. runtimeDisplayMode is the fail-closed, authenticated UI identity;
+    // expected/remote REPLAY signals still activate the existing safety gate.
+    readonly property bool replayRuntimeIdentity: runtimeDisplayMode === "REPLAY"
+    readonly property bool replayIsolationRequested: expectedRuntimeMode === "REPLAY" ||
+                                                     runtimeRemoteMode === "REPLAY" ||
+                                                     replayRuntimeIdentity
+    readonly property bool vehicleLinkIsolationActive: vehicleLinkDisabled
+    readonly property bool physicalActionIsolationActive: replayIsolationRequested || vehicleLinkIsolationActive
+    // Compatibility name retained for the existing action/state-machine gate.
+    readonly property bool replaySafetyActive: physicalActionIsolationActive
+    readonly property bool physicalActionsAllowed: !replaySafetyActive
     readonly property real trackingMetadataRateHz: _operator !== null ? _operator.trackingMetadataRateHz : 0.0
     // Candidate/TRK/LCK boxes are received through paged target-pool snapshots.
     // Keep their measured cadence separate from the single-target TrackStatus
@@ -147,7 +176,7 @@ QtObject {
     readonly property bool lckActionable: interactionState === "LCK" && targetBoxValid &&
                                            hasConfirmedPrimaryLock &&
                                            !(missionMode === "OBSERVE" && approachPilotInputCancelled)
-    readonly property bool executionActionable: vehicleArmed && lckActionable
+    readonly property bool executionActionable: physicalActionsAllowed && vehicleArmed && lckActionable
     readonly property bool operatorConfigured: _operator !== null && _operator.configured
 
     signal lckCueRequested()
@@ -174,8 +203,66 @@ QtObject {
         mode3ExecutionCueRequested();
     }
 
+    function replaySafetyStatusText() {
+        return qsTr("REPLAY 只读隔离：车辆链路、执行、授权、载荷与飞控动作均已禁用；框选、TRK、LCK 与取消仍可用于元数据回放");
+    }
+
+    function physicalActionIsolationStatusText() {
+        if (replayRuntimeIdentity)
+            return replaySafetyStatusText();
+        return qsTr("车辆链路/执行/授权已隔离：载荷与飞控动作均已禁用");
+    }
+
+    function mode3AimBannerTitleText() {
+        if (!mode3AimUiActive)
+            return qsTr("遥控输入已接管 · 瞄准已取消");
+        if (approachPhase === "ABORT")
+            return qsTr("模式 3 瞄准状态异常");
+        if (!approachStatusFresh || metadataLinkState === "STALE")
+            return qsTr("模式 3 瞄准状态待确认");
+        if (!fixedWingAimControlEnabled)
+            return qsTr("模式 3 目标已确认 · 飞控输出锁定");
+        if (fixedWingAimActive)
+            return qsTr("模式 3 正在瞄准");
+        return qsTr("模式 3 等待控制接管");
+    }
+
+    function mode3AimBannerDetailText() {
+        if (!mode3AimUiActive)
+            return qsTr("目标保持 LCK");
+        if (approachPhase === "ABORT")
+            return qsTr("飞控输出已停止；请明确取消或重新选择目标");
+        if (!approachStatusFresh || metadataLinkState === "STALE")
+            return qsTr("等待新鲜 Jetson 状态；不会发送飞控命令");
+        if (!fixedWingAimControlEnabled)
+            return qsTr("仅显示姿态建议；不会发送姿态或模式命令");
+        return qsTr("遥控器任意按钮、拨杆或右侧按钮均可立即取消");
+    }
+
+    function _enterReplaySafetyState() {
+        authorizationChallengeActive = false;
+        authorizationExpiresInS = 0;
+        authorizationState = "NONE";
+        authorizationTimer.stop();
+        approachChallengeActive = false;
+        approachChallengeExpiresInS = 0;
+        approachChallengeTimer.stop();
+        payloadTargetChallengeActive = false;
+        payloadTargetChallengeExpiresInS = 0;
+        mode3ExecutionLatched = false;
+        approachFlightControlEnabled = false;
+        approachAimControlActive = false;
+        manualReleaseRequestLatched = false;
+        _missionSafetyAllowed = false;
+        _ruleSafetyAllowed = false;
+        safetyAllowed = false;
+        if (interactionState === "TGT")
+            _updateInteractionState();
+        statusMessage = physicalActionIsolationStatusText();
+    }
+
     function _refreshApproachChallenge() {
-        if (_operator === null) {
+        if (replaySafetyActive || _operator === null) {
             approachChallengeActive = false;
             approachChallengeExpiresInS = 0;
             approachChallengeTimer.stop();
@@ -200,7 +287,7 @@ QtObject {
     }
 
     function _refreshPayloadTargetChallenge() {
-        if (_operator === null) {
+        if (replaySafetyActive || _operator === null) {
             payloadTargetChallengeActive = false;
             payloadTargetChallengeExpiresInS = 0;
             return;
@@ -223,6 +310,11 @@ QtObject {
             _mode3ExecutionCuePlayed = false;
     }
 
+    onReplaySafetyActiveChanged: {
+        if (replaySafetyActive)
+            _enterReplaySafetyState();
+    }
+
     onConfirmedPrimaryLockTargetIdChanged: {
         if (confirmedPrimaryLockTargetId === "")
             _lastLockedCueTargetId = "";
@@ -230,6 +322,10 @@ QtObject {
 
     property Connections operatorConnections: Connections {
         function onApproachAcknowledged(acknowledgement) {
+            if (root.replaySafetyActive) {
+                root._enterReplaySafetyState();
+                return;
+            }
             if (!acknowledgement.correlated)
                 return;
             root.approachChallengeActive = false;
@@ -248,6 +344,10 @@ QtObject {
         }
 
         function onPayloadTargetAcknowledged(acknowledgement) {
+            if (root.replaySafetyActive) {
+                root._enterReplaySafetyState();
+                return;
+            }
             if (!acknowledgement.correlated)
                 return;
             root.payloadTargetChallengeActive = false;
@@ -260,6 +360,10 @@ QtObject {
         }
 
         function onAuthorizationAcknowledged(acknowledgement) {
+            if (root.replaySafetyActive) {
+                root._enterReplaySafetyState();
+                return;
+            }
             if (!acknowledgement.correlated)
                 return;
             root.authorizationChallengeActive = false;
@@ -278,6 +382,10 @@ QtObject {
         }
 
         function onAuthorizationChallengeReceived(challenge) {
+            if (root.replaySafetyActive) {
+                root._enterReplaySafetyState();
+                return;
+            }
             if (root.missionMode !== "PAYLOAD") {
                 root.authorizationChallengeActive = false;
                 root.authorizationState = "NONE";
@@ -317,16 +425,21 @@ QtObject {
             root.approachClimbAdviceDeg = Number.isFinite(status.climbPitchAdviceDeg) ? status.climbPitchAdviceDeg : 0.0;
             root.approachGroundRangeM = Number.isFinite(status.groundRangeM) ? status.groundRangeM : -1.0;
             root.approachStatusFresh = true;
-            root.approachFlightControlEnabled = status.flightControlEnabled === true;
-            root.approachAimControlActive = status.aimControlActive === true;
+            root.approachFlightControlEnabled = !root.replaySafetyActive && status.flightControlEnabled === true;
+            root.approachAimControlActive = !root.replaySafetyActive && status.aimControlActive === true;
             root.approachPilotInputCancelled = status.pilotInputCancelled === true;
+            if (root.replaySafetyActive) {
+                root.mode3ExecutionLatched = false;
+                root.statusMessage = root.physicalActionIsolationStatusText();
+                return;
+            }
             if (root.missionMode === "OBSERVE") {
                 root.missionPhase = status.phase;
                 if (root.approachPilotInputCancelled) {
                     root.mode3ExecutionLatched = false;
                     root.interactionState = "LCK";
                     root.statusMessage = qsTr("遥控输入已接管 · 模式 3 瞄准已取消");
-                } else if (root.approachAimControlActive) {
+                } else if (root.fixedWingAimActive) {
                     root.mode3ExecutionLatched = true;
                     root.interactionState = "TGT";
                     root.statusMessage = qsTr("模式 3 正在瞄准");
@@ -357,7 +470,12 @@ QtObject {
             }
             root.payloadTargetEligibility = status.eligibility;
             root.payloadTargetAimpointPresent = status.aimpointPresent;
-            root.payloadTargetConfirmationAccepted = status.confirmationAccepted;
+            root.payloadTargetConfirmationAccepted = !root.replaySafetyActive && status.confirmationAccepted;
+            if (root.replaySafetyActive) {
+                root.payloadTargetChallengeActive = false;
+                root.statusMessage = root.physicalActionIsolationStatusText();
+                return;
+            }
             if (root.missionMode !== "PAYLOAD")
                 return;
             if (status.confirmationAccepted) {
@@ -377,6 +495,13 @@ QtObject {
 
         function onTargetPoolChanged() {
             root.targetPoolEntries = root._operator.targetPool;
+            // A complete target-pool replacement is the authoritative cadence
+            // used to resolve a manual CANCEL_TRK that was sent before Jetson
+            // assigned a stable target id.  Keep this generation separate from
+            // transport sequence numbers (which are intentionally hidden by
+            // the controller) so the UI can distinguish "no pool observed yet"
+            // from an authoritative snapshot with no matching box.
+            root.targetPoolGeneration += 1;
             root._reconcilePendingTargetActions();
             root._reconcileDemotedPrimaryLock(root.targetPoolEntries);
             root._observeConfirmedPrimaryLock(root.targetPoolEntries);
@@ -406,11 +531,13 @@ QtObject {
                 root.reconnectSelectionTimer.stop();
                 root._resetSafetyAndAuthorization();
                 root._resetRangeStatus();
+                root._resetTargetGeolocationStatus();
                 root._resetReleaseStatus();
                 root._resetApproachStatus();
                 root._resetPayloadTargetStatus();
                 root.confirmedPrimaryLockTargetId = "";
                 root.targetPoolEntries = [];
+                root.pendingCancelledTargetBoxes = [];
                 root._resetSceneContext();
                 root.statusMessage = qsTr("Jetson 目标元数据超时；安全与授权状态已失效");
             } else if (root._operator.linkState === "AUTHENTICATED" &&
@@ -425,11 +552,11 @@ QtObject {
         function onMissionStatusReceived(status) {
             root.missionPhase = status.phase;
             root.releaseWindow = status.releaseWindow;
-            root.authorizationState = status.authorizationState;
+            root.authorizationState = root.replaySafetyActive ? "NONE" : status.authorizationState;
             root.remainingPayloadCount = status.remainingPayloadCount;
             root.totalPayloadCount = status.totalPayloadCount;
             root.activePayloadSlot = status.activePayloadSlot;
-            root._missionSafetyAllowed = status.safetyKnown && status.safetyAllowed;
+            root._missionSafetyAllowed = !root.replaySafetyActive && status.safetyKnown && status.safetyAllowed;
             root.safetyAllowed = root._missionSafetyAllowed && root._ruleSafetyAllowed;
             // MissionStatus is mission-wide telemetry and can legitimately lag
             // behind a just-selected TRK/LCK target.  The target pool owns an
@@ -515,14 +642,16 @@ QtObject {
         function onRangeStatusReceived(status) {
             root.rangeTargetId = status.targetId;
             root.rangeCalibrationId = status.calibrationId;
-            root.rangeValidity = status.validity;
+            root.rangeSourceFrameId = String(status.sourceFrameId || "");
+            root.rangeValidity = String(status.validity || "UNAVAILABLE").toUpperCase();
             root.rangeSlantM = Number.isFinite(status.slantRangeM) ? status.slantRangeM : -1.0;
             root.rangeGroundM = Number.isFinite(status.groundRangeM) ? status.groundRangeM : -1.0;
             root.rangeSlantLowM = Number.isFinite(status.slantRangeLowM) ? status.slantRangeLowM : -1.0;
             root.rangeSlantHighM = Number.isFinite(status.slantRangeHighM) ? status.slantRangeHighM : -1.0;
             root.rangeRelativeBearingDeg = Number.isFinite(status.relativeBearingDeg) ? status.relativeBearingDeg : 0.0;
             root.rangeBearingAvailable = Number.isFinite(status.relativeBearingDeg);
-            root.rangeSourceAgeMs = status.sourceAgeMs;
+            const sourceAgeMs = status.sourceAgeMs;
+            root.rangeSourceAgeMs = Number.isFinite(sourceAgeMs) && sourceAgeMs >= 0.0 ? sourceAgeMs : NaN;
             root.rangeDataFreshnessS = Number.isFinite(status.dataFreshnessS) ? status.dataFreshnessS : -1.0;
             root.rangeSensorConsistency = status.sensorConsistency;
             root.rangeReasons = status.reasons;
@@ -549,9 +678,17 @@ QtObject {
                     root.targetId !== root.rangeTargetId) {
                 root._adoptTargetPoolEntry(matchingTrackedEntry);
             }
-            if (root.rangeSlantM >= 0.0 && rangeBelongsToCurrentTarget) {
+            const rangeUsable = root.rangeValidity === "VALID" || root.rangeValidity === "DEGRADED";
+            const rangeFresh = root.rangeStatusFresh;
+            if (rangeUsable && rangeFresh && root.rangeSlantM >= 0.0 && rangeBelongsToCurrentTarget) {
                 root.estimatedRangeM = root.rangeSlantM;
                 root.targetRangeUpdatedAtMs = Date.now();
+            } else if ((!rangeUsable || !rangeFresh) && rangeBelongsToCurrentTarget) {
+                // INVALID/UNAVAILABLE diagnostics must not leave the previous
+                // numeric distance visible as if it were a current measurement.
+                // The same applies to an authenticated but stale range packet.
+                root.estimatedRangeM = 0.0;
+                root.targetRangeUpdatedAtMs = 0;
             }
         }
 
@@ -560,7 +697,8 @@ QtObject {
             root.targetGeolocationSourceFrameId = String(status.sourceFrameId || "");
             root.targetGeolocationAvailable = status.available === true;
             root.targetGeolocationReason = String(status.reason || "");
-            root.targetGeolocationSourceAgeMs = Number(status.sourceAgeMs || 0);
+            const sourceAgeMs = status.sourceAgeMs;
+            root.targetGeolocationSourceAgeMs = Number.isFinite(sourceAgeMs) && sourceAgeMs >= 0.0 ? sourceAgeMs : NaN;
             root.targetLatitudeDeg = Number.isFinite(status.latitudeDeg) ? status.latitudeDeg : NaN;
             root.targetLongitudeDeg = Number.isFinite(status.longitudeDeg) ? status.longitudeDeg : NaN;
             root.targetHorizontalSigmaM = Number.isFinite(status.horizontalSigmaM) ?
@@ -604,7 +742,7 @@ QtObject {
             root.safetyPassCount = status.passCount;
             root.safetyDenyCount = status.denyCount;
             root.safetyUnknownCount = status.unknownCount;
-            root._ruleSafetyAllowed = status.allowed;
+            root._ruleSafetyAllowed = !root.replaySafetyActive && status.allowed;
             root.safetyAllowed = root._missionSafetyAllowed && root._ruleSafetyAllowed;
             if (!root.safetyAllowed && root.authorizationChallengeActive) {
                 root.authorizationChallengeActive = false;
@@ -634,6 +772,7 @@ QtObject {
                 // Another later manual box owns the fallback rectangle. A
                 // rejection for this earlier independent TRK must not erase it.
                 root._forgetLocalTrackSelectionCommand(acknowledgementCommandId);
+                root._removePendingCancelledTargetBox(acknowledgementCommandId);
                 root.statusMessage = qsTr("Jetson 拒绝其中一个 TRK；其余目标保持");
             } else {
                 const rejectedAction = root.pendingSelectionAction;
@@ -642,9 +781,10 @@ QtObject {
                 root.selectionCommandId = "";
                 if (acknowledgementIsTrackedSelection)
                     root._forgetLocalTrackSelectionCommand(acknowledgementCommandId);
-                if (rejectedAction === "CANCEL_TRK")
+                if (rejectedAction === "CANCEL_TRK") {
                     root._removePendingCancelledTarget(root.pendingCancelledTargetId);
-                else if (rejectedAction === "PROMOTE_LCK")
+                    root._removePendingCancelledTargetBox(acknowledgementCommandId);
+                } else if (rejectedAction === "PROMOTE_LCK")
                     root.exclusiveLockPendingTargetId = "";
                 else
                     root.targetBoxValid = false;
@@ -676,6 +816,21 @@ QtObject {
             // rendered there, but must never move the current focus back.
             if (!targetsCurrentSelection)
                 return;
+            const completedAction = root.pendingSelectionAction;
+            // CANCEL_TRK is a destructive, per-target command.  Jetson can
+            // briefly publish a pre-terminal TRACKING/INITIALIZING/LOST frame
+            // carrying the cancel command id while the tracker is draining.
+            // Do not feed that intermediate frame back through the normal
+            // association path: _cancelCurrentTrackByBox() has already cleared
+            // targetId and targetBoxValid, so statusTargetsCurrent would
+            // otherwise treat the empty id as a wildcard and resurrect the box.
+            // Keep the cancellation pending until the authoritative CANCELLED
+            // frame (or the bounded timeout) arrives.
+            if (completedAction === "CANCEL_TRK" && status.state !== "CANCELLED") {
+                root.trackingState = "CANCELLED";
+                root.statusMessage = qsTr("当前 TRK 取消中");
+                return;
+            }
             if (root.selectionAwaitingTrackStatus && correlatedSelection &&
                     status.state === "INITIALIZING" && !status.bboxValid) {
                 root.statusMessage = qsTr("Jetson 已接受目标，正在初始化跟踪器");
@@ -685,8 +840,19 @@ QtObject {
                 root.selectionAwaitingTrackStatus = false;
                 root.selectionTrackStatusTimer.stop();
             }
-            const completedAction = root.pendingSelectionAction;
             if (completedAction === "CANCEL_TRK" && status.state === "CANCELLED") {
+                const cancelledStatusTargetId = String(status.targetId || "");
+                if (cancelledStatusTargetId !== "") {
+                    const hidden = root.pendingCancelledTargetIds.slice();
+                    if (!root._arrayContains(hidden, cancelledStatusTargetId))
+                        hidden.push(cancelledStatusTargetId);
+                    root.pendingCancelledTargetIds = hidden;
+                }
+                // If the terminal status resolved the geometry-only command,
+                // the stable id path above now owns suppression.  A status with
+                // no target id leaves the box record intact for pool matching.
+                if (cancelledStatusTargetId !== "")
+                    root._removePendingCancelledTargetBox(statusSelectionCommandId);
                 root.selectionCommandId = "";
                 root.pendingSelectionAction = "";
                 root.pendingCancelledTargetId = "";
@@ -709,40 +875,52 @@ QtObject {
             const statusReferencesCurrent = status.targetId !== "" &&
                     (status.targetId === root.targetId ||
                      (canAdoptCorrelatedTarget && root.targetId === ""));
-            const statusTargetsCurrent = status.targetPresent &&
+            // A terminal CANCEL_TRK packet may carry the cancelled object's
+            // last bbox/id for audit purposes. It is never a new current target;
+            // admitting it here would repopulate targetId just before the
+            // cancellation cleanup and leave a stale identity/card behind.
+            // Keep raw presence separate from association policy.  A
+            // correlated CANCEL_TRK packet may carry the last geometry for
+            // audit, but it must never repopulate the current target box.
+            const statusTargetsCurrent = status.targetPresent;
+            const statusTargetAssociationAllowed = completedAction !== "CANCEL_TRK" && status.targetPresent &&
                     (canAdoptCorrelatedTarget || root.targetId === "" ||
                      status.targetId === root.targetId);
             if (statusTargetsCurrent) {
-                const targetChanged = root.targetId !== status.targetId;
-                root.targetId = status.targetId;
-                root.targetLabel = status.label;
-                if (targetChanged) {
-                    root.targetSpeedMps = NaN;
-                    root.targetSpeedUpdatedAtMs = 0;
-                    root.relativeBearingAvailable = false;
-                    root.relativeBearingDeg = 0.0;
-                    root.estimatedRangeM = 0.0;
-                    root.targetRangeUpdatedAtMs = 0;
+                if (statusTargetAssociationAllowed) {
+                    const targetChanged = root.targetId !== status.targetId;
+                    root.targetId = status.targetId;
+                    root.targetLabel = status.label;
+                    if (targetChanged) {
+                        root.targetSpeedMps = NaN;
+                        root.targetSpeedUpdatedAtMs = 0;
+                        root.relativeBearingAvailable = false;
+                        root.relativeBearingDeg = 0.0;
+                        root.estimatedRangeM = 0.0;
+                        root.targetRangeUpdatedAtMs = 0;
+                    }
                 }
             }
             if (statusTargetsCurrent) {
-                root.targetConfidence = status.confidence >= 0.0 ? status.confidence : 0.0;
-                root.trackingQuality = status.trackingQuality >= 0.0 ? status.trackingQuality : 0.0;
-                if (status.bboxValid) {
-                    root.targetBoxValid = true;
-                    root.targetX1 = status.x1;
-                    root.targetY1 = status.y1;
-                    root.targetX2 = status.x2;
-                    root.targetY2 = status.y2;
+                if (statusTargetAssociationAllowed) {
+                    root.targetConfidence = status.confidence >= 0.0 ? status.confidence : 0.0;
+                    root.trackingQuality = status.trackingQuality >= 0.0 ? status.trackingQuality : 0.0;
+                    if (status.bboxValid) {
+                        root.targetBoxValid = true;
+                        root.targetX1 = status.x1;
+                        root.targetY1 = status.y1;
+                        root.targetX2 = status.x2;
+                        root.targetY2 = status.y2;
+                    }
+                    root.relativeBearingAvailable = Number.isFinite(status.relativeBearingDeg);
+                    root.relativeBearingDeg = root.relativeBearingAvailable ? status.relativeBearingDeg : 0.0;
+                    if (Number.isFinite(status.estimatedRangeM)) {
+                        root.estimatedRangeM = status.estimatedRangeM;
+                        root.targetRangeUpdatedAtMs = Date.now();
+                    }
+                    root.fireAlert = (status.state === "TRACKING" || status.state === "INITIALIZING") &&
+                                     root._isFireLabel(status.label);
                 }
-                root.relativeBearingAvailable = Number.isFinite(status.relativeBearingDeg);
-                root.relativeBearingDeg = root.relativeBearingAvailable ? status.relativeBearingDeg : 0.0;
-                if (Number.isFinite(status.estimatedRangeM)) {
-                    root.estimatedRangeM = status.estimatedRangeM;
-                    root.targetRangeUpdatedAtMs = Date.now();
-                }
-                root.fireAlert = (status.state === "TRACKING" || status.state === "INITIALIZING") &&
-                                 root._isFireLabel(status.label);
             }
             if (status.state === "TRACKING") {
                 root.statusMessage = root.fireAlert ? qsTr("火情目标持续跟踪中") : qsTr("目标持续跟踪中");
@@ -863,9 +1041,22 @@ QtObject {
     property real rangeSlantHighM: -1.0
     property real rangeSlantLowM: -1.0
     property real rangeSlantM: -1.0
-    property int rangeSourceAgeMs: 0
+    property real rangeSourceAgeMs: NaN
+    // A fresh transport envelope must not make an old metric range look
+    // current.  This is the QML counterpart of the operator-link decoder
+    // bound and the backend's outdoor evidence hold window.
+    readonly property real maximumRangeSourceAgeMs: 1500.0
+    readonly property real maximumRangeDataFreshnessS: 1.5
+    readonly property bool rangeSourceFresh: Number.isFinite(rangeSourceAgeMs) &&
+                                             rangeSourceAgeMs >= 0.0 &&
+                                             rangeSourceAgeMs <= maximumRangeSourceAgeMs
+    readonly property bool rangeDataFresh: Number.isFinite(rangeDataFreshnessS) &&
+                                           rangeDataFreshnessS >= 0.0 &&
+                                           rangeDataFreshnessS <= maximumRangeDataFreshnessS
+    readonly property bool rangeStatusFresh: rangeSourceFresh && rangeDataFresh
     property var rangeSourceContributions: []
     property var rangeSources: []
+    property string rangeSourceFrameId: ""
     property string rangeTargetId: ""
     property string rangeValidity: "UNAVAILABLE"
     property bool targetGeolocationAvailable: false
@@ -873,7 +1064,17 @@ QtObject {
     property real targetLatitudeDeg: NaN
     property real targetLongitudeDeg: NaN
     property string targetGeolocationReason: ""
-    property int targetGeolocationSourceAgeMs: 0
+    readonly property real maximumTargetGeolocationSourceAgeMs: 1500.0
+    readonly property bool targetGeolocationRangeBindingValid: rangeTargetId !== "" &&
+                                                                rangeSourceFrameId !== "" &&
+                                                                targetGeolocationTargetId === rangeTargetId &&
+                                                                targetGeolocationSourceFrameId === rangeSourceFrameId
+    readonly property bool targetGeolocationSourceFresh: Number.isFinite(targetGeolocationSourceAgeMs) &&
+                                                         targetGeolocationSourceAgeMs >= 0.0 &&
+                                                         targetGeolocationSourceAgeMs <= maximumTargetGeolocationSourceAgeMs &&
+                                                         rangeStatusFresh &&
+                                                         targetGeolocationRangeBindingValid
+    property real targetGeolocationSourceAgeMs: NaN
     property string targetGeolocationSourceFrameId: ""
     property string targetGeolocationTargetId: ""
     property int remainingPayloadCount: 0
@@ -897,6 +1098,12 @@ QtObject {
     property string pendingSelectionAction: ""
     property string pendingCancelledTargetId: ""
     property var pendingCancelledTargetIds: []
+    // A manual box may be cancelled before Jetson has associated it with a
+    // stable unified target id.  Retain its normalized geometry until the next
+    // authoritative target-pool snapshot either binds an id or proves that no
+    // matching operator track remains; otherwise that late snapshot can redraw
+    // the just-cancelled rectangle as a fresh DET candidate.
+    property var pendingCancelledTargetBoxes: []
     property string exclusiveLockPendingTargetId: ""
     property bool hasLocalSelectionSession: false
     property bool reconnectSelectionPending: false
@@ -922,9 +1129,16 @@ QtObject {
             root.selectionCommandId = "";
             if (timedOutAction === "SELECT_TRK")
                 root._forgetLocalTrackSelectionCommand(timedOutCommandId);
-            if (timedOutAction === "CANCEL_TRK")
-                root._removePendingCancelledTarget(root.pendingCancelledTargetId);
-            else if (timedOutAction === "PROMOTE_LCK")
+            else if (timedOutAction === "CANCEL_TRK") {
+                // A missing terminal status is not proof that the tracker was
+                // restored.  Keep the exact target in the optimistic hidden
+                // set; _reconcilePendingTargetActions() will release it only
+                // after an authoritative pool revision no longer reports the
+                // operator track (or a link reset clears the session).  Removing
+                // it here made a lost CANCEL_TRK look like a new DET candidate
+                // after five seconds and allowed the stale box to return.
+                root.statusMessage = qsTr("TRK 取消未确认；目标保持隐藏");
+            } else if (timedOutAction === "PROMOTE_LCK")
                 root.exclusiveLockPendingTargetId = "";
             else
                 root.targetBoxValid = false;
@@ -934,15 +1148,26 @@ QtObject {
                 root.hasLocalSelectionSession = false;
             root._reconcileCurrentTargetFromPool();
             root._updateInteractionState();
-            root.statusMessage = qsTr("Jetson 未返回当前框选的实时跟踪状态");
+            if (timedOutAction !== "CANCEL_TRK")
+                root.statusMessage = qsTr("Jetson 未返回当前框选的实时跟踪状态");
         }
     }
     property string statusMessage: operatorConfigured ? qsTr("等待 Jetson 签名目标元数据") : qsTr("Jetson 目标元数据链路未配置")
     property bool targetBoxValid: false
     property real targetConfidence: 0.0
     property string targetId: ""
+    // A geolocation sample is scoped to the currently selected unified target.
+    // Clear it synchronously whenever that identity is cleared or changes away
+    // from the sample's target, so a late GPS packet can never remain attached
+    // to a new/manual rectangle (or to an empty selection).
+    onTargetIdChanged: {
+        if (targetId === "" ||
+                (targetGeolocationTargetId !== "" && targetGeolocationTargetId !== targetId))
+            _resetTargetGeolocationStatus();
+    }
     property string targetLabel: ""
     property var targetPoolEntries: []
+    property int targetPoolGeneration: 0
     readonly property var selectableTargetPoolEntries: _selectableTargetPoolEntries(targetPoolEntries)
     readonly property var operatorTrackedTargetPoolEntries: _operatorTrackedTargetPoolEntries(targetPoolEntries)
     readonly property bool hasOperatorTrackedTargets: operatorTrackedTargetPoolEntries.length > 0
@@ -975,6 +1200,44 @@ QtObject {
             return false;
         for (let index = 0; index < values.length; ++index) {
             if (values[index] === value)
+                return true;
+        }
+        return false;
+    }
+
+    function _targetBoxIoU(first, second) {
+        if (first === undefined || first === null || second === undefined || second === null)
+            return 0.0;
+        const firstX1 = Number(first.x1);
+        const firstY1 = Number(first.y1);
+        const firstX2 = Number(first.x2);
+        const firstY2 = Number(first.y2);
+        const secondX1 = Number(second.x1);
+        const secondY1 = Number(second.y1);
+        const secondX2 = Number(second.x2);
+        const secondY2 = Number(second.y2);
+        if (!Number.isFinite(firstX1) || !Number.isFinite(firstY1) ||
+                !Number.isFinite(firstX2) || !Number.isFinite(firstY2) ||
+                !Number.isFinite(secondX1) || !Number.isFinite(secondY1) ||
+                !Number.isFinite(secondX2) || !Number.isFinite(secondY2) ||
+                firstX2 <= firstX1 || firstY2 <= firstY1 ||
+                secondX2 <= secondX1 || secondY2 <= secondY1)
+            return 0.0;
+        const intersectionWidth = Math.max(0.0, Math.min(firstX2, secondX2) - Math.max(firstX1, secondX1));
+        const intersectionHeight = Math.max(0.0, Math.min(firstY2, secondY2) - Math.max(firstY1, secondY1));
+        const intersectionArea = intersectionWidth * intersectionHeight;
+        const firstArea = (firstX2 - firstX1) * (firstY2 - firstY1);
+        const secondArea = (secondX2 - secondX1) * (secondY2 - secondY1);
+        const unionArea = firstArea + secondArea - intersectionArea;
+        return unionArea > 0.0 ? intersectionArea / unionArea : 0.0;
+    }
+
+    function _pendingCancelledTargetBoxMatches(entry) {
+        if (entry === undefined || entry === null || !entry.bboxValid ||
+                pendingCancelledTargetBoxes === undefined || pendingCancelledTargetBoxes === null)
+            return false;
+        for (let index = 0; index < pendingCancelledTargetBoxes.length; ++index) {
+            if (_targetBoxIoU(pendingCancelledTargetBoxes[index], entry) >= 0.55)
                 return true;
         }
         return false;
@@ -1050,7 +1313,8 @@ QtObject {
 
     function isCancellationPendingTarget(entry) {
         return entry !== undefined && entry !== null &&
-               _arrayContains(pendingCancelledTargetIds, String(entry.targetId || ""));
+               (_arrayContains(pendingCancelledTargetIds, String(entry.targetId || "")) ||
+                _pendingCancelledTargetBoxMatches(entry));
     }
 
     function _reconcileDemotedPrimaryLock(entries) {
@@ -1122,10 +1386,73 @@ QtObject {
         pendingCancelledTargetIds = remaining;
     }
 
+    function _removePendingCancelledTargetBox(commandId) {
+        if (commandId === "" || pendingCancelledTargetBoxes === undefined ||
+                pendingCancelledTargetBoxes === null)
+            return;
+        const remaining = [];
+        for (let index = 0; index < pendingCancelledTargetBoxes.length; ++index) {
+            const pendingBox = pendingCancelledTargetBoxes[index];
+            if (pendingBox === undefined || String(pendingBox.commandId || "") !== commandId)
+                remaining.push(pendingBox);
+        }
+        pendingCancelledTargetBoxes = remaining;
+    }
+
+    function _releasePendingCancelledBoxesForSelection(selectionBox) {
+        if (selectionBox === undefined || selectionBox === null ||
+                pendingCancelledTargetBoxes === undefined || pendingCancelledTargetBoxes === null)
+            return;
+        const remaining = [];
+        for (let index = 0; index < pendingCancelledTargetBoxes.length; ++index) {
+            // An explicit retry over the same area is an operator-approved
+            // re-acquisition.  Release only overlapping suppression records;
+            // unrelated cancelled targets remain fail-closed.
+            if (_targetBoxIoU(pendingCancelledTargetBoxes[index], selectionBox) < 0.55)
+                remaining.push(pendingCancelledTargetBoxes[index]);
+        }
+        pendingCancelledTargetBoxes = remaining;
+    }
+
     function _reconcilePendingTargetActions() {
+        // Resolve geometry-only cancellations as soon as a complete pool
+        // snapshot assigns the same object a stable id. Once resolved, use the
+        // id path below so the optimistic hide has exactly the same lifetime as
+        // a normal per-target cancellation. If the first post-cancel snapshot
+        // has no operator-owned match, the tracker is gone and the geometry
+        // record can retire (a detector candidate may then be shown normally).
+        const pendingIds = pendingCancelledTargetIds.slice();
+        const remainingCancelledBoxes = [];
+        for (let boxIndex = 0; boxIndex < pendingCancelledTargetBoxes.length; ++boxIndex) {
+            const pendingBox = pendingCancelledTargetBoxes[boxIndex];
+            let matchedTargetId = "";
+            for (let entryIndex = 0; entryIndex < targetPoolEntries.length; ++entryIndex) {
+                const entry = targetPoolEntries[entryIndex];
+                if (entry === undefined || entry === null || !entry.bboxValid ||
+                        _targetBoxIoU(pendingBox, entry) < 0.55)
+                    continue;
+                if (entry.operatorTracked === true) {
+                    matchedTargetId = String(entry.targetId || "");
+                    break;
+                }
+            }
+            if (matchedTargetId !== "") {
+                if (!_arrayContains(pendingIds, matchedTargetId))
+                    pendingIds.push(matchedTargetId);
+                continue;
+            }
+            // Do not release a geometry-only hide until at least one complete
+            // pool replacement has been observed after the cancellation.  This
+            // leaves a race-free window for the first late association while
+            // allowing an authoritative empty/moved snapshot to retire it.
+            const cancelGeneration = Number(pendingBox.poolGenerationAtCancel);
+            if (!Number.isFinite(cancelGeneration) || targetPoolGeneration <= cancelGeneration)
+                remainingCancelledBoxes.push(pendingBox);
+        }
+
         const remainingCancelled = [];
-        for (let pendingIndex = 0; pendingIndex < pendingCancelledTargetIds.length; ++pendingIndex) {
-            const pendingTargetId = pendingCancelledTargetIds[pendingIndex];
+        for (let pendingIndex = 0; pendingIndex < pendingIds.length; ++pendingIndex) {
+            const pendingTargetId = pendingIds[pendingIndex];
             let stillTracked = false;
             for (let entryIndex = 0; entryIndex < targetPoolEntries.length; ++entryIndex) {
                 const entry = targetPoolEntries[entryIndex];
@@ -1139,6 +1466,7 @@ QtObject {
                 remainingCancelled.push(pendingTargetId);
         }
         pendingCancelledTargetIds = remainingCancelled;
+        pendingCancelledTargetBoxes = remainingCancelledBoxes;
 
         if (exclusiveLockPendingTargetId === "")
             return;
@@ -1187,7 +1515,11 @@ QtObject {
             // DET candidate during the acknowledgement window, otherwise one
             // press cancels the tracker but leaves an apparently live box.
             if (entry === undefined || entry === null ||
-                    _arrayContains(pendingCancelledTargetIds, entry.targetId))
+                    // Keep the explicit id check visible at this boundary;
+                    // the helper additionally covers normalized string ids
+                    // and geometry-only cancellations.
+                    _arrayContains(pendingCancelledTargetIds, entry.targetId) ||
+                    isCancellationPendingTarget(entry))
                 continue;
             const trackedByThisUi = isOperatorTrackedTarget(entry);
             const exclusiveTargetId = exclusiveLockPendingTargetId !== "" ?
@@ -1223,7 +1555,7 @@ QtObject {
     function isOperatorTrackedTarget(entry) {
         if (!hasLocalSelectionSession || entry === undefined || entry.operatorTracked !== true)
             return false;
-        if (_arrayContains(pendingCancelledTargetIds, entry.targetId))
+        if (isCancellationPendingTarget(entry))
             return false;
         return exclusiveLockPendingTargetId === "" ||
                entry.targetId === exclusiveLockPendingTargetId;
@@ -1317,6 +1649,7 @@ QtObject {
         targetRangeUpdatedAtMs = 0;
         targetRangeUpdatedAtMs = 0;
         _resetRangeStatus();
+        _resetTargetGeolocationStatus();
         targetBoxValid = false;
         trackingState = "LOST";
         fireAlert = false;
@@ -1353,6 +1686,7 @@ QtObject {
         estimatedRangeM = 0.0;
         targetRangeUpdatedAtMs = 0;
         _resetRangeStatus();
+        _resetTargetGeolocationStatus();
         targetBoxValid = false;
         trackingState = "CANCELLED";
         fireAlert = false;
@@ -1467,6 +1801,7 @@ QtObject {
         localTrackSelectionCommandIds = [];
         pendingCancelledTargetId = "";
         pendingCancelledTargetIds = [];
+        pendingCancelledTargetBoxes = [];
         exclusiveLockPendingTargetId = "";
         confirmedPrimaryLockTargetId = "";
         mode3ExecutionLatched = false;
@@ -1482,6 +1817,7 @@ QtObject {
         estimatedRangeM = 0.0;
         targetRangeUpdatedAtMs = 0;
         _resetRangeStatus();
+        _resetTargetGeolocationStatus();
         targetBoxValid = false;
         trackingState = "CANCELLED";
         interactionState = "DET";
@@ -1596,7 +1932,7 @@ QtObject {
         rangeSlantHighM = -1.0;
         rangeRelativeBearingDeg = 0.0;
         rangeBearingAvailable = false;
-        rangeSourceAgeMs = 0;
+        rangeSourceAgeMs = NaN;
         rangeDataFreshnessS = -1.0;
         rangeSensorConsistency = 0.0;
         rangeReasons = [];
@@ -1606,6 +1942,7 @@ QtObject {
         rangeVehicleProfile = "auto";
         rangeNavigationState = "unknown";
         rangeMotionRegime = "unknown";
+        rangeSourceFrameId = "";
     }
 
     function _resetTargetGeolocationStatus() {
@@ -1614,7 +1951,7 @@ QtObject {
         targetLatitudeDeg = NaN;
         targetLongitudeDeg = NaN;
         targetGeolocationReason = "";
-        targetGeolocationSourceAgeMs = 0;
+        targetGeolocationSourceAgeMs = NaN;
         targetGeolocationSourceFrameId = "";
         targetGeolocationTargetId = "";
     }
@@ -1681,6 +2018,8 @@ QtObject {
     }
 
     function approachChallengePromptText(targetActionable, isMobile) {
+        if (replaySafetyActive)
+            return physicalActionIsolationStatusText();
         if (!vehicleArmed)
             return qsTr("请先 ARM");
         if (approachChallengeActive) {
@@ -1698,6 +2037,10 @@ QtObject {
     }
 
     function confirmApproachSlide(slideDurationMs, completionFraction, continuous) {
+        if (replaySafetyActive) {
+            _enterReplaySafetyState();
+            return false;
+        }
         if (!vehicleArmed) {
             statusMessage = qsTr("请先 ARM，再确认模式 3 执行");
             return false;
@@ -1720,6 +2063,10 @@ QtObject {
     }
 
     function confirmPayloadTargetSlide(slideDurationMs, completionFraction, continuous) {
+        if (replaySafetyActive) {
+            _enterReplaySafetyState();
+            return false;
+        }
         if (!vehicleArmed) {
             statusMessage = qsTr("请先 ARM，再确认模式 2 执行");
             return false;
@@ -1778,6 +2125,8 @@ QtObject {
     function rangeSummaryText() {
         if (rangeValidity === "UNAVAILABLE")
             return qsTr("无数据");
+        if ((rangeValidity === "VALID" || rangeValidity === "DEGRADED") && !rangeStatusFresh)
+            return qsTr("STALE · 等待新测距");
         const distance = rangeSlantM >= 0.0 ? rangeSlantM.toFixed(1) + " m" : qsTr("无距离");
         const interval = rangeSlantLowM >= 0.0 && rangeSlantHighM >= 0.0 ?
             " · 95% [" + rangeSlantLowM.toFixed(1) + ", " + rangeSlantHighM.toFixed(1) + "]" : "";
@@ -1789,15 +2138,19 @@ QtObject {
             return qsTr("等待 Jetson 测距元数据");
         const bearing = rangeBearingAvailable ? " · " + rangeRelativeBearingDeg.toFixed(1) + "°" : "";
         const freshness = rangeDataFreshnessS >= 0.0 ? " · " + rangeDataFreshnessS.toFixed(1) + " s" : "";
-        return qsTr("一致性 ") + Math.round(rangeSensorConsistency * 100) + "%" + bearing + freshness;
+        const sourceAge = Number.isFinite(rangeSourceAgeMs) ? " · " + Math.round(rangeSourceAgeMs) + " ms" : "";
+        const stale = rangeStatusFresh ? "" : qsTr(" · 过期");
+        return qsTr("一致性 ") + Math.round(rangeSensorConsistency * 100) + "%" + bearing + freshness + sourceAge + stale;
     }
 
     function targetGeolocationText() {
+        if (targetId === "")
+            return qsTr("不可定位：等待当前目标匹配");
         if (targetGeolocationTargetId === "")
             return qsTr("不可定位：等待 Jetson 目标坐标状态");
-        if (targetId !== "" && targetGeolocationTargetId !== targetId)
+        if (targetGeolocationTargetId !== targetId)
             return qsTr("不可定位：等待当前目标匹配");
-        if (targetGeolocationAvailable && Number.isFinite(targetLatitudeDeg) &&
+        if (targetGeolocationAvailable && targetGeolocationSourceFresh && Number.isFinite(targetLatitudeDeg) &&
                 Number.isFinite(targetLongitudeDeg) && targetHorizontalSigmaM >= 0.0) {
             return "GPS " + targetLatitudeDeg.toFixed(7) + ", " + targetLongitudeDeg.toFixed(7) +
                     " ± " + targetHorizontalSigmaM.toFixed(1) + " m (1σ)";
@@ -1887,6 +2240,16 @@ QtObject {
             statusMessage = qsTr("框选发送失败：") + _operator.lastError;
             return false;
         }
+        _releasePendingCancelledBoxesForSelection({
+            x1: left,
+            y1: top,
+            x2: right,
+            y2: bottom
+        });
+        // The new manual rectangle has no stable target identity yet.  Drop
+        // any coordinate sample belonging to the previous selection before the
+        // optimistic fallback box becomes visible.
+        _resetTargetGeolocationStatus();
         selectionSequence += 1;
         selectionCommandId = _operator.lastSelectionCommandId;
         _rememberLocalTrackSelectionCommand(selectionCommandId);
@@ -1930,6 +2293,8 @@ QtObject {
             statusMessage = qsTr("TRK 发送失败：") + _operator.lastError;
             return false;
         }
+        if (targetId !== entry.targetId)
+            _resetTargetGeolocationStatus();
         selectionCommandId = _operator.lastSelectionCommandId;
         _rememberLocalTrackSelectionCommand(selectionCommandId);
         selectionAwaitingTrackStatus = true;
@@ -2026,6 +2391,10 @@ QtObject {
     // before opening an execution dialog; this prevents a prior TRK/cancel
     // command from leaving the dialog waiting on an obsolete challenge.
     function refreshLockForExecution() {
+        if (replaySafetyActive) {
+            _enterReplaySafetyState();
+            return false;
+        }
         if (!vehicleArmed || !operatorConfigured || !hasConfirmedPrimaryLock ||
                 !targetBoxValid || hasPendingTargetSelection)
             return false;
@@ -2129,6 +2498,20 @@ QtObject {
             hidden.push(cancelledTargetId);
         pendingCancelledTargetIds = hidden;
         selectionCommandId = _operator.lastSelectionCommandId;
+        if (cancelledTargetId === "") {
+            const pendingBoxes = pendingCancelledTargetBoxes.slice();
+            while (pendingBoxes.length >= 24)
+                pendingBoxes.shift();
+            pendingBoxes.push({
+                x1: targetX1,
+                y1: targetY1,
+                x2: targetX2,
+                y2: targetY2,
+                commandId: selectionCommandId,
+                poolGenerationAtCancel: targetPoolGeneration
+            });
+            pendingCancelledTargetBoxes = pendingBoxes;
+        }
         pendingSelectionAction = "CANCEL_TRK";
         pendingCancelledTargetId = cancelledTargetId;
         selectionAwaitingTrackStatus = true;
@@ -2138,6 +2521,7 @@ QtObject {
         targetLabel = "";
         targetConfidence = 0.0;
         trackingQuality = 0.0;
+        _resetTargetGeolocationStatus();
         targetBoxValid = false;
         trackingState = "CANCELLED";
         targetSpeedMps = NaN;
@@ -2160,6 +2544,10 @@ QtObject {
     }
 
     function approveAuthorization() {
+        if (replaySafetyActive) {
+            _enterReplaySafetyState();
+            return false;
+        }
         if (missionMode !== "PAYLOAD" || !authorizationChallengeActive || !safetyAllowed) {
             statusMessage = qsTr("授权被拒绝：挑战无效或安全条件不满足");
             return false;
@@ -2234,6 +2622,10 @@ QtObject {
     }
 
     function denyAuthorization() {
+        if (replaySafetyActive) {
+            _enterReplaySafetyState();
+            return false;
+        }
         if (!operatorConfigured || !_operator.sendAuthorizationDecision(false)) {
             statusMessage = qsTr("拒绝决定发送失败：") + (_operator !== null ? _operator.lastError : qsTr("控制器不可用"));
             return false;
@@ -2244,6 +2636,10 @@ QtObject {
 
     function setMissionMode(mode) {
         if (mode !== "PATROL" && mode !== "PAYLOAD" && mode !== "OBSERVE") {
+            return false;
+        }
+        if (replaySafetyActive && mode !== "PATROL") {
+            statusMessage = physicalActionIsolationStatusText();
             return false;
         }
         if (missionConfigurationLocked) {
@@ -2278,6 +2674,10 @@ QtObject {
             statusMessage = qsTr("飞机已解锁，手动投放通道必须在起飞前配置");
             return false;
         }
+        if (replaySafetyActive && channel !== 0) {
+            statusMessage = physicalActionIsolationStatusText();
+            return false;
+        }
         rcReleaseChannel = channel;
         persistedSettings.selectedRcReleaseChannel = channel;
         rcReleasePwm = 0;
@@ -2307,6 +2707,13 @@ QtObject {
     }
 
     function updateRcChannels(channelValues) {
+        if (replaySafetyActive) {
+            rcReleasePwm = 0;
+            rcSignalAvailable = false;
+            rcReleaseSwitchActive = false;
+            manualReleaseRequestLatched = false;
+            return;
+        }
         if (rcReleaseChannel <= 0 || channelValues === undefined || channelValues.length < rcReleaseChannel) {
             rcReleasePwm = 0;
             rcSignalAvailable = false;
@@ -2334,11 +2741,14 @@ QtObject {
 
     Component.onCompleted: {
         const storedMode = persistedSettings.selectedMissionMode;
-        missionMode = storedMode === "PAYLOAD" ? "PAYLOAD" :
+        missionMode = replaySafetyActive ? "PATROL" :
+                      storedMode === "PAYLOAD" ? "PAYLOAD" :
                       storedMode === "OBSERVE" || storedMode === "APPROACH_HIL" ? "OBSERVE" : "PATROL";
         if (storedMode === "APPROACH_HIL")
             persistedSettings.selectedMissionMode = "OBSERVE";
         const storedChannel = persistedSettings.selectedRcReleaseChannel;
-        rcReleaseChannel = storedChannel >= 5 && storedChannel <= 18 ? storedChannel : 0;
+        rcReleaseChannel = !replaySafetyActive && storedChannel >= 5 && storedChannel <= 18 ? storedChannel : 0;
+        if (replaySafetyActive)
+            _enterReplaySafetyState();
     }
 }

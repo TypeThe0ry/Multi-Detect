@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import math
-import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
@@ -14,6 +15,8 @@ from .appearance_reid import OnnxPersonReIdEncoder
 from .approach_hil import ApproachHilPhase
 from .approach_live import LiveApproachHilCoordinator, LiveApproachHilFrame
 from .attitude_camera_motion import AttitudeCameraMotionEstimator
+from .backends.sensors import RawSensorRuntimeBackend
+from .clock import Clock, ManualClock, SystemClock
 from .deployment_planner import PrimaryRangeEvidence
 from .depth_grid_udp import DepthGridUdpPublisher
 from .domain import (
@@ -54,9 +57,11 @@ from .multimodal_ranging import (
 )
 from .operator_bridge import LiveOperatorBridge
 from .operator_link import (
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_S,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecision,
     AuthorizationDecisionCommand,
+    RuntimeStatusMessage,
     SelectionAction,
     TargetSelectionCommand,
     TrackingState,
@@ -64,6 +69,7 @@ from .operator_link import (
     VideoGeometry,
 )
 from .operator_status import (
+    RangeSolutionFrameBinding,
     build_authorization_challenge_status_message,
     build_mission_status_message,
     build_patrol_status_message,
@@ -87,6 +93,7 @@ from .rgb_fire_corroboration import (
     IndependentRgbFireCorroborator,
 )
 from .rgb_slam_range import RgbSlamRangeConfig, RgbSlamRangeEstimator
+from .runtime import RuntimeDescriptor
 from .selection_target_pool import UnifiedSelectionTargetPool
 from .semantic_environment import (
     AsyncSemanticContextRunner,
@@ -99,11 +106,18 @@ from .short_term_tracking import (
     ShortTermTrackingStatus,
 )
 from .target_geolocation import target_geolocation_from_ned_offset
+from .target_image_anchor import target_image_anchor
 from .target_speed import TargetWorldSpeedEstimator
 from .telemetry import (
     TelemetryProvider,
     with_observed_flight_mode_permission,
     with_person_detector_health,
+)
+from .terrain_dem import (
+    DemGpsTerrainObservation,
+    LocalDemGrid,
+    TerrainDemError,
+    dem_gps_terrain_observation,
 )
 from .tracking_evaluation import JsonlIdentityPredictionWriter
 from .unified_tracking import (
@@ -152,6 +166,38 @@ _FIRE_LOCK_MODEL_LABELS = frozenset(
         "smolder_area",
     }
 )
+
+_SIMULATOR_FRAME_IDENTITY_KEYWORDS = frozenset({"frame_id", "frame_captured_at_s"})
+
+
+def _simulator_sink_accepts_frame_identity(sink: Callable[..., Any]) -> bool:
+    """Return whether ``sink`` accepts the strict camera-frame identity pair.
+
+    The production ``SimulatorPerceptionBridge`` exposes either the named
+    keywords directly (``build_snapshot``) or a ``**kwargs`` compatibility
+    edge (``feed``/``feed_result``).  A small number of older test doubles use
+    a closed keyword-only signature.  Preserve those doubles by omitting only
+    the newly-added pair when inspection proves it is unsupported.  Callables
+    without an inspectable signature take the fail-closed path: they receive
+    the identity pair and surface a normal advisory sink error if unsupported.
+    """
+
+    try:
+        parameters = inspect.signature(sink).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters):
+        return True
+    keyword_parameters = {
+        parameter.name
+        for parameter in parameters
+        if parameter.kind
+        in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }
+    }
+    return _SIMULATOR_FRAME_IDENTITY_KEYWORDS.issubset(keyword_parameters)
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +280,7 @@ class LiveRangingConfig:
     pitch_sigma_deg: float = 0.3
     heading_sigma_deg: float = 1.0
     target_center_sigma_px: float = 2.0
+    terrain_dem: LocalDemGrid | None = None
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -245,6 +292,8 @@ class LiveRangingConfig:
         ):
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"live ranging {name} must be finite and positive")
+        if self.terrain_dem is not None and not isinstance(self.terrain_dem, LocalDemGrid):
+            raise ValueError("live ranging terrain_dem must be a LocalDemGrid or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,6 +417,14 @@ class LiveRunResult:
     semantic_context_latency_p50_ms: float
     semantic_context_latency_p95_ms: float
     semantic_context_shutdown_clean: bool
+    # Optional SIM/HIL observation feed diagnostics.  These fields are at the
+    # end of the dataclass and carry defaults so callers that construct a
+    # result fixture remain source-compatible.  The feed is deliberately
+    # advisory: its counters never change the canonical mission outcome.
+    simulator_perception_feed_count: int = 0
+    simulator_perception_error_count: int = 0
+    simulator_perception_last_error: str | None = None
+    remote_target_geolocation_status_count: int = 0
 
 
 class OpenCVAuthorizationUI:
@@ -694,7 +751,15 @@ class OpenCVAuthorizationUI:
 
 
 class LiveMissionRunner:
-    """Connect live pixels, operator state, target tracking and optional flight control."""
+    """Canonical pre-detection pipeline that raw mode adapters must reuse.
+
+    World backends provide the frame and read-only telemetry sources; detector,
+    tracking, ranging, operator state and mission logic remain shared here.
+    The runtime clock is injected into every core freshness, deadline, wire and
+    audit decision.  A separate performance clock keeps latency instrumentation
+    from advancing deterministic replay time.  Optional asynchronous adapters
+    still own their internal clocks unless they expose an injected clock.
+    """
 
     def __init__(
         self,
@@ -732,6 +797,10 @@ class LiveMissionRunner:
         rgb_fire_verifier: Any | None = None,
         rgb_fire_corroborator: IndependentRgbFireCorroborator | None = None,
         fixed_camera_observation_engine: FixedCameraObservationEngine | None = None,
+        runtime_status: RuntimeStatusMessage | None = None,
+        clock: Clock | None = None,
+        performance_clock: Clock | None = None,
+        simulator_perception_sink: Callable[..., Any] | None = None,
     ) -> None:
         if payload_hil_cycle is not None and not config.simulate_payload_cycle:
             raise ValueError("payload HIL cycle requires simulate_payload_cycle=true")
@@ -809,6 +878,26 @@ class LiveMissionRunner:
             )
         if payload_target_coordinator is not None and not mission.config.deployment_capable:
             raise ValueError("Mode-2 target confirmation requires a deployment-capable mission")
+        runtime_clock = clock if clock is not None else SystemClock()
+        if not isinstance(runtime_clock, Clock):
+            raise TypeError("clock must implement the Clock protocol")
+        if performance_clock is None:
+            # A raw Replay frame source advances its ManualClock to each recorded
+            # capture time.  Reusing that clock for latency measurement would
+            # incorrectly count inter-frame scenario time as CPU latency.
+            if isinstance(runtime_clock, ManualClock):
+                measurement_clock: Clock = ManualClock(
+                    initial_monotonic_s=runtime_clock.monotonic(),
+                    initial_utc=runtime_clock.utc_now(),
+                )
+            else:
+                measurement_clock = runtime_clock
+        else:
+            measurement_clock = performance_clock
+        if not isinstance(measurement_clock, Clock):
+            raise TypeError("performance_clock must implement the Clock protocol")
+        if simulator_perception_sink is not None and not callable(simulator_perception_sink):
+            raise TypeError("simulator_perception_sink must be callable")
         self.mission = mission
         self.frame_source = frame_source
         self.detector = detector
@@ -869,6 +958,24 @@ class LiveMissionRunner:
             if selection_target_pool is not None
             else None
         )
+        self.runtime_status = runtime_status
+        self.clock = runtime_clock
+        self.performance_clock = measurement_clock
+        # Optional SIM/HIL observation consumer.  The callback receives the
+        # already-produced production telemetry/track/range/avoidance objects
+        # and is deliberately kept generic so ``live.py`` does not import the
+        # simulator package (which would create a dependency cycle).  A sink
+        # failure is recorded and the canonical mission loop continues.
+        self.simulator_perception_sink = simulator_perception_sink
+        self._simulator_perception_sink_accepts_frame_identity = (
+            simulator_perception_sink is not None
+            and _simulator_sink_accepts_frame_identity(simulator_perception_sink)
+        )
+        self._simulator_perception_feed_count = 0
+        self._simulator_perception_error_count = 0
+        self._simulator_perception_last_error: str | None = None
+        self._simulator_perception_last_result: Any | None = None
+        self.runtime_descriptor: RuntimeDescriptor | None = None
         self._rgb_fire_fail_closed = rgb_fire_corroborator or IndependentRgbFireCorroborator(
             IndependentRgbFireCorroborationConfig()
         )
@@ -888,6 +995,45 @@ class LiveMissionRunner:
             TargetWorldSpeedEstimator() if ranging_engine is not None else None
         )
 
+    @classmethod
+    def from_runtime_backend(
+        cls,
+        *,
+        backend: RawSensorRuntimeBackend,
+        mission: MissionController,
+        detector: DetectorEnsemble,
+        config: LiveRunConfig,
+        **kwargs: Any,
+    ) -> LiveMissionRunner:
+        """Bind a raw world backend to the exact production live core.
+
+        The backend cannot supply detections, mission logic or a replacement
+        pipeline.  Deterministic descriptors additionally require a
+        :class:`ManualClock`, preventing a Replay adapter from making a false
+        determinism claim while consulting the operating-system clock.
+        """
+
+        if not isinstance(backend, RawSensorRuntimeBackend):
+            raise TypeError("backend must implement RawSensorRuntimeBackend")
+        descriptor = backend.descriptor
+        if not isinstance(descriptor, RuntimeDescriptor):
+            raise TypeError("backend descriptor must be a RuntimeDescriptor")
+        if descriptor.deterministic and not isinstance(backend.clock, ManualClock):
+            raise ValueError("deterministic runtime backend requires ManualClock")
+        if "frame_source" in kwargs or "telemetry_provider" in kwargs or "clock" in kwargs:
+            raise TypeError("runtime backend owns frame_source, telemetry_provider and clock")
+        runner = cls(
+            mission=mission,
+            frame_source=backend.frame_source,
+            detector=detector,
+            telemetry_provider=backend.telemetry_provider,
+            config=config,
+            clock=backend.clock,
+            **kwargs,
+        )
+        runner.runtime_descriptor = descriptor
+        return runner
+
     def run(self) -> LiveRunResult:
         ui = OpenCVAuthorizationUI() if self.config.display else None
         processed = 0
@@ -904,6 +1050,7 @@ class LiveMissionRunner:
         remote_safety_statuses = 0
         remote_patrol_statuses = 0
         remote_range_statuses = 0
+        remote_target_geolocation_statuses = 0
         remote_release_statuses = 0
         remote_approach_challenges = 0
         remote_approach_statuses = 0
@@ -924,6 +1071,7 @@ class LiveMissionRunner:
         remote_range_status_sequence = 0
         remote_target_geolocation_status_sequence = 0
         remote_release_status_sequence = 0
+        remote_runtime_status_sequence = 0
         remote_authorization_challenge_sequence = 0
         remote_target_pool_status_sequence = 0
         remote_target_pool_revision = 0
@@ -994,6 +1142,7 @@ class LiveMissionRunner:
         latest_monocular_avoidance: MonocularAvoidanceAssessment | None = None
         latest_patrol_assessment: PatrolModeAssessment | None = None
         latest_ranging_solution: RangeSolution | None = None
+        latest_ranging_source_binding: RangeSolutionFrameBinding | None = None
         latest_approach_frame: LiveApproachHilFrame | None = None
         latest_payload_target_frame: LivePayloadTargetFrame | None = None
         latest_semantic_context: SemanticContextSnapshot | None = None
@@ -1032,7 +1181,7 @@ class LiveMissionRunner:
         )
         person_reid_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
         vehicle_reid_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
-        run_started_s = time.monotonic()
+        run_started_s = self.clock.monotonic()
         last_person_reid_at_s: float | None = run_started_s
         last_vehicle_reid_at_s: float | None = run_started_s
         first_captured_at_s: float | None = None
@@ -1110,7 +1259,7 @@ class LiveMissionRunner:
                 )
 
         try:
-            now_s = time.monotonic()
+            now_s = self.clock.monotonic()
             if self.config.observe_pixhawk_lifecycle:
                 self.mission.audit.append(
                     "mission.pixhawk_lifecycle_observation_started",
@@ -1128,7 +1277,7 @@ class LiveMissionRunner:
                 for pending_alert in self.alert_outbox.pending_alerts():
                     deliver_alert(
                         pending_alert,
-                        delivered_at_s=time.monotonic(),
+                        delivered_at_s=self.clock.monotonic(),
                         retry=True,
                     )
             if self.operator_bridge is not None:
@@ -1137,26 +1286,62 @@ class LiveMissionRunner:
                 self.semantic_context_runner.start()
             self.frame_source.open()
             while self.config.max_frames is None or processed < self.config.max_frames:
-                capture_started_s = time.perf_counter()
+                capture_started_s = self.performance_clock.monotonic()
                 try:
                     captured = self.frame_source.read()
                 except (OSError, RuntimeError, TypeError, ValueError) as exc:
                     self.mission.audit.append(
                         "camera.read_failed",
-                        time.monotonic(),
+                        self.clock.monotonic(),
                         {"error_type": type(exc).__name__},
                     )
                     raise
-                capture_latency_ms.append((time.perf_counter() - capture_started_s) * 1_000.0)
-                frame_received_at_s = time.monotonic()
+                capture_latency_ms.append(
+                    (self.performance_clock.monotonic() - capture_started_s) * 1_000.0
+                )
+                # ``time.monotonic`` is backed by GetTickCount64 on this
+                # Windows/Python combination (15.625 ms resolution).  A fast
+                # source can therefore produce equal timestamps for distinct
+                # frames, and a pre-seeded target pool can have a watermark
+                # equal to the first live frame.  Keep the source timestamp
+                # whenever it is newer; otherwise add one microsecond after
+                # the latest accepted tracker/pool frame.  This is a local
+                # ordering tie-breaker, not a wall-clock rewrite.
+                source_captured_at_s = captured.captured_at_s
+                previous_frame_times = (
+                    last_captured_at_s,
+                    getattr(self.mission.tracker, "last_frame_time_s", None),
+                    (
+                        getattr(self.unified_target_pool, "last_frame_time_s", None)
+                        if self.unified_target_pool is not None
+                        else None
+                    ),
+                )
+                previous_frame_time_s = max(
+                    (
+                        timestamp
+                        for timestamp in previous_frame_times
+                        if timestamp is not None and math.isfinite(timestamp)
+                    ),
+                    default=None,
+                )
+                if (
+                    previous_frame_time_s is not None
+                    and source_captured_at_s <= previous_frame_time_s
+                ):
+                    captured = replace(
+                        captured,
+                        captured_at_s=previous_frame_time_s + 1e-6,
+                    )
+                frame_received_at_s = self.clock.monotonic()
                 if first_frame_received_at_s is None:
                     first_frame_received_at_s = frame_received_at_s
                 if first_captured_at_s is None:
                     first_captured_at_s = captured.captured_at_s
                 last_captured_at_s = captured.captured_at_s
-                inference_started_s = time.perf_counter()
+                inference_started_s = self.performance_clock.monotonic()
                 frame_age_at_inference_ms.append(
-                    max(0.0, time.monotonic() - captured.captured_at_s) * 1_000.0
+                    max(0.0, self.clock.monotonic() - captured.captured_at_s) * 1_000.0
                 )
                 exclusive_lock_track_id = (
                     self.selection_target_pool.exclusive_lock_track_id
@@ -1220,7 +1405,7 @@ class LiveMissionRunner:
                 if lock_model_profile_fingerprint != last_lock_model_profile_fingerprint:
                     self.mission.audit.append(
                         "tracking.lock_model_profile_changed",
-                        max(captured.captured_at_s, time.monotonic()),
+                        max(captured.captured_at_s, self.clock.monotonic()),
                         {
                             "enabled": exclusive_lock_track_id is not None,
                             "target_id": exclusive_lock_track_id,
@@ -1245,13 +1430,13 @@ class LiveMissionRunner:
                             captured.image_bgr,
                             frame_id=captured.frame_id,
                             captured_at_s=captured.captured_at_s,
-                            submitted_at_s=max(captured.captured_at_s, time.monotonic()),
+                            submitted_at_s=max(captured.captured_at_s, self.clock.monotonic()),
                         )
                     except (OSError, RuntimeError, TypeError, ValueError) as exc:
                         semantic_context_submit_errors += 1
                         self.mission.audit.append(
                             "perception.semantic_context_submit_failed",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "frame_id": captured.frame_id,
                                 "error_type": type(exc).__name__,
@@ -1266,7 +1451,7 @@ class LiveMissionRunner:
                 except (OSError, RuntimeError, TypeError, ValueError) as exc:
                     self.mission.audit.append(
                         "perception.inference_failed",
-                        time.monotonic(),
+                        self.clock.monotonic(),
                         {"error_type": type(exc).__name__, "frame_id": captured.frame_id},
                     )
                     raise
@@ -1277,7 +1462,7 @@ class LiveMissionRunner:
                         if not rgb_fire_verifier_unavailable_reported:
                             self.mission.audit.append(
                                 "perception.rgb_fire_verifier_unavailable",
-                                max(captured.captured_at_s, time.monotonic()),
+                                max(captured.captured_at_s, self.clock.monotonic()),
                                 {
                                     "frame_id": captured.frame_id,
                                     "fallback": "patrol_continues_payload_path_denied",
@@ -1301,7 +1486,7 @@ class LiveMissionRunner:
                         ).detections
                     else:
                         rgb_fire_verifier_assessments += 1
-                        verifier_started_s = time.perf_counter()
+                        verifier_started_s = self.performance_clock.monotonic()
                         try:
                             verifier_detections = self.rgb_fire_verifier.detect(captured.image_bgr)
                         except (OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -1309,7 +1494,7 @@ class LiveMissionRunner:
                             corroboration = self.rgb_fire_corroborator.fail_closed(detections)
                             self.mission.audit.append(
                                 "perception.rgb_fire_verifier_failed",
-                                max(captured.captured_at_s, time.monotonic()),
+                                max(captured.captured_at_s, self.clock.monotonic()),
                                 {
                                     "frame_id": captured.frame_id,
                                     "error_type": type(exc).__name__,
@@ -1334,9 +1519,11 @@ class LiveMissionRunner:
                                 )
                         detections = corroboration.detections
                         rgb_fire_verifier_latency_ms.append(
-                            (time.perf_counter() - verifier_started_s) * 1_000.0
+                            (self.performance_clock.monotonic() - verifier_started_s) * 1_000.0
                         )
-                inference_elapsed_ms = (time.perf_counter() - inference_started_s) * 1_000.0
+                inference_elapsed_ms = (
+                    self.performance_clock.monotonic() - inference_started_s
+                ) * 1_000.0
                 inference_latency_ms.append(inference_elapsed_ms)
                 if self.semantic_context_runner is not None:
                     latest_semantic_context = self.semantic_context_runner.latest_snapshot()
@@ -1350,7 +1537,7 @@ class LiveMissionRunner:
                         )
                         self.mission.audit.append(
                             "perception.semantic_context_updated",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "source_frame_id": latest_semantic_context.frame_id,
                                 "state": latest_semantic_context.state.value,
@@ -1383,7 +1570,7 @@ class LiveMissionRunner:
                     if (
                         latest_semantic_context is not None
                         and latest_semantic_context.state is SemanticContextState.VALID
-                        and time.monotonic() - latest_semantic_context.produced_at_s
+                        and self.clock.monotonic() - latest_semantic_context.produced_at_s
                         > self.config.semantic_context_maximum_age_s
                         and semantic_context_stale_reported_frame_id
                         != latest_semantic_context.frame_id
@@ -1392,7 +1579,7 @@ class LiveMissionRunner:
                         semantic_context_stale_reported_frame_id = latest_semantic_context.frame_id
                         self.mission.audit.append(
                             "perception.semantic_context_stale",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "source_frame_id": latest_semantic_context.frame_id,
                                 "maximum_age_s": self.config.semantic_context_maximum_age_s,
@@ -1403,7 +1590,7 @@ class LiveMissionRunner:
                                 "physical_release_enabled": False,
                             },
                         )
-                frame_motion_at_s = time.monotonic()
+                frame_motion_at_s = self.clock.monotonic()
                 telemetry = self.telemetry_provider.snapshot(now_s=frame_motion_at_s)
                 if frame_motion_at_s - last_telemetry_diagnostics_at_s >= 5.0:
                     diagnostics = getattr(self.telemetry_provider, "diagnostics", None)
@@ -1450,25 +1637,27 @@ class LiveMissionRunner:
                         )
                         attitude_camera_motion_reported = True
                 if self.monocular_avoidance is not None:
-                    avoidance_started_s = time.perf_counter()
+                    avoidance_started_s = self.performance_clock.monotonic()
                     avoidance_error_type = None
                     try:
                         latest_monocular_avoidance = self.monocular_avoidance.update(
                             captured.image_bgr,
                             frame_id=captured.frame_id,
                             captured_at_s=captured.captured_at_s,
-                            produced_at_s=time.monotonic(),
+                            produced_at_s=self.clock.monotonic(),
                         )
                     except (OSError, RuntimeError, TypeError, ValueError) as exc:
                         monocular_avoidance_errors += 1
                         avoidance_error_type = type(exc).__name__
-                        failed_at_s = max(captured.captured_at_s, time.monotonic())
+                        failed_at_s = max(captured.captured_at_s, self.clock.monotonic())
                         latest_monocular_avoidance = MonocularCollisionRiskEvaluator().invalid(
                             frame_id=captured.frame_id,
                             captured_at_s=captured.captured_at_s,
                             produced_at_s=failed_at_s,
                             reason=f"PROCESSING_{avoidance_error_type.upper()}",
-                            processing_time_ms=(time.perf_counter() - avoidance_started_s)
+                            processing_time_ms=(
+                                self.performance_clock.monotonic() - avoidance_started_s
+                            )
                             * 1_000.0,
                         )
                         self.mission.audit.append(
@@ -1484,7 +1673,7 @@ class LiveMissionRunner:
                     monocular_avoidance_assessments += 1
                     avoidance_elapsed_ms = max(
                         latest_monocular_avoidance.processing_time_ms,
-                        (time.perf_counter() - avoidance_started_s) * 1_000.0,
+                        (self.performance_clock.monotonic() - avoidance_started_s) * 1_000.0,
                     )
                     monocular_avoidance_latency_ms.append(avoidance_elapsed_ms)
                     if latest_monocular_avoidance.state is CollisionRiskState.INVALID:
@@ -1500,7 +1689,7 @@ class LiveMissionRunner:
                     if avoidance_fingerprint != last_monocular_avoidance_fingerprint:
                         self.mission.audit.append(
                             "avoidance.state_changed",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             _monocular_avoidance_details(latest_monocular_avoidance),
                         )
                         recent_events.append(
@@ -1548,7 +1737,7 @@ class LiveMissionRunner:
                 if exclusive_lock_track_id != last_exclusive_lock_track_id:
                     self.mission.audit.append(
                         "tracking.exclusive_lock_rate_changed",
-                        max(captured.captured_at_s, time.monotonic()),
+                        max(captured.captured_at_s, self.clock.monotonic()),
                         {
                             "enabled": exclusive_lock_track_id is not None,
                             "target_id": exclusive_lock_track_id,
@@ -1567,7 +1756,7 @@ class LiveMissionRunner:
                 short_term_result: ShortTermTrackingResult | None = None
                 unified_update = None
                 if self.short_term_tracker is not None:
-                    short_term_started_s = time.perf_counter()
+                    short_term_started_s = self.performance_clock.monotonic()
                     try:
                         short_term_arguments: dict[str, object] = {
                             "captured_at_s": captured.captured_at_s,
@@ -1590,7 +1779,7 @@ class LiveMissionRunner:
                         short_term_tracking_errors += 1
                         self.mission.audit.append(
                             "tracking.short_term_failed",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "frame_id": captured.frame_id,
                                 "error_type": type(exc).__name__,
@@ -1615,7 +1804,7 @@ class LiveMissionRunner:
                             if not short_term_tracking_camera_motion_reported:
                                 self.mission.audit.append(
                                     "tracking.background_camera_motion_ready",
-                                    max(captured.captured_at_s, time.monotonic()),
+                                    max(captured.captured_at_s, self.clock.monotonic()),
                                     {
                                         "frame_id": captured.frame_id,
                                         "dx": short_term_result.camera_motion.dx,
@@ -1647,7 +1836,8 @@ class LiveMissionRunner:
                         short_term_tracking_latency_ms.append(
                             max(
                                 short_term_result.processing_time_ms,
-                                (time.perf_counter() - short_term_started_s) * 1_000.0,
+                                (self.performance_clock.monotonic() - short_term_started_s)
+                                * 1_000.0,
                             )
                         )
                 if self.unified_target_pool is not None:
@@ -1669,7 +1859,7 @@ class LiveMissionRunner:
                         if not _has_reid_candidates(detections, person_reid_labels):
                             person_reid_no_candidate_frames += 1
                         else:
-                            person_reid_now_s = time.monotonic()
+                            person_reid_now_s = self.clock.monotonic()
                             if exclusive_lock_track_id is not None:
                                 person_reid_due, person_reid_forced = True, False
                             else:
@@ -1687,7 +1877,7 @@ class LiveMissionRunner:
                                     recovery_required=person_recovery_required,
                                 )
                             if person_reid_due:
-                                person_reid_started_s = time.perf_counter()
+                                person_reid_started_s = self.performance_clock.monotonic()
                                 person_reid_inferences += 1
                                 person_reid_forced_recoveries += int(person_reid_forced)
                                 last_person_reid_at_s = person_reid_now_s
@@ -1702,7 +1892,7 @@ class LiveMissionRunner:
                                     person_reid_failures += 1
                                     self.mission.audit.append(
                                         "tracking.person_reid_failed",
-                                        max(captured.captured_at_s, time.monotonic()),
+                                        max(captured.captured_at_s, self.clock.monotonic()),
                                         {
                                             "frame_id": captured.frame_id,
                                             "error_type": type(exc).__name__,
@@ -1713,7 +1903,8 @@ class LiveMissionRunner:
                                     )
                                 finally:
                                     person_reid_latency_ms.append(
-                                        (time.perf_counter() - person_reid_started_s) * 1_000.0
+                                        (self.performance_clock.monotonic() - person_reid_started_s)
+                                        * 1_000.0
                                     )
                             else:
                                 person_reid_skipped_frames += 1
@@ -1730,7 +1921,7 @@ class LiveMissionRunner:
                         if not _has_reid_candidates(detections, vehicle_reid_labels):
                             vehicle_reid_no_candidate_frames += 1
                         else:
-                            vehicle_reid_now_s = time.monotonic()
+                            vehicle_reid_now_s = self.clock.monotonic()
                             if exclusive_lock_track_id is not None:
                                 vehicle_reid_due, vehicle_reid_forced = True, False
                             else:
@@ -1750,7 +1941,7 @@ class LiveMissionRunner:
                                     recovery_required=vehicle_recovery_required,
                                 )
                             if vehicle_reid_due:
-                                vehicle_reid_started_s = time.perf_counter()
+                                vehicle_reid_started_s = self.performance_clock.monotonic()
                                 vehicle_reid_inferences += 1
                                 vehicle_reid_forced_recoveries += int(vehicle_reid_forced)
                                 last_vehicle_reid_at_s = vehicle_reid_now_s
@@ -1769,7 +1960,7 @@ class LiveMissionRunner:
                                     vehicle_reid_failures += 1
                                     self.mission.audit.append(
                                         "tracking.vehicle_reid_failed",
-                                        max(captured.captured_at_s, time.monotonic()),
+                                        max(captured.captured_at_s, self.clock.monotonic()),
                                         {
                                             "frame_id": captured.frame_id,
                                             "error_type": type(exc).__name__,
@@ -1780,7 +1971,11 @@ class LiveMissionRunner:
                                     )
                                 finally:
                                     vehicle_reid_latency_ms.append(
-                                        (time.perf_counter() - vehicle_reid_started_s) * 1_000.0
+                                        (
+                                            self.performance_clock.monotonic()
+                                            - vehicle_reid_started_s
+                                        )
+                                        * 1_000.0
                                     )
                             else:
                                 vehicle_reid_skipped_frames += 1
@@ -1812,7 +2007,7 @@ class LiveMissionRunner:
                             except (OSError, RuntimeError, TypeError, ValueError) as exc:
                                 self.mission.audit.append(
                                     "tracking.aircraft_appearance_failed",
-                                    max(captured.captured_at_s, time.monotonic()),
+                                    max(captured.captured_at_s, self.clock.monotonic()),
                                     {
                                         "frame_id": captured.frame_id,
                                         "error_type": type(exc).__name__,
@@ -1831,7 +2026,7 @@ class LiveMissionRunner:
                             selection_target_pool_errors += 1
                             self.mission.audit.append(
                                 "tracking.selection_pool_observation_failed",
-                                max(captured.captured_at_s, time.monotonic()),
+                                max(captured.captured_at_s, self.clock.monotonic()),
                                 {
                                     "frame_id": captured.frame_id,
                                     "error_type": type(exc).__name__,
@@ -1863,7 +2058,7 @@ class LiveMissionRunner:
                                 short_term_tracking_errors += 1
                         self.mission.audit.append(
                             "tracking.unified_target_pool_failed",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "frame_id": captured.frame_id,
                                 "error_type": type(exc).__name__,
@@ -1875,13 +2070,13 @@ class LiveMissionRunner:
                         if self.selection_target_pool is not None:
                             try:
                                 selection_sync = self.selection_target_pool.after_pool_update(
-                                    now_s=max(captured.captured_at_s, time.monotonic())
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic())
                                 )
                             except (RuntimeError, TypeError, ValueError) as exc:
                                 selection_target_pool_errors += 1
                                 self.mission.audit.append(
                                     "tracking.selection_pool_sync_failed",
-                                    max(captured.captured_at_s, time.monotonic()),
+                                    max(captured.captured_at_s, self.clock.monotonic()),
                                     {
                                         "frame_id": captured.frame_id,
                                         "error_type": type(exc).__name__,
@@ -1899,7 +2094,7 @@ class LiveMissionRunner:
                                 if selection_sync.bound_track_id is not None:
                                     self.mission.audit.append(
                                         "tracking.selection_pool_bound",
-                                        max(captured.captured_at_s, time.monotonic()),
+                                        max(captured.captured_at_s, self.clock.monotonic()),
                                         {
                                             "frame_id": captured.frame_id,
                                             "target_id": selection_sync.bound_track_id,
@@ -1961,7 +2156,7 @@ class LiveMissionRunner:
                                 short_term_tracking_errors += 1
                                 self.mission.audit.append(
                                     "tracking.short_term_synchronization_failed",
-                                    max(captured.captured_at_s, time.monotonic()),
+                                    max(captured.captured_at_s, self.clock.monotonic()),
                                     {
                                         "frame_id": captured.frame_id,
                                         "error_type": type(exc).__name__,
@@ -1979,7 +2174,7 @@ class LiveMissionRunner:
                         ):
                             self.mission.audit.append(
                                 "tracking.unified_target_pool_changed",
-                                max(captured.captured_at_s, time.monotonic()),
+                                max(captured.captured_at_s, self.clock.monotonic()),
                                 {
                                     "frame_id": captured.frame_id,
                                     "track_count": len(unified_update.tracks),
@@ -2020,7 +2215,7 @@ class LiveMissionRunner:
                         identity_tracking_log_disabled_after_error = True
                         self.mission.audit.append(
                             "tracking.identity_prediction_log_failed",
-                            max(captured.captured_at_s, time.monotonic()),
+                            max(captured.captured_at_s, self.clock.monotonic()),
                             {
                                 "frame_id": captured.frame_id,
                                 "error_type": type(exc).__name__,
@@ -2032,7 +2227,7 @@ class LiveMissionRunner:
                         )
                     else:
                         identity_tracking_log_frames += 1
-                frame_event_at_s = time.monotonic()
+                frame_event_at_s = max(captured.captured_at_s, self.clock.monotonic())
                 telemetry = with_person_detector_health(
                     telemetry,
                     healthy=(
@@ -2050,19 +2245,19 @@ class LiveMissionRunner:
                         now_s=frame_event_at_s,
                     )
                 latest_ranging_solution = None
+                latest_ranging_source_binding = None
                 target_relative_bearings: dict[str, float] = {}
                 target_estimated_ranges: dict[str, float] = {}
                 target_estimated_speeds: dict[str, float] = {}
                 if self.ranging_engine is not None and unified_update is not None:
-                    ranging_started_s = time.perf_counter()
+                    ranging_started_s = self.performance_clock.monotonic()
                     try:
                         if self.metric_depth_runner is not None:
                             metric_tracks = tuple(
                                 track
                                 for track in unified_update.tracks
                                 if self.selection_target_pool is not None
-                                and track.track_id
-                                in self.selection_target_pool.tracked_track_ids
+                                and track.track_id in self.selection_target_pool.tracked_track_ids
                             )
                             metric_track = _target_pool_snapshot(
                                 self.unified_target_pool,
@@ -2143,12 +2338,30 @@ class LiveMissionRunner:
                                         "calibration_scale": metric_result.calibration_scale,
                                         "calibration_offset_m": metric_result.calibration_offset_m,
                                         "calibration_profile": metric_result.calibration_profile,
+                                        "calibration_mode": metric_result.calibration_mode,
+                                        "calibration_curve_raw_range_m": (
+                                            list(metric_result.calibration_curve_raw_range_m)
+                                            if (
+                                                metric_result.calibration_curve_raw_range_m
+                                                is not None
+                                            )
+                                            else None
+                                        ),
+                                        "calibration_extrapolated": (
+                                            metric_result.calibration_extrapolated
+                                        ),
+                                        "calibration_extrapolation_sigma_m": (
+                                            metric_result.calibration_extrapolation_sigma_m
+                                        ),
                                         "grid_width": metric_result.depth_grid.width,
                                         "grid_height": metric_result.depth_grid.height,
                                         "exclusive_lck_only": False,
                                         "submission_mode": (
-                                            "lck" if exclusive_lock_track_id is not None else
-                                            "trk" if metric_tracks else "scene"
+                                            "lck"
+                                            if exclusive_lock_track_id is not None
+                                            else "trk"
+                                            if metric_tracks
+                                            else "scene"
                                         ),
                                     },
                                 )
@@ -2174,14 +2387,19 @@ class LiveMissionRunner:
                             # model error must not blank the metrics for the
                             # other DET/TRK/LCK boxes in this pool update.
                             try:
-                                center_x, center_y = track.bbox.center
-                                target_observation = TargetImageObservation(
+                                anchor = target_image_anchor(
+                                    label=track.label,
+                                    bbox=track.bbox,
+                                    image_width_px=self.ranging_config.calibration.width_px,
+                                    image_height_px=self.ranging_config.calibration.height_px,
+                                    minimum_sigma_px=(
+                                        self.ranging_config.target_center_sigma_px
+                                    ),
+                                )
+                                target_observation = anchor.observation(
                                     target_id=track.track_id,
                                     frame_id=captured.frame_id,
                                     captured_at_s=captured.captured_at_s,
-                                    center_x=center_x,
-                                    center_y=center_y,
-                                    center_sigma_px=self.ranging_config.target_center_sigma_px,
                                 )
                                 target_relative_bearings[track.track_id] = (
                                     self.ranging_engine.relative_bearing_deg(
@@ -2195,9 +2413,7 @@ class LiveMissionRunner:
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
                                     camera_motion=unified_camera_motion,
-                                    exclusive_lock=(
-                                        track.track_id == exclusive_lock_track_id
-                                    ),
+                                    exclusive_lock=(track.track_id == exclusive_lock_track_id),
                                 )
                                 ranging_fingerprint = (
                                     track_solution.validity.value,
@@ -2263,7 +2479,13 @@ class LiveMissionRunner:
                                         frame_event_at_s,
                                     )
                                 if track.track_id == unified_update.primary_track_id:
+                                    source_binding = RangeSolutionFrameBinding.from_solution(
+                                        track_solution,
+                                        source_frame_id=captured.frame_id,
+                                        source_captured_at_s=captured.captured_at_s,
+                                    )
                                     latest_ranging_solution = track_solution
+                                    latest_ranging_source_binding = source_binding
                             except (RuntimeError, TypeError, ValueError) as exc:
                                 ranging_errors += 1
                                 self.mission.audit.append(
@@ -2313,6 +2535,8 @@ class LiveMissionRunner:
                                     latest_ranging_solution,
                                     telemetry=telemetry,
                                     now_s=frame_event_at_s,
+                                    source_captured_at_s=captured.captured_at_s,
+                                    adaptive_ranging_policy=self.adaptive_ranging_policy,
                                 ),
                             )
                     except Exception as exc:
@@ -2337,7 +2561,7 @@ class LiveMissionRunner:
                         )
                     finally:
                         ranging_latency_ms.append(
-                            (time.perf_counter() - ranging_started_s) * 1_000.0
+                            (self.performance_clock.monotonic() - ranging_started_s) * 1_000.0
                         )
                 if self.patrol_advisory_engine is not None and unified_update is not None:
                     latest_patrol_assessment = None
@@ -2494,6 +2718,73 @@ class LiveMissionRunner:
                                     "physical_release_enabled": False,
                                 },
                             )
+                # Give an optional SIM/HIL consumer the exact production
+                # observation set for this frame.  This is intentionally
+                # after target-pool/ranging/avoidance evaluation and before
+                # mission state mutation, so the simulator AI sees the same
+                # telemetry and perception products as the native QGC path.
+                # The callback is advisory at this boundary: a malformed
+                # consumer must not stop camera processing or alter mission
+                # safety decisions.
+                if self.simulator_perception_sink is not None:
+                    sink_track = active_unified_track
+                    sink_tracks = unified_update.tracks if unified_update is not None else ()
+                    if sink_track is None and unified_update is not None:
+                        primary_id = unified_update.primary_track_id
+                        if primary_id is not None:
+                            sink_track = next(
+                                (
+                                    track
+                                    for track in unified_update.tracks
+                                    if track.track_id == primary_id
+                                ),
+                                None,
+                            )
+                    try:
+                        # ``SimulatorPerceptionBridge`` accepts either one
+                        # track or a collection, never both.  Pass the full
+                        # immutable pool as ``tracks`` and identify the
+                        # selected/primary item separately.  This keeps the
+                        # SIM path fed by exactly the production objects while
+                        # avoiding a duplicate or stale single-track source.
+                        sink_kwargs: dict[str, object] = {
+                            "tracks": sink_tracks,
+                            "selected_track_id": (
+                                sink_track.track_id if sink_track is not None else None
+                            ),
+                            "now_s": frame_event_at_s,
+                        }
+                        if self._simulator_perception_sink_accepts_frame_identity:
+                            sink_kwargs.update(
+                                {
+                                    "frame_id": captured.frame_id,
+                                    "frame_captured_at_s": captured.captured_at_s,
+                                }
+                            )
+                        self._simulator_perception_last_result = self.simulator_perception_sink(
+                            telemetry,
+                            None,
+                            latest_ranging_solution,
+                            latest_monocular_avoidance,
+                            **sink_kwargs,
+                        )
+                        self._simulator_perception_feed_count += 1
+                    except Exception as exc:
+                        self._simulator_perception_error_count += 1
+                        self._simulator_perception_last_error = (
+                            f"{type(exc).__name__}: {str(exc)[:240]}"
+                        )
+                        self.mission.audit.append(
+                            "simulator.perception_sink_failed",
+                            frame_event_at_s,
+                            {
+                                "frame_id": captured.frame_id,
+                                "error_type": type(exc).__name__,
+                                "error": str(exc)[:240],
+                                "perception_continues": True,
+                                "flight_control_enabled": False,
+                            },
+                        )
                 if self.mission.state.phase in {
                     MissionPhase.SEARCHING,
                     MissionPhase.AWAITING_AUTHORIZATION,
@@ -2518,7 +2809,7 @@ class LiveMissionRunner:
                         self.alert_outbox.enqueue(alert)
                     deliver_alert(
                         alert,
-                        delivered_at_s=time.monotonic(),
+                        delivered_at_s=self.clock.monotonic(),
                         retry=False,
                     )
                 latest_payload_target_frame = None
@@ -2529,7 +2820,7 @@ class LiveMissionRunner:
                             selected=active_unified_track,
                             fire_tracks=outcome.tracks,
                             now_s=frame_event_at_s,
-                            wire_now_s=time.time(),
+                            wire_now_s=self.clock.utc_now().timestamp(),
                         )
                     except (RuntimeError, TypeError, ValueError) as exc:
                         payload_target_errors += 1
@@ -2558,7 +2849,7 @@ class LiveMissionRunner:
                             avoidance=latest_monocular_avoidance,
                             telemetry=telemetry,
                             now_s=frame_event_at_s,
-                            wire_now_s=time.time(),
+                            wire_now_s=self.clock.utc_now().timestamp(),
                         )
                     except (RuntimeError, TypeError, ValueError) as exc:
                         approach_hil_errors += 1
@@ -2639,7 +2930,9 @@ class LiveMissionRunner:
                             {
                                 "frame_id": captured.frame_id,
                                 "error_type": type(exc).__name__,
-                                "flight_control_enabled": True,
+                                "flight_control_enabled": (
+                                    self.fixed_wing_aim_executor.flight_control_enabled
+                                ),
                             },
                         )
                     else:
@@ -2678,7 +2971,9 @@ class LiveMissionRunner:
                                         if aim_decision.setpoint is not None
                                         else None
                                     ),
-                                    "flight_control_enabled": True,
+                                    "flight_control_enabled": (
+                                        self.fixed_wing_aim_executor.flight_control_enabled
+                                    ),
                                 },
                             )
                             last_fixed_wing_aim_state = aim_decision.state
@@ -2688,7 +2983,15 @@ class LiveMissionRunner:
                         remote_mission_status_sequence + 1
                     ) & 0xFFFFFFFF
                     remote_safety_status_sequence = (remote_safety_status_sequence + 1) & 0xFFFFFFFF
-                    produced_at_s = time.monotonic()
+                    remote_runtime_status_sequence = (
+                        remote_runtime_status_sequence + 1
+                    ) & 0xFFFFFFFF
+                    # A tie-broken source timestamp may be a few microseconds
+                    # ahead of the coarse Windows clock.  Status packets must
+                    # never claim to have been produced before their source
+                    # frame, so advance the packet timestamp to that local
+                    # watermark when necessary.
+                    produced_at_s = max(captured.captured_at_s, self.clock.monotonic())
                     authorization_challenge_message = None
                     if outcome.challenge is not None:
                         remote_authorization_challenge_sequence = (
@@ -2698,8 +3001,8 @@ class LiveMissionRunner:
                             build_authorization_challenge_status_message(
                                 challenge=outcome.challenge,
                                 sequence=remote_authorization_challenge_sequence,
-                                produced_at_s=time.time(),
-                                challenge_clock_now_s=time.monotonic(),
+                                produced_at_s=self.clock.utc_now().timestamp(),
+                                challenge_clock_now_s=self.clock.monotonic(),
                             )
                         )
                     current_mission_status = self.mission.status()
@@ -2717,6 +3020,15 @@ class LiveMissionRunner:
                         outcome=outcome,
                         produced_at_s=produced_at_s,
                     )
+                    runtime_status_message = (
+                        replace(
+                            self.runtime_status,
+                            sequence=remote_runtime_status_sequence,
+                            produced_at_s=produced_at_s,
+                        )
+                        if self.runtime_status is not None
+                        else None
+                    )
                     patrol_status_message = None
                     if latest_patrol_assessment is not None and unified_update is not None:
                         remote_patrol_status_sequence = (
@@ -2733,22 +3045,22 @@ class LiveMissionRunner:
                         )
                     range_status_message = None
                     target_geolocation_status_message = None
-                    if latest_ranging_solution is not None:
+                    if (
+                        latest_ranging_solution is not None
+                        and latest_ranging_source_binding is not None
+                    ):
                         remote_range_status_sequence = (
                             remote_range_status_sequence + 1
                         ) & 0xFFFFFFFF
                         remote_target_geolocation_status_sequence = (
                             remote_target_geolocation_status_sequence + 1
                         ) & 0xFFFFFFFF
-                        wire_ranging_solution = replace(
-                            latest_ranging_solution,
-                            evaluated_at_s=produced_at_s,
-                        )
                         try:
                             range_status_message = build_range_status_message(
                                 sequence=remote_range_status_sequence,
-                                solution=wire_ranging_solution,
-                                source_captured_at_s=captured.captured_at_s,
+                                solution=latest_ranging_solution,
+                                source_binding=latest_ranging_source_binding,
+                                produced_at_s=produced_at_s,
                             )
                         except (TypeError, ValueError) as exc:
                             # Range metadata is optional transport output. A
@@ -2771,9 +3083,11 @@ class LiveMissionRunner:
                             target_geolocation_status_message = (
                                 build_target_geolocation_status_message(
                                     sequence=remote_target_geolocation_status_sequence,
-                                    solution=wire_ranging_solution,
+                                    solution=latest_ranging_solution,
                                     telemetry=telemetry,
-                                    source_captured_at_s=captured.captured_at_s,
+                                    source_binding=latest_ranging_source_binding,
+                                    produced_at_s=produced_at_s,
+                                    adaptive_ranging_policy=self.adaptive_ranging_policy,
                                 )
                             )
                         except (TypeError, ValueError) as exc:
@@ -2954,6 +3268,7 @@ class LiveMissionRunner:
                         range_status=range_status_message,
                         target_geolocation_status=target_geolocation_status_message,
                         release_status=release_status_message,
+                        runtime_status=runtime_status_message,
                         approach_challenge=(
                             latest_approach_frame.challenge
                             if latest_approach_frame is not None
@@ -2985,7 +3300,7 @@ class LiveMissionRunner:
                     ):
                         self.mission.audit.append(
                             "operator.metadata_peer_state",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "connected": current_operator_peer is not None,
                                 "peer": (
@@ -3011,6 +3326,9 @@ class LiveMissionRunner:
                     remote_safety_statuses += len(bridge_result.published_safety_statuses)
                     remote_patrol_statuses += len(bridge_result.published_patrol_statuses)
                     remote_range_statuses += len(bridge_result.published_range_statuses)
+                    remote_target_geolocation_statuses += len(
+                        bridge_result.published_target_geolocation_statuses
+                    )
                     remote_release_statuses += len(bridge_result.published_release_statuses)
                     remote_approach_challenges += len(bridge_result.published_approach_challenges)
                     remote_approach_statuses += len(bridge_result.published_approach_statuses)
@@ -3029,13 +3347,13 @@ class LiveMissionRunner:
                         try:
                             selection_sync = self.selection_target_pool.consume_bridge_result(
                                 bridge_result,
-                                now_s=max(captured.captured_at_s, time.monotonic()),
+                                now_s=max(captured.captured_at_s, self.clock.monotonic()),
                             )
                         except (RuntimeError, TypeError, ValueError) as exc:
                             selection_target_pool_errors += 1
                             self.mission.audit.append(
                                 "tracking.selection_pool_bridge_failed",
-                                max(captured.captured_at_s, time.monotonic()),
+                                max(captured.captured_at_s, self.clock.monotonic()),
                                 {
                                     "frame_id": captured.frame_id,
                                     "error_type": type(exc).__name__,
@@ -3062,7 +3380,7 @@ class LiveMissionRunner:
                             ):
                                 self.mission.audit.append(
                                     "tracking.selection_pool_operator_sync",
-                                    max(captured.captured_at_s, time.monotonic()),
+                                    max(captured.captured_at_s, self.clock.monotonic()),
                                     {
                                         "frame_id": captured.frame_id,
                                         "active_selection_command_id": (
@@ -3109,13 +3427,13 @@ class LiveMissionRunner:
                             try:
                                 accepted = self.approach_hil_coordinator.consume_confirmation(
                                     remote_command,
-                                    now_s=time.monotonic(),
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic()),
                                 )
                             except (RuntimeError, TypeError, ValueError) as exc:
                                 approach_hil_errors += 1
                                 self.mission.audit.append(
                                     "approach_hil.confirmation_failed",
-                                    time.monotonic(),
+                                    self.clock.monotonic(),
                                     {
                                         "command_token": remote_command.command_token,
                                         "peer": remote_peer[0],
@@ -3126,7 +3444,7 @@ class LiveMissionRunner:
                         remote_approach_confirmations += int(accepted)
                         self.mission.audit.append(
                             "approach_hil.confirmation_consumed",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "command_token": remote_command.command_token,
                                 "peer": remote_peer[0],
@@ -3148,13 +3466,13 @@ class LiveMissionRunner:
                             try:
                                 accepted = self.payload_target_coordinator.consume_confirmation(
                                     remote_command,
-                                    now_s=time.monotonic(),
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic()),
                                 )
                             except (RuntimeError, TypeError, ValueError) as exc:
                                 payload_target_errors += 1
                                 self.mission.audit.append(
                                     "payload_target.confirmation_failed",
-                                    time.monotonic(),
+                                    self.clock.monotonic(),
                                     {
                                         "command_token": remote_command.command_token,
                                         "peer": remote_peer[0],
@@ -3166,7 +3484,7 @@ class LiveMissionRunner:
                         remote_payload_target_confirmations += int(accepted)
                         self.mission.audit.append(
                             "payload_target.confirmation_consumed",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "command_token": remote_command.command_token,
                                 "peer": remote_peer[0],
@@ -3196,7 +3514,7 @@ class LiveMissionRunner:
                         ):
                             self.mission.audit.append(
                                 "operator.remote_authorization_rejected",
-                                time.monotonic(),
+                                self.clock.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -3214,7 +3532,7 @@ class LiveMissionRunner:
                                     challenge_id=current_challenge.challenge_id,
                                     nonce=current_challenge.nonce,
                                     operator_id=operator_id,
-                                    now_s=time.monotonic(),
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic()),
                                 )
                                 authorizations += 1
                                 recent_events.append(
@@ -3225,7 +3543,7 @@ class LiveMissionRunner:
                                     challenge_id=current_challenge.challenge_id,
                                     nonce=current_challenge.nonce,
                                     operator_id=operator_id,
-                                    now_s=time.monotonic(),
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic()),
                                 )
                                 recent_events.append(
                                     f"TARGET {current_challenge.target_id} REMOTELY DENIED"
@@ -3233,7 +3551,7 @@ class LiveMissionRunner:
                         except (RuntimeError, ValueError) as exc:
                             self.mission.audit.append(
                                 "operator.remote_authorization_rejected",
-                                time.monotonic(),
+                                self.clock.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -3249,7 +3567,7 @@ class LiveMissionRunner:
                             remote_authorization_handled = True
                             self.mission.audit.append(
                                 "operator.remote_authorization_applied",
-                                time.monotonic(),
+                                self.clock.monotonic(),
                                 {
                                     "command_token": remote_command.command_token,
                                     "operator_token": remote_command.operator_token,
@@ -3262,7 +3580,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_statuses:
                         self.mission.audit.append(
                             "operator.remote_tracking_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "selection_command_id": remote_status.selection_command_id,
                                 "state": remote_status.state.value,
@@ -3273,7 +3591,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_mission_statuses:
                         self.mission.audit.append(
                             "operator.remote_mission_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "phase": remote_status.phase.value,
                                 "authorization_state": (remote_status.authorization_state.value),
@@ -3290,7 +3608,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_safety_statuses:
                         self.mission.audit.append(
                             "operator.remote_safety_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "target_id": remote_status.target_id,
                                 "ruleset_version": remote_status.ruleset_version,
@@ -3304,7 +3622,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_patrol_statuses:
                         self.mission.audit.append(
                             "operator.remote_patrol_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "phase": remote_status.phase.value,
                                 "primary_target_id": remote_status.primary_target_id,
@@ -3327,9 +3645,15 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_range_statuses:
                         self.mission.audit.append(
                             "operator.remote_range_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "target_id": remote_status.target_id,
+                                "source_frame_id": remote_status.source_frame_id,
+                                "source_captured_at_s": remote_status.source_captured_at_s,
+                                "produced_at_s": remote_status.produced_at_s,
+                                "source_age_s": (
+                                    remote_status.produced_at_s - remote_status.source_captured_at_s
+                                ),
                                 "validity": remote_status.validity.value,
                                 "slant_range_m": remote_status.slant_range_m,
                                 "data_freshness_s": remote_status.data_freshness_s,
@@ -3339,10 +3663,33 @@ class LiveMissionRunner:
                                 "physical_release_enabled": False,
                             },
                         )
+                    for remote_status in bridge_result.published_target_geolocation_statuses:
+                        self.mission.audit.append(
+                            "operator.remote_target_geolocation_status",
+                            self.clock.monotonic(),
+                            {
+                                "target_id": remote_status.target_id,
+                                "source_frame_id": remote_status.source_frame_id,
+                                "source_captured_at_s": remote_status.source_captured_at_s,
+                                "produced_at_s": remote_status.produced_at_s,
+                                "source_age_s": (
+                                    remote_status.produced_at_s - remote_status.source_captured_at_s
+                                ),
+                                "available": remote_status.available,
+                                "reason": remote_status.reason,
+                                "latitude_deg": remote_status.latitude_deg,
+                                "longitude_deg": remote_status.longitude_deg,
+                                "horizontal_sigma_m": remote_status.horizontal_sigma_m,
+                                "advisory_only": True,
+                                "hardware_control_enabled": False,
+                                "flight_control_enabled": False,
+                                "physical_release_enabled": False,
+                            },
+                        )
                     for remote_status in bridge_result.published_release_statuses:
                         self.mission.audit.append(
                             "operator.remote_release_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "target_id": remote_status.target_id,
                                 "timing_status": remote_status.timing_status.value,
@@ -3359,7 +3706,7 @@ class LiveMissionRunner:
                     for remote_status in bridge_result.published_approach_statuses:
                         self.mission.audit.append(
                             "operator.remote_approach_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "target_id": remote_status.target_id,
                                 "target_revision": remote_status.target_revision,
@@ -3383,7 +3730,7 @@ class LiveMissionRunner:
                         )
                         self.mission.audit.append(
                             "operator.remote_target_pool_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "pool_revision": first_page.pool_revision,
                                 "page_count": first_page.page_count,
@@ -3411,7 +3758,7 @@ class LiveMissionRunner:
                         first_page = bridge_result.published_scene_context_statuses[0]
                         self.mission.audit.append(
                             "operator.remote_scene_context_status",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "context_revision": first_page.context_revision,
                                 "source_frame_id": first_page.source_frame_id,
@@ -3433,7 +3780,7 @@ class LiveMissionRunner:
                     for error_type in bridge_result.transport_errors:
                         self.mission.audit.append(
                             "operator.remote_transport_error",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "error_type": error_type,
                                 "hardware_control_enabled": False,
@@ -3442,7 +3789,7 @@ class LiveMissionRunner:
                         recent_events.append(f"REMOTE LINK ERROR {error_type}")
                 if ui is not None:
                     consume_target_command = getattr(ui, "consume_target_command", None)
-                    local_operator_now_s = time.monotonic()
+                    local_operator_now_s = self.clock.monotonic()
                     local_command = (
                         consume_target_command(captured, now_s=local_operator_now_s)
                         if callable(consume_target_command)
@@ -3508,7 +3855,7 @@ class LiveMissionRunner:
                                 local_manual_tracker_unavailable = True
                                 self.mission.audit.append(
                                     "operator.local_manual_tracker_failed",
-                                    time.monotonic(),
+                                    self.clock.monotonic(),
                                     {"error_type": type(exc).__name__},
                                 )
                                 recent_events.append(f"LOCAL TRACKER ERROR {type(exc).__name__}")
@@ -3525,7 +3872,7 @@ class LiveMissionRunner:
                         local_tracking_statuses += 1
                         self.mission.audit.append(
                             "operator.local_target_selection",
-                            time.monotonic(),
+                            self.clock.monotonic(),
                             {
                                 "action": local_command.action.value,
                                 "state": local_track_status.state.value,
@@ -3538,7 +3885,7 @@ class LiveMissionRunner:
                             tracks=outcome.tracks,
                             frame_id=captured.frame_id,
                             captured_at_s=captured.captured_at_s,
-                            produced_at_s=max(captured.captured_at_s, time.monotonic()),
+                            produced_at_s=max(captured.captured_at_s, self.clock.monotonic()),
                         )
                         manual_status = None
                         if local_manual_tracker is not None and local_manual_tracker.active:
@@ -3549,7 +3896,7 @@ class LiveMissionRunner:
                                     captured_at_s=captured.captured_at_s,
                                     produced_at_s=max(
                                         captured.captured_at_s,
-                                        time.monotonic(),
+                                        self.clock.monotonic(),
                                     ),
                                 )
                             except (OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -3557,7 +3904,7 @@ class LiveMissionRunner:
                                 local_manual_tracker_unavailable = True
                                 self.mission.audit.append(
                                     "operator.local_manual_tracker_failed",
-                                    time.monotonic(),
+                                    self.clock.monotonic(),
                                     {"error_type": type(exc).__name__},
                                 )
                                 recent_events.append(f"LOCAL TRACKER ERROR {type(exc).__name__}")
@@ -3584,7 +3931,7 @@ class LiveMissionRunner:
                                         shadow_command,
                                         image_bgr=captured.image_bgr,
                                         frame_id=captured.frame_id,
-                                        now_s=time.monotonic(),
+                                        now_s=self.clock.monotonic(),
                                     )
                                     if shadow_status.state is not TrackingState.TRACKING:
                                         local_manual_tracker = None
@@ -3594,7 +3941,7 @@ class LiveMissionRunner:
                                     local_manual_tracker_unavailable = True
                                     self.mission.audit.append(
                                         "operator.local_manual_tracker_failed",
-                                        time.monotonic(),
+                                        self.clock.monotonic(),
                                         {"error_type": type(exc).__name__},
                                     )
                                     recent_events.append(
@@ -3610,24 +3957,24 @@ class LiveMissionRunner:
                             ):
                                 local_target_lock.hint_bbox(
                                     local_track_status.bbox,
-                                    now_s=max(captured.captured_at_s, time.monotonic()),
+                                    now_s=max(captured.captured_at_s, self.clock.monotonic()),
                                 )
                         else:
                             local_track_status = detector_lock_status
                         if local_track_status is not None:
                             local_tracking_statuses += 1
                 processed += 1
-                processed_at_s = time.monotonic()
+                processed_at_s = self.clock.monotonic()
                 if first_processed_at_s is None:
                     first_processed_at_s = processed_at_s
                 last_processed_at_s = processed_at_s
                 status = self.mission.status()
-                elapsed_s = max(time.monotonic() - run_started_s, 1e-9)
+                elapsed_s = max(self.clock.monotonic() - run_started_s, 1e-9)
                 fps = processed / elapsed_s
                 visible_alerts = (
                     (latest_alert,)
                     if latest_alert is not None
-                    and time.monotonic() - latest_alert.observed_at_s
+                    and self.clock.monotonic() - latest_alert.observed_at_s
                     <= self.config.alert_banner_seconds
                     else ()
                 )
@@ -3673,7 +4020,7 @@ class LiveMissionRunner:
                 if action == "ack_alert" and latest_alert is not None:
                     self.mission.audit.append(
                         "alert.operator_acknowledged",
-                        time.monotonic(),
+                        self.clock.monotonic(),
                         {"alert_id": latest_alert.alert_id},
                     )
                     recent_events.append(f"ALERT {latest_alert.target_id} ACKNOWLEDGED")
@@ -3688,7 +4035,7 @@ class LiveMissionRunner:
                         challenge_id=outcome.challenge.challenge_id,
                         nonce=outcome.challenge.nonce,
                         operator_id=self.config.operator_id,
-                        now_s=time.monotonic(),
+                        now_s=max(captured.captured_at_s, self.clock.monotonic()),
                     )
                     authorizations += 1
                     recent_events.append(f"TARGET {outcome.challenge.target_id} AUTHORIZED")
@@ -3701,7 +4048,7 @@ class LiveMissionRunner:
                         challenge_id=outcome.challenge.challenge_id,
                         nonce=outcome.challenge.nonce,
                         operator_id=self.config.operator_id,
-                        now_s=time.monotonic(),
+                        now_s=max(captured.captured_at_s, self.clock.monotonic()),
                     )
                     recent_events.append(f"TARGET {outcome.challenge.target_id} DENIED")
                 elif (
@@ -3722,7 +4069,7 @@ class LiveMissionRunner:
                             if automatically_triggered
                             else "operator.simulated_payload_cycle_requested"
                         ),
-                        time.monotonic(),
+                        max(captured.captured_at_s, self.clock.monotonic()),
                         {
                             "operator_id": (
                                 None if automatically_triggered else self.config.operator_id
@@ -3736,23 +4083,25 @@ class LiveMissionRunner:
                         },
                     )
                     if self.payload_hil_cycle is not None:
-                        self.payload_hil_cycle.execute(now_s=time.monotonic())
+                        self.payload_hil_cycle.execute(
+                            now_s=max(captured.captured_at_s, self.clock.monotonic())
+                        )
                     else:
                         release_id = self.mission.request_simulated_deployment(
-                            now_s=time.monotonic()
+                            now_s=max(captured.captured_at_s, self.clock.monotonic())
                         )
                         self.mission.report_simulated_execution(
                             release_id=release_id,
-                            now_s=time.monotonic(),
+                            now_s=max(captured.captured_at_s, self.clock.monotonic()),
                         )
                         self.mission.report_independent_confirmation(
                             release_id=release_id,
                             source_id="live-hil-independent-bay-sensor",
-                            now_s=time.monotonic(),
+                            now_s=max(captured.captured_at_s, self.clock.monotonic()),
                         )
                     simulated_payload_cycles += 1
                     recent_events.append("SIMULATED PAYLOAD CYCLE CONFIRMED")
-                self.mission.tick(now_s=time.monotonic())
+                self.mission.tick(now_s=max(captured.captured_at_s, self.clock.monotonic()))
         finally:
             self.frame_source.close()
             if self.semantic_context_runner is not None:
@@ -3781,7 +4130,7 @@ class LiveMissionRunner:
             authorization_count=authorizations,
             alert_delivery_count=alert_deliveries,
             alert_delivery_failure_count=alert_delivery_failures,
-            average_fps=processed / max(time.monotonic() - run_started_s, 1e-9),
+            average_fps=processed / max(self.clock.monotonic() - run_started_s, 1e-9),
             steady_source_fps=_interval_rate(
                 processed,
                 first_captured_at_s,
@@ -3952,10 +4301,14 @@ class LiveMissionRunner:
             semantic_context_latency_p50_ms=_percentile(semantic_context_latency_ms, 0.50),
             semantic_context_latency_p95_ms=_percentile(semantic_context_latency_ms, 0.95),
             semantic_context_shutdown_clean=semantic_context_shutdown_clean,
+            simulator_perception_feed_count=self._simulator_perception_feed_count,
+            simulator_perception_error_count=self._simulator_perception_error_count,
+            simulator_perception_last_error=self._simulator_perception_last_error,
+            remote_target_geolocation_status_count=(remote_target_geolocation_statuses),
         )
         self.mission.audit.append(
             "live.performance_summary",
-            time.monotonic(),
+            self.clock.monotonic(),
             {
                 "processed_frames": result.processed_frames,
                 "average_fps": result.average_fps,
@@ -4004,6 +4357,9 @@ class LiveMissionRunner:
                 "remote_safety_status_count": result.remote_safety_status_count,
                 "remote_patrol_status_count": result.remote_patrol_status_count,
                 "remote_range_status_count": result.remote_range_status_count,
+                "remote_target_geolocation_status_count": (
+                    result.remote_target_geolocation_status_count
+                ),
                 "remote_release_status_count": result.remote_release_status_count,
                 "remote_approach_challenge_count": result.remote_approach_challenge_count,
                 "remote_approach_status_count": result.remote_approach_status_count,
@@ -4120,6 +4476,11 @@ class LiveMissionRunner:
                 "semantic_context_latency_p50_ms": result.semantic_context_latency_p50_ms,
                 "semantic_context_latency_p95_ms": result.semantic_context_latency_p95_ms,
                 "semantic_context_shutdown_clean": result.semantic_context_shutdown_clean,
+                "simulator_perception_feed_count": result.simulator_perception_feed_count,
+                "simulator_perception_error_count": result.simulator_perception_error_count,
+                "simulator_perception_last_error": result.simulator_perception_last_error,
+                "simulator_perception_truth_free": True,
+                "simulator_perception_flight_control_enabled": False,
                 "semantic_context_queue_capacity": 1,
                 "semantic_context_confidence_available": False,
                 "semantic_context_advisory_only": True,
@@ -4165,11 +4526,7 @@ class LiveMissionRunner:
             and track.missed_frame_count <= 24
             and track.tracking_quality >= 0.10
         )
-        if (
-            not track.actionable
-            and not predicted_track_usable
-            and not exclusive_metric_hold_usable
-        ):
+        if not track.actionable and not predicted_track_usable and not exclusive_metric_hold_usable:
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,
@@ -4197,14 +4554,17 @@ class LiveMissionRunner:
                 now_s=now_s,
                 reason="pixhawk_pose_or_timestamp_unavailable",
             )
-        center_x, center_y = track.bbox.center
-        target = TargetImageObservation(
+        anchor = target_image_anchor(
+            label=track.label,
+            bbox=track.bbox,
+            image_width_px=config.calibration.width_px,
+            image_height_px=config.calibration.height_px,
+            minimum_sigma_px=config.target_center_sigma_px,
+        )
+        target = anchor.observation(
             target_id=track.track_id,
             frame_id=captured.frame_id,
             captured_at_s=captured.captured_at_s,
-            center_x=center_x,
-            center_y=center_y,
-            center_sigma_px=config.target_center_sigma_px,
         )
         adaptive_decision = (
             self.adaptive_ranging_policy.decide(telemetry, now_s=now_s)
@@ -4224,6 +4584,30 @@ class LiveMissionRunner:
             if adaptive_decision is not None
             else {}
         )
+        terrain_observation: DemGpsTerrainObservation | None = None
+        terrain_input_failed = False
+        terrain_time_skew_failed = False
+        if config.terrain_dem is not None:
+            gps_quality = self.adaptive_ranging_policy.assess_gps_quality(
+                telemetry,
+                now_s=now_s,
+            )
+            if gps_quality.qualified:
+                try:
+                    terrain_observation = dem_gps_terrain_observation(
+                        config.terrain_dem,
+                        latitude_deg=telemetry.latitude_deg,
+                        longitude_deg=telemetry.longitude_deg,
+                        gps_absolute_altitude_m=telemetry.gps_absolute_altitude_m,
+                        gps_horizontal_sigma_m=telemetry.gps_horizontal_accuracy_m,
+                        gps_vertical_sigma_m=telemetry.gps_vertical_accuracy_m,
+                        captured_at_s=telemetry.gps_observed_at_s,
+                    )
+                except TerrainDemError:
+                    # A configured terrain model plus a qualified GPS fix is an
+                    # explicit positioning contract.  Coverage/datum/altitude
+                    # failure must not silently fall back to a flat AGL plane.
+                    terrain_input_failed = True
         visual_direct = (
             self.visual_inertial_ranging.observe(
                 track=track,
@@ -4294,8 +4678,7 @@ class LiveMissionRunner:
                                     self.metric_depth_runner.config.association_minimum_iou
                                 ),
                                 "maximum_center_distance": (
-                                    self.metric_depth_runner.config
-                                    .association_maximum_center_distance
+                                    self.metric_depth_runner.config.association_maximum_center_distance
                                 ),
                                 "source_bbox": [
                                     source_result.source_bbox.x1,
@@ -4334,11 +4717,7 @@ class LiveMissionRunner:
         # Sub-decimetre local-NED noise while parked is a learned zero, not a
         # geometric camera height.  Keep it out of the ground-ray solver and let
         # the temporal motion estimator wait for real platform excitation.
-        if (
-            telemetry.armed is False
-            or not math.isfinite(telemetry.altitude_agl_m)
-            or telemetry.altitude_agl_m <= 0.15
-        ):
+        if telemetry.armed is False:
             if direct_measurements:
                 return engine.solve_direct(
                     calibration=config.calibration,
@@ -4356,18 +4735,62 @@ class LiveMissionRunner:
                 now_s=now_s,
                 reason="vertical_reference_unavailable",
             )
-        if not math.isfinite(altitude_timestamp_s):
+        vertical_measurements: tuple[VerticalMeasurement, ...] = ()
+        # A qualified DEM/GPS observation already derives height from the raw
+        # GPS altitude.  PX4 relative/home altitude commonly contains the same
+        # GNSS information, so treating both as independent measurements would
+        # shrink covariance by double-counting one sensor.  Use the DEM/GPS
+        # datum alone for terrain geometry; retain AGL as the GPS-denied path.
+        if (
+            terrain_observation is None
+            and math.isfinite(telemetry.altitude_agl_m)
+            and telemetry.altitude_agl_m > 0.15
+            and math.isfinite(altitude_timestamp_s)
+        ):
+            vertical_measurements = (
+                VerticalMeasurement(
+                    source=VerticalSource.PIXHAWK_AGL,
+                    height_m=telemetry.altitude_agl_m,
+                    sigma_m=config.altitude_agl_sigma_m,
+                    captured_at_s=altitude_timestamp_s,
+                ),
+            )
+        maximum_skew_s = engine.config.maximum_pose_image_skew_s
+        vertical_measurements = tuple(
+            measurement
+            for measurement in vertical_measurements
+            if abs(telemetry.attitude_observed_at_s - measurement.captured_at_s) <= maximum_skew_s
+        )
+        if (
+            terrain_observation is not None
+            and abs(telemetry.attitude_observed_at_s - terrain_observation.captured_at_s)
+            > maximum_skew_s
+        ):
+            terrain_observation = None
+            terrain_time_skew_failed = True
+        if terrain_input_failed or terrain_time_skew_failed:
+            if direct_measurements:
+                return engine.solve_direct(
+                    calibration=config.calibration,
+                    pose=pose,
+                    target=target,
+                    direct_measurements=direct_measurements,
+                    source_weight_multipliers=source_weight_multipliers,
+                    now_s=now_s,
+                    **fusion_metadata,
+                )
             return _invalid_live_range_solution(
                 target_id=track.track_id,
                 frame_id=captured.frame_id,
                 calibration_id=config.calibration.calibration_id,
                 now_s=now_s,
-                reason="vertical_reference_unavailable",
+                reason=(
+                    "attitude_position_time_skew_exceeded"
+                    if terrain_time_skew_failed
+                    else "vertical_reference_unavailable"
+                ),
             )
-        if (
-            abs(telemetry.attitude_observed_at_s - altitude_timestamp_s)
-            > engine.config.maximum_pose_image_skew_s
-        ):
+        if not vertical_measurements and terrain_observation is None:
             # A metric-depth observation is tied to the image itself and does
             # not require the vertical reference to share the attitude sample's
             # exact timestamp.  Keep the direct measurement available while the
@@ -4389,9 +4812,12 @@ class LiveMissionRunner:
                 now_s=now_s,
                 reason="attitude_position_time_skew_exceeded",
             )
+        vertical_timestamps = [measurement.captured_at_s for measurement in vertical_measurements]
+        if terrain_observation is not None:
+            vertical_timestamps.append(terrain_observation.captured_at_s)
         pose_timestamp_s = min(
             telemetry.attitude_observed_at_s,
-            altitude_timestamp_s,
+            *vertical_timestamps,
         )
         # The RTSP decoder can deliver a frame 0.4-0.7 s behind the newest
         # Pixhawk sample. The metric model measures that captured image directly,
@@ -4422,14 +4848,8 @@ class LiveMissionRunner:
                 heading_sigma_deg=config.heading_sigma_deg,
             ),
             target=target,
-            vertical_measurements=(
-                VerticalMeasurement(
-                    source=VerticalSource.PIXHAWK_AGL,
-                    height_m=telemetry.altitude_agl_m,
-                    sigma_m=config.altitude_agl_sigma_m,
-                    captured_at_s=altitude_timestamp_s,
-                ),
-            ),
+            vertical_measurements=vertical_measurements,
+            terrain_observation=terrain_observation,
             direct_measurements=direct_measurements,
             source_weight_multipliers=source_weight_multipliers,
             now_s=now_s,
@@ -4616,6 +5036,8 @@ def _range_solution_details(
     *,
     telemetry: VehicleTelemetry | None = None,
     now_s: float | None = None,
+    source_captured_at_s: float | None = None,
+    adaptive_ranging_policy: AdaptiveRangingPolicy | None = None,
 ) -> dict[str, object]:
     details: dict[str, object] = {
         "target_id": solution.target_id,
@@ -4642,20 +5064,126 @@ def _range_solution_details(
     }
     if telemetry is not None:
         details["ranging_input"] = _ranging_input_details(telemetry, now_s=now_s)
-        details["target_geolocation"] = _target_geolocation_details(solution, telemetry)
+        details["target_geolocation"] = _target_geolocation_details(
+            solution,
+            telemetry,
+            now_s=now_s,
+            source_captured_at_s=source_captured_at_s,
+            adaptive_ranging_policy=adaptive_ranging_policy,
+        )
     return details
 
 
 def _target_geolocation_details(
     solution: RangeSolution,
     telemetry: VehicleTelemetry,
+    *,
+    now_s: float | None = None,
+    source_captured_at_s: float | None = None,
+    adaptive_ranging_policy: AdaptiveRangingPolicy | None = None,
 ) -> dict[str, object]:
     """Expose GPS target coordinates only after adaptive GPS qualification."""
 
+    # ``RangeSolution`` permits diagnostic offsets on an INVALID record so the
+    # audit trail can explain what was rejected.  Those offsets must never be
+    # promoted to a map coordinate by this secondary details path; the wire
+    # status builder already applies the same validity gate.
+    if solution.validity is RangeValidity.INVALID:
+        return {"available": False, "reason": "target_range_invalid"}
     if solution.navigation_state != "gps-aided":
         return {"available": False, "reason": "gps_navigation_not_qualified"}
     if solution.north_offset_m is None or solution.east_offset_m is None:
         return {"available": False, "reason": "target_offset_unavailable"}
+    evaluation_time_s = solution.evaluated_at_s if now_s is None else now_s
+    if source_captured_at_s is not None:
+        try:
+            source_time_s = float(source_captured_at_s)
+        except (TypeError, ValueError):
+            return {"available": False, "reason": "geolocation_input_invalid"}
+        if (
+            not math.isfinite(source_time_s)
+            or source_time_s < 0.0
+            or source_time_s > evaluation_time_s
+            or evaluation_time_s - source_time_s > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
+        ):
+            return {"available": False, "reason": "geolocation_input_invalid"}
+    gps_quality = (adaptive_ranging_policy or AdaptiveRangingPolicy()).assess_gps_quality(
+        telemetry,
+        now_s=evaluation_time_s,
+    )
+
+    def _finite_or_none(value: object) -> object:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            return value
+        return None
+
+    gps_quality_details = {
+        "qualified": gps_quality.qualified,
+        "reason": gps_quality.reason,
+        "age_s": gps_quality.age_s,
+    }
+    gps_sample_details = {
+        # Preserve the raw quality inputs alongside the derived verdict so a
+        # field-session validator can independently recompute the gate from a
+        # normal AuditLog record.  NaN sentinels are converted to JSON null;
+        # AuditLog intentionally rejects non-finite numbers.
+        "position_healthy": telemetry.position_healthy,
+        "latitude_deg": _finite_or_none(telemetry.latitude_deg),
+        "longitude_deg": _finite_or_none(telemetry.longitude_deg),
+        "fix_type": telemetry.gps_fix_type,
+        "satellites_visible": telemetry.satellites_visible,
+        "h_acc_m": _finite_or_none(telemetry.gps_horizontal_accuracy_m),
+        "v_acc_m": _finite_or_none(telemetry.gps_vertical_accuracy_m),
+        "observed_at_s": _finite_or_none(telemetry.gps_observed_at_s),
+    }
+    if not gps_quality.qualified:
+        return {
+            "available": False,
+            "reason": "gps_navigation_not_qualified",
+            "gps_quality": gps_quality_details,
+            "gps_sample": gps_sample_details,
+        }
+    motion_kwargs: dict[str, object] = {}
+    if source_captured_at_s is not None:
+        try:
+            target_time_s = float(source_captured_at_s)
+            gps_observed_at_s = float(telemetry.gps_observed_at_s)
+        except (TypeError, ValueError):
+            target_time_s = float("nan")
+            gps_observed_at_s = float("nan")
+        if (
+            math.isfinite(target_time_s)
+            and target_time_s >= 0.0
+            and math.isfinite(gps_observed_at_s)
+            and gps_observed_at_s >= 0.0
+        ):
+            motion_kwargs = {
+                "aircraft_observed_at_s": gps_observed_at_s,
+                "target_captured_at_s": target_time_s,
+            }
+            try:
+                velocity_time_s = float(telemetry.velocity_observed_at_s)
+            except (TypeError, ValueError):
+                velocity_time_s = float("nan")
+            if math.isfinite(velocity_time_s) and velocity_time_s >= 0.0:
+                motion_kwargs.update(
+                    {
+                        "aircraft_velocity_north_mps": telemetry.velocity_north_mps,
+                        "aircraft_velocity_east_mps": telemetry.velocity_east_mps,
+                        "aircraft_velocity_observed_at_s": velocity_time_s,
+                    }
+                )
+            acceleration_uncertainty = telemetry.acceleration_uncertainty_mps2
+            # ``nan`` is the backwards-compatible sentinel for producers
+            # without a kinematic envelope.  Any other value is forwarded to
+            # the projector so malformed/negative values fail closed instead
+            # of being silently discarded from the uncertainty budget.
+            if not (
+                isinstance(acceleration_uncertainty, float) and math.isnan(acceleration_uncertainty)
+            ):
+                motion_kwargs["acceleration_uncertainty_mps2"] = acceleration_uncertainty
     try:
         target = target_geolocation_from_ned_offset(
             aircraft_latitude_deg=telemetry.latitude_deg,
@@ -4666,6 +5194,7 @@ def _target_geolocation_details(
             ground_range_ci95_m=solution.ground_range_ci95_m,
             ground_range_m=solution.ground_range_m,
             bearing_sigma_deg=solution.bearing_sigma_deg,
+            **motion_kwargs,
         )
     except ValueError as exc:
         return {"available": False, "reason": str(exc)}
@@ -4674,7 +5203,9 @@ def _target_geolocation_details(
         "latitude_deg": target.latitude_deg,
         "longitude_deg": target.longitude_deg,
         "horizontal_sigma_m": target.horizontal_sigma_m,
-        "reference": "wgs84_local_tangent_plane",
+        "reference": "wgs84_ellipsoid_geodesic",
+        "gps_quality": gps_quality_details,
+        "gps_sample": gps_sample_details,
     }
 
 
@@ -4688,11 +5219,20 @@ def _ranging_input_details(
     def _sample(value: float, observed_at_s: float) -> dict[str, object]:
         finite_value = math.isfinite(value)
         finite_timestamp = math.isfinite(observed_at_s)
+        sample_available = finite_value and finite_timestamp
+        age_s: float | None = None
+        if sample_available and now_s is not None and math.isfinite(now_s):
+            candidate_age_s = float(now_s) - float(observed_at_s)
+            # A future timestamp is a clock-domain error, not a zero-age
+            # sample.  Mark it unavailable so the diagnostic card cannot
+            # imply that pose/height/GPS data are fresh before they arrive.
+            if candidate_age_s >= 0.0:
+                age_s = candidate_age_s
+            else:
+                sample_available = False
         return {
-            "sample_available": finite_value and finite_timestamp,
-            "age_s": (
-                max(0.0, now_s - observed_at_s) if now_s is not None and finite_timestamp else None
-            ),
+            "sample_available": sample_available,
+            "age_s": age_s,
         }
 
     return {

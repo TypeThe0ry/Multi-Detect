@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/release-mode-evidence.schema.json",
+  "title": "Multi-Detect v0.3.0 Release Mode Evidence Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "gate_passed",
+    "source",
+    "acceptance_scope"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {
+      "type": "string",
+      "pattern": "^(replay|sim|hil|real)_release_mode_evidence_prepared$"
+    },
+    "runtime_mode": {"enum": ["replay", "sim", "hil", "real"]},
+    "gate_passed": {"type": "boolean"},
+    "source": {"$ref": "#/$defs/source"},
+    "acceptance_scope": {"const": "explicit_source_gate_projection"},
+    "notes": {"type": "string"},
+    "reasons": {
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "event", "runtime_mode", "gate_passed"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "event": {"type": ["string", "null"]},
+        "runtime_mode": {"type": ["string", "null"]},
+        "gate_passed": {"type": ["boolean", "null"]}
+      }
+    }
+  }
+}

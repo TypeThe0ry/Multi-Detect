@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!--
+    Repository-owned composition for the PX4 Gazebo fixed-wing path.
+
+    PX4-gazebo-models supplies the aerodynamic rc_cessna body and the
+    repository's existing mono_cam model supplies the camera sensor.  Keeping
+    this as a composition preserves the upstream actuator/sensor contracts
+    while giving Multi-Detect a stable model name and camera pose.
+  -->
+  <model name="rc_cessna_mono_cam">
+    <include merge="true">
+      <uri>model://rc_cessna</uri>
+    </include>
+    <include merge="true">
+      <uri>model://mono_cam</uri>
+      <!-- Forward-facing camera, slightly ahead and below the CG. -->
+      <pose relative_to="base_link">0.48 0 -0.10 0 0 0</pose>
+    </include>
+    <joint name="CameraJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <pose relative_to="base_link">0.48 0 -0.10 0 0 0</pose>
+    </joint>
+    <plugin
+      filename="gz-sim-odometry-publisher-system"
+      name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+  </model>
+</sdf>

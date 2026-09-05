@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "schema_version": 1,
+  "scenario_id": "urban_inspection_multirotor_001",
+  "coordinate_reference": "WGS84",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "operating-area",
+      "properties": {
+        "role": "operating_area",
+        "source": "repository_owned_simulation_asset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [103.8158, 1.3481],
+            [103.8238, 1.3481],
+            [103.8238, 1.3561],
+            [103.8158, 1.3561],
+            [103.8158, 1.3481]
+          ]
+        ]
+      }
+    }
+  ]
+}

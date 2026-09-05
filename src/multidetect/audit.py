@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
+import time
 import uuid
 from collections import deque
 from collections.abc import Mapping
@@ -14,6 +16,8 @@ from types import MappingProxyType
 from typing import Any
 
 from .domain import AuditEvent
+
+_STREAM_SESSION_ID_PATTERN = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{64})$")
 
 
 def _json_safe(value: Any, active_containers: set[int]) -> Any:
@@ -83,6 +87,7 @@ class AuditLog:
         fsync_every_events: int = 1,
         fsync_event_prefixes: tuple[str, ...] = (),
         stream_append: bool = False,
+        stream_session_id: str | None = None,
     ) -> None:
         if max_in_memory_events is not None and max_in_memory_events <= 0:
             raise ValueError("max_in_memory_events must be positive when supplied")
@@ -100,7 +105,17 @@ class AuditLog:
         self._stream_path = Path(stream_path).resolve() if stream_path is not None else None
         if stream_append and self._stream_path is None:
             raise ValueError("stream_append requires stream_path")
-        self._stream_session_id = uuid.uuid4().hex if self._stream_path is not None else None
+        if stream_session_id is not None:
+            if self._stream_path is None:
+                raise ValueError("stream_session_id requires stream_path")
+            if (
+                not isinstance(stream_session_id, str)
+                or _STREAM_SESSION_ID_PATTERN.fullmatch(stream_session_id) is None
+            ):
+                raise ValueError("stream_session_id must be a lowercase UUID or SHA-256 hex value")
+        self._stream_session_id = (
+            stream_session_id or uuid.uuid4().hex if self._stream_path is not None else None
+        )
         self._stream = None
         if self._stream_path is not None:
             self._stream_path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,7 +206,19 @@ class AuditLog:
                     handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary_path, destination)
+            # Windows Defender, indexers, and sync clients can briefly open a
+            # freshly-written destination between close() and ReplaceFileW.
+            # Keep the atomic replace semantics, but tolerate that transient
+            # sharing violation instead of turning a valid audit snapshot into
+            # a flaky acceptance failure.
+            for attempt in range(5):
+                try:
+                    os.replace(temporary_path, destination)
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.02 * (2**attempt))
         except BaseException:
             temporary_path.unlink(missing_ok=True)
             raise

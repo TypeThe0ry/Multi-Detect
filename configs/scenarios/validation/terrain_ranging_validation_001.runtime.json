@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "scenario_id": "terrain_ranging_validation_001",
+  "scenario_version": 1,
+  "seed": 53001,
+  "world": {
+    "world_asset": "builtin://gazebo/terrain_ranging_validation_001",
+    "map_asset": "builtin://maps/terrain_ranging_validation_001.geojson",
+    "dem_asset": "builtin://terrain/terrain_ranging_validation_001.dem.json",
+    "wind_north_mps": 0.0,
+    "wind_east_mps": 0.0,
+    "gust_mps": 0.0
+  },
+  "vehicle": {
+    "model": "px4_multirotor_standard",
+    "airframe_profile_id": "px4_multirotor_gazebo_v1",
+    "spawn_id": "terrain_validation_home_multirotor"
+  },
+  "sensors": [
+    {
+      "sensor_id": "front-camera",
+      "kind": "rgb_camera",
+      "stream_uri": "gazebo://terrain_ranging_validation_001/front-camera",
+      "calibration_id": "gazebo-multirotor-front-camera-v1"
+    },
+    {
+      "sensor_id": "px4-telemetry",
+      "kind": "mavlink_telemetry",
+      "stream_uri": "udp://127.0.0.1:14541"
+    }
+  ],
+  "faults": []
+}

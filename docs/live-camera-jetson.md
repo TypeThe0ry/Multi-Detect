@@ -247,7 +247,13 @@ python3 -m multidetect live-camera configs/missions/fire_suppression.demo.json \
   --trt-engine-cache artifacts/trt-engine-cache
 ```
 
-在Jetson上也应先运行 `model-check`，确认 `active_providers` 的首选项确实是 `TensorrtExecutionProvider` 或经过批准的CUDA回退，而不是静默落到CPU。
+上面的 `--provider` 参数是显式策略：它会过滤当前不可用的 provider，但 TensorRT/CUDA
+session 构造失败时保持严格失败，不会把错误静默改成 CPU。若要启用统一的有界回退，可
+省略全部 `--provider` 参数；运行时会按 `TensorrtExecutionProvider → CUDAExecutionProvider
+→ CPUExecutionProvider` 顺序尝试，并且只在默认 session 构造失败时按后缀重试。两种模式
+都会在 `model-check` 的 `provider_selection` 字段记录 requested/available/attempts/selected，
+在Jetson上应据此确认最终 provider；当前 Windows 开发机只有 Azure/CPU，不能把本地 CPU
+结果写成 Orin 的 TensorRT/CUDA 通过。
 
 使用 `--source-env` 时，进程参数只包含环境变量名，RTSP URI 不会出现在应用参数、应用错误或审计日志中。OpenCV/FFmpeg 自身日志属于外部边界，上机后仍须检查 systemd 日志是否会由底层库打印完整 URI。先用 TCP 取得稳定性；确认网络可承受丢帧后，再评估 UDP 的低延迟取舍。采集端请求 `CAP_PROP_BUFFERSIZE=1` 以限制后端缓存；应用层默认另有 4 帧有界 FIFO，由独立采集线程按顺序交付且不主动跳帧。队列满时采集线程背压等待，并在性能摘要中报告高水位和背压次数。可用 `--capture-queue-frames` 调整容量，设为 0 才禁用应用层队列。该保证只覆盖应用层，不能把摄像头编码器、网络或解码器已丢失的帧宣称为已捕获。
 默认一次读帧失败后最多重连 3 次、间隔 0.25 秒。可通过 `--reconnect-attempts` 和 `--reconnect-delay-seconds` 调整；达到上限仍无画面时进程失败退出，而不是继续使用旧帧。
@@ -349,6 +355,9 @@ export UNIFIED_TARGET_POOL_ENABLED=1
 export MONOCULAR_AVOIDANCE_ENABLED=1
 export MULTIMODAL_RANGING_ENABLED=1
 export RANGING_CALIBRATION_PATH=/home/jetson/Multi-Detect/artifacts/calibration/camera-main-v1.json
+# Optional: replace the temporary outdoor scale with a pre-validated schema-v2
+# multi-distance curve. The launcher only reads this file; it never fits live data.
+export METRIC_DEPTH_CALIBRATION_DOCUMENT=/home/jetson/Multi-Detect/artifacts/calibration/outdoor-piecewise-v1.json
 export MODE3_CONFIRMATION_ENABLED=1
 export MODE3_AIM_CONTROL_ENABLED=1
 ./scripts/run_jetson_fire_patrol.sh

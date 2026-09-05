@@ -12,11 +12,38 @@ if(NOT GIT_FOUND)
     set(QGC_GIT_BRANCH "unknown")
     set(QGC_GIT_HASH "0000000")
     set(QGC_GIT_DIRTY FALSE)
-    set(QGC_APP_VERSION_STR "v0.0.0")
-    set(QGC_APP_VERSION "0.0.0")
-    set(QGC_APP_VERSION_MAJOR "0")
-    set(QGC_APP_VERSION_MINOR "0")
-    set(QGC_APP_VERSION_PATCH "0")
+    if(QGC_APP_VERSION_OVERRIDE)
+        if(NOT QGC_APP_VERSION_OVERRIDE MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+            message(FATAL_ERROR
+                "QGC_APP_VERSION_OVERRIDE must use major.minor.patch, got: "
+                "'${QGC_APP_VERSION_OVERRIDE}'"
+            )
+        endif()
+        if(NOT QGC_APP_RELEASE_LABEL)
+            set(QGC_APP_RELEASE_LABEL "${QGC_APP_VERSION_OVERRIDE}")
+        endif()
+        string(REPLACE "." "\\." _qgc_override_version_regex "${QGC_APP_VERSION_OVERRIDE}")
+        if(NOT QGC_APP_RELEASE_LABEL MATCHES
+            "^${_qgc_override_version_regex}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+        )
+            message(FATAL_ERROR
+                "QGC_APP_RELEASE_LABEL must use the numeric base "
+                "${QGC_APP_VERSION_OVERRIDE}, got: '${QGC_APP_RELEASE_LABEL}'"
+            )
+        endif()
+        set(QGC_APP_VERSION_STR "v${QGC_APP_RELEASE_LABEL}-nogit")
+        set(QGC_APP_VERSION "${QGC_APP_VERSION_OVERRIDE}")
+        string(REPLACE "." ";" _qgc_version_parts "${QGC_APP_VERSION_OVERRIDE}")
+        list(GET _qgc_version_parts 0 QGC_APP_VERSION_MAJOR)
+        list(GET _qgc_version_parts 1 QGC_APP_VERSION_MINOR)
+        list(GET _qgc_version_parts 2 QGC_APP_VERSION_PATCH)
+    else()
+        set(QGC_APP_VERSION_STR "v0.0.0")
+        set(QGC_APP_VERSION "0.0.0")
+        set(QGC_APP_VERSION_MAJOR "0")
+        set(QGC_APP_VERSION_MINOR "0")
+        set(QGC_APP_VERSION_PATCH "0")
+    endif()
     set(QGC_APP_VERSION_DEV "0")
     string(TIMESTAMP QGC_APP_DATE "%Y-%m-%dT%H:%M:%S%z" UTC)
     configure_file(
@@ -131,8 +158,20 @@ if(QGC_APP_VERSION_OVERRIDE)
             "QGC_APP_VERSION_OVERRIDE must use major.minor.patch, got: '${QGC_APP_VERSION_OVERRIDE}'"
         )
     endif()
+    if(NOT QGC_APP_RELEASE_LABEL)
+        set(QGC_APP_RELEASE_LABEL "${QGC_APP_VERSION_OVERRIDE}")
+    endif()
+    string(REPLACE "." "\\." _qgc_override_version_regex "${QGC_APP_VERSION_OVERRIDE}")
+    if(NOT QGC_APP_RELEASE_LABEL MATCHES
+        "^${_qgc_override_version_regex}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+    )
+        message(FATAL_ERROR
+            "QGC_APP_RELEASE_LABEL must use the numeric base "
+            "${QGC_APP_VERSION_OVERRIDE}, got: '${QGC_APP_RELEASE_LABEL}'"
+        )
+    endif()
     set(QGC_APP_VERSION "${QGC_APP_VERSION_OVERRIDE}")
-    set(QGC_APP_VERSION_STR "v${QGC_APP_VERSION_OVERRIDE}-${QGC_GIT_HASH}")
+    set(QGC_APP_VERSION_STR "v${QGC_APP_RELEASE_LABEL}-${QGC_GIT_HASH}")
     if(QGC_GIT_DIRTY)
         string(APPEND QGC_APP_VERSION_STR "-dirty")
     endif()

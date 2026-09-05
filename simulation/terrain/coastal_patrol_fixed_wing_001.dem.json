@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "scenario_id": "coastal_patrol_fixed_wing_001",
+  "coordinate_reference": "WGS84",
+  "vertical_datum": "MSL",
+  "origin": {
+    "latitude_deg": 1.2905,
+    "longitude_deg": 103.8505,
+    "elevation_m": 8.0
+  },
+  "north_origin_m": -400.0,
+  "east_origin_m": -400.0,
+  "north_spacing_m": 200.0,
+  "east_spacing_m": 200.0,
+  "elevation_m": [
+    [8.0, 8.0, 8.0, 8.0, 8.0],
+    [8.0, 8.0, 8.0, 8.0, 8.0],
+    [8.0, 8.0, 8.0, 8.0, 8.0],
+    [8.0, 8.0, 8.0, 8.0, 8.0],
+    [8.0, 8.0, 8.0, 8.0, 8.0]
+  ],
+  "vertical_sigma_m": 0.5,
+  "slope_sigma_m_per_m": 0.002
+}

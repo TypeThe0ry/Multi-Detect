@@ -1,0 +1,1278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/release-gate-manifest.schema.json",
+  "title": "Multi-Detect v0.3.0 Release Gate Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "product", "release_label", "modes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "product": {"const": "Multi-Detect"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"},
+    "modes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replay", "sim", "hil", "real"],
+      "properties": {
+        "replay": {"$ref": "#/$defs/modeRecord"},
+        "sim": {"$ref": "#/$defs/modeRecord"},
+        "hil": {"$ref": "#/$defs/modeRecord"},
+        "real": {"$ref": "#/$defs/modeRecord"}
+      }
+    },
+    "replay_set": {
+      "$ref": "#/$defs/replaySetRecord"
+    },
+    "real_field_link": {
+      "$ref": "#/$defs/realFieldLinkRecord"
+    },
+    "real_alert_link": {
+      "$ref": "#/$defs/realAlertLinkRecord"
+    },
+    "real_target_accuracy": {
+      "$ref": "#/$defs/realTargetAccuracyRecord"
+    },
+    "real_target_state_evidence": {
+      "$ref": "#/$defs/realTargetStateEvidenceRecord"
+    },
+    "field_evidence_bundle": {
+      "$ref": "#/$defs/fieldEvidenceBundleRecord"
+    },
+    "simulator_safety": {
+      "$ref": "#/$defs/simulatorSafetyRecord"
+    },
+    "actuator_safety": {
+      "$ref": "#/$defs/actuatorSafetyRecord"
+    },
+    "simulator_scenario_matrix": {
+      "$ref": "#/$defs/simulatorScenarioMatrixRecord"
+    },
+    "simulator_combined": {
+      "$ref": "#/$defs/simulatorCombinedRecord"
+    },
+    "simulator_external_evidence": {
+      "$ref": "#/$defs/simulatorExternalEvidenceRecord"
+    },
+    "simulator_3d_control": {
+      "$ref": "#/$defs/simulator3DControlRecord"
+    },
+    "simulator_scene_stream_set": {
+      "$ref": "#/$defs/simulatorSceneStreamSetRecord"
+    },
+    "px4_airframe_transaction": {
+      "$ref": "#/$defs/px4AirframeTransactionRecord"
+    },
+    "px4_mission_feedback": {
+      "$ref": "#/$defs/px4MissionFeedbackRecord"
+    },
+    "model_review": {
+      "$ref": "#/$defs/modelReviewRecord"
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "status": {"enum": ["passed", "not_required", "not_claimed", "pending"]},
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ui_contract_hash",
+        "core_algorithm_hash",
+        "task_contract_hash",
+        "safety_policy_hash",
+        "px4_mission_path_hash"
+      ],
+      "properties": {
+        "ui_contract_hash": {"$ref": "#/$defs/sha256"},
+        "core_algorithm_hash": {"$ref": "#/$defs/sha256"},
+        "task_contract_hash": {"$ref": "#/$defs/sha256"},
+        "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+        "px4_mission_path_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "modeRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "gate_passed",
+        "parity",
+        "operator_visual_acceptance",
+        "hardware_acceptance",
+        "real_control_acceptance",
+        "mission_path_acceptance"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"type": "boolean"},
+        "parity": {"$ref": "#/$defs/parity"},
+        "operator_visual_acceptance": {"$ref": "#/$defs/status"},
+        "hardware_acceptance": {"$ref": "#/$defs/status"},
+        "real_control_acceptance": {"$ref": "#/$defs/status"},
+        "mission_path_acceptance": {"$ref": "#/$defs/status"},
+        "artifact_event": {"type": "string", "minLength": 1},
+        "notes": {"type": "string"}
+      }
+    },
+    "replaySetRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "canonical_sha256",
+        "gate_passed",
+        "accuracy_validated"
+      ],
+      "properties": {
+        "manifest_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"type": "boolean"},
+        "accuracy_validated": {"const": false},
+        "accuracy_evidence": {"$ref": "#/$defs/replaySetAccuracyEvidence"},
+        "calibration_verification": {
+          "$ref": "#/$defs/replaySetCalibrationVerification"
+        }
+      }
+    },
+    "replaySetAccuracyEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "gate_passed", "accuracy_validated"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"type": "boolean"},
+        "accuracy_validated": {"type": "boolean"}
+      }
+    },
+    "replaySetCalibrationVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "event",
+        "schema_version",
+        "report_path",
+        "report_sha256",
+        "manifest_sha256",
+        "canonical_sha256",
+        "report_promotion_ready",
+        "recomputed_promotion_ready",
+        "gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "event": {"const": "replay_set_threshold_calibration_verified"},
+        "schema_version": {"const": 1},
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "report_promotion_ready": {"type": "boolean"},
+        "recomputed_promotion_ready": {"type": "boolean"},
+        "gate_passed": {"const": true}
+      }
+    },
+    "realFieldLinkRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "hardware_link_ready",
+        "gate_passed"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "max_age_s": {"type": "number", "minimum": 0},
+        "report_timestamp_epoch_s": {"type": ["number", "null"]},
+        "hardware_link_ready": {"type": "boolean"},
+        "route_checks_requested": {"type": "boolean"},
+        "route_checks_passed": {"type": ["boolean", "null"]},
+        "route_source_cidr": {"type": ["string", "null"]},
+        "gate_passed": {"type": "boolean"},
+        "reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "dependentRequired": {
+        "max_age_s": ["report_timestamp_epoch_s"],
+        "report_timestamp_epoch_s": ["max_age_s"]
+      }
+    },
+    "realAlertLinkRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "event",
+        "schema_version",
+        "hardware_observed",
+        "simulation_only",
+        "remote_host",
+        "remote_port",
+        "remote_is_loopback",
+        "hardware_id",
+        "requested_round_trips",
+        "round_trip_samples",
+        "failed_round_trips",
+        "transmission_attempts",
+        "missing_ack_attempts",
+        "packet_loss_rate",
+        "ack_latency_p50_ms",
+        "ack_latency_p95_ms",
+        "correlated_ack_verified",
+        "authenticated_ack_verified",
+        "checks",
+        "thresholds",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "event": {"const": "alert_link_bench_passed"},
+        "schema_version": {"const": 1},
+        "hardware_observed": {"const": true},
+        "simulation_only": {"const": false},
+        "remote_host": {"type": "string", "minLength": 1},
+        "remote_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "remote_is_loopback": {"const": false},
+        "hardware_id": {"type": "string", "minLength": 1},
+        "requested_round_trips": {"type": "integer", "minimum": 1},
+        "round_trip_samples": {"type": "integer", "minimum": 0},
+        "failed_round_trips": {"type": "integer", "minimum": 0},
+        "transmission_attempts": {"type": "integer", "minimum": 0},
+        "missing_ack_attempts": {"type": "integer", "minimum": 0},
+        "packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "ack_latency_p50_ms": {"type": ["number", "null"], "minimum": 0},
+        "ack_latency_p95_ms": {"type": ["number", "null"], "minimum": 0},
+        "correlated_ack_verified": {"const": true},
+        "authenticated_ack_verified": {"const": true},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "required_round_trips",
+            "packet_loss_limit",
+            "ack_latency_limit",
+            "mode_boundary",
+            "correlated_ack",
+            "authenticated_transport"
+          ],
+          "properties": {
+            "required_round_trips": {"const": true},
+            "packet_loss_limit": {"const": true},
+            "ack_latency_limit": {"const": true},
+            "mode_boundary": {"const": true},
+            "correlated_ack": {"const": true},
+            "authenticated_transport": {"const": true}
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_packet_loss_rate",
+            "maximum_ack_latency_p95_ms",
+            "maximum_attempts"
+          ],
+          "properties": {
+            "maximum_packet_loss_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "maximum_ack_latency_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+            "maximum_attempts": {"type": "integer", "minimum": 1}
+          }
+        },
+        "gate_passed": {"const": true},
+        "reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "realTargetAccuracyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "evidence_type",
+        "schema_version",
+        "ground_truth_isolated",
+        "advisory_only",
+        "contains_flight_control",
+        "gate_passed",
+        "sample_count",
+        "p95_error_m",
+        "one_sigma_coverage",
+        "two_sigma_coverage"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "evidence_type": {"const": "multidetect.target-geolocation-accuracy.v1"},
+        "schema_version": {"const": 1},
+        "ground_truth_isolated": {"const": true},
+        "advisory_only": {"const": true},
+        "contains_flight_control": {"const": false},
+        "gate_passed": {"type": "boolean"},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "p95_error_m": {"type": "number", "minimum": 0},
+        "one_sigma_coverage": {
+          "anyOf": [
+            {"type": "number", "minimum": 0, "maximum": 1},
+            {"type": "null"}
+          ]
+        },
+        "two_sigma_coverage": {
+          "anyOf": [
+            {"type": "number", "minimum": 0, "maximum": 1},
+            {"type": "null"}
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "realTargetStateEvidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "schema_version",
+        "require_target_state_evidence",
+        "gate_passed",
+        "captured_records",
+        "state_path",
+        "gps_qualified_records",
+        "range_qualified_records"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "schema_version": {"const": 1},
+        "require_target_state_evidence": {"const": true},
+        "gate_passed": {"type": "boolean"},
+        "captured_records": {"type": "integer", "minimum": 1},
+        "state_path": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "gps_qualified_records": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "range_qualified_records": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "fieldEvidenceBundleRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "evidence_type",
+        "schema_version",
+        "release_label",
+        "bundle_id",
+        "gate_passed",
+        "release_eligible",
+        "hardware_acceptance",
+        "real_flight_acceptance",
+        "software_only",
+        "read_only_evidence",
+        "advisory_only",
+        "ground_truth_isolated",
+        "contains_flight_control",
+        "contains_truth",
+        "all_inputs_present",
+        "all_strata_passed",
+        "cross_bindings_passed",
+        "hashes_complete",
+        "real_domain_required",
+        "strata"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "evidence_type": {"const": "multidetect.field-evidence-bundle.v1"},
+        "schema_version": {"const": 1},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "bundle_id": {"type": "string", "pattern": "^field-evidence-[0-9a-f]{24}$"},
+        "gate_passed": {"type": "boolean"},
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "real_flight_acceptance": {"const": "not_claimed"},
+        "software_only": {"type": "boolean"},
+        "read_only_evidence": {"const": true},
+        "advisory_only": {"const": true},
+        "ground_truth_isolated": {"const": true},
+        "contains_flight_control": {"const": false},
+        "contains_truth": {"const": true},
+        "all_inputs_present": {"type": "boolean"},
+        "all_strata_passed": {"type": "boolean"},
+        "cross_bindings_passed": {"type": "boolean"},
+        "hashes_complete": {"type": "boolean"},
+        "real_domain_required": {"const": true},
+        "strata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field_link",
+            "gnss",
+            "execution",
+            "target_event",
+            "media_timeline",
+            "accuracy"
+          ],
+          "properties": {
+            "field_link": {"type": "boolean"},
+            "gnss": {"type": "boolean"},
+            "execution": {"type": "boolean"},
+            "target_event": {"type": "boolean"},
+            "media_timeline": {"type": "boolean"},
+            "accuracy": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "simulatorSafetyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "event",
+        "runtime_mode",
+        "release_label",
+        "gate_passed",
+        "verifier_event",
+        "verifier_exit_code",
+        "checks"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "event": {"const": "simulator_safety_acceptance_finished"},
+        "runtime_mode": {"const": "sim"},
+        "release_label": {"type": "string", "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"},
+        "gate_passed": {"const": true},
+        "verifier_event": {"const": "simulator_safety_evidence_verified"},
+        "verifier_exit_code": {"const": 0},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cancel_clears_target_evidence",
+            "unauthorized_control_blocked",
+            "geofence_and_false_gps_fail_closed",
+            "mission_terminal_consistent",
+            "loopback_only",
+            "no_control_after_failsafe"
+          ],
+          "properties": {
+            "cancel_clears_target_evidence": {"const": true},
+            "unauthorized_control_blocked": {"const": true},
+            "geofence_and_false_gps_fail_closed": {"const": true},
+            "mission_terminal_consistent": {"const": true},
+            "loopback_only": {"const": true},
+            "no_control_after_failsafe": {"const": true}
+          }
+        }
+      }
+    },
+    "actuatorSafetyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "event",
+        "runtime_mode",
+        "release_label",
+        "gate_passed",
+        "software_only",
+        "physical_outputs_present",
+        "propulsion_disconnected",
+        "verifier_event",
+        "verifier_exit_code",
+        "checks"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "event": {"const": "actuator_safety_software_acceptance_finished"},
+        "runtime_mode": {"const": "HIL"},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "gate_passed": {"const": true},
+        "software_only": {"const": true},
+        "physical_outputs_present": {"const": false},
+        "propulsion_disconnected": {
+          "const": "not_applicable_in_software_fixture"
+        },
+        "verifier_event": {
+          "const": "actuator_safety_software_evidence_verified"
+        },
+        "verifier_exit_code": {"const": 0},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "direction_mapping",
+            "absolute_limits",
+            "cancel_emits_neutral",
+            "cancel_clears_target_binding",
+            "lost_lock_emits_neutral",
+            "lost_lock_restores_entry_mode",
+            "watchdog_emits_neutral_once",
+            "no_command_after_failsafe"
+          ],
+          "properties": {
+            "direction_mapping": {"const": true},
+            "absolute_limits": {"const": true},
+            "cancel_emits_neutral": {"const": true},
+            "cancel_clears_target_binding": {"const": true},
+            "lost_lock_emits_neutral": {"const": true},
+            "lost_lock_restores_entry_mode": {"const": true},
+            "watchdog_emits_neutral_once": {"const": true},
+            "no_command_after_failsafe": {"const": true}
+          }
+        }
+      }
+    },
+    "simulatorScenarioMatrixRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "evidence_bytes",
+        "canonical_sha256",
+        "schema_version",
+        "event",
+        "product",
+        "release_label",
+        "gate_passed",
+        "deterministic_gate_passed",
+        "scenario_count",
+        "scenario_ids",
+        "modes",
+        "required_modes",
+        "enable_ai",
+        "arm_on_start",
+        "repeatability_checked",
+        "truth_loaded",
+        "truth_free",
+        "claims",
+        "verifier_event",
+        "verifier_exit_code",
+        "checks"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_bytes": {"type": "integer", "minimum": 0},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"const": 1},
+        "event": {"const": "simulator_scenario_matrix_finished"},
+        "product": {"const": "Multi-Detect"},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "gate_passed": {"const": true},
+        "deterministic_gate_passed": {"const": true},
+        "scenario_count": {"const": 3},
+        "scenario_ids": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "modes": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["fixed-wing", "multirotor", "vtol"]}
+        },
+        "required_modes": {
+          "const": ["fixed-wing", "multirotor", "vtol"]
+        },
+        "enable_ai": {"const": true},
+        "arm_on_start": {"const": true},
+        "repeatability_checked": {"const": true},
+        "truth_loaded": {"const": false},
+        "truth_free": {"const": true},
+        "claims": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "shared_truth_free_scenario_runner",
+            "shared_ai_authority_watchdog_path",
+            "all_selected_scenarios_passed"
+          ],
+          "properties": {
+            "shared_truth_free_scenario_runner": {"const": true},
+            "shared_ai_authority_watchdog_path": {"const": true},
+            "all_selected_scenarios_passed": {"const": true}
+          }
+        },
+        "verifier_event": {"const": "simulator_scenario_matrix_verified"},
+        "verifier_exit_code": {"const": 0},
+        "checks": {
+          "type": "object",
+          "additionalProperties": {"const": true}
+        }
+      }
+    },
+    "simulatorCombinedRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "release_mode_path",
+        "release_mode_sha256",
+        "runtime_mode",
+        "release_label",
+        "gate_passed",
+        "checks"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "release_mode_path": {"type": "string", "minLength": 1},
+        "release_mode_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_mode": {"const": "sim"},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "gate_passed": {"const": true},
+        "checks": {
+          "type": "object",
+          "additionalProperties": {"const": true}
+        }
+      }
+    },
+    "simulatorExternalParity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "release_label", "hashes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "hashes": {"$ref": "#/$defs/parity"}
+      }
+    },
+    "simulatorExternalSourceHash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "simulatorExternalSourceHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vtol", "fixed-wing", "multirotor"],
+      "properties": {
+        "vtol": {"$ref": "#/$defs/simulatorExternalVehicleSourceHashes"},
+        "fixed-wing": {"$ref": "#/$defs/simulatorExternalVehicleSourceHashes"},
+        "multirotor": {"$ref": "#/$defs/simulatorExternalVehicleSourceHashes"}
+      }
+    },
+    "simulatorExternalVehicleSourceHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "ai"],
+      "properties": {
+        "runtime": {"$ref": "#/$defs/simulatorExternalSourceHash"},
+        "ai": {"$ref": "#/$defs/simulatorExternalSourceHash"}
+      }
+    },
+    "simulatorExternalEvidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "join_path",
+        "join_sha256",
+        "join_bytes",
+        "revalidation_path",
+        "revalidation_sha256",
+        "revalidation_bytes",
+        "release_label",
+        "gate_passed",
+        "source_recomputed",
+        "parity",
+        "source_hashes",
+        "checks"
+      ],
+      "properties": {
+        "join_path": {"type": "string", "minLength": 1},
+        "join_sha256": {"$ref": "#/$defs/sha256"},
+        "join_bytes": {"type": "integer", "minimum": 1},
+        "revalidation_path": {"type": "string", "minLength": 1},
+        "revalidation_sha256": {"$ref": "#/$defs/sha256"},
+        "revalidation_bytes": {"type": "integer", "minimum": 1},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "gate_passed": {"const": true},
+        "source_recomputed": {"const": true},
+        "parity": {"$ref": "#/$defs/simulatorExternalParity"},
+        "source_hashes": {"$ref": "#/$defs/simulatorExternalSourceHashes"},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "join_schema_valid",
+            "join_event_valid",
+            "join_release_label_matches",
+            "join_gate_passed",
+            "join_shared_boundaries_passed",
+            "join_claims_passed",
+            "join_parity_matches",
+            "six_sources_distinct",
+            "six_sources_hash_bound",
+            "revalidation_schema_valid",
+            "revalidation_join_matches",
+            "revalidation_source_recomputed",
+            "revalidation_gate_passed"
+          ],
+          "properties": {
+            "join_schema_valid": {"const": true},
+            "join_event_valid": {"const": true},
+            "join_release_label_matches": {"const": true},
+            "join_gate_passed": {"const": true},
+            "join_shared_boundaries_passed": {"const": true},
+            "join_claims_passed": {"const": true},
+            "join_parity_matches": {"const": true},
+            "six_sources_distinct": {"const": true},
+            "six_sources_hash_bound": {"const": true},
+            "revalidation_schema_valid": {"const": true},
+            "revalidation_join_matches": {"const": true},
+            "revalidation_source_recomputed": {"const": true},
+            "revalidation_gate_passed": {"const": true}
+          }
+        }
+      }
+    },
+    "simulator3DControlEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "scenario_id",
+        "mode",
+        "stack_plan_sha256",
+        "gate_passed",
+        "deterministic_gate_passed",
+        "external_runtime_gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "stack_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"const": true},
+        "deterministic_gate_passed": {"const": true},
+        "external_runtime_gate_passed": {"const": false}
+      }
+    },
+    "simulator3DControlRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "evidence",
+        "scenario_ids",
+        "modes",
+        "gate_passed",
+        "deterministic_gate_passed",
+        "external_runtime_gate_passed",
+        "external_runtime_acceptance",
+        "visual_acceptance",
+        "hardware_acceptance",
+        "checks"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "evidence": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/simulator3DControlEvidence"}
+        },
+        "scenario_ids": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "modes": {
+          "const": ["fixed-wing", "multirotor", "vtol"]
+        },
+        "gate_passed": {"const": true},
+        "deterministic_gate_passed": {"const": true},
+        "external_runtime_gate_passed": {"const": false},
+        "external_runtime_acceptance": {"const": "not_claimed"},
+        "visual_acceptance": {"const": "not_claimed"},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "checks": {
+          "type": "object",
+          "additionalProperties": {"const": true},
+          "required": [
+            "evidence_count",
+            "all_airframes",
+            "unique_scenarios",
+            "unique_modes",
+            "all_gate_passed",
+            "all_deterministic_gate_passed",
+            "external_runtime_not_claimed",
+            "records_hash_bound"
+          ]
+        }
+      }
+    },
+    "simulatorSceneStreamRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "scenario_id",
+        "mode",
+        "scenario_version",
+        "scenario_manifest_hash",
+        "canonical_sha256",
+        "source_evidence_hash",
+        "snapshot_count",
+        "gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "scenario_id": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "scenario_version": {"type": "integer", "minimum": 1},
+        "scenario_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "source_evidence_hash": {"$ref": "#/$defs/sha256"},
+        "snapshot_count": {"type": "integer", "minimum": 1},
+        "gate_passed": {"const": true}
+      }
+    },
+    "simulatorSceneStreamSetRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "event",
+        "release_label",
+        "runtime_mode",
+        "evidence",
+        "scenario_ids",
+        "modes",
+        "gate_passed",
+        "deterministic",
+        "truth_free",
+        "external_runtime_acceptance",
+        "visual_acceptance",
+        "hardware_acceptance",
+        "checks"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "event": {"const": "simulator_scene_stream_set_verified"},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "runtime_mode": {"const": "sim"},
+        "evidence": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {"$ref": "#/$defs/simulatorSceneStreamRecord"},
+            {"$ref": "#/$defs/simulatorSceneStreamRecord"},
+            {"$ref": "#/$defs/simulatorSceneStreamRecord"}
+          ],
+          "items": false
+        },
+        "scenario_ids": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "modes": {
+          "const": ["fixed-wing", "multirotor", "vtol"]
+        },
+        "gate_passed": {"const": true},
+        "deterministic": {"const": true},
+        "truth_free": {"const": true},
+        "external_runtime_acceptance": {"const": "not_claimed"},
+        "visual_acceptance": {"const": "not_claimed"},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidence_count",
+            "all_airframes",
+            "unique_scenarios",
+            "unique_modes",
+            "all_gate_passed",
+            "all_deterministic",
+            "all_truth_free",
+            "all_snapshots_nonempty",
+            "records_hash_bound"
+          ],
+          "properties": {
+            "evidence_count": {"const": true},
+            "all_airframes": {"const": true},
+            "unique_scenarios": {"const": true},
+            "unique_modes": {"const": true},
+            "all_gate_passed": {"const": true},
+            "all_deterministic": {"const": true},
+            "all_truth_free": {"const": true},
+            "all_snapshots_nonempty": {"const": true},
+            "records_hash_bound": {"const": true}
+          }
+        }
+      }
+    },
+    "px4AirframeTransactionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_path",
+        "evidence_sha256",
+        "evidence_bytes",
+        "schema",
+        "schema_version",
+        "runtime_mode",
+        "release_label",
+        "gate_passed",
+        "shared_dispatcher",
+        "shared_transport",
+        "truth_free",
+        "physical_output_enabled",
+        "vehicle_classes",
+        "checks"
+      ],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "multidetect.px4-airframe-mission-transaction-acceptance"},
+        "schema_version": {"const": 1},
+        "runtime_mode": {"const": "sim"},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "gate_passed": {"const": true},
+        "shared_dispatcher": {"const": "compile_executable_mission"},
+        "shared_transport": {"const": "in_process_mission_item_int"},
+        "truth_free": {"const": true},
+        "physical_output_enabled": {"const": false},
+        "vehicle_classes": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["fixed-wing", "multirotor", "vtol"]}
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vehicle_classes_complete",
+            "entry_count",
+            "all_entries_passed",
+            "no_errors"
+          ],
+          "properties": {
+            "vehicle_classes_complete": {"const": true},
+            "entry_count": {"const": true},
+            "all_entries_passed": {"const": true},
+            "no_errors": {"const": true}
+          }
+        }
+      }
+    },
+    "px4MissionFeedbackObservationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "vehicle_class",
+        "mission_path",
+        "mission_sha256",
+        "mission_bytes",
+        "runtime_profile_path",
+        "runtime_profile_sha256",
+        "runtime_profile_bytes",
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        "mission_id",
+        "mission_hash",
+        "mission_item_count",
+        "airframe_adapter_id",
+        "airframe_adapter_hash",
+        "airframe_profile_hash",
+        "runtime_profile_id",
+        "runtime_profile_hash",
+        "runtime_profile_key_id",
+        "vehicle_identity_hash",
+        "firmware_identity_hash",
+        "endpoint_binding_hash",
+        "signing_identity_hash",
+        "runtime_binding_sha256",
+        "runtime_binding_gate_passed",
+        "flight_control_enabled",
+        "output_locked",
+        "observed_at_utc",
+        "source_system_id",
+        "source_component_id",
+        "feedback_sha256",
+        "feedback_evidence_sha256",
+        "read_only",
+        "messages_transmitted",
+        "feedback_gate_passed"
+      ],
+      "properties": {
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "mission_path": {"type": "string", "minLength": 1},
+        "mission_sha256": {"$ref": "#/$defs/sha256"},
+        "mission_bytes": {"type": "integer", "minimum": 1},
+        "runtime_profile_path": {"type": "string", "minLength": 1},
+        "runtime_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_bytes": {"type": "integer", "minimum": 1},
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 1},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"$ref": "#/$defs/sha256"},
+        "mission_item_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "airframe_adapter_id": {
+          "enum": [
+            "px4-fixed-wing-mission-int-v1",
+            "px4-multirotor-mission-int-v1",
+            "px4-vtol-mission-int-v1"
+          ]
+        },
+        "airframe_adapter_hash": {"$ref": "#/$defs/sha256"},
+        "airframe_profile_hash": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_id": {"enum": ["hil", "flight"]},
+        "runtime_profile_hash": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_key_id": {"type": "string", "minLength": 1},
+        "vehicle_identity_hash": {"$ref": "#/$defs/sha256"},
+        "firmware_identity_hash": {"$ref": "#/$defs/sha256"},
+        "endpoint_binding_hash": {"$ref": "#/$defs/sha256"},
+        "signing_identity_hash": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "runtime_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_binding_gate_passed": {"const": true},
+        "flight_control_enabled": {"const": false},
+        "output_locked": {"const": true},
+        "observed_at_utc": {"type": "string", "format": "date-time"},
+        "source_system_id": {"type": "integer", "minimum": 1, "maximum": 255},
+        "source_component_id": {"type": "integer", "minimum": 1, "maximum": 255},
+        "feedback_sha256": {"$ref": "#/$defs/sha256"},
+        "feedback_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "read_only": {"const": true},
+        "messages_transmitted": {"const": 0},
+        "feedback_gate_passed": {"const": true}
+      }
+    },
+    "px4MissionFeedbackRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "release_label",
+        "required_runtime_modes",
+        "required_vehicle_classes",
+        "px4_mission_path_hash",
+        "observations",
+        "read_only",
+        "messages_transmitted",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "operator_visual_acceptance",
+        "gate_passed",
+        "checks"
+      ],
+      "properties": {
+        "schema_version": {"const": 2},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "required_runtime_modes": {"const": ["hil", "real"]},
+        "required_vehicle_classes": {
+          "const": ["fixed-wing", "multirotor", "vtol"]
+        },
+        "px4_mission_path_hash": {"$ref": "#/$defs/sha256"},
+        "observations": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/px4MissionFeedbackObservationRecord"}
+        },
+        "read_only": {"const": true},
+        "messages_transmitted": {"const": 0},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "operator_visual_acceptance": {"const": false},
+        "gate_passed": {"const": true},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "binding_count",
+            "coverage_complete",
+            "report_paths_distinct",
+            "runtime_profile_paths_distinct",
+            "sources_hash_bound",
+            "all_observations_qualified",
+            "all_receive_only",
+            "all_missions_identity_bound",
+            "all_runtime_modes_match",
+            "all_airframes_match",
+            "all_runtime_profiles_bound",
+            "all_vehicle_identities_bound",
+            "all_firmware_identities_bound",
+            "all_endpoints_bound",
+            "all_output_locked",
+            "px4_mission_path_bound",
+            "no_errors"
+          ],
+          "properties": {
+            "binding_count": {"const": true},
+            "coverage_complete": {"const": true},
+            "report_paths_distinct": {"const": true},
+            "runtime_profile_paths_distinct": {"const": true},
+            "sources_hash_bound": {"const": true},
+            "all_observations_qualified": {"const": true},
+            "all_receive_only": {"const": true},
+            "all_missions_identity_bound": {"const": true},
+            "all_runtime_modes_match": {"const": true},
+            "all_airframes_match": {"const": true},
+            "all_runtime_profiles_bound": {"const": true},
+            "all_vehicle_identities_bound": {"const": true},
+            "all_firmware_identities_bound": {"const": true},
+            "all_endpoints_bound": {"const": true},
+            "all_output_locked": {"const": true},
+            "px4_mission_path_bound": {"const": true},
+            "no_errors": {"const": true}
+          }
+        }
+      }
+    },
+    "modelReviewRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "model_id",
+        "model_version",
+        "model_artifact_sha256",
+        "review_status",
+        "production_approval_eligible",
+        "production_approved",
+        "flight_control_enabled",
+        "physical_release_enabled",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "model_id": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1},
+        "model_artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "review_status": {"enum": ["pending", "reviewed", "rejected"]},
+        "production_approval_eligible": {"type": "boolean"},
+        "production_approved": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "physical_release_enabled": {"const": false},
+        "gate_passed": {"type": "boolean"},
+        "reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}

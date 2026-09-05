@@ -8,6 +8,8 @@ import os
 import re
 import sys
 import time
+from collections.abc import Mapping
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -33,6 +35,9 @@ from .approach_hil import ApproachHilController
 from .approach_live import LiveApproachHilCoordinator
 from .attitude_camera_motion import AttitudeCameraMotionEstimator
 from .audit import AuditLog
+from .autonomy.serialization import canonical_sha256
+from .backends import GazeboSimBackend, RawSensorReplayBackend
+from .backends.gazebo_sim import GAZEBO_SIM_TERRAIN_AGL_REFERENCE
 from .camera_bench import CameraBenchConfig, run_camera_bench
 from .config import MissionConfig
 from .deployment_planner import FixedWingReleaseWindowPlanner, PrimaryRangeEvidence
@@ -48,7 +53,6 @@ from .domain import (
     VehicleTelemetry,
     Verdict,
 )
-from .engine_provenance import verify_engine_provenance
 from .evaluation import (
     JsonlPredictionWriter,
     evaluate_detections,
@@ -64,6 +68,9 @@ from .fixed_wing_aim_control import (
     PixhawkFlightControlProvider,
 )
 from .gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from .inference_provider import provider_selection_document
+from .integrated_replay import IntegratedReplayIdentity, build_integrated_replay_session
+from .integrated_sim import IntegratedSimIdentity, build_integrated_sim_session
 from .integration_evidence import INTEGRATION_PROFILES, check_integration_evidence_bundle
 from .jetson_bench import JetsonVisionBenchConfig, run_jetson_vision_bench
 from .live import LiveMissionRunner, LiveRangingConfig, LiveRunConfig
@@ -93,6 +100,8 @@ from .multimodal_ranging import (
 )
 from .operator_bridge import LiveOperatorBridge
 from .operator_link import (
+    MAX_RANGE_STATUS_SOURCE_AGE_S,
+    MAX_TARGET_GEOLOCATION_SOURCE_AGE_S,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecision,
     AuthorizationDecisionCommand,
@@ -153,6 +162,19 @@ from .payload_inventory import (
     verify_payload_inventory,
 )
 from .payload_target_live import LivePayloadTargetCoordinator
+from .perception_factory import (
+    COCO80_CLASS_NAMES as COCO80_CLASS_NAMES,
+)
+from .perception_factory import (
+    ENVIRONMENT_RISK_CLASS_NAMES,
+    PRIORITY_DETECTION_CLASS_NAMES,
+    VISDRONE_PRIORITY_CLASS_NAMES,
+    VISDRONE_PRIORITY_LABEL_MAP,
+    build_production_perception,
+)
+from .perception_factory import (
+    VEHICLE_TEMPORAL_LABEL_ALIASES as VEHICLE_TEMPORAL_LABEL_ALIASES,
+)
 from .pixhawk import (
     PIXHAWK_AUTOPILOT_IDS,
     PIXHAWK_VEHICLE_TYPE_IDS,
@@ -174,6 +196,15 @@ from .pixhawk_parameters import (
     write_pixhawk_parameter_report,
     write_pixhawk_parameter_snapshot,
 )
+from .qgc_replay import (
+    LiveFramePacer,
+    ReplayVideoGeometry,
+    SubprocessReplayRtspPublisher,
+    SynchronizedQgcOperatorBridge,
+    SynchronizedReplayOperatorBridge,
+    WallClockReplayPacer,
+    recording_video_geometry,
+)
 from .reid_acceptance import (
     ReIdModelAcceptanceConfig,
     ReIdTensorRtAcceptanceConfig,
@@ -181,30 +212,40 @@ from .reid_acceptance import (
     run_reid_tensorrt_acceptance,
 )
 from .replay import load_jsonl_replay, primary_range_evidence_from_frame
-from .rgb_fire_corroboration import (
-    IndependentRgbFireCorroborationConfig,
-    IndependentRgbFireCorroborator,
+from .replay_set import load_replay_set_manifest, replay_set_validation_document
+from .replay_set_calibration import (
+    calibrate_replay_set_thresholds,
+    parse_current_thresholds,
+    parse_threshold_grid,
+    verify_replay_set_calibration_report,
 )
+from .replay_set_evaluation import evaluate_replay_set
+from .replay_set_readiness import check_replay_set_readiness
 from .rtsp_evidence_recording import (
     RtspEvidenceRecordingConfig,
     record_rtsp_evidence,
     rtsp_evidence_recording_document,
 )
+from .runtime import RuntimeMode
+from .runtime_launcher import (
+    ProfileBoundRuntimeConfig,
+    launch_profile_bound_runtime,
+    signing_identity_hash_from_hex,
+)
 from .selection_target_pool import UnifiedSelectionTargetPool
 from .semantic_environment import (
     CITYSEMSEGFORMER_LABELS,
-    AsyncSemanticContextRunner,
-    OnnxCategoricalSemanticContext,
-    OnnxSemanticContextConfig,
 )
 from .short_term_acceptance import (
     ShortTermTrackingAcceptanceConfig,
     run_short_term_tracking_acceptance,
 )
 from .short_term_tracking import OpenCVShortTermTargetTracker, ShortTermTrackingConfig
+from .simulation import load_runtime_scenario
 from .synthetic_model import create_synthetic_hil_model_bundle
 from .telemetry import AuthenticatedZoneTelemetryProvider, FailClosedTelemetryProvider
-from .tensorrt_session import TensorRtEmbeddingSession, TensorRtSemanticSession
+from .tensorrt_session import TensorRtEmbeddingSession
+from .terrain_dem import LocalDemGrid, load_local_dem_grid
 from .tracking_evaluation import (
     IdentityTrackingEvaluationReport,
     JsonlIdentityPredictionWriter,
@@ -228,112 +269,106 @@ from .vehicle_reid import (
     OnnxVehicleReIdEncoder,
 )
 from .vision import (
-    BrightNeutralLightVetoFilter,
     BufferedFrameSource,
     CaptureConfig,
-    ClassConfidenceFilter,
-    DetectorEnsemble,
-    FrameCadencedDetector,
-    LabelAllowListFilter,
-    LabelRemapDetector,
-    MultiSourceConfidenceFilter,
     OnnxNx6Config,
     OnnxNx6Detector,
     OnnxRawYoloConfig,
     OnnxRawYoloDetector,
-    PersonOverlapVetoFilter,
-    SameLabelDetectionFusion,
-    TemporalDetectionFilter,
-    TiledDetectionConfig,
-    TiledDetectionFusion,
-    VehicleFurnitureOverlapVetoFilter,
     frame_source_from_config,
 )
 from .zone_evidence import FileZoneEvidenceProvider
 
-COCO80_CLASS_NAMES = tuple(
-    "person,bicycle,car,motorcycle,airplane,bus,train,truck,boat,traffic light,fire hydrant,"
-    "stop sign,parking meter,bench,bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe,"
-    "backpack,umbrella,handbag,tie,suitcase,frisbee,skis,snowboard,sports ball,kite,"
-    "baseball bat,baseball glove,skateboard,surfboard,tennis racket,bottle,wine glass,cup,"
-    "fork,knife,spoon,bowl,banana,apple,sandwich,orange,broccoli,carrot,hot dog,pizza,donut,"
-    "cake,chair,couch,potted plant,bed,dining table,toilet,tv,laptop,mouse,remote,keyboard,"
-    "cell phone,microwave,oven,toaster,sink,refrigerator,book,clock,vase,scissors,teddy bear,"
-    "hair drier,toothbrush".split(",")
-)
-PRIORITY_DETECTION_CLASS_NAMES = (
-    "person",
-    "firefighter",
-    "airplane",
-    "bicycle",
-    "car",
-    "motorcycle",
-    "bus",
-    "train",
-    "truck",
-    "boat",
-)
-AIRCRAFT_DETECTION_CLASS_NAMES = frozenset({"airplane"})
-VEHICLE_DETECTION_CLASS_NAMES = frozenset(
-    label
-    for label in PRIORITY_DETECTION_CLASS_NAMES
-    if label not in {"person", "firefighter", *AIRCRAFT_DETECTION_CLASS_NAMES}
-)
-VEHICLE_TEMPORAL_LABEL_ALIASES = {
-    label: "vehicle"
-    for label in (
-        *VEHICLE_DETECTION_CLASS_NAMES,
-        "vehicle",
-        "van",
-        "motorbike",
-        "motor",
-        "tricycle",
-        "awning-tricycle",
-        "awning_tricycle",
-    )
-}
-ENVIRONMENT_RISK_CLASS_NAMES = (
-    "power_line",
-    "flammable_tank",
-)
-# Automatic UI candidates deliberately exclude indoor furniture and consumer
-# objects.  The common COCO detector still emits those labels upstream so the
-# vehicle/furniture veto can use them to reject false cars; manual operator
-# rectangles remain available for arbitrary objects.
-NON_SELECTABLE_AUTOMATIC_LABELS = frozenset(
+_INTEGRATED_REPLAY_PERCEPTION_DESTINATIONS = frozenset(
     {
-        "chair",
-        "couch",
-        "bed",
-        "dining table",
-        "toilet",
-        "tv",
-        "laptop",
-        "mouse",
-        "remote",
-        "keyboard",
-        "cell phone",
-        "potted plant",
-        "book",
-        "clock",
-        "vase",
+        "allow_synthetic_hil_model",
+        "candidate_stability_frames",
+        "car_single_source_confidence_threshold",
+        "class_names",
+        "confidence_threshold",
+        "environment_class_names",
+        "environment_confidence_threshold",
+        "environment_model_manifest",
+        "environment_onnx_model",
+        "environment_output_coordinates",
+        "fire_minimum_bright_warm_fraction",
+        "flame_confidence_threshold",
+        "input_height",
+        "input_width",
+        "lock_model_force_every_frame",
+        "model_manifest",
+        "onnx_model",
+        "output_coordinates",
+        "person_veto_fire_coverage",
+        "primary_model_frame_phase",
+        "primary_model_frame_stride",
+        "priority_class_names",
+        "priority_confidence_threshold",
+        "priority_input_height",
+        "priority_input_width",
+        "priority_label_confidence_thresholds",
+        "priority_label_map",
+        "priority_model_frame_phase",
+        "priority_model_frame_stride",
+        "priority_model_iou_threshold",
+        "priority_model_manifest",
+        "priority_model_maximum_detections",
+        "priority_onnx_model",
+        "priority_person_confidence_threshold",
+        "priority_vehicle_confidence_threshold",
+        "priority_vehicle_stability_frames",
+        "provider",
+        "require_production_approved_models",
+        "rgb_fire_verifier_class_names",
+        "rgb_fire_verifier_confidence_threshold",
+        "rgb_fire_verifier_minimum_iou",
+        "rgb_fire_verifier_model",
+        "rgb_fire_verifier_model_manifest",
+        "rgb_fire_verifier_output_coordinates",
+        "safety_class_names",
+        "safety_confidence_threshold",
+        "safety_fallback_confidence_threshold",
+        "safety_model_coco80",
+        "safety_model_format",
+        "safety_model_frame_phase",
+        "safety_model_frame_stride",
+        "safety_model_iou_threshold",
+        "safety_model_manifest",
+        "safety_model_maximum_detections",
+        "safety_onnx_model",
+        "safety_output_coordinates",
+        "safety_priority_confidence_threshold",
+        "safety_tile_columns",
+        "safety_tile_confidence_threshold",
+        "safety_tile_fusion_iou_threshold",
+        "safety_tile_label_confidence_thresholds",
+        "safety_tile_labels",
+        "safety_tile_maximum_box_area",
+        "safety_tile_overlap",
+        "safety_tile_rows",
+        "safety_tile_scan_interval_frames",
+        "smoke_confidence_threshold",
+        "trt_engine_cache",
+        "warmup_iterations",
     }
 )
-VISDRONE_PRIORITY_CLASS_NAMES = (
-    "pedestrian",
-    "people",
-    "bicycle",
-    "car",
-    "van",
-    "truck",
-    "tricycle",
-    "awning-tricycle",
-    "bus",
-    "motor",
-)
-VISDRONE_PRIORITY_LABEL_MAP = (
-    "pedestrian=person,people=person,van=car,tricycle=motorcycle,"
-    "awning-tricycle=motorcycle,motor=motorcycle"
+
+_INTEGRATED_REPLAY_QGC_DESTINATIONS = frozenset(
+    {
+        "unified_target_pool",
+        "unified_target_pool_high_confidence_threshold",
+        "unified_target_pool_kalman_gate_sigma",
+        "unified_target_pool_kalman_maximum_horizon_seconds",
+        "unified_target_pool_kalman_measurement_noise",
+        "unified_target_pool_kalman_process_noise",
+        "unified_target_pool_locked_reacquisition_seconds",
+        "unified_target_pool_maximum_tracks",
+        "unified_target_pool_minimum_association_confidence",
+        "unified_target_pool_minimum_new_track_confidence",
+        "unified_target_pool_person_maximum_appearance_distance",
+        "unified_target_pool_person_strict_reid_distance",
+        "unified_target_pool_priority_minimum_new_track_confidence",
+    }
 )
 
 
@@ -408,6 +443,122 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation.add_argument("predictions", type=Path)
     evaluation.add_argument("--iou-threshold", type=float, default=0.5)
     evaluation.add_argument("--confidence-threshold", type=float, default=0.25)
+    replay_set_check = subparsers.add_parser(
+        "validate-replay-set",
+        help=(
+            "verify a hash-bound day/night/haze/reflection/smoke-only/no-fire replay-set "
+            "manifest without opening hardware"
+        ),
+    )
+    replay_set_check.add_argument("manifest", type=Path)
+    replay_set_check.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="return a gate failure until every required deployment stratum is reviewed",
+    )
+    replay_set_check.add_argument("--out", type=Path)
+    replay_set_evaluation = subparsers.add_parser(
+        "evaluate-replay-set",
+        help=(
+            "evaluate all hash-bound replay-set predictions with the normal frame-aligned "
+            "IoU evaluator"
+        ),
+    )
+    replay_set_evaluation.add_argument("manifest", type=Path)
+    replay_set_evaluation.add_argument("--iou-threshold", type=float, default=0.5)
+    replay_set_evaluation.add_argument("--confidence-threshold", type=float, default=0.25)
+    replay_set_evaluation.add_argument("--minimum-precision", type=float)
+    replay_set_evaluation.add_argument("--minimum-recall", type=float)
+    replay_set_evaluation.add_argument("--maximum-false-alarm-frame-rate", type=float)
+    replay_set_evaluation.add_argument("--maximum-missed-detection-frame-rate", type=float)
+    replay_set_evaluation.add_argument("--maximum-latency-p95-ms", type=float)
+    replay_set_evaluation.add_argument(
+        "--reviewed",
+        action="store_true",
+        help="acknowledge independent review of the aggregate accuracy metrics",
+    )
+    replay_set_evaluation.add_argument(
+        "--reviewer",
+        help="reviewer identity; required when --reviewed is supplied",
+    )
+    replay_set_evaluation.add_argument(
+        "--model-artifact",
+        type=Path,
+        help="optional ONNX/TensorRT artifact whose SHA-256 is bound to this report",
+    )
+    replay_set_evaluation.add_argument("--model-id")
+    replay_set_evaluation.add_argument("--model-version")
+    replay_set_evaluation.add_argument("--out", type=Path)
+    replay_set_evaluation.add_argument(
+        "--report-only",
+        action="store_true",
+        help="return zero even when the accuracy gate is pending or failed",
+    )
+    replay_set_readiness = subparsers.add_parser(
+        "check-replay-set-readiness",
+        help=(
+            "produce an actionable, read-only readiness report for deployment strata, "
+            "labels, predictions and accuracy evidence"
+        ),
+    )
+    replay_set_readiness.add_argument("manifest", type=Path)
+    replay_set_readiness.add_argument(
+        "--accuracy-report",
+        type=Path,
+        help="optional hash-bound evaluate-replay-set report to re-compute and verify",
+    )
+    replay_set_readiness.add_argument("--out", type=Path)
+    replay_set_readiness.add_argument(
+        "--report-only",
+        action="store_true",
+        help="return zero while the replay-set is pending or blocked",
+    )
+    replay_set_calibration = subparsers.add_parser(
+        "calibrate-replay-set",
+        help=(
+            "scan per-class confidence thresholds on a hash-bound replay-set and report "
+            "stratum stability"
+        ),
+    )
+    replay_set_calibration.add_argument("manifest", type=Path)
+    replay_set_calibration.add_argument(
+        "--thresholds",
+        default="0.10:0.90:0.02",
+        help="threshold grid as start:stop:step or comma-separated values",
+    )
+    replay_set_calibration.add_argument(
+        "--current-thresholds",
+        default="flame=0.72,smoke=0.60",
+        help="existing per-class thresholds used for the comparison report",
+    )
+    replay_set_calibration.add_argument("--minimum-recall", type=float, default=0.70)
+    replay_set_calibration.add_argument("--beta", type=float, default=0.5)
+    replay_set_calibration.add_argument("--iou-threshold", type=float, default=0.5)
+    replay_set_calibration.add_argument(
+        "--stability-tolerance",
+        type=float,
+        default=0.10,
+        help="maximum per-class threshold range considered stable across strata",
+    )
+    replay_set_calibration.add_argument("--reviewed", action="store_true")
+    replay_set_calibration.add_argument("--reviewer")
+    replay_set_calibration.add_argument("--out", type=Path)
+    replay_set_calibration.add_argument(
+        "--report-only",
+        action="store_true",
+        help="return zero while collecting pending or synthetic replay data",
+    )
+    replay_set_calibration_verify = subparsers.add_parser(
+        "verify-replay-set-calibration",
+        help="re-compute and verify a replay-set threshold calibration report",
+    )
+    replay_set_calibration_verify.add_argument("report", type=Path)
+    replay_set_calibration_verify.add_argument(
+        "--manifest",
+        type=Path,
+        help="optional replay-set manifest override when the report was copied",
+    )
+    replay_set_calibration_verify.add_argument("--out", type=Path)
     tracking_evaluation = subparsers.add_parser(
         "evaluate-tracking",
         help="evaluate identity-annotated tracking JSONL without opening hardware",
@@ -580,13 +731,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     model_check = subparsers.add_parser(
         "model-check",
-        help="validate a post-NMS ONNX Nx6 contract and benchmark synthetic inference",
+        help="validate a post-NMS Nx6 or raw Ultralytics model and benchmark inference",
     )
     model_check.add_argument(
         "--onnx-model",
         type=Path,
         required=True,
-        help="post-NMS ONNX model or Jetson TensorRT .engine/.plan artifact",
+        help="ONNX model or Jetson TensorRT .engine/.plan artifact",
+    )
+    model_check.add_argument(
+        "--model-format",
+        choices=("post_nms_nx6", "ultralytics_raw"),
+        default="post_nms_nx6",
+        help="native model output contract; raw output is adapted with host-side class-aware NMS",
     )
     model_check.add_argument("--model-manifest", type=Path)
     model_check.add_argument(
@@ -604,6 +761,8 @@ def build_parser() -> argparse.ArgumentParser:
     model_check.add_argument("--input-width", type=int, default=640)
     model_check.add_argument("--input-height", type=int, default=640)
     model_check.add_argument("--confidence-threshold", type=float, default=0.25)
+    model_check.add_argument("--iou-threshold", type=float, default=0.45)
+    model_check.add_argument("--maximum-detections", type=int, default=300)
     model_check.add_argument(
         "--output-coordinates",
         choices=("letterbox_xyxy_px", "normalized_xyxy"),
@@ -748,6 +907,14 @@ def build_parser() -> argparse.ArgumentParser:
     pixhawk_check.add_argument("--interval-seconds", type=float, default=0.2)
     pixhawk_check.add_argument("--require-fresh-link", action="store_true")
     pixhawk_check.add_argument("--require-fresh-position", action="store_true")
+    pixhawk_check.add_argument(
+        "--require-autopilot-version",
+        action="store_true",
+        help=(
+            "require a valid passive AUTOPILOT_VERSION frame from the selected heartbeat "
+            "source; this command still transmits no request"
+        ),
+    )
     pixhawk_check.add_argument("--expected-system-id", type=int)
     pixhawk_check.add_argument(
         "--expected-autopilot",
@@ -1172,6 +1339,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--provider", action="append", default=[])
     live.add_argument("--trt-engine-cache", type=Path)
+    live.add_argument(
+        "--runtime-mode",
+        choices=(RuntimeMode.HIL.value, RuntimeMode.REAL.value),
+        help=(
+            "bind live-camera to a signed HIL/REAL RuntimeProfile; omitted keeps the legacy "
+            "read-only development path"
+        ),
+    )
+    live.add_argument(
+        "--runtime-profile",
+        type=Path,
+        help="signed runtime-profile-document JSON used by --runtime-mode",
+    )
+    live.add_argument(
+        "--runtime-profile-hmac-key-env",
+        help="environment variable containing the runtime profile HMAC key",
+    )
+    live.add_argument(
+        "--runtime-profile-key-id",
+        help="expected key_id in the signed runtime profile document",
+    )
+    live.add_argument(
+        "--runtime-airframe-profile-hash",
+        help="SHA-256 identity of the selected airframe configuration",
+    )
+    live.add_argument(
+        "--runtime-signing-identity-hash",
+        help="SHA-256 identity of the MAVLink signing key (REAL flight profile)",
+    )
+    live.add_argument(
+        "--runtime-signing-key-hex-env",
+        help="environment variable containing a hex MAVLink signing key; hashed locally",
+    )
+    live.add_argument(
+        "--runtime-allow-flight-control-output",
+        action="store_true",
+        help="explicitly opt in to REAL flight-control output after all profile gates pass",
+    )
+    live.add_argument("--runtime-scenario-id")
+    live.add_argument("--runtime-scenario-manifest", type=Path)
+    live.add_argument("--runtime-scenario-seed", type=int)
+    live.add_argument("--runtime-target-component-id", type=int, default=1)
     live.add_argument("--pixhawk-endpoint")
     live.add_argument("--pixhawk-baud", type=int, default=57_600)
     live.add_argument("--pixhawk-system-id", type=int)
@@ -1262,6 +1471,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--ranging-calibration",
         type=Path,
         help="strict schema-v1 JSON camera intrinsics, distortion and installation calibration",
+    )
+    live.add_argument(
+        "--ranging-dem",
+        type=Path,
+        help=(
+            "optional strict local DEM grid using WGS-84 coordinates and MSL elevations; "
+            "qualified GPS/DEM geometry is fused by the shared ranging engine"
+        ),
     )
     live.add_argument("--ranging-agl-sigma-m", type=float, default=1.5)
     live.add_argument("--ranging-roll-sigma-deg", type=float, default=0.3)
@@ -1592,6 +1809,219 @@ def build_parser() -> argparse.ArgumentParser:
         "--identity-tracking-session-id",
         help="shared UUID binding the identity log to the matching RTSP evidence recording",
     )
+
+    integrated_replay = subparsers.add_parser(
+        "integrated-replay",
+        help=(
+            "verified raw frames + telemetry -> the same production perception factory and "
+            "LiveMissionRunner; headless E2, no Pixhawk or flight-control output"
+        ),
+    )
+    integrated_replay.add_argument("config", type=Path)
+    integrated_replay.add_argument("recording_manifest", type=Path)
+    integrated_replay.add_argument(
+        "--recording-manifest-sha256",
+        required=True,
+        help="trusted SHA-256 of the strict raw-sensor recording manifest",
+    )
+    integrated_replay.add_argument("--operator-id", default="replay-operator")
+    integrated_replay.add_argument("--performance-window-frames", type=int, default=600)
+    integrated_replay.add_argument("--audit-out", type=Path)
+    integrated_replay.add_argument("--result-out", type=Path)
+    integrated_replay.add_argument(
+        "--perception-args",
+        nargs=argparse.REMAINDER,
+        required=True,
+        help=(
+            "all remaining arguments are parsed by live-camera's production perception "
+            "options; start with --onnx-model and --model-manifest"
+        ),
+    )
+
+    integrated_replay_qgc = subparsers.add_parser(
+        "integrated-replay-qgc",
+        help=(
+            "E4 synchronized raw Replay -> production perception/LiveMissionRunner -> "
+            "loopback RTSP QGC video + existing signed operator metadata; no Pixhawk or actuators"
+        ),
+    )
+    integrated_replay_qgc.add_argument("config", type=Path)
+    integrated_replay_qgc.add_argument("recording_manifest", type=Path)
+    integrated_replay_qgc.add_argument(
+        "--recording-manifest-sha256",
+        required=True,
+        help="trusted SHA-256 of the strict raw-sensor recording manifest",
+    )
+    integrated_replay_qgc.add_argument("--rtsp-helper", type=Path, required=True)
+    integrated_replay_qgc.add_argument("--rtsp-bind-host", default="127.0.0.1")
+    integrated_replay_qgc.add_argument("--rtsp-port", type=int, required=True)
+    integrated_replay_qgc.add_argument("--rtsp-mount", default="/multidetect-replay")
+    integrated_replay_qgc.add_argument("--helper-ready-timeout-seconds", type=float, default=10.0)
+    integrated_replay_qgc.add_argument("--qgc-client-timeout-seconds", type=float, default=15.0)
+    integrated_replay_qgc.add_argument("--frame-ack-timeout-seconds", type=float, default=2.0)
+    integrated_replay_qgc.add_argument(
+        "--metadata-acceptance-ack-timeout-seconds",
+        type=float,
+        default=1.0,
+        help=(
+            "independent timeout for QGC's signed type-24 RuntimeStatusAck after "
+            "native controller state adoption"
+        ),
+    )
+    integrated_replay_qgc.add_argument("--helper-exit-timeout-seconds", type=float, default=5.0)
+    integrated_replay_qgc.add_argument("--playback-rate", type=float, default=1.0)
+    integrated_replay_qgc.add_argument(
+        "--maximum-ack-to-metadata-skew-ms",
+        type=float,
+        default=100.0,
+    )
+    integrated_replay_qgc.add_argument(
+        "--qgc-heartbeat-ready-timeout-seconds",
+        type=float,
+        default=15.0,
+    )
+    integrated_replay_qgc.add_argument("--operator-udp-bind-host", default="127.0.0.1")
+    integrated_replay_qgc.add_argument("--operator-udp-port", type=int, required=True)
+    integrated_replay_qgc.add_argument("--operator-hmac-key-env", required=True)
+    integrated_replay_qgc.add_argument("--mavlink-signing-key-hex-env", required=True)
+    integrated_replay_qgc.add_argument("--operator-stream-id", default="camera-main")
+    integrated_replay_qgc.add_argument(
+        "--operator-metadata-peer-timeout-seconds",
+        type=float,
+        default=5.0,
+    )
+    integrated_replay_qgc.add_argument(
+        "--operator-acquisition-timeout-seconds",
+        type=float,
+        default=1.0,
+    )
+    integrated_replay_qgc.add_argument("--operator-lost-after-seconds", type=float, default=0.75)
+    integrated_replay_qgc.add_argument("--operator-local-system-id", type=int, default=1)
+    integrated_replay_qgc.add_argument("--operator-local-component-id", type=int, default=191)
+    integrated_replay_qgc.add_argument("--operator-remote-system-id", type=int, default=255)
+    integrated_replay_qgc.add_argument("--operator-remote-component-id", type=int, default=190)
+    integrated_replay_qgc.add_argument("--operator-id", default="replay-qgc-operator")
+    integrated_replay_qgc.add_argument("--performance-window-frames", type=int, default=600)
+    integrated_replay_qgc.add_argument("--audit-out", type=Path)
+    integrated_replay_qgc.add_argument("--result-out", type=Path)
+    integrated_replay_qgc.add_argument(
+        "--perception-args",
+        nargs=argparse.REMAINDER,
+        required=True,
+        help=(
+            "remaining production perception and unified-target-pool options parsed from "
+            "live-camera; start with --onnx-model and --model-manifest"
+        ),
+    )
+
+    integrated_sim_qgc = subparsers.add_parser(
+        "integrated-sim-qgc",
+        help=(
+            "live PX4/Gazebo camera + telemetry -> production perception/LiveMissionRunner -> "
+            "native QGC Fly View RTSP + signed SIM metadata; no physical outputs"
+        ),
+    )
+    integrated_sim_qgc.add_argument("config", type=Path)
+    integrated_sim_qgc.add_argument("scenario_manifest", type=Path)
+    integrated_sim_qgc.add_argument("--docker-executable", type=Path, required=True)
+    integrated_sim_qgc.add_argument("--container-name", required=True)
+    integrated_sim_qgc.add_argument("--container-image-sha256", required=True)
+    integrated_sim_qgc.add_argument("--stream-script-sha256", required=True)
+    integrated_sim_qgc.add_argument("--model-assets-sha256", required=True)
+    integrated_sim_qgc.add_argument("--airframe-profile-sha256", required=True)
+    integrated_sim_qgc.add_argument(
+        "--terrain-dem",
+        type=Path,
+        required=True,
+        help="scenario-matched MSL DEM used to derive AGL; local odometry up is never AGL",
+    )
+    integrated_sim_qgc.add_argument(
+        "--ranging-calibration",
+        type=Path,
+        help=(
+            "strict schema-v1 camera calibration; when supplied, the Gazebo image, "
+            "NavSat, odometry and scenario DEM use the shared production ranging path"
+        ),
+    )
+    integrated_sim_qgc.add_argument(
+        "--require-target-geolocation",
+        action="store_true",
+        help=(
+            "fail the integrated SIM run unless a selected primary target produces a fresh "
+            "VALID/DEGRADED camera-ground range and WGS-84 geolocation transport status"
+        ),
+    )
+    integrated_sim_qgc.add_argument("--ranging-agl-sigma-m", type=float, default=1.5)
+    integrated_sim_qgc.add_argument("--ranging-roll-sigma-deg", type=float, default=0.3)
+    integrated_sim_qgc.add_argument("--ranging-pitch-sigma-deg", type=float, default=0.3)
+    integrated_sim_qgc.add_argument("--ranging-heading-sigma-deg", type=float, default=1.0)
+    integrated_sim_qgc.add_argument("--ranging-target-center-sigma-px", type=float, default=2.0)
+    integrated_sim_qgc.add_argument("--ranging-minimum-distance-m", type=float, default=0.4)
+    integrated_sim_qgc.add_argument("--ranging-maximum-distance-m", type=float, default=800.0)
+    integrated_sim_qgc.add_argument(
+        "--ranging-vehicle-profile",
+        choices=tuple(profile.value for profile in VehicleProfile),
+        default=VehicleProfile.AUTO.value,
+    )
+    integrated_sim_qgc.add_argument(
+        "--stream-script", default="/workspace/scripts/gazebo_sensor_stream.py"
+    )
+    integrated_sim_qgc.add_argument("--model-instance", default="standard_vtol_mono_cam_0")
+    integrated_sim_qgc.add_argument("--gazebo-world", default="default")
+    integrated_sim_qgc.add_argument("--frame-count", type=int, default=120)
+    integrated_sim_qgc.add_argument("--stream-timeout-seconds", type=float, default=60.0)
+    integrated_sim_qgc.add_argument("--frame-width", type=int, default=1280)
+    integrated_sim_qgc.add_argument("--frame-height", type=int, default=960)
+    integrated_sim_qgc.add_argument("--rtsp-helper", type=Path, required=True)
+    integrated_sim_qgc.add_argument("--rtsp-bind-host", default="127.0.0.1")
+    integrated_sim_qgc.add_argument("--rtsp-port", type=int, required=True)
+    integrated_sim_qgc.add_argument("--rtsp-mount", default="/multidetect-sim")
+    integrated_sim_qgc.add_argument("--helper-ready-timeout-seconds", type=float, default=10.0)
+    integrated_sim_qgc.add_argument("--qgc-client-timeout-seconds", type=float, default=20.0)
+    integrated_sim_qgc.add_argument("--frame-ack-timeout-seconds", type=float, default=2.0)
+    integrated_sim_qgc.add_argument(
+        "--metadata-acceptance-ack-timeout-seconds",
+        type=float,
+        default=1.0,
+        help=(
+            "independent timeout for QGC's signed type-24 RuntimeStatusAck after "
+            "native controller state adoption"
+        ),
+    )
+    integrated_sim_qgc.add_argument("--helper-exit-timeout-seconds", type=float, default=5.0)
+    integrated_sim_qgc.add_argument("--maximum-ack-to-metadata-skew-ms", type=float, default=100.0)
+    integrated_sim_qgc.add_argument(
+        "--qgc-heartbeat-ready-timeout-seconds", type=float, default=20.0
+    )
+    integrated_sim_qgc.add_argument("--operator-udp-bind-host", default="127.0.0.1")
+    integrated_sim_qgc.add_argument("--operator-udp-port", type=int, required=True)
+    integrated_sim_qgc.add_argument("--operator-hmac-key-env", required=True)
+    integrated_sim_qgc.add_argument("--mavlink-signing-key-hex-env", required=True)
+    integrated_sim_qgc.add_argument("--operator-stream-id", default="camera-main")
+    integrated_sim_qgc.add_argument(
+        "--operator-metadata-peer-timeout-seconds", type=float, default=5.0
+    )
+    integrated_sim_qgc.add_argument(
+        "--operator-acquisition-timeout-seconds", type=float, default=1.0
+    )
+    integrated_sim_qgc.add_argument("--operator-lost-after-seconds", type=float, default=0.75)
+    integrated_sim_qgc.add_argument("--operator-local-system-id", type=int, default=1)
+    integrated_sim_qgc.add_argument("--operator-local-component-id", type=int, default=191)
+    integrated_sim_qgc.add_argument("--operator-remote-system-id", type=int, default=255)
+    integrated_sim_qgc.add_argument("--operator-remote-component-id", type=int, default=190)
+    integrated_sim_qgc.add_argument("--operator-id", default="sim-qgc-operator")
+    integrated_sim_qgc.add_argument("--performance-window-frames", type=int, default=600)
+    integrated_sim_qgc.add_argument("--audit-out", type=Path)
+    integrated_sim_qgc.add_argument("--result-out", type=Path)
+    integrated_sim_qgc.add_argument(
+        "--perception-args",
+        nargs=argparse.REMAINDER,
+        required=True,
+        help=(
+            "remaining production perception and unified-target-pool options parsed from "
+            "live-camera; start with --onnx-model and --model-manifest"
+        ),
+    )
     return parser
 
 
@@ -1621,6 +2051,16 @@ def main(argv: list[str] | None = None) -> int:
             return _run_inert_payload_bench_check(args)
         if args.command == "evaluate-detections":
             return _evaluate_detection_logs(args)
+        if args.command == "validate-replay-set":
+            return _validate_replay_set(args)
+        if args.command == "evaluate-replay-set":
+            return _evaluate_replay_set(args)
+        if args.command == "check-replay-set-readiness":
+            return _check_replay_set_readiness(args)
+        if args.command == "calibrate-replay-set":
+            return _calibrate_replay_set(args)
+        if args.command == "verify-replay-set-calibration":
+            return _verify_replay_set_calibration(args)
         if args.command == "evaluate-tracking":
             return _evaluate_tracking_logs(args)
         if args.command == "unified-tracking-bench":
@@ -1677,6 +2117,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_operator_udp_authorize(args)
         if args.command == "gr01-link-bench":
             return _run_gr01_link_bench(args)
+        if args.command == "integrated-replay":
+            return _run_integrated_replay(args)
+        if args.command == "integrated-replay-qgc":
+            return _run_integrated_replay_qgc(args)
+        if args.command == "integrated-sim-qgc":
+            return _run_integrated_sim_qgc(args)
         if args.command == "live-camera":
             return _run_live_camera(args)
     except (OSError, ValueError, RuntimeError) as exc:
@@ -2671,6 +3117,11 @@ def _telemetry_document(telemetry: VehicleTelemetry) -> dict[str, object]:
         "armed": telemetry.armed,
         "flight_mode": telemetry.flight_mode,
         "mission_sequence": telemetry.mission_sequence,
+        "mission_sequence_observed_at_s": _finite_or_none(telemetry.mission_sequence_observed_at_s),
+        "mission_item_reached_sequence": telemetry.mission_item_reached_sequence,
+        "mission_item_reached_observed_at_s": _finite_or_none(
+            telemetry.mission_item_reached_observed_at_s
+        ),
         "link_healthy": telemetry.link_healthy,
         "position_healthy": telemetry.position_healthy,
         "geofence_healthy": telemetry.geofence_healthy,
@@ -2943,6 +3394,108 @@ def _evaluate_detection_logs(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def _validate_replay_set(args: argparse.Namespace) -> int:
+    manifest = load_replay_set_manifest(args.manifest)
+    document = replay_set_validation_document(manifest, manifest_path=args.manifest)
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    if args.require_complete and not manifest.is_complete:
+        return 2
+    return 0
+
+
+def _evaluate_replay_set(args: argparse.Namespace) -> int:
+    if (
+        args.model_id is not None or args.model_version is not None
+    ) and args.model_artifact is None:
+        raise ValueError("--model-artifact is required when model metadata is supplied")
+    model_artifact_sha256 = None
+    if args.model_artifact is not None:
+        if not args.model_artifact.is_file():
+            raise ValueError(f"model artifact does not exist: {args.model_artifact}")
+        model_artifact_sha256 = _sha256_file(args.model_artifact)
+    document = evaluate_replay_set(
+        args.manifest,
+        iou_threshold=args.iou_threshold,
+        confidence_threshold=args.confidence_threshold,
+        minimum_precision=args.minimum_precision,
+        minimum_recall=args.minimum_recall,
+        maximum_false_alarm_frame_rate=args.maximum_false_alarm_frame_rate,
+        maximum_missed_detection_frame_rate=args.maximum_missed_detection_frame_rate,
+        maximum_latency_p95_ms=args.maximum_latency_p95_ms,
+        reviewed=args.reviewed,
+        reviewer=args.reviewer,
+        model_artifact_sha256=model_artifact_sha256,
+        model_id=args.model_id,
+        model_version=args.model_version,
+    )
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    return 0 if document["accuracy_validated"] or args.report_only else 2
+
+
+def _check_replay_set_readiness(args: argparse.Namespace) -> int:
+    document = check_replay_set_readiness(
+        args.manifest,
+        accuracy_report_path=args.accuracy_report,
+    )
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    return 0 if document["gate_passed"] or args.report_only else 2
+
+
+def _calibrate_replay_set(args: argparse.Namespace) -> int:
+    document = calibrate_replay_set_thresholds(
+        args.manifest,
+        thresholds=parse_threshold_grid(args.thresholds),
+        current_thresholds=parse_current_thresholds(args.current_thresholds),
+        iou_threshold=args.iou_threshold,
+        beta=args.beta,
+        minimum_recall=args.minimum_recall,
+        stability_tolerance=args.stability_tolerance,
+        reviewed=args.reviewed,
+        reviewer=args.reviewer,
+    )
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    return 0 if document["promotion_ready"] or args.report_only else 2
+
+
+def _verify_replay_set_calibration(args: argparse.Namespace) -> int:
+    document = verify_replay_set_calibration_report(
+        args.report,
+        manifest_path=args.manifest,
+    )
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _emit(document)
+    return 0 if document["gate_passed"] else 2
 
 
 def _evaluate_tracking_logs(args: argparse.Namespace) -> int:
@@ -3366,6 +3919,15 @@ def _run_model_check(args: argparse.Namespace) -> int:
     except ImportError as exc:
         raise RuntimeError("model-check requires the vision dependencies") from exc
     class_names = _parse_class_names(args.class_names)
+    native_output_format = (
+        "ultralytics_raw_xywh_class_scores"
+        if args.model_format == "ultralytics_raw"
+        else "post_nms_N_x_6"
+    )
+    if args.model_format == "ultralytics_raw" and args.output_coordinates != "letterbox_xyxy_px":
+        raise ValueError(
+            "raw Ultralytics model-check requires --output-coordinates letterbox_xyxy_px"
+        )
     verified = _verify_optional_model_manifest(
         manifest_path=args.model_manifest,
         model_path=args.onnx_model,
@@ -3373,20 +3935,37 @@ def _run_model_check(args: argparse.Namespace) -> int:
         output_coordinates=args.output_coordinates,
         require_production_approved=args.require_production_approved,
         expected_model_role=args.model_role,
+        expected_native_output_format=native_output_format,
     )
-    detector = OnnxNx6Detector(
-        OnnxNx6Config(
-            model_path=args.onnx_model,
-            class_names=class_names,
-            input_width=args.input_width,
-            input_height=args.input_height,
-            confidence_threshold=args.confidence_threshold,
-            providers=tuple(args.provider),
-            trt_engine_cache_path=args.trt_engine_cache,
-            output_coordinates=args.output_coordinates,
-            model_version=verified.model_version if verified is not None else None,
+    if args.model_format == "ultralytics_raw":
+        detector = OnnxRawYoloDetector(
+            OnnxRawYoloConfig(
+                model_path=args.onnx_model,
+                class_names=class_names,
+                input_width=args.input_width,
+                input_height=args.input_height,
+                confidence_threshold=args.confidence_threshold,
+                iou_threshold=args.iou_threshold,
+                maximum_detections=args.maximum_detections,
+                providers=tuple(args.provider),
+                trt_engine_cache_path=args.trt_engine_cache,
+                model_version=verified.model_version if verified is not None else None,
+            )
         )
-    )
+    else:
+        detector = OnnxNx6Detector(
+            OnnxNx6Config(
+                model_path=args.onnx_model,
+                class_names=class_names,
+                input_width=args.input_width,
+                input_height=args.input_height,
+                confidence_threshold=args.confidence_threshold,
+                providers=tuple(args.provider),
+                trt_engine_cache_path=args.trt_engine_cache,
+                output_coordinates=args.output_coordinates,
+                model_version=verified.model_version if verified is not None else None,
+            )
+        )
     image = np.zeros((args.input_height, args.input_width, 3), dtype=np.uint8)
     for _ in range(args.warmup_iterations):
         detector.detect(image)
@@ -3402,10 +3981,16 @@ def _run_model_check(args: argparse.Namespace) -> int:
             "model_path": str(args.onnx_model.resolve()),
             "model_sha256": _sha256_file(args.onnx_model),
             "post_nms_output_contract": "Nx6",
+            "native_output_contract": native_output_format,
+            "model_format": args.model_format,
+            "raw_contract_passed": args.model_format == "ultralytics_raw",
             "input_width": args.input_width,
             "input_height": args.input_height,
             "class_names": list(detector.class_names),
             "active_providers": list(detector.provider_names),
+            "provider_selection": provider_selection_document(
+                getattr(detector, "provider_selection", None)
+            ),
             "warmup_iterations": args.warmup_iterations,
             "benchmark_iterations": args.benchmark_iterations,
             "synthetic_detection_count_last_iteration": detection_count,
@@ -3641,6 +4226,7 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
                 time.sleep(args.interval_seconds)
     finally:
         provider.close()
+    finished_at_s = time.monotonic()
     latest = snapshots[-1]
     fresh_link_samples = sum(snapshot.link_healthy is True for snapshot in snapshots)
     fresh_position_samples = sum(snapshot.position_healthy is True for snapshot in snapshots)
@@ -3648,6 +4234,19 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
     identity_document = (
         identity.to_document()
         if identity is not None and callable(getattr(identity, "to_document", None))
+        else None
+    )
+    autopilot_version_identity = getattr(provider, "autopilot_version_identity", None)
+    autopilot_version_document = (
+        autopilot_version_identity.to_document()
+        if autopilot_version_identity is not None
+        and callable(getattr(autopilot_version_identity, "to_document", None))
+        else None
+    )
+    autopilot_version_age_reader = getattr(provider, "autopilot_version_age_s", None)
+    autopilot_version_age_s = (
+        autopilot_version_age_reader(now_s=finished_at_s)
+        if callable(autopilot_version_age_reader)
         else None
     )
     qualification = getattr(provider, "qualification", None)
@@ -3661,8 +4260,18 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
         gate_failures.append("no fresh autopilot heartbeat was received")
     if args.require_fresh_position and fresh_position_samples == 0:
         gate_failures.append("no fresh global position was received")
+    if args.require_autopilot_version and (
+        autopilot_version_document is None or autopilot_version_age_s is None
+    ):
+        gate_failures.append(
+            "no valid AUTOPILOT_VERSION was passively observed from the heartbeat source"
+        )
     if qualification_document["required"] and qualification_document["passed"] is not True:
         gate_failures.extend(str(item) for item in qualification_document["reasons"])
+    if getattr(provider, "is_read_only", False) is not True:
+        gate_failures.append("provider did not remain read-only")
+    if getattr(provider, "messages_transmitted", None) != 0:
+        gate_failures.append("pixhawk-check transmitted one or more MAVLink messages")
     gate_passed = not gate_failures
     _emit(
         {
@@ -3675,10 +4284,18 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
             "fresh_transport_link_sample_count": fresh_transport_link_samples,
             "fresh_position_sample_count": fresh_position_samples,
             "heartbeat_identity": identity_document,
+            "autopilot_version_identity": autopilot_version_document,
+            "autopilot_version_observed_at_s": getattr(
+                provider,
+                "autopilot_version_observed_at_s",
+                None,
+            ),
+            "autopilot_version_age_s": autopilot_version_age_s,
             "qualification": qualification_document,
             "requirements": {
                 "fresh_link": args.require_fresh_link,
                 "fresh_position": args.require_fresh_position,
+                "autopilot_version": args.require_autopilot_version,
                 "expected_system_id": args.expected_system_id,
                 "expected_autopilot": args.expected_autopilot,
                 "expected_vehicle_type": args.expected_vehicle_type,
@@ -3695,6 +4312,11 @@ def _run_pixhawk_check(args: argparse.Namespace) -> int:
             "ignored_non_autopilot_heartbeats": getattr(
                 provider,
                 "ignored_non_autopilot_heartbeats",
+                None,
+            ),
+            "rejected_autopilot_version_messages": getattr(
+                provider,
+                "rejected_autopilot_version_messages",
                 None,
             ),
             "message_type_counts": getattr(provider, "message_type_counts", None),
@@ -3942,8 +4564,1189 @@ def _alert_publisher_from_args(args: argparse.Namespace) -> AlertPublisher:
     )
 
 
+def _integrated_replay_perception_namespace(
+    config_path: Path,
+    raw_tokens: list[str],
+    *,
+    additional_destinations: frozenset[str] = frozenset(),
+) -> argparse.Namespace:
+    """Parse only the production perception subset of ``live-camera`` options."""
+
+    tokens = list(raw_tokens)
+    if tokens and tokens[0] == "--":
+        tokens = tokens[1:]
+    if not tokens:
+        raise ValueError("--perception-args must include --onnx-model and --model-manifest")
+
+    parser = build_parser()
+    subparser_action = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    live_parser = subparser_action.choices["live-camera"]
+    option_destinations = {
+        option: action.dest for action in live_parser._actions for option in action.option_strings
+    }
+    for token in tokens:
+        if not token.startswith("--"):
+            continue
+        option = token.split("=", 1)[0]
+        destination = option_destinations.get(option)
+        if destination not in (
+            _INTEGRATED_REPLAY_PERCEPTION_DESTINATIONS | additional_destinations
+        ):
+            raise ValueError(
+                "integrated Replay accepts production perception options only; "
+                f"unsupported option: {option}"
+            )
+
+    parsed = parser.parse_args(["live-camera", str(config_path), *tokens])
+    if parsed.model_manifest is None:
+        raise ValueError("integrated Replay requires a hash-bound --model-manifest")
+    return parsed
+
+
+def _run_integrated_replay(args: argparse.Namespace) -> int:
+    """Execute verified raw sensors through the production perception/live core."""
+
+    config = MissionConfig.from_json(args.config)
+    perception_args = _integrated_replay_perception_namespace(
+        args.config,
+        args.perception_args,
+    )
+    backend = RawSensorReplayBackend.from_manifest(
+        args.recording_manifest,
+        expected_manifest_sha256=args.recording_manifest_sha256,
+    )
+    perception = None
+    audit_log = None
+    try:
+        perception = build_production_perception(perception_args, config)
+        if not perception.all_configured_artifacts_verified:
+            raise ValueError(
+                "integrated Replay requires a verified manifest for every configured model"
+            )
+        if perception.model_set_sha256 is None:
+            raise RuntimeError("verified perception model-set identity was not produced")
+        if perception.semantic_context_runner is not None:
+            raise ValueError(
+                "integrated Replay excludes asynchronous semantic context until its clock "
+                "and executor are deterministic"
+            )
+
+        mission_config_hash = _sha256_file(args.config)
+        expected_identity = IntegratedReplayIdentity(
+            runtime_descriptor_hash=backend.descriptor.canonical_hash,
+            recording_hash=backend.recording.recording_hash,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+        )
+
+        audit_log = (
+            AuditLog(
+                stream_path=args.audit_out,
+                max_in_memory_events=10_000,
+                fsync_every_events=100,
+                fsync_event_prefixes=(
+                    "alert.",
+                    "authorization.",
+                    "mission.transition",
+                    "operator.",
+                    "payload.",
+                ),
+                stream_session_id=expected_identity.run_identity_hash,
+            )
+            if args.audit_out is not None
+            else None
+        )
+        mission = MissionController(config, audit_log=audit_log)
+        session = build_integrated_replay_session(
+            backend=backend,
+            mission=mission,
+            detector=perception.detector,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+            config=LiveRunConfig(
+                operator_id=args.operator_id,
+                max_frames=backend.frame_count,
+                display=False,
+                performance_window_frames=args.performance_window_frames,
+                person_safety_evidence_qualified=(perception.person_safety_evidence_qualified),
+            ),
+            rgb_fire_verifier=perception.rgb_fire_verifier,
+            rgb_fire_corroborator=perception.rgb_fire_corroborator,
+        )
+        if session.identity != expected_identity:
+            raise RuntimeError("integrated Replay identity changed during session binding")
+        _emit(
+            {
+                "event": "integrated_replay_started",
+                "runtime_mode": "replay",
+                "recording_id": backend.recording.recording_id,
+                "recording_hash": backend.recording.recording_hash,
+                "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+                "run_identity_hash": session.identity.run_identity_hash,
+                "mission_config_sha256": session.identity.mission_config_hash,
+                "perception_model_set_sha256": perception.model_set_sha256,
+                "perception_components": list(perception.configured_model_components),
+                "perception_production_approved": (
+                    perception.all_configured_artifacts_production_approved
+                ),
+                "synthetic_hil_components": list(perception.synthetic_hil_components),
+                "frame_count": backend.frame_count,
+                "ground_truth_isolated": True,
+                "hardware_outputs_present": False,
+                "qgc_transport_acceptance_gate": "not_run_headless_integrated_replay",
+                "operator_visual_acceptance": "not_claimed",
+                "performance_metrics_are_deterministic_placeholders": True,
+            }
+        )
+        result = session.run()
+        result_mapping = asdict(result)
+        result_mapping["final_phase"] = result.final_phase.value
+        document: dict[str, Any] = {
+            "schema_version": 2,
+            "event": "integrated_replay_finished",
+            "runtime_mode": "replay",
+            # The session only reaches this document after consuming the
+            # complete verified recording.  Keep this machine-readable gate
+            # separate from visual/hardware status, which the release
+            # manifest still requires callers to claim explicitly.
+            "gate_passed": True,
+            "recording_id": backend.recording.recording_id,
+            "recording_hash": backend.recording.recording_hash,
+            "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+            "run_identity_hash": session.identity.run_identity_hash,
+            "mission_config_sha256": session.identity.mission_config_hash,
+            "perception_model_set_sha256": perception.model_set_sha256,
+            "perception_components": list(perception.configured_model_components),
+            "perception_production_approved": (
+                perception.all_configured_artifacts_production_approved
+            ),
+            "synthetic_hil_components": list(perception.synthetic_hil_components),
+            "ground_truth_isolated": True,
+            "hardware_outputs_present": False,
+            "qgc_transport_acceptance_gate": "not_run_headless_integrated_replay",
+            "operator_visual_acceptance": "not_claimed",
+            "performance_metrics_are_deterministic_placeholders": True,
+            "result": result_mapping,
+        }
+        if args.result_out is not None:
+            args.result_out.parent.mkdir(parents=True, exist_ok=True)
+            args.result_out.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        _emit(document)
+        return 0
+    finally:
+        backend.close()
+        if perception is not None:
+            perception.close()
+        if audit_log is not None:
+            audit_log.close()
+
+
+def _qgc_synchronization_protocol() -> dict[str, object]:
+    """Describe exactly what the synchronized QGC transport evidence proves."""
+
+    return {
+        "runtime_status_message_type": 23,
+        "runtime_status_acceptance_ack_message_type": 24,
+        "per_frame_order": [
+            "rtsp_frame_accepted_ack",
+            "signed_runtime_status_type23_send",
+            "qgc_native_controller_state_adoption",
+            "signed_runtime_status_acceptance_ack_type24",
+        ],
+        "metadata_send_count_semantics": "local_signed_type23_send_completed",
+        "metadata_acceptance_ack_count_semantics": (
+            "authenticated_matching_qgc_type24_received_after_native_controller_state_adoption"
+        ),
+        "metadata_barrier_count_semantics": (
+            "legacy_alias_of_canonical_post_adoption_type24_ack_count"
+        ),
+        "type24_scope": "native_controller_post_adoption_only",
+        "runtime_mode_policy_acceptance_proved": False,
+        "qml_rendering_proved": False,
+        "operator_visual_acceptance": "not_claimed",
+    }
+
+
+def _run_integrated_replay_qgc(args: argparse.Namespace) -> int:
+    """Run the E4 same-frame RTSP/metadata barrier through the canonical live core."""
+
+    if args.rtsp_bind_host != "127.0.0.1" or args.operator_udp_bind_host != "127.0.0.1":
+        raise ValueError("integrated Replay QGC video and metadata links must bind to 127.0.0.1")
+    for value, name in (
+        (args.rtsp_port, "--rtsp-port"),
+        (args.operator_udp_port, "--operator-udp-port"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65_535:
+            raise ValueError(f"{name} must be in [1, 65535]")
+    if args.rtsp_port == args.operator_udp_port:
+        raise ValueError("RTSP and signed operator metadata ports must be distinct")
+
+    config = MissionConfig.from_json(args.config)
+    perception_args = _integrated_replay_perception_namespace(
+        args.config,
+        args.perception_args,
+        additional_destinations=_INTEGRATED_REPLAY_QGC_DESTINATIONS,
+    )
+    # E4 always feeds DET/TRK/LCK overlay pages from the exact same bounded
+    # target pool as live-camera.  It is not an optional visualization shim.
+    perception_args.unified_target_pool = True
+    backend = RawSensorReplayBackend.from_manifest(
+        args.recording_manifest,
+        expected_manifest_sha256=args.recording_manifest_sha256,
+    )
+    perception = None
+    audit_log = None
+    synchronized_bridge = None
+    try:
+        geometry = recording_video_geometry(backend.recording)
+        perception = build_production_perception(perception_args, config)
+        if not perception.all_configured_artifacts_verified:
+            raise ValueError(
+                "integrated Replay QGC requires a verified manifest for every configured model"
+            )
+        if perception.model_set_sha256 is None:
+            raise RuntimeError("verified perception model-set identity was not produced")
+        if perception.semantic_context_runner is not None:
+            raise ValueError(
+                "integrated Replay QGC excludes asynchronous semantic context until its clock "
+                "and executor are deterministic"
+            )
+
+        mission_config_hash = _sha256_file(args.config)
+        expected_identity = IntegratedReplayIdentity(
+            runtime_descriptor_hash=backend.descriptor.canonical_hash,
+            recording_hash=backend.recording.recording_hash,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+        )
+        audit_log = (
+            AuditLog(
+                stream_path=args.audit_out,
+                max_in_memory_events=10_000,
+                fsync_every_events=100,
+                fsync_event_prefixes=(
+                    "alert.",
+                    "authorization.",
+                    "mission.transition",
+                    "operator.",
+                    "payload.",
+                    "replay.qgc_",
+                ),
+                stream_session_id=expected_identity.run_identity_hash,
+            )
+            if args.audit_out is not None
+            else None
+        )
+        mission = MissionController(config, audit_log=audit_log)
+        operator_geometry = VideoGeometry(
+            args.operator_stream_id,
+            geometry.width,
+            geometry.height,
+            0,
+        )
+        operator_adapter = _operator_mavlink_adapter(
+            geometry=operator_geometry,
+            operator_hmac_key_env=args.operator_hmac_key_env,
+            mavlink_signing_key_hex_env=args.mavlink_signing_key_hex_env,
+            local_system_id=args.operator_local_system_id,
+            local_component_id=args.operator_local_component_id,
+            remote_system_id=args.operator_remote_system_id,
+            remote_component_id=args.operator_remote_component_id,
+        )
+        operator_transport = UdpOperatorSelectionServer(
+            bind_host=args.operator_udp_bind_host,
+            port=args.operator_udp_port,
+            mavlink=operator_adapter,
+            guard=SelectionCommandGuard(operator_geometry),
+            metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
+        )
+        frame_publisher = SubprocessReplayRtspPublisher(
+            args.rtsp_helper,
+            bind_host=args.rtsp_bind_host,
+            port=args.rtsp_port,
+            mount=args.rtsp_mount,
+            geometry=geometry,
+            server_ready_timeout_s=args.helper_ready_timeout_seconds,
+            client_ready_timeout_s=args.qgc_client_timeout_seconds,
+            acknowledgement_timeout_s=args.frame_ack_timeout_seconds,
+            process_exit_timeout_s=args.helper_exit_timeout_seconds,
+        )
+        synchronized_bridge = SynchronizedReplayOperatorBridge(
+            operator_transport,
+            OperatorTargetLock(
+                operator_geometry,
+                TargetLockConfig(
+                    frozenset(config.target_classes)
+                    | FIRE_CANDIDATE_TRACK_LABELS
+                    | frozenset(PRIORITY_DETECTION_CLASS_NAMES),
+                    acquisition_timeout_s=args.operator_acquisition_timeout_seconds,
+                    lost_after_s=args.operator_lost_after_seconds,
+                ),
+            ),
+            frame_publisher=frame_publisher,
+            pacer=WallClockReplayPacer(playback_rate=args.playback_rate),
+            expected_frame_count=backend.frame_count,
+            qgc_peer_ready_timeout_s=args.qgc_heartbeat_ready_timeout_seconds,
+            maximum_ack_to_metadata_skew_ms=args.maximum_ack_to_metadata_skew_ms,
+            metadata_acceptance_timeout_s=(args.metadata_acceptance_ack_timeout_seconds),
+        )
+        unified_target_pool = _unified_target_pool_from_args(
+            perception_args,
+            force_enabled=True,
+        )
+        if unified_target_pool is None:  # pragma: no cover - force-enabled invariant
+            raise RuntimeError("E4 synchronized Replay target pool was not created")
+        selection_target_pool = UnifiedSelectionTargetPool(unified_target_pool)
+
+        session = build_integrated_replay_session(
+            backend=backend,
+            mission=mission,
+            detector=perception.detector,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+            config=LiveRunConfig(
+                operator_id=args.operator_id,
+                max_frames=backend.frame_count,
+                display=False,
+                performance_window_frames=args.performance_window_frames,
+                person_safety_evidence_qualified=(perception.person_safety_evidence_qualified),
+            ),
+            operator_bridge=synchronized_bridge,
+            unified_target_pool=unified_target_pool,
+            selection_target_pool=selection_target_pool,
+            aircraft_appearance_encoder=HandcraftedAircraftAppearanceEncoder(),
+            rgb_fire_verifier=perception.rgb_fire_verifier,
+            rgb_fire_corroborator=perception.rgb_fire_corroborator,
+        )
+        if session.identity != expected_identity:
+            raise RuntimeError("integrated Replay QGC identity changed during session binding")
+        _emit(
+            {
+                "event": "integrated_replay_qgc_started",
+                "runtime_mode": "replay",
+                "recording_id": backend.recording.recording_id,
+                "recording_hash": backend.recording.recording_hash,
+                "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+                "run_identity_hash": session.identity.run_identity_hash,
+                "mission_config_sha256": session.identity.mission_config_hash,
+                "perception_model_set_sha256": perception.model_set_sha256,
+                "frame_count": backend.frame_count,
+                "video_geometry": {"width": geometry.width, "height": geometry.height},
+                "rtsp_url": frame_publisher.rtsp_url,
+                "operator_udp_bind": args.operator_udp_bind_host,
+                "operator_udp_port": args.operator_udp_port,
+                "schema_version": 2,
+                "frame_before_runtime_status_post_adoption_ack": True,
+                "qgc_transport_acceptance_gate": (
+                    "pending_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+                ),
+                "synchronization_protocol": _qgc_synchronization_protocol(),
+                "operator_visual_acceptance": "not_claimed",
+                "ground_truth_isolated": True,
+                "hardware_outputs_present": False,
+                "pixhawk_attached": False,
+                "actuator_outputs_present": False,
+            }
+        )
+        result = session.run()
+        synchronization = synchronized_bridge.require_complete()
+        expected_runtime_run_hash64_hex = session.identity.run_identity_hash[:16].lower()
+        if synchronization.acknowledged_runtime_run_hash64_hex != expected_runtime_run_hash64_hex:
+            raise RuntimeError(
+                "QGC RuntimeStatusAck run binding does not match the integrated Replay identity"
+            )
+        mission.audit.append(
+            "replay.qgc_synchronized_complete",
+            backend.clock.monotonic(),
+            {
+                **synchronization.to_mapping(),
+                "synchronization_evidence_schema_version": 2,
+                "synchronization_protocol": _qgc_synchronization_protocol(),
+                "rtsp_publisher": frame_publisher.stats.to_mapping(),
+                "wall_clock_pacer": synchronized_bridge.pacer.stats.to_mapping(),
+                "metadata_only": True,
+                "flight_control_enabled": False,
+                "physical_release_enabled": False,
+            },
+        )
+
+        result_mapping = asdict(result)
+        result_mapping["final_phase"] = result.final_phase.value
+        document: dict[str, Any] = {
+            "schema_version": 2,
+            "event": "integrated_replay_qgc_finished",
+            "runtime_mode": "replay",
+            # Both the complete replay and the native QGC post-adoption ACK
+            # barrier have succeeded before this result is emitted.  This is
+            # a transport/integration gate, not a human visual or hardware
+            # claim.
+            "gate_passed": True,
+            "recording_id": backend.recording.recording_id,
+            "recording_hash": backend.recording.recording_hash,
+            "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+            "run_identity_hash": session.identity.run_identity_hash,
+            "mission_config_sha256": session.identity.mission_config_hash,
+            "perception_model_set_sha256": perception.model_set_sha256,
+            "perception_components": list(perception.configured_model_components),
+            "perception_production_approved": (
+                perception.all_configured_artifacts_production_approved
+            ),
+            "synthetic_hil_components": list(perception.synthetic_hil_components),
+            "qgc_transport_acceptance_gate": (
+                "passed_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+            ),
+            "operator_visual_acceptance": "not_claimed",
+            "machine_visual_smoke": "not_run_by_cli",
+            "synchronization_protocol": _qgc_synchronization_protocol(),
+            "ground_truth_isolated": True,
+            "hardware_outputs_present": False,
+            "pixhawk_attached": False,
+            "actuator_outputs_present": False,
+            "synchronization": synchronization.to_mapping(),
+            "rtsp_publisher": frame_publisher.stats.to_mapping(),
+            "wall_clock_pacer": synchronized_bridge.pacer.stats.to_mapping(),
+            "result": result_mapping,
+        }
+        if args.result_out is not None:
+            args.result_out.parent.mkdir(parents=True, exist_ok=True)
+            args.result_out.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        _emit(document)
+        return 0
+    finally:
+        try:
+            if synchronized_bridge is not None:
+                synchronized_bridge.close()
+        finally:
+            try:
+                backend.close()
+            finally:
+                try:
+                    if perception is not None:
+                        perception.close()
+                finally:
+                    if audit_log is not None:
+                        audit_log.close()
+
+
+def _build_integrated_sim_ranging(
+    args: argparse.Namespace,
+    *,
+    runtime_input: Any,
+    terrain_dem: LocalDemGrid,
+) -> tuple[
+    MultiModalRangingEngine | None,
+    LiveRangingConfig | None,
+    AdaptiveRangingPolicy | None,
+    dict[str, object] | None,
+    str | None,
+]:
+    """Build and identity-bind the production ranging graph for live Gazebo SIM.
+
+    The SIM command owns one scenario DEM, so the same parsed grid is passed to
+    both the telemetry AGL provider and the shared ranging engine.  This avoids
+    a second CLI path that could silently bind a different terrain datum.
+    """
+
+    calibration_path = args.ranging_calibration
+    if calibration_path is None:
+        if args.require_target_geolocation:
+            raise ValueError("--require-target-geolocation requires --ranging-calibration")
+        return None, None, None, None, None
+
+    resolved_calibration_path = calibration_path.resolve(strict=True)
+    calibration = load_camera_calibration(resolved_calibration_path)
+    rgb_sensors = tuple(sensor for sensor in runtime_input.sensors if sensor.kind == "rgb_camera")
+    if len(rgb_sensors) != 1:
+        raise ValueError("integrated SIM ranging requires exactly one scenario RGB camera")
+    expected_calibration_id = rgb_sensors[0].calibration_id
+    if expected_calibration_id is None:
+        raise ValueError("scenario RGB camera does not bind a calibration_id")
+    if calibration.calibration_id != expected_calibration_id:
+        raise ValueError(
+            "ranging calibration ID does not match scenario RGB camera: "
+            f"{calibration.calibration_id!r} != {expected_calibration_id!r}"
+        )
+    if (calibration.width_px, calibration.height_px) != (
+        args.frame_width,
+        args.frame_height,
+    ):
+        raise ValueError(
+            "ranging calibration geometry does not match Gazebo wire geometry: "
+            f"{calibration.width_px}x{calibration.height_px} != "
+            f"{args.frame_width}x{args.frame_height}"
+        )
+
+    engine = MultiModalRangingEngine(
+        RangingFusionConfig(
+            minimum_slant_range_m=args.ranging_minimum_distance_m,
+            maximum_slant_range_m=args.ranging_maximum_distance_m,
+        )
+    )
+    ranging_config = LiveRangingConfig(
+        calibration=calibration,
+        altitude_agl_sigma_m=args.ranging_agl_sigma_m,
+        roll_sigma_deg=args.ranging_roll_sigma_deg,
+        pitch_sigma_deg=args.ranging_pitch_sigma_deg,
+        heading_sigma_deg=args.ranging_heading_sigma_deg,
+        target_center_sigma_px=args.ranging_target_center_sigma_px,
+        terrain_dem=terrain_dem,
+    )
+    adaptive_policy = AdaptiveRangingPolicy(
+        AdaptiveRangingConfig(
+            vehicle_profile=VehicleProfile(args.ranging_vehicle_profile),
+        )
+    )
+    binding: dict[str, object] = {
+        "schema_version": 1,
+        "algorithm": "shared-production-multimodal-ranging",
+        "calibration": {
+            "calibration_id": calibration.calibration_id,
+            "sha256": _sha256_file(resolved_calibration_path),
+            "width_px": calibration.width_px,
+            "height_px": calibration.height_px,
+        },
+        "terrain_dem": {
+            "scenario_id": terrain_dem.scenario_id,
+            "sha256": terrain_dem.source_sha256,
+            "altitude_reference": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
+            "odometry_local_up_used_as_agl": False,
+        },
+        "fusion": asdict(engine.config),
+        "uncertainty": {
+            "altitude_agl_sigma_m": ranging_config.altitude_agl_sigma_m,
+            "roll_sigma_deg": ranging_config.roll_sigma_deg,
+            "pitch_sigma_deg": ranging_config.pitch_sigma_deg,
+            "heading_sigma_deg": ranging_config.heading_sigma_deg,
+            "target_center_sigma_px": ranging_config.target_center_sigma_px,
+        },
+        "adaptive": {
+            "vehicle_profile": adaptive_policy.config.vehicle_profile.value,
+        },
+        "advisory_only": True,
+        "flight_control_enabled": False,
+        "physical_release_enabled": False,
+    }
+    return engine, ranging_config, adaptive_policy, binding, canonical_sha256(binding)
+
+
+def _integrated_sim_ranging_acceptance(
+    *,
+    result: Any,
+    audit_log: AuditLog,
+    binding: dict[str, object] | None,
+    binding_hash: str | None,
+    required: bool,
+) -> dict[str, object]:
+    """Summarize what the shared range/geolocation path actually produced."""
+
+    if binding is None:
+        return {
+            "configured": False,
+            "required": required,
+            "status": "failed_missing_configuration" if required else "not_configured",
+            "gate_passed": False,
+            "binding": None,
+            "binding_sha256": None,
+            "primary_solution_count": 0,
+            "qualified_primary_solution_count": 0,
+            "available_geolocation_count": 0,
+            "camera_ground_solution_count": 0,
+            "operator_range_publish_count": 0,
+            "operator_target_geolocation_publish_count": 0,
+            "source_bound_operator_range_geolocation_count": 0,
+            "qgc_range_geolocation_adoption": "not_proved",
+        }
+
+    primary_events = tuple(
+        event
+        for event in audit_log.events()
+        if event.event_type == "ranging.primary_target_solution"
+    )
+    qualified = tuple(
+        event
+        for event in primary_events
+        if event.details.get("validity")
+        in {RangeValidity.VALID.value, RangeValidity.DEGRADED.value}
+    )
+    camera_ground = tuple(
+        event for event in qualified if "camera_ground" in event.details.get("sources", ())
+    )
+    # Audit details are immutable MappingProxyType values in normal runs.  Use
+    # the Mapping protocol instead of requiring a concrete dict for nested data.
+    geolocated = tuple(
+        event
+        for event in camera_ground
+        if isinstance(event.details.get("target_geolocation"), Mapping)
+        and event.details["target_geolocation"].get("available") is True
+    )
+    geolocated_source_keys = {
+        (event.details.get("target_id"), event.details.get("frame_id")) for event in geolocated
+    }
+    qualified_operator_range_keys = {
+        (event.details.get("target_id"), event.details.get("source_frame_id"))
+        for event in audit_log.events()
+        if event.event_type == "operator.remote_range_status"
+        and event.details.get("validity")
+        in {RangeValidity.VALID.value, RangeValidity.DEGRADED.value}
+        and isinstance(event.details.get("source_age_s"), (int, float))
+        and event.details["source_age_s"] <= MAX_RANGE_STATUS_SOURCE_AGE_S
+        and isinstance(event.details.get("data_freshness_s"), (int, float))
+        and event.details["data_freshness_s"] <= MAX_RANGE_STATUS_SOURCE_AGE_S
+    }
+    available_operator_geolocation_keys = {
+        (event.details.get("target_id"), event.details.get("source_frame_id"))
+        for event in audit_log.events()
+        if event.event_type == "operator.remote_target_geolocation_status"
+        and event.details.get("available") is True
+        and isinstance(event.details.get("source_age_s"), (int, float))
+        and event.details["source_age_s"] <= MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
+    }
+    source_bound_operator_keys = (
+        geolocated_source_keys & qualified_operator_range_keys & available_operator_geolocation_keys
+    )
+
+    range_publishes = int(getattr(result, "remote_range_status_count", 0))
+    geolocation_publishes = int(getattr(result, "remote_target_geolocation_status_count", 0))
+    ranging_errors = int(getattr(result, "ranging_error_count", 0))
+    transport_errors = int(getattr(result, "remote_transport_error_count", 0))
+    gate_passed = all(
+        (
+            bool(binding_hash),
+            bool(qualified),
+            bool(camera_ground),
+            bool(geolocated),
+            range_publishes > 0,
+            geolocation_publishes > 0,
+            bool(source_bound_operator_keys),
+            ranging_errors == 0,
+            transport_errors == 0,
+        )
+    )
+    failure_reasons = tuple(
+        reason
+        for condition, reason in (
+            (bool(qualified), "no_valid_or_degraded_primary_range"),
+            (bool(camera_ground), "no_camera_ground_primary_range"),
+            (bool(geolocated), "no_available_wgs84_target_geolocation"),
+            (range_publishes > 0, "range_status_not_published"),
+            (geolocation_publishes > 0, "target_geolocation_status_not_published"),
+            (
+                bool(source_bound_operator_keys),
+                "no_source_bound_operator_range_geolocation",
+            ),
+            (ranging_errors == 0, "ranging_error_observed"),
+            (transport_errors == 0, "operator_transport_error_observed"),
+        )
+        if not condition
+    )
+    return {
+        "configured": True,
+        "required": required,
+        "status": "passed" if gate_passed else "failed",
+        "gate_passed": gate_passed,
+        "failure_reasons": failure_reasons,
+        "binding": binding,
+        "binding_sha256": binding_hash,
+        "primary_solution_count": len(primary_events),
+        "qualified_primary_solution_count": len(qualified),
+        "camera_ground_solution_count": len(camera_ground),
+        "available_geolocation_count": len(geolocated),
+        "operator_range_publish_count": range_publishes,
+        "operator_target_geolocation_publish_count": geolocation_publishes,
+        "source_bound_operator_range_geolocation_count": len(source_bound_operator_keys),
+        "ranging_error_count": ranging_errors,
+        "operator_transport_error_count": transport_errors,
+        # A local UDP publish is not a QGC state-adoption receipt.  A dedicated
+        # signed range/geolocation ACK is a later, independent gate.
+        "qgc_range_geolocation_adoption": "not_proved",
+        "operator_visual_acceptance": "not_claimed",
+    }
+
+
+def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
+    """Run live Gazebo pixels through the shared core and native QGC transport."""
+
+    if args.rtsp_bind_host != "127.0.0.1" or args.operator_udp_bind_host != "127.0.0.1":
+        raise ValueError("integrated SIM QGC video and metadata links must bind to 127.0.0.1")
+    for value, name in (
+        (args.rtsp_port, "--rtsp-port"),
+        (args.operator_udp_port, "--operator-udp-port"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65_535:
+            raise ValueError(f"{name} must be in [1, 65535]")
+    if args.rtsp_port == args.operator_udp_port:
+        raise ValueError("RTSP and signed operator metadata ports must be distinct")
+    for value, name in (
+        (args.frame_count, "--frame-count"),
+        (args.frame_width, "--frame-width"),
+        (args.frame_height, "--frame-height"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+
+    config = MissionConfig.from_json(args.config)
+    runtime_input = load_runtime_scenario(args.scenario_manifest, mode=RuntimeMode.SIM)
+    terrain_dem = load_local_dem_grid(args.terrain_dem.resolve(strict=True))
+    (
+        ranging_engine,
+        ranging_config,
+        adaptive_ranging_policy,
+        ranging_binding,
+        ranging_identity_hash,
+    ) = _build_integrated_sim_ranging(
+        args,
+        runtime_input=runtime_input,
+        terrain_dem=terrain_dem,
+    )
+    evidence_schema_version = 3 if ranging_binding is not None else 2
+    perception_args = _integrated_replay_perception_namespace(
+        args.config,
+        args.perception_args,
+        additional_destinations=_INTEGRATED_REPLAY_QGC_DESTINATIONS,
+    )
+    perception_args.unified_target_pool = True
+    backend = GazeboSimBackend(
+        scenario_input=runtime_input,
+        docker_executable=args.docker_executable.resolve(strict=True),
+        container_name=args.container_name,
+        frame_count=args.frame_count,
+        airframe_profile_hash=args.airframe_profile_sha256,
+        container_image_sha256=args.container_image_sha256,
+        stream_script_sha256=args.stream_script_sha256,
+        model_assets_sha256=args.model_assets_sha256,
+        terrain_dem=terrain_dem,
+        stream_script=args.stream_script,
+        model_instance=args.model_instance,
+        world=args.gazebo_world,
+        timeout_s=args.stream_timeout_seconds,
+        expected_width=args.frame_width,
+        expected_height=args.frame_height,
+    )
+    perception = None
+    audit_log = None
+    synchronized_bridge = None
+    try:
+        geometry = ReplayVideoGeometry.bgr24(args.frame_width, args.frame_height)
+        perception = build_production_perception(perception_args, config)
+        if not perception.all_configured_artifacts_verified:
+            raise ValueError(
+                "integrated SIM QGC requires a verified manifest for every configured model"
+            )
+        if perception.model_set_sha256 is None:
+            raise RuntimeError("verified perception model-set identity was not produced")
+        if perception.semantic_context_runner is not None:
+            raise ValueError(
+                "integrated SIM QGC excludes asynchronous semantic context until it shares "
+                "the runtime clock and bounded shutdown contract"
+            )
+
+        mission_config_hash = _sha256_file(args.config)
+        expected_identity = IntegratedSimIdentity(
+            runtime_descriptor_hash=backend.descriptor.canonical_hash,
+            scenario_manifest_hash=runtime_input.scenario_manifest_hash,
+            sensor_binding_hash=backend.sensor_binding_hash,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+            ranging_identity_hash=ranging_identity_hash,
+            schema_version=2 if ranging_identity_hash is not None else 1,
+        )
+        audit_log = (
+            AuditLog(
+                stream_path=args.audit_out,
+                max_in_memory_events=10_000,
+                fsync_every_events=100,
+                fsync_event_prefixes=(
+                    "alert.",
+                    "authorization.",
+                    "mission.transition",
+                    "operator.",
+                    "payload.",
+                    "sim.qgc_",
+                ),
+                stream_session_id=expected_identity.run_identity_hash,
+            )
+            if args.audit_out is not None
+            else None
+        )
+        mission = MissionController(config, audit_log=audit_log)
+        operator_geometry = VideoGeometry(
+            args.operator_stream_id,
+            geometry.width,
+            geometry.height,
+            0,
+        )
+        operator_adapter = _operator_mavlink_adapter(
+            geometry=operator_geometry,
+            operator_hmac_key_env=args.operator_hmac_key_env,
+            mavlink_signing_key_hex_env=args.mavlink_signing_key_hex_env,
+            local_system_id=args.operator_local_system_id,
+            local_component_id=args.operator_local_component_id,
+            remote_system_id=args.operator_remote_system_id,
+            remote_component_id=args.operator_remote_component_id,
+        )
+        operator_transport = UdpOperatorSelectionServer(
+            bind_host=args.operator_udp_bind_host,
+            port=args.operator_udp_port,
+            mavlink=operator_adapter,
+            guard=SelectionCommandGuard(operator_geometry),
+            metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
+        )
+        frame_publisher = SubprocessReplayRtspPublisher(
+            args.rtsp_helper,
+            bind_host=args.rtsp_bind_host,
+            port=args.rtsp_port,
+            mount=args.rtsp_mount,
+            geometry=geometry,
+            server_ready_timeout_s=args.helper_ready_timeout_seconds,
+            client_ready_timeout_s=args.qgc_client_timeout_seconds,
+            acknowledgement_timeout_s=args.frame_ack_timeout_seconds,
+            process_exit_timeout_s=args.helper_exit_timeout_seconds,
+        )
+        synchronized_bridge = SynchronizedQgcOperatorBridge(
+            operator_transport,
+            OperatorTargetLock(
+                operator_geometry,
+                TargetLockConfig(
+                    frozenset(config.target_classes)
+                    | FIRE_CANDIDATE_TRACK_LABELS
+                    | frozenset(PRIORITY_DETECTION_CLASS_NAMES),
+                    acquisition_timeout_s=args.operator_acquisition_timeout_seconds,
+                    lost_after_s=args.operator_lost_after_seconds,
+                ),
+            ),
+            frame_publisher=frame_publisher,
+            pacer=LiveFramePacer(),
+            expected_frame_count=backend.frame_count,
+            qgc_peer_ready_timeout_s=args.qgc_heartbeat_ready_timeout_seconds,
+            maximum_ack_to_metadata_skew_ms=args.maximum_ack_to_metadata_skew_ms,
+            metadata_acceptance_timeout_s=(args.metadata_acceptance_ack_timeout_seconds),
+        )
+        unified_target_pool = _unified_target_pool_from_args(
+            perception_args,
+            force_enabled=True,
+        )
+        if unified_target_pool is None:  # pragma: no cover - force-enabled invariant
+            raise RuntimeError("integrated SIM QGC target pool was not created")
+        selection_target_pool = UnifiedSelectionTargetPool(unified_target_pool)
+        ranging_runner_options: dict[str, object] = {}
+        if ranging_engine is not None:
+            ranging_runner_options.update(
+                {
+                    "ranging_engine": ranging_engine,
+                    "ranging_config": ranging_config,
+                    "adaptive_ranging_policy": adaptive_ranging_policy,
+                }
+            )
+        session = build_integrated_sim_session(
+            backend=backend,
+            mission=mission,
+            detector=perception.detector,
+            mission_config_hash=mission_config_hash,
+            perception_identity_hash=perception.model_set_sha256,
+            ranging_identity_hash=ranging_identity_hash,
+            config=LiveRunConfig(
+                operator_id=args.operator_id,
+                max_frames=backend.frame_count,
+                display=False,
+                performance_window_frames=args.performance_window_frames,
+                person_safety_evidence_qualified=(perception.person_safety_evidence_qualified),
+            ),
+            operator_bridge=synchronized_bridge,
+            unified_target_pool=unified_target_pool,
+            selection_target_pool=selection_target_pool,
+            aircraft_appearance_encoder=HandcraftedAircraftAppearanceEncoder(),
+            rgb_fire_verifier=perception.rgb_fire_verifier,
+            rgb_fire_corroborator=perception.rgb_fire_corroborator,
+            **ranging_runner_options,
+        )
+        if session.identity != expected_identity:
+            raise RuntimeError("integrated SIM QGC identity changed during session binding")
+        _emit(
+            {
+                "event": "integrated_sim_qgc_started",
+                "runtime_mode": "sim",
+                "scenario_id": runtime_input.scenario_id,
+                "scenario_manifest_hash": runtime_input.scenario_manifest_hash,
+                "scenario_seed": runtime_input.seed,
+                "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+                "sensor_binding_hash": backend.sensor_binding_hash,
+                "terrain_dem_sha256": terrain_dem.source_sha256,
+                "terrain_agl_reference": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
+                "odometry_local_up_used_as_agl": False,
+                "run_identity_hash": session.identity.run_identity_hash,
+                "mission_config_sha256": session.identity.mission_config_hash,
+                "perception_model_set_sha256": perception.model_set_sha256,
+                "frame_count": backend.frame_count,
+                "video_geometry": {"width": geometry.width, "height": geometry.height},
+                "rtsp_url": frame_publisher.rtsp_url,
+                "operator_udp_bind": args.operator_udp_bind_host,
+                "operator_udp_port": args.operator_udp_port,
+                "schema_version": evidence_schema_version,
+                "ranging_binding_sha256": ranging_identity_hash,
+                "target_geolocation_gate_required": args.require_target_geolocation,
+                "frame_before_runtime_status_post_adoption_ack": True,
+                "qgc_transport_acceptance_gate": (
+                    "pending_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+                ),
+                "synchronization_protocol": _qgc_synchronization_protocol(),
+                "operator_visual_acceptance": "not_claimed",
+                "ground_truth_isolated": True,
+                "hardware_outputs_present": False,
+                "real_pixhawk_contacted": False,
+                "actuator_outputs_present": False,
+                "odometry_required": True,
+                "full_odometry_pose_velocity_fusion_claimed": False,
+                "full_odometry_pose_velocity_fusion_gate": "pending_sensor_stream_completion",
+            }
+        )
+        result, sensor_transport = session.run()
+        synchronization = synchronized_bridge.require_complete()
+        expected_runtime_run_hash64_hex = session.identity.run_identity_hash[:16].lower()
+        if synchronization.acknowledged_runtime_run_hash64_hex != expected_runtime_run_hash64_hex:
+            raise RuntimeError(
+                "QGC RuntimeStatusAck run binding does not match the integrated SIM identity"
+            )
+        mission.audit.append(
+            "sim.qgc_synchronized_complete",
+            backend.clock.monotonic(),
+            {
+                **synchronization.to_mapping(),
+                "synchronization_evidence_schema_version": 2,
+                "synchronization_protocol": _qgc_synchronization_protocol(),
+                "rtsp_publisher": frame_publisher.stats.to_mapping(),
+                "live_frame_pacer": synchronized_bridge.pacer.stats.to_mapping(),
+                "sensor_transport": sensor_transport.to_mapping(),
+                "terrain_dem_sha256": terrain_dem.source_sha256,
+                "terrain_agl_reference": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
+                "odometry_local_up_used_as_agl": False,
+                "odometry_required": sensor_transport.odometry_required,
+                "full_odometry_pose_velocity_fusion_claimed": (
+                    sensor_transport.full_odometry_pose_velocity_fusion_claimed
+                ),
+                "metadata_only": True,
+                "flight_control_enabled": False,
+                "physical_release_enabled": False,
+            },
+        )
+        result_mapping = asdict(result)
+        result_mapping["final_phase"] = result.final_phase.value
+        target_geolocation_acceptance = _integrated_sim_ranging_acceptance(
+            result=result,
+            audit_log=mission.audit,
+            binding=ranging_binding,
+            binding_hash=ranging_identity_hash,
+            required=args.require_target_geolocation,
+        )
+        gate_passed = (
+            target_geolocation_acceptance["gate_passed"] is True
+            if args.require_target_geolocation
+            else True
+        )
+        document: dict[str, Any] = {
+            "schema_version": evidence_schema_version,
+            "event": "integrated_sim_qgc_finished",
+            "runtime_mode": "sim",
+            # ``session.run`` consumed the complete bounded sensor stream and
+            # ``require_complete`` verified every native QGC ACK.  Hardware,
+            # visual and production-model claims remain independent fields.
+            "gate_passed": gate_passed,
+            "scenario_id": runtime_input.scenario_id,
+            "scenario_manifest_hash": runtime_input.scenario_manifest_hash,
+            "scenario_seed": runtime_input.seed,
+            "runtime_descriptor_hash": backend.descriptor.canonical_hash,
+            "sensor_binding_hash": backend.sensor_binding_hash,
+            "terrain_dem_sha256": terrain_dem.source_sha256,
+            "terrain_agl_reference": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
+            "odometry_local_up_used_as_agl": False,
+            "run_identity_hash": session.identity.run_identity_hash,
+            "mission_config_sha256": session.identity.mission_config_hash,
+            "perception_model_set_sha256": perception.model_set_sha256,
+            "perception_components": list(perception.configured_model_components),
+            "perception_production_approved": (
+                perception.all_configured_artifacts_production_approved
+            ),
+            "synthetic_hil_components": list(perception.synthetic_hil_components),
+            "target_geolocation_acceptance": target_geolocation_acceptance,
+            "qgc_transport_acceptance_gate": (
+                "passed_rtsp_frame_ack_and_runtime_status_post_adoption_ack"
+            ),
+            "operator_visual_acceptance": "not_claimed",
+            "machine_visual_smoke": "not_run_by_cli",
+            "synchronization_protocol": _qgc_synchronization_protocol(),
+            "ground_truth_isolated": True,
+            "hardware_outputs_present": False,
+            "real_pixhawk_contacted": False,
+            "actuator_outputs_present": False,
+            "flight_control_enabled": False,
+            "odometry_required": sensor_transport.odometry_required,
+            "full_odometry_pose_velocity_fusion_claimed": (
+                sensor_transport.full_odometry_pose_velocity_fusion_claimed
+            ),
+            "synchronization": synchronization.to_mapping(),
+            "rtsp_publisher": frame_publisher.stats.to_mapping(),
+            "live_frame_pacer": synchronized_bridge.pacer.stats.to_mapping(),
+            "sensor_transport": sensor_transport.to_mapping(),
+            "result": result_mapping,
+        }
+        if args.result_out is not None:
+            args.result_out.parent.mkdir(parents=True, exist_ok=True)
+            args.result_out.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        _emit(document)
+        return 0 if gate_passed else 2
+    finally:
+        try:
+            if synchronized_bridge is not None:
+                synchronized_bridge.close()
+        finally:
+            try:
+                backend.close()
+            finally:
+                try:
+                    if perception is not None:
+                        perception.close()
+                finally:
+                    if audit_log is not None:
+                        audit_log.close()
+
+
+def _unified_target_pool_from_args(
+    args: argparse.Namespace,
+    *,
+    force_enabled: bool = False,
+) -> UnifiedTargetPool | None:
+    """Build the one canonical target-pool configuration used by LIVE and E4 Replay."""
+
+    if not force_enabled and not args.unified_target_pool:
+        return None
+    return UnifiedTargetPool(
+        UnifiedTargetPoolConfig(
+            maximum_tracks=args.unified_target_pool_maximum_tracks,
+            locked_reacquisition_timeout_s=(args.unified_target_pool_locked_reacquisition_seconds),
+            minimum_association_confidence=(
+                args.unified_target_pool_minimum_association_confidence
+            ),
+            priority_minimum_new_track_confidence=(
+                args.unified_target_pool_priority_minimum_new_track_confidence
+            ),
+            minimum_new_track_confidence=(args.unified_target_pool_minimum_new_track_confidence),
+            high_confidence_threshold=args.unified_target_pool_high_confidence_threshold,
+            person_maximum_appearance_distance=(
+                args.unified_target_pool_person_maximum_appearance_distance
+            ),
+            person_strict_reid_distance=args.unified_target_pool_person_strict_reid_distance,
+            kalman_process_noise=args.unified_target_pool_kalman_process_noise,
+            kalman_measurement_noise=args.unified_target_pool_kalman_measurement_noise,
+            kalman_gate_sigma=args.unified_target_pool_kalman_gate_sigma,
+            kalman_max_prediction_horizon_s=(
+                args.unified_target_pool_kalman_maximum_horizon_seconds
+            ),
+        )
+    )
+
+
+def _profile_bound_runtime_config_from_args(
+    args: argparse.Namespace,
+) -> ProfileBoundRuntimeConfig | None:
+    """Build the HIL/REAL profile gate without touching the QGC/UI layer."""
+
+    mode_value = getattr(args, "runtime_mode", None)
+    runtime_option_names = (
+        "runtime_profile",
+        "runtime_profile_hmac_key_env",
+        "runtime_profile_key_id",
+        "runtime_airframe_profile_hash",
+        "runtime_signing_identity_hash",
+        "runtime_signing_key_hex_env",
+        "runtime_allow_flight_control_output",
+        "runtime_scenario_id",
+        "runtime_scenario_manifest",
+        "runtime_scenario_seed",
+    )
+    if mode_value is None:
+        supplied = [
+            name
+            for name in runtime_option_names
+            if getattr(args, name, None) not in (None, False, "")
+        ]
+        if supplied:
+            raise ValueError(
+                "runtime profile options require --runtime-mode hil or --runtime-mode real: "
+                + ", ".join(f"--{name.replace('_', '-')}" for name in supplied)
+            )
+        return None
+
+    mode = RuntimeMode(mode_value)
+    profile_path = getattr(args, "runtime_profile", None)
+    key_env = getattr(args, "runtime_profile_hmac_key_env", None)
+    key_id = getattr(args, "runtime_profile_key_id", None)
+    airframe_hash = getattr(args, "runtime_airframe_profile_hash", None)
+    missing = [
+        option
+        for option, value in (
+            ("--runtime-profile", profile_path),
+            ("--runtime-profile-hmac-key-env", key_env),
+            ("--runtime-profile-key-id", key_id),
+            ("--runtime-airframe-profile-hash", airframe_hash),
+            ("--pixhawk-endpoint", getattr(args, "pixhawk_endpoint", None)),
+        )
+        if value in (None, "")
+    ]
+    if missing:
+        raise ValueError("--runtime-mode requires " + ", ".join(missing))
+    hmac_key = _hmac_key_from_env(key_env)
+    if hmac_key is None:  # Defensive guard for optimized Python.
+        raise RuntimeError("runtime profile HMAC key lookup returned no key")
+    signing_hash = getattr(args, "runtime_signing_identity_hash", None)
+    signing_key_env = getattr(args, "runtime_signing_key_hex_env", None)
+    if signing_hash and signing_key_env:
+        raise ValueError(
+            "--runtime-signing-identity-hash and "
+            "--runtime-signing-key-hex-env are mutually exclusive"
+        )
+    if signing_key_env:
+        name = signing_key_env.strip()
+        if not name:
+            raise ValueError("runtime signing key environment variable name cannot be empty")
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            raise ValueError(f"runtime signing key environment variable is missing: {name}")
+        signing_hash = signing_identity_hash_from_hex(raw)
+    scenario_manifest = getattr(args, "runtime_scenario_manifest", None)
+    scenario_manifest_hash = (
+        _sha256_file(scenario_manifest) if scenario_manifest is not None else None
+    )
+    return ProfileBoundRuntimeConfig(
+        mode=mode,
+        profile_path=Path(profile_path),
+        hmac_key=hmac_key,
+        expected_key_id=str(key_id),
+        airframe_profile_hash=str(airframe_hash),
+        signing_identity_hash=signing_hash,
+        allow_flight_control_output=bool(
+            getattr(args, "runtime_allow_flight_control_output", False)
+        ),
+        scenario_id=getattr(args, "runtime_scenario_id", None),
+        scenario_manifest_hash=scenario_manifest_hash,
+        scenario_seed=getattr(args, "runtime_scenario_seed", None),
+        target_component_id=getattr(args, "runtime_target_component_id", 1),
+        rc_input_rate_hz=getattr(args, "aim_rc_input_rate_hz", 20.0),
+    )
+
+
 def _run_live_camera(args: argparse.Namespace) -> int:
     config = MissionConfig.from_json(args.config)
+    profile_runtime_config = _profile_bound_runtime_config_from_args(args)
     if not 0 <= args.capture_queue_frames <= 256:
         raise ValueError("--capture-queue-frames must be between 0 and 256")
     if not 0 <= args.warmup_iterations <= 100:
@@ -4000,6 +5803,8 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             raise ValueError("--multimodal-ranging requires --ranging-calibration")
     elif args.ranging_calibration is not None:
         raise ValueError("--ranging-calibration requires --multimodal-ranging")
+    if args.ranging_dem is not None and not args.multimodal_ranging:
+        raise ValueError("--ranging-dem requires --multimodal-ranging")
     if args.metric_depth_model is not None and not args.multimodal_ranging:
         raise ValueError("--metric-depth-model requires --multimodal-ranging")
     if args.depth_grid_udp_host is not None:
@@ -4033,6 +5838,24 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         )
         if missing:
             raise ValueError("--fixed-wing-aim-control requires " + ", ".join(missing))
+        if (
+            profile_runtime_config is not None
+            and profile_runtime_config.mode is not RuntimeMode.REAL
+        ):
+            raise ValueError("--fixed-wing-aim-control requires --runtime-mode real")
+        if (
+            profile_runtime_config is not None
+            and not profile_runtime_config.allow_flight_control_output
+        ):
+            raise ValueError(
+                "--fixed-wing-aim-control requires --runtime-allow-flight-control-output"
+            )
+    if (
+        profile_runtime_config is not None
+        and profile_runtime_config.allow_flight_control_output
+        and args.pixhawk_system_id is None
+    ):
+        raise ValueError("--runtime-allow-flight-control-output requires --pixhawk-system-id")
     if args.payload_target_hil:
         missing = tuple(
             option
@@ -4275,515 +6098,24 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         raise ValueError("remote operator key options require --operator-udp-port")
     if args.safety_model_coco80 and args.safety_onnx_model is None:
         raise ValueError("--safety-model-coco80 requires --safety-onnx-model")
+    perception = build_production_perception(args, config)
     providers = tuple(args.provider)
-    class_names = _parse_class_names(args.class_names)
-    verified_fire_model = _verify_optional_model_manifest(
-        manifest_path=args.model_manifest,
-        model_path=args.onnx_model,
-        class_names=class_names,
-        output_coordinates=args.output_coordinates,
-        require_production_approved=args.require_production_approved_models,
-        expected_model_role="fire_candidate",
-    )
-    verified_rgb_fire_verifier: VerifiedModelArtifact | None = None
-    rgb_fire_verifier_class_names: tuple[str, ...] | None = None
-    if args.rgb_fire_verifier_model is not None:
-        rgb_fire_verifier_class_names = _parse_class_names(args.rgb_fire_verifier_class_names)
-        verified_rgb_fire_verifier = _verify_optional_model_manifest(
-            manifest_path=args.rgb_fire_verifier_model_manifest,
-            model_path=args.rgb_fire_verifier_model,
-            class_names=rgb_fire_verifier_class_names,
-            output_coordinates=(
-                args.rgb_fire_verifier_output_coordinates or args.output_coordinates
-            ),
-            require_production_approved=args.require_production_approved_models,
-            expected_model_role="fire_verifier",
-        )
-        if verified_fire_model is None or verified_rgb_fire_verifier is None:
-            raise RuntimeError("independent RGB fire model manifests were not verified")
-        if verified_fire_model.artifact_sha256 == verified_rgb_fire_verifier.artifact_sha256:
-            raise ValueError(
-                "primary fire detector and independent RGB verifier must use different artifacts"
-            )
-        verifier_labels = {
-            "flame" if label.strip().lower() == "fire" else label.strip().lower()
-            for label in rgb_fire_verifier_class_names
-        }
-        if config.require_independent_rgb_corroboration and not (
-            verifier_labels.intersection(config.target_classes)
-        ):
-            raise ValueError(
-                "independent RGB verifier does not cover any configured fire target class"
-            )
-    verified_safety_model: VerifiedModelArtifact | None = None
-    safety_class_names: tuple[str, ...] | None = None
-    if args.safety_onnx_model is not None:
-        safety_class_names = (
-            COCO80_CLASS_NAMES
-            if args.safety_model_coco80
-            else _parse_class_names(args.safety_class_names)
-        )
-        verified_safety_model = _verify_optional_model_manifest(
-            manifest_path=args.safety_model_manifest,
-            model_path=args.safety_onnx_model,
-            class_names=safety_class_names,
-            output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
-            require_production_approved=args.require_production_approved_models,
-            expected_model_role="safety_object_evidence",
-            expected_native_output_format=(
-                "ultralytics_raw_xywh_class_scores"
-                if args.safety_model_format == "ultralytics_raw"
-                else "post_nms_N_x_6"
-            ),
-        )
-    verified_priority_model: VerifiedModelArtifact | None = None
-    priority_class_names: tuple[str, ...] | None = None
-    priority_label_map: dict[str, str] = {}
-    priority_label_confidence_overrides: dict[str, float] = {}
-    if args.priority_onnx_model is not None:
-        priority_class_names = _parse_class_names(args.priority_class_names)
-        priority_label_map = _parse_label_map(args.priority_label_map)
-        unknown_sources = set(priority_label_map).difference(
-            label.strip().lower() for label in priority_class_names
-        )
-        if unknown_sources:
-            raise ValueError(
-                "priority label map contains unknown source classes: "
-                + ", ".join(sorted(unknown_sources))
-            )
-        priority_label_confidence_overrides = _parse_label_confidence_thresholds(
-            args.priority_label_confidence_thresholds
-        )
-        unknown_override_labels = set(priority_label_confidence_overrides).difference(
-            label.strip().lower() for label in priority_class_names
-        )
-        if unknown_override_labels:
-            raise ValueError(
-                "priority label confidence overrides contain unknown source classes: "
-                + ", ".join(sorted(unknown_override_labels))
-            )
-        verified_priority_model = _verify_optional_model_manifest(
-            manifest_path=args.priority_model_manifest,
-            model_path=args.priority_onnx_model,
-            class_names=priority_class_names,
-            output_coordinates="letterbox_xyxy_px",
-            require_production_approved=args.require_production_approved_models,
-            expected_model_role="safety_object_evidence",
-            expected_native_output_format="ultralytics_raw_xywh_class_scores",
-        )
-    verified_environment_model: VerifiedModelArtifact | None = None
-    environment_class_names: tuple[str, ...] | None = None
-    if args.environment_onnx_model is not None:
-        environment_class_names = _parse_class_names(args.environment_class_names)
-        reserved_environment_labels = {
-            "fire",
-            "flame",
-            "smoke",
-            "hotspot",
-            "person",
-            "firefighter",
-            "car",
-            "bus",
-            "truck",
-            "vehicle",
-        }
-        conflicting = reserved_environment_labels.intersection(environment_class_names)
-        if conflicting:
-            raise ValueError(
-                "environment model labels overlap protected fire/person/vehicle domains: "
-                + ", ".join(sorted(conflicting))
-            )
-        verified_environment_model = _verify_optional_model_manifest(
-            manifest_path=args.environment_model_manifest,
-            model_path=args.environment_onnx_model,
-            class_names=environment_class_names,
-            output_coordinates=(args.environment_output_coordinates or args.output_coordinates),
-            require_production_approved=args.require_production_approved_models,
-            expected_model_role="environment_risk_evidence",
-        )
-    verified_semantic_context_model: VerifiedModelArtifact | None = None
-    if args.semantic_context_onnx_model is not None:
-        verified_semantic_context_model = verify_model_manifest(
-            args.semantic_context_model_manifest,
-            args.semantic_context_onnx_model,
-            expected_class_names=CITYSEMSEGFORMER_LABELS,
-            expected_model_role="semantic_scene_context",
-            expected_output_format="categorical_H_W_1",
-            require_production_approved=args.require_production_approved_models,
-        )
-        if args.semantic_context_engine is not None:
-            verify_engine_provenance(
-                provenance=args.semantic_context_engine_provenance,
-                engine=args.semantic_context_engine,
-                source_model=args.semantic_context_onnx_model,
-                trtexec=args.semantic_context_trtexec,
-            )
-    synthetic_models = tuple(
-        artifact
-        for artifact in (
-            verified_fire_model,
-            verified_rgb_fire_verifier,
-            verified_safety_model,
-            verified_priority_model,
-            verified_environment_model,
-            verified_semantic_context_model,
-        )
-        if artifact is not None and artifact.synthetic_hil_only
-    )
-    if synthetic_models and not args.allow_synthetic_hil_model:
-        raise ValueError(
-            "synthetic HIL model requires the explicit --allow-synthetic-hil-model flag"
-        )
-    if args.allow_synthetic_hil_model and not synthetic_models:
-        raise ValueError(
-            "--allow-synthetic-hil-model requires a manifest marked synthetic_hil_only"
-        )
-
-    # Load executable graph artifacts only after every supplied manifest has passed its role,
-    # hash, coordinate and optional production-approval gates.
-    primary_detector = FrameCadencedDetector(
-        OnnxNx6Detector(
-            OnnxNx6Config(
-                model_path=args.onnx_model,
-                class_names=class_names,
-                input_width=args.input_width,
-                input_height=args.input_height,
-                confidence_threshold=args.confidence_threshold,
-                providers=providers,
-                trt_engine_cache_path=args.trt_engine_cache,
-                output_coordinates=args.output_coordinates,
-                model_version=(
-                    verified_fire_model.model_version if verified_fire_model is not None else None
-                ),
-            )
-        ),
-        frame_stride=args.primary_model_frame_stride,
-        frame_phase=args.primary_model_frame_phase,
-    )
-    detectors = [primary_detector]
-    rgb_fire_verifier = None
-    rgb_fire_corroborator = None
-    rgb_fire_verifier_evidence_qualified = False
-    if args.rgb_fire_verifier_model is not None:
-        if (
-            rgb_fire_verifier_class_names is None
-            or verified_fire_model is None
-            or verified_rgb_fire_verifier is None
-        ):
-            raise RuntimeError("independent RGB fire verifier was not initialized")
-        rgb_fire_verifier = OnnxNx6Detector(
-            OnnxNx6Config(
-                model_path=args.rgb_fire_verifier_model,
-                class_names=rgb_fire_verifier_class_names,
-                input_width=args.input_width,
-                input_height=args.input_height,
-                confidence_threshold=args.rgb_fire_verifier_confidence_threshold,
-                providers=providers,
-                trt_engine_cache_path=args.trt_engine_cache,
-                output_coordinates=(
-                    args.rgb_fire_verifier_output_coordinates or args.output_coordinates
-                ),
-                model_version=verified_rgb_fire_verifier.model_version,
-            )
-        )
-        rgb_fire_verifier.warmup(iterations=args.warmup_iterations)
-        rgb_fire_verifier_evidence_qualified = bool(
-            (
-                verified_fire_model.production_approved
-                and verified_rgb_fire_verifier.production_approved
-            )
-            or (
-                args.allow_synthetic_hil_model
-                and verified_fire_model.synthetic_hil_only
-                and verified_rgb_fire_verifier.synthetic_hil_only
-            )
-        )
-        rgb_fire_corroborator = IndependentRgbFireCorroborator(
-            IndependentRgbFireCorroborationConfig(
-                minimum_iou=args.rgb_fire_verifier_minimum_iou,
-                minimum_verifier_confidence=(args.rgb_fire_verifier_confidence_threshold),
-                evidence_qualified=rgb_fire_verifier_evidence_qualified,
-                primary_artifact_sha256=verified_fire_model.artifact_sha256,
-                verifier_artifact_sha256=(verified_rgb_fire_verifier.artifact_sha256),
-            )
-        )
-    if args.safety_onnx_model is not None:
-        if safety_class_names is None:
-            raise RuntimeError("safety model class names were not initialized")
-        priority_detection_labels = frozenset(
-            label.strip().lower() for label in _parse_class_names(args.safety_tile_labels)
-        )
-        safety_candidate_confidence = min(
-            args.safety_confidence_threshold,
-            args.safety_priority_confidence_threshold,
-            args.safety_fallback_confidence_threshold,
-            args.safety_tile_confidence_threshold,
-        )
-        if args.safety_model_format == "ultralytics_raw":
-            safety_detector = OnnxRawYoloDetector(
-                OnnxRawYoloConfig(
-                    model_path=args.safety_onnx_model,
-                    class_names=safety_class_names,
-                    input_width=args.input_width,
-                    input_height=args.input_height,
-                    confidence_threshold=safety_candidate_confidence,
-                    iou_threshold=args.safety_model_iou_threshold,
-                    maximum_detections=args.safety_model_maximum_detections,
-                    providers=providers,
-                    trt_engine_cache_path=args.trt_engine_cache,
-                    model_version=(
-                        verified_safety_model.model_version
-                        if verified_safety_model is not None
-                        else None
-                    ),
-                )
-            )
-        else:
-            safety_detector = OnnxNx6Detector(
-                OnnxNx6Config(
-                    model_path=args.safety_onnx_model,
-                    class_names=safety_class_names,
-                    input_width=args.input_width,
-                    input_height=args.input_height,
-                    confidence_threshold=safety_candidate_confidence,
-                    providers=providers,
-                    trt_engine_cache_path=args.trt_engine_cache,
-                    output_coordinates=(args.safety_output_coordinates or args.output_coordinates),
-                    model_version=(
-                        verified_safety_model.model_version
-                        if verified_safety_model is not None
-                        else None
-                    ),
-                )
-            )
-        if args.safety_tile_columns * args.safety_tile_rows > 1:
-            safety_detector = TiledDetectionFusion(
-                safety_detector,
-                TiledDetectionConfig(
-                    columns=args.safety_tile_columns,
-                    rows=args.safety_tile_rows,
-                    overlap_fraction=args.safety_tile_overlap,
-                    scan_interval_frames=args.safety_tile_scan_interval_frames,
-                    fusion_iou_threshold=args.safety_tile_fusion_iou_threshold,
-                    tile_confidence_threshold=args.safety_tile_confidence_threshold,
-                    tile_confidence_by_label=_parse_label_confidence_thresholds(
-                        args.safety_tile_label_confidence_thresholds
-                    ),
-                    tile_labels=priority_detection_labels,
-                    maximum_tile_box_area=args.safety_tile_maximum_box_area,
-                    maximum_detections=args.safety_model_maximum_detections,
-                ),
-            )
-        # The common COCO detector also emits vehicle classes. Apply the same
-        # vehicle gate here as on the priority detector so a low-confidence shoe,
-        # chair leg, or reflection cannot bypass the priority-model threshold.
-        safety_detector = TemporalDetectionFilter(
-            safety_detector,
-            labels=VEHICLE_DETECTION_CLASS_NAMES,
-            minimum_consecutive_frames=args.priority_vehicle_stability_frames,
-            iou_threshold=0.25,
-            maximum_missed_frames=1,
-            label_aliases=VEHICLE_TEMPORAL_LABEL_ALIASES,
-        )
-        safety_detector = FrameCadencedDetector(
-            safety_detector,
-            frame_stride=args.safety_model_frame_stride,
-            frame_phase=args.safety_model_frame_phase,
-        )
-        detectors.append(safety_detector)
-    if args.priority_onnx_model is not None:
-        if priority_class_names is None:
-            raise RuntimeError("priority model class names were not initialized")
-        priority_source_thresholds = {
-            "pedestrian": args.priority_person_confidence_threshold,
-            "people": args.priority_person_confidence_threshold,
-            "bicycle": args.priority_vehicle_confidence_threshold,
-            "car": args.priority_vehicle_confidence_threshold,
-            "van": args.priority_vehicle_confidence_threshold,
-            "truck": args.priority_vehicle_confidence_threshold,
-            "tricycle": args.priority_vehicle_confidence_threshold,
-            "awning-tricycle": args.priority_vehicle_confidence_threshold,
-            "bus": args.priority_vehicle_confidence_threshold,
-            "motor": args.priority_vehicle_confidence_threshold,
-        }
-        priority_source_thresholds.update(priority_label_confidence_overrides)
-        priority_candidate_confidence = min(
-            args.priority_confidence_threshold,
-            args.priority_person_confidence_threshold,
-            args.priority_vehicle_confidence_threshold,
-            *priority_label_confidence_overrides.values(),
-        )
-        priority_detector = LabelRemapDetector(
-            ClassConfidenceFilter(
-                OnnxRawYoloDetector(
-                    OnnxRawYoloConfig(
-                        model_path=args.priority_onnx_model,
-                        class_names=priority_class_names,
-                        input_width=args.priority_input_width,
-                        input_height=args.priority_input_height,
-                        confidence_threshold=priority_candidate_confidence,
-                        iou_threshold=args.priority_model_iou_threshold,
-                        maximum_detections=args.priority_model_maximum_detections,
-                        providers=providers,
-                        trt_engine_cache_path=args.trt_engine_cache,
-                        model_version=(
-                            verified_priority_model.model_version
-                            if verified_priority_model is not None
-                            else None
-                        ),
-                    ),
-                ),
-                priority_source_thresholds,
-                default_threshold=args.priority_confidence_threshold,
-            ),
-            priority_label_map,
-            fusion_iou_threshold=args.priority_model_iou_threshold,
-        )
-        priority_detector = TemporalDetectionFilter(
-            priority_detector,
-            labels=frozenset({"bicycle", "car", "motorcycle", "bus", "truck"}),
-            minimum_consecutive_frames=args.priority_vehicle_stability_frames,
-            iou_threshold=0.25,
-            maximum_missed_frames=1,
-            label_aliases=VEHICLE_TEMPORAL_LABEL_ALIASES,
-        )
-        priority_detector = FrameCadencedDetector(
-            priority_detector,
-            frame_stride=args.priority_model_frame_stride,
-            frame_phase=args.priority_model_frame_phase,
-        )
-        detectors.append(priority_detector)
-    if args.environment_onnx_model is not None:
-        if environment_class_names is None:
-            raise RuntimeError("environment model class names were not initialized")
-        detectors.append(
-            OnnxNx6Detector(
-                OnnxNx6Config(
-                    model_path=args.environment_onnx_model,
-                    class_names=environment_class_names,
-                    input_width=args.input_width,
-                    input_height=args.input_height,
-                    confidence_threshold=args.environment_confidence_threshold,
-                    providers=providers,
-                    trt_engine_cache_path=args.trt_engine_cache,
-                    output_coordinates=(
-                        args.environment_output_coordinates or args.output_coordinates
-                    ),
-                    model_version=(
-                        verified_environment_model.model_version
-                        if verified_environment_model is not None
-                        else None
-                    ),
-                )
-            )
-        )
-    for model_detector in detectors:
-        model_detector.warmup(iterations=args.warmup_iterations)
-    class_thresholds = {
-        "fire": args.flame_confidence_threshold,
-        "flame": args.flame_confidence_threshold,
-        "smoke": args.smoke_confidence_threshold,
-    }
-    if safety_class_names is not None:
-        priority_detection_labels = frozenset(
-            label.strip().lower() for label in _parse_class_names(args.safety_tile_labels)
-        )
-        for label in safety_class_names:
-            normalized_label = label.strip().lower()
-            threshold = (
-                max(
-                    args.safety_priority_confidence_threshold,
-                    args.priority_vehicle_confidence_threshold,
-                )
-                if normalized_label in VEHICLE_DETECTION_CLASS_NAMES
-                else args.safety_priority_confidence_threshold
-                if normalized_label in priority_detection_labels
-                else args.safety_fallback_confidence_threshold
-            )
-            class_thresholds.setdefault(normalized_label, threshold)
-    if environment_class_names is not None:
-        class_thresholds.update(
-            {
-                label.strip().lower(): args.environment_confidence_threshold
-                for label in environment_class_names
-            }
-        )
-    if priority_class_names is not None:
-        for label in priority_class_names:
-            source = label.strip().lower()
-            destination = priority_label_map.get(source, source)
-            class_thresholds.setdefault(destination, args.priority_confidence_threshold)
-    detector_ensemble: Any = DetectorEnsemble(
-        detectors,
-        force_locked_cadence=args.lock_model_force_every_frame,
-    )
-    if args.safety_onnx_model is not None and args.priority_onnx_model is not None:
-        detector_ensemble = MultiSourceConfidenceFilter(
-            detector_ensemble,
-            labels=frozenset({"car"}),
-            iou_threshold=args.priority_model_iou_threshold,
-            single_source_confidence=args.car_single_source_confidence_threshold,
-        )
-    fused_ensemble = SameLabelDetectionFusion(
-        detector_ensemble,
-        iou_threshold=args.priority_model_iou_threshold,
-        maximum_detections=max(
-            args.safety_model_maximum_detections,
-            args.priority_model_maximum_detections,
-        ),
-    )
-    detector: Any = ClassConfidenceFilter(
-        fused_ensemble,
-        class_thresholds,
-        default_threshold=None,
-    )
-    detector = VehicleFurnitureOverlapVetoFilter(detector)
-    automatic_candidate_labels = (
-        frozenset(
-            label.strip().lower()
-            for label in (
-                *FIRE_CANDIDATE_TRACK_LABELS,
-                *PRIORITY_DETECTION_CLASS_NAMES,
-                *ENVIRONMENT_RISK_CLASS_NAMES,
-                *config.target_classes,
-                *config.person_labels,
-            )
-            if label.strip()
-        )
-        - NON_SELECTABLE_AUTOMATIC_LABELS
-    )
-    detector = LabelAllowListFilter(detector, labels=automatic_candidate_labels)
-    detector = BrightNeutralLightVetoFilter(
-        detector,
-        minimum_bright_warm_fraction=args.fire_minimum_bright_warm_fraction,
-    )
-    if args.safety_onnx_model is not None:
-        detector = PersonOverlapVetoFilter(
-            detector,
-            minimum_fire_coverage=args.person_veto_fire_coverage,
-        )
-    detector = TemporalDetectionFilter(
-        detector,
-        labels=FIRE_CANDIDATE_TRACK_LABELS,
-        minimum_consecutive_frames=args.candidate_stability_frames,
-        # The legacy fire model alternates between `fire` and `flame`; contour
-        # flicker also makes strict box IoU unstable on a real RGB stream.
-        label_aliases={"fire": "flame"},
-        maximum_center_distance=0.10,
-        minimum_area_ratio=0.12,
-        # The primary detector can deliberately skip frames in the Jetson live
-        # profile. Preserve temporal fire evidence through those bounded gaps;
-        # only fresh inference frames increase the consecutive-hit count.
-        maximum_missed_frames=max(1, args.primary_model_frame_stride),
-    )
-    person_safety_model_coverage = detector.covers_labels(config.person_labels)
-    person_safety_evidence_qualified = (
-        person_safety_model_coverage and verified_safety_model is not None
-    )
-    environment_model_coverage = detector.covers_labels(ENVIRONMENT_RISK_CLASS_NAMES)
-    environment_evidence_qualified = (
-        environment_model_coverage and verified_environment_model is not None
-    )
+    detector = perception.detector
+    rgb_fire_verifier = perception.rgb_fire_verifier
+    rgb_fire_corroborator = perception.rgb_fire_corroborator
+    semantic_context_model = perception.semantic_context_model
+    semantic_context_runner = perception.semantic_context_runner
+    verified_fire_model = perception.verified_fire_model
+    verified_rgb_fire_verifier = perception.verified_rgb_fire_verifier
+    verified_safety_model = perception.verified_safety_model
+    verified_priority_model = perception.verified_priority_model
+    verified_environment_model = perception.verified_environment_model
+    verified_semantic_context_model = perception.verified_semantic_context_model
+    rgb_fire_verifier_evidence_qualified = perception.rgb_fire_verifier_evidence_qualified
+    person_safety_model_coverage = perception.person_safety_model_coverage
+    person_safety_evidence_qualified = perception.person_safety_evidence_qualified
+    environment_model_coverage = perception.environment_model_coverage
+    environment_evidence_qualified = perception.environment_evidence_qualified
     pixhawk_config = (
         PixhawkReadOnlyConfig(
             endpoint=args.pixhawk_endpoint,
@@ -4824,13 +6156,17 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 rc_input_rate_hz=args.aim_rc_input_rate_hz,
             )
         )
-        if args.fixed_wing_aim_control and pixhawk_config is not None
+        if (
+            args.fixed_wing_aim_control
+            and pixhawk_config is not None
+            and profile_runtime_config is None
+        )
         else PixhawkReadOnlyTelemetryProvider(pixhawk_config)
-        if pixhawk_config is not None
+        if pixhawk_config is not None and profile_runtime_config is None
         else None
     )
     telemetry = pixhawk_telemetry or FailClosedTelemetryProvider()
-    if args.zone_evidence_report is not None:
+    if args.zone_evidence_report is not None and profile_runtime_config is None:
         if zone_evidence_hmac_key is None or args.zone_evidence_key_id is None:
             raise RuntimeError("zone evidence authentication was not initialized")
         telemetry = AuthenticatedZoneTelemetryProvider(
@@ -4996,6 +6332,32 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.capture_queue_frames > 0
         else capture_source
     )
+    profile_bound_backend = None
+    if profile_runtime_config is not None:
+        if pixhawk_config is None:  # Defensive guard; config builder already checks this.
+            raise RuntimeError("profile-bound runtime requires a Pixhawk configuration")
+        profile_bound_backend = launch_profile_bound_runtime(
+            config=profile_runtime_config,
+            frame_source=frame_source,
+            pixhawk_config=pixhawk_config,
+        )
+        pixhawk_telemetry = profile_bound_backend.telemetry_provider
+        telemetry = pixhawk_telemetry
+        if args.zone_evidence_report is not None:
+            if zone_evidence_hmac_key is None or args.zone_evidence_key_id is None:
+                raise RuntimeError("zone evidence authentication was not initialized")
+            telemetry = AuthenticatedZoneTelemetryProvider(
+                telemetry,
+                FileZoneEvidenceProvider(
+                    args.zone_evidence_report,
+                    hmac_key=zone_evidence_hmac_key,
+                    expected_key_id=args.zone_evidence_key_id,
+                ),
+                mission_id=config.mission_id,
+                maximum_age_s=config.safety.sensor_data_max_age_seconds,
+                maximum_position_delta_m=args.zone_evidence_max_position_delta_m,
+            )
+            profile_bound_backend.replace_telemetry_provider(telemetry)
     monocular_avoidance = (
         OpenCVSparseFlowAvoidance(
             MonocularAvoidanceConfig(
@@ -5009,62 +6371,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.monocular_avoidance
         else None
     )
-    semantic_context_runner = None
-    if args.semantic_context_onnx_model is not None:
-        semantic_context_session = (
-            TensorRtSemanticSession(args.semantic_context_engine)
-            if args.semantic_context_engine is not None
-            else None
-        )
-        try:
-            semantic_context_model = OnnxCategoricalSemanticContext(
-                OnnxSemanticContextConfig(
-                    args.semantic_context_onnx_model,
-                    providers=providers,
-                ),
-                session=semantic_context_session,
-            )
-            semantic_context_model.warmup()
-        except BaseException:
-            if semantic_context_session is not None:
-                semantic_context_session.close()
-            raise
-        semantic_context_runner = AsyncSemanticContextRunner(
-            semantic_context_model,
-            minimum_interval_s=args.semantic_context_minimum_interval_seconds,
-        )
-    unified_target_pool = (
-        UnifiedTargetPool(
-            UnifiedTargetPoolConfig(
-                maximum_tracks=args.unified_target_pool_maximum_tracks,
-                locked_reacquisition_timeout_s=(
-                    args.unified_target_pool_locked_reacquisition_seconds
-                ),
-                minimum_association_confidence=(
-                    args.unified_target_pool_minimum_association_confidence
-                ),
-                priority_minimum_new_track_confidence=(
-                    args.unified_target_pool_priority_minimum_new_track_confidence
-                ),
-                minimum_new_track_confidence=(
-                    args.unified_target_pool_minimum_new_track_confidence
-                ),
-                high_confidence_threshold=(args.unified_target_pool_high_confidence_threshold),
-                person_maximum_appearance_distance=(
-                    args.unified_target_pool_person_maximum_appearance_distance
-                ),
-                person_strict_reid_distance=(args.unified_target_pool_person_strict_reid_distance),
-                kalman_process_noise=args.unified_target_pool_kalman_process_noise,
-                kalman_measurement_noise=(args.unified_target_pool_kalman_measurement_noise),
-                kalman_gate_sigma=args.unified_target_pool_kalman_gate_sigma,
-                kalman_max_prediction_horizon_s=(
-                    args.unified_target_pool_kalman_maximum_horizon_seconds
-                ),
-            )
-        )
-        if args.unified_target_pool
-        else None
-    )
+    unified_target_pool = _unified_target_pool_from_args(args)
     # Aircraft labels have no deployed ONNX ReID model.  The compact descriptor
     # fills only that disjoint class domain and is used for LCK/LOST identity
     # recovery without taking a GPU inference slot from the primary detector.
@@ -5085,11 +6392,16 @@ def _run_live_camera(args: argparse.Namespace) -> int:
     )
     ranging_config = None
     ranging_calibration_sha256 = None
+    ranging_dem_sha256 = None
     if args.multimodal_ranging:
         if args.ranging_calibration is None:  # Defensive guard for direct Namespace callers.
             raise ValueError("--multimodal-ranging requires --ranging-calibration")
         ranging_calibration = load_camera_calibration(args.ranging_calibration)
         ranging_calibration_sha256 = _sha256_file(args.ranging_calibration)
+        ranging_dem = (
+            load_local_dem_grid(args.ranging_dem) if args.ranging_dem is not None else None
+        )
+        ranging_dem_sha256 = ranging_dem.source_sha256 if ranging_dem is not None else None
         ranging_config = LiveRangingConfig(
             calibration=ranging_calibration,
             altitude_agl_sigma_m=args.ranging_agl_sigma_m,
@@ -5097,6 +6409,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             pitch_sigma_deg=args.ranging_pitch_sigma_deg,
             heading_sigma_deg=args.ranging_heading_sigma_deg,
             target_center_sigma_px=args.ranging_target_center_sigma_px,
+            terrain_dem=ranging_dem,
         )
     metric_depth_calibration = (
         load_calibration_document(args.metric_depth_calibration_document)
@@ -5127,6 +6440,21 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                         metric_depth_calibration.profile
                         if metric_depth_calibration is not None
                         else args.metric_depth_calibration_profile
+                    ),
+                    calibration_curve_raw_m=(
+                        metric_depth_calibration.raw_breakpoints_m
+                        if metric_depth_calibration is not None
+                        else ()
+                    ),
+                    calibration_curve_actual_m=(
+                        metric_depth_calibration.actual_breakpoints_m
+                        if metric_depth_calibration is not None
+                        else ()
+                    ),
+                    calibration_extrapolation_sigma_m=(
+                        metric_depth_calibration.extrapolation_sigma_m
+                        if metric_depth_calibration is not None
+                        else 0.0
                     ),
                     grid_width=args.metric_depth_grid_width,
                     grid_height=args.metric_depth_grid_height,
@@ -5181,7 +6509,11 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         LiveApproachHilCoordinator(
             controller=ApproachHilController(),
             calibration=ranging_config.calibration,
-            flight_control_enabled=args.fixed_wing_aim_control,
+            flight_control_enabled=(
+                (lambda: profile_bound_backend.flight_control_enabled)
+                if profile_bound_backend is not None
+                else args.fixed_wing_aim_control
+            ),
         )
         if args.approach_hil and ranging_config is not None
         else None
@@ -5298,65 +6630,133 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         if args.depth_grid_udp_host is not None
         else None
     )
-    runner = LiveMissionRunner(
-        mission=controller,
-        frame_source=frame_source,
-        detector=detector,
-        telemetry_provider=telemetry,
-        alert_publisher=alert_publisher,
-        alert_outbox=alert_outbox,
-        prediction_writer=prediction_writer,
-        identity_prediction_writer=identity_prediction_writer,
-        operator_bridge=operator_bridge,
-        payload_hil_cycle=payload_hil_cycle,
-        monocular_avoidance=monocular_avoidance,
-        unified_target_pool=unified_target_pool,
-        person_reid_encoder=person_reid_encoder,
-        vehicle_reid_encoder=vehicle_reid_encoder,
-        aircraft_appearance_encoder=aircraft_appearance_encoder,
-        patrol_advisory_engine=patrol_advisory_engine,
-        short_term_tracker=short_term_tracker,
-        attitude_camera_motion=attitude_camera_motion,
-        selection_target_pool=selection_target_pool,
-        ranging_engine=ranging_engine,
-        ranging_config=ranging_config,
-        adaptive_ranging_policy=adaptive_ranging_policy,
-        metric_depth_runner=metric_depth_runner,
-        depth_grid_publisher=depth_grid_publisher,
-        approach_hil_coordinator=approach_hil_coordinator,
-        fixed_wing_aim_executor=fixed_wing_aim_executor,
-        payload_target_coordinator=payload_target_coordinator,
-        semantic_context_runner=semantic_context_runner,
-        rgb_fire_verifier=rgb_fire_verifier,
-        rgb_fire_corroborator=rgb_fire_corroborator,
-        config=LiveRunConfig(
-            operator_id=args.operator_id,
-            max_frames=args.max_frames,
-            display=not args.no_display,
-            alert_banner_seconds=args.alert_banner_seconds,
-            performance_window_frames=args.performance_window_frames,
-            simulate_payload_cycle=args.simulate_payload_cycle,
-            auto_simulate_payload_cycle=args.auto_simulate_payload_cycle,
-            observe_pixhawk_lifecycle=args.observe_pixhawk_lifecycle,
-            task_area_mission_sequence=args.task_area_mission_sequence,
-            allowed_auto_modes=(
-                tuple(args.allowed_auto_mode)
-                if args.allowed_auto_mode
-                else ("AUTO", "MISSION", "AUTO_MISSION")
-            ),
-            person_safety_evidence_qualified=person_safety_evidence_qualified,
-            semantic_context_maximum_age_s=args.semantic_context_maximum_age_seconds,
-            person_reid_frame_stride=args.person_reid_frame_stride,
-            vehicle_reid_frame_stride=args.vehicle_reid_frame_stride,
-            reid_maximum_interval_s=args.reid_maximum_interval_seconds,
+    live_run_config = LiveRunConfig(
+        operator_id=args.operator_id,
+        max_frames=args.max_frames,
+        display=not args.no_display,
+        alert_banner_seconds=args.alert_banner_seconds,
+        performance_window_frames=args.performance_window_frames,
+        simulate_payload_cycle=args.simulate_payload_cycle,
+        auto_simulate_payload_cycle=args.auto_simulate_payload_cycle,
+        observe_pixhawk_lifecycle=args.observe_pixhawk_lifecycle,
+        task_area_mission_sequence=args.task_area_mission_sequence,
+        allowed_auto_modes=(
+            tuple(args.allowed_auto_mode)
+            if args.allowed_auto_mode
+            else ("AUTO", "MISSION", "AUTO_MISSION")
         ),
+        person_safety_evidence_qualified=person_safety_evidence_qualified,
+        semantic_context_maximum_age_s=args.semantic_context_maximum_age_seconds,
+        person_reid_frame_stride=args.person_reid_frame_stride,
+        vehicle_reid_frame_stride=args.vehicle_reid_frame_stride,
+        reid_maximum_interval_s=args.reid_maximum_interval_seconds,
     )
+    runner_kwargs = {
+        "alert_publisher": alert_publisher,
+        "alert_outbox": alert_outbox,
+        "prediction_writer": prediction_writer,
+        "identity_prediction_writer": identity_prediction_writer,
+        "operator_bridge": operator_bridge,
+        "payload_hil_cycle": payload_hil_cycle,
+        "monocular_avoidance": monocular_avoidance,
+        "unified_target_pool": unified_target_pool,
+        "person_reid_encoder": person_reid_encoder,
+        "vehicle_reid_encoder": vehicle_reid_encoder,
+        "aircraft_appearance_encoder": aircraft_appearance_encoder,
+        "patrol_advisory_engine": patrol_advisory_engine,
+        "short_term_tracker": short_term_tracker,
+        "attitude_camera_motion": attitude_camera_motion,
+        "selection_target_pool": selection_target_pool,
+        "ranging_engine": ranging_engine,
+        "ranging_config": ranging_config,
+        "adaptive_ranging_policy": adaptive_ranging_policy,
+        "metric_depth_runner": metric_depth_runner,
+        "depth_grid_publisher": depth_grid_publisher,
+        "approach_hil_coordinator": approach_hil_coordinator,
+        "fixed_wing_aim_executor": fixed_wing_aim_executor,
+        "payload_target_coordinator": payload_target_coordinator,
+        "semantic_context_runner": semantic_context_runner,
+        "rgb_fire_verifier": rgb_fire_verifier,
+        "rgb_fire_corroborator": rgb_fire_corroborator,
+    }
+    if profile_bound_backend is not None:
+        runner = LiveMissionRunner.from_runtime_backend(
+            backend=profile_bound_backend,
+            mission=controller,
+            detector=detector,
+            config=live_run_config,
+            **runner_kwargs,
+        )
+    else:
+        runner = LiveMissionRunner(
+            mission=controller,
+            frame_source=frame_source,
+            detector=detector,
+            telemetry_provider=telemetry,
+            config=live_run_config,
+            **runner_kwargs,
+        )
     _emit(
         {
             "event": "live_camera_started",
-            "model_providers": [provider for item in detectors for provider in item.provider_names],
-            "pixhawk_read_only": bool(args.pixhawk_endpoint) and not args.fixed_wing_aim_control,
-            "fixed_wing_aim_control_enabled": args.fixed_wing_aim_control,
+            "model_providers": list(perception.provider_names),
+            "perception_model_set_sha256": perception.model_set_sha256,
+            "perception_configured_model_components": list(perception.configured_model_components),
+            "perception_verified_model_components": [
+                item.component for item in perception.verified_artifacts
+            ],
+            "perception_verified_artifacts": [
+                {
+                    "component": item.component,
+                    "artifact_sha256": item.artifact.artifact_sha256,
+                    "manifest_sha256": item.manifest_sha256,
+                    "model_id": item.artifact.model_id,
+                    "model_version": item.artifact.model_version,
+                    "model_role": item.artifact.model_role,
+                    "production_approved": item.artifact.production_approved,
+                    "synthetic_hil_only": item.artifact.synthetic_hil_only,
+                }
+                for item in perception.verified_artifacts
+            ],
+            "perception_all_configured_artifacts_verified": (
+                perception.all_configured_artifacts_verified
+            ),
+            "perception_all_configured_artifacts_production_approved": (
+                perception.all_configured_artifacts_production_approved
+            ),
+            "perception_synthetic_hil_components": list(perception.synthetic_hil_components),
+            "pixhawk_read_only": bool(
+                pixhawk_telemetry is not None and getattr(pixhawk_telemetry, "is_read_only", False)
+            ),
+            "fixed_wing_aim_control_configured": fixed_wing_aim_executor is not None,
+            "fixed_wing_aim_control_enabled": bool(
+                fixed_wing_aim_executor is not None
+                and fixed_wing_aim_executor.flight_control_enabled
+            ),
+            "runtime_mode": (
+                profile_runtime_config.mode.value if profile_runtime_config is not None else None
+            ),
+            "runtime_profile_bound": profile_bound_backend is not None,
+            "runtime_profile": (
+                {
+                    "document_sha256": profile_bound_backend.profile_result.document_sha256,
+                    "profile_id": profile_bound_backend.profile_result.profile.profile_id.value,
+                    "signature_valid": profile_bound_backend.profile_result.signature_valid,
+                    "identity_valid": profile_bound_backend.profile_result.identity_valid,
+                    "profile_valid": profile_bound_backend.profile_result.profile_valid,
+                    "flight_control_authorized": (
+                        profile_bound_backend.profile_result.flight_control_enabled
+                    ),
+                    "live_binding_attested": (profile_bound_backend.profile_binding_attested),
+                    "flight_control_enabled": profile_bound_backend.flight_control_enabled,
+                    "output_locked": profile_bound_backend.output_locked,
+                    "reason": profile_bound_backend.profile_result.reason,
+                    "live_binding_reason": profile_bound_backend.profile_binding_reason,
+                    "observed_identity": profile_bound_backend.observed_identity.to_mapping(),
+                }
+                if profile_bound_backend is not None
+                else None
+            ),
             "fixed_camera_observation": selection_target_pool is not None,
             "zone_evidence_enabled": args.zone_evidence_report is not None,
             "zone_evidence_control_enabled": False,
@@ -5405,6 +6805,17 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "safety_model_production_approved": (
                 verified_safety_model.production_approved
                 if verified_safety_model is not None
+                else False
+            ),
+            "priority_model_manifest_validated": verified_priority_model is not None,
+            "priority_model_role": (
+                verified_priority_model.model_role
+                if verified_priority_model is not None
+                else "unverified"
+            ),
+            "priority_model_production_approved": (
+                verified_priority_model.production_approved
+                if verified_priority_model is not None
                 else False
             ),
             "environment_model_manifest_validated": verified_environment_model is not None,
@@ -5588,6 +6999,16 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 ranging_config.calibration.calibration_id if ranging_config is not None else None
             ),
             "multimodal_ranging_calibration_sha256": ranging_calibration_sha256,
+            "multimodal_ranging_dem_enabled": (
+                ranging_config is not None and ranging_config.terrain_dem is not None
+            ),
+            "multimodal_ranging_dem": (
+                str(args.ranging_dem) if ranging_dem_sha256 is not None else None
+            ),
+            "multimodal_ranging_dem_sha256": ranging_dem_sha256,
+            "multimodal_ranging_dem_vertical_datum": (
+                "MSL" if ranging_dem_sha256 is not None else None
+            ),
             "multimodal_ranging_absolute_methods": (
                 ["camera_ground"] if ranging_engine is not None else []
             ),
@@ -5642,6 +7063,20 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                 if metric_depth_calibration is not None
                 else None
             ),
+            "metric_depth_calibration_mode": (
+                metric_depth_calibration.calibration_mode
+                if metric_depth_calibration is not None
+                else "affine"
+            ),
+            "metric_depth_calibration_curve_raw_range_m": (
+                [
+                    metric_depth_calibration.raw_breakpoints_m[0],
+                    metric_depth_calibration.raw_breakpoints_m[-1],
+                ]
+                if metric_depth_calibration is not None
+                and metric_depth_calibration.raw_breakpoints_m
+                else None
+            ),
             "metric_depth_grid": (
                 [metric_depth_runner.config.grid_width, metric_depth_runner.config.grid_height]
                 if metric_depth_runner is not None
@@ -5682,6 +7117,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
                     pixhawk_diagnostics,
                 )
     finally:
+        perception.close()
         if vehicle_reid_session is not None:
             vehicle_reid_session.close()
         if person_reid_session is not None:

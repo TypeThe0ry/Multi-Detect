@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-event-replay-manifest.schema.json",
+  "title": "Multi-Detect target event replay manifest v1",
+  "description": "Hash-bound local target video/depth, GPS, range and timeline evidence. The bundle is read-only and contains no flight-control output or simulator truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "kind",
+    "bundle_id",
+    "session_id",
+    "started_at_utc",
+    "events",
+    "media",
+    "claims",
+    "bundle_hash"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.target-event-replay.v1"},
+    "schema_version": {"const": 1},
+    "kind": {"const": "target_event_replay_manifest"},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "format": "uuid"},
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "events": {"$ref": "#/$defs/eventStream"},
+    "media": {"$ref": "#/$defs/mediaSummary"},
+    "claims": {"$ref": "#/$defs/claims"},
+    "bundle_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(^|/)[.][.]?(/|$))(?![A-Za-z]:)(?!.*\\\\).+$"
+    },
+    "eventStream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "count"],
+      "properties": {
+        "path": {"const": "events.jsonl"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "count": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    },
+    "mediaSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "count", "bytes"],
+      "properties": {
+        "root": {"const": "media"},
+        "count": {"type": "integer", "minimum": 0, "maximum": 200000},
+        "bytes": {"type": "integer", "minimum": 0, "maximum": 536870912}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_only_evidence", "contains_flight_control", "contains_truth"],
+      "properties": {
+        "read_only_evidence": {"const": true},
+        "contains_flight_control": {"const": false},
+        "contains_truth": {"const": false}
+      }
+    },
+    "mediaReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "bytes", "encoding"],
+      "properties": {
+        "kind": {"enum": ["video_frame", "depth_map"]},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1, "maximum": 67108864},
+        "encoding": {"enum": ["png", "jpeg", "bmp", "npy", "raw"]},
+        "width": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "height": {"type": "integer", "minimum": 1, "maximum": 32768}
+      },
+      "dependentRequired": {
+        "width": ["height"],
+        "height": ["width"]
+      }
+    },
+    "gps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "latitude_deg",
+        "longitude_deg",
+        "horizontal_sigma_m",
+        "fix_type",
+        "satellites_visible",
+        "horizontal_accuracy_m",
+        "vertical_accuracy_m"
+      ],
+      "properties": {
+        "status": {"enum": ["qualified", "unqualified", "unavailable"]},
+        "latitude_deg": {"type": ["number", "null"], "minimum": -90, "maximum": 90},
+        "longitude_deg": {"type": ["number", "null"], "minimum": -180, "maximum": 180},
+        "horizontal_sigma_m": {"type": ["number", "null"], "minimum": 0, "maximum": 100000},
+        "fix_type": {"type": ["integer", "null"], "minimum": 0, "maximum": 8},
+        "satellites_visible": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+        "horizontal_accuracy_m": {"type": ["number", "null"], "minimum": 0, "maximum": 100000},
+        "vertical_accuracy_m": {"type": ["number", "null"], "minimum": 0, "maximum": 100000},
+        "observed_at_s": {"type": ["number", "null"], "minimum": 0}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "qualified"}}},
+          "then": {
+            "properties": {
+              "latitude_deg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+              "longitude_deg": {"type": "number"},
+              "horizontal_sigma_m": {"type": "number"},
+              "fix_type": {"type": "integer", "minimum": 3, "maximum": 8},
+              "satellites_visible": {"type": "integer", "minimum": 6, "maximum": 254},
+              "horizontal_accuracy_m": {"type": "number", "maximum": 6},
+              "vertical_accuracy_m": {"type": "number", "maximum": 10}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "unavailable"}}},
+          "then": {
+            "properties": {
+              "latitude_deg": {"type": "null"},
+              "longitude_deg": {"type": "null"},
+              "horizontal_sigma_m": {"type": "null"},
+              "fix_type": {"type": "null"},
+              "satellites_visible": {"type": "null"},
+              "horizontal_accuracy_m": {"type": "null"},
+              "vertical_accuracy_m": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "ranging": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validity", "range_m", "relative_bearing_deg", "range_kind"],
+      "properties": {
+        "validity": {"enum": ["VALID", "DEGRADED", "UNAVAILABLE"]},
+        "range_m": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000},
+        "relative_bearing_deg": {"type": ["number", "null"], "minimum": -360, "maximum": 360},
+        "range_kind": {"enum": ["slant", "ground", "unknown"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"validity": {"enum": ["VALID", "DEGRADED"]}}},
+          "then": {"properties": {"range_m": {"type": "number"}}}
+        },
+        {
+          "if": {"properties": {"validity": {"const": "UNAVAILABLE"}}},
+          "then": {
+            "properties": {
+              "range_m": {"type": "null"},
+              "relative_bearing_deg": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "targetEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schema_version",
+        "kind",
+        "sequence",
+        "event_id",
+        "frame_id",
+        "target_id",
+        "target_label",
+        "captured_at_s",
+        "gps",
+        "ranging",
+        "video",
+        "depth",
+        "source_frame_id",
+        "vehicle_altitude_agl_m",
+        "vehicle_heading_deg"
+      ],
+      "properties": {
+        "schema": {"const": "multidetect.target-event.v1"},
+        "schema_version": {"const": 1},
+        "kind": {"const": "target_event"},
+        "sequence": {"type": "integer", "minimum": 0},
+        "event_id": {"type": "string", "minLength": 1},
+        "frame_id": {"type": "string", "minLength": 1},
+        "target_id": {"type": "string", "minLength": 1},
+        "target_label": {"type": "string", "minLength": 1},
+        "captured_at_s": {"type": "number", "minimum": 0},
+        "gps": {"$ref": "#/$defs/gps"},
+        "gps_age_s": {"type": ["number", "null"], "minimum": 0},
+        "gps_freshness": {"enum": ["fresh", "stale", "unknown"]},
+        "ranging": {"$ref": "#/$defs/ranging"},
+        "video": {
+          "anyOf": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/mediaReference"},
+                {"properties": {"kind": {"const": "video_frame"}}}
+              ]
+            },
+            {"type": "null"}
+          ]
+        },
+        "depth": {
+          "anyOf": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/mediaReference"},
+                {"properties": {"kind": {"const": "depth_map"}}}
+              ]
+            },
+            {"type": "null"}
+          ]
+        },
+        "source_frame_id": {"type": ["string", "null"], "minLength": 1},
+        "vehicle_altitude_agl_m": {"type": ["number", "null"], "minimum": 0},
+        "vehicle_heading_deg": {"type": ["number", "null"], "minimum": 0, "maximum": 360}
+      },
+      "anyOf": [
+        {"properties": {"video": {"type": "object"}}},
+        {"properties": {"depth": {"type": "object"}}}
+      ]
+    }
+  },
+  "$comment": "events.path points to UTF-8 JSONL. Each non-blank line validates against #/$defs/targetEvent; the loader additionally enforces contiguous sequence, strict event/GPS observation chronology, path containment and every media hash/byte count."
+}

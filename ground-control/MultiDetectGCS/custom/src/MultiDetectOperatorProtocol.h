@@ -9,6 +9,24 @@ class MultiDetectOperatorProtocol final
 public:
     static constexpr quint16 kTunnelPayloadType = 42000;
     static constexpr int kMaximumPayloadBytes = 128;
+    // Target coordinates are derived from a camera frame and a current GPS
+    // fix.  Keep this bound in lockstep with AdaptiveRangingConfig's 1.5 s
+    // GPS freshness gate.  The QGC side must reject an otherwise valid,
+    // authenticated packet once its source frame has aged past this limit;
+    // accepting a fresh transport envelope around an old coordinate would
+    // let stale map evidence live forever.
+    static constexpr quint16 kMaximumTargetGeolocationSourceAgeMs = 1500;
+    // RangeStatus carries the actual metric distance shown in the native
+    // Fly View card.  VALID/DEGRADED packets must carry both source age and
+    // data freshness, and both must remain inside the same bound used by the
+    // Python operator-link encoder and QML hold timer.  Missing freshness is
+    // fail-closed; a retransmitted packet cannot make old data look current.
+    static constexpr quint16 kMaximumRangeStatusSourceAgeMs = 1500;
+    // A source frame id is expected to advance with the camera stream.  This
+    // bounded hold time catches a producer that repeatedly resets sourceAgeMs
+    // while replaying the same old frame.  It is intentionally longer than
+    // the source-age limit to tolerate one heartbeat/retransmit burst.
+    static constexpr quint64 kMaximumTargetGeolocationFrameHoldMs = 3000;
 
     enum class MessageType : quint8
     {
@@ -35,6 +53,8 @@ public:
         PayloadTargetAck = 20,
         PayloadTargetStatus = 21,
         TargetGeolocationStatus = 22,
+        RuntimeStatus = 23,
+        RuntimeStatusAck = 24,
     };
 
     struct DecodedPacket
@@ -75,6 +95,9 @@ public:
                                                const QString& selectionCommandId, quint32 sequence, quint64 issuedAtMs,
                                                quint16 ttlMs, quint16 slideDurationMs, double completionFraction,
                                                bool continuous, QString* error) const;
+
+    QByteArray encodeRuntimeStatusAck(quint32 acknowledgedRuntimeSequence, quint64 runHash64, quint32 sequence,
+                                      quint64 sentAtMs, QString* error) const;
 
     static quint32 hash32(const QString& value);
     static quint64 hash64(const QString& value);

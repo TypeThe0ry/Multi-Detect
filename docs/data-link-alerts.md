@@ -8,6 +8,8 @@ flight commands, mission changes, authorization decisions, or payload-control me
 
 - HMAC-SHA256 authenticates and protects the integrity of both alert and acknowledgement packets.
 - Sender ID, receiver ID, protocol version, message type and wall-clock timestamp are signed.
+- The signed header uses strict JSON types: `version` is integer `1`; `sent_at_unix_s` is a
+  finite integer/float and JSON booleans are rejected rather than being treated as integers.
 - Each acknowledgement must match both the alert ID and a fresh 128-bit request nonce.
 - Packets outside the configured clock-skew window are rejected.
 - The receiver remembers delivered alert IDs. An exact retransmission is acknowledged as a
@@ -62,6 +64,61 @@ multi-detect live-camera configs/missions/fire_patrol.demo.json `
   --alert-outbox artifacts/fire-alerts.sqlite3
 ```
 
+### Bounded alert-link bench
+
+现场接通后，用同一个认证 UDP 端点先做有界告警 ACK 压测。它复用 live patrol 的
+`UdpAcknowledgedAlertTransport` 和重试策略，每个样本都生成新的 `alert_id`，只把收到匹配
+ACK 的样本计入成功；重试次数、缺 ACK 次数、丢包率和 ACK P50/P95 都写进 JSON 报告。该
+工具永远把 `flight_control_enabled`、`physical_release_enabled` 和
+`payload_release_requested` 固定为 `false`。
+
+```powershell
+$env:MULTIDETECT_ALERT_KEY = '<SAME-KEY-AS-RECEIVER>'
+python scripts/run_alert_link_bench.py `
+  --host GROUND_STATION_NETWORK_IP --port 14600 `
+  --hmac-key-env MULTIDETECT_ALERT_KEY `
+  --sender-id aircraft-1 --receiver-id ground-station-1 `
+  --minimum-round-trips 100 --maximum-attempts 3 `
+  --maximum-packet-loss-rate 0.01 `
+  --maximum-ack-latency-p95-ms 500 `
+  --hardware-mode --hardware-id GR01-ALERT-<SERIAL> `
+  --out artifacts/evaluation/alert-link-bench-<DATE>.json
+```
+
+`--hardware-mode` 是现场操作员对端点和设备编号的显式声明；解析器会拒绝回环、无法解析
+的主机名以及非认证 UDP transport，所以本机回环只能作为 software baseline。报告结构由
+[`configs/schemas/alert-link-bench.schema.json`](../configs/schemas/alert-link-bench.schema.json)
+约束。即使 bench 通过，也只关闭“认证 ACK/时延/丢包”这一条数据链路子门；GR01 型号、
+天线/射频稳定性、断链恢复、时钟同步和完整现场 `HIL/REAL` 仍需独立证据复核。
+
+拿到报告后先做离线复核，再把原始报告和复核输出一起归档：
+
+```powershell
+python scripts/verify_alert_link_bench.py `
+  artifacts/evaluation/alert-link-bench-<DATE>.json --require-passed
+```
+
+复核器使用严格 JSON（拒绝重复 key、`NaN`/`Infinity`），重新计算样本计数、缺 ACK 比例、
+延迟阈值、事件后缀和 software/hardware 分域；它不会重新打开 UDP，也不会把报告写回为
+通过。
+
+通过的现场报告可以作为 E7 的独立 hash-bound REAL 数据链路证据写入发布清单。创建清单时
+显式传入 `--real-alert-link-bench`；装配器会重新运行同一个 verifier，只接受
+`alert_link_bench_passed`、具体非回环 IP、设备编号以及认证且关联的 ACK。缺少该记录在
+prerelease 仍保持向后兼容，但最终 `v0.3.0` channel 会 fail-closed：
+
+```powershell
+python scripts/create_release_gate_manifest.py `
+  --out artifacts/evaluation/release-gate-pre.8-alert-link-bound.json `
+  --real-alert-link-bench artifacts/evaluation/alert-link-bench-<DATE>.json `
+  # 其余 --replay/--sim/--hil/--real 与 parity/status 参数照常传入
+```
+
+清单中的 `real_alert_link` 会保存报告路径、SHA-256、字节数、端点、设备编号、样本/阈值
+摘要和 verifier checks。每次 `check_release_gate.py` 读取时都会重算源报告与这些字段；改
+路径、摘要、端点、认证位或把 software baseline 冒充硬件都会重新关闭 E7。该绑定只证明
+告警数据链路，不替代 GNSS、测距、执行器、HIL/REAL 或人工 Fly View 验收。
+
 For a real IP radio, replace only the receiver address and validate packet loss, latency, MTU,
 reconnect behavior, time synchronization and key rotation on the selected hardware. Serial-only
 radios still require a separately tested framing adapter; do not tunnel this protocol blindly over
@@ -72,6 +129,11 @@ ONNX camera path. The aircraft processed 105 frames, generated one multi-frame-c
 received one authenticated ACK and marked its SQLite outbox row `delivered`; the ground receiver
 stored the same alert ID and payload hash with no rejection or duplicate. This proves the software
 boundary, not GR01 radio performance.
+
+`artifacts/evaluation/terminal-continuation-v28d/alert-link-software-baseline.json` records a
+20-round localhost UDP baseline under the strict header type checks (20/20 ACKs, correlated/HMAC
+verified, packet loss 0). It is explicitly `simulation_only=true` and is a software regression
+artifact, not GR01 or REAL field evidence.
 
 The automated integration suite also covers a ground outage: the first live run exhausts its
 bounded attempt and leaves the original alert pending; after the receiver starts, the next live run

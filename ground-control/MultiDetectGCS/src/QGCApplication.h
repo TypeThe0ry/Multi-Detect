@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QMap>
@@ -91,6 +93,11 @@ public slots:
 
     void qmlAttemptWindowClose();
 
+    /// Acceptance-only exit for the isolated HIL UI driver. This bypasses the
+    /// platform Quit-event shim after the native Fly View state machine has
+    /// completed, while remaining inert outside --isolated-hil.
+    void quitForIsolatedHilAcceptance();
+
     /// Get current language
     QLocale getCurrentLanguage() const { return _locale; }
 
@@ -120,6 +127,8 @@ private:
 
     bool _initQmlRootWindow();
 
+    void _createIsolatedHilPx4Link();
+
     /// Initialize the application for normal application boot. Or in other words we are not going to run unit tests.
     void _initForNormalAppBoot();
 
@@ -130,6 +139,9 @@ private:
     bool _simpleBootTest = false;
     bool _offlineMode = false;
     bool _isolatedHilMode = false;
+    bool _isolatedHilForceCpuVideo = false;
+    quint16 _isolatedHilPx4UdpPort = 0;
+    quint16 _isolatedHilPx4TargetPort = 0;
     bool _fakeMobile = false;    ///< true: Fake ui into displaying mobile interface
     bool _logOutput = false;    ///< true: Log Qt debug output to file
     quint8 _systemId = 0; ///< MAVLink system ID, 0 means not set

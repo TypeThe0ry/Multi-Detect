@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!--
+    Repository-owned software-only visual validation scene. Gazebo uses ENU
+    (x=east, y=north, z=up). The terrain is the same analytic north slope as
+    the matching DEM: local_z_m = 0.1 * north_m. Three south-facing panels
+    provide distinct real rendered pixels at successive flight-plan views.
+
+    This auxiliary multirotor scene does not expand the release-bound
+    fixed-wing/multirotor/VTOL matrix and is not hardware or REAL evidence.
+    All geometry is local SDF; no Fuel or network asset is required.
+  -->
+  <world name="default">
+    <physics name="px4_ode" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+
+    <gravity>0 0 -9.80665</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+
+    <scene>
+      <grid>false</grid>
+      <ambient>0.40 0.43 0.46 1</ambient>
+      <background>0.60 0.76 0.91 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>1.300000</latitude_deg>
+      <longitude_deg>103.800500</longitude_deg>
+      <elevation>25.0</elevation>
+    </spherical_coordinates>
+
+    <light name="sun" type="directional">
+      <pose>0 0 500 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1.05</intensity>
+      <direction>-0.25 0.35 -0.902</direction>
+      <diffuse>0.96 0.94 0.88 1</diffuse>
+      <specular>0.25 0.25 0.22 1</specular>
+      <attenuation>
+        <range>2000</range>
+        <linear>0</linear>
+        <constant>1</constant>
+        <quadratic>0</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- atan(0.1) rad: north slope +0.1 m/m, east slope 0.0 m/m. -->
+    <model name="multidetect_dem_truth_surface">
+      <static>true</static>
+      <pose>0 0 0 0.09966865249116204 0 0</pose>
+      <link name="terrain_link">
+        <collision name="terrain_collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>500 500</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="terrain_visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>500 500</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.22 0.40 0.16 1</ambient>
+            <diffuse>0.30 0.55 0.22 1</diffuse>
+            <specular>0.03 0.04 0.03 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Panel A: red field with one white vertical stripe. -->
+    <model name="terrain_pixel_panel_a">
+      <static>true</static>
+      <pose>8 40 6 0 0 0</pose>
+      <link name="panel_link">
+        <collision name="panel_collision">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+        </collision>
+        <visual name="panel_visual">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+          <material>
+            <ambient>0.92 0.05 0.03 1</ambient>
+            <diffuse>0.98 0.06 0.03 1</diffuse>
+            <emissive>0.12 0.00 0.00 1</emissive>
+          </material>
+        </visual>
+        <visual name="vertical_stripe_visual">
+          <pose>0 -0.19 0 0 0 0</pose>
+          <geometry><box><size>0.9 0.08 3.2</size></box></geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>0.18 0.18 0.18 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Panel B: cyan field with one yellow circular roundel. -->
+    <model name="terrain_pixel_panel_b">
+      <static>true</static>
+      <pose>8 100 12 0 0 0</pose>
+      <link name="panel_link">
+        <collision name="panel_collision">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+        </collision>
+        <visual name="panel_visual">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+          <material>
+            <ambient>0.02 0.72 0.88 1</ambient>
+            <diffuse>0.03 0.82 0.98 1</diffuse>
+            <emissive>0.00 0.10 0.12 1</emissive>
+          </material>
+        </visual>
+        <visual name="roundel_visual">
+          <pose>0 -0.19 0 1.5707963267948966 0 0</pose>
+          <geometry><cylinder><radius>1.0</radius><length>0.08</length></cylinder></geometry>
+          <material>
+            <ambient>1.00 0.88 0.02 1</ambient>
+            <diffuse>1.00 0.94 0.03 1</diffuse>
+            <emissive>0.15 0.12 0.00 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Panel C: magenta field with two white bars forming an X. -->
+    <model name="terrain_pixel_panel_c">
+      <static>true</static>
+      <pose>8 160 18 0 0 0</pose>
+      <link name="panel_link">
+        <collision name="panel_collision">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+        </collision>
+        <visual name="panel_visual">
+          <geometry><box><size>6 0.3 4</size></box></geometry>
+          <material>
+            <ambient>0.80 0.04 0.70 1</ambient>
+            <diffuse>0.92 0.05 0.82 1</diffuse>
+            <emissive>0.10 0.00 0.08 1</emissive>
+          </material>
+        </visual>
+        <visual name="cross_rising_visual">
+          <pose>0 -0.19 0 0 0.6435011087932844 0</pose>
+          <geometry><box><size>5 0.08 0.3</size></box></geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>0.18 0.18 0.18 1</emissive>
+          </material>
+        </visual>
+        <visual name="cross_falling_visual">
+          <pose>0 -0.19 0 0 -0.6435011087932844 0</pose>
+          <geometry><box><size>5 0.08 0.3</size></box></geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>0.18 0.18 0.18 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="home_marker">
+      <static>true</static>
+      <pose>0 0 0.03 0.09966865249116204 0 0</pose>
+      <link name="marker_link">
+        <visual name="marker_visual">
+          <geometry><box><size>12 12 0.06</size></box></geometry>
+          <material>
+            <ambient>0.72 0.72 0.72 1</ambient>
+            <diffuse>0.92 0.92 0.92 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

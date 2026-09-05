@@ -49,6 +49,11 @@ from .state_machine import MissionStateMachine
 from .tracking import IoUMultiObjectTracker
 
 DEFAULT_MISSION_AUDIT_MEMORY_EVENTS = 10_000
+# Windows' GetTickCount64-backed ``time.monotonic`` can quantize an external
+# callback a few microseconds behind a high-resolution frame tie-breaker.  Keep
+# the strict ordering guard for real rewinds while tolerating that bounded
+# clock-quantization jitter at the mission API boundary.
+MISSION_CLOCK_QUANTIZATION_TOLERANCE_S = 1e-3
 
 
 class MissionOperationError(RuntimeError):
@@ -1228,7 +1233,9 @@ class MissionController:
         if not math.isfinite(now_s) or now_s < 0:
             raise ValueError("now_s must be a finite non-negative number")
         if self._last_now_s is not None and now_s < self._last_now_s:
-            raise ValueError("mission event timestamps must be monotonic")
+            if self._last_now_s - now_s > MISSION_CLOCK_QUANTIZATION_TOLERANCE_S:
+                raise ValueError("mission event timestamps must be monotonic")
+            return
         self._last_now_s = now_s
 
     def _require_context(self, expected_phase: MissionPhase) -> _DeploymentContext:

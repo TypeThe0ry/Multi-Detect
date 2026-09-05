@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from .domain import BoundingBox, Detection
+from .inference_provider import (
+    InferenceProviderError,
+    OrtSessionSelection,
+    create_onnxruntime_session,
+)
 from .unified_tracking import AppearanceEmbedding, TargetObservation
 from .vision import VisionDependencyError
 
@@ -67,6 +72,7 @@ class OnnxPersonReIdEncoder:
 
     def __init__(self, config: OnnxPersonReIdConfig, *, session: Any | None = None) -> None:
         self.config = config
+        self._provider_selection: OrtSessionSelection | None = None
         if session is None:
             self._verify_artifact()
             try:
@@ -75,19 +81,14 @@ class OnnxPersonReIdEncoder:
                 raise VisionDependencyError(
                     "Install ONNX Runtime: pip install -e '.[vision]'"
                 ) from exc
-            available = set(ort.get_available_providers())
-            requested = config.providers or (
-                "TensorrtExecutionProvider",
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            )
-            providers = [provider for provider in requested if provider in available]
-            if not providers:
-                raise VisionDependencyError(
-                    "No requested ReID ONNX Runtime provider is available; "
-                    f"available={sorted(available)}"
+            try:
+                session, self._provider_selection = create_onnxruntime_session(
+                    ort,
+                    config.model_path,
+                    providers=config.providers,
                 )
-            session = ort.InferenceSession(str(config.model_path), providers=providers)
+            except InferenceProviderError as exc:
+                raise VisionDependencyError(str(exc)) from exc
         self._session = session
         self._np, self._cv2 = self._require_dependencies()
         inputs = tuple(self._session.get_inputs())
@@ -111,6 +112,12 @@ class OnnxPersonReIdEncoder:
         if hasattr(self._session, "get_providers"):
             return tuple(self._session.get_providers())
         return ()
+
+    @property
+    def provider_selection(self) -> OrtSessionSelection | None:
+        """Return construction evidence when this instance created the ORT session."""
+
+        return self._provider_selection
 
     def warmup(self, *, batch_size: int = 1) -> None:
         if not 1 <= batch_size <= self.config.maximum_batch_size:

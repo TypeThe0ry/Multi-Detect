@@ -7,10 +7,16 @@ import time
 from collections import defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 from .domain import BoundingBox
+from .inference_provider import (
+    InferenceProviderError,
+    OrtSessionSelection,
+    create_onnxruntime_session,
+)
 from .multimodal_ranging import DirectRangeMeasurement, DirectRangeSource
 from .tensorrt_session import TensorRtDepthSession
 from .vision import VisionDependencyError
@@ -39,6 +45,9 @@ class MetricDepthConfig:
     calibration_scale: float = 1.0
     calibration_offset_m: float = 0.0
     calibration_profile: str = "uncalibrated"
+    calibration_curve_raw_m: tuple[float, ...] = ()
+    calibration_curve_actual_m: tuple[float, ...] = ()
+    calibration_extrapolation_sigma_m: float = 0.0
     grid_width: int = 160
     grid_height: int = 90
     temporal_window_size: int = 5
@@ -76,6 +85,37 @@ class MetricDepthConfig:
             raise ValueError("metric-depth calibration offset must be finite")
         if not self.calibration_profile.strip():
             raise ValueError("metric-depth calibration profile cannot be empty")
+        if not math.isfinite(self.calibration_extrapolation_sigma_m) or (
+            self.calibration_extrapolation_sigma_m < 0.0
+        ):
+            raise ValueError(
+                "metric-depth calibration extrapolation sigma must be finite and non-negative"
+            )
+        if len(self.calibration_curve_raw_m) != len(self.calibration_curve_actual_m):
+            raise ValueError("metric-depth calibration curve breakpoint counts must match")
+        if self.calibration_curve_raw_m:
+            if len(self.calibration_curve_raw_m) < 2:
+                raise ValueError("metric-depth calibration curve requires at least two breakpoints")
+            if not all(
+                math.isfinite(value) and value > 0.0
+                for value in (
+                    *self.calibration_curve_raw_m,
+                    *self.calibration_curve_actual_m,
+                )
+            ):
+                raise ValueError(
+                    "metric-depth calibration curve values must be finite and positive"
+                )
+            if any(
+                right <= left
+                for left, right in pairwise(self.calibration_curve_raw_m)
+            ):
+                raise ValueError("metric-depth calibration raw curve must increase")
+            if any(
+                right <= left
+                for left, right in pairwise(self.calibration_curve_actual_m)
+            ):
+                raise ValueError("metric-depth calibration actual curve must increase")
         if not 16 <= self.grid_width <= 640 or not 16 <= self.grid_height <= 360:
             raise ValueError("metric-depth grid dimensions are outside the supported range")
         if not 1 <= self.temporal_window_size <= 15:
@@ -147,6 +187,10 @@ class MetricDepthResult:
     calibration_offset_m: float
     calibration_profile: str
     depth_grid: MetricDepthGrid
+    calibration_mode: str = "affine"
+    calibration_curve_raw_range_m: tuple[float, float] | None = None
+    calibration_extrapolated: bool = False
+    calibration_extrapolation_sigma_m: float = 0.0
 
     def measurement(self) -> DirectRangeMeasurement:
         return DirectRangeMeasurement(
@@ -184,6 +228,7 @@ class MetricDepthEstimator:
     def __init__(self, config: MetricDepthConfig, *, session: Any | None = None) -> None:
         self.config = config
         self._np, self._cv2 = self._dependencies()
+        self._provider_selection: OrtSessionSelection | None = None
         if session is None:
             session = self._load_session()
         self._session = session
@@ -197,6 +242,12 @@ class MetricDepthEstimator:
         self.provider_names = tuple(
             str(value) for value in getattr(session, "get_providers", lambda: ())()
         )
+
+    @property
+    def provider_selection(self) -> OrtSessionSelection | None:
+        """Return construction evidence when this instance created the ORT session."""
+
+        return self._provider_selection
 
     def estimate(
         self,
@@ -228,7 +279,7 @@ class MetricDepthEstimator:
         raw_depth = self._np.asarray(outputs[0], dtype=self._np.float32).squeeze()
         if raw_depth.ndim != 2 or raw_depth.size < self.config.minimum_valid_pixels:
             raise MetricDepthContractError("metric-depth output must be a dense HxW map")
-        depth = raw_depth * self.config.calibration_scale + self.config.calibration_offset_m
+        depth = self._apply_calibration(raw_depth)
         values = self._target_values(depth, bbox, target_label=target_label)
         raw_values = self._target_values(raw_depth, bbox, target_label=target_label)
         if values.size < self.config.minimum_valid_pixels:
@@ -241,6 +292,16 @@ class MetricDepthEstimator:
             slant_range_m * self.config.relative_sigma,
             mad * 1.4826 * 2.0,
         )
+        calibration_extrapolated = bool(
+            self.config.calibration_curve_raw_m
+            and raw_values.size
+            and (
+                self._np.any(raw_values < self.config.calibration_curve_raw_m[0])
+                or self._np.any(raw_values > self.config.calibration_curve_raw_m[-1])
+            )
+        )
+        if calibration_extrapolated:
+            sigma_m = max(sigma_m, self.config.calibration_extrapolation_sigma_m)
         return MetricDepthResult(
             target_id=target_id,
             source_bbox=bbox,
@@ -257,7 +318,43 @@ class MetricDepthEstimator:
             calibration_offset_m=self.config.calibration_offset_m,
             calibration_profile=self.config.calibration_profile,
             depth_grid=self._quantize_grid(depth),
+            calibration_mode=(
+                "piecewise_linear" if self.config.calibration_curve_raw_m else "affine"
+            ),
+            calibration_curve_raw_range_m=(
+                (
+                    self.config.calibration_curve_raw_m[0],
+                    self.config.calibration_curve_raw_m[-1],
+                )
+                if self.config.calibration_curve_raw_m
+                else None
+            ),
+            calibration_extrapolated=calibration_extrapolated,
+            calibration_extrapolation_sigma_m=self.config.calibration_extrapolation_sigma_m,
         )
+
+    def _apply_calibration(self, raw_depth: Any) -> Any:
+        raw_breakpoints = self.config.calibration_curve_raw_m
+        actual_breakpoints = self.config.calibration_curve_actual_m
+        if not raw_breakpoints:
+            return raw_depth * self.config.calibration_scale + self.config.calibration_offset_m
+        calibrated = self._np.interp(raw_depth, raw_breakpoints, actual_breakpoints)
+        left_slope = (actual_breakpoints[1] - actual_breakpoints[0]) / (
+            raw_breakpoints[1] - raw_breakpoints[0]
+        )
+        right_slope = (
+            actual_breakpoints[-1] - actual_breakpoints[-2]
+        ) / (raw_breakpoints[-1] - raw_breakpoints[-2])
+        calibrated = self._np.asarray(calibrated, dtype=self._np.float32)
+        left_mask = raw_depth < raw_breakpoints[0]
+        right_mask = raw_depth > raw_breakpoints[-1]
+        calibrated[left_mask] = actual_breakpoints[0] + left_slope * (
+            raw_depth[left_mask] - raw_breakpoints[0]
+        )
+        calibrated[right_mask] = actual_breakpoints[-1] + right_slope * (
+            raw_depth[right_mask] - raw_breakpoints[-1]
+        )
+        return calibrated
 
     def close(self) -> None:
         close = getattr(self._session, "close", None)
@@ -347,16 +444,15 @@ class MetricDepthEstimator:
             import onnxruntime as ort
         except ImportError as exc:  # pragma: no cover - dependency-specific.
             raise VisionDependencyError("Install ONNX Runtime for metric-depth inference") from exc
-        available = set(ort.get_available_providers())
-        requested = self.config.providers or (
-            "TensorrtExecutionProvider",
-            "CUDAExecutionProvider",
-            "CPUExecutionProvider",
-        )
-        providers = [provider for provider in requested if provider in available]
-        if not providers:
-            raise VisionDependencyError("No requested metric-depth provider is available")
-        return ort.InferenceSession(str(path), providers=providers)
+        try:
+            session, self._provider_selection = create_onnxruntime_session(
+                ort,
+                path,
+                providers=self.config.providers,
+            )
+        except InferenceProviderError as exc:
+            raise VisionDependencyError(str(exc)) from exc
+        return session
 
     @staticmethod
     def _dependencies() -> tuple[Any, Any]:
