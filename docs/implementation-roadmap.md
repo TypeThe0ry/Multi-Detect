@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 可搬迁 covariance campaign workspace（v92）
+
+- [x] 导出精确六叶的 18 份 Mission/feedback/profile 原始字节，并生成相对路径 portable campaign；
+- [x] 闭合 manifest 绑定文件全集、逐文件 hash/size、endpoint/baud、源 campaign、当前 PX4 parity；
+- [x] 原子发布前重验导出目录，第二根目录删除原副本后再次运行现有六叶 preflight；
+- [x] 拒绝路径逃逸、非规范路径、Windows ADS、symlink、额外文件、内容与 parity 漂移；
+- [x] 不携带或迁移 online probe/covariance report；接收机必须重新在线确认当前 Pixhawk；
+- [ ] 用真实六叶输入导出物理介质包，在第二台现场机运行 verify、preflight 和逐叶采集。
+
 ## 可独立复验的 online covariance preflight（v91）
 
 - [x] 将下一叶在线探测固化为闭合 schema-v2 observation，加入 UTC 与 canonical evidence digest；
@@ -7,7 +16,8 @@
 - [x] `verify-probe` 重开来源并重算 mode binding、采样时序、identity query 预算、reasons 与 gate；
 - [x] 默认 300 秒过期，并拒绝未来时间、source/parity 漂移、leaf 前移、未知字段和 symlink；
 - [ ] 在现场准备真实 campaign 后生成并立即复验每个下一叶 observation，再执行对应 `capture-next`；
-- [ ] 第二机可移植复验仍需定义路径重定位合同；当前 observation 明确绑定原 campaign workspace 的绝对路径。
+- [x] 以 v92 静态 workspace bundle 解决第二机文件路径搬迁；在线 observation 保持绑定本机本次连接，
+  不跨机迁移或复用。
 
 ## 六叶 covariance source preflight（v89）
 

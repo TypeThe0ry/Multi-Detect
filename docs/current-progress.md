@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v91 工作树）
+最后更新：2026-09-06（v92 工作树）
+
+## v92 本轮已收口
+
+- 新增 `field_covariance_workspace export/verify`，导出 HIL/REAL × 三机型精确六叶的 18 份 Mission、
+  Mission feedback、signed runtime profile 原始字节，并生成只使用相对路径的 portable campaign；
+- 导出前与临时目录原子发布前均运行既有六叶 source preflight。搬迁回归把完整目录复制到第二个根、删除
+  原导出目录，再次加载 campaign 并执行真实 preflight，证明验证不依赖原绝对文件路径；
+- 闭合 schema/manifest 绑定 20 文件全集、逐文件 size/SHA、六叶顺序、endpoint/baud、源 campaign
+  fingerprint、当前 release parity 和 canonical workspace digest；额外文件、内容漂移、路径逃逸、ADS、
+  反斜杠、symlink 与 parity 漂移均 fail-closed；
+- bundle 明确不携带 online probe、covariance report 或 acceptance。接收机必须用本机连接重新运行
+  `preflight -> probe-next -> capture-next`；endpoint/飞控/firmware/签名身份不会被便携层静默改写；
+- `px4_mission_path_hash` 更新为 `B30A0DAE...AF266B`。当前仍没有真实六叶输入和串口设备，因此没有
+  生成物理 handoff bundle 或任何 HIL/REAL、hardware、flight 通过声明。
+- 全量回归 3,439 tests：`3438 passed, 1 skipped, 0 failed, 0 errors`，耗时 94.448 秒；JUnit
+  501,885 bytes、SHA-256 `8714CCA8795DD428D9BEFB4323005E639B77D23445B895E5B1B8649418E46065`；
+  全仓 Ruff 通过。
 
 ## v91 本轮已收口
 
@@ -11,7 +28,8 @@
 - 新增 `verify-probe`：重开当前 campaign，要求相同 leaf 仍是 `next_leaf`、六叶 source preflight 仍全绿，
   并重算 authoritative mode binding、采样时序、firmware response、查询/TX 预算、reasons 与 gate；
 - 文件加载默认 300 秒过期；未来时间、digest 篡改、未知字段、source/parity 漂移、campaign 前移和 symlink
-  全部 fail-closed。当前记录绑定原 workspace 绝对路径，第二机路径重定位合同仍待实现；
+  全部 fail-closed。该在线记录仍绑定本机绝对路径且不跨机复用；v92 仅搬迁静态六叶 workspace，接收机
+  必须重新生成在线记录；
 - `px4_mission_path_hash` 更新为 `792FFFBE...100780`。当前没有真实 campaign 配置、串口/PnP 设备或
   `field-inputs`，所以没有运行真实 probe/capture，也没有生成 HIL/REAL、hardware 或 flight 通过声明。
 - 全量回归 3,430 tests：`3429 passed, 1 skipped, 0 failed, 0 errors`，耗时 93.046 秒；JUnit

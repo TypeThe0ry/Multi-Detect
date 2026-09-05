@@ -1,5 +1,30 @@
 # v0.3.0 E7 发布门
 
+## v92 portable covariance workspace（2026-09-06，`v0.3.0-pre.8`）
+
+第一台准备机导出：
+
+```powershell
+python -m multidetect.field_covariance_workspace export `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --out .\artifacts\handoff\covariance-workspace
+```
+
+第二台现场机复制整个目录后验证：
+
+```powershell
+python -m multidetect.field_covariance_workspace verify `
+  --bundle D:\FieldEvidence\covariance-workspace
+```
+
+只有 `gate_passed=true` 时，才使用返回的绝对 `campaign_path` 运行本机 `field_covariance_campaign
+preflight`。bundle verifier 要求与接收机当前 `release-parity.json` 完全一致，重开 18 份源并运行既有
+六叶 preflight；目录内只能存在 manifest、campaign 和 18 份已绑定源。
+
+该 bundle 解决文件系统路径搬迁，不迁移连接状态：endpoint/baud 和 signed profile 身份原样保留，online
+preflight 不进入 bundle。第二机仍须依次执行 `probe-next` 和 `capture-next`，从本机当前 Pixhawk 重新取得
+HEARTBEAT、firmware、link、qualification 与 covariance。bundle claims 全为 false，不直接进入 E7。
+
 ## v91 sealed online preflight（2026-09-06，`v0.3.0-pre.8`）
 
 `probe-next --status-out` 现在保存 schema-v2 operational observation。正式采集前在同一 campaign

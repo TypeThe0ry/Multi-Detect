@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v92 portable covariance campaign workspace（2026-09-06）
+
+- 新增 `field_covariance_workspace export/verify`：导出前运行真实六叶 source preflight，并把
+  HIL/REAL × fixed-wing/multirotor/VTOL 的 18 份 Mission/feedback/profile 原始字节复制进独立目录；
+- 导出器重建只含 POSIX 相对路径的 `campaign.json`，固定新报告位于 bundle 内 `reports/`，不携带旧
+  online probe、covariance report 或任何硬件验收状态；
+- 闭合 manifest 绑定精确六叶顺序、endpoint/baud、20 文件全集、逐文件 size/SHA-256、原 campaign
+  指纹、当前 release parity 与 workspace canonical digest；路径逃逸、ADS/反斜杠、symlink、额外文件、
+  source/campaign/parity 漂移均 fail-closed；
+- 搬迁测试在删除原导出目录后，从第二个根目录重新加载 relative campaign 并再次执行现有六叶静态门；
+  endpoint、firmware 与签名身份不做“便携改写”，接收机必须重新执行在线 probe/capture；
+- schema/module 纳入 PX4 Mission parity，`px4_mission_path_hash` 更新为 `b30a0dae...af266b`。产品仍为
+  `v0.3.0-pre.8`，本功能不产生 HIL/REAL、hardware 或 flight acceptance；全量回归 3,439 tests：
+  `3438 passed, 1 skipped`，全仓 Ruff 通过。
+
 ### v0.3.0-pre.8 v91 sealed and expiring covariance online preflight（2026-09-06）
 
 - `probe-next` 输出升级为闭合 Draft 2020-12 schema-v2 observation，加入 UTC observation time、canonical

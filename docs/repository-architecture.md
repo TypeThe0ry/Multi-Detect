@@ -1,5 +1,26 @@
 # 统一仓库架构
 
+## v92 portable field covariance workspace（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+prepared six-leaf campaign on machine A
+  -> authoritative source preflight READY × 6
+  -> export exact source bytes
+       workspace.manifest.json
+       campaign.json (relative paths only)
+       sources/{hil,real}/{airframe}/{mission,feedback,profile}.json × 18
+  -> closed file set + per-file size/SHA + canonical workspace digest
+  -> bind current release-parity file + PX4 Mission path hash
+  -> copy complete directory to machine B
+  -> verify bytes/path boundary/parity + rerun source preflight
+  -> machine B runs a new online probe and capture
+```
+
+`field_covariance_workspace.py` 是静态证据的可搬迁边界。它不修改签名文档、不重新签发 profile，也不把
+第一台机器的 monotonic/UTC/link 状态转换成第二台的状态。portable campaign 的 endpoint/baud 保持原值；
+若第二机 COM 或设备身份不同，应重新 provision 对应 feedback/profile，而不是改 manifest 绕过绑定。
+`pixhawk-covariance-field-workspace.schema.json`、实现与 verifier 均属于 `px4_mission_path_hash`。
+
 ## v91 sealed online preflight contract（2026-09-06，`v0.3.0-pre.8`）
 
 ```text
@@ -19,7 +40,8 @@ live next-leaf probe
 `src/multidetect/online_covariance_preflight.py` owns the immutable observation contract and independent verifier；
 `configs/schemas/pixhawk-covariance-online-preflight.schema.json` closes every nested object and reuses the existing
 heartbeat、firmware、mode-binding、qualification 与 parity definitions。记录绑定原 campaign workspace 的
-绝对来源路径；第二机路径重定位尚未定义，因此当前只声称同一已准备 workspace 内的独立复验。
+绝对来源路径；它仍只声称同一机器、本次连接内的独立复验。跨机文件路径由 v92 静态 workspace bundle
+解决，在线 observation 本身按设计不搬迁。
 
 ## v90 current Pixhawk online identity probe（2026-09-06，`v0.3.0-pre.8`）
 
@@ -1855,6 +1877,7 @@ Multi-Detect/
 │   ├── px4_mission_feedback_binding.py # HIL/REAL × 三机型 Mission/profile/report 的 E7 六源绑定
 │   ├── field_covariance_campaign.py # 六叶 covariance 现场顺序、静态/在线预检、采集与聚合入口
 │   ├── online_covariance_preflight.py # 5 分钟时效、source/parity-bound 的在线探测 observation/verifier
+│   ├── field_covariance_workspace.py # 六叶静态 source 的 hash-bound 相对路径导出/搬迁复验
 │   ├── replay_set.py                 # 六类部署域分层回放集 manifest、帧对齐与哈希校验
 │   ├── replay_set_evaluation.py      # 六分层 IoU/延迟精度报告、独立复核与 E7 哈希绑定
 │   ├── replay_set_readiness.py        # 采集阶段逐层 readiness、正例分母与精度报告重算

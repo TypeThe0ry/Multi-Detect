@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v91：可独立复验、默认 5 分钟过期的 Pixhawk online preflight；绑定当前 campaign、六叶静态门、Mission/feedback/profile、parity、身份与查询预算 |
+| 当前工程迭代 | v92：可搬迁的六叶 covariance 静态工作空间；封装 18 份 Mission/feedback/profile 原始字节和相对路径 campaign，第二机重验后重新在线探测 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,32 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v92 可搬迁的六叶 covariance 工作空间
+
+现场源准备完成后，先在原机器导出一个闭合、hash-bound 的目录：
+
+```powershell
+python -m multidetect.field_covariance_workspace export `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --out .\artifacts\handoff\covariance-workspace
+```
+
+目录固定包含 `workspace.manifest.json`、相对路径 `campaign.json`，以及 HIL/REAL × 三机型共 18 份
+Mission、Mission feedback 和 signed runtime profile。导出前和原子发布前都要求六叶 source preflight
+通过；manifest 绑定每份文件的路径、字节数、SHA-256、当前 `release-parity.json` 与
+`px4_mission_path_hash`，额外文件、symlink、路径逃逸和内容漂移都会被拒绝。
+
+复制整个目录到第二台使用相同源码/parity 的机器后执行：
+
+```powershell
+python -m multidetect.field_covariance_workspace verify `
+  --bundle D:\FieldEvidence\covariance-workspace
+```
+
+验证返回的 `campaign_path` 才是接下来运行 `preflight -> probe-next -> capture-next` 的配置。bundle 不携带
+在线 probe 或 covariance report，也不重写 COM/endpoint、飞控、固件或签名身份；第二台机器必须重新
+连接并观察当前 Pixhawk，不能复用第一台机器的在线状态。
 
 ### v91 严格、过期失效的 online preflight
 
