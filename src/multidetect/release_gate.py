@@ -83,6 +83,7 @@ from .field_session_capture import verify_field_session_capture
 from .geolocation_accuracy import verify_geolocation_accuracy_report
 from .model_review import verify_model_review_bundle
 from .product_version import ProductVersion, load_product_version
+from .qgc_visual_acceptance import verify_record as verify_qgc_visual_acceptance
 from .replay_set import REPLAY_SET_STRATA, load_replay_set_manifest
 from .replay_set_calibration import verify_replay_set_calibration_report
 from .replay_set_evaluation import (
@@ -139,9 +140,7 @@ def _canonical_evaluation_timestamp(value: str | None) -> str:
                 "evaluated_at_utc must be an ISO-8601 timestamp with timezone"
             ) from exc
         if timestamp.tzinfo is None:
-            raise ValueError(
-                "evaluated_at_utc must include a timezone (use 'Z' for UTC)"
-            )
+            raise ValueError("evaluated_at_utc must include a timezone (use 'Z' for UTC)")
         timestamp = timestamp.astimezone(timezone.utc)
     return timestamp.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
@@ -171,9 +170,7 @@ _REPLAY_SET_KEYS = frozenset(
         "calibration_verification",
     }
 )
-_REPLAY_SET_ACCURACY_KEYS = frozenset(
-    {"path", "sha256", "gate_passed", "accuracy_validated"}
-)
+_REPLAY_SET_ACCURACY_KEYS = frozenset({"path", "sha256", "gate_passed", "accuracy_validated"})
 _REPLAY_SET_CALIBRATION_KEYS = frozenset(
     {
         "path",
@@ -419,9 +416,7 @@ _SIMULATOR_EXTERNAL_EVIDENCE_KEYS = frozenset(
         "checks",
     }
 )
-_SIMULATOR_EXTERNAL_PARITY_KEYS = frozenset(
-    {"path", "sha256", "bytes", "release_label", "hashes"}
-)
+_SIMULATOR_EXTERNAL_PARITY_KEYS = frozenset({"path", "sha256", "bytes", "release_label", "hashes"})
 _SIMULATOR_EXTERNAL_SOURCE_KEYS = frozenset({"sha256", "bytes"})
 _SIMULATOR_EXTERNAL_CHECKS = frozenset(
     {
@@ -558,6 +553,34 @@ _MODEL_REVIEW_KEYS = frozenset(
         "reasons",
     }
 )
+_QGC_OPERATOR_VISUAL_ACCEPTANCE_KEYS = frozenset(
+    {
+        "schema",
+        "schema_version",
+        "records",
+        "covered_modes",
+        "required_modes",
+        "complete",
+        "gate_passed",
+    }
+)
+_QGC_OPERATOR_VISUAL_ACCEPTANCE_ENTRY_KEYS = frozenset(
+    {
+        "runtime_mode",
+        "path",
+        "sha256",
+        "bytes",
+        "review_sha256",
+        "reviewer",
+        "reviewed_at_utc",
+        "machine_run_id",
+        "machine_report_sha256",
+        "screenshot_sha256",
+        "qgc_executable_sha256",
+        "ui_contract_hash",
+        "gate_passed",
+    }
+)
 _TOP_LEVEL_KEYS = frozenset(
     {
         "schema_version",
@@ -578,15 +601,14 @@ _TOP_LEVEL_KEYS = frozenset(
         "px4_airframe_transaction",
         "px4_reported_position_response_matrix",
         "px4_reported_position_response_campaign",
+        "qgc_operator_visual_acceptance",
         "px4_mission_feedback",
         "simulator_3d_control",
         "simulator_scene_stream_set",
         "model_review",
     }
 )
-_REQUIRED_TOP_LEVEL_KEYS = frozenset(
-    {"schema_version", "product", "release_label", "modes"}
-)
+_REQUIRED_TOP_LEVEL_KEYS = frozenset({"schema_version", "product", "release_label", "modes"})
 
 
 def _is_sha256(value: object) -> bool:
@@ -853,9 +875,7 @@ def _replay_set_calibration_verification_result(
 
     unknown = sorted(set(raw_record).difference(_REPLAY_SET_CALIBRATION_KEYS))
     if unknown:
-        reasons.append(
-            "unknown replay_set calibration_verification field(s): " f"{unknown!r}"
-        )
+        reasons.append(f"unknown replay_set calibration_verification field(s): {unknown!r}")
 
     artifact_path: Path | None = None
     path_value = raw_record.get("path")
@@ -868,33 +888,23 @@ def _replay_set_calibration_verification_result(
         try:
             artifact_path = artifact_path.resolve()
         except (OSError, RuntimeError) as exc:
-            reasons.append(
-                "replay_set calibration verification path cannot be resolved: " f"{exc}"
-            )
+            reasons.append(f"replay_set calibration verification path cannot be resolved: {exc}")
             artifact_path = None
 
     expected_artifact_sha = raw_record.get("sha256")
     if not _is_sha256(expected_artifact_sha):
-        reasons.append(
-            "replay_set.calibration_verification.sha256 is missing or invalid"
-        )
+        reasons.append("replay_set.calibration_verification.sha256 is missing or invalid")
     expected_event = raw_record.get("event")
     if expected_event != "replay_set_threshold_calibration_verified":
-        reasons.append(
-            "replay_set.calibration_verification.event does not match verifier contract"
-        )
+        reasons.append("replay_set.calibration_verification.event does not match verifier contract")
     expected_schema_version = raw_record.get("schema_version")
     if expected_schema_version != 1:
-        reasons.append(
-            "replay_set.calibration_verification.schema_version must be 1"
-        )
+        reasons.append("replay_set.calibration_verification.schema_version must be 1")
 
     report_path: Path | None = None
     report_path_value = raw_record.get("report_path")
     if not isinstance(report_path_value, str) or not report_path_value.strip():
-        reasons.append(
-            "replay_set.calibration_verification.report_path is missing or empty"
-        )
+        reasons.append("replay_set.calibration_verification.report_path is missing or empty")
     else:
         report_path = Path(report_path_value)
         if not report_path.is_absolute():
@@ -902,26 +912,18 @@ def _replay_set_calibration_verification_result(
         try:
             report_path = report_path.resolve()
         except (OSError, RuntimeError) as exc:
-            reasons.append(
-                "replay_set calibration report path cannot be resolved: " f"{exc}"
-            )
+            reasons.append(f"replay_set calibration report path cannot be resolved: {exc}")
             report_path = None
 
     expected_report_sha = raw_record.get("report_sha256")
     if not _is_sha256(expected_report_sha):
-        reasons.append(
-            "replay_set.calibration_verification.report_sha256 is missing or invalid"
-        )
+        reasons.append("replay_set.calibration_verification.report_sha256 is missing or invalid")
     expected_manifest_record_sha = raw_record.get("manifest_sha256")
     if not _is_sha256(expected_manifest_record_sha):
-        reasons.append(
-            "replay_set.calibration_verification.manifest_sha256 is missing or invalid"
-        )
+        reasons.append("replay_set.calibration_verification.manifest_sha256 is missing or invalid")
     expected_canonical_record_sha = raw_record.get("canonical_sha256")
     if not _is_sha256(expected_canonical_record_sha):
-        reasons.append(
-            "replay_set.calibration_verification.canonical_sha256 is missing or invalid"
-        )
+        reasons.append("replay_set.calibration_verification.canonical_sha256 is missing or invalid")
     if (
         _is_sha256(expected_manifest_sha)
         and _is_sha256(expected_manifest_record_sha)
@@ -943,9 +945,7 @@ def _replay_set_calibration_verification_result(
 
     for field in ("report_promotion_ready", "recomputed_promotion_ready", "gate_passed"):
         if type(raw_record.get(field)) is not bool:
-            reasons.append(
-                f"replay_set.calibration_verification.{field} must be a boolean"
-            )
+            reasons.append(f"replay_set.calibration_verification.{field} must be a boolean")
     expected_gate = raw_record.get("gate_passed")
     if expected_gate is False:
         reasons.append("replay_set calibration verification gate_passed is false")
@@ -960,24 +960,18 @@ def _replay_set_calibration_verification_result(
             try:
                 actual_artifact_sha = _sha256(artifact_path)
             except OSError as exc:
-                reasons.append(
-                    "replay_set calibration verification file cannot be hashed: " f"{exc}"
-                )
+                reasons.append(f"replay_set calibration verification file cannot be hashed: {exc}")
             else:
                 artifact_info["sha256"] = actual_artifact_sha
                 if (
                     _is_sha256(expected_artifact_sha)
                     and actual_artifact_sha.lower() != expected_artifact_sha.lower()
                 ):
-                    reasons.append(
-                        "replay_set calibration verification SHA-256 does not match"
-                    )
+                    reasons.append("replay_set calibration verification SHA-256 does not match")
             try:
                 artifact_document = _load_object(artifact_path)
             except ValueError as exc:
-                reasons.append(
-                    "replay_set calibration verification JSON is invalid: " f"{exc}"
-                )
+                reasons.append(f"replay_set calibration verification JSON is invalid: {exc}")
 
     if artifact_document is not None:
         for field, expected in (
@@ -993,15 +987,12 @@ def _replay_set_calibration_verification_result(
         ):
             if artifact_document.get(field) != expected:
                 reasons.append(
-                    "replay_set calibration verification "
-                    f"{field} does not match the bound record"
+                    f"replay_set calibration verification {field} does not match the bound record"
                 )
 
         artifact_report_path_value = artifact_document.get("report_path")
         if not isinstance(artifact_report_path_value, str) or not artifact_report_path_value:
-            reasons.append(
-                "replay_set calibration verification artifact report_path is missing"
-            )
+            reasons.append("replay_set calibration verification artifact report_path is missing")
         elif artifact_path is not None:
             artifact_report_path = Path(artifact_report_path_value)
             if not artifact_report_path.is_absolute():
@@ -1022,9 +1013,7 @@ def _replay_set_calibration_verification_result(
 
         checks_value = artifact_document.get("checks")
         if not isinstance(checks_value, Mapping):
-            reasons.append(
-                "replay_set calibration verification artifact checks must be an object"
-            )
+            reasons.append("replay_set calibration verification artifact checks must be an object")
         else:
             unknown_checks = sorted(set(checks_value).difference(_REPLAY_SET_CALIBRATION_CHECKS))
             missing_checks = sorted(set(_REPLAY_SET_CALIBRATION_CHECKS).difference(checks_value))
@@ -1106,9 +1095,7 @@ def _replay_set_calibration_verification_result(
         else:
             result["verification"] = verification
             if verification.get("gate_passed") is not True:
-                reasons.append(
-                    "replay_set calibration verifier gate_passed is not true"
-                )
+                reasons.append("replay_set calibration verifier gate_passed is not true")
                 for reason in verification.get("reasons", []):
                     if isinstance(reason, str):
                         reasons.append(f"replay_set calibration verifier: {reason}")
@@ -1116,14 +1103,11 @@ def _replay_set_calibration_verification_result(
                 _is_sha256(expected_report_sha)
                 and verification.get("report_sha256") != expected_report_sha
             ):
-                reasons.append(
-                    "replay_set calibration verifier report SHA-256 does not match"
-                )
+                reasons.append("replay_set calibration verifier report SHA-256 does not match")
             for field in ("report_promotion_ready", "recomputed_promotion_ready"):
                 if verification.get(field) != raw_record.get(field):
                     reasons.append(
-                        "replay_set calibration verifier "
-                        f"{field} does not match the bound record"
+                        f"replay_set calibration verifier {field} does not match the bound record"
                     )
 
     if artifact_info is not None:
@@ -1234,9 +1218,7 @@ def _replay_set_result(
                 try:
                     accuracy_path = accuracy_path.resolve()
                 except OSError as exc:
-                    reasons.append(
-                        "replay_set accuracy evidence path cannot be resolved: " f"{exc}"
-                    )
+                    reasons.append(f"replay_set accuracy evidence path cannot be resolved: {exc}")
                     accuracy_path = None
             expected_accuracy_sha = accuracy_evidence_value.get("sha256")
             if not _is_sha256(expected_accuracy_sha):
@@ -1248,9 +1230,7 @@ def _replay_set_result(
             elif not accuracy_gate:
                 reasons.append("replay_set accuracy evidence gate_passed is false")
             if type(accuracy_claim) is not bool:
-                reasons.append(
-                    "replay_set.accuracy_evidence.accuracy_validated must be a boolean"
-                )
+                reasons.append("replay_set.accuracy_evidence.accuracy_validated must be a boolean")
             elif not accuracy_claim:
                 reasons.append("replay_set accuracy evidence accuracy_validated is false")
             if accuracy_path is not None:
@@ -1274,16 +1254,10 @@ def _replay_set_result(
                         if accuracy_document.get("event") != (
                             "replay_set_accuracy_evaluation_completed"
                         ):
-                            reasons.append(
-                                "replay_set accuracy evidence has the wrong event type"
-                            )
+                            reasons.append("replay_set accuracy evidence has the wrong event type")
                         if accuracy_document.get("schema_version") != 1:
-                            reasons.append(
-                                "replay_set accuracy evidence schema_version must be 1"
-                            )
-                        accuracy_evidence_info["gate_passed"] = accuracy_document.get(
-                            "gate_passed"
-                        )
+                            reasons.append("replay_set accuracy evidence schema_version must be 1")
+                        accuracy_evidence_info["gate_passed"] = accuracy_document.get("gate_passed")
                         accuracy_evidence_info["accuracy_validated"] = accuracy_document.get(
                             "accuracy_validated"
                         )
@@ -1317,9 +1291,7 @@ def _replay_set_result(
                         if (
                             accuracy_document.get("gate_passed") is True
                             or accuracy_document.get("accuracy_validated") is True
-                        ) and not accuracy_metrics_are_defined(
-                            accuracy_document.get("metrics")
-                        ):
+                        ) and not accuracy_metrics_are_defined(accuracy_document.get("metrics")):
                             reasons.append(
                                 "replay_set accuracy evidence aggregate "
                                 "precision/recall are undefined"
@@ -1470,30 +1442,24 @@ def _real_field_link_result(
     freshness_bound = "max_age_s" in raw_record
     timestamp_bound = "report_timestamp_epoch_s" in raw_record
     if timestamp_bound and not freshness_bound:
-        reasons.append(
-            "real_field_link.report_timestamp_epoch_s requires max_age_s"
-        )
+        reasons.append("real_field_link.report_timestamp_epoch_s requires max_age_s")
     configured_max_age_s: float | None = None
     expected_report_timestamp: float | None = None
     if freshness_bound:
         raw_max_age = raw_record.get("max_age_s")
         if not _is_finite_number(raw_max_age) or float(raw_max_age) < 0.0:
-            reasons.append(
-                "real_field_link.max_age_s must be a finite non-negative number"
-            )
+            reasons.append("real_field_link.max_age_s must be a finite non-negative number")
         else:
             configured_max_age_s = float(raw_max_age)
         if "report_timestamp_epoch_s" not in raw_record:
             reasons.append(
-                "real_field_link.report_timestamp_epoch_s is required when "
-                "max_age_s is bound"
+                "real_field_link.report_timestamp_epoch_s is required when max_age_s is bound"
             )
         else:
             raw_timestamp = raw_record.get("report_timestamp_epoch_s")
             if raw_timestamp is not None and not _is_finite_number(raw_timestamp):
                 reasons.append(
-                    "real_field_link.report_timestamp_epoch_s must be a finite "
-                    "number or null"
+                    "real_field_link.report_timestamp_epoch_s must be a finite number or null"
                 )
             elif raw_timestamp is not None:
                 expected_report_timestamp = float(raw_timestamp)
@@ -1579,9 +1545,7 @@ def _real_field_link_result(
                         "hardware_link_ready": verification.get("hardware_link_ready"),
                         "gate_passed": verification.get("gate_passed"),
                         "max_age_s": verification.get("max_age_s"),
-                        "report_timestamp_epoch_s": verification.get(
-                            "report_timestamp_epoch_s"
-                        ),
+                        "report_timestamp_epoch_s": verification.get("report_timestamp_epoch_s"),
                         "report_age_s": verification.get("report_age_s"),
                         "checks": verification.get("checks"),
                     }
@@ -1592,20 +1556,16 @@ def _real_field_link_result(
                         configured_max_age_s is not None
                         and verified_max_age != configured_max_age_s
                     ):
-                        reasons.append(
-                            "real_field_link.max_age_s does not match verifier"
-                        )
+                        reasons.append("real_field_link.max_age_s does not match verifier")
                     verified_timestamp = verification.get("report_timestamp_epoch_s")
                     if expected_report_timestamp is None:
                         if verified_timestamp is not None:
                             reasons.append(
-                                "real_field_link.report_timestamp_epoch_s does not "
-                                "match verifier"
+                                "real_field_link.report_timestamp_epoch_s does not match verifier"
                             )
                     elif verified_timestamp != expected_report_timestamp:
                         reasons.append(
-                            "real_field_link.report_timestamp_epoch_s does not "
-                            "match verifier"
+                            "real_field_link.report_timestamp_epoch_s does not match verifier"
                         )
                 verification_summary = verification.get("summary")
                 if isinstance(verification_summary, Mapping):
@@ -1642,17 +1602,12 @@ def _real_field_link_result(
                         reasons.append(
                             "real_field_link route_checks_requested does not match report"
                         )
-                    if (
-                        "route_checks_passed" in raw_record
-                        and route_passed != report_route_passed
-                    ):
+                    if "route_checks_passed" in raw_record and route_passed != report_route_passed:
                         reasons.append("real_field_link route_checks_passed does not match report")
                     if route_cidr is not None and route_cidr != report_route_cidr:
                         reasons.append("real_field_link route_source_cidr does not match report")
                 if verification.get("hardware_link_ready") is not expected_ready:
-                    reasons.append(
-                        "real_field_link hardware_link_ready does not match report"
-                    )
+                    reasons.append("real_field_link hardware_link_ready does not match report")
                 if verification.get("gate_passed") is not expected_gate:
                     reasons.append("real_field_link gate_passed does not match report")
                 for reason in verification.get("reasons", []):
@@ -1755,9 +1710,7 @@ def _real_alert_link_result(
         reasons.append("real_alert_link gate_passed is false")
 
     raw_reasons = raw_record.get("reasons")
-    if not isinstance(raw_reasons, list) or any(
-        not isinstance(item, str) for item in raw_reasons
-    ):
+    if not isinstance(raw_reasons, list) or any(not isinstance(item, str) for item in raw_reasons):
         reasons.append("real_alert_link.reasons must be a list of strings")
 
     if report_path is not None:
@@ -1793,14 +1746,9 @@ def _real_alert_link_result(
                 )
                 result["verification"] = verification
                 report_info.update(
-                    {
-                        field: report_document.get(field)
-                        for field in _REAL_ALERT_LINK_BOUND_FIELDS
-                    }
+                    {field: report_document.get(field) for field in _REAL_ALERT_LINK_BOUND_FIELDS}
                 )
-                report_info["transport_protocol"] = report_document.get(
-                    "transport_protocol"
-                )
+                report_info["transport_protocol"] = report_document.get("transport_protocol")
                 report_info["failure_types"] = report_document.get("failure_types")
                 report_info["passed"] = report_document.get("passed")
 
@@ -1820,9 +1768,7 @@ def _real_alert_link_result(
                     else:
                         matches = actual == expected
                     if not matches:
-                        reasons.append(
-                            f"real_alert_link {field} does not match report"
-                        )
+                        reasons.append(f"real_alert_link {field} does not match report")
 
                 for field, expected in expected_contract.items():
                     actual = report_document.get(field)
@@ -1929,8 +1875,7 @@ def _real_target_accuracy_result(
         reasons.append("real_target_accuracy.two_sigma_coverage must be within [0, 1] or null")
     raw_reasons = raw_record.get("reasons")
     if raw_reasons is not None and (
-        not isinstance(raw_reasons, list)
-        or any(not isinstance(item, str) for item in raw_reasons)
+        not isinstance(raw_reasons, list) or any(not isinstance(item, str) for item in raw_reasons)
     ):
         reasons.append("real_target_accuracy.reasons must be a list of strings")
 
@@ -1971,9 +1916,7 @@ def _real_target_accuracy_result(
                         "schema_version": report_document.get("schema_version"),
                         "ground_truth_isolated": report_document.get("ground_truth_isolated"),
                         "advisory_only": report_document.get("advisory_only"),
-                        "contains_flight_control": report_document.get(
-                            "contains_flight_control"
-                        ),
+                        "contains_flight_control": report_document.get("contains_flight_control"),
                         "gate_passed": report_document.get("gate_passed"),
                     }
                 )
@@ -2012,9 +1955,7 @@ def _real_target_accuracy_result(
                         "minimum_two_sigma_coverage",
                     )
                 ):
-                    reasons.append(
-                        "real_target_accuracy report has no explicit accuracy threshold"
-                    )
+                    reasons.append("real_target_accuracy report has no explicit accuracy threshold")
                 for field, expected in expected_contract.items():
                     if (
                         type(report_document.get(field)) is not type(expected)
@@ -2036,9 +1977,7 @@ def _real_target_accuracy_result(
                         else actual_summary[field]
                     )
                     if not _same_json_number_or_value(actual, expected):
-                        reasons.append(
-                            f"real_target_accuracy {field} does not match report"
-                        )
+                        reasons.append(f"real_target_accuracy {field} does not match report")
                 if raw_reasons is not None and report_document.get("reasons") != raw_reasons:
                     reasons.append("real_target_accuracy reasons do not match report")
                 for reason in verification.get("reasons", []):
@@ -2096,9 +2035,7 @@ def _real_target_state_evidence_result(
         try:
             report_path = report_path.resolve()
         except (OSError, RuntimeError) as exc:
-            reasons.append(
-                f"real_target_state_evidence report path cannot be resolved: {exc}"
-            )
+            reasons.append(f"real_target_state_evidence report path cannot be resolved: {exc}")
             report_path = None
 
     expected_sha = raw_record.get("report_sha256")
@@ -2128,8 +2065,7 @@ def _real_target_state_evidence_result(
 
     def _valid_index_list(value: object) -> bool:
         return isinstance(value, list) and all(
-            isinstance(item, int) and not isinstance(item, bool) and item >= 0
-            for item in value
+            isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in value
         )
 
     def _valid_state_path(value: object) -> bool:
@@ -2153,13 +2089,11 @@ def _real_target_state_evidence_result(
                 )
             else:
                 reasons.append(
-                    f"real_target_state_evidence.{name} must be an array of "
-                    "non-negative integers"
+                    f"real_target_state_evidence.{name} must be an array of non-negative integers"
                 )
     raw_reasons = raw_record.get("reasons")
     if raw_reasons is not None and (
-        not isinstance(raw_reasons, list)
-        or any(not isinstance(item, str) for item in raw_reasons)
+        not isinstance(raw_reasons, list) or any(not isinstance(item, str) for item in raw_reasons)
     ):
         reasons.append("real_target_state_evidence.reasons must be a list of strings")
 
@@ -2236,9 +2170,7 @@ def _real_target_state_evidence_result(
                     else None
                 )
                 actual_target_required = (
-                    target_state.get("required")
-                    if isinstance(target_state, Mapping)
-                    else None
+                    target_state.get("required") if isinstance(target_state, Mapping) else None
                 )
                 actual_target_state = (
                     target_state.get("state") if isinstance(target_state, Mapping) else None
@@ -2251,9 +2183,7 @@ def _real_target_state_evidence_result(
                         "real_target_state_evidence report does not enable the strict TGT gate"
                     )
                 if actual_target_state != "TGT":
-                    reasons.append(
-                        "real_target_state_evidence report target state must be TGT"
-                    )
+                    reasons.append("real_target_state_evidence report target state must be TGT")
                 if actual_target_valid is not True:
                     reasons.append(
                         "real_target_state_evidence report target-state gate is not valid"
@@ -2267,21 +2197,15 @@ def _real_target_state_evidence_result(
                     ("range_qualified_records", actual_range_records, expected_range_records),
                 ):
                     if actual != expected:
-                        reasons.append(
-                            f"real_target_state_evidence {name} does not match report"
-                        )
+                        reasons.append(f"real_target_state_evidence {name} does not match report")
                 if verification.get("gate_passed") is not True:
                     reasons.append("real_target_state_evidence capture verifier did not pass")
                 if raw_reasons is not None:
                     report_validation_reasons = (
-                        target_state.get("reasons")
-                        if isinstance(target_state, Mapping)
-                        else None
+                        target_state.get("reasons") if isinstance(target_state, Mapping) else None
                     )
                     if report_validation_reasons != raw_reasons:
-                        reasons.append(
-                            "real_target_state_evidence reasons do not match report"
-                        )
+                        reasons.append("real_target_state_evidence reasons do not match report")
                 for reason in verification.get("reasons", []):
                     if isinstance(reason, str) and reason not in reasons:
                         reasons.append(f"real_target_state_evidence: {reason}")
@@ -2521,9 +2445,7 @@ def _field_evidence_bundle_result(
                         for name in _FIELD_EVIDENCE_BUNDLE_STRATA:
                             entry = report_strata.get(name)
                             actual = (
-                                entry.get("gate_passed")
-                                if isinstance(entry, Mapping)
-                                else None
+                                entry.get("gate_passed") if isinstance(entry, Mapping) else None
                             )
                             if actual != raw_strata.get(name):
                                 reasons.append(
@@ -2589,21 +2511,14 @@ def _simulator_safety_result(
         reasons.append("simulator_safety.evidence_sha256 is missing or invalid")
     expected_event = raw_record.get("event")
     if expected_event != "simulator_safety_acceptance_finished":
-        reasons.append(
-            "simulator_safety.event must be simulator_safety_acceptance_finished"
-        )
+        reasons.append("simulator_safety.event must be simulator_safety_acceptance_finished")
     if raw_record.get("runtime_mode") != "sim":
         reasons.append("simulator_safety.runtime_mode must be 'sim'")
     expected_release = raw_record.get("release_label")
     if not isinstance(expected_release, str) or not expected_release.strip():
         reasons.append("simulator_safety.release_label is missing or empty")
-    elif (
-        expected_release_label is not None
-        and expected_release != expected_release_label
-    ):
-        reasons.append(
-            "simulator_safety.release_label does not match the product manifest"
-        )
+    elif expected_release_label is not None and expected_release != expected_release_label:
+        reasons.append("simulator_safety.release_label does not match the product manifest")
     expected_gate = raw_record.get("gate_passed")
     if type(expected_gate) is not bool:
         reasons.append("simulator_safety.gate_passed must be a boolean")
@@ -2611,9 +2526,7 @@ def _simulator_safety_result(
         reasons.append("simulator_safety gate_passed is false")
     verifier_event = raw_record.get("verifier_event")
     if verifier_event != "simulator_safety_evidence_verified":
-        reasons.append(
-            "simulator_safety.verifier_event must be simulator_safety_evidence_verified"
-        )
+        reasons.append("simulator_safety.verifier_event must be simulator_safety_evidence_verified")
     verifier_exit = raw_record.get("verifier_exit_code")
     if type(verifier_exit) is not int or verifier_exit != 0:
         reasons.append("simulator_safety.verifier_exit_code must be zero")
@@ -2666,8 +2579,7 @@ def _simulator_safety_result(
                 and artifact.get("release_label") != expected_release_label
             ):
                 reasons.append(
-                    "simulator_safety evidence release_label does not match "
-                    "product manifest"
+                    "simulator_safety evidence release_label does not match product manifest"
                 )
             if artifact.get("gate_passed") is not True:
                 reasons.append("simulator_safety evidence gate_passed is not true")
@@ -2689,16 +2601,13 @@ def _simulator_safety_result(
                 if verification.get("runtime_mode") != "sim":
                     reasons.append("simulator_safety verifier runtime_mode is not 'sim'")
                 if verification.get("release_label") != expected_release:
-                    reasons.append(
-                        "simulator_safety verifier release_label does not match binding"
-                    )
+                    reasons.append("simulator_safety verifier release_label does not match binding")
                 if (
                     expected_release_label is not None
                     and verification.get("release_label") != expected_release_label
                 ):
                     reasons.append(
-                        "simulator_safety verifier release_label does not match "
-                        "product manifest"
+                        "simulator_safety verifier release_label does not match product manifest"
                     )
                 if verification.get("gate_passed") is not True:
                     reasons.append("simulator_safety verifier gate_passed is not true")
@@ -2715,9 +2624,7 @@ def _simulator_safety_result(
                     and isinstance(verified_checks, Mapping)
                     and dict(declared_checks) != dict(verified_checks)
                 ):
-                    reasons.append(
-                        "simulator_safety checks do not match verifier output"
-                    )
+                    reasons.append("simulator_safety checks do not match verifier output")
             result["evidence"] = evidence_info
 
     result["passed"] = not reasons
@@ -2776,18 +2683,13 @@ def _actuator_safety_result(
         reasons.append("actuator_safety.evidence_sha256 is missing or invalid")
     expected_event = raw_record.get("event")
     if expected_event != "actuator_safety_software_acceptance_finished":
-        reasons.append(
-            "actuator_safety.event must be actuator_safety_software_acceptance_finished"
-        )
+        reasons.append("actuator_safety.event must be actuator_safety_software_acceptance_finished")
     if raw_record.get("runtime_mode") != "HIL":
         reasons.append("actuator_safety.runtime_mode must be 'HIL'")
     expected_release = raw_record.get("release_label")
     if not isinstance(expected_release, str) or not expected_release.strip():
         reasons.append("actuator_safety.release_label is missing or empty")
-    elif (
-        expected_release_label is not None
-        and expected_release != expected_release_label
-    ):
+    elif expected_release_label is not None and expected_release != expected_release_label:
         reasons.append("actuator_safety.release_label does not match the product manifest")
     expected_gate = raw_record.get("gate_passed")
     if type(expected_gate) is not bool:
@@ -2799,9 +2701,7 @@ def _actuator_safety_result(
     if raw_record.get("physical_outputs_present") is not False:
         reasons.append("actuator_safety.physical_outputs_present must be false")
     if raw_record.get("propulsion_disconnected") != "not_applicable_in_software_fixture":
-        reasons.append(
-            "actuator_safety.propulsion_disconnected must identify the software fixture"
-        )
+        reasons.append("actuator_safety.propulsion_disconnected must identify the software fixture")
     verifier_event = raw_record.get("verifier_event")
     if verifier_event != "actuator_safety_software_evidence_verified":
         reasons.append(
@@ -2866,9 +2766,7 @@ def _actuator_safety_result(
             if artifact.get("software_only") is not True:
                 reasons.append("actuator_safety evidence software_only is not true")
             if artifact.get("physical_outputs_present") is not False:
-                reasons.append(
-                    "actuator_safety evidence physical_outputs_present is not false"
-                )
+                reasons.append("actuator_safety evidence physical_outputs_present is not false")
             if artifact.get("propulsion_disconnected") != "not_applicable_in_software_fixture":
                 reasons.append(
                     "actuator_safety evidence propulsion_disconnected is not the software fixture"
@@ -2891,9 +2789,7 @@ def _actuator_safety_result(
                 if verification.get("runtime_mode") != "HIL":
                     reasons.append("actuator_safety verifier runtime_mode is not 'HIL'")
                 if verification.get("release_label") != expected_release:
-                    reasons.append(
-                        "actuator_safety verifier release_label does not match binding"
-                    )
+                    reasons.append("actuator_safety verifier release_label does not match binding")
                 if (
                     expected_release_label is not None
                     and verification.get("release_label") != expected_release_label
@@ -2983,9 +2879,7 @@ def _simulator_scenario_matrix_result(
     if raw_record.get("schema_version") != 1:
         reasons.append("simulator_scenario_matrix.schema_version must be 1")
     if raw_record.get("event") != "simulator_scenario_matrix_finished":
-        reasons.append(
-            "simulator_scenario_matrix.event must be simulator_scenario_matrix_finished"
-        )
+        reasons.append("simulator_scenario_matrix.event must be simulator_scenario_matrix_finished")
     if raw_record.get("product") != "Multi-Detect":
         reasons.append("simulator_scenario_matrix.product must be 'Multi-Detect'")
     declared_release = raw_record.get("release_label")
@@ -3196,9 +3090,7 @@ def _simulator_combined_result(
         and release_mode_path is not None
         and evidence_path == release_mode_path
     ):
-        reasons.append(
-            "simulator_combined evidence and release-mode paths must be different files"
-        )
+        reasons.append("simulator_combined evidence and release-mode paths must be different files")
 
     if raw_record.get("runtime_mode") != "sim":
         reasons.append("simulator_combined.runtime_mode must be 'sim'")
@@ -3222,9 +3114,7 @@ def _simulator_combined_result(
             reasons.append("simulator_combined evidence file does not exist")
         else:
             actual_sha = _sha256(evidence_path)
-            evidence_info.update(
-                {"sha256": actual_sha, "bytes": evidence_path.stat().st_size}
-            )
+            evidence_info.update({"sha256": actual_sha, "bytes": evidence_path.stat().st_size})
             if (
                 isinstance(expected_sha, str)
                 and _is_sha256(expected_sha)
@@ -3339,38 +3229,26 @@ def _simulator_external_evidence_result(
         try:
             return candidate.resolve()
         except (OSError, RuntimeError) as exc:
-            reasons.append(
-                f"simulator_external_evidence {field} cannot be resolved: {exc}"
-            )
+            reasons.append(f"simulator_external_evidence {field} cannot be resolved: {exc}")
             return None
 
     join_path = resolve_record_path("join_path")
     revalidation_path = resolve_record_path("revalidation_path")
-    if (
-        join_path is not None
-        and revalidation_path is not None
-        and join_path == revalidation_path
-    ):
-        reasons.append(
-            "simulator_external_evidence join and revalidation must be different files"
-        )
+    if join_path is not None and revalidation_path is not None and join_path == revalidation_path:
+        reasons.append("simulator_external_evidence join and revalidation must be different files")
 
     declared_join_sha = raw_record.get("join_sha256")
     declared_revalidation_sha = raw_record.get("revalidation_sha256")
     if not _is_sha256(declared_join_sha):
         reasons.append("simulator_external_evidence.join_sha256 is missing or invalid")
     if not _is_sha256(declared_revalidation_sha):
-        reasons.append(
-            "simulator_external_evidence.revalidation_sha256 is missing or invalid"
-        )
+        reasons.append("simulator_external_evidence.revalidation_sha256 is missing or invalid")
     declared_join_bytes = raw_record.get("join_bytes")
     declared_revalidation_bytes = raw_record.get("revalidation_bytes")
     if type(declared_join_bytes) is not int or declared_join_bytes < 1:
         reasons.append("simulator_external_evidence.join_bytes must be a positive integer")
     if type(declared_revalidation_bytes) is not int or declared_revalidation_bytes < 1:
-        reasons.append(
-            "simulator_external_evidence.revalidation_bytes must be a positive integer"
-        )
+        reasons.append("simulator_external_evidence.revalidation_bytes must be a positive integer")
 
     declared_release = raw_record.get("release_label")
     if not isinstance(declared_release, str) or not declared_release.strip():
@@ -3430,17 +3308,20 @@ def _simulator_external_evidence_result(
         )
         join_gate_passed = join_document.get("gate_passed") is True
         shared = join_document.get("shared")
-        join_shared_boundaries_passed = isinstance(shared, Mapping) and all(
-            shared.get(field) is True
-            for field in (
-                "image_digest_consistent",
-                "release_label_consistent",
-                "truth_free_perception",
-                "hardware_control_disabled",
+        join_shared_boundaries_passed = (
+            isinstance(shared, Mapping)
+            and all(
+                shared.get(field) is True
+                for field in (
+                    "image_digest_consistent",
+                    "release_label_consistent",
+                    "truth_free_perception",
+                    "hardware_control_disabled",
+                )
             )
-        ) and all(
-            shared.get(field) == "not_claimed"
-            for field in ("visual_accuracy", "real_hardware")
+            and all(
+                shared.get(field) == "not_claimed" for field in ("visual_accuracy", "real_hardware")
+            )
         )
         claims = join_document.get("claims")
         join_claims_passed = isinstance(claims, Mapping) and claims == {
@@ -3458,8 +3339,7 @@ def _simulator_external_evidence_result(
             if isinstance(parity_hashes, Mapping) and isinstance(parity_path_value, str):
                 try:
                     normalized_hashes = {
-                        field: str(parity_hashes[field]).lower()
-                        for field in PARITY_FIELDS
+                        field: str(parity_hashes[field]).lower() for field in PARITY_FIELDS
                     }
                 except (KeyError, TypeError):
                     normalized_hashes = {}
@@ -3638,22 +3518,16 @@ def _simulator_external_evidence_result(
                 _is_sha256(declared_revalidation_sha)
                 and actual_sha.lower() != str(declared_revalidation_sha).lower()
             ):
-                reasons.append(
-                    "simulator_external_evidence revalidation SHA-256 does not match"
-                )
+                reasons.append("simulator_external_evidence revalidation SHA-256 does not match")
             if (
                 type(declared_revalidation_bytes) is int
                 and actual_bytes != declared_revalidation_bytes
             ):
-                reasons.append(
-                    "simulator_external_evidence revalidation byte count does not match"
-                )
+                reasons.append("simulator_external_evidence revalidation byte count does not match")
             try:
                 revalidation_document = _load_object(revalidation_path)
             except ValueError as exc:
-                reasons.append(
-                    f"simulator_external_evidence revalidation cannot be loaded: {exc}"
-                )
+                reasons.append(f"simulator_external_evidence revalidation cannot be loaded: {exc}")
         result["revalidation"] = revalidation_info
 
     revalidation_schema_valid = False
@@ -3703,8 +3577,7 @@ def _simulator_external_evidence_result(
                 "reasons": verification.get("reasons"),
             }
             actual_revalidation_fields = {
-                field: revalidation_document.get(field)
-                for field in expected_revalidation_fields
+                field: revalidation_document.get(field) for field in expected_revalidation_fields
             }
             if actual_revalidation_fields != expected_revalidation_fields:
                 reasons.append(
@@ -3734,17 +3607,11 @@ def _simulator_external_evidence_result(
         unknown_checks = sorted(set(declared_checks).difference(_SIMULATOR_EXTERNAL_CHECKS))
         missing_checks = sorted(set(_SIMULATOR_EXTERNAL_CHECKS).difference(declared_checks))
         if unknown_checks:
-            reasons.append(
-                f"unknown simulator_external_evidence check(s): {unknown_checks!r}"
-            )
+            reasons.append(f"unknown simulator_external_evidence check(s): {unknown_checks!r}")
         if missing_checks:
-            reasons.append(
-                f"missing simulator_external_evidence check(s): {missing_checks!r}"
-            )
+            reasons.append(f"missing simulator_external_evidence check(s): {missing_checks!r}")
         if dict(declared_checks) != checks:
-            reasons.append(
-                "simulator_external_evidence checks do not match recomputed checks"
-            )
+            reasons.append("simulator_external_evidence checks do not match recomputed checks")
     if any(value is not True for value in checks.values()):
         reasons.append("simulator_external_evidence checks must all be true")
 
@@ -3800,14 +3667,10 @@ def _simulator_3d_control_result(
     if raw_record.get("deterministic_gate_passed") is not True:
         reasons.append("simulator_3d_control.deterministic_gate_passed must be true")
     if raw_record.get("external_runtime_gate_passed") is not False:
-        reasons.append(
-            "simulator_3d_control.external_runtime_gate_passed must remain false"
-        )
+        reasons.append("simulator_3d_control.external_runtime_gate_passed must remain false")
     for field in ("external_runtime_acceptance", "visual_acceptance", "hardware_acceptance"):
         if raw_record.get(field) != "not_claimed":
-            reasons.append(
-                f"simulator_3d_control.{field} must remain not_claimed"
-            )
+            reasons.append(f"simulator_3d_control.{field} must remain not_claimed")
 
     raw_evidence = raw_record.get("evidence")
     if not isinstance(raw_evidence, list):
@@ -4007,9 +3870,7 @@ def _simulator_scene_stream_set_result(
         result["evidence"] = verification.get("evidence")
         result["checks"] = verification.get("checks")
         if verification.get("event") != "simulator_scene_stream_set_revalidated":
-            reasons.append(
-                "simulator_scene_stream_set verifier returned the wrong event"
-            )
+            reasons.append("simulator_scene_stream_set verifier returned the wrong event")
         if verification.get("gate_passed") is not True:
             verifier_reasons = verification.get("reasons", [])
             if isinstance(verifier_reasons, list):
@@ -4019,9 +3880,7 @@ def _simulator_scene_stream_set_result(
                     if isinstance(reason, str) and reason
                 )
             else:
-                reasons.append(
-                    "simulator_scene_stream_set verifier gate_passed is not true"
-                )
+                reasons.append("simulator_scene_stream_set verifier gate_passed is not true")
     result["passed"] = not reasons and raw_record.get("gate_passed") is True
     return result
 
@@ -4048,19 +3907,13 @@ def _px4_reported_position_response_matrix_result(
     if not isinstance(raw_record, Mapping):
         reasons.append("px4_reported_position_response_matrix must be an object")
         return result
-    unknown = sorted(
-        set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_MATRIX_KEYS)
-    )
+    unknown = sorted(set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_MATRIX_KEYS))
     if unknown:
-        reasons.append(
-            f"unknown px4_reported_position_response_matrix field(s): {unknown!r}"
-        )
+        reasons.append(f"unknown px4_reported_position_response_matrix field(s): {unknown!r}")
     path_value = raw_record.get("evidence_path")
     evidence_path: Path | None = None
     if not isinstance(path_value, str) or not path_value.strip():
-        reasons.append(
-            "px4_reported_position_response_matrix.evidence_path is missing or empty"
-        )
+        reasons.append("px4_reported_position_response_matrix.evidence_path is missing or empty")
     else:
         evidence_path = Path(path_value)
         if not evidence_path.is_absolute():
@@ -4069,13 +3922,9 @@ def _px4_reported_position_response_matrix_result(
     expected_sha = raw_record.get("evidence_sha256")
     expected_bytes = raw_record.get("evidence_bytes")
     if not _is_sha256(expected_sha):
-        reasons.append(
-            "px4_reported_position_response_matrix.evidence_sha256 is invalid"
-        )
+        reasons.append("px4_reported_position_response_matrix.evidence_sha256 is invalid")
     if type(expected_bytes) is not int or expected_bytes < 1:
-        reasons.append(
-            "px4_reported_position_response_matrix.evidence_bytes must be positive"
-        )
+        reasons.append("px4_reported_position_response_matrix.evidence_bytes must be positive")
     expected_values = {
         "schema": "multidetect.px4-reported-position-response-matrix",
         "schema_version": 1,
@@ -4087,20 +3936,14 @@ def _px4_reported_position_response_matrix_result(
     }
     for field, expected in expected_values.items():
         if raw_record.get(field) != expected:
-            reasons.append(
-                f"px4_reported_position_response_matrix.{field} must be {expected!r}"
-            )
+            reasons.append(f"px4_reported_position_response_matrix.{field} must be {expected!r}")
     release_label = raw_record.get("release_label")
     if expected_release_label is not None and release_label != expected_release_label:
-        reasons.append(
-            "px4_reported_position_response_matrix.release_label does not match product"
-        )
+        reasons.append("px4_reported_position_response_matrix.release_label does not match product")
     if not _is_sha256(raw_record.get("matrix_sha256")):
         reasons.append("px4_reported_position_response_matrix.matrix_sha256 is invalid")
     if raw_record.get("vehicle_classes") != ["fixed-wing", "multirotor", "vtol"]:
-        reasons.append(
-            "px4_reported_position_response_matrix.vehicle_classes is incomplete"
-        )
+        reasons.append("px4_reported_position_response_matrix.vehicle_classes is incomplete")
     checks = raw_record.get("checks")
     if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
         reasons.append("px4_reported_position_response_matrix.checks must all be true")
@@ -4134,16 +3977,12 @@ def _px4_reported_position_response_matrix_result(
                 if isinstance(reason, str) and reason
             )
         if verification.get("matrix_sha256") != raw_record.get("matrix_sha256"):
-            reasons.append(
-                "px4_reported_position_response_matrix digest does not match verifier"
-            )
+            reasons.append("px4_reported_position_response_matrix digest does not match verifier")
         verified_checks = verification.get("checks")
         if not isinstance(verified_checks, Mapping) or dict(verified_checks) != dict(
             checks if isinstance(checks, Mapping) else {}
         ):
-            reasons.append(
-                "px4_reported_position_response_matrix checks do not match verifier"
-            )
+            reasons.append("px4_reported_position_response_matrix checks do not match verifier")
     result["passed"] = not reasons
     return result
 
@@ -4170,13 +4009,9 @@ def _px4_reported_position_response_campaign_result(
     if not isinstance(raw_record, Mapping):
         reasons.append("px4_reported_position_response_campaign must be an object")
         return result
-    unknown = sorted(
-        set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_CAMPAIGN_KEYS)
-    )
+    unknown = sorted(set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_CAMPAIGN_KEYS))
     if unknown:
-        reasons.append(
-            f"unknown px4_reported_position_response_campaign field(s): {unknown!r}"
-        )
+        reasons.append(f"unknown px4_reported_position_response_campaign field(s): {unknown!r}")
     path_value = raw_record.get("evidence_path")
     evidence_path: Path | None = None
     if not isinstance(path_value, str) or not path_value.strip():
@@ -4257,6 +4092,225 @@ def _px4_reported_position_response_campaign_result(
     return result
 
 
+def _qgc_operator_visual_acceptance_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+) -> dict[str, Any]:
+    """Reopen the four-mode set of human QGC visual-review records."""
+
+    reasons: list[str] = []
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": reasons,
+        "records": [],
+    }
+    if raw_record is None:
+        reasons.append("qgc_operator_visual_acceptance record is absent")
+        return result
+    if not isinstance(raw_record, Mapping):
+        reasons.append("qgc_operator_visual_acceptance must be an object")
+        return result
+    unknown = sorted(set(raw_record).difference(_QGC_OPERATOR_VISUAL_ACCEPTANCE_KEYS))
+    missing = sorted(_QGC_OPERATOR_VISUAL_ACCEPTANCE_KEYS.difference(raw_record))
+    if unknown:
+        reasons.append(f"unknown qgc_operator_visual_acceptance field(s): {unknown!r}")
+    if missing:
+        reasons.append(f"missing qgc_operator_visual_acceptance field(s): {missing!r}")
+    if raw_record.get("schema") != "multidetect.qgc-operator-visual-acceptance-set":
+        reasons.append("qgc_operator_visual_acceptance schema is invalid")
+    if raw_record.get("schema_version") != 1:
+        reasons.append("qgc_operator_visual_acceptance schema_version is invalid")
+
+    required_modes = raw_record.get("required_modes")
+    covered_modes = raw_record.get("covered_modes")
+    if required_modes != list(REQUIRED_MODES):
+        reasons.append("qgc_operator_visual_acceptance required_modes do not match E7")
+    if not isinstance(covered_modes, list) or any(
+        not isinstance(mode, str) for mode in covered_modes
+    ):
+        reasons.append("qgc_operator_visual_acceptance covered_modes must be strings")
+        covered_modes = []
+
+    raw_entries = raw_record.get("records")
+    if not isinstance(raw_entries, list):
+        reasons.append("qgc_operator_visual_acceptance records must be a list")
+        raw_entries = []
+    observed_modes: list[str] = []
+    seen_paths: set[Path] = set()
+    seen_machine_reports: set[str] = set()
+    seen_screenshots: set[str] = set()
+    entry_results: list[dict[str, Any]] = []
+    for index, entry in enumerate(raw_entries):
+        entry_reasons: list[str] = []
+        entry_result: dict[str, Any] = {
+            "index": index,
+            "passed": False,
+            "reasons": entry_reasons,
+        }
+        if not isinstance(entry, Mapping):
+            entry_reasons.append("entry must be an object")
+            entry_results.append(entry_result)
+            continue
+        unknown_entry = sorted(set(entry).difference(_QGC_OPERATOR_VISUAL_ACCEPTANCE_ENTRY_KEYS))
+        missing_entry = sorted(_QGC_OPERATOR_VISUAL_ACCEPTANCE_ENTRY_KEYS.difference(entry))
+        if unknown_entry:
+            entry_reasons.append(f"unknown field(s): {unknown_entry!r}")
+        if missing_entry:
+            entry_reasons.append(f"missing field(s): {missing_entry!r}")
+        mode_value = entry.get("runtime_mode")
+        mode = mode_value.strip().lower() if isinstance(mode_value, str) else ""
+        entry_result["runtime_mode"] = mode_value
+        if mode not in REQUIRED_MODES:
+            entry_reasons.append("runtime_mode is invalid")
+        elif mode in observed_modes:
+            entry_reasons.append("runtime_mode is duplicated")
+        else:
+            observed_modes.append(mode)
+
+        path_value = entry.get("path")
+        evidence_path: Path | None = None
+        if not isinstance(path_value, str) or not path_value.strip():
+            entry_reasons.append("path is missing or empty")
+        else:
+            evidence_path = Path(path_value)
+            if not evidence_path.is_absolute():
+                evidence_path = manifest_directory / evidence_path
+            if evidence_path.is_symlink():
+                entry_reasons.append("evidence must not be a symbolic link")
+            try:
+                evidence_path = evidence_path.resolve(strict=True)
+            except OSError as exc:
+                entry_reasons.append(f"evidence path cannot be resolved: {exc}")
+                evidence_path = None
+        if evidence_path is not None:
+            if evidence_path in seen_paths:
+                entry_reasons.append("evidence path is duplicated")
+            seen_paths.add(evidence_path)
+        expected_sha = entry.get("sha256")
+        expected_bytes = entry.get("bytes")
+        if not _is_sha256(expected_sha):
+            entry_reasons.append("sha256 is missing or invalid")
+        if (
+            not isinstance(expected_bytes, int)
+            or isinstance(expected_bytes, bool)
+            or expected_bytes < 1
+        ):
+            entry_reasons.append("bytes must be a positive integer")
+        if not _is_sha256(entry.get("review_sha256")):
+            entry_reasons.append("review_sha256 is missing or invalid")
+        if not isinstance(entry.get("reviewer"), str) or not entry["reviewer"].strip():
+            entry_reasons.append("reviewer is missing or empty")
+        if (
+            not isinstance(entry.get("reviewed_at_utc"), str)
+            or not entry["reviewed_at_utc"].strip()
+        ):
+            entry_reasons.append("reviewed_at_utc is missing or empty")
+        if (
+            not isinstance(entry.get("machine_run_id"), str)
+            or not entry["machine_run_id"].strip()
+        ):
+            entry_reasons.append("machine_run_id is missing or empty")
+        for identity_field in (
+            "machine_report_sha256",
+            "screenshot_sha256",
+            "qgc_executable_sha256",
+            "ui_contract_hash",
+        ):
+            if not _is_sha256(entry.get(identity_field)):
+                entry_reasons.append(f"{identity_field} is missing or invalid")
+        machine_report_identity = str(entry.get("machine_report_sha256", ""))
+        screenshot_identity = str(entry.get("screenshot_sha256", ""))
+        if machine_report_identity in seen_machine_reports:
+            entry_reasons.append("machine report is reused across runtime modes")
+        if screenshot_identity in seen_screenshots:
+            entry_reasons.append("screenshot is reused across runtime modes")
+        seen_machine_reports.add(machine_report_identity)
+        seen_screenshots.add(screenshot_identity)
+        if entry.get("gate_passed") is not True:
+            entry_reasons.append("gate_passed is not true")
+
+        if evidence_path is not None and evidence_path.is_file():
+            raw = evidence_path.read_bytes()
+            actual_sha = _sha256(evidence_path)
+            entry_result["path"] = str(evidence_path)
+            entry_result["sha256"] = actual_sha
+            entry_result["bytes"] = len(raw)
+            if isinstance(expected_sha, str) and actual_sha.lower() != expected_sha.lower():
+                entry_reasons.append("evidence SHA-256 does not match")
+            if isinstance(expected_bytes, int) and len(raw) != expected_bytes:
+                entry_reasons.append("evidence byte count does not match")
+            try:
+                artifact = _load_object(evidence_path)
+                verification = verify_qgc_visual_acceptance(evidence_path)
+            except (OSError, UnicodeError, ValueError, TypeError) as exc:
+                entry_reasons.append(f"visual verifier failed: {exc}")
+            else:
+                if artifact.get("runtime_mode") != mode:
+                    entry_reasons.append("runtime_mode does not match evidence")
+                if artifact.get("review_sha256") != entry.get("review_sha256"):
+                    entry_reasons.append("review_sha256 does not match evidence")
+                positive = artifact.get("positive_visual_evidence")
+                if not isinstance(positive, Mapping):
+                    entry_reasons.append("positive_visual_evidence is unavailable")
+                else:
+                    bound_fields = {
+                        "machine_run_id": ("machine_report", "run_id"),
+                        "machine_report_sha256": ("machine_report", "sha256"),
+                        "screenshot_sha256": ("screenshot", "sha256"),
+                        "qgc_executable_sha256": ("qgc_executable", "sha256"),
+                        "ui_contract_hash": ("ui_contract", "ui_contract_hash"),
+                    }
+                    for field, (section_name, value_name) in bound_fields.items():
+                        section = positive.get(section_name)
+                        actual = (
+                            section.get(value_name)
+                            if isinstance(section, Mapping)
+                            else None
+                        )
+                        if actual != entry.get(field):
+                            entry_reasons.append(f"{field} does not match evidence")
+                review = artifact.get("review")
+                if not isinstance(review, Mapping):
+                    entry_reasons.append("evidence review is unavailable")
+                else:
+                    if review.get("reviewer") != entry.get("reviewer"):
+                        entry_reasons.append("reviewer does not match evidence")
+                    if review.get("reviewed_at_utc") != entry.get("reviewed_at_utc"):
+                        entry_reasons.append("reviewed_at_utc does not match evidence")
+                if verification.get("gate_passed") is not True:
+                    entry_reasons.extend(
+                        f"visual verifier: {reason}" for reason in verification.get("reasons", [])
+                    )
+        elif evidence_path is not None:
+            entry_reasons.append("evidence file does not exist")
+        entry_result["passed"] = not entry_reasons
+        entry_results.append(entry_result)
+        reasons.extend(f"records[{index}]: {reason}" for reason in entry_reasons)
+
+    if observed_modes != list(covered_modes):
+        reasons.append("covered_modes do not match record order")
+    complete = observed_modes == list(REQUIRED_MODES)
+    if raw_record.get("complete") is not complete:
+        reasons.append("complete does not match reproduced mode coverage")
+    if raw_record.get("gate_passed") is not complete:
+        reasons.append("gate_passed does not match reproduced mode coverage")
+    if not complete:
+        reasons.append("all four runtime-mode visual reviews are required")
+    result.update(
+        {
+            "records": entry_results,
+            "covered_modes": observed_modes,
+            "required_modes": list(REQUIRED_MODES),
+            "complete": complete,
+            "gate_passed": raw_record.get("gate_passed"),
+            "passed": not reasons,
+        }
+    )
+    return result
+
+
 def _px4_airframe_transaction_result(
     raw_record: object,
     *,
@@ -4311,10 +4365,7 @@ def _px4_airframe_transaction_result(
         try:
             return candidate.resolve()
         except (OSError, RuntimeError) as exc:
-            reasons.append(
-                "px4_airframe_transaction evidence_path cannot be resolved: "
-                f"{exc}"
-            )
+            reasons.append(f"px4_airframe_transaction evidence_path cannot be resolved: {exc}")
             return None
 
     evidence_path = resolve_evidence_path()
@@ -4346,8 +4397,7 @@ def _px4_airframe_transaction_result(
         reasons.append("px4_airframe_transaction.gate_passed is false")
     if raw_record.get("shared_dispatcher") != "compile_executable_mission":
         reasons.append(
-            "px4_airframe_transaction.shared_dispatcher is not "
-            "compile_executable_mission"
+            "px4_airframe_transaction.shared_dispatcher is not compile_executable_mission"
         )
     if raw_record.get("shared_transport") != "in_process_mission_item_int":
         reasons.append(
@@ -4504,9 +4554,7 @@ def _px4_mission_feedback_result(
             expected_release_label=expected_release_label,
         )
     except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
-        result["reasons"].append(
-            f"px4_mission_feedback verifier failed: {exc}"
-        )
+        result["reasons"].append(f"px4_mission_feedback verifier failed: {exc}")
         return result
     result["verification"] = verification
     result["passed"] = verification.get("passed") is True
@@ -4517,13 +4565,9 @@ def _px4_mission_feedback_result(
     ]
     result["checks"] = verification.get("checks")
     result["observations"] = verification.get("observations", [])
-    result["px4_mission_path_hash"] = verification.get(
-        "px4_mission_path_hash"
-    )
+    result["px4_mission_path_hash"] = verification.get("px4_mission_path_hash")
     if not result["passed"] and not result["reasons"]:
-        result["reasons"].append(
-            "px4_mission_feedback verifier gate_passed is not true"
-        )
+        result["reasons"].append("px4_mission_feedback verifier gate_passed is not true")
     return result
 
 
@@ -4668,9 +4712,10 @@ def _model_review_result(
                     bundle_info[field] = actual
                     if raw_record.get(field) != actual:
                         reasons.append(f"model_review.{field} does not match bundle")
-                bundle_info["gate_passed"] = verification.get(
-                    "production_approval_eligible"
-                ) is True and verification.get("passed") is True
+                bundle_info["gate_passed"] = (
+                    verification.get("production_approval_eligible") is True
+                    and verification.get("passed") is True
+                )
                 if expected_gate is True and bundle_info["gate_passed"] is not True:
                     reasons.append("model_review gate_passed does not match verified eligibility")
             else:
@@ -4755,9 +4800,7 @@ def evaluate_release_gate(
     # supplied replay-set binding as authoritative.  A present but pending or
     # tampered binding must fail the evidence gate instead of being ignored.
     if raw_replay_set is not None and not replay_set_result["passed"]:
-        top_reasons.extend(
-            f"replay_set: {reason}" for reason in replay_set_result["reasons"]
-        )
+        top_reasons.extend(f"replay_set: {reason}" for reason in replay_set_result["reasons"])
 
     raw_real_field_link = manifest.get("real_field_link")
     real_field_link_result = _real_field_link_result(
@@ -4770,8 +4813,7 @@ def evaluate_release_gate(
     # switched to the final release.
     if raw_real_field_link is not None and not real_field_link_result["passed"]:
         top_reasons.extend(
-            f"real_field_link: {reason}"
-            for reason in real_field_link_result["reasons"]
+            f"real_field_link: {reason}" for reason in real_field_link_result["reasons"]
         )
 
     raw_real_alert_link = manifest.get("real_alert_link")
@@ -4784,8 +4826,7 @@ def evaluate_release_gate(
     # manifests; the final release branch below requires the record.
     if raw_real_alert_link is not None and not real_alert_link_result["passed"]:
         top_reasons.extend(
-            f"real_alert_link: {reason}"
-            for reason in real_alert_link_result["reasons"]
+            f"real_alert_link: {reason}" for reason in real_alert_link_result["reasons"]
         )
 
     raw_real_target_accuracy = manifest.get("real_target_accuracy")
@@ -4796,13 +4837,9 @@ def evaluate_release_gate(
     # A present accuracy report is authoritative on every channel.  Absence
     # remains backward-compatible for old prerelease manifests, but the final
     # release channel requires a passing, hash-bound report.
-    if (
-        raw_real_target_accuracy is not None
-        and not real_target_accuracy_result["passed"]
-    ):
+    if raw_real_target_accuracy is not None and not real_target_accuracy_result["passed"]:
         top_reasons.extend(
-            f"real_target_accuracy: {reason}"
-            for reason in real_target_accuracy_result["reasons"]
+            f"real_target_accuracy: {reason}" for reason in real_target_accuracy_result["reasons"]
         )
 
     raw_real_target_state_evidence = manifest.get("real_target_state_evidence")
@@ -4827,22 +4864,16 @@ def evaluate_release_gate(
         raw_field_evidence_bundle,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # A present field-evidence binding is authoritative on every channel.
     # Prerelease manifests may retain a valid report whose six strata are
     # still pending, but a stale or tampered report must close the aggregate
     # evidence gate immediately.
-    if (
-        raw_field_evidence_bundle is not None
-        and not field_evidence_bundle_result["passed"]
-    ):
+    if raw_field_evidence_bundle is not None and not field_evidence_bundle_result["passed"]:
         top_reasons.extend(
-            f"field_evidence_bundle: {reason}"
-            for reason in field_evidence_bundle_result["reasons"]
+            f"field_evidence_bundle: {reason}" for reason in field_evidence_bundle_result["reasons"]
         )
 
     raw_simulator_safety = manifest.get("simulator_safety")
@@ -4850,17 +4881,14 @@ def evaluate_release_gate(
         raw_simulator_safety,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # Old prerelease manifests remain readable without this optional binding;
     # an explicitly supplied binding is authoritative and fail-closed.
     if raw_simulator_safety is not None and not simulator_safety_result["passed"]:
         top_reasons.extend(
-            f"simulator_safety: {reason}"
-            for reason in simulator_safety_result["reasons"]
+            f"simulator_safety: {reason}" for reason in simulator_safety_result["reasons"]
         )
 
     raw_actuator_safety = manifest.get("actuator_safety")
@@ -4868,9 +4896,7 @@ def evaluate_release_gate(
         raw_actuator_safety,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # Old prerelease manifests remain readable without this optional binding;
@@ -4878,8 +4904,7 @@ def evaluate_release_gate(
     # fail-closed on every channel.
     if raw_actuator_safety is not None and not actuator_safety_result["passed"]:
         top_reasons.extend(
-            f"actuator_safety: {reason}"
-            for reason in actuator_safety_result["reasons"]
+            f"actuator_safety: {reason}" for reason in actuator_safety_result["reasons"]
         )
 
     raw_simulator_scenario_matrix = manifest.get("simulator_scenario_matrix")
@@ -4887,21 +4912,14 @@ def evaluate_release_gate(
         raw_simulator_scenario_matrix,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
-        require_fault_coverage=(
-            version is not None and version.channel == "release"
-        ),
+        require_fault_coverage=(version is not None and version.channel == "release"),
     )
     # An explicitly supplied matrix binding is authoritative on every
     # channel.  Its source digest and per-airframe summaries are re-verified
     # above; absence remains compatible with older prerelease manifests.
-    if (
-        raw_simulator_scenario_matrix is not None
-        and not simulator_scenario_matrix_result["passed"]
-    ):
+    if raw_simulator_scenario_matrix is not None and not simulator_scenario_matrix_result["passed"]:
         top_reasons.extend(
             f"simulator_scenario_matrix: {reason}"
             for reason in simulator_scenario_matrix_result["reasons"]
@@ -4921,9 +4939,7 @@ def evaluate_release_gate(
             for reason in px4_response_matrix_result["reasons"]
         )
 
-    raw_px4_response_campaign = manifest.get(
-        "px4_reported_position_response_campaign"
-    )
+    raw_px4_response_campaign = manifest.get("px4_reported_position_response_campaign")
     px4_response_campaign_result = _px4_reported_position_response_campaign_result(
         raw_px4_response_campaign,
         manifest_directory=path.parent,
@@ -4937,14 +4953,26 @@ def evaluate_release_gate(
             for reason in px4_response_campaign_result["reasons"]
         )
 
+    raw_qgc_operator_visual_acceptance = manifest.get("qgc_operator_visual_acceptance")
+    qgc_operator_visual_acceptance_result = _qgc_operator_visual_acceptance_result(
+        raw_qgc_operator_visual_acceptance,
+        manifest_directory=path.parent,
+    )
+    if (
+        raw_qgc_operator_visual_acceptance is not None
+        and not qgc_operator_visual_acceptance_result["passed"]
+    ):
+        top_reasons.extend(
+            f"qgc_operator_visual_acceptance: {reason}"
+            for reason in qgc_operator_visual_acceptance_result["reasons"]
+        )
+
     raw_simulator_scene_stream_set = manifest.get("simulator_scene_stream_set")
     simulator_scene_stream_set_result = _simulator_scene_stream_set_result(
         raw_simulator_scene_stream_set,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # An explicitly supplied scene-stream binding is authoritative on every
@@ -4964,9 +4992,7 @@ def evaluate_release_gate(
         raw_simulator_combined,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # An explicitly supplied combined-SIM binding is authoritative on every
@@ -4974,8 +5000,7 @@ def evaluate_release_gate(
     # claims must remain valid after the manifest is written.
     if raw_simulator_combined is not None and not simulator_combined_result["passed"]:
         top_reasons.extend(
-            f"simulator_combined: {reason}"
-            for reason in simulator_combined_result["reasons"]
+            f"simulator_combined: {reason}" for reason in simulator_combined_result["reasons"]
         )
 
     raw_simulator_external = manifest.get("simulator_external_evidence")
@@ -4983,9 +5008,7 @@ def evaluate_release_gate(
         raw_simulator_external,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # An explicitly supplied external runtime/live-AI binding is authoritative
@@ -5002,9 +5025,7 @@ def evaluate_release_gate(
         raw_simulator_3d_control,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # An explicitly supplied three-airframe binding is authoritative on every
@@ -5012,8 +5033,7 @@ def evaluate_release_gate(
     # the final channel requires all three deterministic records.
     if raw_simulator_3d_control is not None and not simulator_3d_control_result["passed"]:
         top_reasons.extend(
-            f"simulator_3d_control: {reason}"
-            for reason in simulator_3d_control_result["reasons"]
+            f"simulator_3d_control: {reason}" for reason in simulator_3d_control_result["reasons"]
         )
 
     raw_px4_airframe_transaction = manifest.get("px4_airframe_transaction")
@@ -5021,18 +5041,13 @@ def evaluate_release_gate(
         raw_px4_airframe_transaction,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # An explicitly supplied three-airframe binding is authoritative on every
     # channel.  Its source JSON and durable journals are re-opened above, so
     # a stale or edited journal can never be accepted by the aggregate gate.
-    if (
-        raw_px4_airframe_transaction is not None
-        and not px4_airframe_transaction_result["passed"]
-    ):
+    if raw_px4_airframe_transaction is not None and not px4_airframe_transaction_result["passed"]:
         top_reasons.extend(
             f"px4_airframe_transaction: {reason}"
             for reason in px4_airframe_transaction_result["reasons"]
@@ -5043,20 +5058,14 @@ def evaluate_release_gate(
         raw_px4_mission_feedback,
         manifest_directory=path.parent,
         expected_release_label=(
-            version.release_label
-            if version is not None
-            else manifest.get("release_label")
+            version.release_label if version is not None else manifest.get("release_label")
         ),
     )
     # A supplied matrix is authoritative on every channel.  The final channel
     # additionally requires all six HIL/REAL airframe observations.
-    if (
-        raw_px4_mission_feedback is not None
-        and not px4_mission_feedback_result["passed"]
-    ):
+    if raw_px4_mission_feedback is not None and not px4_mission_feedback_result["passed"]:
         top_reasons.extend(
-            f"px4_mission_feedback: {reason}"
-            for reason in px4_mission_feedback_result["reasons"]
+            f"px4_mission_feedback: {reason}" for reason in px4_mission_feedback_result["reasons"]
         )
 
     raw_model_review = manifest.get("model_review")
@@ -5068,9 +5077,7 @@ def evaluate_release_gate(
     # pending or tampered bundle therefore closes the aggregate gate instead
     # of being silently treated as advisory metadata.
     if raw_model_review is not None and not model_review_result["passed"]:
-        top_reasons.extend(
-            f"model_review: {reason}" for reason in model_review_result["reasons"]
-        )
+        top_reasons.extend(f"model_review: {reason}" for reason in model_review_result["reasons"])
 
     mode_results: dict[str, Any] = {}
     for mode in REQUIRED_MODES:
@@ -5093,9 +5100,7 @@ def evaluate_release_gate(
         if len(px4_hashes) == 1:
             expected_px4_hash = next(iter(px4_hashes))
             if px4_mission_feedback_result.get("px4_mission_path_hash") != expected_px4_hash:
-                reason = (
-                    "px4_mission_path_hash does not match the four-mode E7 parity"
-                )
+                reason = "px4_mission_path_hash does not match the four-mode E7 parity"
                 if reason not in px4_mission_feedback_result["reasons"]:
                     px4_mission_feedback_result["reasons"].append(reason)
                 checks = px4_mission_feedback_result.get("checks")
@@ -5123,31 +5128,23 @@ def evaluate_release_gate(
             else None
         )
         mode_parity: dict[str, str] | None = None
-        mode_parity_records = [
-            result.get("parity") for result in mode_results.values()
-        ]
+        mode_parity_records = [result.get("parity") for result in mode_results.values()]
         if all(isinstance(record, Mapping) for record in mode_parity_records):
             first = mode_parity_records[0]
             if isinstance(first, Mapping) and all(
                 record == first for record in mode_parity_records
             ):
                 mode_parity = {
-                    field: str(first[field]).lower()
-                    for field in PARITY_FIELDS
-                    if field in first
+                    field: str(first[field]).lower() for field in PARITY_FIELDS if field in first
                 }
         if (
             mode_parity is not None
             and isinstance(external_hashes, Mapping)
-            and {
-                field: str(external_hashes.get(field)).lower()
-                for field in PARITY_FIELDS
-            }
+            and {field: str(external_hashes.get(field)).lower() for field in PARITY_FIELDS}
             != mode_parity
         ):
             reason = (
-                "simulator_external_evidence parity hashes do not match the "
-                "four-mode E7 parity"
+                "simulator_external_evidence parity hashes do not match the four-mode E7 parity"
             )
             if reason not in simulator_external_result["reasons"]:
                 simulator_external_result["reasons"].append(reason)
@@ -5169,8 +5166,10 @@ def evaluate_release_gate(
             top_reasons.append(f"shared parity field {field} is not identical across all modes")
 
     mode_reasons = [reason for result in mode_results.values() for reason in result["reasons"]]
-    gate_passed = not top_reasons and not mode_reasons and all(
-        bool(result.get("passed")) for result in mode_results.values()
+    gate_passed = (
+        not top_reasons
+        and not mode_reasons
+        and all(bool(result.get("passed")) for result in mode_results.values())
     )
 
     release_reasons = list(top_reasons) + list(mode_reasons)
@@ -5196,8 +5195,7 @@ def evaluate_release_gate(
                 )
             elif not real_field_link_result["passed"]:
                 release_reasons.extend(
-                    f"real_field_link: {reason}"
-                    for reason in real_field_link_result["reasons"]
+                    f"real_field_link: {reason}" for reason in real_field_link_result["reasons"]
                 )
             else:
                 # A final REAL claim must prove which local interface reached
@@ -5246,8 +5244,7 @@ def evaluate_release_gate(
                 )
             elif not real_alert_link_result["passed"]:
                 release_reasons.extend(
-                    f"real_alert_link: {reason}"
-                    for reason in real_alert_link_result["reasons"]
+                    f"real_alert_link: {reason}" for reason in real_alert_link_result["reasons"]
                 )
             if not real_target_accuracy_result["present"]:
                 release_reasons.append(
@@ -5277,13 +5274,10 @@ def evaluate_release_gate(
                     for reason in field_evidence_bundle_result["reasons"]
                 )
             if not simulator_safety_result["present"]:
-                release_reasons.append(
-                    "final release requires a hash-bound SIM S4 safety evidence"
-                )
+                release_reasons.append("final release requires a hash-bound SIM S4 safety evidence")
             elif not simulator_safety_result["passed"]:
                 release_reasons.extend(
-                    f"simulator_safety: {reason}"
-                    for reason in simulator_safety_result["reasons"]
+                    f"simulator_safety: {reason}" for reason in simulator_safety_result["reasons"]
                 )
             if not actuator_safety_result["present"]:
                 release_reasons.append(
@@ -5291,8 +5285,7 @@ def evaluate_release_gate(
                 )
             elif not actuator_safety_result["passed"]:
                 release_reasons.extend(
-                    f"actuator_safety: {reason}"
-                    for reason in actuator_safety_result["reasons"]
+                    f"actuator_safety: {reason}" for reason in actuator_safety_result["reasons"]
                 )
             if not simulator_scenario_matrix_result["present"]:
                 release_reasons.append(
@@ -5322,6 +5315,16 @@ def evaluate_release_gate(
                 release_reasons.extend(
                     f"px4_reported_position_response_campaign: {reason}"
                     for reason in px4_response_campaign_result["reasons"]
+                )
+            if not qgc_operator_visual_acceptance_result["present"]:
+                release_reasons.append(
+                    "final release requires source-bound human QGC visual reviews "
+                    "for REPLAY, SIM, HIL and REAL"
+                )
+            elif not qgc_operator_visual_acceptance_result["passed"]:
+                release_reasons.extend(
+                    f"qgc_operator_visual_acceptance: {reason}"
+                    for reason in qgc_operator_visual_acceptance_result["reasons"]
                 )
             if not simulator_combined_result["present"]:
                 release_reasons.append(
@@ -5399,9 +5402,7 @@ def evaluate_release_gate(
         "event": "multidetect_release_gate_evaluated",
         "schema_version": RELEASE_GATE_SCHEMA_VERSION,
         "manifest_path": str(path),
-        "product_version": (
-            _product_version_mapping(version) if version is not None else None
-        ),
+        "product_version": (_product_version_mapping(version) if version is not None else None),
         "version_error": version_error,
         "required_modes": list(REQUIRED_MODES),
         "modes": mode_results,
@@ -5427,6 +5428,8 @@ def evaluate_release_gate(
         "px4_reported_position_response_matrix_required_for_release": True,
         "px4_reported_position_response_campaign": px4_response_campaign_result,
         "px4_reported_position_response_campaign_required_for_release": True,
+        "qgc_operator_visual_acceptance": qgc_operator_visual_acceptance_result,
+        "qgc_operator_visual_acceptance_required_for_release": True,
         "simulator_combined": simulator_combined_result,
         "simulator_combined_required_for_release": True,
         "simulator_external_evidence": simulator_external_result,

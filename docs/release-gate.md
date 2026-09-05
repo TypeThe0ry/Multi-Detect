@@ -4816,14 +4816,19 @@ $py = '.\ground-control\MultiDetectGCS\.venv\Scripts\python.exe'
 文件、SHA 不匹配、运行模式不匹配、parity 不一致或任一状态未通过都会保留具体原因，
 并让严格模式以退出码 `2` 结束。
 
-## v64 人工视觉记录的门禁边界
+## v65 四模式人工视觉记录的门禁边界
 
 `multidetect-qgc-visual-review` 现可生成并独立复验 source-bound 人工视觉记录：它绑定 exact
 PID/HWND machine report、PNG、QGC EXE、当前 `ui_contract_hash`，并要求近地平线负控至少 5 帧
 有检测但产生 0 个目标坐标。12 项人工 checklist、reviewer、UTC、decision 和固定 attestation 都会
 进入内容摘要；任一 bound file 漂移都会使 verifier fail-closed。
 
-该记录当前是 E7 的上游候选证据，还没有自动写入四模式 mode status。只有操作者在原始 PNG 上完成
-逐项点验、生成 accepted record、独立 verifier 通过，并完成 manifest/schema 接线评审后，才允许将
-对应模式的 `operator_visual_acceptance` 从 `not_claimed` 改为 `passed`。内容摘要不等同密码学身份签名，
-也不提升硬件、HIL、REAL 或实飞状态。
+每份记录必须显式声明 `runtime_mode` 并与 machine report 一致。E7 已提供可重复的
+`--qgc-operator-visual-acceptance-evidence` 输入，manifest 固定按 replay/sim/hil/real 排序；evaluator
+逐份重开记录和绑定源，验证记录 SHA/bytes、review digest、reviewer/time、machine run/report、截图、
+QGC EXE 与 UI contract。最终 release 必须覆盖 4/4 模式，并拒绝重复 mode、重复 evidence、跨模式复用
+machine report 或相同 screenshot。
+
+当前没有 accepted record，故 E7 集合为 `present=false/passed=false`。v61 PNG 只属于 HIL 机器捕获，
+不能重复用于 REPLAY/SIM/REAL。只有四模式各自完成独立捕获、人工点验和 verifier 后，才能关闭这项
+最终发布门；内容摘要不等同密码学身份签名，也不提升硬件、HIL、REAL 或实飞状态。

@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "schema_version", "event", "review", "checklist",
+    "schema", "schema_version", "event", "runtime_mode", "review", "checklist",
     "positive_visual_evidence", "negative_geolocation_control", "claim_boundary",
     "gate_passed", "reasons", "review_sha256"
   ],
@@ -13,6 +13,7 @@
     "schema": {"const": "multidetect.qgc-operator-visual-acceptance"},
     "schema_version": {"const": 1},
     "event": {"const": "qgc_operator_visual_acceptance"},
+    "runtime_mode": {"enum": ["replay", "sim", "hil", "real"]},
     "review": {"$ref": "#/$defs/review"},
     "checklist": {"$ref": "#/$defs/checklist"},
     "positive_visual_evidence": {"$ref": "#/$defs/positiveEvidence"},
@@ -90,7 +91,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "path", "bytes", "sha256", "event", "run_id", "qgc_pid",
+        "path", "bytes", "sha256", "event", "runtime_mode", "run_id", "qgc_pid",
         "qgc_hwnd_exact_client"
       ],
       "properties": {
@@ -98,6 +99,7 @@
         "bytes": {"type": "integer", "minimum": 1},
         "sha256": {"$ref": "#/$defs/sha256"},
         "event": {"const": "px4_sitl_qgc_operator_acceptance"},
+        "runtime_mode": {"enum": ["replay", "sim", "hil", "real"]},
         "run_id": {"type": "string", "minLength": 1},
         "qgc_pid": {"type": "integer", "minimum": 1},
         "qgc_hwnd_exact_client": {"type": "object"}

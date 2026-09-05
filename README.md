@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v64：原生 QGC 人工视觉验收合同、负控绑定与独立复验就绪，人工签字仍待完成 |
+| 当前工程迭代 | v65：E7 已强制要求 REPLAY/SIM/HIL/REAL 四份独立 QGC 人工视觉记录；当前 0/4，发布保持阻断 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -193,6 +193,16 @@ fail-closed。`review_sha256` 是内容完整性摘要，不冒充电子身份�
 先复制并逐项检查 [`configs/qgc-visual-review-checklist.json`](configs/qgc-visual-review-checklist.json)，
 再按 [QGC Windows 发布说明](docs/qgc-windows-release.md)生成记录。人工确认完成并通过独立 verifier
 之前，E7 的 `operator_visual_acceptance` 继续保持 `not_claimed`。
+
+### v65 四模式人工视觉证据正式接入 E7
+
+每份人工记录现在必须声明并匹配机器报告中的 `runtime_mode`。E7 writer 接受可重复传入的
+`--qgc-operator-visual-acceptance-evidence`，逐份重开所有绑定源并按固定顺序汇总
+`REPLAY / SIM / HIL / REAL`；缺一模式、重复 mode、复用同一 machine report 或相同 screenshot、
+记录/图片/EXE/parity 漂移都会 fail-closed。最终 release channel 必须取得 4/4 独立通过记录。
+
+当前 v61 exact PID/HWND 截图只证明 HIL 机器渲染，不能复制为其他三个模式。仓库当前没有人工
+accepted record，E7 中该集合为 `present=false/passed=false`，所以没有把人工验收状态提前改成通过。
 
 ### MultiDetectGCS
 

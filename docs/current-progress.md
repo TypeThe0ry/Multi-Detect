@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v64 工作树）
+最后更新：2026-09-05（v65 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `0a33fe4765af4a08c60c48502e92c8d90461f11e`（当前工作树变更前领先远端 8 个提交）。
+本地 `main` 提交 `e5d4fc208f3cb7b6185955683d7e246c708879a9`（当前工作树变更前领先远端 9 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -21,11 +21,28 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 通过同一 AI/MAVLink 路径驱动 disposable PX4/Gazebo，以 `GLOBAL_POSITION_INT` 证明实际位移，并将
 可重放的三机型矩阵正式接入 E7。v63 又完成每机型两次正常响应与三种显式故障，共 15 份外部
 PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7。v64 新增 source-bound QGC 人工视觉
-review 合同、12 项 checklist、0 假点负控和独立 verifier；合同已就绪，但人工签字和现场证据仍未完成。
+review 合同、12 项 checklist、0 假点负控和独立 verifier。v65 已把它接入 E7，并强制要求
+REPLAY/SIM/HIL/REAL 各自独立的机器来源与人工记录；当前仍是 0/4，人工签字和现场证据未完成。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v65 本轮已收口
+
+- 人工记录新增强制 `runtime_mode`，且必须与绑定 machine report 一致；旧 v61 图只属于 HIL，不能
+  冒充 REPLAY/SIM/REAL。
+- E7 manifest writer/evaluator/schema/CLI/wrapper 已接入 `qgc_operator_visual_acceptance` 四模式集合；
+  每次评估会重新打开记录和全部源文件，复算 review digest、source identity 与 verifier 结果。
+- 集合必须按 `replay/sim/hil/real` 覆盖 4/4；重复 mode、重复记录、复用 machine report 或相同
+  screenshot、文件篡改和任一缺失均 fail-closed。当前 accepted records 为 0/4，因此集合
+  `present=false/passed=false`，总发布门继续关闭。
+- release-gate schema 改动使 `px4_mission_path_hash` 更新为
+  `F0804FEB609A9CBBBCE6E3932ED77BD7852C9AF71BDB612A76BBD56EAD12247A`；matrix、campaign、external
+  join/revalidation 与当前 E7 已从不可变源按新 parity 重建并独立复验通过。
+- 全仓 3,282 tests：`3281 passed, 1 skipped, 0 failed, 0 errors`；JUnit 477,082 bytes，SHA-256
+  `C893DDEDEE6A07F659F354C0C3DD13214DFA81014F08EEC380F977ED4C77EE7A`；Ruff、compileall、全部 JSON
+  Schema、PowerShell parser、E7 wrapper 与 campaign/matrix verifier 通过。
 
 ## v64 本轮已收口
 

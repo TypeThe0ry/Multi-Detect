@@ -2,13 +2,16 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 QGC 人工视觉验收合同收口（v64）
+## 当前 pre.8 QGC 四模式人工视觉 E7 收口（v65）
 
 - [x] 将 exact PID/HWND 机器报告、PNG、QGC EXE 和当前 `ui_contract_hash` 绑定为可复验输入；
 - [x] 12 项人工可见性 checklist、明确 reviewer/UTC/decision/attestation 和内容摘要完成；
 - [x] 近地平线负控必须至少 5 帧有检测、全部 range invalid 且 0 个假坐标；
 - [x] 严格 JSON Schema、独立 verifier、CLI、模板和篡改/缺项/拒绝回归完成；
-- [ ] 操作者逐项复核 v61 PNG 并生成 accepted record；通过评审后再把该记录接入 E7。
+- [x] E7 writer/evaluator/schema/CLI/wrapper 接入 source-bound 人工记录集合，严格要求
+  REPLAY/SIM/HIL/REAL 四模式各一份且禁止复用 machine report/screenshot；
+- [ ] 为 REPLAY、SIM、HIL、REAL 分别完成独立机器捕获和人工逐项复核（当前 0/4）；v61 PNG 只可作为
+  HIL 候选输入，不能重复用于其他模式。
 
 ## pre.8 三机型 PX4 动态响应与故障 campaign 收口（v63）
 

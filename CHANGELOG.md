@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v65 四模式 QGC 人工视觉 E7 门（2026-09-05）
+
+- 单份视觉记录新增强制 `runtime_mode` 并复验 machine report 的模式身份；v61 exact PID/HWND 捕获只
+  归属 HIL，不能冒充其他模式。
+- E7 writer/evaluator/schema/CLI/wrapper 新增 `qgc_operator_visual_acceptance` 集合。最终 release 要求
+  replay/sim/hil/real 各一份独立通过记录；重复 mode/evidence、复用 machine report 或相同 screenshot、
+  任一源漂移都会 fail-closed。
+- 当前没有人工 accepted record，集合保持 `present=false/passed=false`，现有 32 条发布阻断不减少。
+- `px4_mission_path_hash` 更新为
+  `F0804FEB609A9CBBBCE6E3932ED77BD7852C9AF71BDB612A76BBD56EAD12247A`；matrix、campaign、external
+  join/revalidation 和当前 E7 均按新 parity 重建并独立复验通过。
+- 全仓 3,282 tests：`3281 passed, 1 skipped, 0 failed, 0 errors`；JUnit 477,082 bytes、SHA-256
+  `C893DDEDEE6A07F659F354C0C3DD13214DFA81014F08EEC380F977ED4C77EE7A`。Ruff、compileall、Schema、
+  PowerShell wrapper 与 E7/campaign/matrix 独立复验通过。
+
 ### v0.3.0-pre.8 v64 QGC 人工视觉验收合同（2026-09-05）
 
 - 新增 `multidetect.qgc_visual_acceptance` 与 `multidetect-qgc-visual-review` CLI；人工 review 绑定 exact

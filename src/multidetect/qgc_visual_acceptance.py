@@ -48,6 +48,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "schema",
         "schema_version",
         "event",
+        "runtime_mode",
         "review",
         "checklist",
         "positive_visual_evidence",
@@ -172,6 +173,7 @@ def _machine_binding(
     executable_path: Path,
     parity_path: Path,
     root: Path,
+    expected_runtime_mode: str,
 ) -> tuple[dict[str, object], dict[str, bool]]:
     machine, machine_raw = _load_object(machine_path, label="machine capture report")
     screenshot_raw, screenshot_identity = _file_identity(screenshot_path)
@@ -199,10 +201,20 @@ def _machine_binding(
     )
     current_parity = _mapping(parity.get("parity", parity), label="current release parity")
 
+    machine_mode_value = machine.get("runtime_mode")
+    if not isinstance(machine_mode_value, str):
+        machine_mode_value = qgc.get("runtime_mode")
+    if not isinstance(machine_mode_value, str) and qgc.get("isolated_hil_cli") is True:
+        machine_mode_value = "hil"
+    machine_mode = (
+        machine_mode_value.strip().lower() if isinstance(machine_mode_value, str) else None
+    )
+
     capture_path_value = capture_file.get("path")
     qgc_path_value = qgc.get("executable")
     checks = {
         "machine_event": machine.get("event") == "px4_sitl_qgc_operator_acceptance",
+        "runtime_mode_matches": machine_mode == expected_runtime_mode,
         "machine_gate": assertions.get("all_passed") is True,
         "capture_bound_to_pid": assertions.get("native_visual_capture_bound_to_acceptance_pid")
         is True,
@@ -229,6 +241,7 @@ def _machine_binding(
             "bytes": len(machine_raw),
             "sha256": _sha256_bytes(machine_raw),
             "event": machine.get("event"),
+            "runtime_mode": machine_mode,
             "run_id": machine.get("run_id"),
             "qgc_pid": capture.get("qgc_pid"),
             "qgc_hwnd_exact_client": capture.get("exact_client_rect_screen"),
@@ -313,6 +326,7 @@ def create_record(
     reviewed_at_utc: str,
     checklist: Mapping[str, object],
     decision: str,
+    runtime_mode: str,
     notes: str = "",
 ) -> dict[str, Any]:
     """Build a source-bound human visual-review record without writing it."""
@@ -326,6 +340,9 @@ def create_record(
     normalized_decision = decision.strip().lower()
     if normalized_decision not in {"accepted", "rejected"}:
         raise QgcVisualAcceptanceError("decision must be accepted or rejected")
+    normalized_mode = runtime_mode.strip().lower()
+    if normalized_mode not in {"replay", "sim", "hil", "real"}:
+        raise QgcVisualAcceptanceError("runtime_mode must be replay, sim, hil or real")
     normalized_checklist = _normalise_checklist(checklist)
     machine_binding, machine_checks = _machine_binding(
         Path(machine_report).expanduser().resolve(),
@@ -333,6 +350,7 @@ def create_record(
         Path(qgc_executable).expanduser().resolve(),
         Path(release_parity).expanduser().resolve(),
         root,
+        normalized_mode,
     )
     negative_binding, negative_checks = _negative_control_binding(
         Path(negative_control).expanduser().resolve(), root
@@ -344,6 +362,7 @@ def create_record(
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
         "event": "qgc_operator_visual_acceptance",
+        "runtime_mode": normalized_mode,
         "review": {
             "reviewer": reviewer_name,
             "reviewed_at_utc": _parse_utc(reviewed_at_utc),
@@ -389,12 +408,33 @@ def _bound_file_matches(root: Path, record: Mapping[str, Any]) -> bool:
     return len(raw) == expected_bytes and _sha256_bytes(raw) == expected_sha
 
 
-def verify_record(path: str | Path, *, repository_root: str | Path) -> dict[str, object]:
+def _discover_repository_root(evidence_path: Path, document: Mapping[str, Any]) -> Path:
+    positive = _mapping(document.get("positive_visual_evidence"), label="positive evidence")
+    parity = _mapping(positive.get("ui_contract"), label="UI contract binding")
+    relative_value = parity.get("path")
+    if not isinstance(relative_value, str) or not relative_value.strip():
+        raise QgcVisualAcceptanceError("UI contract binding path is unavailable")
+    for candidate in (evidence_path.parent, *evidence_path.parents):
+        resolved = candidate.resolve()
+        if (resolved / relative_value).is_file():
+            return resolved
+    raise QgcVisualAcceptanceError(
+        "repository root cannot be discovered from the visual acceptance record"
+    )
+
+
+def verify_record(
+    path: str | Path, *, repository_root: str | Path | None = None
+) -> dict[str, object]:
     """Reopen every bound source and reproduce the review record."""
 
-    root = Path(repository_root).expanduser().resolve()
     evidence_path = Path(path).expanduser().resolve()
     document, _ = _load_object(evidence_path, label="visual acceptance record")
+    root = (
+        Path(repository_root).expanduser().resolve()
+        if repository_root is not None
+        else _discover_repository_root(evidence_path, document)
+    )
     review = _mapping(document.get("review"), label="review")
     checklist = _normalise_checklist(_mapping(document.get("checklist"), label="checklist"))
     positive = _mapping(document.get("positive_visual_evidence"), label="positive evidence")
@@ -442,6 +482,7 @@ def verify_record(path: str | Path, *, repository_root: str | Path) -> dict[str,
             (root / str(executable_record.get("path", ""))).resolve(),
             (root / str(parity_record.get("path", ""))).resolve(),
             root,
+            str(document.get("runtime_mode", "")),
         )
         negative_binding, negative_checks = _negative_control_binding(
             (root / str(negative.get("path", ""))).resolve(), root
@@ -490,12 +531,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--reviewed-at-utc", required=True)
     create.add_argument("--checklist", required=True, type=Path)
     create.add_argument("--decision", required=True, choices=("accepted", "rejected"))
+    create.add_argument("--runtime-mode", required=True, choices=("replay", "sim", "hil", "real"))
     create.add_argument("--notes", default="")
     create.add_argument("--out", required=True, type=Path)
 
     verify = subparsers.add_parser("verify", help="reopen and verify a human review")
     verify.add_argument("evidence", type=Path)
-    verify.add_argument("--repository-root", type=Path, default=Path.cwd())
+    verify.add_argument("--repository-root", type=Path)
     return parser
 
 
@@ -518,6 +560,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 reviewed_at_utc=args.reviewed_at_utc,
                 checklist=_load_checklist(args.checklist),
                 decision=args.decision,
+                runtime_mode=args.runtime_mode,
                 notes=args.notes,
             )
             output = args.out.expanduser().resolve()

@@ -15,6 +15,11 @@ from multidetect.qgc_visual_acceptance import (
     main,
     verify_record,
 )
+from multidetect.release_gate import _qgc_operator_visual_acceptance_result
+from multidetect.release_gate_manifest import (
+    ReleaseGateManifestError,
+    _qgc_operator_visual_acceptance_record,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,26 +29,28 @@ def _write_json(path: Path, document: object) -> None:
     path.write_text(json.dumps(document, indent=2), encoding="utf-8")
 
 
-def _fixture(tmp_path: Path) -> dict[str, Path]:
-    screenshot = tmp_path / "artifacts" / "qgc.png"
+def _fixture(tmp_path: Path, runtime_mode: str = "hil") -> dict[str, Path]:
+    screenshot = tmp_path / "artifacts" / runtime_mode / "qgc.png"
     screenshot.parent.mkdir(parents=True)
-    screenshot.write_bytes(b"\x89PNG\r\n\x1a\nvisual-pixels")
-    executable = tmp_path / "build" / "MultiDetectGCS.exe"
+    screenshot.write_bytes(b"\x89PNG\r\n\x1a\nvisual-pixels-" + runtime_mode.encode("ascii"))
+    executable = tmp_path / "build" / runtime_mode / "MultiDetectGCS.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ\x00visual-qgc")
     parity = tmp_path / "configs" / "release-parity.json"
     ui_hash = "1" * 64
     _write_json(parity, {"ui_contract_hash": ui_hash})
 
-    machine = tmp_path / "artifacts" / "machine.json"
+    machine = tmp_path / "artifacts" / runtime_mode / "machine.json"
     _write_json(
         machine,
         {
             "event": "px4_sitl_qgc_operator_acceptance",
-            "run_id": "visual-test-1",
+            "runtime_mode": runtime_mode,
+            "run_id": f"visual-test-{runtime_mode}",
             "qgc": {
                 "executable": str(executable),
                 "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                "isolated_hil_cli": True,
                 "native_visual_machine_capture": {
                     "qgc_pid": 1234,
                     "exact_client_rect_screen": {"width": 1600, "height": 900},
@@ -68,7 +75,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
             },
         },
     )
-    negative = tmp_path / "artifacts" / "negative.json"
+    negative = tmp_path / "artifacts" / runtime_mode / "negative.json"
     frames = [
         {
             "detections": [{"label": "car"}],
@@ -96,6 +103,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
         "parity": parity,
         "machine": machine,
         "negative": negative,
+        "runtime_mode": runtime_mode,
     }
 
 
@@ -111,6 +119,7 @@ def _accepted(files: dict[str, Path]) -> dict[str, object]:
         reviewed_at_utc="2026-09-05T14:00:00Z",
         checklist={name: True for name in REQUIRED_CHECKS},
         decision="accepted",
+        runtime_mode=str(files["runtime_mode"]),
         notes="all controls readable",
     )
 
@@ -186,6 +195,7 @@ def test_incomplete_checklist_is_rejected(tmp_path: Path) -> None:
             reviewed_at_utc="2026-09-05T14:00:00Z",
             checklist=checklist,
             decision="accepted",
+            runtime_mode="hil",
         )
     except QgcVisualAcceptanceError as exc:
         assert "checklist keys must match exactly" in str(exc)
@@ -206,6 +216,7 @@ def test_rejected_decision_writes_closed_record(tmp_path: Path) -> None:
         reviewed_at_utc="2026-09-05T14:00:00Z",
         checklist=checklist_template(),
         decision="rejected",
+        runtime_mode="hil",
     )
     assert document["gate_passed"] is False
     assert set(document["reasons"]) == {"decision_accepted", "checklist_complete"}
@@ -215,3 +226,169 @@ def test_template_cli_is_fail_closed(tmp_path: Path) -> None:
     output = tmp_path / "checklist.json"
     assert main(["template", "--out", str(output)]) == 0
     assert json.loads(output.read_text(encoding="utf-8")) == checklist_template()
+
+
+def _four_mode_records(tmp_path: Path) -> list[Path]:
+    records: list[Path] = []
+    for mode in ("replay", "sim", "hil", "real"):
+        files = _fixture(tmp_path, mode)
+        evidence = tmp_path / "artifacts" / mode / "visual-review.json"
+        _write_json(evidence, _accepted(files))
+        records.append(evidence)
+    return records
+
+
+def test_four_mode_release_gate_binding_is_reproducible(tmp_path: Path) -> None:
+    records = _four_mode_records(tmp_path)
+    aggregate = _qgc_operator_visual_acceptance_record(
+        records,
+        output_identity=(tmp_path / "release-gate.json").resolve(),
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert aggregate["complete"] is True
+    assert aggregate["gate_passed"] is True
+    assert aggregate["covered_modes"] == ["replay", "sim", "hil", "real"]
+
+    result = _qgc_operator_visual_acceptance_result(
+        aggregate,
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert result["passed"] is True
+    assert result["complete"] is True
+    assert all(record["passed"] for record in result["records"])
+
+    release_schema = json.loads(
+        (ROOT / "configs/schemas/release-gate-manifest.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    aggregate_schema = {
+        "$schema": release_schema["$schema"],
+        "$ref": "#/$defs/qgcOperatorVisualAcceptanceSetRecord",
+        "$defs": release_schema["$defs"],
+    }
+    Draft202012Validator.check_schema(aggregate_schema)
+    Draft202012Validator(
+        aggregate_schema,
+        format_checker=FormatChecker(),
+    ).validate(aggregate)
+
+
+def test_partial_four_mode_set_remains_fail_closed(tmp_path: Path) -> None:
+    records = _four_mode_records(tmp_path)[:-1]
+    aggregate = _qgc_operator_visual_acceptance_record(
+        records,
+        output_identity=(tmp_path / "release-gate.json").resolve(),
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert aggregate["complete"] is False
+    assert aggregate["gate_passed"] is False
+
+    result = _qgc_operator_visual_acceptance_result(
+        aggregate,
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert result["passed"] is False
+    assert "all four runtime-mode visual reviews are required" in result["reasons"]
+
+
+def test_release_gate_reopens_and_rejects_tampered_visual_record(tmp_path: Path) -> None:
+    records = _four_mode_records(tmp_path)
+    aggregate = _qgc_operator_visual_acceptance_record(
+        records,
+        output_identity=(tmp_path / "release-gate.json").resolve(),
+        manifest_directory=tmp_path.resolve(),
+    )
+    records[0].write_bytes(records[0].read_bytes() + b"\n")
+    result = _qgc_operator_visual_acceptance_result(
+        aggregate,
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert result["passed"] is False
+    assert any("evidence SHA-256 does not match" in reason for reason in result["reasons"])
+
+
+def test_machine_runtime_mode_mismatch_keeps_visual_record_closed(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    document = create_record(
+        repository_root=files["root"],
+        machine_report=files["machine"],
+        screenshot=files["screenshot"],
+        qgc_executable=files["executable"],
+        release_parity=files["parity"],
+        negative_control=files["negative"],
+        reviewer="Test Operator",
+        reviewed_at_utc="2026-09-05T14:00:00Z",
+        checklist={name: True for name in REQUIRED_CHECKS},
+        decision="accepted",
+        runtime_mode="real",
+    )
+    assert document["gate_passed"] is False
+    assert (
+        document["positive_visual_evidence"]["machine_checks"]["runtime_mode_matches"] is False
+    )
+
+
+def test_release_gate_rejects_cross_mode_source_reuse(tmp_path: Path) -> None:
+    records = _four_mode_records(tmp_path)
+    aggregate = _qgc_operator_visual_acceptance_record(
+        records,
+        output_identity=(tmp_path / "release-gate.json").resolve(),
+        manifest_directory=tmp_path.resolve(),
+    )
+    aggregate["records"][1]["screenshot_sha256"] = aggregate["records"][0][
+        "screenshot_sha256"
+    ]
+    result = _qgc_operator_visual_acceptance_result(
+        aggregate,
+        manifest_directory=tmp_path.resolve(),
+    )
+    assert result["passed"] is False
+    assert any(
+        "screenshot is reused across runtime modes" in reason for reason in result["reasons"]
+    )
+
+
+def test_manifest_builder_rejects_same_screenshot_across_modes(tmp_path: Path) -> None:
+    sim = _fixture(tmp_path, "sim")
+    hil = _fixture(tmp_path, "hil")
+    hil_machine = json.loads(hil["machine"].read_text(encoding="utf-8"))
+    hil_capture = hil_machine["qgc"]["native_visual_machine_capture"]["capture"]
+    hil_capture.update(
+        {
+            "path": str(sim["screenshot"]),
+            "bytes": sim["screenshot"].stat().st_size,
+            "sha256": hashlib.sha256(sim["screenshot"].read_bytes()).hexdigest(),
+        }
+    )
+    _write_json(hil["machine"], hil_machine)
+
+    sim_record = tmp_path / "artifacts" / "sim" / "visual-review.json"
+    hil_record = tmp_path / "artifacts" / "hil" / "visual-review.json"
+    _write_json(sim_record, _accepted(sim))
+    hil_document = create_record(
+        repository_root=hil["root"],
+        machine_report=hil["machine"],
+        screenshot=sim["screenshot"],
+        qgc_executable=hil["executable"],
+        release_parity=hil["parity"],
+        negative_control=hil["negative"],
+        reviewer="Test Operator",
+        reviewed_at_utc="2026-09-05T14:00:00Z",
+        checklist={name: True for name in REQUIRED_CHECKS},
+        decision="accepted",
+        runtime_mode="hil",
+    )
+    assert hil_document["gate_passed"] is True
+    _write_json(hil_record, hil_document)
+
+    try:
+        _qgc_operator_visual_acceptance_record(
+            [sim_record, hil_record],
+            output_identity=(tmp_path / "release-gate.json").resolve(),
+            manifest_directory=tmp_path.resolve(),
+        )
+    except ReleaseGateManifestError as exc:
+        assert "reuses one screenshot across runtime modes" in str(exc)
+    else:
+        raise AssertionError("cross-mode screenshot reuse unexpectedly accepted")

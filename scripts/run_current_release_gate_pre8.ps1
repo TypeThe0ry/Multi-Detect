@@ -47,18 +47,22 @@ param(
     [string]$SimulatorScenarioMatrixEvidence = 'artifacts\evaluation\simulator-scenario-matrix-20260903-portable-paths-pre8.json',
     [string]$SimulatorCombinedEvidence = 'artifacts\evaluation\combined-sim-qgc-20260902-hwnd-fallback-v4.json',
     [string]$SimulatorCombinedReleaseModeEvidence = 'artifacts\evaluation\release-mode-sim-20260902-pre.8-combined-qgc-v4.json',
-    # Bind the v62 join rebuilt from the six immutable external runtime/AI
+    # Bind the v65 join rebuilt from the six immutable external runtime/AI
     # source records against the current release-parity file. The prior v52
     # summary now fails source recomputation because it records an older parity
     # file hash, so it remains historical evidence only.
-    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v63\simulator-external-runtime-ai-join-v63-current-parity-pre8.json',
-    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v63\simulator-external-runtime-ai-revalidation-v63-current-parity-pre8.json',
+    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v65\simulator-external-runtime-ai-join-v65-current-parity-pre8.json',
+    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v65\simulator-external-runtime-ai-revalidation-v65-current-parity-pre8.json',
     [string]$Px4AirframeTransactionEvidence = 'artifacts\evaluation\px4-airframe-mission-transaction-acceptance-latest.json',
     # External Docker/Gazebo response from fixed-wing, multirotor and VTOL,
     # measured exclusively from PX4 GLOBAL_POSITION_INT and bound to source.
-    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v63\px4-reported-position-response-matrix-v63-pre8.json',
+    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v65\px4-reported-position-response-matrix-v65-pre8.json',
     # Two positive runs and three explicit fail-closed faults for each airframe.
-    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v63\px4-reported-position-response-campaign-v63-pre8.json',
+    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v65\px4-reported-position-response-campaign-v65-pre8.json',
+    # Optional human-reviewed QGC evidence. Final release requires four
+    # independently captured records in replay/sim/hil/real order. Keep this
+    # empty until the operator has actually reviewed and signed each capture.
+    [string[]]$QgcOperatorVisualAcceptanceEvidence = @(),
     # Optional HIL/REAL Mission feedback matrix. Each array item is
     # MODE|VEHICLE|MISSION_JSON|SIGNED_RUNTIME_PROFILE_JSON|REPORT_JSON.
     # Windows paths cannot contain '|',
@@ -293,6 +297,10 @@ foreach ($binding in $Px4MissionFeedbackBinding) {
     $controlArguments.Add((Assert-InputFile -Requested ([string]$parts[2])))
     $controlArguments.Add((Assert-InputFile -Requested ([string]$parts[3])))
     $controlArguments.Add((Assert-InputFile -Requested ([string]$parts[4])))
+}
+foreach ($path in $QgcOperatorVisualAcceptanceEvidence) {
+    $controlArguments.Add('--qgc-operator-visual-acceptance-evidence')
+    $controlArguments.Add((Assert-InputFile -Requested $path))
 }
 $controlArguments.Add('--real-field-link-max-age-s')
 $controlArguments.Add($RealFieldLinkMaxAgeSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))

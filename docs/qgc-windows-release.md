@@ -2482,6 +2482,7 @@ Copy-Item .\configs\qgc-visual-review-checklist.json `
 $env:PYTHONPATH = "src"
 python -m multidetect.qgc_visual_acceptance create `
   --repository-root . `
+  --runtime-mode hil `
   --machine-report .\artifacts\evaluation\terminal-continuation-v61\px4-sitl-qgc-geolocation-native-visual-v61-pre8-v8.json `
   --screenshot .\artifacts\evaluation\terminal-continuation-v61\native-visual-v8\qgc-native-style.png `
   --qgc-executable .\build\windows-v0.3.0-pre.8-release\Release\MultiDetectGCS.exe `
@@ -2500,7 +2501,8 @@ python -m multidetect.qgc_visual_acceptance verify `
 
 验收要求 12 项全部为真，并绑定近地平线负控的 5/5 检测、5/5 invalid range、0 假坐标。记录中的
 `review_sha256` 只证明内容未被修改，不声明 reviewer 的密码学身份。当前没有 accepted record，故
-`operator_visual_acceptance=not_claimed`；生成和复验通过后仍需单独完成 E7 schema/manifest 绑定评审。
+`operator_visual_acceptance=not_claimed`。E7 接线已完成，但最终发布要求 replay/sim/hil/real 各自使用
+独立 machine report 和 screenshot 生成一份 accepted record；同一张 v61 HIL 图片不能重复填充四种模式。
 
 ### v62 三机型 PX4/Gazebo 实际位移响应与 E7 绑定
 

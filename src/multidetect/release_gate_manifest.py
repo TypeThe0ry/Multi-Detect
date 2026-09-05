@@ -118,6 +118,7 @@ from .field_session_capture import verify_field_session_capture
 from .geolocation_accuracy import verify_geolocation_accuracy_report
 from .model_review import verify_model_review_bundle
 from .product_version import ProductVersion, load_product_version
+from .qgc_visual_acceptance import verify_record as verify_qgc_visual_acceptance
 from .release_gate import PARITY_FIELDS, REQUIRED_MODES
 from .replay_set import load_replay_set_manifest
 from .replay_set_calibration import verify_replay_set_calibration_report
@@ -295,9 +296,7 @@ def _read_evidence(path: Path, *, mode: str) -> tuple[str, str | None, bool]:
 
 def _normalise_status(value: object, *, name: str) -> str:
     if not isinstance(value, str) or value.strip().lower() not in _STATUS_SET:
-        raise ReleaseGateManifestError(
-            f"{name} must be one of {', '.join(STATUS_VALUES)}"
-        )
+        raise ReleaseGateManifestError(f"{name} must be one of {', '.join(STATUS_VALUES)}")
     return value.strip().lower()
 
 
@@ -350,9 +349,7 @@ def _normalise_statuses(
         canonical = aliases[normalized_key]
         normalized = _normalise_status(value, name=f"{mode}.{canonical}")
         if canonical in seen_fields and statuses[canonical] != normalized:
-            raise ReleaseGateManifestError(
-                f"{mode} supplies conflicting aliases for {canonical}"
-            )
+            raise ReleaseGateManifestError(f"{mode} supplies conflicting aliases for {canonical}")
         statuses[canonical] = normalized
         seen_fields.add(canonical)
     return statuses
@@ -567,8 +564,7 @@ def _replay_set_calibration_verification_record(
         value = verification.get(field)
         if type(value) is not bool or document.get(field) != value:
             raise ReleaseGateManifestError(
-                "replay_set calibration verification "
-                f"{field} does not match the verifier result"
+                f"replay_set calibration verification {field} does not match the verifier result"
             )
     if document.get("manifest_path") != str(replay_manifest):
         # The generated verifier normally stores an absolute path.  A copied
@@ -605,9 +601,7 @@ def _replay_set_record(
 
     resolved = _resolve_file(replay_set_manifest, name="replay_set manifest")
     if resolved == output_identity:
-        raise ReleaseGateManifestError(
-            "release-gate output cannot also be the replay_set manifest"
-        )
+        raise ReleaseGateManifestError("release-gate output cannot also be the replay_set manifest")
     replay_set = load_replay_set_manifest(resolved)
     manifest_sha256 = sha256_file(resolved)
     record: dict[str, Any] = {
@@ -626,13 +620,9 @@ def _replay_set_record(
             )
         accuracy = _load_json_object(accuracy_path, name="replay_set accuracy evidence")
         if accuracy.get("event") != "replay_set_accuracy_evaluation_completed":
-            raise ReleaseGateManifestError(
-                "replay_set accuracy evidence has the wrong event type"
-            )
+            raise ReleaseGateManifestError("replay_set accuracy evidence has the wrong event type")
         if accuracy.get("schema_version") != 1:
-            raise ReleaseGateManifestError(
-                "replay_set accuracy evidence schema_version must be 1"
-            )
+            raise ReleaseGateManifestError("replay_set accuracy evidence schema_version must be 1")
         accuracy_manifest_sha = accuracy.get("manifest_sha256")
         if (
             not isinstance(accuracy_manifest_sha, str)
@@ -655,15 +645,13 @@ def _replay_set_record(
                     f"replay_set accuracy evidence {field} must be a boolean"
                 )
         if (
-            accuracy.get("gate_passed") is True
-            or accuracy.get("accuracy_validated") is True
+            accuracy.get("gate_passed") is True or accuracy.get("accuracy_validated") is True
         ) and not accuracy_metrics_are_defined(accuracy.get("metrics")):
             raise ReleaseGateManifestError(
                 "replay_set accuracy evidence aggregate precision/recall are undefined"
             )
         if (
-            accuracy.get("gate_passed") is True
-            or accuracy.get("accuracy_validated") is True
+            accuracy.get("gate_passed") is True or accuracy.get("accuracy_validated") is True
         ) and not positive_strata_coverage_is_complete(accuracy):
             raise ReleaseGateManifestError(
                 "replay_set accuracy evidence positive-stratum coverage is incomplete"
@@ -692,9 +680,7 @@ def _normalise_nonnegative_float(value: object, *, name: str) -> float:
     try:
         normalised = float(value)
     except (OverflowError, TypeError, ValueError) as exc:
-        raise ReleaseGateManifestError(
-            f"{name} must be a finite non-negative number"
-        ) from exc
+        raise ReleaseGateManifestError(f"{name} must be a finite non-negative number") from exc
     if not math.isfinite(normalised) or normalised < 0.0:
         raise ReleaseGateManifestError(f"{name} must be a finite non-negative number")
     return normalised
@@ -766,9 +752,7 @@ def _real_alert_link_record(
 
     requested = Path(bench_report).expanduser()
     if requested.is_symlink():
-        raise ReleaseGateManifestError(
-            "real alert-link bench report must not be a symbolic link"
-        )
+        raise ReleaseGateManifestError("real alert-link bench report must not be a symbolic link")
     resolved = _resolve_file(bench_report, name="real_alert_link bench report")
     if resolved == output_identity:
         raise ReleaseGateManifestError(
@@ -783,9 +767,7 @@ def _real_alert_link_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"real_alert_link bench report verifier failed{detail}"
-        )
+        raise ReleaseGateManifestError(f"real_alert_link bench report verifier failed{detail}")
 
     expected_contract: dict[str, object] = {
         "event": "alert_link_bench_passed",
@@ -879,9 +861,7 @@ def _real_target_accuracy_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"real_target_accuracy report verifier failed{detail}"
-        )
+        raise ReleaseGateManifestError(f"real_target_accuracy report verifier failed{detail}")
     measurement = document.get("measurement")
     distance_metrics = document.get("distance_error_m")
     if not isinstance(measurement, Mapping) or not isinstance(distance_metrics, Mapping):
@@ -974,8 +954,7 @@ def _real_target_state_evidence_record(
     strict_requested = capture.get("require_target_state_evidence")
     if strict_requested is not True:
         reasons.append(
-            "real_target_state_evidence capture must enable "
-            "require_target_state_evidence"
+            "real_target_state_evidence capture must enable require_target_state_evidence"
         )
     target_state = validation.get("target_state_evidence")
     if not isinstance(target_state, Mapping):
@@ -1021,8 +1000,7 @@ def _real_target_state_evidence_record(
         ("range_qualified_records", range_records),
     ):
         if not isinstance(value, list) or any(
-            isinstance(item, bool) or not isinstance(item, int) or item < 0
-            for item in value
+            isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in value
         ):
             raise ReleaseGateManifestError(
                 f"real_target_state_evidence {name} must be an array of non-negative integers"
@@ -1074,9 +1052,7 @@ def _field_evidence_bundle_record(
 
     requested = Path(field_evidence_bundle).expanduser()
     if requested.is_symlink():
-        raise ReleaseGateManifestError(
-            "field evidence bundle report must not be a symbolic link"
-        )
+        raise ReleaseGateManifestError("field evidence bundle report must not be a symbolic link")
     resolved = _resolve_file(field_evidence_bundle, name="field evidence bundle report")
     if resolved == output_identity:
         raise ReleaseGateManifestError(
@@ -1095,9 +1071,7 @@ def _field_evidence_bundle_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"field evidence bundle report verifier failed{detail}"
-        )
+        raise ReleaseGateManifestError(f"field evidence bundle report verifier failed{detail}")
     document = verification.get("report")
     if not isinstance(document, Mapping):
         raise ReleaseGateManifestError(
@@ -1119,9 +1093,7 @@ def _field_evidence_bundle_record(
     ):
         value = checks.get(name)
         if type(value) is not bool:
-            raise ReleaseGateManifestError(
-                f"field evidence bundle checks.{name} must be a boolean"
-            )
+            raise ReleaseGateManifestError(f"field evidence bundle checks.{name} must be a boolean")
         summary[name] = value
     strata_summary: dict[str, bool] = {}
     for name in (
@@ -1190,9 +1162,7 @@ def _simulator_safety_record(
         )
     artifact = _load_json_object(resolved, name="simulator_safety evidence")
     if artifact.get("event") != "simulator_safety_acceptance_finished":
-        raise ReleaseGateManifestError(
-            "simulator_safety evidence has the wrong event type"
-        )
+        raise ReleaseGateManifestError("simulator_safety evidence has the wrong event type")
     if artifact.get("runtime_mode") != "sim":
         raise ReleaseGateManifestError("simulator_safety evidence runtime_mode must be 'sim'")
     if artifact.get("release_label") != release_label:
@@ -1200,9 +1170,7 @@ def _simulator_safety_record(
             "simulator_safety evidence release_label does not match the product manifest"
         )
     if artifact.get("gate_passed") is not True:
-        raise ReleaseGateManifestError(
-            "simulator_safety evidence gate_passed must be true"
-        )
+        raise ReleaseGateManifestError("simulator_safety evidence gate_passed must be true")
     verification = verify_simulator_safety_file(
         resolved,
         expected_release_label=release_label,
@@ -1214,9 +1182,7 @@ def _simulator_safety_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"simulator_safety evidence verifier did not pass{detail}"
-        )
+        raise ReleaseGateManifestError(f"simulator_safety evidence verifier did not pass{detail}")
     checks = verification.get("checks")
     if not isinstance(checks, Mapping):
         raise ReleaseGateManifestError(
@@ -1277,18 +1243,14 @@ def _actuator_safety_record(
     )
     for field, expected in expected_fields:
         if artifact.get(field) != expected:
-            raise ReleaseGateManifestError(
-                f"actuator_safety evidence {field} must be {expected!r}"
-            )
+            raise ReleaseGateManifestError(f"actuator_safety evidence {field} must be {expected!r}")
 
     verification = verify_actuator_safety_evidence(
         artifact,
         expected_release_label=release_label,
     )
     if verification.get("event") != "actuator_safety_software_evidence_verified":
-        raise ReleaseGateManifestError(
-            "actuator_safety evidence verifier returned the wrong event"
-        )
+        raise ReleaseGateManifestError("actuator_safety evidence verifier returned the wrong event")
     if verification.get("runtime_mode") != "HIL":
         raise ReleaseGateManifestError(
             "actuator_safety evidence verifier runtime_mode must be 'HIL'"
@@ -1304,9 +1266,7 @@ def _actuator_safety_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"actuator_safety evidence verifier did not pass{detail}"
-        )
+        raise ReleaseGateManifestError(f"actuator_safety evidence verifier did not pass{detail}")
     checks = verification.get("checks")
     if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
         raise ReleaseGateManifestError(
@@ -1478,8 +1438,7 @@ def _simulator_external_evidence_record(
 
     if external_revalidation_evidence is None:
         raise ReleaseGateManifestError(
-            "simulator_external_evidence requires "
-            "simulator_external_evidence_revalidation"
+            "simulator_external_evidence requires simulator_external_evidence_revalidation"
         )
 
     join_path = _resolve_file(
@@ -1501,22 +1460,15 @@ def _simulator_external_evidence_record(
 
     join = _load_json_object(join_path, name="simulator_external_evidence join")
     if join.get("schema_version") != 1:
-        raise ReleaseGateManifestError(
-            "simulator_external_evidence join schema_version must be 1"
-        )
+        raise ReleaseGateManifestError("simulator_external_evidence join schema_version must be 1")
     if join.get("event") != "simulator_external_runtime_ai_evidence_verified":
-        raise ReleaseGateManifestError(
-            "simulator_external_evidence join has the wrong event type"
-        )
+        raise ReleaseGateManifestError("simulator_external_evidence join has the wrong event type")
     if join.get("release_label") != release_label:
         raise ReleaseGateManifestError(
-            "simulator_external_evidence join release_label does not match "
-            "the product manifest"
+            "simulator_external_evidence join release_label does not match the product manifest"
         )
     if join.get("gate_passed") is not True:
-        raise ReleaseGateManifestError(
-            "simulator_external_evidence join gate_passed must be true"
-        )
+        raise ReleaseGateManifestError("simulator_external_evidence join gate_passed must be true")
 
     shared = join.get("shared")
     if not isinstance(shared, Mapping):
@@ -1576,9 +1528,7 @@ def _simulator_external_evidence_record(
         )
     join_parity_path_value = parity_record.get("path")
     if not isinstance(join_parity_path_value, str) or not join_parity_path_value.strip():
-        raise ReleaseGateManifestError(
-            "simulator_external_evidence join parity.path is missing"
-        )
+        raise ReleaseGateManifestError("simulator_external_evidence join parity.path is missing")
     join_parity_path = _resolve_bound_file(
         join_parity_path_value,
         base=join_path.parent,
@@ -1878,40 +1828,29 @@ def _px4_airframe_transaction_record(
         )
     artifact = _load_json_object(resolved, name="px4_airframe_transaction evidence")
     if artifact.get("schema") != "multidetect.px4-airframe-mission-transaction-acceptance":
-        raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence has the wrong schema"
-        )
+        raise ReleaseGateManifestError("px4_airframe_transaction evidence has the wrong schema")
     if artifact.get("schema_version") != 1:
-        raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence schema_version must be 1"
-        )
+        raise ReleaseGateManifestError("px4_airframe_transaction evidence schema_version must be 1")
     if _artifact_runtime_mode(artifact) != "sim":
         raise ReleaseGateManifestError(
             "px4_airframe_transaction evidence runtime_mode must be 'sim'"
         )
     if artifact.get("release_label") != release_label:
         raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence release_label does not match "
-            "the product manifest"
+            "px4_airframe_transaction evidence release_label does not match the product manifest"
         )
     if artifact.get("gate_passed") is not True:
-        raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence gate_passed must be true"
-        )
+        raise ReleaseGateManifestError("px4_airframe_transaction evidence gate_passed must be true")
     if artifact.get("shared_dispatcher") != "compile_executable_mission":
         raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence dispatcher must be "
-            "compile_executable_mission"
+            "px4_airframe_transaction evidence dispatcher must be compile_executable_mission"
         )
     if artifact.get("shared_transport") != "in_process_mission_item_int":
         raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence transport must be "
-            "in_process_mission_item_int"
+            "px4_airframe_transaction evidence transport must be in_process_mission_item_int"
         )
     if artifact.get("truth_free") is not True:
-        raise ReleaseGateManifestError(
-            "px4_airframe_transaction evidence truth_free must be true"
-        )
+        raise ReleaseGateManifestError("px4_airframe_transaction evidence truth_free must be true")
     if artifact.get("physical_output_enabled") is not False:
         raise ReleaseGateManifestError(
             "px4_airframe_transaction evidence physical output must be disabled"
@@ -1993,9 +1932,7 @@ def _px4_reported_position_response_matrix_record(
         raise ReleaseGateManifestError(
             "release-gate output cannot also be px4_reported_position_response_matrix evidence"
         )
-    artifact = _load_json_object(
-        resolved, name="px4_reported_position_response_matrix evidence"
-    )
+    artifact = _load_json_object(resolved, name="px4_reported_position_response_matrix evidence")
     try:
         from scripts.verify_px4_reported_position_response_matrix import verify_file
 
@@ -2005,9 +1942,7 @@ def _px4_reported_position_response_matrix_record(
             f"px4_reported_position_response_matrix verifier failed: {exc}"
         ) from exc
     if verification.get("gate_passed") is not True:
-        detail = "; ".join(
-            str(reason) for reason in verification.get("reasons", []) if reason
-        )
+        detail = "; ".join(str(reason) for reason in verification.get("reasons", []) if reason)
         raise ReleaseGateManifestError(
             "px4_reported_position_response_matrix verifier did not pass"
             + (f": {detail}" if detail else "")
@@ -2022,11 +1957,15 @@ def _px4_reported_position_response_matrix_record(
             "px4_reported_position_response_matrix release_label does not match product"
         )
     entries = artifact.get("entries")
-    vehicle_classes = sorted(
-        entry.get("vehicle_class")
-        for entry in entries
-        if isinstance(entries, list) and isinstance(entry, Mapping)
-    ) if isinstance(entries, list) else []
+    vehicle_classes = (
+        sorted(
+            entry.get("vehicle_class")
+            for entry in entries
+            if isinstance(entries, list) and isinstance(entry, Mapping)
+        )
+        if isinstance(entries, list)
+        else []
+    )
     return {
         "evidence_path": _relative_path(resolved, manifest_directory=manifest_directory),
         "evidence_sha256": sha256_file(resolved),
@@ -2068,24 +2007,17 @@ def _px4_reported_position_response_campaign_record(
 
         verification = verify_file(resolved)
     except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError) as exc:
-        raise ReleaseGateManifestError(
-            f"px4 response campaign verifier failed: {exc}"
-        ) from exc
+        raise ReleaseGateManifestError(f"px4 response campaign verifier failed: {exc}") from exc
     if verification.get("gate_passed") is not True:
-        detail = "; ".join(
-            str(reason) for reason in verification.get("reasons", []) if reason
-        )
+        detail = "; ".join(str(reason) for reason in verification.get("reasons", []) if reason)
         raise ReleaseGateManifestError(
-            "px4 response campaign verifier did not pass"
-            + (f": {detail}" if detail else "")
+            "px4 response campaign verifier did not pass" + (f": {detail}" if detail else "")
         )
     checks = verification.get("checks")
     if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
         raise ReleaseGateManifestError("px4 response campaign checks must all be true")
     if artifact.get("release_label") != release_label:
-        raise ReleaseGateManifestError(
-            "px4 response campaign release_label does not match product"
-        )
+        raise ReleaseGateManifestError("px4 response campaign release_label does not match product")
     positives = artifact.get("positive_runs")
     faults = artifact.get("fault_runs")
     return {
@@ -2109,6 +2041,125 @@ def _px4_reported_position_response_campaign_record(
         "hil_acceptance": artifact.get("hil_acceptance"),
         "real_acceptance": artifact.get("real_acceptance"),
         "checks": dict(checks),
+    }
+
+
+def _qgc_operator_visual_acceptance_record(
+    evidence_paths: Sequence[str | Path],
+    *,
+    output_identity: Path,
+    manifest_directory: Path,
+) -> dict[str, Any]:
+    """Bind one independently verified human QGC review per runtime mode."""
+
+    if not evidence_paths:
+        raise ReleaseGateManifestError("qgc_operator_visual_acceptance evidence must not be empty")
+    by_mode: dict[str, dict[str, Any]] = {}
+    resolved_seen: set[Path] = set()
+    machine_sources_seen: set[str] = set()
+    screenshots_seen: set[str] = set()
+    for requested in evidence_paths:
+        source = Path(requested).expanduser()
+        if source.is_symlink():
+            raise ReleaseGateManifestError(
+                "qgc operator visual acceptance evidence must not be a symbolic link"
+            )
+        resolved = _resolve_file(requested, name="qgc operator visual acceptance evidence")
+        if resolved == output_identity:
+            raise ReleaseGateManifestError(
+                "release-gate output cannot also be QGC visual acceptance evidence"
+            )
+        if resolved in resolved_seen:
+            raise ReleaseGateManifestError(
+                f"QGC visual acceptance evidence is duplicated: {resolved}"
+            )
+        resolved_seen.add(resolved)
+        artifact = _load_json_object(resolved, name="QGC visual acceptance evidence")
+        try:
+            verification = verify_qgc_visual_acceptance(resolved)
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+            raise ReleaseGateManifestError(f"QGC visual acceptance verifier failed: {exc}") from exc
+        if verification.get("gate_passed") is not True:
+            reasons = verification.get("reasons")
+            detail = (
+                "; ".join(str(reason) for reason in reasons if reason)
+                if isinstance(reasons, list)
+                else ""
+            )
+            raise ReleaseGateManifestError(
+                "QGC visual acceptance evidence did not pass" + (f": {detail}" if detail else "")
+            )
+        mode_value = artifact.get("runtime_mode")
+        mode = mode_value.strip().lower() if isinstance(mode_value, str) else ""
+        if mode not in REQUIRED_MODES:
+            raise ReleaseGateManifestError(
+                f"QGC visual acceptance runtime_mode is invalid: {mode_value!r}"
+            )
+        if mode in by_mode:
+            raise ReleaseGateManifestError(
+                f"QGC visual acceptance supplies duplicate mode: {mode!r}"
+            )
+        review = artifact.get("review")
+        if not isinstance(review, Mapping):
+            raise ReleaseGateManifestError("QGC visual acceptance review is unavailable")
+        positive = artifact.get("positive_visual_evidence")
+        if not isinstance(positive, Mapping):
+            raise ReleaseGateManifestError(
+                "QGC visual acceptance positive_visual_evidence is unavailable"
+            )
+        machine_source = positive.get("machine_report")
+        screenshot = positive.get("screenshot")
+        executable = positive.get("qgc_executable")
+        ui_contract = positive.get("ui_contract")
+        if not all(
+            isinstance(value, Mapping)
+            for value in (machine_source, screenshot, executable, ui_contract)
+        ):
+            raise ReleaseGateManifestError(
+                "QGC visual acceptance source identities are unavailable"
+            )
+        assert isinstance(machine_source, Mapping)
+        assert isinstance(screenshot, Mapping)
+        assert isinstance(executable, Mapping)
+        assert isinstance(ui_contract, Mapping)
+        machine_source_path = str(machine_source.get("path", ""))
+        screenshot_path = str(screenshot.get("path", ""))
+        if machine_source_path in machine_sources_seen:
+            raise ReleaseGateManifestError(
+                "QGC visual acceptance reuses one machine report across runtime modes"
+            )
+        if screenshot_path in screenshots_seen:
+            raise ReleaseGateManifestError(
+                "QGC visual acceptance reuses one screenshot across runtime modes"
+            )
+        machine_sources_seen.add(machine_source_path)
+        screenshots_seen.add(screenshot_path)
+        by_mode[mode] = {
+            "runtime_mode": mode,
+            "path": _relative_path(resolved, manifest_directory=manifest_directory),
+            "sha256": sha256_file(resolved),
+            "bytes": resolved.stat().st_size,
+            "review_sha256": artifact.get("review_sha256"),
+            "reviewer": review.get("reviewer"),
+            "reviewed_at_utc": review.get("reviewed_at_utc"),
+            "machine_run_id": machine_source.get("run_id"),
+            "machine_report_sha256": machine_source.get("sha256"),
+            "screenshot_sha256": screenshot.get("sha256"),
+            "qgc_executable_sha256": executable.get("sha256"),
+            "ui_contract_hash": ui_contract.get("ui_contract_hash"),
+            "gate_passed": True,
+        }
+    records = [by_mode[mode] for mode in REQUIRED_MODES if mode in by_mode]
+    covered_modes = [record["runtime_mode"] for record in records]
+    complete = covered_modes == list(REQUIRED_MODES)
+    return {
+        "schema": "multidetect.qgc-operator-visual-acceptance-set",
+        "schema_version": 1,
+        "records": records,
+        "covered_modes": covered_modes,
+        "required_modes": list(REQUIRED_MODES),
+        "complete": complete,
+        "gate_passed": complete,
     }
 
 
@@ -2154,9 +2205,7 @@ def _model_review_record(
         raise ReleaseGateManifestError("model-review bundle must not be a symbolic link")
     resolved = _resolve_file(requested, name="model-review bundle")
     if resolved == output_identity:
-        raise ReleaseGateManifestError(
-            "release-gate output cannot also be the model-review bundle"
-        )
+        raise ReleaseGateManifestError("release-gate output cannot also be the model-review bundle")
     verification = verify_model_review_bundle(resolved, require_eligible=False)
     if verification.get("passed") is not True:
         reasons = [
@@ -2165,9 +2214,7 @@ def _model_review_record(
             if isinstance(reason, str) and reason
         ]
         detail = f": {'; '.join(reasons)}" if reasons else ""
-        raise ReleaseGateManifestError(
-            f"model-review bundle verification did not pass{detail}"
-        )
+        raise ReleaseGateManifestError(f"model-review bundle verification did not pass{detail}")
     document = verification.get("document")
     if not isinstance(document, Mapping):
         raise ReleaseGateManifestError("model-review bundle document must be an object")
@@ -2236,6 +2283,7 @@ def build_release_gate_manifest(
     px4_airframe_transaction_evidence: str | Path | None = None,
     px4_reported_position_response_matrix_evidence: str | Path | None = None,
     px4_reported_position_response_campaign_evidence: str | Path | None = None,
+    qgc_operator_visual_acceptance_evidence: Sequence[str | Path] | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     real_target_accuracy_report: str | Path | None = None,
@@ -2366,8 +2414,7 @@ def build_release_gate_manifest(
         else None
     )
     if (
-        replay_set_accuracy_evidence is not None
-        or replay_set_calibration_verification is not None
+        replay_set_accuracy_evidence is not None or replay_set_calibration_verification is not None
     ) and replay_set_manifest is None:
         raise ReleaseGateManifestError(
             "replay_set accuracy/calibration evidence requires replay_set_manifest"
@@ -2475,13 +2522,9 @@ def build_release_gate_manifest(
         if simulator_external_evidence is not None
         else None
     )
-    if (
-        simulator_external_evidence_revalidation is not None
-        and simulator_external_evidence is None
-    ):
+    if simulator_external_evidence_revalidation is not None and simulator_external_evidence is None:
         raise ReleaseGateManifestError(
-            "simulator_external_evidence_revalidation requires "
-            "simulator_external_evidence"
+            "simulator_external_evidence_revalidation requires simulator_external_evidence"
         )
 
     px4_airframe_transaction_record = (
@@ -2514,6 +2557,16 @@ def build_release_gate_manifest(
             release_label=version.release_label,
         )
         if px4_reported_position_response_campaign_evidence is not None
+        else None
+    )
+
+    qgc_operator_visual_acceptance_record = (
+        _qgc_operator_visual_acceptance_record(
+            qgc_operator_visual_acceptance_evidence,
+            output_identity=output_identity,
+            manifest_directory=manifest_directory,
+        )
+        if qgc_operator_visual_acceptance_evidence is not None
         else None
     )
 
@@ -2609,6 +2662,8 @@ def build_release_gate_manifest(
         document["px4_reported_position_response_campaign"] = (
             px4_reported_position_response_campaign_record
         )
+    if qgc_operator_visual_acceptance_record is not None:
+        document["qgc_operator_visual_acceptance"] = qgc_operator_visual_acceptance_record
     if px4_mission_feedback_record is not None:
         document["px4_mission_feedback"] = px4_mission_feedback_record
     if simulator_3d_control_record is not None:
@@ -2680,6 +2735,7 @@ def create_release_gate_manifest(
     px4_airframe_transaction_evidence: str | Path | None = None,
     px4_reported_position_response_matrix_evidence: str | Path | None = None,
     px4_reported_position_response_campaign_evidence: str | Path | None = None,
+    qgc_operator_visual_acceptance_evidence: Sequence[str | Path] | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     actuator_safety_evidence: str | Path | None = None,
@@ -2725,6 +2781,7 @@ def create_release_gate_manifest(
         px4_reported_position_response_campaign_evidence=(
             px4_reported_position_response_campaign_evidence
         ),
+        qgc_operator_visual_acceptance_evidence=(qgc_operator_visual_acceptance_evidence),
         px4_mission_feedback_evidence=px4_mission_feedback_evidence,
         simulator_3d_control_evidence=simulator_3d_control_evidence,
         field_evidence_bundle=field_evidence_bundle,
@@ -2738,9 +2795,7 @@ def create_release_gate_manifest(
 
 def _parity_from_cli(args: argparse.Namespace) -> dict[str, str]:
     cli_values = {
-        field: getattr(args, field)
-        for field in PARITY_FIELDS
-        if getattr(args, field) is not None
+        field: getattr(args, field) for field in PARITY_FIELDS if getattr(args, field) is not None
     }
     if args.parity_json is not None and cli_values:
         raise ReleaseGateManifestError(
@@ -2751,8 +2806,7 @@ def _parity_from_cli(args: argparse.Namespace) -> dict[str, str]:
     if len(cli_values) != len(PARITY_FIELDS):
         missing = sorted(set(PARITY_FIELDS).difference(cli_values))
         raise ReleaseGateManifestError(
-            "provide --parity-json or all five parity hashes; "
-            f"missing={missing!r}"
+            f"provide --parity-json or all five parity hashes; missing={missing!r}"
         )
     return _normalise_parity(cli_values)
 
@@ -2939,9 +2993,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--simulator-combined-release-mode-evidence",
         "--combined-sim-release-mode-evidence",
         type=Path,
-        help=(
-            "hash-bound sim release-mode envelope for --simulator-combined-evidence"
-        ),
+        help=("hash-bound sim release-mode envelope for --simulator-combined-evidence"),
     )
     parser.add_argument(
         "--simulator-external-evidence",
@@ -2956,10 +3008,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--simulator-external-evidence-revalidation",
         "--external-sim-evidence-revalidation",
         type=Path,
-        help=(
-            "independently generated --join revalidation for "
-            "--simulator-external-evidence"
-        ),
+        help=("independently generated --join revalidation for --simulator-external-evidence"),
     )
     parser.add_argument(
         "--px4-airframe-transaction-evidence",
@@ -2987,6 +3036,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "hash-bound three-airframe PX4 response repeatability and "
             "fault-injection campaign; required for final release"
+        ),
+    )
+    parser.add_argument(
+        "--qgc-operator-visual-acceptance-evidence",
+        "--qgc-visual-acceptance-evidence",
+        dest="qgc_operator_visual_acceptance_evidence",
+        action="append",
+        type=Path,
+        help=(
+            "repeatable source-bound human QGC visual review; final release "
+            "requires one independently verified record for REPLAY, SIM, HIL and REAL"
         ),
     )
     parser.add_argument(
@@ -3148,9 +3208,7 @@ def _cli_statuses(args: argparse.Namespace) -> dict[str, dict[str, str]]:
         for field, value in values.items():
             previous = statuses[mode].get(field)
             if previous is not None and previous != value:
-                raise ReleaseGateManifestError(
-                    f"status options conflict for {mode}.{field}"
-                )
+                raise ReleaseGateManifestError(f"status options conflict for {mode}.{field}")
             statuses[mode][field] = value
     return statuses
 
@@ -3204,6 +3262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             px4_reported_position_response_campaign_evidence=(
                 args.px4_reported_position_response_campaign_evidence
             ),
+            qgc_operator_visual_acceptance_evidence=(args.qgc_operator_visual_acceptance_evidence),
             px4_mission_feedback_evidence=args.px4_mission_feedback_evidence,
             simulator_3d_control_evidence=args.simulator_3d_control_evidence,
             simulator_scene_stream_set_evidence=args.simulator_scene_stream_set_evidence,
@@ -3235,6 +3294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "px4_airframe_transaction",
             "px4_reported_position_response_matrix",
             "px4_reported_position_response_campaign",
+            "qgc_operator_visual_acceptance",
             "px4_mission_feedback",
             "simulator_3d_control",
             "simulator_scene_stream_set",

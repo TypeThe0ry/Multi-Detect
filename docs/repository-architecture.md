@@ -1,5 +1,19 @@
 # 统一仓库架构
 
+## v65 四模式 QGC 人工视觉 E7 证据（2026-09-05，`v0.3.0-pre.8`）
+
+| 组件 | 职责 | 声明边界 |
+|---|---|---|
+| `qgc_visual_acceptance.py` / schema / checklist | 为单次人工点验绑定 runtime mode、exact machine report、PNG、QGC EXE、UI contract 和定位负控 | review SHA 仅是内容完整性摘要；不冒充密码学身份或硬件/实飞批准 |
+| `release_gate_manifest.py` | 接受多份记录，拒绝重复 mode/evidence/machine report/screenshot，并按 replay/sim/hil/real 生成稳定集合 | 少于 4 种模式时 `complete=false/gate_passed=false` |
+| `release_gate.py` | 独立重开每份 record 及全部绑定源，复算文件身份、review digest、运行模式与 source identities | 最终 release 必须 4/4；当前 0/4，集合 absent，门保持关闭 |
+| `run_current_release_gate_pre8.ps1` | 通过空默认数组或显式 `QgcOperatorVisualAcceptanceEvidence` 将真实人工记录送入同一 E7 | 默认不寻找“最新”文件，也不自动生成或伪造人工记录 |
+
+release-gate schema 进入 `px4_mission_path` parity 后，hash 更新为
+`F0804FEB609A9CBBBCE6E3932ED77BD7852C9AF71BDB612A76BBD56EAD12247A`；v65 matrix/campaign/external
+join/revalidation 均按新 parity 从既有不可变源重建。v61 截图只属于 HIL machine capture，不能充当
+REPLAY/SIM/REAL 的人工证据。
+
 ## v63 PX4 响应 campaign（2026-09-05，`v0.3.0-pre.8`）
 
 | 组件 | 职责 | 声明边界 |
