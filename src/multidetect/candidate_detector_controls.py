@@ -760,6 +760,11 @@ def _verify_frame_set_binding(
             or sensor_evidence.get("gps_and_pose_values_covered_by_wire_record_sha256")
             is not True
             or sensor_evidence.get("derived_ned_values_recomputed_before_seal") is not True
+            or sensor_evidence.get("attitude_covariance_record_count")
+            != raw.get("frame_count")
+            or sensor_evidence.get("derived_attitude_sigmas_persisted") is not True
+            or sensor_evidence.get("attitude_uncertainty_source")
+            != "gazebo_odometry_covariance_with_configured_floor"
         ):
             raise CandidateDetectorControlsInputError(
                 "frame-set v2 per-frame sensor evidence contract is incomplete"

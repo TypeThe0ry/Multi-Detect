@@ -45,7 +45,11 @@ if __package__ in {None, ""}:
 
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.backends.gazebo_sim import (
+    GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE,
     GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION,
+    GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG,
+    GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG,
+    GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG,
     GAZEBO_SIM_SOURCE_ROW_ORDER,
     GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
     GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -53,6 +57,7 @@ from multidetect.backends.gazebo_sim import (
     GazeboSimBackend,
     GazeboSimFrameProvenance,
     GazeboSimWireTelemetryProvenance,
+    gazebo_sim_attitude_sigmas_deg,
     gazebo_sim_ned_frd_kinematics,
     reconstruct_gazebo_sim_wire_frame,
 )
@@ -570,6 +575,26 @@ def _verify_persisted_gazebo_frame(
             raise DockerSimulatorAcceptanceError(
                 f"persisted Gazebo derived frame telemetry {key} changed: {frame_path}"
             )
+    roll_sigma, pitch_sigma, heading_sigma = gazebo_sim_attitude_sigmas_deg(wire)
+    for key, expected in (
+        (
+            "attitude_roll_sigma_deg",
+            max(roll_sigma, GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG),
+        ),
+        (
+            "attitude_pitch_sigma_deg",
+            max(pitch_sigma, GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG),
+        ),
+        (
+            "attitude_heading_sigma_deg",
+            max(heading_sigma, GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG),
+        ),
+        ("attitude_uncertainty_source", GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE),
+    ):
+        if frame_telemetry.get(key) != expected:
+            raise DockerSimulatorAcceptanceError(
+                f"persisted Gazebo derived frame telemetry {key} changed: {frame_path}"
+            )
 
 
 def _write_frame_set_manifest(
@@ -670,6 +695,15 @@ def _write_frame_set_manifest(
         "claims": claims,
     }
     if per_frame_telemetry_bound:
+        nonzero_covariance_records = sum(
+            any(
+                abs(float(value)) > 0.0
+                for value in record["provenance"]["wire_telemetry"][
+                    "attitude_covariance_enu_rad2"
+                ]
+            )
+            for record in records
+        )
         manifest_without_hash["camera_calibration"] = camera_calibration
         manifest_without_hash["terrain_dem"] = terrain_dem
         manifest_without_hash["per_frame_sensor_evidence"] = {
@@ -681,6 +715,16 @@ def _write_frame_set_manifest(
             "maximum_source_skew_ns": 1_500_000_000,
             "gps_and_pose_values_covered_by_wire_record_sha256": True,
             "derived_ned_values_recomputed_before_seal": True,
+            "attitude_covariance_convention": "gazebo_pose_fixed_axis_xyz_enu_rad2",
+            "attitude_covariance_record_count": len(records),
+            "nonzero_attitude_covariance_record_count": nonzero_covariance_records,
+            "derived_attitude_sigmas_persisted": True,
+            "attitude_uncertainty_source": GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE,
+            "attitude_uncertainty_floor_deg": {
+                "roll": GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG,
+                "pitch": GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG,
+                "heading": GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG,
+            },
             "agl_source": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
         }
     manifest_sha256 = canonical_sha256(manifest_without_hash)
@@ -943,6 +987,10 @@ def _capture_gazebo_sensor_transport(
             "roll_deg": telemetry.roll_deg,
             "pitch_deg": telemetry.pitch_deg,
             "heading_deg": telemetry.heading_deg,
+            "attitude_roll_sigma_deg": telemetry.attitude_roll_sigma_deg,
+            "attitude_pitch_sigma_deg": telemetry.attitude_pitch_sigma_deg,
+            "attitude_heading_sigma_deg": telemetry.attitude_heading_sigma_deg,
+            "attitude_uncertainty_source": telemetry.attitude_uncertainty_source,
             "velocity_north_mps": telemetry.velocity_north_mps,
             "velocity_east_mps": telemetry.velocity_east_mps,
             "gps_fix_type": telemetry.gps_fix_type,

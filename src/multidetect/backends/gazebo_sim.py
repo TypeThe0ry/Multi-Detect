@@ -69,6 +69,12 @@ GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION = (
 GAZEBO_SIM_SOURCE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_WIRE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_VERTICAL_FLIP_APPLIED = False
+GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE = (
+    "gazebo_odometry_covariance_with_configured_floor"
+)
+GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG = 0.3
+GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG = 0.3
+GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG = 1.0
 
 _SAFE_CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _SAFE_GAZEBO_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
@@ -192,6 +198,10 @@ class GazeboSimFrameTelemetryProvenance:
     roll_deg: float
     pitch_deg: float
     heading_deg: float
+    attitude_roll_sigma_deg: float
+    attitude_pitch_sigma_deg: float
+    attitude_heading_sigma_deg: float
+    attitude_uncertainty_source: str
     velocity_north_mps: float
     velocity_east_mps: float
     gps_fix_type: int
@@ -221,6 +231,9 @@ class GazeboSimFrameTelemetryProvenance:
             telemetry.roll_deg,
             telemetry.pitch_deg,
             telemetry.heading_deg,
+            telemetry.attitude_roll_sigma_deg,
+            telemetry.attitude_pitch_sigma_deg,
+            telemetry.attitude_heading_sigma_deg,
             telemetry.velocity_north_mps,
             telemetry.velocity_east_mps,
             telemetry.gps_horizontal_accuracy_m,
@@ -233,6 +246,8 @@ class GazeboSimFrameTelemetryProvenance:
             raise RuntimeError("Gazebo SIM per-frame telemetry is incomplete or non-finite")
         if telemetry.gps_fix_type is None or telemetry.satellites_visible is None:
             raise RuntimeError("Gazebo SIM per-frame GPS quality is incomplete")
+        if telemetry.attitude_uncertainty_source != GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE:
+            raise RuntimeError("Gazebo SIM per-frame attitude uncertainty source is invalid")
         return cls(
             latitude_deg=float(telemetry.latitude_deg),
             longitude_deg=float(telemetry.longitude_deg),
@@ -245,6 +260,10 @@ class GazeboSimFrameTelemetryProvenance:
             roll_deg=float(telemetry.roll_deg),
             pitch_deg=float(telemetry.pitch_deg),
             heading_deg=float(telemetry.heading_deg),
+            attitude_roll_sigma_deg=float(telemetry.attitude_roll_sigma_deg),
+            attitude_pitch_sigma_deg=float(telemetry.attitude_pitch_sigma_deg),
+            attitude_heading_sigma_deg=float(telemetry.attitude_heading_sigma_deg),
+            attitude_uncertainty_source=telemetry.attitude_uncertainty_source,
             velocity_north_mps=float(telemetry.velocity_north_mps),
             velocity_east_mps=float(telemetry.velocity_east_mps),
             gps_fix_type=int(telemetry.gps_fix_type),
@@ -634,9 +653,9 @@ class GazeboSimTelemetryProvider:
         simulated_satellites_visible: int = 12,
         simulated_gps_horizontal_accuracy_m: float = 1.5,
         simulated_gps_vertical_accuracy_m: float = 2.5,
-        minimum_roll_sigma_deg: float = 0.3,
-        minimum_pitch_sigma_deg: float = 0.3,
-        minimum_heading_sigma_deg: float = 1.0,
+        minimum_roll_sigma_deg: float = GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG,
+        minimum_pitch_sigma_deg: float = GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG,
+        minimum_heading_sigma_deg: float = GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG,
         terrain_dem: LocalDemGrid | None = None,
     ) -> None:
         self.maximum_age_s = require_real(maximum_age_s, "maximum_age_s", minimum=0.0)
@@ -752,9 +771,7 @@ class GazeboSimTelemetryProvider:
                 attitude_heading_sigma_deg=max(
                     heading_sigma_deg, self.minimum_heading_sigma_deg
                 ),
-                attitude_uncertainty_source=(
-                    "gazebo_odometry_covariance_with_configured_floor"
-                ),
+                attitude_uncertainty_source=GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE,
                 position_observed_at_s=gps_observed,
                 velocity_north_mps=velocity_north,
                 velocity_east_mps=velocity_east,
@@ -1672,6 +1689,10 @@ def _read_exact(stream: BinaryIO, count: int, name: str) -> bytes:
 
 
 __all__ = [
+    "GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE",
+    "GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG",
+    "GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG",
+    "GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG",
     "GAZEBO_SIM_FLAG_CAMERA_INFO",
     "GAZEBO_SIM_FLAG_NAVSAT",
     "GAZEBO_SIM_FLAG_ODOMETRY",

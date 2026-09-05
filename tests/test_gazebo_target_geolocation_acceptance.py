@@ -498,6 +498,18 @@ def _build_case(
             "maximum_source_skew_ns": 1_500_000_000,
             "gps_and_pose_values_covered_by_wire_record_sha256": True,
             "derived_ned_values_recomputed_before_seal": True,
+            "attitude_covariance_convention": "gazebo_pose_fixed_axis_xyz_enu_rad2",
+            "attitude_covariance_record_count": len(frame_rows),
+            "nonzero_attitude_covariance_record_count": 0,
+            "derived_attitude_sigmas_persisted": True,
+            "attitude_uncertainty_source": (
+                "gazebo_odometry_covariance_with_configured_floor"
+            ),
+            "attitude_uncertainty_floor_deg": {
+                "roll": 0.3,
+                "pitch": 0.3,
+                "heading": 1.0,
+            },
             "agl_source": GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
         },
     }
@@ -713,6 +725,23 @@ def test_manifest_tamper_is_rejected_before_detector_construction(tmp_path: Path
     _write_json(case.frame_set, tampered)
 
     with pytest.raises(GazeboTargetGeolocationInputError, match="truth-isolation"):
+        evaluate_gazebo_target_geolocation(
+            _config(case), detector_factory=lambda _config: _FakeDetector(case.detection)
+        )
+
+
+def test_attitude_uncertainty_evidence_tamper_is_rejected_before_detector(
+    tmp_path: Path,
+) -> None:
+    case = _build_case(tmp_path)
+    raw = json.loads(case.frame_set.read_text(encoding="utf-8"))
+    raw["per_frame_sensor_evidence"]["attitude_uncertainty_source"] = "configured_only"
+    raw["manifest_sha256"] = canonical_sha256(
+        {key: value for key, value in raw.items() if key != "manifest_sha256"}
+    )
+    _write_json(case.frame_set, raw)
+
+    with pytest.raises(GazeboTargetGeolocationInputError, match="sensor evidence contract"):
         evaluate_gazebo_target_geolocation(
             _config(case), detector_factory=lambda _config: _FakeDetector(case.detection)
         )

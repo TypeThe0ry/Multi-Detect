@@ -580,6 +580,24 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     )
     assert provenance["frame_telemetry"]["altitude_agl_m"] == pytest.approx(10.0)
     assert provenance["frame_telemetry"]["heading_deg"] == pytest.approx(90.0)
+    assert provenance["frame_telemetry"]["attitude_roll_sigma_deg"] == pytest.approx(0.3)
+    assert provenance["frame_telemetry"]["attitude_pitch_sigma_deg"] == pytest.approx(0.3)
+    assert provenance["frame_telemetry"]["attitude_heading_sigma_deg"] == pytest.approx(1.0)
+    assert provenance["frame_telemetry"]["attitude_uncertainty_source"] == (
+        "gazebo_odometry_covariance_with_configured_floor"
+    )
+    sensor_evidence = manifest["per_frame_sensor_evidence"]
+    assert sensor_evidence["attitude_covariance_convention"] == (
+        "gazebo_pose_fixed_axis_xyz_enu_rad2"
+    )
+    assert sensor_evidence["attitude_covariance_record_count"] == 1
+    assert sensor_evidence["nonzero_attitude_covariance_record_count"] == 0
+    assert sensor_evidence["derived_attitude_sigmas_persisted"] is True
+    assert sensor_evidence["attitude_uncertainty_floor_deg"] == {
+        "roll": 0.3,
+        "pitch": 0.3,
+        "heading": 1.0,
+    }
     assert manifest["claims"]["per_frame_sensor_geolocation_input"] == "passed"
     assert manifest["claims"]["target_geolocation_evaluation"] == "not_claimed"
     assert manifest["source_attribution"]["camera_info_intrinsics_semantic_validation"] == (

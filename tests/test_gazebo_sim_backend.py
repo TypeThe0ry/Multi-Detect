@@ -1114,6 +1114,19 @@ def test_gazebo_sim_backend_declares_authentic_sim_with_full_kinematics() -> Non
     )
     assert first_provenance.frame_telemetry.altitude_agl_m == pytest.approx(10.0)
     assert first_provenance.frame_telemetry.heading_deg == pytest.approx(90.0)
+    assert first_provenance.frame_telemetry.attitude_roll_sigma_deg == pytest.approx(
+        math.degrees(0.01)
+    )
+    assert first_provenance.frame_telemetry.attitude_pitch_sigma_deg == pytest.approx(
+        math.degrees(0.02)
+    )
+    assert first_provenance.frame_telemetry.attitude_heading_sigma_deg == pytest.approx(
+        math.degrees(0.03)
+    )
+    assert (
+        first_provenance.frame_telemetry.attitude_uncertainty_source
+        == "gazebo_odometry_covariance_with_configured_floor"
+    )
     assert not hasattr(first_provenance, "payload_bgr24")
     assert not hasattr(first_provenance, "image_bgr")
     with pytest.raises(FrozenInstanceError):

@@ -982,6 +982,18 @@ def _verify_frame_set(
         or sensor_evidence.get("maximum_source_skew_ns") != MAX_SOURCE_SKEW_NS
         or sensor_evidence.get("gps_and_pose_values_covered_by_wire_record_sha256") is not True
         or sensor_evidence.get("derived_ned_values_recomputed_before_seal") is not True
+        or sensor_evidence.get("attitude_covariance_convention")
+        != "gazebo_pose_fixed_axis_xyz_enu_rad2"
+        or sensor_evidence.get("attitude_covariance_record_count") != raw.get("frame_count")
+        or not isinstance(sensor_evidence.get("nonzero_attitude_covariance_record_count"), int)
+        or not 0
+        <= sensor_evidence.get("nonzero_attitude_covariance_record_count")
+        <= raw.get("frame_count")
+        or sensor_evidence.get("derived_attitude_sigmas_persisted") is not True
+        or sensor_evidence.get("attitude_uncertainty_source")
+        != "gazebo_odometry_covariance_with_configured_floor"
+        or sensor_evidence.get("attitude_uncertainty_floor_deg")
+        != {"roll": 0.3, "pitch": 0.3, "heading": 1.0}
         or sensor_evidence.get("agl_source") != GAZEBO_SIM_TERRAIN_AGL_REFERENCE
     ):
         raise GazeboTargetGeolocationInputError(
