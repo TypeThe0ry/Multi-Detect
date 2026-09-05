@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-covariance-field-workspace.schema.json",
+  "title": "Multi-Detect portable Pixhawk covariance field workspace v1",
+  "description": "Hash-bound static six-leaf campaign inputs. Live identity, covariance and acceptance are explicitly excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "release_label", "created_at_utc", "campaign",
+    "source_campaign_sha256", "entries", "source_preflight", "release_parity",
+    "claims", "workspace_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.pixhawk-covariance-field-workspace/v1"},
+    "schema_version": {"const": 1},
+    "release_label": {"type": "string", "minLength": 1},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "campaign": {"$ref": "#/$defs/file"},
+    "source_campaign_sha256": {"$ref": "#/$defs/sha256"},
+    "entries": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "source_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "schema_version", "ready_count", "blocked_count", "gate_passed"],
+      "properties": {
+        "schema": {"const": "multidetect.pixhawk-covariance-field-source-preflight/v1"},
+        "schema_version": {"const": 1},
+        "ready_count": {"const": 6},
+        "blocked_count": {"const": 0},
+        "gate_passed": {"const": true}
+      }
+    },
+    "release_parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "px4_mission_path_hash"],
+      "properties": {
+        "path": {"const": "configs/release-parity.json"},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "px4_mission_path_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "live_identity_observed", "covariance_observed", "hardware_acceptance",
+        "hil_acceptance", "real_acceptance", "flight_acceptance"
+      ],
+      "properties": {
+        "live_identity_observed": {"const": false},
+        "covariance_observed": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "flight_acceptance": {"const": false}
+      }
+    },
+    "workspace_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mission", "mission_feedback", "runtime_profile"],
+      "properties": {
+        "mission": {"$ref": "#/$defs/file"},
+        "mission_feedback": {"$ref": "#/$defs/file"},
+        "runtime_profile": {"$ref": "#/$defs/file"}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode", "vehicle_class", "endpoint", "baud", "sources", "report_path"
+      ],
+      "properties": {
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "endpoint": {"type": "string", "minLength": 1},
+        "baud": {"type": "integer", "minimum": 1},
+        "sources": {"$ref": "#/$defs/sources"},
+        "report_path": {"$ref": "#/$defs/path"}
+      }
+    }
+  }
+}
