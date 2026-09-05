@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T17:58:15Z",
+  "updated_at_utc": "2026-09-06T02:19:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "73429e505d33ca5c645be3d3d0b6cda667f33c5f",
-    "commit_subject": "feat(qgc): close native target geolocation sim loop",
-    "commits_ahead_of_origin_main": 30
+    "commit": "ea1c4e2e4a752bf655b8b1b87c882e81af39f5b7",
+    "commit_subject": "feat(field): require measured camera mount evidence",
+    "commits_ahead_of_origin_main": 32
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v71",
+  "working_iteration": "v72",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v71-final.xml",
-      "tests": 3317,
-      "passed": 3316,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v72-final.xml",
+      "tests": 3322,
+      "passed": 3321,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 90.652,
-      "junit_local_path": "tmp/current-progress-regression-v71-final.xml",
-      "junit_file_bytes": 482309,
-      "junit_file_sha256": "4f05dbb3a4ba63ddd1db31e55df904fe0739e8de3d362d21e23f727cd9c17106",
+      "duration_seconds": 91.532,
+      "junit_local_path": "tmp/current-progress-regression-v72-final.xml",
+      "junit_file_bytes": 482969,
+      "junit_file_sha256": "e6f686f700ddfdd881b3fd7eb2c5ca0089283940c9420f5669eea721e7bd6a56",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,12 +63,12 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 5146,
-    "file_sha256": "663951814523af015b001968429f0b82c5aeb643e24e3342600c8dd4ea3ef5ce",
+    "bytes": 5360,
+    "file_sha256": "3ee601e597ca24831849f45100e78a8269534cd6ab305cb415f23b4e2ceb0581",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
-      "task_contract_hash": "edb04927663bc828a8fcf5e10cee498f907bc5528d0c9c387541d178375e1792",
+      "task_contract_hash": "a7b8dc7e9ce9255184a2a3d5249c8d242b93c4c07838fbe141589b0ef8393a6b",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
       "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"
     }

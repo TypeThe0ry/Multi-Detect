@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v72 physical camera-mount survey gate（2026-09-06）
+
+- 新增 `camera_mount_survey.py`、CLI、严格 JSON Schema 与独立 verifier：重复测量、设备校准证书、
+  原始记录和 camera calibration 全部 hash-bound，并强制独立复核与 FRD/实体安装声明。
+- field evidence bundle 从六层扩展为七层，新增 `camera_mount` 强制层及 survey/camera/aircraft/GNSS antenna/
+  calibration hash bindings；缺失或篡改只会关闭门，不会提升 hardware/release 声明。
+- 将 mount survey 与 field bundle 合同纳入 shared task parity。测试 fixture 只证明 fail-closed 合同，
+  真实机载测量与 HIL/REAL 仍未完成。
+
 ### v0.3.0-pre.8 v71 干净 HEAD Combined 复验与 provenance 收口（2026-09-06）
 
 - 在提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f` 的干净工作树上重新执行完整 900 帧

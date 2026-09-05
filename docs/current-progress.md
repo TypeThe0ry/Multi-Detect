@@ -1,6 +1,15 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v71 工作树）
+最后更新：2026-09-06（v72 工作树）
+
+## v72 本轮已收口
+
+- 新增物理 camera mount / GNSS-to-camera lever-arm survey 生成器、严格 schema、源码树 CLI 和独立
+  re-hash/recompute verifier；三类输入均 hash-bound，至少 5 次重复测量且 surveyor/reviewer 必须不同；
+- field evidence bundle 新增第七个 `camera_mount` 强制层，并保存 survey、aircraft、camera、GNSS antenna
+  与 calibration SHA-256 绑定；缺失、篡改、模拟值、声明缺失或 uncertainty 低报全部 fail-closed；
+- survey 与七层 bundle 已纳入 shared `task_contract_hash`。自动 fixture 仅验证合同，不关闭真实测量、
+  HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
 本地 `main` 提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`（当前文档提交前领先远端 30 个提交）。
@@ -45,7 +54,7 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
 
-## v71 本轮已收口
+## v71 干净 Combined 基线（v72 回归沿用）
 
 - 在干净 `73429e5` 上完成新的权威 source
   `combined-sim-qgc-20260905T175019Z-64536`：259,353 bytes，SHA-256
@@ -59,8 +68,8 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v71 全仓回归仍为 3,317 tests：`3316 passed, 1 skipped, 0 failed, 0 errors`；JUnit 482,309 bytes，
-  SHA-256 `4F05DBB3A4BA63DDD1DB31E55DF904FE0739E8DE3D362D21E23F727CD9C17106`；Ruff 通过。
+- v72 全仓回归为 3,322 tests：`3321 passed, 1 skipped, 0 failed, 0 errors`；JUnit 482,969 bytes，
+  SHA-256 `E6F686F700DDFDD881B3FD7EB2C5CA0089283940C9420F5669EEA721E7BD6A56`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
 

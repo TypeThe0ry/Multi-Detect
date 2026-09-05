@@ -1,5 +1,19 @@
 # 统一仓库架构
 
+## v72 物理安装测量合同（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+设备校准证书 + 原始重复测量 + camera calibration
+  -> camera_mount_survey.py（FRD boresight + GNSS→camera lever arm）
+  -> camera-mount-survey.schema.json
+  -> independent re-hash/recompute verifier
+  -> field_evidence_bundle.camera_mount（第七层）
+```
+
+`src/multidetect/camera_mount_survey.py` 是测量生成/复核核心，`scripts/camera_mount_survey.py` 是源码树
+入口，`configs/schemas/camera-mount-survey.schema.json` 是严格交换合同，`tests/test_camera_mount_survey.py`
+覆盖合格、篡改与 fail-closed 情况。它们和 field bundle 已纳入 task parity；测试数据不构成现场验收。
+
 ## v69 combined evidence 双层传感器门（2026-09-05，`v0.3.0-pre.8`）
 
 ```text

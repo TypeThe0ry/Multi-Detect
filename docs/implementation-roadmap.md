@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## 物理相机安装外参与 lever-arm 证据门（v72）
+
+- [x] 定义至少 5 次 FRD 重复测量、设备精度、独立 surveyor/reviewer 和物理声明；
+- [x] hash-bind 设备校准证书、原始测量记录和 camera calibration，并由独立 verifier 重算；
+- [x] 将 `camera_mount` 加入 field evidence 第七层和 shared task parity；
+- [x] 对文件篡改、身份重合、声明缺失和 uncertainty 低报执行 fail-closed 回归；
+- [ ] 在最终安装状态的真实飞机上完成测量、复核并生成新报告；该现场项不得由测试 fixture 代替。
+
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
 ## 干净 HEAD Combined provenance 收口（v71）

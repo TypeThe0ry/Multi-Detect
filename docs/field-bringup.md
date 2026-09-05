@@ -1,5 +1,24 @@
 # 现场链路 Bring-up（v0.3.0-pre.8）
 
+## v72 相机安装外参与 GNSS lever-arm 现场测量
+
+在相机、GNSS 天线和机体结构处于最终安装状态后，沿 aircraft FRD 轴至少重复测量 5 次
+pitch/yaw/roll 与 GNSS 天线参考点到相机光心的 forward/right/down 偏移。保留原始记录和测量设备
+校准证书，并由不同人员复核。创建命令可先查看完整必填参数：
+
+```powershell
+Set-Location D:\Projects\Multi-Detect
+python .\scripts\camera_mount_survey.py create --help
+python .\scripts\camera_mount_survey.py verify `
+  .\artifacts\evaluation\camera-mount-survey-<stamp>.json `
+  --expected-release-label 0.3.0-pre.8 --require-gate-passed
+```
+
+`create` 强制提供设备证书、camera calibration、原始测量文件、每一组 `--sample` 以及六个
+`--attest-*` 开关。报告通过只表示测量证据内部一致；仍保持 `hardware_acceptance=not_claimed`、
+`release_eligible=false`。随后运行 field bundle 时必须再传入
+`--camera-mount-survey <report.json>`，否则第七层和总门保持关闭。
+
 这份 runbook 是接通飞机 Ethernet 后的第一步。它只做网络、协议和证据检查，
 不登录 Jetson、不请求 MAVLink stream、不启动 RTSP 播放，也不发送飞控控制数据。
 

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v71：原生 QGC 目标点击→TRK→测距→GPS 落图已在干净 `73429e5` 上完成 900 帧 Combined SIM 复验；四模式人工视觉仍为 0/4 |
+| 当前工程迭代 | v72：新增物理相机安装外参与 GNSS→相机 lever-arm 测量合同，并作为 field evidence 第七个强制层；真实测量尚待现场执行 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,16 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v72 物理相机安装测量证据门
+
+`multidetect-camera-mount-survey` 现在要求至少 5 组 pitch/yaw/roll 与 FRD forward/right/down
+重复测量、测量设备校准证书、原始记录、相机 calibration 三类文件的 SHA-256 绑定、不同的 surveyor/
+reviewer，以及六项物理现场声明。独立 verifier 会重新读取全部文件、重算均值/重复性/保守 `1σ`，并检查
+calibration 的安装值和 uncertainty 没有低报。该报告已成为 field evidence bundle 的第七个必需层；
+缺失、文件事后改变、使用 nominal/sim 值或不确定性低报都会 fail-closed。
+
+自动测试里的合格 fixture 只验证合同实现，明确不构成真实测量、硬件验收、HIL/REAL 或最终发布。
 
 ### v71 当前干净 HEAD Combined SIM 机器闭环
 
