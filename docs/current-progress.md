@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v89 工作树）
+最后更新：2026-09-06（v90 工作树）
+
+## v90 本轮已收口
+
+- 新增 `field_covariance_campaign probe-next`：先要求 v89 六叶 source preflight 全绿，再只打开当前
+  `next_leaf` 的 Pixhawk transport；
+- probe 复用 covariance capture authoritative `build_mode_binding`，逐项核对 configured/resolved
+  endpoint、HEARTBEAT 六元身份、当前 firmware hash、transport/qualified link、operational
+  qualification、read-only 与 hardware-control-disabled；
+- ranging stream 请求保持关闭；若 firmware 未被动广播，只允许最多三次
+  `MAV_CMD_REQUEST_MESSAGE(512)` / `AUTOPILOT_VERSION(148)` 查询，并强制 TX 总数等于 attempts；
+- 正式 `capture-next` 会再次运行 online probe；online gate 失败时明确输出 `capture_started=false`、
+  `capture_verified=false`，不创建目录、不调用采集 subprocess；成功/失败都关闭 provider；
+- online report 的 release/hardware/HIL/REAL/flight claims 固定为 false，它是现场操作状态而非 E7 证据。
+  `px4_mission_path_hash` 更新为 `C7C86A1F...982AB218`。真实硬件当前不可用，因此没有伪造通过结果。
+- covariance campaign/binding/capture 专项 62 项通过；全量回归 3,419 tests：
+  `3418 passed, 1 skipped, 0 failed, 0 errors`，耗时 95.171 秒；JUnit 499,148 bytes、SHA-256
+  `32D6BDC009476B67C1117A137E981642570A9004F4137626C1E66F8F180CAD53`；全仓 Ruff 通过。
 
 ## v89 本轮已收口
 

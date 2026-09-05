@@ -7,8 +7,9 @@
 - [x] 强制 feedback/runtime/profile gate、receive-only、zero-transmit、flight-control disabled、output locked；
 - [x] 输出固定顺序 READY/BLOCKED 清单，并在 `capture-next` 启动 subprocess 前硬阻断；
 - [x] 覆盖 source 漂移、八类语义错配、CLI 失败码与零 subprocess 调用；
-- [ ] 增加 bounded online `probe-next`，在不生成正式 covariance report 的情况下核对当前 Pixhawk
-  HEARTBEAT、firmware identity、resolved endpoint 和 current-link qualification。
+- [x] 增加 bounded online `probe-next`，在不生成正式 covariance report 的情况下核对当前 Pixhawk
+  HEARTBEAT、firmware identity、resolved endpoint 和 current-link qualification；
+- [ ] 在真实三机型端点上运行 `preflight -> probe-next -> capture-next`，保存六叶现场报告并由第二机复验。
 
 ## 六叶 covariance 现场采集 runner（v88）
 

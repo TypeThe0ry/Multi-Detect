@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v90 current Pixhawk online identity probe（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+campaign status -> exact next pending leaf
+  -> v89 static source preflight READY × 6
+  -> PixhawkReadOnlyTelemetryProvider(next endpoint)
+       request_ranging_streams = false
+       request_autopilot_version = true, attempts <= 3
+  -> capture verifier build_mode_binding(current diagnostics, current sources)
+  -> endpoint + heartbeat + firmware + link + qualification exact
+  -> pass: capture-next may spawn one capture
+  -> fail: capture_started=false, no subprocess
+```
+
+公共 `build_pixhawk_covariance_mode_binding()` 只是将现有 capture script 的 authoritative builder 暴露给
+runner，因此 online preflight 与正式 evidence 不会出现两套身份规则。probe report 不进入 E7；它保留
+查询预算、当前诊断和全部 false acceptance claims，供操作员在正式采集前排错。
+
 ## v89 field covariance source preflight（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

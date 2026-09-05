@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v90 current Pixhawk covariance identity probe（2026-09-06）
+
+- campaign runner 新增 `probe-next`：六叶静态预检通过后，只探测当前 pending 叶，复用正式 covariance
+  capture 的 `build_mode_binding`，不另写一套 endpoint/HEARTBEAT/firmware 判定；
+- provider 禁用 ranging stream 请求，只允许有界 `AUTOPILOT_VERSION(148)` identity query；最多三次，
+  `messages_transmitted` 必须精确等于 attempts，Mission/参数/模式/执行器路径保持关闭；
+- probe 核对 configured/resolved endpoint、HEARTBEAT、firmware identity、transport/qualified link、
+  operational qualification、read-only 与 hardware-control-disabled，并始终写出非 acceptance claims；
+- 正式 `capture-next` 内部重新运行 online probe，失败时 `capture_started=false` 且不调用 capture subprocess；
+  `px4_mission_path_hash` 更新为 `c7c86a1f...982ab218`；全量回归 3,419 tests：
+  `3418 passed, 1 skipped`，全仓 Ruff 通过。没有真实硬件在线，未生成 HIL/REAL 通过声明。
+
 ### v0.3.0-pre.8 v89 field covariance source preflight（2026-09-06）
 
 - 六叶 field campaign 新增无 transport I/O 的 `preflight`，逐叶重开 executable Mission、PX4 Mission

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v89：六叶 covariance source preflight；采集前重验 Mission/profile/feedback 并核对机型、模式、endpoint/baud、只读与 output lock |
+| 当前工程迭代 | v90：下一叶 Pixhawk online identity probe；正式采集前核对当前 endpoint、HEARTBEAT、firmware、qualification 与安全查询预算 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,23 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v90 下一叶 Pixhawk online identity probe
+
+`probe-next` 在静态六叶 source preflight 通过后，只打开当前 `next_leaf` 的 Pixhawk transport，使用正式
+covariance capture 的同一个 mode-binding authority 核对当前 resolved endpoint、HEARTBEAT 六元身份、
+`AUTOPILOT_VERSION` firmware hash、transport freshness 与 operational qualification。它关闭 ranging
+stream 配置；若固件身份没有被动广播，最多发送 3 次 `MAV_CMD_REQUEST_MESSAGE(512)` 查询 message 148，
+并要求总发送计数与查询次数严格相等。Mission、参数、模式和执行器通道始终不启用。
+
+```powershell
+python -m multidetect.field_covariance_campaign probe-next `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --status-out .\artifacts\evaluation\field-covariance\online-preflight.json
+```
+
+正式 `capture-next` 会重新执行 online probe；失败时输出 `capture_started=false`，不启动采集子进程。
+online preflight 是操作状态，不是 HIL/REAL、hardware 或 flight acceptance evidence。
 
 ### v89 六叶 covariance source preflight
 

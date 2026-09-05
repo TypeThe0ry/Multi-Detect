@@ -1,5 +1,22 @@
 # v0.3.0 E7 发布门
 
+## v90 当前 Pixhawk identity probe（2026-09-06，`v0.3.0-pre.8`）
+
+六叶 source READY 后、正式采集前运行：
+
+```powershell
+python -m multidetect.field_covariance_campaign probe-next `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --probe-samples 100 `
+  --probe-interval-seconds 0.1 `
+  --status-out .\artifacts\evaluation\field-covariance\online-preflight.json
+```
+
+通过条件包括当前 resolved endpoint、HEARTBEAT、firmware identity、transport/qualified link 和
+operational qualification 与 feedback/profile 完全一致。probe 不配置 ranging stream；唯一允许的发送是
+最多三次 firmware identity 查询，且 `messages_transmitted == attempts`。该状态文件可以覆盖更新，不是
+release evidence。正式 `capture-next` 会再次探测，失败时不启动 covariance capture subprocess。
+
 ## v89 六叶采集 source preflight（2026-09-06，`v0.3.0-pre.8`）
 
 正式连接 Pixhawk 前先运行无 I/O 静态预检：
