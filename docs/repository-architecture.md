@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v60 定位证据到原生 QGC 状态链（2026-09-05，`v0.3.0-pre.8`）
+
+v60 不修改 QML/C++ 或另造 UI，而是在既有 isolated-HIL acceptance 上补齐实际定位消息：
+
+```text
+passed schema-v2 Gazebo geolocation evidence
+  -> operator_closed_loop_hil.py strict evidence intake
+  -> rebase final range/WGS-84/1σ onto one live HIL target + frame
+  -> MAVLink-2-signed operator metadata type 10 + type 22
+  -> existing native MultiDetectOperatorController
+  -> existing MultiDetectState / FlyViewCustomLayer map and evidence bindings
+```
+
+PowerShell wrapper 要求 QGC 日志同时出现 type 10/22，记录 source evidence SHA/scenario/release，且继续
+约束 pinned PX4 SIH、localhost 独立端口、只读 router、0 写入/0 物理动作。实际 v60 运行认证 40 包，
+两类定位状态各 1 包，所有隔离/清理检查通过。由于本轮不改变 UI contract，现有 EXE 和五组 parity
+保持不变；该结果是机器 transport/native-adoption 子门，不是地图/卡片人工视觉或 HIL/REAL 硬件门。
+
 ## v59 三档坡高/距离定位矩阵闭环（2026-09-05，`v0.3.0-pre.8`）
 
 v59 保持唯一 shared ranging/WGS-84 实现，并以两套新增资产关闭 v58 定义的工况覆盖聚合门：

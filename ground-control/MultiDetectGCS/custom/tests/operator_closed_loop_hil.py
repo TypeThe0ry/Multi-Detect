@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
 import sys
 import time
 from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
 from multidetect.domain import (
@@ -16,6 +18,7 @@ from multidetect.domain import (
     RuleCheck,
     Verdict,
 )
+from multidetect.multimodal_ranging import RangeValidity
 from multidetect.operator_link import (
     OPERATOR_SAFETY_RULE_IDS,
     AuthorizationChallengeStatusMessage,
@@ -24,8 +27,10 @@ from multidetect.operator_link import (
     AuthorizationDisplayState,
     MissionStatusMessage,
     PatrolStatusMessage,
+    RangeStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
+    TargetGeolocationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -86,7 +91,124 @@ def _parser() -> argparse.ArgumentParser:
             "to create the QGC vehicle"
         ),
     )
+    parser.add_argument(
+        "--target-geolocation-evidence",
+        default="",
+        help=(
+            "optional passed Gazebo target-geolocation evidence whose final prediction is "
+            "rebased onto the live HIL target/frame and sent to native QGC"
+        ),
+    )
+    parser.add_argument(
+        "--expected-release-label",
+        default="",
+        help="required release label when target-geolocation evidence is supplied",
+    )
     return parser
+
+
+def _load_target_geolocation_evidence(
+    path_text: str,
+    expected_release_label: str = "",
+) -> dict[str, object] | None:
+    if not path_text:
+        return None
+    path = Path(path_text).resolve()
+    raw = path.read_bytes()
+    try:
+        evidence = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise HilFailure(f"target geolocation evidence is not valid JSON: {error}") from error
+    if evidence.get("schema") != "multidetect.gazebo-target-geolocation-acceptance":
+        raise HilFailure("target geolocation evidence schema is invalid")
+    if evidence.get("schema_version") != 2 or evidence.get("gate_passed") is not True:
+        raise HilFailure("target geolocation evidence has not passed its schema-v2 gate")
+    if (
+        evidence.get("flight_control_enabled") is not False
+        or evidence.get("physical_release_enabled") is not False
+        or evidence.get("production_approved") is not False
+    ):
+        raise HilFailure("target geolocation evidence violates the display-only safety boundary")
+    frames = evidence.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise HilFailure("target geolocation evidence contains no evaluated frames")
+    frame = frames[-1]
+    if not isinstance(frame, dict):
+        raise HilFailure("target geolocation evidence final frame is invalid")
+    predicted = frame.get("predicted_target")
+    ranging = frame.get("range_solution")
+    detections = frame.get("detections")
+    if not isinstance(predicted, dict) or not isinstance(ranging, dict):
+        raise HilFailure("target geolocation evidence lacks prediction/range data")
+    if not isinstance(detections, list) or len(detections) != 1 or not isinstance(detections[0], dict):
+        raise HilFailure("target geolocation evidence must contain one final-frame detection")
+    required_range_fields = (
+        "slant_range_m",
+        "ground_range_m",
+        "slant_range_ci95_m",
+        "ground_range_ci95_m",
+        "relative_bearing_deg",
+        "absolute_bearing_deg",
+        "bearing_sigma_deg",
+        "north_offset_m",
+        "east_offset_m",
+        "data_freshness_s",
+        "sensor_consistency",
+        "sources",
+        "rejected_sources",
+        "reasons",
+        "fusion_profile",
+        "vehicle_profile",
+        "navigation_state",
+        "motion_regime",
+        "validity",
+    )
+    if any(field not in ranging for field in required_range_fields):
+        raise HilFailure("target geolocation evidence range solution is incomplete")
+    for field in ("latitude_deg", "longitude_deg", "horizontal_sigma_m"):
+        if field not in predicted:
+            raise HilFailure(f"target geolocation evidence prediction lacks {field}")
+    scenario = evidence.get("scenario")
+    release = evidence.get("release_identity")
+    if not isinstance(scenario, dict) or not isinstance(release, dict):
+        raise HilFailure("target geolocation evidence lacks scenario/release identity")
+    scenario_id = scenario.get("scenario_id")
+    release_label = release.get("release_label")
+    source_frame_id = frame.get("frame_id")
+    if not all(
+        isinstance(value, str) and bool(value.strip())
+        for value in (scenario_id, release_label, source_frame_id)
+    ):
+        raise HilFailure("target geolocation evidence identity is incomplete")
+    if expected_release_label and release_label != expected_release_label:
+        raise HilFailure("target geolocation evidence release label does not match the QGC build")
+    for field in ("evidence_sha256", "deterministic_result_sha256"):
+        digest = evidence.get(field)
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest.lower())
+        ):
+            raise HilFailure(f"target geolocation evidence {field} is invalid")
+    if (
+        ranging.get("advisory_only") is not True
+        or ranging.get("flight_control_enabled") is not False
+        or ranging.get("physical_release_enabled") is not False
+    ):
+        raise HilFailure("target geolocation range solution violates the display-only safety boundary")
+    return {
+        "file_path": str(path),
+        "file_sha256": hashlib.sha256(raw).hexdigest(),
+        "evidence_sha256": str(evidence.get("evidence_sha256", "")),
+        "deterministic_result_sha256": str(evidence.get("deterministic_result_sha256", "")),
+        "scenario_id": str(scenario_id),
+        "release_label": str(release_label),
+        "source_frame_id": str(source_frame_id),
+        "source_captured_at_s": float(frame.get("captured_at_s")),
+        "label": str(detections[0].get("label", "target")),
+        "predicted": predicted,
+        "range_solution": ranging,
+    }
 
 
 def _signing_timestamp() -> int:
@@ -106,9 +228,15 @@ def _status_payloads(
     codec: OperatorTunnelCodec,
     geometry: VideoGeometry,
     command: TargetSelectionCommand,
+    target_geolocation_evidence: dict[str, object] | None = None,
 ) -> tuple[list[bytes], AuthorizationChallengeStatusMessage]:
     now = time.time()
-    target_id = "hil-fire-target"
+    target_id = "hil-geolocated-target" if target_geolocation_evidence else "hil-fire-target"
+    target_label = (
+        str(target_geolocation_evidence["label"])
+        if target_geolocation_evidence
+        else "flame"
+    )
     mission_id = "hil-fire-mission"
     challenge = AuthorizationChallengeStatusMessage(
         challenge_token=11,
@@ -131,7 +259,7 @@ def _status_payloads(
         state=TrackingState.TRACKING,
         target_id=target_id,
         bbox=BoundingBox(0.32, 0.21, 0.61, 0.72),
-        label="flame",
+        label=target_label,
         confidence=0.93,
         tracking_quality=0.89,
         source_frame_id="hil-frame-1",
@@ -152,6 +280,66 @@ def _status_payloads(
         )
         for index in range(TRACK_STATUS_SAMPLE_COUNT)
     ]
+    geolocation_payloads: list[bytes] = []
+    if target_geolocation_evidence is not None:
+        predicted = cast("dict[str, object]", target_geolocation_evidence["predicted"])
+        ranging = cast("dict[str, object]", target_geolocation_evidence["range_solution"])
+        source_frame_id = f"hil-frame-{TRACK_STATUS_SAMPLE_COUNT}"
+        source_captured_at_s = now - 0.02 + (TRACK_STATUS_SAMPLE_COUNT - 1) / TRACK_STATUS_RATE_HZ
+        produced_at_s = source_captured_at_s + 0.01
+        range_status = RangeStatusMessage(
+            status_id="77777777-7777-4777-8777-777777777777",
+            sequence=210,
+            target_id=target_id,
+            calibration_id="gazebo-geolocation-evidence",
+            source_frame_id=source_frame_id,
+            source_captured_at_s=source_captured_at_s,
+            produced_at_s=produced_at_s,
+            validity=RangeValidity(str(ranging["validity"])),
+            reasons=tuple(str(value) for value in cast("list[object]", ranging["reasons"])),
+            sources=tuple(str(value) for value in cast("list[object]", ranging["sources"])),
+            rejected_sources=tuple(
+                str(value) for value in cast("list[object]", ranging["rejected_sources"])
+            ),
+            slant_range_m=float(ranging["slant_range_m"]),
+            ground_range_m=float(ranging["ground_range_m"]),
+            slant_range_ci95_m=tuple(
+                float(value) for value in cast("list[object]", ranging["slant_range_ci95_m"])
+            ),
+            ground_range_ci95_m=tuple(
+                float(value) for value in cast("list[object]", ranging["ground_range_ci95_m"])
+            ),
+            relative_bearing_deg=float(ranging["relative_bearing_deg"]),
+            absolute_bearing_deg=float(ranging["absolute_bearing_deg"]),
+            bearing_sigma_deg=float(ranging["bearing_sigma_deg"]),
+            north_offset_m=float(ranging["north_offset_m"]),
+            east_offset_m=float(ranging["east_offset_m"]),
+            data_freshness_s=float(ranging["data_freshness_s"]),
+            sensor_consistency=float(ranging["sensor_consistency"]),
+            fusion_profile=str(ranging["fusion_profile"]),
+            vehicle_profile=str(ranging["vehicle_profile"]),
+            navigation_state=str(ranging["navigation_state"]),
+            motion_regime=(
+                "static" if str(ranging["motion_regime"]) == "stationary"
+                else str(ranging["motion_regime"])
+            ),
+        )
+        geolocation_status = TargetGeolocationStatusMessage(
+            sequence=211,
+            target_id=target_id,
+            source_frame_id=source_frame_id,
+            source_captured_at_s=source_captured_at_s,
+            produced_at_s=produced_at_s,
+            available=True,
+            reason="gps_qualified",
+            latitude_deg=float(predicted["latitude_deg"]),
+            longitude_deg=float(predicted["longitude_deg"]),
+            horizontal_sigma_m=float(predicted["horizontal_sigma_m"]),
+        )
+        geolocation_payloads = [
+            codec.encode_range_status(range_status),
+            codec.encode_target_geolocation_status(geolocation_status),
+        ]
     mission = MissionStatusMessage(
         status_id="44444444-4444-4444-8444-444444444444",
         sequence=203,
@@ -192,7 +380,7 @@ def _status_payloads(
         primary_target_id=target_id,
         target_state=UnifiedTrackState.LOST,
         bbox=BoundingBox(0.32, 0.21, 0.61, 0.72),
-        label="flame",
+        label=target_label,
         confidence=0.93,
         tracking_quality=0.89,
         total_track_count=10,
@@ -209,7 +397,7 @@ def _status_payloads(
         TargetPoolEntry(
             target_id=target_id,
             state=UnifiedTrackState.TRACKING,
-            label="flame",
+            label=target_label,
             confidence=0.93,
             tracking_quality=0.89,
             locked=True,
@@ -266,6 +454,7 @@ def _status_payloads(
     return (
         [
             *track_payloads,
+            *geolocation_payloads,
             codec.encode_mission_status(mission),
             codec.encode_safety_status(safety),
             codec.encode_patrol_status(patrol),
@@ -295,6 +484,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     if len(signing_key) != 32 or signing_key.hex() != signing_key_text.lower():
         raise HilFailure(f"{args.signing_key_hex_env} must contain 64 hexadecimal digits")
 
+    target_geolocation_evidence = _load_target_geolocation_evidence(
+        args.target_geolocation_evidence,
+        args.expected_release_label,
+    )
     geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
     codec = OperatorTunnelCodec(hmac_key=key, geometries=(geometry,))
     destination = (args.host, args.port)
@@ -401,7 +594,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     ),
                     destination,
                 )
-                status_payloads, challenge = _status_payloads(codec, geometry, decoded_selection)
+                status_payloads, challenge = _status_payloads(
+                    codec,
+                    geometry,
+                    decoded_selection,
+                    target_geolocation_evidence,
+                )
                 for status_payload in status_payloads:
                     time.sleep(0.05)
                     channel.sendto(adapter.wrap_authenticated_operator_payload(status_payload), destination)
@@ -471,6 +669,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     "target_pool_track_count": 3,
                     "tracking_metadata_packets_sent": TRACK_STATUS_SAMPLE_COUNT,
                     "tracking_metadata_rate_hz": TRACK_STATUS_RATE_HZ,
+                    "range_status_sent": target_geolocation_evidence is not None,
+                    "target_geolocation_status_sent": target_geolocation_evidence is not None,
+                    "target_geolocation_evidence": target_geolocation_evidence,
                     "udp_connection_resets": udp_connection_resets,
                     "external_autopilot_required": args.metadata_only,
                     "real_v6x_contacted": False,

@@ -5,6 +5,28 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v60 Gazebo 定位证据进入原生 QGC（2026-09-05）
+
+- 扩展既有 `operator_closed_loop_hil.py`，可读取 schema v2 且门禁通过的 Gazebo 定位 evidence，
+  保留文件/内部确定性摘要和原始场景身份，把最后一帧测距与 WGS-84/1σ 结果重绑定到同一个实时
+  HIL target/frame，再通过现有 MAVLink 2 signing operator link 发送 type 10/type 22。失败门、非
+  display-only 证据和不完整帧均在传输前 fail-closed。
+- 扩展 `run_px4_sitl_qgc_operator_acceptance.ps1` 的可选
+  `-TargetGeolocationEvidencePath`：QGC 必须认证 range/geolocation 两类消息，且路径、包计数和安全边界
+  必须进入 acceptance JSON；仍使用 pinned disposable PX4 SIH、localhost 独立链路和只读 router。
+- 实际 v60 验收 `gate_passed=true`：原生现有 EXE 认证 40 个 metadata 包，其中 type 10/type 22
+  各 1 个，PX4 autopilot heartbeat 6 个；operator tunnel→PX4、forbidden PX4、FTP write、arm、Mission
+  upload、physical payload 全为 0，UDP 14550 所有权不变，端口/容器/进程全部清理且无新 crash dump。
+  evidence 文件 SHA-256 为
+  `9E40159EEC767CD8F1AEF106BCC7E48ED9C00BC0DDFC7C1E4CECC7D2A060D053`。
+- 全量回归 3,255 tests：`3254 passed, 1 skipped, 0 failed, 0 errors`，JUnit 473,177 bytes / SHA-256
+  `0BD69A52C24CC8EC1438988CBB54A2223DFC656FB10D31F6C80D18B0DA725BE5`；Ruff、compileall、diff check
+  通过，临时 parity 与 canonical SHA-256 均为
+  `C670B2AAE30C392C2B7FBB981EDB58719EC66E4112B51F135E69AC662AFE152B`。
+- QGC C++/QML 和五组 release parity 未改变，EXE 仍为既有 `0.3.0-pre.8` portable 字节。该结果只关闭
+  evidence→signed wire→native controller 的 machine transport/adoption 子门；地图/1σ/卡片人工视觉、
+  E7 接入、真实 GNSS、硬件 HIL/REAL 和最终 `v0.3.0` 仍未声明通过，E7 blocker 仍为 32。
+
 ### v0.3.0-pre.8 v59 三档坡高/距离 Gazebo 定位矩阵通过（2026-09-05）
 
 - 新增 `gazebo_car_geolocation_mid_slope_001` 与 `gazebo_car_geolocation_high_slope_001` 两套完整

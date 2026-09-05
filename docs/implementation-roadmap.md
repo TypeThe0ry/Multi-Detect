@@ -2,7 +2,7 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 户外定位/SIM 资源收口（v59）
+## 当前 pre.8 户外定位/SIM/QGC 传输收口（v60）
 
 - [x] 将三轴射线不确定性失败映射为 Python/QGC 共用的 `RANGE_STATUS` bit 31，保持内部诊断细粒度并
   让操作端稳定显示 fail-closed 状态。
@@ -52,11 +52,18 @@
   JUnit 472,512 bytes / SHA-256
   `9F62B10AA176760E9F4CB8C4431CAF62EA9E28748D22C42C749D7C942DD100E1`，Ruff、compileall、
   diff check 与 parity byte-compare 通过。
+- [x] 将通过 v59 gate 的 high-slope evidence 最后一帧重绑定到实时 HIL target/frame，以签名
+  type 10 range + type 22 WGS-84/1σ 送入现有原生 QGC；实际 acceptance 认证 40 包、两类定位状态
+  各 1 包，PX4 heartbeat 6，所有写入/物理输出 0，14550 不变且资源全清理。
+- [x] 对 v60 current-code 执行全仓回归：3,255 tests 中 `3254 passed, 1 skipped, 0 failed, 0 errors`；
+  JUnit 473,177 bytes / SHA-256
+  `0BD69A52C24CC8EC1438988CBB54A2223DFC656FB10D31F6C80D18B0DA725BE5`，Ruff、compileall、diff check
+  及 parity SHA 对比通过。
 - [ ] 以独立机械提交清理 410 个历史 Ruff format 文件；31 个 parity 绑定 Python 源会随之改变，
   因此完成后必须重新生成 parity，并重跑定位、三机型 external join、E7 和全量回归，不能删除 format
   gate 或复用旧 evidence 冒充完成。
-- [ ] 将已通过的 v59 多工况坐标、1σ 圆、类别、距离、方位、时间和快照送入原生 QGC Fly View，
-  对 evidence card/地图完成动态人工视觉验收；通过正式 E7 schema/manifest 评审后再接入发布门。
+- [ ] 保持 v60 已通过的签名定位状态驱动在线，对原生 QGC evidence card/地图点/1σ 圆/复制/快照完成
+  exact PID/HWND 动态人工视觉验收；通过正式 E7 schema/manifest 评审后再接入发布门。
 - [ ] 生成 fixed-wing 与 VTOL 对等动态 response evidence；只有明确纳入发布门并重跑 E7 wrapper 后，
   才能更新三机型 external source 或 blocker 数。
 - [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。

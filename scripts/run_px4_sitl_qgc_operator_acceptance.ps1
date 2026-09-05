@@ -1,7 +1,8 @@
 param(
     [string]$QgcRoot = "",
     [string]$QgcBuildRoot = "",
-    [string]$EvidencePath = ""
+    [string]$EvidencePath = "",
+    [string]$TargetGeolocationEvidencePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,6 +76,15 @@ if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
 }
 elseif (-not [IO.Path]::IsPathRooted($EvidencePath)) {
     $EvidencePath = Join-Path $Root $EvidencePath
+}
+if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
+    if (-not [IO.Path]::IsPathRooted($TargetGeolocationEvidencePath)) {
+        $TargetGeolocationEvidencePath = Join-Path $Root $TargetGeolocationEvidencePath
+    }
+    $TargetGeolocationEvidencePath = [IO.Path]::GetFullPath($TargetGeolocationEvidencePath)
+    if (-not (Test-Path -LiteralPath $TargetGeolocationEvidencePath -PathType Leaf)) {
+        throw "Target geolocation evidence is unavailable: $TargetGeolocationEvidencePath"
+    }
 }
 
 function Assert-True {
@@ -447,6 +457,12 @@ try {
         "--timeout", "40",
         "--metadata-only"
     )
+    if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
+        $driverArguments += @(
+            "--target-geolocation-evidence", $TargetGeolocationEvidencePath,
+            "--expected-release-label", $ReleaseLabel
+        )
+    }
     $driverStart = @{
         FilePath = $Python
         ArgumentList = $driverArguments
@@ -563,6 +579,11 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($driverEvidence.target_pool_track_count -eq 3) "Jetson HIL target-pool cardinality is wrong."
     Assert-True ($driverEvidence.tracking_metadata_packets_sent -eq 30) "Jetson HIL did not send all tracking-rate samples."
     Assert-True ($driverEvidence.tracking_metadata_rate_hz -ge 15) "Jetson HIL tracking metadata rate is below 15 Hz."
+    if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
+        Assert-True ($driverEvidence.range_status_sent -eq $true) "Jetson HIL did not send the evidence-derived range status."
+        Assert-True ($driverEvidence.target_geolocation_status_sent -eq $true) "Jetson HIL did not send the evidence-derived target geolocation status."
+        Assert-True ($driverEvidence.target_geolocation_evidence.file_path -eq $TargetGeolocationEvidencePath) "Jetson HIL reported the wrong geolocation evidence path."
+    }
     Assert-True ($routerEvidence.px4_frames_forwarded -gt 0) "Router received no PX4 SITL telemetry."
     Assert-True ($routerEvidence.px4_autopilot_heartbeats_forwarded -gt 0) "Router received no PX4 autopilot heartbeat."
     Assert-True ($routerEvidence.px4_unexpected_system_frames_blocked -eq 0) "Router observed an unexpected PX4 source system."
@@ -583,6 +604,8 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True ($qgcLog -notmatch "rejected metadata:") "QGC rejected operator metadata during acceptance."
     $authenticatedMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=").Count
     $trackingMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=3 ").Count
+    $rangeMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=10 ").Count
+    $targetGeolocationMetadataPackets = [regex]::Matches($qgcLog, "authenticated metadata type=22 ").Count
     $trackingRateMatch = [regex]::Match(
         $qgcLog,
         # Qt's structured logging renders the numeric field as either
@@ -597,7 +620,13 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     )
     Assert-True ($trackingMetadataPackets -ge 30) "QGC authenticated fewer than 30 continuous tracking packets."
     Assert-True ($trackingMetadataRateHz -ge 15.0) "QGC measured tracking metadata below 15 Hz."
-    Assert-True ($authenticatedMetadataPackets -ge 37) "QGC authenticated fewer than 37 required metadata packets."
+    $minimumAuthenticatedMetadataPackets = 37
+    if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
+        Assert-True ($rangeMetadataPackets -ge 1) "QGC did not authenticate the evidence-derived range status."
+        Assert-True ($targetGeolocationMetadataPackets -ge 1) "QGC did not authenticate the evidence-derived target geolocation status."
+        $minimumAuthenticatedMetadataPackets = 39
+    }
+    Assert-True ($authenticatedMetadataPackets -ge $minimumAuthenticatedMetadataPackets) "QGC authenticated fewer than $minimumAuthenticatedMetadataPackets required metadata packets."
 
     $protectedOwnersAfter = @(Get-UdpPortOwners -Port $ProtectedGroundStationPort)
     $protectedPortUnchanged = (
@@ -650,6 +679,8 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             gcs_system_id = 255
             udp_endpoints_during = $qgcUdpEndpointsDuring
             authenticated_metadata_packets_in_log = $authenticatedMetadataPackets
+            range_metadata_packets_in_log = $rangeMetadataPackets
+            target_geolocation_metadata_packets_in_log = $targetGeolocationMetadataPackets
             runtime = [ordered]@{
                 qt_root = $QtRoot
                 gstreamer_root = $GstreamerRoot
@@ -680,6 +711,8 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             paged_target_pool_atomically_assembled = $true
             tracking_metadata_rate_hz = $trackingMetadataRateHz
             tracking_metadata_packets_received_by_qgc = $trackingMetadataPackets
+            evidence_derived_range_status_received_by_qgc = ($rangeMetadataPackets -ge 1)
+            evidence_derived_target_geolocation_received_by_qgc = ($targetGeolocationMetadataPackets -ge 1)
             challenge_bound_authorization_completed = $true
             qgc_forbidden_px4_messages = 0
             file_mutating_ftp_opcodes_forwarded = 0

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T10:24:13Z",
+  "updated_at_utc": "2026-09-05T10:41:54Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -14,7 +14,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v59",
+  "working_iteration": "v60",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -23,16 +23,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v59-final.xml",
-      "tests": 3251,
-      "passed": 3250,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v60-final-v2.xml",
+      "tests": 3255,
+      "passed": 3254,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 132.95,
-      "junit_local_path": "tmp/current-progress-regression-v59-final.xml",
-      "junit_file_bytes": 472512,
-      "junit_file_sha256": "9f62b10aa176760e9f4cb8c4431caf62ea9e28748d22c42c749d7c942dd100e1",
+      "duration_seconds": 131.77,
+      "junit_local_path": "tmp/current-progress-regression-v60-final-v2.xml",
+      "junit_file_bytes": 473177,
+      "junit_file_sha256": "0bd69a52c24cc8ec1438988cbb54a2223dfc656fb10d31f6c80d18b0da725be5",
       "distributed_in_git": false
     },
     "ruff": {
@@ -181,6 +181,22 @@
       "slope_regimes": {"actual": 3, "required": 2, "separation_deg": 3.0},
       "reasons": []
     },
+    "qgc_geolocation_operator_transport": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v60/px4-sitl-qgc-geolocation-operator-acceptance-v60-pre8-v2.json",
+      "distributed_in_git": false,
+      "file_sha256": "9e40159eec767cd8f1aef106bcc7e48ed9c00bc0ddfc7c1e4cecc7d2a060d053",
+      "source_geolocation_file_sha256": "cc3b670248bee4f3224927aedae0d5a13d5301e5106dc2ba66c4c1fef90025f6",
+      "source_scenario_id": "gazebo_car_geolocation_high_slope_001",
+      "gate_passed": true,
+      "authenticated_metadata_packets": 40,
+      "range_status_packets": 1,
+      "target_geolocation_status_packets": 1,
+      "px4_autopilot_heartbeats": 6,
+      "qgc_forbidden_px4_messages": 0,
+      "physical_payload_actions": 0,
+      "protected_port_unchanged": true,
+      "all_resources_cleaned": true
+    },
     "external_three_airframe_rebind": {
       "local_path": "artifacts/evaluation/terminal-continuation-v57/simulator-external-runtime-ai-join-v57-current-parity-pre8.json",
       "distributed_in_git": false,
@@ -206,6 +222,7 @@
   "claims": {
     "software_sim_single_regime_geolocation_subgate": "passed",
     "software_sim_multi_regime_geolocation_subgate": "passed",
+    "qgc_geolocation_signed_transport_native_adoption_subgate": "passed",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",

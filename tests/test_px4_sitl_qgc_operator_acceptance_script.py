@@ -67,7 +67,7 @@ def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
     assert "TRACKING_METADATA_RATE_HZ -GE 15" in upper
     assert "TRACKINGMETADATAPACKETS -GE 30" in upper
     assert "TRACKINGMETADATARATEHZ -GE 15.0" in upper
-    assert "AUTHENTICATEDMETADATAPACKETS -GE 37" in upper
+    assert "MINIMUMAUTHENTICATEDMETADATAPACKETS = 37" in upper
     assert "PAGED_TARGET_POOL_ATOMICALLY_ASSEMBLED = $TRUE" in upper
     assert "DIRECT SIGNED OPERATOR METADATA READY" in upper
     assert "ISOLATED HIL PX4 UDP LINK LISTENING" in upper
@@ -153,3 +153,17 @@ def test_short_lived_redirected_process_handles_are_pinned_for_exit_codes() -> N
     assert "$null = $routerProcess.Handle" in text
     assert "$null = $driverProcess.Handle" in text
     assert "$null = $qgcProcess.Handle" in text
+
+
+def test_acceptance_can_bind_passed_geolocation_evidence_into_native_qgc() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert "TARGETGEOLOCATIONEVIDENCEPATH" in upper
+    assert '"--TARGET-GEOLOCATION-EVIDENCE"' in upper
+    assert '"--EXPECTED-RELEASE-LABEL", $RELEASELABEL' in upper
+    assert "RANGE_STATUS_SENT -EQ $TRUE" in upper
+    assert "TARGET_GEOLOCATION_STATUS_SENT -EQ $TRUE" in upper
+    assert '"AUTHENTICATED METADATA TYPE=10 "' in upper
+    assert '"AUTHENTICATED METADATA TYPE=22 "' in upper
+    assert "MINIMUMAUTHENTICATEDMETADATAPACKETS = 39" in upper

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v59：三档坡高/距离目标定位矩阵通过 |
+| 当前工程迭代 | v60：定位证据进入原生 QGC 的签名 HIL 传输子门通过 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -137,6 +137,22 @@ HIL/REAL、实飞或最终 `v0.3.0` 发布通过。
 `artifacts/` 默认不进入普通 Git 提交；进度文件记录其路径、摘要、结论和声明边界。需要归档的
 轻量证据必须按 [仓库更新规范](docs/development-update-policy.md) 单独评审，原始视频、模型与大型
 帧集应使用外部制品存储或 Git LFS，而不是无意塞入源码历史。
+
+### v60 原生 QGC 定位状态传输验收
+
+已有 v59 evidence 时，可将其中最后一帧的融合测距、WGS-84 坐标和 1σ 不确定性通过现有签名
+operator link 送入当前原生 EXE：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run_px4_sitl_qgc_operator_acceptance.ps1 `
+  -TargetGeolocationEvidencePath `
+    .\artifacts\evaluation\terminal-continuation-v59\gazebo-high-slope-geolocation-evaluation-v59-pre8-v1.json
+```
+
+脚本只接受 schema v2 且 `gate_passed=true`、display-only 的定位证据，并要求 QGC 分别认证
+`RANGE_STATUS` type 10 与 `TARGET_GEOLOCATION_STATUS` type 22。该机器门证明协议/原生状态采纳，
+仍不替代操作者对地图点、1σ 圆和证据卡片的人工视觉签字。
 
 ### MultiDetectGCS
 
