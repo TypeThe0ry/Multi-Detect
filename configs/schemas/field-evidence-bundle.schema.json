@@ -38,7 +38,7 @@
     "inputs": {"$ref": "#/$defs/inputs"},
     "strata": {"$ref": "#/$defs/strata"},
     "checks": {"$ref": "#/$defs/checks"},
-    "bindings": {"type": "object"},
+    "bindings": {"$ref": "#/$defs/bindings"},
     "blocking_reasons": {"type": "array", "items": {"type": "string"}},
     "next_actions": {"type": "array", "items": {"type": "string"}},
     "gate_passed": {"type": "boolean"},
@@ -67,6 +67,72 @@
         {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
         {"type": "null"}
       ]
+    },
+    "textOrNull": {"type": ["string", "null"]},
+    "inputSha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_session_report", "gnss_capture_report", "target_event_manifest",
+        "recording_manifest", "telemetry_sidecar", "link_preflight",
+        "camera_mount_survey", "accuracy_report"
+      ],
+      "properties": {
+        "field_session_report": {"$ref": "#/$defs/sha256OrNull"},
+        "gnss_capture_report": {"$ref": "#/$defs/sha256OrNull"},
+        "target_event_manifest": {"$ref": "#/$defs/sha256OrNull"},
+        "recording_manifest": {"$ref": "#/$defs/sha256OrNull"},
+        "telemetry_sidecar": {"$ref": "#/$defs/sha256OrNull"},
+        "link_preflight": {"$ref": "#/$defs/sha256OrNull"},
+        "camera_mount_survey": {"$ref": "#/$defs/sha256OrNull"},
+        "accuracy_report": {"$ref": "#/$defs/sha256OrNull"}
+      }
+    },
+    "inputBytes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_session_report", "gnss_capture_report", "target_event_manifest",
+        "recording_manifest", "telemetry_sidecar", "link_preflight",
+        "camera_mount_survey", "accuracy_report"
+      ],
+      "properties": {
+        "field_session_report": {"type": "integer", "minimum": 0},
+        "gnss_capture_report": {"type": "integer", "minimum": 0},
+        "target_event_manifest": {"type": "integer", "minimum": 0},
+        "recording_manifest": {"type": "integer", "minimum": 0},
+        "telemetry_sidecar": {"type": "integer", "minimum": 0},
+        "link_preflight": {"type": "integer", "minimum": 0},
+        "camera_mount_survey": {"type": "integer", "minimum": 0},
+        "accuracy_report": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_sha256", "input_bytes", "maximum_telemetry_age_s", "require_real_domain"
+      ],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/inputSha256"},
+        "input_bytes": {"$ref": "#/$defs/inputBytes"},
+        "maximum_telemetry_age_s": {"type": "number", "minimum": 0, "maximum": 1.5},
+        "require_real_domain": {"type": "boolean"},
+        "target_event_bundle_id": {"type": "string", "minLength": 1},
+        "target_event_session_id": {"type": "string", "minLength": 1},
+        "target_event_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "target_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "target_event_camera_calibration_id": {"$ref": "#/$defs/textOrNull"},
+        "target_event_camera_calibration_sha256": {"$ref": "#/$defs/sha256OrNull"},
+        "recording_id": {"type": "string", "minLength": 1},
+        "recording_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+        "recording_manifest_sha256": {"$ref": "#/$defs/sha256OrNull"},
+        "camera_mount_survey_id": {"$ref": "#/$defs/textOrNull"},
+        "camera_mount_aircraft_id": {"$ref": "#/$defs/textOrNull"},
+        "camera_mount_camera_id": {"$ref": "#/$defs/textOrNull"},
+        "camera_mount_gnss_antenna_id": {"$ref": "#/$defs/textOrNull"},
+        "camera_calibration_sha256": {"$ref": "#/$defs/sha256OrNull"}
+      }
     },
     "input": {
       "type": "object",

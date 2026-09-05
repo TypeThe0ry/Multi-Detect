@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 import multidetect.field_evidence_bundle as bundle_module
 import multidetect.field_session_capture as session_module
@@ -34,6 +35,16 @@ from multidetect.target_event_replay import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSION_ID = "11111111-1111-4111-8111-111111111111"
+
+
+def _field_bundle_validator() -> Draft202012Validator:
+    schema = json.loads(
+        (ROOT / "configs" / "schemas" / "field-evidence-bundle.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -465,6 +476,7 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
         report["bindings"]["target_event_camera_calibration_sha256"]
         == report["bindings"]["camera_calibration_sha256"]
     )
+    _field_bundle_validator().validate(report)
 
     alternate_calibration = tmp_path / "alternate-camera-calibration.json"
     alternate_document = json.loads(
@@ -596,6 +608,14 @@ def test_schema_declares_fail_closed_release_boundary() -> None:
     assert schema["properties"]["contains_flight_control"]["const"] is False
     assert schema["properties"]["hardware_acceptance"]["const"] == "not_claimed"
     assert set(schema["$defs"]["strata"]["required"]) == set(bundle_module.FIELD_EVIDENCE_STRATA)
+    assert schema["properties"]["bindings"] == {"$ref": "#/$defs/bindings"}
+    assert schema["$defs"]["bindings"]["additionalProperties"] is False
+
+    pending = bundle_module.check_field_evidence_bundle()
+    validator = _field_bundle_validator()
+    validator.validate(pending)
+    pending["bindings"]["unbound_claim"] = "not allowed"
+    assert list(validator.iter_errors(pending))
 
 
 def test_writer_is_atomic_and_refuses_replacement(tmp_path: Path) -> None:
