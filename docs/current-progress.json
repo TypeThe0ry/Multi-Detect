@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T22:00:18Z",
+  "updated_at_utc": "2026-09-05T22:10:24Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "7bd337d98c0cbe464981b4a821692d5a08bfb048",
-    "commit_subject": "feat(evidence): add field covariance campaign runner",
-    "commits_ahead_of_origin_main": 64
+    "commit": "24f4ef2be1c67c73f6520a43392aaa0b1f942c7d",
+    "commit_subject": "feat(evidence): preflight field covariance sources",
+    "commits_ahead_of_origin_main": 66
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v88",
+  "working_iteration": "v89",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v88-final.xml",
-      "tests": 3403,
-      "passed": 3402,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v89-final.xml",
+      "tests": 3415,
+      "passed": 3414,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 93.446,
-      "junit_local_path": "tmp/current-progress-regression-v88-final.xml",
-      "junit_file_bytes": 496778,
-      "junit_file_sha256": "da2b4104b657a64051db879e75b1c5dcd5b3c8abda90c02d242915a069bba25a",
+      "duration_seconds": 92.559,
+      "junit_local_path": "tmp/current-progress-regression-v89-final.xml",
+      "junit_file_bytes": 498573,
+      "junit_file_sha256": "c370e39f2c7b2c93e609afa5931e50603bed63d3dfecb2f68c0b78a105790e3c",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5972,
-    "file_sha256": "131411c4c46fab1975684d5c7422d41ff7759ac24a33c5d349a3069d0ec37a67",
+    "file_sha256": "ce3e86ac96c0c08fbd1ae0a38e3ea355b0a3c876ebba1b2cd002a85b8a1e94e1",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "e3371122bbda8efee9b2ef20ab20969ca5fcf627d51f96025e42ae6b2d089b83"
+      "px4_mission_path_hash": "3d3a77f61dd4fa1c134acdff83e07afb020b947ed808c2df0ae17a974ca52c95"
     }
   },
   "evidence": {
@@ -79,7 +79,22 @@
       "schema_path": "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
       "example_config": "configs/pixhawk-covariance-field-campaign.example.json",
       "runner_module": "multidetect.field_covariance_campaign",
-      "commands": ["status", "capture-next", "verify"],
+      "commands": ["status", "preflight", "capture-next", "verify"],
+      "source_preflight_all_six_required": true,
+      "source_preflight_transport_io": false,
+      "source_preflight_reopens_sources": true,
+      "source_preflight_checks": [
+        "mission_airframe_adapter",
+        "runtime_mode",
+        "configured_endpoint",
+        "baud",
+        "feedback_gate",
+        "receive_only_zero_transmit",
+        "runtime_signature_and_profile_gate",
+        "observed_runtime_identity",
+        "flight_control_disabled",
+        "output_locked"
+      ],
       "one_leaf_per_capture": true,
       "existing_reports_reverified": true,
       "immutable_report_overwrite_disabled": true,

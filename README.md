@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v88：新增六叶现场 covariance campaign runner；严格配置、逐叶安全采集、断点状态、不可变失败证据、完整矩阵复验与 E7 参数输出 |
+| 当前工程迭代 | v89：六叶 covariance source preflight；采集前重验 Mission/profile/feedback 并核对机型、模式、endpoint/baud、只读与 output lock |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,22 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v89 六叶 covariance source preflight
+
+现场 runner 新增独立 `preflight` 命令：它不打开 Pixhawk transport，而是一次重开六叶 executable
+Mission、Mission feedback v2 和 signed runtime profile，输出逐叶 `ready` / `blocked` 清单。机型 adapter、
+运行模式、configured endpoint、baud、只读/零发送、runtime profile signature/profile gate、
+flight-control disabled 与 output locked 任一不一致都会阻断。`capture-next` 在构造并启动采集子进程前
+强制要求六叶全部 READY；源文件在前次检查后发生变化，也会在下一次重新读取时被拒绝。
+
+```powershell
+python -m multidetect.field_covariance_campaign preflight `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --status-out .\artifacts\evaluation\field-covariance\source-preflight.json
+```
+
+这只证明静态输入可进入现场采集，不证明当前连接的 Pixhawk 身份或 HIL/REAL/硬件/实飞验收通过。
 
 ### v86 严格 covariance evidence schema
 

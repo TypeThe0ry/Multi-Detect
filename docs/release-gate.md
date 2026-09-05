@@ -1,5 +1,21 @@
 # v0.3.0 E7 发布门
 
+## v89 六叶采集 source preflight（2026-09-06，`v0.3.0-pre.8`）
+
+正式连接 Pixhawk 前先运行无 I/O 静态预检：
+
+```powershell
+python -m multidetect.field_covariance_campaign preflight `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --status-out .\artifacts\evaluation\field-covariance\source-preflight.json
+```
+
+输出必须为 `ready_count=6`、`blocked_count=0`、`gate_passed=true`。预检会重开全部 Mission、feedback
+和 runtime profile，并核对 adapter、mode、endpoint/baud、签名/profile gate、只读零发送和 output
+lock；它不会打开串口或发送 MAVLink。`capture-next` 内部会再次运行同一预检，任一叶 BLOCKED 时不会
+启动采集 subprocess。该结果是可更新的操作状态，不是 release evidence，也不证明当前飞控在线身份；
+HEARTBEAT、firmware 与 current-link 仍由正式 covariance capture 现场验证。
+
 ## v88 六叶现场采集 runner（2026-09-06，`v0.3.0-pre.8`）
 
 先复制并填写 `configs/pixhawk-covariance-field-campaign.example.json`。其中每个叶必须指向已经生成并
@@ -8,6 +24,9 @@ write-new report path。依次运行：
 
 ```powershell
 python -m multidetect.field_covariance_campaign status `
+  --config .\configs\pixhawk-covariance-field-campaign.json
+
+python -m multidetect.field_covariance_campaign preflight `
   --config .\configs\pixhawk-covariance-field-campaign.json
 
 python -m multidetect.field_covariance_campaign capture-next `

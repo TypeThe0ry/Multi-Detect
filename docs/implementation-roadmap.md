@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 六叶 covariance source preflight（v89）
+
+- [x] 无 transport I/O 地重开全部 Mission、feedback v2 与 signed runtime profile；
+- [x] 逐叶核对三机型 adapter、HIL/REAL mode、configured endpoint 与 baud；
+- [x] 强制 feedback/runtime/profile gate、receive-only、zero-transmit、flight-control disabled、output locked；
+- [x] 输出固定顺序 READY/BLOCKED 清单，并在 `capture-next` 启动 subprocess 前硬阻断；
+- [x] 覆盖 source 漂移、八类语义错配、CLI 失败码与零 subprocess 调用；
+- [ ] 增加 bounded online `probe-next`，在不生成正式 covariance report 的情况下核对当前 Pixhawk
+  HEARTBEAT、firmware identity、resolved endpoint 和 current-link qualification。
+
 ## 六叶 covariance 现场采集 runner（v88）
 
 - [x] 严格配置固定 HIL/REAL × fixed-wing/multirotor/VTOL，预解析全部 source/output；

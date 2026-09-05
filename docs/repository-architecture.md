@@ -1,5 +1,22 @@
 # 统一仓库架构
 
+## v89 field covariance source preflight（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+six-leaf campaign config
+  -> reopen executable Mission -> exact vehicle adapter ID/hash
+  -> reopen feedback v2 + signed profile -> exact mode and source binding
+  -> compare configured endpoint + baud
+  -> require feedback/runtime gates + receive-only + zero TX + output locked
+  -> READY × 6
+  -> capture-next may start exactly one telemetry-only subprocess
+```
+
+`campaign_preflight()` 是 transport 之前的静态信任边界。它每次从磁盘重开源文件，不缓存上一次 READY；
+因此 profile、feedback 或 Mission 漂移会在下一次 capture 前暴露。在线 HEARTBEAT、firmware identity、
+resolved endpoint 与 current qualified link 不在这层猜测，继续由 covariance capture 的真实 provider
+快照验证。preflight status 可以覆盖更新，但不进入 E7 release evidence。
+
 ## v88 field covariance campaign operator loop（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

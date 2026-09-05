@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v88 工作树）
+最后更新：2026-09-06（v89 工作树）
+
+## v89 本轮已收口
+
+- `field_covariance_campaign preflight` 一次重开六叶 Mission、feedback v2 与 runtime profile，不访问
+  transport，输出固定顺序的 `ready` / `blocked` 清单和三份 source SHA-256；
+- 每叶核对当前机型 adapter ID/hash、HIL/REAL mode、configured endpoint、baud、feedback gate、
+  receive-only/zero-transmit、runtime signature/profile gate、observed identity、flight-control disabled 与
+  output locked；
+- `capture-next` 在启动采集 subprocess 前强制要求全部六叶 READY，dry-run 也携带完整预检结果；源文件
+  检查后发生变化会在下一次重新打开时被拒绝；
+- 24 个 campaign runner 专项测试通过，覆盖六叶正例、八类错配、post-check source tamper、CLI 失败码和
+  blocked 状态下 subprocess 零调用；`px4_mission_path_hash` 更新为 `3D3A77F6...CA52C95`；
+- 全量回归 3,415 tests：`3414 passed, 1 skipped, 0 failed, 0 errors`，JUnit 498,573 bytes、
+  SHA-256 `C370E39F2C7B2C93E609AFA5931E50603BED63D3DFECB2F68C0B78A105790E3C`；全仓 Ruff 通过；
+- 这只关闭现场启动前静态配置缺口。当前 Pixhawk 在线 HEARTBEAT/firmware identity 仍由正式 capture
+  验证；真实六叶 HIL/REAL、硬件、室外 GNSS、人工 QGC 与实飞均未声明，最终版本继续阻断。
 
 ## v88 本轮已收口
 
@@ -556,8 +572,8 @@ v59 矩阵内部摘要为：
 
 ## 当前共享契约身份
 
-`configs/release-parity.json`：5,715 bytes，文件 SHA-256
-`812FE13F1E59FB01A0D1F378617C2FBF2D7294A7393D06F117CC9EB51A09FA68`。
+`configs/release-parity.json`：5,972 bytes，文件 SHA-256
+`CE3E86AC96C0C08FBD1AE0A38E3EA355B0A3C876EBBA1B2CD002A85B8A1E94E1`。
 
 | 契约组 | 当前哈希 |
 |---|---|
@@ -565,7 +581,7 @@ v59 矩阵内部摘要为：
 | Core algorithm | `ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f` |
 | Task contract | `89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad` |
 | Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
-| PX4 Mission path | `3f118e577fbc2906e203065050e13b58947acca8860fd0953b106204d4c4069c` |
+| PX4 Mission path | `3d3a77f61dd4fa1c134acdff83e07afb020b947ed808c2df0ae17a974ca52c95` |
 
 ## 功能成熟度矩阵
 

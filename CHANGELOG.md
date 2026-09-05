@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v89 field covariance source preflight（2026-09-06）
+
+- 六叶 field campaign 新增无 transport I/O 的 `preflight`，逐叶重开 executable Mission、PX4 Mission
+  feedback v2 和 signed runtime profile，并输出确定性的 READY/BLOCKED 清单与 source hashes；
+- 预检绑定 fixed-wing/multirotor/VTOL adapter ID/hash、HIL/REAL mode、configured endpoint、baud、
+  feedback gate、receive-only/zero-transmit、runtime signature/profile gate 与 observed identity；
+- `capture-next` 在启动任何子进程前要求全部六叶 READY，并把预检结果带入 dry-run/正式结果；静态源漂移、
+  output unlock 或 flight-control enable 均 fail-closed；
+- 新增 12 项回归覆盖六叶顺序、八类语义错配、source post-check tamper、CLI 非零退出与 subprocess
+  零调用；`px4_mission_path_hash` 刷新为 `3d3a77f6...ca52c95`；全量回归 3,415 tests：
+  `3414 passed, 1 skipped`，全仓 Ruff 通过。本轮没有真实 HIL/REAL 采集声明。
+
 ### v0.3.0-pre.8 v88 field covariance campaign runner（2026-09-06）
 
 - 新增严格 schema-v1 六叶 campaign 配置与可复制模板，启动前解析全部 Mission、feedback、profile、
