@@ -12,6 +12,24 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v71 干净 HEAD Combined 复验（2026-09-06）
+
+在 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`、`dirty=false` 的工作树上，使用下述同一 portable
+重新完成 900 帧 PX4/Gazebo/QGC Combined：
+
+```text
+artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/combined-evidence.json
+259,353 bytes
+SHA-256 5031EEFE75CF78D42AECCC04E990BB8F9975FBC6EBB12D4087F685C18652C8B6
+```
+
+900/900 sensor、RTSP、type-23/type-24 和 full odometry 完整；832 份 range/geolocation 中 336 份
+合格坐标、496 份 fail-closed withheld，0 operator transport error。exact PID/HWND 上第一次点击
+`flame` 候选框，相关 `SELECT_TRK` ACK、TRACKING 和 QML `TRK` adoption 一致；VTOL Mission 完成
+MC/FW/MC、land/disarm，最大离家 `226.949 m`、最大相对高度 `26.078 m`。独立 verifier 44/44，
+报告 SHA-256 为 `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
+这仍是 software/SIM machine proof，人工视觉和 HIL/REAL/硬件/实飞门未提升。
+
 ### v70 当前 portable 与原生目标点击闭环（2026-09-06）
 
 当前 portable 主 EXE 为 `46,579,712` bytes，SHA-256

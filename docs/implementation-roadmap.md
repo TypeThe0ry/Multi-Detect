@@ -2,6 +2,14 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
+## 干净 HEAD Combined provenance 收口（v71）
+
+- [x] 在提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`、`dirty=false` 的工作树上重跑 900 帧 Combined；
+- [x] 原生目标点击、相关 ACK、TRACKING/QML TRK、832 份 range/geolocation、336 合格坐标和
+  496 fail-closed withheld 全部在同一 run 中完成，0 operator transport error；
+- [x] 独立 verifier 44/44、VTOL 7-item Mission、MC/FW/MC、land/disarm、容器与端口清理全部通过；
+- [ ] 完成四模式人工视觉 0/4、真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 与实飞门。
+
 ## 原生目标点击→测距→GPS 落图 Combined 闭环（v70）
 
 - [x] 由 QML 候选框导出几何，在 exact QGC PID/HWND 上执行真实点击并验证 `SELECT_TRK` ACK；

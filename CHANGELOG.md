@@ -5,6 +5,26 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v71 干净 HEAD Combined 复验与 provenance 收口（2026-09-06）
+
+- 在提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f` 的干净工作树上重新执行完整 900 帧
+  PX4/Gazebo/QGC Combined SIM；source 明确记录同一 Git HEAD、`dirty=false` 和空 status SHA-256，
+  消除 v70 提交前机器证据的 provenance 缺口。
+- `combined-sim-qgc-20260905T175019Z-64536` 为 259,353 bytes / SHA-256
+  `5031EEFE75CF78D42AECCC04E990BB8F9975FBC6EBB12D4087F685C18652C8B6`；900/900 sensor、RTSP、
+  type-23/type-24 与 full odometry 通过，832 份 range/geolocation 中 336 份合格落图、496 份
+  fail-closed withheld，operator transport error 为 0。
+- QGC 在 exact PID/HWND 上第一次命中 source-bound `flame` 候选框，相关 `SELECT_TRK` ACK、
+  `TRACKING` 和 QML `TRK` adoption 属于同一 target；最大 frame-to-acceptance 为 `609 ms`，
+  最大 ACK-to-metadata skew 为 `235 ms`。
+- 7-item Mission 完成 MC→FW→MC、AUTO.MISSION、land/disarm；最大离家 `226.949 m`、最大相对高度
+  `26.078 m`。容器移除、9 个动态测试端口释放、14550 保持不变。
+- 独立 combined verifier 44/44 通过，报告 2,139 bytes / SHA-256
+  `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。该结果仍只关闭
+  software/SIM 机器 provenance 子门，不提升人工视觉、真实硬件、室外 GNSS/RTK、HIL/REAL 或实飞门。
+- 全仓 3,317 tests：`3316 passed, 1 skipped, 0 failed, 0 errors`；JUnit 482,309 bytes / SHA-256
+  `4F05DBB3A4BA63DDD1DB31E55DF904FE0739E8DE3D362D21E23F727CD9C17106`，Ruff 通过。
+
 ### v0.3.0-pre.8 v70 原生目标点击、测距与 GPS 落图 Combined 闭环（2026-09-06）
 
 - 原生 QGC Fly View 现在可按 source-bound 候选框中心发送 `SELECT_TRK`，并以同一 command/target 的

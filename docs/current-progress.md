@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v70 工作树）
+最后更新：2026-09-06（v71 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `c297a9285a014de394c5bf42e6098ff43b20a295`（当前文档提交前领先远端 29 个提交）。
+本地 `main` 提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`（当前文档提交前领先远端 30 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -11,12 +11,14 @@ GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f
 
 ## 结论先行
 
-v70 已把原生 QGC 的真实目标点击纳入同一个 PX4/Gazebo/QGC Combined SIM 生命周期：机器按
+v71 已在干净提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f` 上重跑完整
+PX4/Gazebo/QGC Combined SIM 生命周期；source 明确记录同一 HEAD、`dirty=false` 和空 Git status
+摘要，独立 verifier 44/44 通过。原生 QGC 的真实目标点击继续按
 QML 候选框几何映射到 exact PID/HWND，发送一次 `SELECT_TRK`，验证 ACK 与后续 TRACKING 状态均与
 同一 command/target 相关，再让该 operator target 驱动共享测距和目标定位。相机安装俯角同步修正为
 35°，GPS/DEM/相机地面射线链恢复可观测区域；测距 contribution wire 权重改为总预算量化，避免极小
 VIO 权重与主来源四舍五入后总和超过 1 而间歇性拒绝 packet。当前 parity 的权威 900 帧 run 中，
-831 份 range 和 831 份 geolocation status 全部发出，112 帧合格落图、719 帧明确不可定位、0 transport
+832 份 range 和 832 份 geolocation status 全部发出，336 帧合格落图、496 帧明确不可定位、0 transport
 error，Combined、VTOL attached 与 7-item Mission 均通过。
 
 当前仓库已经形成统一的感知、跟踪、测距、目标落图、QGC、数字孪生、任务规划、PX4 Mission、
@@ -42,6 +44,25 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v71 本轮已收口
+
+- 在干净 `73429e5` 上完成新的权威 source
+  `combined-sim-qgc-20260905T175019Z-64536`：259,353 bytes，SHA-256
+  `5031EEFE75CF78D42AECCC04E990BB8F9975FBC6EBB12D4087F685C18652C8B6`；source 自证
+  `git_head=73429e5`、`dirty=false`。
+- 900/900 sensor、RTSP、signed type-23、post-adoption type-24 和 full odometry 通过；832 份
+  range/geolocation 中 336 份可落图，496 份按质量门明确 withheld，0 operator transport error；
+  最大 frame-to-acceptance `609 ms`，最大 ACK-to-metadata skew `235 ms`。
+- exact PID/HWND 上第一次命中 `flame` 候选框；`SELECT_TRK` ACK、TRACKING 和 QML TRK 绑定同一目标。
+  VTOL Mission 完成 MC/FW/MC、land/disarm，最大离家 `226.949 m`、最大相对高度 `26.078 m`；容器、
+  9 个动态端口与受保护 14550 状态均正确清理。
+- 独立 verifier 44/44：2,139 bytes，SHA-256
+  `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
+- v71 全仓回归仍为 3,317 tests：`3316 passed, 1 skipped, 0 failed, 0 errors`；JUnit 482,309 bytes，
+  SHA-256 `4F05DBB3A4BA63DDD1DB31E55DF904FE0739E8DE3D362D21E23F727CD9C17106`；Ruff 通过。
+- 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
+  视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
 
 ## v70 本轮已收口
 

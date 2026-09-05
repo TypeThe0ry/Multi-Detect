@@ -9,6 +9,16 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v71 干净提交上的 Combined provenance 闭环
+
+在提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f` 且 Git status 为空时，完整重跑 v70 的
+原生目标点击→TRK→共享测距/落图→PX4 Mission Combined 路径。source
+`combined-sim-qgc-20260905T175019Z-64536` 自身记录 `dirty=false`，900/900 sensor、RTSP、
+type-23/type-24、full odometry，832 份 range/geolocation、336 份合格坐标、496 份 withheld、
+0 transport error；独立 verifier 44/44。该证据把源码、portable、五组 parity、原生 UI 交互和
+同一 Mission run 绑定到一个可审计干净 HEAD，但仍明确保留 `operator_visual_acceptance=not_claimed`、
+`real_pixhawk_contacted=false` 和 software-only 边界。
+
 ## v70 原生 QGC 目标选择与定位进入同一 Combined 生命周期
 
 当前 VTOL composite camera 的 SDF pose 与 calibration 都使用 35° pitch-down。Combined runner 在
