@@ -21,6 +21,7 @@ from scripts.gazebo_sensor_stream import (
     GAZEBO_VERTICAL_FLIP_APPLIED,
     MAX_DIMENSION,
     MAX_SOURCE_SKEW_NS,
+    MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS,
     PIXEL_FORMAT_BGR24,
     PIXEL_FORMAT_MASK,
     PIXEL_FORMAT_SHIFT,
@@ -192,6 +193,61 @@ def _run_fake_gazebo_helper(
                             header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nsec=1_000_000_000))
                         )
                     )
+                    self._emit_image()
+                elif odometry_behavior == "startup_velocity_then_valid":
+                    for stamp_ns, velocity_up_mps in (
+                        (1_000_000_000, 3_000.0),
+                        (1_000_000_003, 6.0),
+                    ):
+                        callback(  # type: ignore[operator]
+                            _gazebo_message(
+                                stamp_ns=stamp_ns,
+                                pose_with_covariance=SimpleNamespace(
+                                    pose=SimpleNamespace(
+                                        position=SimpleNamespace(x=1.0, y=2.0, z=12.0),
+                                        orientation=SimpleNamespace(
+                                            x=0.0,
+                                            y=0.0,
+                                            z=0.0,
+                                            w=1.0,
+                                        ),
+                                    )
+                                ),
+                                twist_with_covariance=SimpleNamespace(
+                                    twist=SimpleNamespace(
+                                        linear=SimpleNamespace(
+                                            x=4.0,
+                                            y=5.0,
+                                            z=velocity_up_mps,
+                                        )
+                                    )
+                                ),
+                            )
+                        )
+                    self._emit_image()
+                elif odometry_behavior == "startup_velocity_exhausted":
+                    for index in range(MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS + 1):
+                        callback(  # type: ignore[operator]
+                            _gazebo_message(
+                                stamp_ns=1_000_000_000 + index,
+                                pose_with_covariance=SimpleNamespace(
+                                    pose=SimpleNamespace(
+                                        position=SimpleNamespace(x=1.0, y=2.0, z=20.0),
+                                        orientation=SimpleNamespace(
+                                            x=0.0,
+                                            y=0.0,
+                                            z=0.0,
+                                            w=1.0,
+                                        ),
+                                    )
+                                ),
+                                twist_with_covariance=SimpleNamespace(
+                                    twist=SimpleNamespace(
+                                        linear=SimpleNamespace(x=4.0, y=5.0, z=3_000.0)
+                                    )
+                                ),
+                            )
+                        )
                     self._emit_image()
                 elif odometry_behavior in {"valid", "causal_history", "future_sources"}:
                     callback(  # type: ignore[operator]
@@ -517,6 +573,56 @@ def test_helper_emits_full_required_odometry_pose_velocity(
     assert finished["source_row_order"] == GAZEBO_SOURCE_ROW_ORDER
     assert finished["wire_row_order"] == WIRE_ROW_ORDER
     assert finished["vertical_flip_applied"] is GAZEBO_VERTICAL_FLIP_APPLIED
+
+
+def test_helper_discards_bounded_initial_spawn_velocity_before_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="startup_velocity_then_valid",
+    )
+
+    assert exit_code == 0
+    [(header, _payload)] = decode_wire_blob(blob, expected_frames=1)
+    assert header.position_up_m == pytest.approx(12.0)
+    assert header.velocity_up_mps == pytest.approx(6.0)
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    assert finished["gate_passed"] is True
+    assert finished["message_counts"]["odometry_invalid"] == 1
+    assert finished["message_counts"]["odometry_startup_velocity_rejected"] == 1
+    assert finished["odometry_present"] is True
+    assert finished["odometry_timestamp_frame_count"] == 1
+    assert finished["full_odometry_pose_velocity_fusion_claimed"] is True
+    assert finished["source_row_order"] == GAZEBO_SOURCE_ROW_ORDER
+    assert finished["wire_row_order"] == WIRE_ROW_ORDER
+    assert finished["vertical_flip_applied"] is GAZEBO_VERTICAL_FLIP_APPLIED
+
+
+def test_helper_fails_closed_when_startup_velocity_rejection_budget_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="startup_velocity_exhausted",
+    )
+
+    assert exit_code == 2
+    assert blob == b""
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    assert finished["gate_passed"] is False
+    assert finished["accepted_frames"] == 0
+    assert finished["message_counts"]["odometry_invalid"] == (
+        MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS + 1
+    )
+    assert finished["message_counts"]["odometry_startup_velocity_rejected"] == (
+        MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS
+    )
+    assert "velocity exceeds the safety bound" in finished["error"]
 
 
 def test_helper_uses_all_explicit_topics_without_default_guessing(

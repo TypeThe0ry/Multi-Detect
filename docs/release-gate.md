@@ -1,12 +1,12 @@
 # v0.3.0 E7 发布门
 
-## v58 多工况目标定位矩阵子门（2026-09-05，`v0.3.0-pre.8`）
+## v59 多工况目标定位矩阵子门（2026-09-05，`v0.3.0-pre.8`）
 
-v58 新增 software/SIM 工况覆盖门，但它尚未接入为可减少 E7 blocker 的通过输入。矩阵必须先逐份
+v58 新增、v59 关闭 software/SIM 工况覆盖门，但它尚未接入为可减少 E7 blocker 的通过输入。矩阵逐份
 重放 schema-v2 Gazebo geolocation source，并同时满足：3 个/15 帧正样本、1 个/5 帧零坐标负样本、
-3 个相互分离的高度档、3 个距离档和 2 个坡度档。当前报告仅有一个平地正向工况，故
-`gate_passed=false`；负向零假点覆盖已经满足。该失败结果是 P0 下一批 Gazebo 采集的机器可读任务单，
-不是最终版本失败数的替代统计。E7 仍为 32 blockers，最终 `v0.3.0` 保持阻断。
+3 个相互分离的高度档、3 个距离档和 2 个坡度档。当前报告含 3 个正向工况、15 帧和 1 个 5 帧
+零坐标负控，所有 source 都独立重现，`gate_passed=true`。该通过结果尚未写入 E7 manifest/schema，
+也没有 QGC 人工视觉或现场证据，不能替代最终版本统计。E7 仍为 32 blockers，最终 `v0.3.0` 保持阻断。
 
 ## v56 headless Gazebo camera 与 quarantined candidate 三控门（2026-09-05，`v0.3.0-pre.8`）
 

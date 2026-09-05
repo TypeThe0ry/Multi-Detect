@@ -1,8 +1,8 @@
 # 统一仓库架构
 
-## v58 多工况定位矩阵门（2026-09-05，`v0.3.0-pre.8`）
+## v59 三档坡高/距离定位矩阵闭环（2026-09-05，`v0.3.0-pre.8`）
 
-v58 保持唯一 shared ranging/WGS-84 实现，在 acceptance 层增加可复算的工况覆盖聚合：
+v59 保持唯一 shared ranging/WGS-84 实现，并以两套新增资产关闭 v58 定义的工况覆盖聚合门：
 
 ```text
 multiple schema-v2 Gazebo camera geolocation evidence files
@@ -18,7 +18,9 @@ multiple schema-v2 Gazebo camera geolocation evidence files
 `src/multidetect/gazebo_geolocation_regime_matrix.py` 是聚合门，
 `scripts/run_gazebo_geolocation_regime_matrix.py` 是未安装环境也能运行的入口，CLI 同时由
 `pyproject.toml` 暴露。每份 schema-v2 source 绑定其定位评估器源码；矩阵报告再绑定矩阵评估器自身。
-当前只有单一平地正样本，因此矩阵明确失败，而不是把 5 帧时间采样计为多个高度/距离工况。
+当前正向工况为 `6.20 m AGL / 8 m / 0 deg`、`12.17 m / 15 m / 4.00 deg`、
+`20.15 m / 25 m / 7.97 deg`，每档各 5 帧；近地平线负控仍 5/5 拒绝坐标。矩阵完整重放四份 source 后
+`gate_passed=true`。这只是 software/SIM acceptance，不进入 QGC、E7、HIL/REAL 或物理输出权限。
 
 ## v57 当前事实入口与可复现目标落图（2026-09-05，`v0.3.0-pre.8`）
 

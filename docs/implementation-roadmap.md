@@ -2,7 +2,7 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 户外定位/SIM 资源收口（v58）
+## 当前 pre.8 户外定位/SIM 资源收口（v59）
 
 - [x] 将三轴射线不确定性失败映射为 Python/QGC 共用的 `RANGE_STATUS` bit 31，保持内部诊断细粒度并
   让操作端稳定显示 fail-closed 状态。
@@ -43,12 +43,20 @@
 - [x] 对 v58 current-code 执行全仓回归：3,241 tests 中 `3240 passed, 1 skipped, 0 failed, 0 errors`；
   JUnit 470,851 bytes / SHA-256
   `08FEBF2327722653503715CF1180ACA2FABEE7578F5937D734430C6CCC9FE7F0`，Ruff check/compileall 通过。
+- [x] 补采 mid/high slope 两组实际 Gazebo camera/NavSat/Odometry，各 5 帧；与原平地工况组成
+  `6.20/12.17/20.15 m` AGL、`8/15/25 m` 距离、`0/4.00/7.97 deg` 坡度三档。每份定位 evidence
+  及独立 verifier 通过，近地平线负控保持 0 假点，v59 matrix `gate_passed=true`。
+- [x] 有界处理 Gazebo 高出生点首个 Odometry 速度派生毛刺：只在首个有效样本/首帧前最多丢弃 8 个，
+  预算耗尽、有效样本之后或已收帧后同类异常均 fail-closed；补齐成功和耗尽反向测试。
+- [x] 对 v59 current-code 执行全仓回归：3,251 tests 中 `3250 passed, 1 skipped, 0 failed, 0 errors`；
+  JUnit 472,512 bytes / SHA-256
+  `9F62B10AA176760E9F4CB8C4431CAF62EA9E28748D22C42C749D7C942DD100E1`，Ruff、compileall、
+  diff check 与 parity byte-compare 通过。
 - [ ] 以独立机械提交清理 410 个历史 Ruff format 文件；31 个 parity 绑定 Python 源会随之改变，
   因此完成后必须重新生成 parity，并重跑定位、三机型 external join、E7 和全量回归，不能删除 format
   gate 或复用旧 evidence 冒充完成。
-- [ ] 补采矩阵明确缺少的两个以上真实 Gazebo camera 工况，将 shared ranging → target geolocation
-  扩展到至少三个相互分离的坡高/距离，并经过
-  evidence card 与原生 QGC Fly View 完成动态精度和人工视觉验收。
+- [ ] 将已通过的 v59 多工况坐标、1σ 圆、类别、距离、方位、时间和快照送入原生 QGC Fly View，
+  对 evidence card/地图完成动态人工视觉验收；通过正式 E7 schema/manifest 评审后再接入发布门。
 - [ ] 生成 fixed-wing 与 VTOL 对等动态 response evidence；只有明确纳入发布门并重跑 E7 wrapper 后，
   才能更新三机型 external source 或 blocker 数。
 - [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。

@@ -5,6 +5,29 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v59 三档坡高/距离 Gazebo 定位矩阵通过（2026-09-05）
+
+- 新增 `gazebo_car_geolocation_mid_slope_001` 与 `gazebo_car_geolocation_high_slope_001` 两套完整
+  scenario/runtime/truth/expectations、GeoJSON、DEM 和 SDF 资产；二者分别以约 `12 m / 15 m / 4 deg`
+  和 `20 m / 25 m / 8 deg` 扩展原 `6 m / 8 m / 0 deg` 平地工况，所有 manifest channel SHA-256、
+  DEM/SDF/truth、WGS-84、billboard 几何和相机投影均有自动回归。
+- 在 disposable PX4/Gazebo Docker 中分别采集两组 5 帧实际 BGR24 camera/NavSat/Odometry 数据；
+  mid/high Docker evidence 均 `gate_passed=true`，容器 stop/rm 成功且无残留。两组像素经同一
+  quarantined ONNX candidate、共享 anchor、DEM/GNSS ranging 与 WGS-84 geolocation 后均 5/5 落图，
+  独立 verifier 都 `passed=true/reproduced=true`。
+- 三正一负工况矩阵现 `gate_passed=true`：正向 `3/3` 场景、`15/15` 帧，平均 AGL
+  `6.195847 / 12.168137 / 20.149371 m`，距离 `8 / 15 / 25 m`，坡度
+  `0 / 4.004173 / 7.969610 deg`；三档最大水平误差分别为 `0.674040 / 1.175656 / 1.855370 m`，
+  各档 1σ 与 range CI95 coverage 都为 `1.0`。负向仍为 `1/1` 场景、5/5 检测、0/5 坐标。
+- Gazebo helper 现在只在首个有效 Odometry 和首帧之前有界丢弃最多 8 个官方
+  OdometryPublisher 的出生点速度派生毛刺；第 9 个、首个有效样本之后或任何已接收帧后的相同异常仍
+  立即 fail-closed。Docker acceptance 出错时会先安全关闭 backend，再报告 helper exit/stderr。
+- 全量回归 3,251 tests：`3250 passed, 1 skipped, 0 failed, 0 errors`，JUnit 472,512 bytes /
+  SHA-256 `9F62B10AA176760E9F4CB8C4431CAF62EA9E28748D22C42C749D7C942DD100E1`；Ruff、compileall、
+  `git diff --check` 通过，临时重建 parity 与 canonical 文件逐字节一致。
+- 本轮只关闭 software/SIM 多工况定位机器子门；E7 尚未接入该输入，仍为 32 blockers。候选模型、
+  QGC 人工视觉、室外 GNSS、真实相机外参、硬件、HIL/REAL、实飞和最终发布状态均未提升。
+
 ### v0.3.0-pre.8 v58 多高度/距离/坡度目标定位矩阵门（2026-09-05）
 
 - Gazebo camera → shared ranging → WGS-84 acceptance evidence 升级为 schema v2：绑定评估器源码

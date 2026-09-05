@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_geolocation_high_slope_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "gazebo_car_geolocation_high_slope_001.runtime.json",
+      "sha256": "f0c99c40d12ba9f8c005af9b6ea88cbdc59c6aa5a058c1f9690a7652626c9726"
+    },
+    "truth": {
+      "path": "gazebo_car_geolocation_high_slope_001.truth.json",
+      "sha256": "80ad8625a1593b6917fa494ddba0bf20b8fb5720f44f3434d6aa87a5429c11f8"
+    },
+    "expectations": {
+      "path": "gazebo_car_geolocation_high_slope_001.expectations.json",
+      "sha256": "381315d13c1720094e8d22676395b4fd39edf17e26fbcdb6e7c26e4fb178244c"
+    }
+  }
+}

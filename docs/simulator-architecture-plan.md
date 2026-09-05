@@ -9,7 +9,7 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
-### v58 多高度/距离/坡度定位矩阵（2026-09-05，pre.8）
+### v59 多高度/距离/坡度定位矩阵（2026-09-05，pre.8）
 
 单场景定位 evidence 升级为 schema v2，并绑定 `gazebo_target_geolocation_acceptance.py` 的源码
 SHA-256。证据在所有 prediction 结束后从 truth/DEM 派生 AGL 高度区间、真实地面距离区间和目标处
@@ -17,9 +17,15 @@ SHA-256。证据在所有 prediction 结束后从 truth/DEM 派生 AGL 高度区
 并要求 source release/evaluator identity 完全一致。
 
 默认覆盖门为：3 个正场景/15 帧、1 个零坐标负场景/5 帧、3 个高度档（间隔至少 `5 m`）、3 个
-距离档（间隔至少 `5 m`）和 2 个坡度档（间隔至少 `3 deg`）。当前真实 source 只有平地 `6.196 m`
-AGL / `8.000 m` ground range 一档；近地平线负向 5 帧全部拒绝坐标。v58 matrix 因正向工况不足按
-设计失败，未声明 QGC rendering、人工视觉、室外 GNSS、HIL、REAL、硬件或实飞通过。
+距离档（间隔至少 `5 m`）和 2 个坡度档（间隔至少 `3 deg`）。v59 新增 mid/high slope 资产并取得
+实际 Gazebo camera/NavSat/Odometry 帧，正向平均 AGL 为 `6.196 / 12.168 / 20.149 m`，距离为
+`8 / 15 / 25 m`，坡度为 `0 / 4.004 / 7.970 deg`；三档均 5/5 落图，独立 verifier 重现，近地平线
+负向 5/5 拒绝坐标，因此 matrix `gate_passed=true`。
+
+Gazebo OdometryPublisher 在高出生点首回调会用接近零的 `dt` 派生瞬时竖直速度。helper 仅在首个有效
+Odometry 与首帧之前最多丢弃 8 次该精确异常；预算耗尽或进入有效流后仍 fail-closed。该适配不改变
+wire、共享算法或 release parity，且不声明 QGC rendering、人工视觉、室外 GNSS、HIL、REAL、硬件或
+实飞通过。
 
 ### v56 相机 frame 语义与实际 Gazebo 像素三控（2026-09-05，pre.8）
 

@@ -75,6 +75,7 @@ MAX_SOURCE_SKEW_NS = 1_500_000_000
 MAX_SOURCE_HISTORY_SAMPLES = 256
 MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
+MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 8
 QUATERNION_NORM_TOLERANCE = 1.0e-3
 
 # gz.msgs PixelFormatType values used by Gazebo Harmonic.
@@ -947,6 +948,7 @@ def main() -> int:
         "navsat": 0,
         "odometry": 0,
         "odometry_invalid": 0,
+        "odometry_startup_velocity_rejected": 0,
     }
     accepted = 0
     odometry_timestamp_frame_count = 0
@@ -1026,6 +1028,17 @@ def main() -> int:
         except Exception as exc:
             with state_lock:
                 counts["odometry_invalid"] += 1
+                startup_velocity_transient = bool(
+                    str(exc) == "wire Odometry velocity exceeds the safety bound"
+                    and counts["odometry"] == 0
+                    and accepted == 0
+                    and counts["odometry_startup_velocity_rejected"]
+                    < MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS
+                )
+                if startup_velocity_transient:
+                    counts["odometry_startup_velocity_rejected"] += 1
+            if startup_velocity_transient:
+                return
             fail(f"Odometry rejected: {exc}")
 
     def on_image(message: Image) -> None:
@@ -1164,6 +1177,10 @@ def main() -> int:
         odometry_pose_velocity_fusion=False,
         full_odometry_pose_velocity_fusion_claimed=False,
         full_odometry_pose_velocity_fusion_gate="pending_synchronized_frames",
+        startup_odometry_velocity_policy=(
+            "discard_before_first_valid_odometry_and_before_first_accepted_frame"
+        ),
+        maximum_startup_odometry_velocity_rejections=(MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS),
     )
     emitted = 0
     deadline = time.monotonic() + args.timeout_seconds

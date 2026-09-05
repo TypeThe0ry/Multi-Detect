@@ -777,6 +777,7 @@ def _capture_gazebo_sensor_transport(
     persisted_records: list[dict[str, object]] = []
     telemetry = None
     stats = None
+    capture_error: Exception | None = None
     try:
         backend.frame_source.open()
         for _ in range(frame_count):
@@ -817,8 +818,17 @@ def _capture_gazebo_sensor_transport(
         telemetry = backend.telemetry_provider.snapshot(now_s=backend.clock.monotonic())
         backend.frame_source.close()
         stats = backend.frame_source.require_complete()
+    except Exception as exc:
+        capture_error = exc
     finally:
         backend.close()
+    if capture_error is not None:
+        failed_stats = backend.frame_source.stats
+        raise DockerSimulatorAcceptanceError(
+            "Gazebo sensor transport failed: "
+            f"{capture_error}; helper_exit={failed_stats.helper_exit_code}; "
+            f"helper_stderr={failed_stats.stderr_tail!r}"
+        ) from capture_error
     if telemetry is None or stats is None:  # pragma: no cover - guarded by require_complete
         raise DockerSimulatorAcceptanceError("Gazebo sensor transport completed without telemetry")
     qualified = bool(

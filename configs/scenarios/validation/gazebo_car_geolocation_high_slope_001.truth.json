@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scenario_id": "gazebo_car_geolocation_high_slope_001",
+  "scenario_version": 1,
+  "targets": [
+    {
+      "target_id": "gazebo-car-geolocation-high-slope-billboard-v1",
+      "label": "car",
+      "position": {
+        "latitude_deg": 1.2999999999899452,
+        "longitude_deg": 103.80072463625339,
+        "altitude_m": 28.5375,
+        "altitude_reference": "MSL"
+      },
+      "behavior": "stationary_software_only_billboard"
+    }
+  ]
+}
