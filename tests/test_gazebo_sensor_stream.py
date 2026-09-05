@@ -249,7 +249,12 @@ def _run_fake_gazebo_helper(
                             )
                         )
                     self._emit_image()
-                elif odometry_behavior in {"valid", "causal_history", "future_sources"}:
+                elif odometry_behavior in {
+                    "valid",
+                    "causal_history",
+                    "future_sources",
+                    "stale_navsat_then_fresh",
+                }:
                     callback(  # type: ignore[operator]
                         _gazebo_message(
                             stamp_ns=(
@@ -290,18 +295,48 @@ def _run_fake_gazebo_helper(
                                 ),
                             )
                         )
-                    self._emit_image()
+                    if odometry_behavior == "stale_navsat_then_fresh":
+                        self._emit_image(stamp_ns=3_000_000_000)
+                        self.callbacks["NavSat"](  # type: ignore[operator]
+                            _gazebo_message(
+                                stamp_ns=3_050_000_002,
+                                latitude_deg=47.397743,
+                                longitude_deg=8.545595,
+                                altitude=488.3,
+                            )
+                        )
+                        callback(  # type: ignore[operator]
+                            _gazebo_message(
+                                stamp_ns=3_050_000_003,
+                                pose_with_covariance=SimpleNamespace(
+                                    pose=SimpleNamespace(
+                                        position=SimpleNamespace(x=2.0, y=3.0, z=4.0),
+                                        orientation=SimpleNamespace(
+                                            x=0.0, y=0.0, z=0.0, w=1.0
+                                        ),
+                                    )
+                                ),
+                                twist_with_covariance=SimpleNamespace(
+                                    twist=SimpleNamespace(
+                                        linear=SimpleNamespace(x=5.0, y=6.0, z=7.0)
+                                    )
+                                ),
+                            )
+                        )
+                        self._emit_image(stamp_ns=3_100_000_000)
+                    else:
+                        self._emit_image()
             return True
 
         def unsubscribe(self, topic: str) -> bool:
             self.unsubscribed_topics.append(topic)
             return True
 
-        def _emit_image(self) -> None:
+        def _emit_image(self, *, stamp_ns: int = 2_000_000_000) -> None:
             callback = self.callbacks["Image"]
             callback(  # type: ignore[operator]
                 _gazebo_message(
-                    stamp_ns=2_000_000_000,
+                    stamp_ns=stamp_ns,
                     width=2,
                     height=1,
                     step=6,
@@ -703,6 +738,28 @@ def test_helper_rejects_future_only_source_samples_without_emitting_a_frame(
     assert finished["causal_source_association_claimed"] is False
     assert finished["message_counts"]["future_source_rejections"] == 1
     assert "timed out" in finished["error"]
+
+
+def test_helper_discards_transient_stale_dynamic_binding_then_accepts_fresh_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, blob, diagnostics = _run_fake_gazebo_helper(
+        monkeypatch,
+        odometry_behavior="stale_navsat_then_fresh",
+    )
+
+    assert exit_code == 0
+    [(header, _payload)] = decode_wire_blob(blob, expected_frames=1)
+    assert header.sensor_stamp_ns == 3_100_000_000
+    assert header.navsat_stamp_ns == 3_050_000_002
+    assert header.odometry_stamp_ns == 3_050_000_003
+    finished = next(
+        item for item in diagnostics if item["event"] == "gazebo_sensor_stream_finished"
+    )
+    assert finished["gate_passed"] is True
+    assert finished["message_counts"]["stale_dynamic_source_rejections"] == 1
+    assert finished["message_counts"]["stale_navsat_rejections"] == 1
+    assert finished["message_counts"]["stale_odometry_rejections"] == 1
 
 
 @pytest.mark.parametrize("behavior", ("duplicate_navsat", "out_of_order_navsat"))

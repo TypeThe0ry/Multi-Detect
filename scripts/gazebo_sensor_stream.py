@@ -949,6 +949,9 @@ def main() -> int:
         "image": 0,
         "ignored_before_ready": 0,
         "future_source_rejections": 0,
+        "stale_dynamic_source_rejections": 0,
+        "stale_navsat_rejections": 0,
+        "stale_odometry_rejections": 0,
         "camera_info": 0,
         "navsat": 0,
         "odometry": 0,
@@ -1082,6 +1085,22 @@ def main() -> int:
                     navsat = selected["navsat"]
                     odometry = selected["odometry"]
                     assert camera is not None and navsat is not None and odometry is not None
+                    stale_dynamic_sources = tuple(
+                        source
+                        for source, sample in (("navsat", navsat), ("odometry", odometry))
+                        if stamp_ns - int(sample["stamp_ns"]) > MAX_SOURCE_SKEW_NS
+                    )
+                    if stale_dynamic_sources:
+                        # Gazebo transport dispatches sensor callbacks on
+                        # independent workers.  A camera callback can briefly
+                        # overtake NavSat/Odometry even though fresh samples
+                        # are already in flight.  Drop that image instead of
+                        # binding stale flight state; a persistent gap still
+                        # fails at the bounded helper timeout.
+                        counts["stale_dynamic_source_rejections"] += 1
+                        for source in stale_dynamic_sources:
+                            counts[f"stale_{source}_rejections"] += 1
+                        return
                     sequence = accepted
                 width = int(message.width)
                 height = int(message.height)
@@ -1177,6 +1196,7 @@ def main() -> int:
         source_association_policy="nearest_source_at_or_before_image",
         camera_info_freshness_policy="session_static_geometry_bound_causal_timestamp",
         maximum_dynamic_source_skew_ns=MAX_SOURCE_SKEW_NS,
+        stale_dynamic_image_policy="discard_until_fresh_sources_or_bounded_timeout",
         source_callback_order="strictly_increasing_per_topic",
         future_source_samples_allowed=False,
         odometry_subscription_active=True,
