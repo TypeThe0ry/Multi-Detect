@@ -162,6 +162,20 @@ class _FakeProcess:
         self.returncode = 1
 
 
+class _EofThenExitedProcess(_FakeProcess):
+    def __init__(self, *, stderr: bytes) -> None:
+        super().__init__(b"")
+        self.stderr = io.BytesIO(stderr)
+        self._poll_count = 0
+
+    def poll(self) -> int | None:
+        self._poll_count += 1
+        if self._poll_count == 1:
+            return None
+        self.returncode = 2
+        return self.returncode
+
+
 def test_gazebo_sim_wire_round_trip_is_integrity_and_readiness_bound() -> None:
     frame = read_gazebo_sim_wire_frame(
         io.BytesIO(_wire_frame(0, stamp_ns=1_000_000_000)),
@@ -180,6 +194,36 @@ def test_gazebo_sim_wire_round_trip_is_integrity_and_readiness_bound() -> None:
         2.0,
         3.0,
     )
+
+
+def test_gazebo_frame_source_preserves_helper_stderr_after_eof_exit() -> None:
+    runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
+    process = _EofThenExitedProcess(
+        stderr=b'{"event":"gazebo_sensor_stream_finished","error":"odometry rejected"}\n'
+    )
+    backend = GazeboSimBackend(
+        scenario_input=runtime_input,
+        docker_executable=Path(sys.executable).resolve(),
+        container_name="owned-gazebo-sim",
+        frame_count=1,
+        airframe_profile_hash="a" * 64,
+        container_image_sha256="b" * 64,
+        stream_script_sha256="c" * 64,
+        model_assets_sha256="d" * 64,
+        expected_width=2,
+        expected_height=1,
+        popen_factory=lambda *_args, **_kwargs: process,
+    )
+
+    backend.frame_source.open()
+    with pytest.raises(RuntimeError) as raised:
+        backend.frame_source.read()
+    message = str(raised.value)
+    assert "helper closed its framed stream" in message
+    assert "exit=2" in message
+    assert "odometry rejected" in message
+    assert "unexpected EOF while reading Gazebo SIM header" in message
+    backend.close()
 
 
 def test_gazebo_sim_wire_requires_full_odometry() -> None:

@@ -815,13 +815,32 @@ class GazeboSimFrameSource:
         stdout = process.stdout
         if stdout is None:  # pragma: no cover - established by open
             raise RuntimeError("Gazebo SIM helper stdout is unavailable")
-        wire = read_gazebo_sim_wire_frame(
-            stdout,
-            expected_sequence=self._next_sequence,
-            expected_width=self.expected_width,
-            expected_height=self.expected_height,
-            previous_sensor_stamp_ns=self._last_sensor_stamp_ns,
-        )
+        try:
+            wire = read_gazebo_sim_wire_frame(
+                stdout,
+                expected_sequence=self._next_sequence,
+                expected_width=self.expected_width,
+                expected_height=self.expected_height,
+                previous_sensor_stamp_ns=self._last_sensor_stamp_ns,
+            )
+        except RuntimeError as exc:
+            # A helper can close stdout before ``poll`` observes its exit.  In
+            # that race the wire reader reports only EOF and the diagnostic
+            # emitted by the Gazebo callback remains stranded in the stderr
+            # drain thread.  Reap the now-closed helper and retain its bounded
+            # stderr so a real combined-SIM failure identifies the rejected
+            # sensor field instead of degenerating into an opaque pipe error.
+            return_code = process.poll()
+            if return_code is not None:
+                self._helper_exit_code = return_code
+                if self._stderr_thread is not None:
+                    self._stderr_thread.join(timeout=1.0)
+                raise RuntimeError(
+                    "Gazebo SIM helper closed its framed stream: "
+                    f"exit={return_code}, stderr={self.stats.stderr_tail!r}, "
+                    f"wire_error={exc}"
+                ) from exc
+            raise
         try:
             import numpy as np
         except ImportError as exc:  # pragma: no cover - vision extra is required in production
