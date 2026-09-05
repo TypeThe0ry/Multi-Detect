@@ -17,6 +17,10 @@ from multidetect.backends.raw_replay import (
     RawReplayTelemetrySample,
     RawSensorReplayRecording,
 )
+from multidetect.camera_mount_survey import (
+    create_camera_mount_survey,
+    write_camera_mount_survey,
+)
 from multidetect.domain import VehicleTelemetry
 from multidetect.field_session_capture import capture_field_session
 from multidetect.geolocation_survey import build_accuracy_report_from_target_event_replay
@@ -221,6 +225,78 @@ def _gnss_fixture(tmp_path: Path) -> Path:
     return path
 
 
+def _camera_mount_fixture(tmp_path: Path) -> Path:
+    calibration = tmp_path / "camera-calibration.json"
+    _write_json(
+        calibration,
+        {
+            "schema_version": 1,
+            "calibration": {
+                "calibration_id": "camera-main-001",
+                "width_px": 1280,
+                "height_px": 960,
+                "fx_px": 540.0,
+                "fy_px": 540.0,
+                "cx_px": 640.0,
+                "cy_px": 480.0,
+                "mount_pitch_down_deg": 35.0,
+                "mount_yaw_right_deg": 0.0,
+                "mount_roll_clockwise_deg": 0.0,
+                "boresight_sigma_deg": 0.20,
+                "camera_offset_forward_m": 0.40,
+                "camera_offset_right_m": -0.08,
+                "camera_offset_down_m": 0.15,
+                "camera_offset_sigma_m": 0.02,
+            },
+        },
+    )
+    raw = tmp_path / "camera-mount-raw.csv"
+    raw.write_text("physical mount survey fixture\n", encoding="utf-8")
+    equipment_calibration = tmp_path / "equipment-calibration.pdf"
+    equipment_calibration.write_bytes(b"equipment calibration certificate fixture")
+    perturbations = (-0.01, 0.01, 0.0, -0.005, 0.005)
+    samples = [
+        {
+            "sample_id": f"measurement-{index + 1}",
+            "pitch_down_deg": 35.0 + delta,
+            "yaw_right_deg": delta,
+            "roll_clockwise_deg": -delta,
+            "offset_forward_m": 0.40 + delta / 10.0,
+            "offset_right_m": -0.08 - delta / 10.0,
+            "offset_down_m": 0.15 + delta / 20.0,
+        }
+        for index, delta in enumerate(perturbations)
+    ]
+    report = create_camera_mount_survey(
+        survey_id="mount-survey-001",
+        aircraft_id="aircraft-001",
+        camera_id="camera-main-001",
+        gnss_antenna_id="gnss-main-001",
+        method="physical inclinometer and FRD datum tape survey",
+        surveyor="surveyor-a",
+        reviewer="reviewer-b",
+        equipment_id="inclinometer-and-caliper-001",
+        equipment_angular_accuracy_deg=0.05,
+        equipment_linear_accuracy_m=0.002,
+        equipment_calibration_path=equipment_calibration,
+        calibration_path=calibration,
+        raw_measurements_path=raw,
+        samples=samples,
+        attestations={
+            "aircraft_physically_present": True,
+            "camera_measured_in_final_installed_configuration": True,
+            "gnss_antenna_reference_point_marked": True,
+            "aircraft_frd_axes_verified": True,
+            "raw_measurements_retained": True,
+            "simulated_or_nominal_values_excluded": True,
+        },
+        created_at_utc="2026-09-06T02:00:00Z",
+    )
+    path = tmp_path / "camera-mount-survey.json"
+    write_camera_mount_survey(path, report)
+    return path
+
+
 def _session_fixture(
     tmp_path: Path,
     link_path: Path,
@@ -284,6 +360,7 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
     )
     session_path = _session_fixture(tmp_path, link_path, link_result, monkeypatch)
     gnss_path = _gnss_fixture(tmp_path)
+    camera_mount_path = _camera_mount_fixture(tmp_path)
     monkeypatch.setattr(
         bundle_module,
         "verify_gnss_capture_report",
@@ -319,6 +396,7 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
         recording_manifest=recording_path,
         telemetry_sidecar=sidecar_path,
         link_preflight=link_path,
+        camera_mount_survey=camera_mount_path,
         accuracy_report=accuracy_path,
     )
 
@@ -330,6 +408,8 @@ def test_complete_synthetic_bundle_cross_binds_all_strata(
     assert all(item["gate_passed"] is True for item in report["strata"].values())
     assert report["bindings"]["target_event_ids"] == ["event-0"]
     assert report["bindings"]["recording_id"] == "recording-a"
+    assert report["bindings"]["camera_mount_survey_id"] == "mount-survey-001"
+    assert report["bindings"]["camera_mount_camera_id"] == "camera-main-001"
 
 
 def test_tampered_sidecar_closes_only_media_timeline_and_overall_gate(
@@ -343,6 +423,7 @@ def test_tampered_sidecar_closes_only_media_timeline_and_overall_gate(
     )
     session_path = _session_fixture(tmp_path, link_path, link_result, monkeypatch)
     gnss_path = _gnss_fixture(tmp_path)
+    camera_mount_path = _camera_mount_fixture(tmp_path)
     monkeypatch.setattr(
         bundle_module,
         "verify_gnss_capture_report",
@@ -379,6 +460,7 @@ def test_tampered_sidecar_closes_only_media_timeline_and_overall_gate(
         recording_manifest=recording_path,
         telemetry_sidecar=sidecar_path,
         link_preflight=link_path,
+        camera_mount_survey=camera_mount_path,
         accuracy_report=accuracy_path,
     )
     assert report["strata"]["media_timeline"]["gate_passed"] is False

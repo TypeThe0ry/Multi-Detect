@@ -129,6 +129,14 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
     ),
     "task_contract": (
         "configs/schemas/autonomy-platform-neutral-plan.schema.json",
+        # A field bundle cannot claim its evidence join is complete from
+        # nominal camera mount numbers alone.  Bind both the physical survey
+        # contract and the seven-stratum join so every runtime mode shares the
+        # same fail-closed provenance boundary.
+        "configs/schemas/camera-mount-survey.schema.json",
+        "configs/schemas/field-evidence-bundle.schema.json",
+        "src/multidetect/camera_mount_survey.py",
+        "src/multidetect/field_evidence_bundle.py",
         # Raw replay carries the same absolute GPS altitude used by live/HIL
         # terrain ranging.  Bind the schema and both canonical serializers so
         # REPLAY cannot silently omit a field that REAL supplies.

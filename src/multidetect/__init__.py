@@ -219,6 +219,30 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".field_evidence_bundle",
         "write_field_evidence_bundle",
     ),
+    "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION": (
+        ".camera_mount_survey",
+        "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION",
+    ),
+    "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE": (
+        ".camera_mount_survey",
+        "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE",
+    ),
+    "CAMERA_MOUNT_SURVEY_FRAME": (
+        ".camera_mount_survey",
+        "CAMERA_MOUNT_SURVEY_FRAME",
+    ),
+    "create_camera_mount_survey": (
+        ".camera_mount_survey",
+        "create_camera_mount_survey",
+    ),
+    "verify_camera_mount_survey": (
+        ".camera_mount_survey",
+        "verify_camera_mount_survey",
+    ),
+    "write_camera_mount_survey": (
+        ".camera_mount_survey",
+        "write_camera_mount_survey",
+    ),
     "PlannedMissionCompilation": (
         ".mission_planning",
         "PlannedMissionCompilation",
@@ -434,6 +458,12 @@ __all__ = [
     "check_field_evidence_bundle",
     "verify_field_evidence_bundle_report",
     "write_field_evidence_bundle",
+    "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION",
+    "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE",
+    "CAMERA_MOUNT_SURVEY_FRAME",
+    "create_camera_mount_survey",
+    "verify_camera_mount_survey",
+    "write_camera_mount_survey",
     "PLANNED_MISSION_COMPILATION_SCHEMA_VERSION",
     "PlannedMissionCompilation",
     "compile_planned_task_mission",

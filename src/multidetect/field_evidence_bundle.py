@@ -2,15 +2,16 @@
 
 The field workflow produces several deliberately independent artifacts: a
 read-only link preflight, a strict GNSS observer report, a DET/TRK/LCK/TGT
-session capture, a target-event media bundle, a raw replay recording with its
-telemetry sidecar, and an independent WGS-84 accuracy report.  Each artifact
+session capture, a physical camera-mount/lever-arm survey, a target-event media
+bundle, a raw replay recording with its telemetry sidecar, and an independent
+WGS-84 accuracy report.  Each artifact
 has a useful standalone verifier, but checking them one at a time leaves a
 hole where a frame, GPS sample, target event and truth row can come from
 different sessions.  This module is the narrow, read-only join boundary.
 
 No file is modified, no network socket is opened, and no flight-control value
 is emitted.  The result is a deterministic, hash-bound diagnostic document.
-``gate_passed`` means that the six evidence strata and their cross-bindings
+``gate_passed`` means that the seven evidence strata and their cross-bindings
 are internally complete; it never changes the REAL/HIL release status.  The
 CLI therefore keeps ``release_eligible`` false even for a complete bundle.
 """
@@ -32,6 +33,7 @@ from typing import Any
 from .adaptive_ranging import assess_gps_quality
 from .autonomy.serialization import AutonomyContractError, canonical_sha256
 from .backends import RawReplayTelemetrySample, RawSensorReplayRecording
+from .camera_mount_survey import verify_camera_mount_survey
 from .field_link_preflight import verify_field_link_report
 from .field_session_capture import verify_field_session_capture
 from .geolocation_accuracy import verify_geolocation_accuracy_report
@@ -46,6 +48,7 @@ FIELD_EVIDENCE_STRATA = (
     "field_link",
     "gnss",
     "execution",
+    "camera_mount",
     "target_event",
     "media_timeline",
     "accuracy",
@@ -111,12 +114,14 @@ _INPUT_NAMES = (
     "recording_manifest",
     "telemetry_sidecar",
     "link_preflight",
+    "camera_mount_survey",
     "accuracy_report",
 )
 _STRATUM_INPUTS: dict[str, tuple[str, ...]] = {
     "field_link": ("link_preflight",),
     "gnss": ("gnss_capture_report",),
     "execution": ("field_session_report", "link_preflight"),
+    "camera_mount": ("camera_mount_survey",),
     "target_event": ("target_event_manifest",),
     "media_timeline": (
         "recording_manifest",
@@ -132,6 +137,10 @@ _NEXT_ACTIONS = {
         "verify its quality gate."
     ),
     "execution": "Capture a strict DET→TRK→LCK→TGT session with cancel and reacquire evidence.",
+    "camera_mount": (
+        "Measure the installed camera boresight and GNSS-to-camera lever arm, "
+        "retain the raw notes, and obtain independent review."
+    ),
     "target_event": (
         "Create a hash-bound target-event replay containing qualified GPS, RANGE_STATUS and media."
     ),
@@ -154,6 +163,7 @@ def check_field_evidence_bundle(
     recording_manifest: str | Path | None = None,
     telemetry_sidecar: str | Path | None = None,
     link_preflight: str | Path | None = None,
+    camera_mount_survey: str | Path | None = None,
     accuracy_report: str | Path | None = None,
     maximum_telemetry_age_s: float = DEFAULT_MAXIMUM_TELEMETRY_AGE_S,
     require_real_domain: bool = True,
@@ -189,6 +199,7 @@ def check_field_evidence_bundle(
         "recording_manifest": recording_manifest,
         "telemetry_sidecar": telemetry_sidecar,
         "link_preflight": link_preflight,
+        "camera_mount_survey": camera_mount_survey,
         "accuracy_report": accuracy_report,
     }
     inputs = {name: _describe_input(values[name], name=name) for name in _INPUT_NAMES}
@@ -351,7 +362,52 @@ def check_field_evidence_bundle(
                 strata["execution"]["gate_passed"] = True
     _finalize_stratum(strata["execution"])
 
-    # 4. Hash-bound target-event replay with strict GPS and RANGE_STATUS.
+    # 4. Independently reviewed physical camera-mount and GNSS-to-camera
+    # lever-arm survey.  Nominal or simulated values cannot satisfy this
+    # stratum, even when the numeric calibration happens to match.
+    if require_inputs("camera_mount"):
+        try:
+            mount_document = _load_json_object(inputs["camera_mount_survey"]["path"])
+            mount_verification = verify_camera_mount_survey(
+                mount_document,
+                expected_release_label=PRODUCT_VERSION.release_label,
+                require_gate_passed=True,
+            )
+            strata["camera_mount"]["verification"] = mount_verification
+            if mount_verification.get("passed") is not True:
+                _extend_reasons(strata["camera_mount"], mount_verification.get("reasons"))
+            if mount_verification.get("gate_passed") is not True:
+                fail("camera_mount", "camera-mount survey verifier gate_passed is not true")
+            if mount_document.get("mount_survey_acceptance") != "passed":
+                fail("camera_mount", "mount_survey_acceptance is not passed")
+            if mount_document.get("simulated_values_used") is not False:
+                fail("camera_mount", "simulated_values_used must be false")
+            if mount_document.get("hardware_acceptance") != "not_claimed":
+                fail("camera_mount", "camera-mount survey claims hardware acceptance")
+            if mount_document.get("release_eligible") is not False:
+                fail("camera_mount", "camera-mount survey claims release eligibility")
+            estimate = mount_document.get("estimate")
+            if not isinstance(estimate, Mapping):
+                fail("camera_mount", "camera-mount survey estimate is missing")
+            else:
+                strata["camera_mount"].update(
+                    {
+                        "survey_id": mount_document.get("survey_id"),
+                        "aircraft_id": mount_document.get("aircraft_id"),
+                        "camera_id": mount_document.get("camera_id"),
+                        "gnss_antenna_id": mount_document.get("gnss_antenna_id"),
+                        "calibration_id": estimate.get("calibration_id"),
+                    }
+                )
+            context["camera_mount_document"] = mount_document
+        except Exception as exc:  # noqa: BLE001
+            fail("camera_mount", f"verification error: {type(exc).__name__}: {exc}")
+        else:
+            if not strata["camera_mount"]["reasons"]:
+                strata["camera_mount"]["gate_passed"] = True
+    _finalize_stratum(strata["camera_mount"])
+
+    # 5. Hash-bound target-event replay with strict GPS and RANGE_STATUS.
     if require_inputs("target_event"):
         try:
             target_bundle = load_target_event_replay_manifest(
@@ -393,7 +449,7 @@ def check_field_evidence_bundle(
                 strata["target_event"]["gate_passed"] = True
     _finalize_stratum(strata["target_event"])
 
-    # 5. Raw frame/telemetry timeline and target-event frame binding.
+    # 6. Raw frame/telemetry timeline and target-event frame binding.
     if require_inputs("media_timeline"):
         try:
             recording = RawSensorReplayRecording.from_manifest(
@@ -547,7 +603,7 @@ def check_field_evidence_bundle(
                 strata["media_timeline"]["gate_passed"] = True
     _finalize_stratum(strata["media_timeline"])
 
-    # 6. Independent WGS-84 accuracy report must name this exact target-event
+    # 7. Independent WGS-84 accuracy report must name this exact target-event
     # manifest and conserve every selected event/truth row.
     if require_inputs("accuracy"):
         try:
@@ -680,6 +736,25 @@ def check_field_evidence_bundle(
                 "recording_id": recording.recording_id,
                 "recording_hash": recording.recording_hash,
                 "recording_manifest_sha256": inputs["recording_manifest"].get("sha256"),
+            }
+        )
+    mount_document = context.get("camera_mount_document")
+    if isinstance(mount_document, Mapping):
+        mount_inputs = mount_document.get("inputs")
+        calibration_reference = (
+            mount_inputs.get("camera_calibration") if isinstance(mount_inputs, Mapping) else None
+        )
+        bindings.update(
+            {
+                "camera_mount_survey_id": mount_document.get("survey_id"),
+                "camera_mount_aircraft_id": mount_document.get("aircraft_id"),
+                "camera_mount_camera_id": mount_document.get("camera_id"),
+                "camera_mount_gnss_antenna_id": mount_document.get("gnss_antenna_id"),
+                "camera_calibration_sha256": (
+                    calibration_reference.get("sha256")
+                    if isinstance(calibration_reference, Mapping)
+                    else None
+                ),
             }
         )
     if cross_binding_reasons:
@@ -925,9 +1000,7 @@ def verify_field_evidence_bundle_report(
             continue
         if not isinstance(value, str) or not value.strip():
             input_paths[input_name] = None
-            reasons.append(
-                f"field evidence report input {input_name}.path must be text or null"
-            )
+            reasons.append(f"field evidence report input {input_name}.path must be text or null")
             continue
 
         # Preserve a serialized path even when the original report marked the
@@ -950,6 +1023,7 @@ def verify_field_evidence_bundle_report(
             recording_manifest=input_paths["recording_manifest"],
             telemetry_sidecar=input_paths["telemetry_sidecar"],
             link_preflight=input_paths["link_preflight"],
+            camera_mount_survey=input_paths["camera_mount_survey"],
             accuracy_report=input_paths["accuracy_report"],
             maximum_telemetry_age_s=maximum_age,  # type: ignore[arg-type]
             require_real_domain=effective_real_domain,
@@ -1036,7 +1110,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Check the read-only field-link, GNSS, execution, target-event, "
-            "media timeline and WGS-84 accuracy evidence strata."
+            "camera-mount, media timeline and WGS-84 accuracy evidence strata."
         )
     )
     parser.add_argument("--field-session-report", required=True, type=Path)
@@ -1045,6 +1119,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--recording-manifest", required=True, type=Path)
     parser.add_argument("--telemetry-sidecar", required=True, type=Path)
     parser.add_argument("--link-preflight", required=True, type=Path)
+    parser.add_argument("--camera-mount-survey", required=True, type=Path)
     parser.add_argument("--accuracy-report", required=True, type=Path)
     parser.add_argument(
         "--maximum-telemetry-age-s",
@@ -1078,6 +1153,7 @@ def main(argv: list[str] | None = None) -> int:
             recording_manifest=args.recording_manifest,
             telemetry_sidecar=args.telemetry_sidecar,
             link_preflight=args.link_preflight,
+            camera_mount_survey=args.camera_mount_survey,
             accuracy_report=args.accuracy_report,
             maximum_telemetry_age_s=args.maximum_telemetry_age_s,
             require_real_domain=not args.allow_sim_domain,

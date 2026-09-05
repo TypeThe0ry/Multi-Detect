@@ -1,0 +1,638 @@
+"""Create and independently verify physical camera-mount survey evidence.
+
+The runtime camera calibration contains mount attitude and GNSS-to-camera
+lever-arm values, but numeric CLI input alone is not evidence that an installed
+aircraft was measured.  This module closes that provenance seam.  It requires
+repeated physical measurements, calibrated equipment, distinct surveyor and
+reviewer identities, explicit FRD-frame attestations, and hash-bound raw notes.
+
+The resulting gate proves only that one mount survey is internally complete
+and agrees with one camera calibration.  It never enables flight control,
+claims full hardware acceptance, or promotes a release.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import statistics
+import sys
+import tempfile
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .autonomy.serialization import strict_json_loads
+from .product_version import PRODUCT_VERSION
+
+CAMERA_MOUNT_SURVEY_SCHEMA_VERSION = 1
+CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE = "multidetect.camera-mount-survey.v1"
+CAMERA_MOUNT_SURVEY_FRAME = "aircraft_frd"
+_SAMPLE_FIELDS = (
+    "pitch_down_deg",
+    "yaw_right_deg",
+    "roll_clockwise_deg",
+    "offset_forward_m",
+    "offset_right_m",
+    "offset_down_m",
+)
+_ANGLE_FIELDS = _SAMPLE_FIELDS[:3]
+_OFFSET_FIELDS = _SAMPLE_FIELDS[3:]
+_ATTESTATIONS = (
+    "aircraft_physically_present",
+    "camera_measured_in_final_installed_configuration",
+    "gnss_antenna_reference_point_marked",
+    "aircraft_frd_axes_verified",
+    "raw_measurements_retained",
+    "simulated_or_nominal_values_excluded",
+)
+
+
+def create_camera_mount_survey(
+    *,
+    survey_id: str,
+    aircraft_id: str,
+    camera_id: str,
+    gnss_antenna_id: str,
+    method: str,
+    surveyor: str,
+    reviewer: str,
+    equipment_id: str,
+    equipment_angular_accuracy_deg: float,
+    equipment_linear_accuracy_m: float,
+    equipment_calibration_path: str | Path,
+    calibration_path: str | Path,
+    raw_measurements_path: str | Path,
+    samples: Sequence[Mapping[str, object]],
+    attestations: Mapping[str, object],
+    minimum_samples: int = 5,
+    maximum_angular_sigma_deg: float = 1.0,
+    maximum_linear_sigma_m: float = 0.10,
+    maximum_calibration_angle_delta_deg: float = 0.05,
+    maximum_calibration_offset_delta_m: float = 0.01,
+    created_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Build a deterministic survey report from physical measurement inputs."""
+
+    created = created_at_utc or datetime.now(timezone.utc).isoformat()
+    document: dict[str, Any] = {
+        "event": "camera_mount_survey_evaluated",
+        "schema_version": CAMERA_MOUNT_SURVEY_SCHEMA_VERSION,
+        "evidence_type": CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE,
+        "release_label": PRODUCT_VERSION.release_label,
+        "survey_id": _text(survey_id, "survey_id"),
+        "created_at_utc": _utc_timestamp(created, "created_at_utc"),
+        "aircraft_id": _text(aircraft_id, "aircraft_id"),
+        "camera_id": _text(camera_id, "camera_id"),
+        "gnss_antenna_id": _text(gnss_antenna_id, "gnss_antenna_id"),
+        "measurement_frame": CAMERA_MOUNT_SURVEY_FRAME,
+        "method": _text(method, "method"),
+        "surveyor": _text(surveyor, "surveyor"),
+        "reviewer": _text(reviewer, "reviewer"),
+        "equipment": {
+            "equipment_id": _text(equipment_id, "equipment_id"),
+            "angular_accuracy_deg": _positive_bounded(
+                equipment_angular_accuracy_deg, "equipment_angular_accuracy_deg", 5.0
+            ),
+            "linear_accuracy_m": _positive_bounded(
+                equipment_linear_accuracy_m, "equipment_linear_accuracy_m", 1.0
+            ),
+            "calibration_valid_at_survey": True,
+        },
+        "attestations": {name: attestations.get(name) for name in _ATTESTATIONS},
+        "policy": {
+            "minimum_samples": _integer(minimum_samples, "minimum_samples", minimum=3),
+            "maximum_angular_sigma_deg": _positive_bounded(
+                maximum_angular_sigma_deg, "maximum_angular_sigma_deg", 10.0
+            ),
+            "maximum_linear_sigma_m": _positive_bounded(
+                maximum_linear_sigma_m, "maximum_linear_sigma_m", 1.0
+            ),
+            "maximum_calibration_angle_delta_deg": _positive_bounded(
+                maximum_calibration_angle_delta_deg,
+                "maximum_calibration_angle_delta_deg",
+                5.0,
+            ),
+            "maximum_calibration_offset_delta_m": _positive_bounded(
+                maximum_calibration_offset_delta_m,
+                "maximum_calibration_offset_delta_m",
+                1.0,
+            ),
+        },
+        "inputs": {
+            "equipment_calibration": _file_reference(equipment_calibration_path),
+            "camera_calibration": _file_reference(calibration_path),
+            "raw_measurements": _file_reference(raw_measurements_path),
+        },
+        "samples": [_sample(item, index) for index, item in enumerate(samples)],
+        "estimate": {},
+        "checks": {},
+        "blocking_reasons": [],
+        "gate_passed": False,
+        "mount_survey_acceptance": "not_claimed",
+        "hardware_acceptance": "not_claimed",
+        "release_eligible": False,
+        "read_only_evidence": True,
+        "advisory_only": True,
+        "contains_flight_control": False,
+        "simulated_values_used": False,
+    }
+    return _evaluate(document)
+
+
+def verify_camera_mount_survey(
+    source: str | Path | Mapping[str, object],
+    *,
+    expected_release_label: str | None = None,
+    require_gate_passed: bool = False,
+) -> dict[str, Any]:
+    """Re-hash inputs, recompute all statistics, and compare the full report."""
+
+    result: dict[str, Any] = {"passed": False, "gate_passed": False, "reasons": []}
+    reasons: list[str] = result["reasons"]
+    try:
+        document = _load_document(source)
+        _require_exact_top_level(document)
+        if (
+            expected_release_label is not None
+            and document.get("release_label") != expected_release_label
+        ):
+            reasons.append("camera mount survey release_label does not match expectation")
+        recomputed_seed = dict(document)
+        inputs = document.get("inputs")
+        if not isinstance(inputs, Mapping):
+            raise ValueError("inputs must be an object")
+        # Validate the serialized references before replacing them with fresh
+        # descriptors for recomputation.  This preserves a precise failure
+        # reason when either reviewed source file changed after sign-off.
+        _reference(document, "camera_calibration")
+        _reference(document, "raw_measurements")
+        recomputed_seed["inputs"] = {
+            "equipment_calibration": _file_reference(
+                _reference_path(inputs, "equipment_calibration")
+            ),
+            "camera_calibration": _file_reference(_reference_path(inputs, "camera_calibration")),
+            "raw_measurements": _file_reference(_reference_path(inputs, "raw_measurements")),
+        }
+        recomputed = _evaluate(recomputed_seed)
+        if document != recomputed:
+            reasons.append("camera mount survey does not match independent re-evaluation")
+        result["gate_passed"] = recomputed.get("gate_passed") is True
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        reasons.append(f"verification error: {type(exc).__name__}: {exc}")
+    if require_gate_passed and result["gate_passed"] is not True:
+        reasons.append("camera mount survey gate_passed is not true")
+    result["passed"] = not reasons
+    return result
+
+
+def write_camera_mount_survey(
+    destination: str | Path,
+    document: Mapping[str, object],
+    *,
+    overwrite: bool = False,
+) -> Path:
+    requested = Path(destination).expanduser()
+    if requested.is_symlink():
+        raise FileExistsError(f"camera mount survey output must not be a symlink: {requested}")
+    output = requested.resolve()
+    if output.exists() and not overwrite:
+        raise FileExistsError(f"camera mount survey output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return output
+
+
+def _evaluate(source: Mapping[str, object]) -> dict[str, Any]:
+    document = dict(source)
+    samples_raw = document.get("samples")
+    if not isinstance(samples_raw, Sequence) or isinstance(samples_raw, (str, bytes, bytearray)):
+        raise ValueError("samples must be an array")
+    samples = [_sample(item, index) for index, item in enumerate(samples_raw)]
+    ids = [item["sample_id"] for item in samples]
+    policy = _policy(document.get("policy"))
+    equipment = _equipment(document.get("equipment"))
+    attestations = _attestations(document.get("attestations"))
+
+    means = {
+        name: statistics.fmean(float(item[name]) for item in samples) for name in _SAMPLE_FIELDS
+    }
+    standard_deviations = {
+        name: statistics.stdev(float(item[name]) for item in samples) if len(samples) > 1 else 0.0
+        for name in _SAMPLE_FIELDS
+    }
+    combined_sigma = {
+        name: math.hypot(
+            standard_deviations[name],
+            equipment["angular_accuracy_deg"]
+            if name in _ANGLE_FIELDS
+            else equipment["linear_accuracy_m"],
+        )
+        for name in _SAMPLE_FIELDS
+    }
+    calibration_ref = _reference(document, "camera_calibration")
+    equipment_calibration_ref = _reference(document, "equipment_calibration")
+    raw_ref = _reference(document, "raw_measurements")
+    calibration = _load_calibration(Path(calibration_ref["path"]))
+    calibration_id = calibration["calibration_id"]
+    camera_matches = document.get("camera_id") == calibration_id
+    angle_mapping = {
+        "pitch_down_deg": "mount_pitch_down_deg",
+        "yaw_right_deg": "mount_yaw_right_deg",
+        "roll_clockwise_deg": "mount_roll_clockwise_deg",
+    }
+    offset_mapping = {
+        "offset_forward_m": "camera_offset_forward_m",
+        "offset_right_m": "camera_offset_right_m",
+        "offset_down_m": "camera_offset_down_m",
+    }
+    angle_deltas = {
+        name: abs(means[name] - _number(calibration.get(key), f"calibration.{key}"))
+        for name, key in angle_mapping.items()
+    }
+    offset_deltas = {
+        name: abs(means[name] - _number(calibration.get(key, 0.0), f"calibration.{key}"))
+        for name, key in offset_mapping.items()
+    }
+    angular_sigma = max(combined_sigma[name] for name in _ANGLE_FIELDS)
+    linear_sigma = max(combined_sigma[name] for name in _OFFSET_FIELDS)
+    calibration_boresight_sigma = _number(
+        calibration.get("boresight_sigma_deg"), "calibration.boresight_sigma_deg"
+    )
+    calibration_offset_sigma = _number(
+        calibration.get("camera_offset_sigma_m", 0.0), "calibration.camera_offset_sigma_m"
+    )
+    checks = {
+        "sample_ids_unique": len(ids) == len(set(ids)),
+        "minimum_samples": len(samples) >= policy["minimum_samples"],
+        "surveyor_reviewer_distinct": (
+            _text(document.get("surveyor"), "surveyor").casefold()
+            != _text(document.get("reviewer"), "reviewer").casefold()
+        ),
+        "physical_attestations_complete": all(attestations.values()),
+        "equipment_calibration_valid": equipment["calibration_valid_at_survey"] is True,
+        "equipment_calibration_hash_bound": equipment_calibration_ref["bytes"] > 0,
+        "raw_measurements_hash_bound": raw_ref["bytes"] > 0,
+        "camera_calibration_hash_bound": calibration_ref["bytes"] > 0,
+        "camera_calibration_id_matches": camera_matches,
+        "angular_repeatability_within_limit": angular_sigma <= policy["maximum_angular_sigma_deg"],
+        "linear_repeatability_within_limit": linear_sigma <= policy["maximum_linear_sigma_m"],
+        "calibration_angles_match_survey": all(
+            value <= policy["maximum_calibration_angle_delta_deg"]
+            for value in angle_deltas.values()
+        ),
+        "calibration_offsets_match_survey": all(
+            value <= policy["maximum_calibration_offset_delta_m"]
+            for value in offset_deltas.values()
+        ),
+        "calibration_angular_uncertainty_not_understated": calibration_boresight_sigma
+        >= angular_sigma,
+        "calibration_linear_uncertainty_not_understated": calibration_offset_sigma >= linear_sigma,
+    }
+    blocking = [name for name, passed in checks.items() if passed is not True]
+    document["equipment"] = equipment
+    document["attestations"] = attestations
+    document["policy"] = policy
+    document["inputs"] = {
+        "equipment_calibration": equipment_calibration_ref,
+        "camera_calibration": calibration_ref,
+        "raw_measurements": raw_ref,
+    }
+    document["samples"] = samples
+    document["estimate"] = {
+        "calibration_id": calibration_id,
+        "means": means,
+        "sample_standard_deviation": standard_deviations,
+        "conservative_one_sigma": combined_sigma,
+        "boresight_sigma_deg": angular_sigma,
+        "camera_offset_sigma_m": linear_sigma,
+        "calibration_angle_delta_deg": angle_deltas,
+        "calibration_offset_delta_m": offset_deltas,
+    }
+    document["checks"] = checks
+    document["blocking_reasons"] = blocking
+    document["gate_passed"] = not blocking
+    document["mount_survey_acceptance"] = "passed" if not blocking else "not_claimed"
+    return document
+
+
+def _load_document(source: str | Path | Mapping[str, object]) -> dict[str, Any]:
+    if isinstance(source, Mapping):
+        return dict(source)
+    path = Path(source).expanduser().resolve()
+    value = strict_json_loads(path.read_text(encoding="utf-8-sig"), name="camera mount survey")
+    if not isinstance(value, Mapping):
+        raise ValueError("camera mount survey must be an object")
+    return dict(value)
+
+
+def _load_calibration(path: Path) -> Mapping[str, object]:
+    value = strict_json_loads(path.read_text(encoding="utf-8-sig"), name="camera calibration")
+    if not isinstance(value, Mapping) or value.get("schema_version") != 1:
+        raise ValueError("camera calibration must be a schema_version 1 object")
+    calibration = value.get("calibration")
+    if not isinstance(calibration, Mapping):
+        raise ValueError("camera calibration calibration object is missing")
+    return calibration
+
+
+def _file_reference(value: str | Path) -> dict[str, object]:
+    path = Path(value).expanduser().resolve()
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"survey input must be a regular non-symlink file: {path}")
+    payload = path.read_bytes()
+    return {"path": str(path), "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+
+
+def _reference(document: Mapping[str, object], name: str) -> dict[str, object]:
+    inputs = document.get("inputs")
+    if not isinstance(inputs, Mapping):
+        raise ValueError("inputs must be an object")
+    reference = inputs.get(name)
+    if not isinstance(reference, Mapping):
+        raise ValueError(f"inputs.{name} must be an object")
+    path = _reference_path(inputs, name)
+    actual = _file_reference(path)
+    if dict(reference) != actual:
+        raise ValueError(f"inputs.{name} hash/size/path does not match the current file")
+    return actual
+
+
+def _reference_path(inputs: Mapping[str, object], name: str) -> Path:
+    reference = inputs.get(name)
+    if not isinstance(reference, Mapping):
+        raise ValueError(f"inputs.{name} must be an object")
+    path = reference.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"inputs.{name}.path must be a string")
+    return Path(path).expanduser().resolve()
+
+
+def _sample(value: object, index: int) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"sample {index} must be an object")
+    allowed = {"sample_id", *_SAMPLE_FIELDS}
+    if set(value) != allowed:
+        raise ValueError(f"sample {index} must contain exactly {sorted(allowed)}")
+    sample: dict[str, object] = {"sample_id": _text(value.get("sample_id"), "sample_id")}
+    for name in _SAMPLE_FIELDS:
+        number = _number(value.get(name), name)
+        limit = 90.0 if name in _ANGLE_FIELDS else 10.0
+        if abs(number) > limit:
+            raise ValueError(f"sample {index} {name} is outside +/-{limit:g}")
+        sample[name] = number
+    return sample
+
+
+def _policy(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("policy must be an object")
+    return {
+        "minimum_samples": _integer(value.get("minimum_samples"), "minimum_samples", minimum=3),
+        "maximum_angular_sigma_deg": _positive_bounded(
+            value.get("maximum_angular_sigma_deg"), "maximum_angular_sigma_deg", 10.0
+        ),
+        "maximum_linear_sigma_m": _positive_bounded(
+            value.get("maximum_linear_sigma_m"), "maximum_linear_sigma_m", 1.0
+        ),
+        "maximum_calibration_angle_delta_deg": _positive_bounded(
+            value.get("maximum_calibration_angle_delta_deg"),
+            "maximum_calibration_angle_delta_deg",
+            5.0,
+        ),
+        "maximum_calibration_offset_delta_m": _positive_bounded(
+            value.get("maximum_calibration_offset_delta_m"),
+            "maximum_calibration_offset_delta_m",
+            1.0,
+        ),
+    }
+
+
+def _equipment(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("equipment must be an object")
+    return {
+        "equipment_id": _text(value.get("equipment_id"), "equipment_id"),
+        "angular_accuracy_deg": _positive_bounded(
+            value.get("angular_accuracy_deg"), "angular_accuracy_deg", 5.0
+        ),
+        "linear_accuracy_m": _positive_bounded(
+            value.get("linear_accuracy_m"), "linear_accuracy_m", 1.0
+        ),
+        "calibration_valid_at_survey": value.get("calibration_valid_at_survey") is True,
+    }
+
+
+def _attestations(value: object) -> dict[str, bool]:
+    if not isinstance(value, Mapping) or set(value) != set(_ATTESTATIONS):
+        raise ValueError("attestations must contain the exact physical survey checklist")
+    return {name: value.get(name) is True for name in _ATTESTATIONS}
+
+
+def _require_exact_top_level(document: Mapping[str, object]) -> None:
+    expected = {
+        "event",
+        "schema_version",
+        "evidence_type",
+        "release_label",
+        "survey_id",
+        "created_at_utc",
+        "aircraft_id",
+        "camera_id",
+        "gnss_antenna_id",
+        "measurement_frame",
+        "method",
+        "surveyor",
+        "reviewer",
+        "equipment",
+        "attestations",
+        "policy",
+        "inputs",
+        "samples",
+        "estimate",
+        "checks",
+        "blocking_reasons",
+        "gate_passed",
+        "mount_survey_acceptance",
+        "hardware_acceptance",
+        "release_eligible",
+        "read_only_evidence",
+        "advisory_only",
+        "contains_flight_control",
+        "simulated_values_used",
+    }
+    if set(document) != expected:
+        raise ValueError("camera mount survey top-level fields are not exact")
+    constants = {
+        "event": "camera_mount_survey_evaluated",
+        "schema_version": CAMERA_MOUNT_SURVEY_SCHEMA_VERSION,
+        "evidence_type": CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE,
+        "measurement_frame": CAMERA_MOUNT_SURVEY_FRAME,
+        "hardware_acceptance": "not_claimed",
+        "release_eligible": False,
+        "read_only_evidence": True,
+        "advisory_only": True,
+        "contains_flight_control": False,
+        "simulated_values_used": False,
+    }
+    for name, expected_value in constants.items():
+        if document.get(name) != expected_value:
+            raise ValueError(f"{name} must equal {expected_value!r}")
+    _utc_timestamp(document.get("created_at_utc"), "created_at_utc")
+
+
+def _text(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+    return value.strip()
+
+
+def _number(value: object, name: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        raise ValueError(f"{name} must be finite")
+    return float(value)
+
+
+def _positive_bounded(value: object, name: str, maximum: float) -> float:
+    number = _number(value, name)
+    if not 0.0 < number <= maximum:
+        raise ValueError(f"{name} must be in (0, {maximum:g}]")
+    return number
+
+
+def _integer(value: object, name: str, *, minimum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}")
+    return value
+
+
+def _utc_timestamp(value: object, name: str) -> str:
+    text = _text(value, name)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be ISO-8601") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ValueError(f"{name} must include UTC timezone")
+    return text
+
+
+def _parse_sample(value: str, index: int) -> dict[str, object]:
+    parts = [item.strip() for item in value.split(",")]
+    if len(parts) != 6:
+        raise ValueError("--sample needs pitch,yaw,roll,forward,right,down")
+    return {
+        "sample_id": f"sample-{index + 1:03d}",
+        **dict(zip(_SAMPLE_FIELDS, map(float, parts), strict=True)),
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    create = commands.add_parser("create", help="create physical mount survey evidence")
+    for name in (
+        "survey-id",
+        "aircraft-id",
+        "camera-id",
+        "gnss-antenna-id",
+        "method",
+        "surveyor",
+        "reviewer",
+        "equipment-id",
+    ):
+        create.add_argument(f"--{name}", required=True)
+    create.add_argument("--equipment-angular-accuracy-deg", required=True, type=float)
+    create.add_argument("--equipment-linear-accuracy-m", required=True, type=float)
+    create.add_argument("--equipment-calibration", required=True, type=Path)
+    create.add_argument("--camera-calibration", required=True, type=Path)
+    create.add_argument("--raw-measurements", required=True, type=Path)
+    create.add_argument("--sample", action="append", required=True)
+    for name in _ATTESTATIONS:
+        create.add_argument(
+            f"--attest-{name.replace('_', '-')}", action="store_true", required=True
+        )
+    create.add_argument("--output", required=True, type=Path)
+    create.add_argument("--overwrite", action="store_true")
+    verify = commands.add_parser("verify", help="independently re-evaluate a survey")
+    verify.add_argument("survey", type=Path)
+    verify.add_argument("--expected-release-label")
+    verify.add_argument("--require-gate-passed", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.command == "verify":
+        result = verify_camera_mount_survey(
+            args.survey,
+            expected_release_label=args.expected_release_label,
+            require_gate_passed=args.require_gate_passed,
+        )
+        print(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True))
+        return 0 if result["passed"] else 2
+    try:
+        samples = [_parse_sample(value, index) for index, value in enumerate(args.sample)]
+        attestations = {name: getattr(args, f"attest_{name}") for name in _ATTESTATIONS}
+        document = create_camera_mount_survey(
+            survey_id=args.survey_id,
+            aircraft_id=args.aircraft_id,
+            camera_id=args.camera_id,
+            gnss_antenna_id=args.gnss_antenna_id,
+            method=args.method,
+            surveyor=args.surveyor,
+            reviewer=args.reviewer,
+            equipment_id=args.equipment_id,
+            equipment_angular_accuracy_deg=args.equipment_angular_accuracy_deg,
+            equipment_linear_accuracy_m=args.equipment_linear_accuracy_m,
+            equipment_calibration_path=args.equipment_calibration,
+            calibration_path=args.camera_calibration,
+            raw_measurements_path=args.raw_measurements,
+            samples=samples,
+            attestations=attestations,
+        )
+        output = write_camera_mount_survey(args.output, document, overwrite=args.overwrite)
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"camera mount survey failed: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"output": str(output), "gate_passed": document["gate_passed"]}, indent=2))
+    return 0 if document["gate_passed"] else 1
+
+
+__all__ = [
+    "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE",
+    "CAMERA_MOUNT_SURVEY_FRAME",
+    "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION",
+    "build_parser",
+    "create_camera_mount_survey",
+    "main",
+    "verify_camera_mount_survey",
+    "write_camera_mount_survey",
+]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

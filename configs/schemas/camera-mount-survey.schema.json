@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/camera-mount-survey.schema.json",
+  "title": "Multi-Detect physical camera mount survey v1",
+  "description": "Repeated, hash-bound physical camera attitude and GNSS-to-camera lever-arm measurements. Passing this document does not claim complete hardware or release acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event", "schema_version", "evidence_type", "release_label", "survey_id",
+    "created_at_utc", "aircraft_id", "camera_id", "gnss_antenna_id",
+    "measurement_frame", "method", "surveyor", "reviewer", "equipment",
+    "attestations", "policy", "inputs", "samples", "estimate", "checks",
+    "blocking_reasons", "gate_passed", "mount_survey_acceptance",
+    "hardware_acceptance", "release_eligible", "read_only_evidence",
+    "advisory_only", "contains_flight_control", "simulated_values_used"
+  ],
+  "properties": {
+    "event": {"const": "camera_mount_survey_evaluated"},
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "multidetect.camera-mount-survey.v1"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0-pre\\.[1-9][0-9]*$"},
+    "survey_id": {"type": "string", "minLength": 1},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "aircraft_id": {"type": "string", "minLength": 1},
+    "camera_id": {"type": "string", "minLength": 1},
+    "gnss_antenna_id": {"type": "string", "minLength": 1},
+    "measurement_frame": {"const": "aircraft_frd"},
+    "method": {"type": "string", "minLength": 1},
+    "surveyor": {"type": "string", "minLength": 1},
+    "reviewer": {"type": "string", "minLength": 1},
+    "equipment": {"$ref": "#/$defs/equipment"},
+    "attestations": {"$ref": "#/$defs/attestations"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "inputs": {"$ref": "#/$defs/inputs"},
+    "samples": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/sample"}},
+    "estimate": {"$ref": "#/$defs/estimate"},
+    "checks": {"$ref": "#/$defs/checks"},
+    "blocking_reasons": {"type": "array", "items": {"type": "string"}},
+    "gate_passed": {"type": "boolean"},
+    "mount_survey_acceptance": {"enum": ["passed", "not_claimed"]},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "release_eligible": {"const": false},
+    "read_only_evidence": {"const": true},
+    "advisory_only": {"const": true},
+    "contains_flight_control": {"const": false},
+    "simulated_values_used": {"const": false}
+  },
+  "$defs": {
+    "fileReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "equipment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["equipment_id", "angular_accuracy_deg", "linear_accuracy_m", "calibration_valid_at_survey"],
+      "properties": {
+        "equipment_id": {"type": "string", "minLength": 1},
+        "angular_accuracy_deg": {"type": "number", "exclusiveMinimum": 0, "maximum": 5},
+        "linear_accuracy_m": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "calibration_valid_at_survey": {"const": true}
+      }
+    },
+    "attestations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aircraft_physically_present", "camera_measured_in_final_installed_configuration",
+        "gnss_antenna_reference_point_marked", "aircraft_frd_axes_verified",
+        "raw_measurements_retained", "simulated_or_nominal_values_excluded"
+      ],
+      "properties": {
+        "aircraft_physically_present": {"type": "boolean"},
+        "camera_measured_in_final_installed_configuration": {"type": "boolean"},
+        "gnss_antenna_reference_point_marked": {"type": "boolean"},
+        "aircraft_frd_axes_verified": {"type": "boolean"},
+        "raw_measurements_retained": {"type": "boolean"},
+        "simulated_or_nominal_values_excluded": {"type": "boolean"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_samples", "maximum_angular_sigma_deg", "maximum_linear_sigma_m",
+        "maximum_calibration_angle_delta_deg", "maximum_calibration_offset_delta_m"
+      ],
+      "properties": {
+        "minimum_samples": {"type": "integer", "minimum": 3},
+        "maximum_angular_sigma_deg": {"type": "number", "exclusiveMinimum": 0, "maximum": 10},
+        "maximum_linear_sigma_m": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "maximum_calibration_angle_delta_deg": {"type": "number", "exclusiveMinimum": 0, "maximum": 5},
+        "maximum_calibration_offset_delta_m": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["equipment_calibration", "camera_calibration", "raw_measurements"],
+      "properties": {
+        "equipment_calibration": {"$ref": "#/$defs/fileReference"},
+        "camera_calibration": {"$ref": "#/$defs/fileReference"},
+        "raw_measurements": {"$ref": "#/$defs/fileReference"}
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_id", "pitch_down_deg", "yaw_right_deg", "roll_clockwise_deg", "offset_forward_m", "offset_right_m", "offset_down_m"],
+      "properties": {
+        "sample_id": {"type": "string", "minLength": 1},
+        "pitch_down_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "yaw_right_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "roll_clockwise_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "offset_forward_m": {"type": "number", "minimum": -10, "maximum": 10},
+        "offset_right_m": {"type": "number", "minimum": -10, "maximum": 10},
+        "offset_down_m": {"type": "number", "minimum": -10, "maximum": 10}
+      }
+    },
+    "sixAxisValues": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pitch_down_deg", "yaw_right_deg", "roll_clockwise_deg", "offset_forward_m", "offset_right_m", "offset_down_m"],
+      "properties": {
+        "pitch_down_deg": {"type": "number"},
+        "yaw_right_deg": {"type": "number"},
+        "roll_clockwise_deg": {"type": "number"},
+        "offset_forward_m": {"type": "number"},
+        "offset_right_m": {"type": "number"},
+        "offset_down_m": {"type": "number"}
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calibration_id", "means", "sample_standard_deviation", "conservative_one_sigma", "boresight_sigma_deg", "camera_offset_sigma_m", "calibration_angle_delta_deg", "calibration_offset_delta_m"],
+      "properties": {
+        "calibration_id": {"type": "string", "minLength": 1},
+        "means": {"$ref": "#/$defs/sixAxisValues"},
+        "sample_standard_deviation": {"$ref": "#/$defs/sixAxisValues"},
+        "conservative_one_sigma": {"$ref": "#/$defs/sixAxisValues"},
+        "boresight_sigma_deg": {"type": "number", "minimum": 0},
+        "camera_offset_sigma_m": {"type": "number", "minimum": 0},
+        "calibration_angle_delta_deg": {"$ref": "#/$defs/angleValues"},
+        "calibration_offset_delta_m": {"$ref": "#/$defs/offsetValues"}
+      }
+    },
+    "angleValues": {
+      "type": "object", "additionalProperties": false,
+      "required": ["pitch_down_deg", "yaw_right_deg", "roll_clockwise_deg"],
+      "properties": {"pitch_down_deg": {"type": "number"}, "yaw_right_deg": {"type": "number"}, "roll_clockwise_deg": {"type": "number"}}
+    },
+    "offsetValues": {
+      "type": "object", "additionalProperties": false,
+      "required": ["offset_forward_m", "offset_right_m", "offset_down_m"],
+      "properties": {"offset_forward_m": {"type": "number"}, "offset_right_m": {"type": "number"}, "offset_down_m": {"type": "number"}}
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_ids_unique", "minimum_samples", "surveyor_reviewer_distinct",
+        "physical_attestations_complete", "equipment_calibration_valid", "equipment_calibration_hash_bound",
+        "raw_measurements_hash_bound", "camera_calibration_hash_bound",
+        "camera_calibration_id_matches", "angular_repeatability_within_limit",
+        "linear_repeatability_within_limit", "calibration_angles_match_survey",
+        "calibration_offsets_match_survey", "calibration_angular_uncertainty_not_understated",
+        "calibration_linear_uncertainty_not_understated"
+      ],
+      "properties": {
+        "sample_ids_unique": {"type": "boolean"}, "minimum_samples": {"type": "boolean"},
+        "surveyor_reviewer_distinct": {"type": "boolean"}, "physical_attestations_complete": {"type": "boolean"},
+        "equipment_calibration_valid": {"type": "boolean"}, "equipment_calibration_hash_bound": {"type": "boolean"}, "raw_measurements_hash_bound": {"type": "boolean"},
+        "camera_calibration_hash_bound": {"type": "boolean"}, "camera_calibration_id_matches": {"type": "boolean"},
+        "angular_repeatability_within_limit": {"type": "boolean"}, "linear_repeatability_within_limit": {"type": "boolean"},
+        "calibration_angles_match_survey": {"type": "boolean"}, "calibration_offsets_match_survey": {"type": "boolean"},
+        "calibration_angular_uncertainty_not_understated": {"type": "boolean"},
+        "calibration_linear_uncertainty_not_understated": {"type": "boolean"}
+      }
+    }
+  }
+}

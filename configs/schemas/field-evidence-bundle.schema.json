@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multidetect.local/schemas/field-evidence-bundle.schema.json",
   "title": "Multi-Detect field evidence bundle v1",
-  "description": "Hash-bound, read-only join of field link, GNSS, execution, target-event, raw replay timeline and WGS-84 accuracy evidence.",
+  "description": "Hash-bound, read-only join of field link, GNSS, execution, physical camera-mount survey, target-event, raw replay timeline and WGS-84 accuracy evidence.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -91,6 +91,7 @@
         "recording_manifest",
         "telemetry_sidecar",
         "link_preflight",
+        "camera_mount_survey",
         "accuracy_report"
       ],
       "properties": {
@@ -100,6 +101,7 @@
         "recording_manifest": {"$ref": "#/$defs/input"},
         "telemetry_sidecar": {"$ref": "#/$defs/input"},
         "link_preflight": {"$ref": "#/$defs/input"},
+        "camera_mount_survey": {"$ref": "#/$defs/input"},
         "accuracy_report": {"$ref": "#/$defs/input"}
       }
     },
@@ -118,11 +120,12 @@
     "strata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field_link", "gnss", "execution", "target_event", "media_timeline", "accuracy"],
+      "required": ["field_link", "gnss", "execution", "camera_mount", "target_event", "media_timeline", "accuracy"],
       "properties": {
         "field_link": {"$ref": "#/$defs/stratum"},
         "gnss": {"$ref": "#/$defs/stratum"},
         "execution": {"$ref": "#/$defs/stratum"},
+        "camera_mount": {"$ref": "#/$defs/stratum"},
         "target_event": {"$ref": "#/$defs/stratum"},
         "media_timeline": {"$ref": "#/$defs/stratum"},
         "accuracy": {"$ref": "#/$defs/stratum"}

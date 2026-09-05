@@ -3,7 +3,7 @@
     "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
     "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-    "task_contract_hash": "edb04927663bc828a8fcf5e10cee498f907bc5528d0c9c387541d178375e1792",
+    "task_contract_hash": "a7b8dc7e9ce9255184a2a3d5249c8d242b93c4c07838fbe141589b0ef8393a6b",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
   },
   "product": "Multi-Detect",
@@ -68,9 +68,13 @@
     ],
     "task_contract": [
       "configs/schemas/autonomy-platform-neutral-plan.schema.json",
+      "configs/schemas/camera-mount-survey.schema.json",
+      "configs/schemas/field-evidence-bundle.schema.json",
       "configs/schemas/raw-replay-telemetry-sidecar.schema.json",
       "src/multidetect/backends/raw_replay.py",
+      "src/multidetect/camera_mount_survey.py",
       "src/multidetect/domain.py",
+      "src/multidetect/field_evidence_bundle.py",
       "src/multidetect/gnss_capture_sidecar.py",
       "src/multidetect/mission.py",
       "src/multidetect/operator_link.py",
