@@ -883,6 +883,35 @@ def test_wire_source_age_accepts_exact_limit_and_rejects_one_nanosecond_over() -
         )
 
 
+def test_wire_allows_session_static_camera_info_but_keeps_it_causal() -> None:
+    packet = build_wire_frame(
+        sequence=0,
+        sensor_stamp_ns=8_000_000_000,
+        width=1,
+        height=1,
+        camera_info_stamp_ns=1,
+        navsat_stamp_ns=7_999_999_999,
+        odometry_stamp_ns=7_999_999_999,
+        latitude_deg=47.0,
+        longitude_deg=8.0,
+        altitude_m=400.0,
+        position_east_m=0.0,
+        position_north_m=0.0,
+        position_up_m=0.0,
+        orientation_x=0.0,
+        orientation_y=0.0,
+        orientation_z=0.0,
+        orientation_w=1.0,
+        velocity_forward_mps=0.0,
+        velocity_left_mps=0.0,
+        velocity_up_mps=0.0,
+        bgr_payload=b"\x00\x00\x00",
+    )
+    header, _payload = parse_wire_frame(packet)
+    assert header.camera_info_stamp_ns == 1
+    assert header.sensor_stamp_ns - header.camera_info_stamp_ns > MAX_SOURCE_SKEW_NS
+
+
 def test_wire_rejects_zero_sensor_or_readiness_timestamp() -> None:
     with pytest.raises(ValueError, match="timestamps must be positive"):
         build_wire_frame(

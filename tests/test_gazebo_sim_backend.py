@@ -411,7 +411,7 @@ def test_gazebo_sim_wire_rejects_invalid_odometry_values(
 
 @pytest.mark.parametrize(
     ("field_index", "source_name"),
-    ((9, "CameraInfo"), (10, "NavSat"), (11, "Odometry")),
+    ((10, "NavSat"), (11, "Odometry")),
 )
 def test_gazebo_sim_wire_rejects_stale_or_future_skewed_sources(
     field_index: int,
@@ -431,6 +431,24 @@ def test_gazebo_sim_wire_rejects_stale_or_future_skewed_sources(
             expected_height=1,
             previous_sensor_stamp_ns=None,
         )
+
+
+def test_gazebo_sim_wire_allows_session_static_camera_info_timestamp() -> None:
+    sensor_stamp_ns = 8_000_000_000
+    packet = _replace_wire_field(
+        _wire_frame(0, stamp_ns=sensor_stamp_ns),
+        9,
+        1,
+    )
+    frame = read_gazebo_sim_wire_frame(
+        io.BytesIO(packet),
+        expected_sequence=0,
+        expected_width=2,
+        expected_height=1,
+        previous_sensor_stamp_ns=None,
+    )
+    assert frame.camera_info_stamp_ns == 1
+    assert frame.sensor_stamp_ns - frame.camera_info_stamp_ns > 1_500_000_000
 
 
 @pytest.mark.parametrize(

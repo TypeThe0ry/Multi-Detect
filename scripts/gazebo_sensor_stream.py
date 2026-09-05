@@ -71,6 +71,11 @@ MAX_DIMENSION = 16_384
 MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
 MAX_INPUT_BYTES = MAX_PAYLOAD_BYTES * 2
 MAX_FRAME_COUNT = 100_000
+# NavSat and Odometry are dynamic flight state and must remain close to the
+# image that consumes them. Gazebo CameraInfo is calibration metadata: the
+# Harmonic camera republishes it while retaining the original sensor stamp.
+# Its geometry is checked against every image, and its timestamp must remain
+# causal, but it does not expire like dynamic telemetry.
 MAX_SOURCE_SKEW_NS = 1_500_000_000
 MAX_SOURCE_HISTORY_SAMPLES = 256
 MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
@@ -280,7 +285,7 @@ def _validate_source_skew(
                 f"image={sensor_stamp_ns}, source={stamp_ns}"
             )
         age_ns = sensor_stamp_ns - stamp_ns
-        if age_ns > MAX_SOURCE_SKEW_NS:
+        if name != "CameraInfo" and age_ns > MAX_SOURCE_SKEW_NS:
             raise ValueError(
                 f"wire {name} timestamp skew exceeds {MAX_SOURCE_SKEW_NS} ns: {age_ns}"
             )
@@ -1170,6 +1175,8 @@ def main() -> int:
         required_sources=["image", "camera_info", "navsat", "odometry_pose_velocity"],
         optional_sources=[],
         source_association_policy="nearest_source_at_or_before_image",
+        camera_info_freshness_policy="session_static_geometry_bound_causal_timestamp",
+        maximum_dynamic_source_skew_ns=MAX_SOURCE_SKEW_NS,
         source_callback_order="strictly_increasing_per_topic",
         future_source_samples_allowed=False,
         odometry_subscription_active=True,

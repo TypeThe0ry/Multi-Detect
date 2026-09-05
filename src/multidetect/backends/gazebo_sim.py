@@ -547,12 +547,6 @@ class GazeboSimTelemetryProvider:
                 raise RuntimeError("GazeboSimTelemetryProvider is closed")
             if self._last_update_at_s is not None and observed < self._last_update_at_s:
                 raise RuntimeError("Gazebo SIM telemetry clock moved backwards")
-            _source_time_in_host_domain(
-                source_name="CameraInfo",
-                sensor_stamp_ns=wire.sensor_stamp_ns,
-                source_stamp_ns=wire.camera_info_stamp_ns,
-                frame_observed_at_s=observed,
-            )
             gps_observed, gps_age_ns = _source_time_in_host_domain(
                 source_name="NavSat",
                 sensor_stamp_ns=wire.sensor_stamp_ns,
@@ -1310,7 +1304,7 @@ def read_gazebo_sim_wire_frame(
                 f"image={sensor_stamp_ns}, source={stamp_ns}"
             )
         age_ns = sensor_stamp_ns - stamp_ns
-        if age_ns > GAZEBO_SIM_MAX_SOURCE_SKEW_NS:
+        if source != "CameraInfo" and age_ns > GAZEBO_SIM_MAX_SOURCE_SKEW_NS:
             raise RuntimeError(
                 f"Gazebo SIM {source} timestamp skew exceeds "
                 f"{GAZEBO_SIM_MAX_SOURCE_SKEW_NS} ns: {age_ns}"

@@ -879,16 +879,18 @@ def _verify_frame_set_binding(
     skews: list[int] = []
     for source, source_stamp in source_stamps.items():
         skew = sensor_stamp - source_stamp
-        if not 0 <= skew <= MAX_SOURCE_SKEW_NS:
+        if skew < 0 or (source != "camera_info" and skew > MAX_SOURCE_SKEW_NS):
             raise CandidateDetectorControlsInputError(
-                f"selected {source} timestamp is future or more than 1.5s behind the image"
+                f"selected {source} timestamp is future or dynamic telemetry is "
+                "more than 1.5s behind the image"
             )
         declared = _declared_source_skew(provenance, source)
         if declared is None or declared != skew:
             raise CandidateDetectorControlsInputError(
                 f"selected {source} source skew is missing or inconsistent"
             )
-        skews.append(skew)
+        if source != "camera_info":
+            skews.append(skew)
     if frame_set_schema_version == 2:
         unsigned_header_hex = _nonempty_text(
             provenance.get("wire_unsigned_header_hex"),

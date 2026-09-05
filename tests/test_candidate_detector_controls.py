@@ -371,6 +371,34 @@ def test_matching_frame_set_proves_gazebo_pixels_and_v2_causal_binding(tmp_path:
     assert document["truth_isolation"]["gazebo_runtime_truth_isolation_verified"] is True
 
 
+def test_frame_set_allows_static_camera_info_without_inflating_dynamic_skew(
+    tmp_path: Path,
+) -> None:
+    case = _write_case(tmp_path)
+    frame_set = _write_frame_set(case)
+    raw = json.loads(frame_set.read_text(encoding="utf-8"))
+    provenance = raw["frames"][0]["provenance"]
+    provenance["camera_info_stamp_ns"] = 1
+    provenance["camera_info_source_skew_ns"] = provenance["sensor_stamp_ns"] - 1
+    raw.pop("manifest_sha256")
+    raw["manifest_sha256"] = canonical_sha256(raw)
+    frame_set.write_text(json.dumps(raw), encoding="utf-8")
+    config = CandidateDetectorControlsConfig(
+        **{
+            name: getattr(case.config, name)
+            for name in CandidateDetectorControlsConfig.__dataclass_fields__
+            if name != "frame_set_manifest_path"
+        },
+        frame_set_manifest_path=frame_set,
+    )
+    factory, _, _ = _factory(((_detection(),), (), ()))
+
+    document = evaluate_candidate_detector_controls(config, detector_factory=factory)
+
+    assert document["gate_passed"] is True
+    assert document["provenance"]["maximum_source_skew_ns"] == 150_000_000
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [
