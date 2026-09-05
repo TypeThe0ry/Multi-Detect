@@ -323,11 +323,22 @@ def validate_camera_info_semantics(
         ("R", r, identity, CAMERA_DISTORTION_ABSOLUTE_TOLERANCE),
         ("D", distortion, expected_distortion, CAMERA_DISTORTION_ABSOLUTE_TOLERANCE),
     ):
-        if any(
-            not math.isclose(a, e, rel_tol=0.0, abs_tol=tolerance)
-            for a, e in zip(actual, expected, strict=True)
-        ):
-            raise ValueError(f"CameraInfo {name} does not match the expected calibration")
+        mismatch = next(
+            (
+                (index, observed, required)
+                for index, (observed, required) in enumerate(
+                    zip(actual, expected, strict=True)
+                )
+                if not math.isclose(observed, required, rel_tol=0.0, abs_tol=tolerance)
+            ),
+            None,
+        )
+        if mismatch is not None:
+            index, observed, required = mismatch
+            raise ValueError(
+                f"CameraInfo {name}[{index}] does not match the expected calibration: "
+                f"actual={observed!r}, expected={required!r}, absolute_tolerance={tolerance!r}"
+            )
     return {
         "status": "validated_k_p_rectification_plumb_bob_distortion",
         "width": width,
