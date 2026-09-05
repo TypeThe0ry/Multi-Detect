@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v67：当前源码完成真实 900 帧 PX4/Gazebo/QGC 联合 SIM 机器门；四模式人工视觉仍为 0/4 |
+| 当前工程迭代 | v68：CameraInfo K/P/R/D 语义已绑定仓库标定并通过真实 900 帧联合复验；四模式人工视觉仍为 0/4 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -236,6 +236,20 @@ HIL；四种模式仍需各自独立机器捕获和人工逐项签字，当前�
 SHA-256 `FD386165212A68C6E2D053A0D58B05D796565AB716CB088439F0A6756EDC1090`。独立 verifier 的 41/41
 checks 通过，容器和 9 个测试端口均清理。该机器门没有运行目标测距/落图验收，也没有产生人工签字；
 四模式视觉、K/P/畸变语义、HIL/REAL、硬件和室外 GNSS 仍待完成。
+
+### v68 CameraInfo 标定语义机器门
+
+Gazebo sensor helper 现在将实际 `CameraInfo` 的 `K[9]`、`P[12]`、`R[9]`、`PLUMB_BOB` 和 `D[5]`
+与 [`gazebo-front-camera-v1.json`](simulation/gazebo/calibration/gazebo-front-camera-v1.json) 逐字段绑定；
+backend identity 也包含 canonical calibration hash。真实 Gazebo 的 float intrinsic 量化使用明确的
+`1e-4 px` 上限，非有限数、结构错误、畸变或超过容差的漂移都会停止运行。
+
+当前权威 source 是
+`artifacts/evaluation/combined-sim-qgc-20260905T150510Z-27780/combined-evidence.json`，256,194 bytes，
+SHA-256 `E800968AB63BF847CA53BE7798EAD3B2501B731E958D76AB5E8EAC447A999471`。它在干净提交
+`c0a4c3256b9d4db45f01174614a672d87c281281` 上完成 900/900 sensor、RTSP、type-23、post-adoption
+type-24 和 odometry，CameraInfo 状态为 `validated_k_p_rectification_plumb_bob_distortion`；独立 verifier
+41/41 通过。该结果仍不包含人工签字、HIL/REAL、真实硬件、室外 GNSS/RTK 或实飞批准。
 
 ### MultiDetectGCS
 

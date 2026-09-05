@@ -18,6 +18,28 @@
 exact-PID/HWND 捕获重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
 的大小和 SHA 记录保留在下文历史条目中，不覆盖本段当前指纹。
 
+### v68 CameraInfo 语义与 combined SIM/QGC/Mission 复验
+
+当前权威运行：
+
+```text
+artifacts/evaluation/combined-sim-qgc-20260905T150510Z-27780/combined-evidence.json
+git_head=c0a4c3256b9d4db45f01174614a672d87c281281; dirty=false
+gate_passed=true; sensor/RTSP/type23/type24/odometry=900/900
+camera_info=validated_k_p_rectification_plumb_bob_distortion
+```
+
+source 为 256,194 bytes，SHA-256
+`E800968AB63BF847CA53BE7798EAD3B2501B731E958D76AB5E8EAC447A999471`；独立 verifier 41/41，
+SHA-256 `3D58600C9B57ED981C651DE79CCA90F0FED275096E9FD5CA416B104016E51078`。CameraInfo 的 K/P/R、
+PLUMB_BOB 与 D 已与仓库标定绑定，状态进入 runtime/frame-set。7-item Mission 完成 readback hash、
+START_PERMITTED、AUTO.MISSION、VTOL MC/FW/MC、land/disarm；容器和全部测试端口完成清理。
+
+PiP 仍使用当前原生 QGC surface。为消除 Windows 前台竞争，pointer placement 最多执行 8 次有界重试，
+但每次都必须同时满足 exact coordinate、QGC PID/HWND ownership 与 foreground；本轮第一次即通过。
+portable EXE 没有发生 C++/QML 改动，继续使用本页上方同一指纹。本轮仍未产生四模式人工签字，
+HIL/REAL、真实硬件、室外 GNSS/RTK 和实飞不随 SIM 结果升级。
+
 ### v67 当前源码 900 帧 combined SIM/QGC/Mission gate
 
 当前成功运行：

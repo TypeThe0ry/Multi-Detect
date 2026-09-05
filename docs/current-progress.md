@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v67 工作树）
+最后更新：2026-09-05（v68 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `005da90c3aba2d079ed2ef3aa2e7fc147202d4c4`（当前文档提交前领先远端 17 个提交）。
+本地 `main` 提交 `c0a4c3256b9d4db45f01174614a672d87c281281`（当前文档提交前领先远端 25 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -26,12 +26,35 @@ REPLAY/SIM/HIL/REAL 各自独立的机器来源与人工记录；当前仍是 0/
 v66 进一步把机器捕获抽成四模式共用的 schema-v2 契约，绑定实际 EXE、parity、run、exact PID/client
 rect、遮挡和 PNG；历史 PX4 报告仅保留 HIL 兼容，REPLAY/SIM/REAL 不再伪装成 HIL 格式。v67 修正
 Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定，NavSat/Odometry 仍受 1.5 秒动态门；
-短暂 transport callback 错序只丢弃不安全图像。当前源码已完成 900 帧真实联合 SIM，4 张错序图被丢弃
-后恢复，900 个有效帧全部取得 QGC post-adoption type-24 ACK。人工记录仍为 0/4。
+短暂 transport callback 错序只丢弃不安全图像。v68 又把实际 CameraInfo K/P/R/D、PLUMB_BOB 与仓库
+标定逐字段绑定，并将语义状态带入 runtime/frame-set。当前源码已重新完成 900 帧真实联合 SIM，7 张
+不安全动态绑定图被丢弃后恢复，900 个有效帧全部取得 QGC post-adoption type-24 ACK。人工记录仍为 0/4。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v68 本轮已收口
+
+- `gazebo_sensor_stream.py` 对实际 `CameraInfo` 的 width/height、K/P/R、distortion model 与 D 执行
+  fail-closed 语义验证；标准 pinhole 零位、R identity、零 stereo translation 与仓库标定任一不符即失败。
+- `GazeboSimBackend`、CLI、standalone/combined runner 均要求显式 camera calibration。canonical 标定 hash
+  进入 sensor binding identity，验证状态进入 runtime result 与 persisted frame-set source attribution。
+- 真实三帧诊断 `gazebo-camera-semantics-20260905T150106Z.json` 证明 K/P/R/D；Gazebo float 序列化的
+  最大焦距差约 `3.53e-5 px`，故 intrinsic 使用 `1e-4 px` 明确容差，R/D 保持 `1e-12`。
+- QGC PiP 原生点击增加最多 8 次的有界精确重试；每次仍同时验证坐标、QGC PID/HWND ownership 和
+  foreground。本轮真实运行 `pointer_position_attempts=1`，不是靠放宽 ownership 通过。
+- 权威 source `combined-sim-qgc-20260905T150510Z-27780`：900/900 sensor、RTSP、signed type-23、
+  post-adoption type-24 和 full odometry；7 张 stale dynamic 图像被拒绝，0 张 stale frame 被发出。
+- source 256,194 bytes / SHA-256
+  `E800968AB63BF847CA53BE7798EAD3B2501B731E958D76AB5E8EAC447A999471`；独立 verifier 41/41，
+  verifier SHA-256 `3D58600C9B57ED981C651DE79CCA90F0FED275096E9FD5CA416B104016E51078`。
+- 7-item Mission 完成 upload/readback/commit/START_PERMITTED 和 VTOL 全生命周期；最大水平距离
+  `129.057 m`、最大相对高度 `22.082 m`。容器移除、9 个动态端口释放、14550 ownership 不变。
+- 当前 HEAD 全仓 3,306 tests：`3305 passed, 1 skipped, 0 failed, 0 errors`；JUnit 480,349 bytes、
+  SHA-256 `0414978C7C13B2726CCA9CB94153F018D5AC16B8A399748255E52F9C08DA64AA`；ruff 全仓通过。
+- CameraInfo K/P/R/D 机器语义子门已关闭；目标测距/落图并未在本次 900 帧联合 run 中重新配置。
+  四模式人工视觉仍为 0/4，HIL/REAL、硬件、室外 GNSS/RTK 和实飞继续阻断最终 `v0.3.0`。
 
 ## v67 本轮已收口
 

@@ -5,6 +5,28 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v68 CameraInfo 语义标定与 900 帧联合复验（2026-09-05）
+
+- Gazebo `CameraInfo` 不再只检查 topic、时间戳和图像几何；helper 现在逐字段验证 `K[9]`、`P[12]`、
+  `R[9]`、`PLUMB_BOB` 与 `D[5]`，并与仓库 `gazebo-front-camera-v1` 标定绑定。非有限数、非标准
+  pinhole 布局、stereo translation、畸变或标定漂移均 fail-closed。
+- Gazebo 的 32-bit intrinsic 序列化会给焦距带来约 `3.53e-5 px` 的量化差；焦距/主点使用有界
+  `1e-4 px` 容差，R/D 仍使用 `1e-12`。真实三帧诊断证明 K/P/R/D 后才提升状态为
+  `validated_k_p_rectification_plumb_bob_distortion`。
+- backend sensor identity 加入 canonical camera calibration hash；CLI 和 combined wrapper 必须显式传入
+  标定，状态同时进入 runtime result 与 persisted frame-set source attribution。
+- QGC 原生 PiP 指针交互改为最多 8 次有界精确重试；每次仍要求 exact coordinate、QGC PID/HWND ownership
+  与 foreground 同时成立。真实联合复验第一次即命中，没有放宽 UI 门禁。
+- 权威 source `combined-sim-qgc-20260905T150510Z-27780/combined-evidence.json` 为 256,194 bytes，
+  SHA-256 `E800968AB63BF847CA53BE7798EAD3B2501B731E958D76AB5E8EAC447A999471`；900/900 sensor、
+  RTSP、type-23、post-adoption type-24 和 odometry 全部完成，独立 verifier 41/41 通过。
+- 7-item PX4 Mission 完成 upload/readback/commit/START_PERMITTED、AUTO.MISSION、VTOL MC/FW/MC、land/disarm；
+  最大水平距离 `129.057 m`、最大相对高度 `22.082 m`。容器移除、9 个动态端口释放、14550 未改变。
+- 当前 HEAD 全仓 3,306 tests：`3305 passed, 1 skipped, 0 failed, 0 errors`；JUnit 480,349 bytes、
+  SHA-256 `0414978C7C13B2726CCA9CB94153F018D5AC16B8A399748255E52F9C08DA64AA`，ruff 全仓通过。
+- 该结果关闭 CameraInfo K/P/R/D 机器语义子门和 software-only SIM 联合机器门；四模式人工视觉仍为
+  0/4，HIL/REAL、真实硬件、室外 GNSS/RTK 和实飞仍 pending，最终 `v0.3.0` 继续阻断。
+
 ### v0.3.0-pre.8 v67 真实 900 帧联合 SIM 时间绑定收口（2026-09-05）
 
 - Gazebo Harmonic 的 `CameraInfo` 被明确建模为会话级静态标定：每帧仍校验正时间戳、因果性和

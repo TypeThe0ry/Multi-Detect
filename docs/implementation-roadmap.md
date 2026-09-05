@@ -2,7 +2,16 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前源码 900 帧联合 SIM 时间绑定收口（v67）
+## 当前源码 CameraInfo 语义与 900 帧联合复验（v68）
+
+- [x] 将 Gazebo `CameraInfo` 的 K/P/R、PLUMB_BOB、D 与仓库 camera calibration 逐字段绑定；
+- [x] 将 canonical calibration hash 纳入 backend sensor identity，并把验证状态传播到 runtime/frame-set；
+- [x] 用真实 Gazebo 三帧诊断确认 32-bit intrinsic 量化边界，保持有界 `1e-4 px` 容差与严格 R/D；
+- [x] 当前源码 `c0a4c32` 完成真实 900/900 sensor、RTSP、type-23/type-24、odometry 和 7-item Mission；
+- [x] combined source 独立 verifier 41/41、全仓 `3305 passed / 1 skipped`、ruff、容器/端口清理通过；
+- [ ] 完成 REPLAY/SIM/HIL/REAL 四份人工视觉（当前 0/4）、HIL/REAL、真实硬件、室外 GNSS/RTK 和实飞门。
+
+## 900 帧联合 SIM 时间绑定收口（v67）
 
 - [x] 将 Gazebo Harmonic `CameraInfo` 明确定义为会话级静态标定，保持正时间戳、因果性和逐帧几何
   一致性检查，不再套用动态遥测 expiry；

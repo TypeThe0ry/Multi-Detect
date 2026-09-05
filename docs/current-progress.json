@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T14:35:02Z",
+  "updated_at_utc": "2026-09-05T15:19:14Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "005da90c3aba2d079ed2ef3aa2e7fc147202d4c4",
-    "commit_subject": "fix(sim): drop transiently stale sensor frames",
-    "commits_ahead_of_origin_main": 17
+    "commit": "c0a4c3256b9d4db45f01174614a672d87c281281",
+    "commit_subject": "fix(sim): retry exact native PiP pointer placement",
+    "commits_ahead_of_origin_main": 25
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v67",
+  "working_iteration": "v68",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v67-final.xml",
-      "tests": 3294,
-      "passed": 3293,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v68-postrun.xml",
+      "tests": 3306,
+      "passed": 3305,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 150.17,
-      "junit_local_path": "tmp/current-progress-regression-v67-final.xml",
-      "junit_file_bytes": 478731,
-      "junit_file_sha256": "8261544d868e9222a22d7e5efe5e1f437b19eceff5db1567ecc02c3c38f617cd",
+      "duration_seconds": 129.394,
+      "junit_local_path": "tmp/current-progress-regression-v68-postrun.xml",
+      "junit_file_bytes": 480349,
+      "junit_file_sha256": "0414978c7c13b2726cca9cb94153f018d5ac16b8a399748255e52f9c08da64aa",
       "distributed_in_git": false
     },
     "ruff": {
@@ -219,12 +219,30 @@
         "operator_visual_acceptance": "not_claimed"
       }
     },
-    "combined_sim_qgc_current_source": {
-      "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json",
+    "gazebo_camera_info_semantics": {
+      "local_path": "artifacts/evaluation/gazebo-camera-semantics-20260905T150106Z.json",
       "distributed_in_git": false,
-      "file_bytes": 255480,
-      "file_sha256": "fd386165212a68c6e2d053a0d58b05d796565ab716cb088439f0a6756edc1090",
-      "source_git_head": "005da90c3aba2d079ed2ef3aa2e7fc147202d4c4",
+      "file_bytes": 69926,
+      "file_sha256": "ab14ef62445430cb2de485541601f93734864dbfb74e8b3e0a3182108dd22a02",
+      "gate_passed": true,
+      "sensor_transport_gate_passed": true,
+      "frame_count": 3,
+      "odometry_frames": 3,
+      "payload_bytes": 11059200,
+      "calibration_id": "gazebo-front-camera-v1",
+      "camera_info_intrinsics_semantic_validation": "validated_k_p_rectification_plumb_bob_distortion",
+      "distortion_model": "PLUMB_BOB",
+      "distortion_coefficients": [0.0, 0.0, 0.0, 0.0, 0.0],
+      "rectification_identity": true,
+      "container_removed": true,
+      "operator_visual_acceptance": "not_claimed"
+    },
+    "combined_sim_qgc_current_source": {
+      "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T150510Z-27780/combined-evidence.json",
+      "distributed_in_git": false,
+      "file_bytes": 256194,
+      "file_sha256": "e800968ab63bf847ca53be7798ead3b2501b731e958d76ab5e8eac447a999471",
+      "source_git_head": "c0a4c3256b9d4db45f01174614a672d87c281281",
       "source_dirty": false,
       "gate_passed": true,
       "runtime_mode": "sim",
@@ -232,7 +250,7 @@
       "rtsp_frames": 900,
       "runtime_status_type23": 900,
       "post_adoption_type24_ack": 900,
-      "stale_dynamic_images_discarded": 4,
+      "stale_dynamic_images_discarded": 7,
       "stale_dynamic_frames_emitted": 0,
       "camera_info_freshness_policy": "session_static_geometry_bound_causal_timestamp",
       "dynamic_source_maximum_skew_ns": 1500000000,
@@ -240,7 +258,14 @@
       "test_ports_released": true,
       "protected_port_14550_unchanged": true,
       "target_geolocation_acceptance_configured": false,
-      "camera_info_intrinsics_semantic_validation": "pending_k_p_distortion_validation",
+      "camera_info_intrinsics_semantic_validation": "validated_k_p_rectification_plumb_bob_distortion",
+      "camera_calibration_id": "gazebo-front-camera-v1",
+      "odometry_frames": 900,
+      "payload_bytes": 3317760000,
+      "mission_item_count": 7,
+      "mission_maximum_distance_from_home_m": 129.057,
+      "mission_maximum_relative_altitude_m": 22.082,
+      "qgc_pip_pointer_position_attempts": 1,
       "operator_visual_acceptance": "not_claimed",
       "qgc_machine_binding_precheck": {
         "expected_runtime_mode": "sim",
@@ -252,9 +277,9 @@
         "human_review_record_created": false
       },
       "verification": {
-        "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence-verification.json",
+        "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T150510Z-27780/independent-verification.json",
         "file_bytes": 2006,
-        "file_sha256": "c195ffc92e88f53c54c4ac07c62891bd3806c13e97b47692f895db9988dead60",
+        "file_sha256": "3d58600c9b57ed981c651de79cca90f0fed275096e9fd5ca416b104016e51078",
         "checks_passed": 41,
         "checks_total": 41,
         "gate_passed": true

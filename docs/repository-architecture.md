@@ -1,5 +1,28 @@
 # 统一仓库架构
 
+## v68 CameraInfo 标定语义绑定（2026-09-05，`v0.3.0-pre.8`）
+
+```text
+simulation/gazebo/calibration/gazebo-front-camera-v1.json
+  -> CameraCalibration canonical fields + semantic SHA-256
+  -> GazeboSimBackend sensor binding identity
+  -> gazebo_sensor_stream --expected-camera-calibration-json
+  -> actual CameraInfo K/P/R + PLUMB_BOB/D validation
+  -> MDGZSIM2 frames
+  -> runtime result + persisted frame-set source attribution
+```
+
+`scripts/gazebo_sensor_stream.py` 是实际 Gazebo message 的 fail-closed 边界：先验证 1280×960 geometry，
+再验证 K/P 标准 pinhole 结构、R identity、零 stereo translation、PLUMB_BOB 和五项 D。intrinsic 的
+`1e-4 px` 容差只覆盖 Gazebo 32-bit float 序列化（本次最大实测差约 `3.53e-5 px`）；R/D 仍为
+`1e-12`。backend 构造、CLI 和 acceptance runner 都必须显式提供标定，不能靠 topic 名或图像尺寸
+冒充完整相机模型。
+
+当前 source `artifacts/evaluation/combined-sim-qgc-20260905T150510Z-27780/combined-evidence.json`
+在干净 `c0a4c32` 上完成 900/900 帧与 41/41 独立 checks，状态为
+`validated_k_p_rectification_plumb_bob_distortion`。该架构只关闭 SIM 相机语义机器门；真实镜头标定、
+HIL/REAL 与人工视觉仍必须使用各自来源重新验收。
+
 ## v67 联合 SIM 传感器时间策略（2026-09-05，`v0.3.0-pre.8`）
 
 ```text
