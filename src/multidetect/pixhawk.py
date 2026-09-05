@@ -77,6 +77,7 @@ _DEVICE_UID_HASH_DOMAIN = b"multidetect:autopilot-device-uid:v1\x00"
 _MAV_CMD_SET_MESSAGE_INTERVAL = 511
 _RANGING_STREAM_INTERVALS_US: tuple[tuple[str, int, int], ...] = (
     ("ATTITUDE", 30, 50_000),
+    ("ODOMETRY", 331, 50_000),
     ("SCALED_PRESSURE", 29, 100_000),
     ("LOCAL_POSITION_NED", 32, 66_667),
     ("GLOBAL_POSITION_INT", 33, 100_000),
@@ -95,6 +96,15 @@ _MAVLINK_INT16_MIN = -(1 << 15)
 _MAVLINK_INT16_MAX = (1 << 15) - 1
 _MAVLINK_UINT16_MAX = (1 << 16) - 1
 _MAVLINK_HEADING_MAX_CDEG = 35_999
+_MAV_FRAME_LOCAL_NED = 1
+_MAV_FRAME_BODY_FRD = 12
+_ATTITUDE_UNCERTAINTY_MAX_ASSOCIATION_S = 0.250
+_MAVLINK_ODOMETRY_ATTITUDE_UNCERTAINTY_SOURCE = (
+    "mavlink_odometry_pose_covariance_local_ned_with_configured_floor"
+)
+_MINIMUM_ROLL_SIGMA_DEG = 0.3
+_MINIMUM_PITCH_SIGMA_DEG = 0.3
+_MINIMUM_HEADING_SIGMA_DEG = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,6 +404,8 @@ class PixhawkReadOnlyTelemetryProvider:
         self._resolved_endpoint: str | None = None
         self._last_heartbeat_s: float | None = None
         self._last_attitude_s: float | None = None
+        self._last_attitude_uncertainty_s: float | None = None
+        self._last_attitude_uncertainty_message_s: float | None = None
         self._last_position_s: float | None = None
         # Keep GLOBAL_POSITION_INT's coordinate stream distinct from LOCAL
         # position.  ``_last_position_s`` remains the backwards-compatible
@@ -430,6 +442,15 @@ class PixhawkReadOnlyTelemetryProvider:
         self._last_gps_altitude_m: float | None = None
         self._roll_deg = float("nan")
         self._pitch_deg = float("nan")
+        self._attitude_roll_sigma_deg = float("nan")
+        self._attitude_pitch_sigma_deg = float("nan")
+        self._attitude_heading_sigma_deg = float("nan")
+        self._attitude_uncertainty_source: str | None = None
+        self._attitude_covariance_rad2: tuple[float, ...] | None = None
+        self._attitude_uncertainty_reset_counter: int | None = None
+        self._attitude_uncertainty_child_frame_id: int | None = None
+        self._attitude_uncertainty_accepted_count = 0
+        self._attitude_uncertainty_rejections: Counter[str] = Counter()
         self._ground_speed_mps = float("nan")
         self._velocity_north_mps = float("nan")
         self._velocity_east_mps = float("nan")
@@ -605,6 +626,47 @@ class PixhawkReadOnlyTelemetryProvider:
             "transport_link_healthy": self.transport_link_healthy(now_s=now_s),
             "qualified_link_healthy": snapshot.link_healthy,
             "position_healthy": snapshot.position_healthy,
+            "attitude_uncertainty": {
+                "source": snapshot.attitude_uncertainty_source,
+                "roll_sigma_deg": (
+                    snapshot.attitude_roll_sigma_deg
+                    if math.isfinite(snapshot.attitude_roll_sigma_deg)
+                    else None
+                ),
+                "pitch_sigma_deg": (
+                    snapshot.attitude_pitch_sigma_deg
+                    if math.isfinite(snapshot.attitude_pitch_sigma_deg)
+                    else None
+                ),
+                "heading_sigma_deg": (
+                    snapshot.attitude_heading_sigma_deg
+                    if math.isfinite(snapshot.attitude_heading_sigma_deg)
+                    else None
+                ),
+                "observed_at_s": self._last_attitude_uncertainty_s,
+                "age_s": self._sample_age(self._last_attitude_uncertainty_s, now_s),
+                "fresh": self._is_fresh(self._last_attitude_uncertainty_s, now_s),
+                "associated_with_attitude": self._attitude_uncertainty_available(
+                    now_s=now_s
+                ),
+                "maximum_attitude_association_s": (
+                    _ATTITUDE_UNCERTAINTY_MAX_ASSOCIATION_S
+                ),
+                "raw_angular_covariance_rad2": (
+                    list(self._attitude_covariance_rad2)
+                    if self._attitude_covariance_rad2 is not None
+                    else None
+                ),
+                "configured_floor_deg": {
+                    "roll": _MINIMUM_ROLL_SIGMA_DEG,
+                    "pitch": _MINIMUM_PITCH_SIGMA_DEG,
+                    "heading": _MINIMUM_HEADING_SIGMA_DEG,
+                },
+                "reset_counter": self._attitude_uncertainty_reset_counter,
+                "child_frame_id": self._attitude_uncertainty_child_frame_id,
+                "accepted_count": self._attitude_uncertainty_accepted_count,
+                "rejections": dict(sorted(self._attitude_uncertainty_rejections.items())),
+            },
             "global_position_age_s": self._sample_age(self._last_global_position_s, now_s),
             "global_position_invalid_age_s": self._sample_age(
                 self._last_global_position_invalid_s,
@@ -765,6 +827,7 @@ class PixhawkReadOnlyTelemetryProvider:
         mission_reached_fresh = (
             self._is_fresh(self._last_mission_item_reached_s, now_s) is True
         )
+        attitude_uncertainty_available = self._attitude_uncertainty_available(now_s=now_s)
         return VehicleTelemetry(
             altitude_agl_m=self._altitude_agl_m,
             roll_deg=self._roll_deg,
@@ -806,6 +869,26 @@ class PixhawkReadOnlyTelemetryProvider:
             ),
             attitude_observed_at_s=(
                 self._last_attitude_s if self._last_attitude_s is not None else float("nan")
+            ),
+            attitude_roll_sigma_deg=(
+                self._attitude_roll_sigma_deg
+                if attitude_uncertainty_available
+                else float("nan")
+            ),
+            attitude_pitch_sigma_deg=(
+                self._attitude_pitch_sigma_deg
+                if attitude_uncertainty_available
+                else float("nan")
+            ),
+            attitude_heading_sigma_deg=(
+                self._attitude_heading_sigma_deg
+                if attitude_uncertainty_available
+                else float("nan")
+            ),
+            attitude_uncertainty_source=(
+                self._attitude_uncertainty_source
+                if attitude_uncertainty_available
+                else None
             ),
             position_observed_at_s=(
                 self._last_position_s if self._last_position_s is not None else float("nan")
@@ -1021,16 +1104,33 @@ class PixhawkReadOnlyTelemetryProvider:
             # values here; body/camera frames must first be transformed by their
             # producer and are never silently treated as a navigation position.
             frame_id = _optional_int(getattr(message, "frame_id", None))
-            if frame_id == 1:
+            child_frame_id = _optional_int(getattr(message, "child_frame_id", None))
+            if frame_id == _MAV_FRAME_LOCAL_NED:
                 self._ingest_local_position(
                     north=getattr(message, "x", None),
                     east=getattr(message, "y", None),
                     down=getattr(message, "z", None),
-                    north_velocity=getattr(message, "vx", None),
-                    east_velocity=getattr(message, "vy", None),
+                    north_velocity=(
+                        getattr(message, "vx", None)
+                        if child_frame_id == _MAV_FRAME_LOCAL_NED
+                        else None
+                    ),
+                    east_velocity=(
+                        getattr(message, "vy", None)
+                        if child_frame_id == _MAV_FRAME_LOCAL_NED
+                        else None
+                    ),
                     received_at_s=now_s,
                     reference="odometry_local_ned_relative",
                 )
+            self._ingest_odometry_attitude_uncertainty(
+                message,
+                frame_id=frame_id,
+                child_frame_id=child_frame_id,
+                source_system_id=source_system_id,
+                source_component_id=source_component_id,
+                received_at_s=now_s,
+            )
         elif message_type == "ALTITUDE":
             relative = _finite_float(getattr(message, "altitude_relative", None))
             local = _finite_float(getattr(message, "altitude_local", None))
@@ -1499,6 +1599,110 @@ class PixhawkReadOnlyTelemetryProvider:
             self._last_heading_s = received_at_s
         self._last_attitude_s = received_at_s
 
+    def _ingest_odometry_attitude_uncertainty(
+        self,
+        message: Any,
+        *,
+        frame_id: int | None,
+        child_frame_id: int | None,
+        source_system_id: int | None,
+        source_component_id: int | None,
+        received_at_s: float,
+    ) -> None:
+        """Ingest one source-bound LOCAL_NED/BODY_FRD pose covariance atomically."""
+
+        heartbeat = self._heartbeat_identity
+        if heartbeat.source_system_id is None or heartbeat.source_component_id is None:
+            self._attitude_uncertainty_rejections["autopilot_identity_unavailable"] += 1
+            return
+        if (
+            source_system_id != heartbeat.source_system_id
+            or source_component_id != heartbeat.source_component_id
+        ):
+            self._attitude_uncertainty_rejections["source_identity_mismatch"] += 1
+            return
+        if frame_id != _MAV_FRAME_LOCAL_NED or child_frame_id not in {
+            _MAV_FRAME_LOCAL_NED,
+            _MAV_FRAME_BODY_FRD,
+        }:
+            self._attitude_uncertainty_rejections["unsupported_coordinate_frame"] += 1
+            return
+        if not self._timestamp_is_current(
+            received_at_s,
+            self._last_attitude_uncertainty_message_s,
+        ):
+            self._attitude_uncertainty_rejections["timestamp_regression"] += 1
+            return
+        self._last_attitude_uncertainty_message_s = received_at_s
+
+        quaternion = tuple(
+            _finite_float(value)
+            for value in _sequence_values(getattr(message, "q", None), expected=4)
+        )
+        if len(quaternion) != 4 or not all(value is not None for value in quaternion):
+            self._reject_attitude_uncertainty("invalid_quaternion")
+            return
+        norm = math.sqrt(sum(float(value) ** 2 for value in quaternion))
+        if norm < 1.0e-6:
+            self._reject_attitude_uncertainty("invalid_quaternion")
+            return
+        try:
+            covariance = mavlink_odometry_attitude_covariance_rad2(
+                getattr(message, "pose_covariance", None)
+            )
+        except ValueError as exc:
+            self._reject_attitude_uncertainty(str(exc))
+            return
+
+        self._ingest_attitude_quaternion(
+            quaternion=tuple(float(value) for value in quaternion),  # type: ignore[arg-type]
+            received_at_s=received_at_s,
+        )
+        roll_sigma = math.degrees(math.sqrt(covariance[0]))
+        pitch_sigma = math.degrees(math.sqrt(covariance[4]))
+        heading_sigma = math.degrees(math.sqrt(covariance[8]))
+        self._attitude_roll_sigma_deg = max(roll_sigma, _MINIMUM_ROLL_SIGMA_DEG)
+        self._attitude_pitch_sigma_deg = max(pitch_sigma, _MINIMUM_PITCH_SIGMA_DEG)
+        self._attitude_heading_sigma_deg = max(
+            heading_sigma,
+            _MINIMUM_HEADING_SIGMA_DEG,
+        )
+        self._attitude_uncertainty_source = (
+            _MAVLINK_ODOMETRY_ATTITUDE_UNCERTAINTY_SOURCE
+        )
+        self._attitude_covariance_rad2 = covariance
+        self._attitude_uncertainty_reset_counter = _mavlink_integral(
+            getattr(message, "reset_counter", None),
+            minimum=0,
+            maximum=255,
+        )
+        self._attitude_uncertainty_child_frame_id = child_frame_id
+        self._last_attitude_uncertainty_s = received_at_s
+        self._attitude_uncertainty_accepted_count += 1
+
+    def _reject_attitude_uncertainty(self, reason: str) -> None:
+        self._attitude_uncertainty_rejections[reason] += 1
+        self._last_attitude_uncertainty_s = None
+        self._attitude_roll_sigma_deg = float("nan")
+        self._attitude_pitch_sigma_deg = float("nan")
+        self._attitude_heading_sigma_deg = float("nan")
+        self._attitude_uncertainty_source = None
+        self._attitude_covariance_rad2 = None
+        self._attitude_uncertainty_reset_counter = None
+        self._attitude_uncertainty_child_frame_id = None
+
+    def _attitude_uncertainty_available(self, *, now_s: float) -> bool:
+        if (
+            self._is_fresh(self._last_attitude_uncertainty_s, now_s) is not True
+            or self._last_attitude_s is None
+            or self._last_attitude_uncertainty_s is None
+        ):
+            return False
+        return (
+            abs(self._last_attitude_s - self._last_attitude_uncertainty_s)
+            <= _ATTITUDE_UNCERTAINTY_MAX_ASSOCIATION_S
+        )
+
     def _position_health(self, *, now_s: float) -> bool | None:
         """Return position health without letting a bad global frame masquerade as fresh.
 
@@ -1552,6 +1756,70 @@ class PixhawkReadOnlyTelemetryProvider:
             return None
         age_s = now_s - timestamp_s
         return 0.0 <= age_s <= self.config.stale_after_seconds
+
+
+def _sequence_values(value: object, *, expected: int) -> tuple[object, ...]:
+    if isinstance(value, (str, bytes, bytearray)):
+        return ()
+    try:
+        values = tuple(value)  # type: ignore[arg-type]
+    except TypeError:
+        return ()
+    return values if len(values) == expected else ()
+
+
+def mavlink_odometry_attitude_covariance_rad2(value: object) -> tuple[float, ...]:
+    """Expand the angular block of MAVLink ODOMETRY's 21-value upper triangle.
+
+    MAVLink orders the 6-D pose state as x, y, z, roll, pitch, yaw.  The
+    returned tuple is a symmetric row-major 3x3 roll/pitch/yaw covariance.
+    Unknown, degenerate, non-finite, or non-PSD inputs fail closed.
+    """
+
+    packed = _sequence_values(value, expected=21)
+    if not packed:
+        raise ValueError("pose_covariance_length_invalid")
+    if isinstance(packed[0], bool):
+        raise ValueError("pose_covariance_non_numeric")
+    try:
+        first = float(packed[0])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("pose_covariance_non_numeric") from exc
+    if math.isnan(first):
+        raise ValueError("pose_covariance_unknown")
+    if any(isinstance(item, bool) for item in packed):
+        raise ValueError("pose_covariance_non_numeric")
+    try:
+        numeric = tuple(float(item) for item in packed)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("pose_covariance_non_numeric") from exc
+    if not all(math.isfinite(item) for item in numeric):
+        raise ValueError("pose_covariance_non_finite")
+
+    covariance = (
+        numeric[15],
+        numeric[16],
+        numeric[17],
+        numeric[16],
+        numeric[18],
+        numeric[19],
+        numeric[17],
+        numeric[19],
+        numeric[20],
+    )
+    a, b, c, _d, e, f, _g, _h, i = covariance
+    if a <= 0.0 or e <= 0.0 or i <= 0.0:
+        raise ValueError("attitude_covariance_variance_not_positive")
+    scale = max(abs(item) for item in covariance)
+    minor_tolerance = 1.0e-10 * scale * scale
+    determinant_tolerance = 1.0e-10 * scale * scale * scale
+    minors = (a * e - b * b, a * i - c * c, e * i - f * f)
+    determinant = a * (e * i - f * f) - b * (b * i - c * f) + c * (b * f - c * e)
+    if any(item < -minor_tolerance for item in minors) or (
+        determinant < -determinant_tolerance
+    ):
+        raise ValueError("attitude_covariance_not_positive_semidefinite")
+    return covariance
 
 
 def _optional_int(value: object) -> int | None:
@@ -1865,5 +2133,6 @@ __all__ = [
     "PixhawkRcInputSnapshot",
     "PixhawkReadOnlyConfig",
     "PixhawkReadOnlyTelemetryProvider",
+    "mavlink_odometry_attitude_covariance_rad2",
     "resolve_pixhawk_endpoint",
 ]

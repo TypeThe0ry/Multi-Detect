@@ -1,7 +1,7 @@
 {
   "parity": {
     "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
-    "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a",
+    "px4_mission_path_hash": "16e8427a312c7b29fe3aa098c5852f52c5876bf8b2fd9d0abee8a375e89e1930",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
     "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
@@ -41,6 +41,7 @@
       "configs/schemas/release-gate-manifest.schema.json",
       "configs/schemas/runtime-profile-document.schema.json",
       "configs/schemas/runtime-profile.schema.json",
+      "scripts/capture_pixhawk_odometry_covariance.py",
       "src/multidetect/approach_live.py",
       "src/multidetect/fixed_wing_aim_control.py",
       "src/multidetect/mission_compile_cli.py",

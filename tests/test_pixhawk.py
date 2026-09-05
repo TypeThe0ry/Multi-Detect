@@ -11,6 +11,7 @@ from multidetect.pixhawk import (
     PixhawkDiscoveryError,
     PixhawkReadOnlyConfig,
     PixhawkReadOnlyTelemetryProvider,
+    mavlink_odometry_attitude_covariance_rad2,
     resolve_pixhawk_endpoint,
 )
 from multidetect.telemetry import FailClosedTelemetryProvider, with_person_detector_health
@@ -112,6 +113,52 @@ def _ingest_px4_heartbeat(
             base_mode=0,
         ),
         received_at_s=received_at_s,
+    )
+
+
+def _odometry_pose_covariance(
+    *,
+    roll_variance: float = 0.0001,
+    pitch_variance: float = 0.0004,
+    yaw_variance: float = 0.0009,
+    roll_pitch: float = 0.0,
+    roll_yaw: float = 0.0,
+    pitch_yaw: float = 0.0,
+) -> list[float]:
+    packed = [0.0] * 21
+    packed[15] = roll_variance
+    packed[16] = roll_pitch
+    packed[17] = roll_yaw
+    packed[18] = pitch_variance
+    packed[19] = pitch_yaw
+    packed[20] = yaw_variance
+    return packed
+
+
+def _odometry_message(
+    *,
+    source_system_id: int = 1,
+    source_component_id: int = 1,
+    **changes: object,
+) -> _Message:
+    values: dict[str, object] = {
+        "frame_id": 1,
+        "child_frame_id": 1,
+        "x": 1.0,
+        "y": 2.0,
+        "z": -3.0,
+        "vx": 4.0,
+        "vy": 5.0,
+        "q": [1.0, 0.0, 0.0, 0.0],
+        "pose_covariance": _odometry_pose_covariance(),
+        "reset_counter": 3,
+    }
+    values.update(changes)
+    return _Message(
+        "ODOMETRY",
+        source_system_id=source_system_id,
+        source_component_id=source_component_id,
+        **values,
     )
 
 
@@ -914,6 +961,160 @@ def test_pixhawk_rejects_odometry_in_a_non_navigation_frame() -> None:
     assert snapshot.position_healthy is None
 
 
+def test_mavlink_odometry_attitude_covariance_expands_upper_triangle() -> None:
+    covariance = mavlink_odometry_attitude_covariance_rad2(
+        _odometry_pose_covariance(
+            roll_variance=0.01,
+            pitch_variance=0.04,
+            yaw_variance=0.09,
+            roll_pitch=0.002,
+            roll_yaw=-0.003,
+            pitch_yaw=0.004,
+        )
+    )
+
+    assert covariance == pytest.approx(
+        (0.01, 0.002, -0.003, 0.002, 0.04, 0.004, -0.003, 0.004, 0.09)
+    )
+
+
+def test_mavlink_odometry_attitude_covariance_rejects_tiny_non_psd_matrix() -> None:
+    with pytest.raises(ValueError, match="attitude_covariance_not_positive_semidefinite"):
+        mavlink_odometry_attitude_covariance_rad2(
+            _odometry_pose_covariance(
+                roll_variance=1.0e-8,
+                pitch_variance=1.0e-8,
+                yaw_variance=1.0e-8,
+                roll_pitch=2.0e-8,
+            )
+        )
+
+
+def test_pixhawk_uses_source_bound_odometry_attitude_covariance() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550", stale_after_seconds=1.0)
+    )
+    _ingest_px4_heartbeat(provider, received_at_s=10.0)
+    provider.ingest_message(
+        _odometry_message(
+            q=[math.cos(math.pi / 8.0), 0.0, 0.0, math.sin(math.pi / 8.0)],
+        ),
+        received_at_s=10.1,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.2)
+
+    assert snapshot.heading_deg == pytest.approx(45.0)
+    assert snapshot.attitude_roll_sigma_deg == pytest.approx(math.degrees(0.01))
+    assert snapshot.attitude_pitch_sigma_deg == pytest.approx(math.degrees(0.02))
+    assert snapshot.attitude_heading_sigma_deg == pytest.approx(math.degrees(0.03))
+    assert snapshot.attitude_uncertainty_source == (
+        "mavlink_odometry_pose_covariance_local_ned_with_configured_floor"
+    )
+    diagnostics = provider.diagnostics(now_s=10.2)["attitude_uncertainty"]
+    assert diagnostics["accepted_count"] == 1
+    assert diagnostics["rejections"] == {}
+    assert diagnostics["reset_counter"] == 3
+    assert diagnostics["child_frame_id"] == 1
+    assert diagnostics["raw_angular_covariance_rad2"] == pytest.approx(
+        [0.0001, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.0009]
+    )
+
+
+def test_pixhawk_body_frd_odometry_velocity_is_not_mislabeled_as_ned() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550")
+    )
+    _ingest_px4_heartbeat(provider, received_at_s=10.0)
+    provider.ingest_message(
+        _Message("LOCAL_POSITION_NED", x=1.0, y=2.0, z=-3.0, vx=4.0, vy=5.0),
+        received_at_s=10.1,
+    )
+    provider.ingest_message(
+        _odometry_message(child_frame_id=12, vx=99.0, vy=-88.0),
+        received_at_s=10.2,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.2)
+
+    assert snapshot.local_north_m == pytest.approx(1.0)
+    assert snapshot.local_east_m == pytest.approx(2.0)
+    assert snapshot.velocity_north_mps == pytest.approx(4.0)
+    assert snapshot.velocity_east_mps == pytest.approx(5.0)
+    assert snapshot.attitude_uncertainty_source is not None
+    assert provider.diagnostics(now_s=10.2)["attitude_uncertainty"][
+        "child_frame_id"
+    ] == 12
+
+
+@pytest.mark.parametrize(
+    ("pose_covariance", "reason"),
+    [
+        ([float("nan"), *([0.0] * 20)], "pose_covariance_unknown"),
+        ([0.0] * 20, "pose_covariance_length_invalid"),
+        (
+            _odometry_pose_covariance(roll_variance=0.0),
+            "attitude_covariance_variance_not_positive",
+        ),
+        (
+            _odometry_pose_covariance(roll_pitch=0.01),
+            "attitude_covariance_not_positive_semidefinite",
+        ),
+    ],
+)
+def test_pixhawk_rejects_invalid_odometry_attitude_covariance_without_reusing_old_sigma(
+    pose_covariance: list[float],
+    reason: str,
+) -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550")
+    )
+    _ingest_px4_heartbeat(provider, received_at_s=10.0)
+    provider.ingest_message(_odometry_message(), received_at_s=10.1)
+    assert provider.cached_snapshot(now_s=10.1).attitude_uncertainty_source is not None
+
+    provider.ingest_message(
+        _odometry_message(pose_covariance=pose_covariance),
+        received_at_s=10.2,
+    )
+
+    snapshot = provider.cached_snapshot(now_s=10.2)
+    assert snapshot.attitude_uncertainty_source is None
+    assert math.isnan(snapshot.attitude_roll_sigma_deg)
+    diagnostics = provider.diagnostics(now_s=10.2)["attitude_uncertainty"]
+    assert diagnostics["accepted_count"] == 1
+    assert diagnostics["rejections"][reason] == 1
+
+
+def test_pixhawk_odometry_uncertainty_requires_bound_source_frames_and_pose_time() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig("udp:127.0.0.1:14550", stale_after_seconds=1.0)
+    )
+    _ingest_px4_heartbeat(provider, received_at_s=10.0)
+    provider.ingest_message(
+        _odometry_message(source_component_id=42),
+        received_at_s=10.1,
+    )
+    provider.ingest_message(
+        _odometry_message(child_frame_id=8),
+        received_at_s=10.2,
+    )
+    assert provider.cached_snapshot(now_s=10.2).attitude_uncertainty_source is None
+
+    provider.ingest_message(_odometry_message(), received_at_s=10.3)
+    assert provider.cached_snapshot(now_s=10.3).attitude_uncertainty_source is not None
+    provider.ingest_message(
+        _Message("ATTITUDE", roll=0.0, pitch=0.0, yaw=0.0),
+        received_at_s=10.6,
+    )
+    assert provider.cached_snapshot(now_s=10.6).attitude_uncertainty_source is None
+    diagnostics = provider.diagnostics(now_s=10.6)["attitude_uncertainty"]
+    assert diagnostics["rejections"] == {
+        "source_identity_mismatch": 1,
+        "unsupported_coordinate_frame": 1,
+    }
+
+
 def test_pixhawk_provider_caches_all_valid_rc_channels_for_override_detection() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(
         PixhawkReadOnlyConfig("udp:127.0.0.1:14550", expected_system_id=1)
@@ -1027,9 +1228,17 @@ def test_pixhawk_requests_dynamic_ranging_streams_after_heartbeat_with_bounded_r
     provider.snapshot(now_s=20.0)
     provider.snapshot(now_s=30.0)
 
-    assert len(connection.mav.calls) == 18
-    assert provider.messages_transmitted == 18
-    assert {int(call[4]) for call in connection.mav.calls[:6]} == {29, 30, 32, 33, 141, 242}
+    assert len(connection.mav.calls) == 21
+    assert provider.messages_transmitted == 21
+    assert {int(call[4]) for call in connection.mav.calls[:7]} == {
+        29,
+        30,
+        32,
+        33,
+        141,
+        242,
+        331,
+    }
     assert all(int(call[2]) == 511 for call in connection.mav.calls)
     diagnostics = provider.diagnostics(now_s=30.1)
     assert diagnostics["telemetry_configuration_enabled"] is True

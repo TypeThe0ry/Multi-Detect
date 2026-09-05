@@ -212,6 +212,10 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # Bind the actual receive-only Pixhawk ingress and hash-bound Mission
         # feedback observer.  Otherwise SIM/HIL/REAL could silently disagree
         # about MISSION_CURRENT freshness or MISSION_ITEM_REACHED identity.
+        # The ODOMETRY covariance observer is likewise the executable evidence
+        # boundary for source-bound estimator attitude uncertainty; binding it
+        # prevents a stale capture/verifier from blessing a changed parser.
+        "scripts/capture_pixhawk_odometry_covariance.py",
         "src/multidetect/pixhawk.py",
         "src/multidetect/px4_mission.py",
         "src/multidetect/px4_mission_feedback.py",
