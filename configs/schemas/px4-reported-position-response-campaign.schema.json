@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/px4-reported-position-response-campaign.schema.json",
+  "title": "Multi-Detect PX4 Reported-Position Response Campaign",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "product",
+    "release_label",
+    "release_identity",
+    "minimum_positive_repeats",
+    "expected_faults",
+    "source_tools",
+    "positive_runs",
+    "fault_runs",
+    "statistics",
+    "shared_checks",
+    "truth_free",
+    "hardware_acceptance",
+    "hil_acceptance",
+    "real_acceptance",
+    "gate_passed",
+    "reasons",
+    "campaign_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.px4-reported-position-response-campaign" },
+    "schema_version": { "const": 1 },
+    "product": { "const": "Multi-Detect" },
+    "release_label": { "type": "string", "pattern": "^0\\.3\\.0-pre\\.[1-9][0-9]*$" },
+    "release_identity": { "$ref": "#/$defs/releaseIdentity" },
+    "minimum_positive_repeats": { "type": "integer", "minimum": 2 },
+    "expected_faults": {
+      "const": {
+        "target_refresh_dropout": "target_refresh_not_sustained",
+        "heartbeat_dropout": "heartbeat_continuity_failed",
+        "flight_mode_loss": "flight_mode_loss_observed"
+      }
+    },
+    "source_tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptance_runner", "campaign_builder", "campaign_verifier"],
+      "properties": {
+        "acceptance_runner": { "$ref": "#/$defs/sourceIdentity" },
+        "campaign_builder": { "$ref": "#/$defs/sourceIdentity" },
+        "campaign_verifier": { "$ref": "#/$defs/sourceIdentity" }
+      }
+    },
+    "positive_runs": {
+      "type": "array",
+      "minItems": 6,
+      "items": { "$ref": "#/$defs/positiveRun" }
+    },
+    "fault_runs": {
+      "type": "array",
+      "minItems": 9,
+      "items": { "$ref": "#/$defs/faultRun" }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixed-wing", "multirotor", "vtol"],
+      "properties": {
+        "fixed-wing": { "$ref": "#/$defs/statistics" },
+        "multirotor": { "$ref": "#/$defs/statistics" },
+        "vtol": { "$ref": "#/$defs/statistics" }
+      }
+    },
+    "shared_checks": {
+      "type": "object",
+      "minProperties": 8,
+      "additionalProperties": { "const": true }
+    },
+    "truth_free": { "const": true },
+    "hardware_acceptance": { "const": "not_claimed" },
+    "hil_acceptance": { "const": "not_claimed" },
+    "real_acceptance": { "const": "not_claimed" },
+    "gate_passed": { "const": true },
+    "reasons": { "type": "array", "maxItems": 0 },
+    "campaign_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "release_label", "parity"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "release_label": { "type": "string", "minLength": 1 },
+        "parity": {
+          "type": "object",
+          "minProperties": 5,
+          "additionalProperties": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "vehicleClass": { "enum": ["fixed-wing", "multirotor", "vtol"] },
+    "positiveRun": {
+      "type": "object",
+      "required": [
+        "vehicle_class", "source_path", "source_bytes", "source_sha256",
+        "elapsed_duration_s", "position_sample_count", "maximum_horizontal_displacement_m",
+        "target_update_rate_hz", "control_path", "position_source", "validation_passed"
+      ],
+      "properties": {
+        "vehicle_class": { "$ref": "#/$defs/vehicleClass" },
+        "source_path": { "type": "string", "minLength": 1 },
+        "source_bytes": { "type": "integer", "minimum": 1 },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "elapsed_duration_s": { "type": "number", "exclusiveMinimum": 0 },
+        "position_sample_count": { "type": "integer", "minimum": 1 },
+        "maximum_horizontal_displacement_m": { "type": "number", "exclusiveMinimum": 0 },
+        "target_update_rate_hz": { "type": "number", "exclusiveMinimum": 0 },
+        "control_path": { "type": "string", "minLength": 1 },
+        "position_source": { "const": "MAVLink GLOBAL_POSITION_INT" },
+        "validation_passed": { "const": true }
+      }
+    },
+    "faultRun": {
+      "type": "object",
+      "required": [
+        "vehicle_class", "fault", "source_path", "source_bytes", "source_sha256",
+        "status", "fault_injection", "control_path", "position_source",
+        "source_gate_passed", "validation_passed", "validation_reasons"
+      ],
+      "properties": {
+        "vehicle_class": { "$ref": "#/$defs/vehicleClass" },
+        "fault": { "enum": ["target_refresh_dropout", "heartbeat_dropout", "flight_mode_loss"] },
+        "source_path": { "type": "string", "minLength": 1 },
+        "source_bytes": { "type": "integer", "minimum": 1 },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "status": { "type": "string", "minLength": 1 },
+        "fault_injection": { "type": "object" },
+        "control_path": { "type": "string", "minLength": 1 },
+        "position_source": { "const": "MAVLink GLOBAL_POSITION_INT" },
+        "source_gate_passed": { "const": false },
+        "validation_passed": { "const": true },
+        "validation_reasons": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "p50", "p95", "maximum"],
+      "properties": {
+        "minimum": { "type": "number", "minimum": 0 },
+        "p50": { "type": "number", "minimum": 0 },
+        "p95": { "type": "number", "minimum": 0 },
+        "maximum": { "type": "number", "minimum": 0 }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repeat_count", "all_positive_runs_passed", "metrics"],
+      "properties": {
+        "repeat_count": { "type": "integer", "minimum": 2 },
+        "all_positive_runs_passed": { "const": true },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_horizontal_displacement_m", "elapsed_duration_s",
+            "position_sample_count", "target_update_rate_hz"
+          ],
+          "properties": {
+            "maximum_horizontal_displacement_m": { "$ref": "#/$defs/metric" },
+            "elapsed_duration_s": { "$ref": "#/$defs/metric" },
+            "position_sample_count": { "$ref": "#/$defs/metric" },
+            "target_update_rate_hz": { "$ref": "#/$defs/metric" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -32,6 +32,9 @@
 - [x] 在 x500 disposable PX4/Gazebo 中让 truth-free synthetic target 经过共享 perception → AI →
   `MANUAL_CONTROL` 路径，观察 PX4 `GLOBAL_POSITION_INT` 最大 `0.818282 m` 位移；v55 不使用
   truth/pose injection，只关闭单机型 reported-position response 机器子门。
+- [x] 将 reported-position 响应扩展到 fixed-wing/multirotor/VTOL，各执行两次正常运行，并为每机型
+  注入 target-refresh dropout、heartbeat dropout、mode loss；v63 共 6 positive + 9 fault，负向运行
+  保持 runtime 成功后由对应安全门 fail-closed，campaign 已接入 E7。
 - [x] 对 v55 current-code 执行全仓库回归：2,907 tests 中 `2906 passed, 1 skipped, 0 failed, 0 errors`；
   唯一跳过为 Windows symlink 权限项，JUnit SHA-256 为
   `A2C2595C49D0B663468D09274D22976CC1B4D9128425BB23458445B1C5397F51`。

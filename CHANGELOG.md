@@ -5,6 +5,23 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v63 三机型 PX4 响应重复性与故障注入（2026-09-05）
+
+- Docker AI acceptance runner 新增仅限 disposable loopback PX4 SITL 的目标刷新中断、心跳消费中断和
+  PX4 模式退出注入；三种故障都记录 requested/activated/observed/fail-closed，负向运行保持 runtime
+  gate 通过并由对应飞行安全门拒绝。
+- 实际执行固定翼、多旋翼、VTOL 各两次正常位移响应与每机型三种故障，共 `6` 个 positive 和 `9` 个
+  fault 报告。正常运行全部使用 PX4 `GLOBAL_POSITION_INT`，负向覆盖 `9/9` 且全部 fail-closed。
+- 新增 campaign builder/verifier/JSON Schema，统计每机型位移、持续时间、position samples、目标更新率
+  的 minimum/P50/P95/maximum，并绑定全部源文件、scenario、工具源码与 release parity。
+- E7 writer/evaluator/schema/CLI/wrapper 新增 `px4_reported_position_response_campaign`；当前 manifest 中
+  matrix 与 campaign 均为 `present=true`、`passed=true`，总体仍为 32 个真实 blocker。
+- canonical `px4_mission_path_hash` 更新为
+  `4B5A95F3A89F35557820FD530A105B011EC0095E8E84F24701291AC29DA802DD`；matrix、campaign、external join、
+  revalidation 和 E7 均按该 parity 重建。硬件、HIL、REAL、人工视觉和实飞继续 `not_claimed`。
+- 全量回归 3,269 tests：`3268 passed, 1 skipped, 0 failed, 0 errors`；全仓 Ruff、compileall、Schema、
+  campaign/matrix 独立复验和 E7 wrapper 均通过。
+
 ### v0.3.0-pre.8 v62 三机型 PX4 reported-position 动态响应矩阵（2026-09-05）
 
 - 新增固定翼、多旋翼、VTOL 外部 PX4/Gazebo 动态响应矩阵生成器、独立验证器和 JSON Schema；

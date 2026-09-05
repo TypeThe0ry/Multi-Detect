@@ -147,6 +147,7 @@ def _probe_with_fakes(
     exercise_arm: bool = False,
     exercise_target: bool = False,
     exercise_flight_duration_s: float = 0.0,
+    inject_flight_fault: str = "none",
     minimum_flight_displacement_m: float = (
         module.DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M
     ),
@@ -167,6 +168,7 @@ def _probe_with_fakes(
         exercise_arm=exercise_arm,
         exercise_target=exercise_target,
         exercise_flight_duration_s=exercise_flight_duration_s,
+        inject_flight_fault=inject_flight_fault,
         minimum_flight_displacement_m=minimum_flight_displacement_m,
         **({} if clock is None else {"clock": clock}),
         # Keep the fixture aligned with the production default: only the PX4
@@ -520,6 +522,84 @@ def test_exercise_flight_duration_is_bounded(duration: float) -> None:
             exercise_target=True,
             exercise_flight_duration_s=duration,
         )
+
+
+def test_flight_fault_requires_flight_and_rejects_unknown_name(tmp_path: Path) -> None:
+    with pytest.raises(module.DockerAiAcceptanceError, match="exercise-flight-seconds"):
+        module.run_acceptance(
+            SCENARIO,
+            tmp_path / "fault-without-flight.json",
+            execute=True,
+            exercise_arm=True,
+            exercise_target=True,
+            inject_flight_fault="heartbeat_dropout",
+        )
+    with pytest.raises(ValueError, match="flight fault"):
+        _probe_with_fakes(
+            "udpin:127.0.0.1:24541",
+            wait_for_armed_heartbeat=True,
+            exercise_arm=True,
+            exercise_target=True,
+            exercise_flight_duration_s=2.0,
+            inject_flight_fault="unknown",
+        )
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected_status"),
+    (
+        ("target_refresh_dropout", "target_refresh_not_sustained"),
+        ("heartbeat_dropout", "heartbeat_continuity_failed"),
+        ("flight_mode_loss", "flight_mode_loss_observed"),
+    ),
+)
+def test_explicit_flight_faults_are_observed_and_fail_closed(
+    fault: str, expected_status: str
+) -> None:
+    now = [100.0]
+    probe = _probe_with_fakes(
+        "udpin:127.0.0.1:24541",
+        wait_for_armed_heartbeat=True,
+        exercise_arm=True,
+        exercise_target=True,
+        exercise_flight_duration_s=1.0,
+        inject_flight_fault=fault,
+        clock=lambda: now[0],
+    )
+    probe.bridge.enable_ai()
+    for index, message in enumerate(_messages(), start=1):
+        probe._record(message, 99.6 + index / 10.0)
+    probe.flight_started_at_s = 100.0
+    probe.flight_initial_position = dict(probe.position_samples[-1])
+    probe.flight_position_samples = [dict(probe.flight_initial_position)]
+    probe.flight_target_update_times_s = [100.0, 100.2]
+    probe.flight_target_updates = 2
+    probe.flight_mode_requested = True
+    probe.flight_mode_command_sent = True
+    probe.flight_mode_observed = True
+
+    now[0] = 100.6
+    assert probe._activate_flight_fault(now[0]) is True
+    if fault == "heartbeat_dropout":
+        probe.flight_fault_suppressed_heartbeats = 1
+        now[0] = 103.7
+    elif fault == "flight_mode_loss":
+        probe.flight_mode_loss_events = 1
+        probe.flight_mode_observed = False
+        now[0] = 101.1
+    else:
+        now[0] = 101.1
+    probe.flight_ended_at_s = now[0]
+
+    flight = probe.evidence()["flight_exercise"]
+    assert flight["gate_passed"] is False
+    assert flight["status"] == expected_status
+    assert flight["fault_injection"]["requested"] is True
+    assert flight["fault_injection"]["activated"] is True
+    assert flight["fault_injection"]["observed"] is True
+    assert flight["fault_injection"]["fail_closed"] is True
+    assert flight["fault_injection"]["scope"] == "disposable_loopback_px4_sitl_only"
+    probe.adapter.close()
 
 
 def test_joystick_preflight_is_scoped_only_to_the_flight_exercise() -> None:

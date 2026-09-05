@@ -2481,3 +2481,15 @@ VTOL `3.784929 m`。矩阵 artifact 的文件 SHA-256 为
 `artifacts/evaluation/terminal-continuation-v62/release-gate-pre.8-current-20260905T124000Z-v6-bound.json`
 和对应 `-report.json`；矩阵子门 `present=true/passed=true`，总门仍为 false、32 blockers。该运行没有
 读取 Gazebo truth、没有 pose injection、没有接触真实 Pixhawk，不能替代 HIL/REAL/实飞或人工验收。
+
+### v63 三机型响应重复性与故障注入
+
+v63 不修改 QGC 源码，因此 portable EXE 字节保持不变。桌面 Docker/PX4 对 fixed-wing、multirotor、
+VTOL 各执行第二次正常响应，并为每机型执行 target-refresh dropout、heartbeat dropout、mode loss，
+形成 6 positive + 9 fault。正常位移 P50/P95 分别为 `36.414368/38.702007 m`、
+`2.446236/3.593912 m`、`3.951534/4.101479 m`；9 个故障均在 runtime gate 通过后由对应飞行门拒绝。
+
+当前 campaign 文件 SHA-256 为
+`10091D5B56503C9FD2FEE9840D5D4D67D6431EAE6F554216197DFDC0C207395C`，内部摘要为
+`BCD78748FD9D727E0E9C91510B7F82BE6AF3BDFEEA72A0022755FC1F6643CD81`。E7 matrix/campaign 都为
+`present=true/passed=true`，总体仍为 false、32 blockers。

@@ -115,6 +115,8 @@ MSG_COMMAND_ACK = 77
 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
 PX4_CUSTOM_MAIN_MODE_POSCTL = 3
 PX4_POSCTL_CUSTOM_MODE = PX4_CUSTOM_MAIN_MODE_POSCTL << 16
+PX4_CUSTOM_MAIN_MODE_STABILIZED = 7
+PX4_STABILIZED_CUSTOM_MODE = PX4_CUSTOM_MAIN_MODE_STABILIZED << 16
 ARM_RETRY_INTERVAL_S = 1.0
 ARM_MAX_ATTEMPTS = 6
 FLIGHT_MODE_RETRY_INTERVAL_S = 1.0
@@ -125,6 +127,9 @@ DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M = 0.5
 MAX_POSITION_SAMPLES = 4096
 DEFAULT_MAXIMUM_TELEMETRY_FRAMES = 100_000
 DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S = 3.0
+FLIGHT_FAULTS = frozenset(
+    {"none", "target_refresh_dropout", "heartbeat_dropout", "flight_mode_loss"}
+)
 RELEASE_STATUS = (
     f"v{PRODUCT_VERSION.release_label}; final v{PRODUCT_VERSION.numeric} remains blocked"
 )
@@ -285,6 +290,15 @@ def _validate_minimum_flight_displacement(value: object) -> float:
             "minimum_flight_displacement_m must be a finite value in (0, 100]"
         )
     return selected
+
+
+def _validate_flight_fault(value: object) -> str:
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized not in FLIGHT_FAULTS:
+        raise DockerAiAcceptanceError(
+            f"flight fault must be one of {sorted(FLIGHT_FAULTS)!r}"
+        )
+    return normalized
 
 
 class DockerAiAcceptanceError(DockerSimulatorAcceptanceError):
@@ -525,6 +539,7 @@ class DockerAiTelemetryProbe:
         exercise_target: bool = False,
         exercise_flight_duration_s: float = 0.0,
         minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
+        inject_flight_fault: str = "none",
     ) -> None:
         # Validate both legs before constructing any connection factory.  This
         # keeps dry-run fixtures and live ``--execute`` runs under the same
@@ -555,10 +570,13 @@ class DockerAiTelemetryProbe:
             normalized_minimum_displacement = _validate_minimum_flight_displacement(
                 minimum_flight_displacement_m
             )
+            normalized_flight_fault = _validate_flight_fault(inject_flight_fault)
         except DockerAiAcceptanceError as exc:
             raise ValueError(str(exc)) from exc
         if normalized_flight_duration > 0.0 and not exercise_target:
             raise ValueError("exercise_flight_duration_s requires exercise_target")
+        if normalized_flight_fault != "none" and normalized_flight_duration <= 0.0:
+            raise ValueError("inject_flight_fault requires exercise_flight_duration_s")
         try:
             normalized_component_ids = _normalize_component_ids(px4_component_ids)
         except DockerAiAcceptanceError as exc:
@@ -601,6 +619,12 @@ class DockerAiTelemetryProbe:
         self.exercise_target = exercise_target
         self.exercise_flight_duration_s = normalized_flight_duration
         self.minimum_flight_displacement_m = normalized_minimum_displacement
+        self.inject_flight_fault = normalized_flight_fault
+        self.flight_fault_trigger_after_s = min(1.0, normalized_flight_duration / 2.0)
+        self.flight_fault_activated_at_s: float | None = None
+        self.flight_fault_mode_command_sent = False
+        self.flight_fault_mode_command_error: str | None = None
+        self.flight_fault_suppressed_heartbeats = 0
         self.frames_observed = 0
         self.messages: list[dict[str, object]] = []
         self.rejections: list[dict[str, object]] = []
@@ -999,6 +1023,78 @@ class DockerAiTelemetryProbe:
             self.flight_mode_command_error = str(exc)
         return self.flight_mode_command_sent
 
+    def _activate_flight_fault(self, stamp: float) -> bool:
+        """Activate one explicit SITL-only negative-path fault after flight starts."""
+
+        if (
+            self.inject_flight_fault == "none"
+            or self.flight_fault_activated_at_s is not None
+            or self.flight_started_at_s is None
+            or stamp - self.flight_started_at_s < self.flight_fault_trigger_after_s
+        ):
+            return False
+        self.flight_fault_activated_at_s = stamp
+        if self.inject_flight_fault != "flight_mode_loss":
+            return True
+        try:
+            connection = self._connect_control(self.control_endpoint)
+            mav = getattr(connection, "mav", None)
+            sender = getattr(mav, "set_mode_send", None)
+            if not callable(sender):
+                raise DockerAiAcceptanceError(
+                    "MAVLink control connection has no set_mode_send"
+                )
+            sender(
+                int(self.adapter.config.target_system),
+                MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                PX4_STABILIZED_CUSTOM_MODE,
+            )
+            self.flight_fault_mode_command_sent = True
+            self.flight_fault_mode_command_error = None
+        except (
+            DockerAiAcceptanceError,
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            self.flight_fault_mode_command_sent = False
+            self.flight_fault_mode_command_error = str(exc)
+        return True
+
+    def _flight_fault_evidence(self, status: str) -> dict[str, object]:
+        requested = self.inject_flight_fault != "none"
+        activated = self.flight_fault_activated_at_s is not None
+        if self.inject_flight_fault == "target_refresh_dropout":
+            observed = activated and status == "target_refresh_not_sustained"
+        elif self.inject_flight_fault == "heartbeat_dropout":
+            observed = (
+                activated
+                and self.flight_fault_suppressed_heartbeats > 0
+                and status == "heartbeat_continuity_failed"
+            )
+        elif self.inject_flight_fault == "flight_mode_loss":
+            observed = (
+                activated
+                and self.flight_fault_mode_command_sent
+                and status == "flight_mode_loss_observed"
+            )
+        else:
+            observed = False
+        return {
+            "requested": requested,
+            "name": self.inject_flight_fault,
+            "trigger_after_s": self.flight_fault_trigger_after_s,
+            "activated": activated,
+            "activated_at_s": self.flight_fault_activated_at_s,
+            "observed": observed,
+            "fail_closed": bool(requested and observed),
+            "suppressed_heartbeats": self.flight_fault_suppressed_heartbeats,
+            "mode_command_sent": self.flight_fault_mode_command_sent,
+            "mode_command_error": self.flight_fault_mode_command_error,
+            "scope": "disposable_loopback_px4_sitl_only",
+        }
+
     def _arm_evidence(self) -> dict[str, object]:
         return {
             "enabled": self.exercise_arm,
@@ -1087,6 +1183,21 @@ class DockerAiTelemetryProbe:
         kind = _message_type(message)
         if kind.upper() == "COMMAND_ACK":
             self._record_command_ack(message, stamp)
+            return
+        if (
+            kind == "HEARTBEAT"
+            and self.inject_flight_fault == "heartbeat_dropout"
+            and self.flight_fault_activated_at_s is not None
+        ):
+            self.flight_fault_suppressed_heartbeats += 1
+            self.messages.append(
+                {
+                    "type": kind,
+                    "observed_at_s": stamp,
+                    "fault_injected": "heartbeat_dropout",
+                    "suppressed_before_bridge": True,
+                }
+            )
             return
         before = int(self.bridge.evidence().get("frames_rejected", 0))
         decision = self.bridge.ingest(message, stamp)
@@ -1475,10 +1586,15 @@ class DockerAiTelemetryProbe:
             status = "passed"
         elif started is None:
             status = "target_stream_not_started"
-        elif not self.flight_mode_observed:
-            status = "flight_mode_not_observed"
         elif self.flight_mode_loss_events > 0:
             status = "flight_mode_loss_observed"
+        elif not self.flight_mode_observed:
+            status = "flight_mode_not_observed"
+        elif (
+            self.inject_flight_fault == "heartbeat_dropout"
+            and not heartbeat_continuity_gate
+        ):
+            status = "heartbeat_continuity_failed"
         elif not refresh_gate:
             status = "target_refresh_not_sustained"
         elif not heartbeat_continuity_gate:
@@ -1544,6 +1660,7 @@ class DockerAiTelemetryProbe:
             "hil_acceptance": "not_claimed",
             "real_flight_acceptance": "not_claimed",
         }
+        result["fault_injection"] = self._flight_fault_evidence(status)
         if include_samples:
             result["heartbeat_samples"] = heartbeat_rows
             result["position_samples"] = samples
@@ -1643,6 +1760,7 @@ class DockerAiTelemetryProbe:
             while self.clock() < deadline and self.frames_observed < self.maximum_frames:
                 self.poll_iterations += 1
                 now = self.clock()
+                self._activate_flight_fault(now)
                 if now >= next_heartbeat:
                     self._send_heartbeat(telemetry)
                     next_heartbeat = now + 0.5
@@ -1701,6 +1819,10 @@ class DockerAiTelemetryProbe:
                         self.exercise_flight_duration_s > 0.0
                         or not self.target_observation_sent
                     )
+                    and not (
+                        self.inject_flight_fault == "target_refresh_dropout"
+                        and self.flight_fault_activated_at_s is not None
+                    )
                 ):
                     self._exercise_target_observation()
                 bridge_data = self.bridge.evidence()
@@ -1716,6 +1838,15 @@ class DockerAiTelemetryProbe:
                     now_s=self.clock(), include_samples=False
                 )
                 flight_ready = bool(flight_data.get("gate_passed"))
+                fault_data = flight_data.get("fault_injection")
+                if (
+                    isinstance(fault_data, Mapping)
+                    and fault_data.get("requested") is True
+                    and fault_data.get("observed") is True
+                    and flight_ready is False
+                ):
+                    self.observe_exit_reason = "injected_fault_observed"
+                    break
                 if (
                     self._qualified()
                     and int(bridge_data.get("ai_steps", 0)) >= self.minimum_ai_steps
@@ -2119,6 +2250,7 @@ def _empty_ai_evidence(
     minimum_gps_fix_type: int = 3,
     exercise_flight_duration_s: float = 0.0,
     minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
+    inject_flight_fault: str = "none",
 ) -> dict[str, object]:
     normalized_component_ids = _normalize_component_ids(px4_component_ids)
     normalized_flight_duration = _validate_exercise_flight_duration(
@@ -2127,6 +2259,7 @@ def _empty_ai_evidence(
     normalized_minimum_displacement = _validate_minimum_flight_displacement(
         minimum_flight_displacement_m
     )
+    normalized_flight_fault = _validate_flight_fault(inject_flight_fault)
     return {
         "schema_version": 1,
         "event": "simulator_live_ai_telemetry_bridge",
@@ -2221,6 +2354,19 @@ def _empty_ai_evidence(
             "hardware_acceptance": "not_claimed",
             "hil_acceptance": "not_claimed",
             "real_flight_acceptance": "not_claimed",
+            "fault_injection": {
+                "requested": normalized_flight_fault != "none",
+                "name": normalized_flight_fault,
+                "trigger_after_s": min(1.0, normalized_flight_duration / 2.0),
+                "activated": False,
+                "activated_at_s": None,
+                "observed": False,
+                "fail_closed": False,
+                "suppressed_heartbeats": 0,
+                "mode_command_sent": False,
+                "mode_command_error": None,
+                "scope": "disposable_loopback_px4_sitl_only",
+            },
         },
         "target_exercise": {
             "requested": False,
@@ -2482,6 +2628,7 @@ def run_acceptance(
     exercise_target: bool = False,
     exercise_flight_duration_s: float = 0.0,
     minimum_flight_displacement_m: float = DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M,
+    inject_flight_fault: str = "none",
     runner: Callable[..., object] | None = None,
     telemetry_probe_factory: Callable[[str], DockerAiTelemetryProbe] | None = None,
 ) -> dict[str, object]:
@@ -2503,9 +2650,14 @@ def run_acceptance(
     normalized_minimum_displacement = _validate_minimum_flight_displacement(
         minimum_flight_displacement_m
     )
+    normalized_flight_fault = _validate_flight_fault(inject_flight_fault)
     if normalized_flight_duration > 0.0 and not exercise_target:
         raise DockerAiAcceptanceError(
             "exercise_flight_duration_s requires --exercise-target"
+        )
+    if normalized_flight_fault != "none" and normalized_flight_duration <= 0.0:
+        raise DockerAiAcceptanceError(
+            "inject_flight_fault requires --exercise-flight-seconds"
         )
     try:
         normalized_component_ids = _normalize_component_ids(px4_component_ids)
@@ -2561,6 +2713,7 @@ def run_acceptance(
                     exercise_target=exercise_target,
                     exercise_flight_duration_s=normalized_flight_duration,
                     minimum_flight_displacement_m=normalized_minimum_displacement,
+                    inject_flight_fault=normalized_flight_fault,
                 )
             )
             # Keep custom test/production factories inside the same boundary:
@@ -2616,6 +2769,11 @@ def run_acceptance(
                     "telemetry probe flight displacement threshold does not match "
                     "acceptance config"
                 )
+            probe_flight_fault = getattr(probe, "inject_flight_fault", "none")
+            if str(probe_flight_fault) != normalized_flight_fault:
+                raise DockerAiAcceptanceError(
+                    "telemetry probe flight fault does not match acceptance config"
+                )
             probes.append(probe)
             if exercise_arm and arm_preflight_result is not None:
                 probe.arm_preflight = dict(arm_preflight_result)
@@ -2652,6 +2810,7 @@ def run_acceptance(
                 minimum_gps_fix_type=normalized_minimum_fix,
                 exercise_flight_duration_s=normalized_flight_duration,
                 minimum_flight_displacement_m=normalized_minimum_displacement,
+                inject_flight_fault=normalized_flight_fault,
             )
         runtime = payload.get("container_runtime")
         if isinstance(runtime, Mapping) and arm_preflight_result is not None:
@@ -2774,6 +2933,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--inject-flight-fault",
+        choices=sorted(FLIGHT_FAULTS - {"none"}),
+        default="none",
+        help=(
+            "explicit disposable SITL-only negative-path fault; the acceptance "
+            "gate must reject the run after observing the selected fault"
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         "--timeout-seconds",
         dest="timeout_s",
@@ -2806,6 +2974,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exercise_target=args.exercise_target,
             exercise_flight_duration_s=args.exercise_flight_duration_s,
             minimum_flight_displacement_m=args.minimum_flight_displacement_m,
+            inject_flight_fault=args.inject_flight_fault,
         )
     except (
         DockerAiAcceptanceError,

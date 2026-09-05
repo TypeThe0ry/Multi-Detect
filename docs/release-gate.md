@@ -1,5 +1,14 @@
 # v0.3.0 E7 发布门
 
+## v63 PX4 response repeatability/fault campaign（2026-09-05，`v0.3.0-pre.8`）
+
+E7 新增 hash-bound `px4_reported_position_response_campaign`：要求 fixed-wing、multirotor、VTOL 各两次
+互不相同的正常 `GLOBAL_POSITION_INT` 响应，并要求每机型覆盖 target-refresh dropout、heartbeat
+dropout、mode loss。当前 6 positive + 9 fault 全部通过 campaign verifier；负向运行的 Docker/PX4
+runtime gate 均通过，对应飞行门全部 fail-closed。manifest/report 位于
+`artifacts/evaluation/terminal-continuation-v63/release-gate-pre.8-current-20260905T133000Z-v6-bound*.json`。
+该子门不改变 HIL/REAL、硬件、人工视觉、实飞和 prerelease 阻塞，总 blocker 仍为 32。
+
 ## v59 多工况目标定位矩阵子门（2026-09-05，`v0.3.0-pre.8`）
 
 v58 新增、v59 关闭 software/SIM 工况覆盖门，但它尚未接入为可减少 E7 blocker 的通过输入。矩阵逐份

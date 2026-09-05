@@ -476,6 +476,26 @@ _PX4_REPORTED_POSITION_RESPONSE_MATRIX_KEYS = frozenset(
         "checks",
     }
 )
+_PX4_REPORTED_POSITION_RESPONSE_CAMPAIGN_KEYS = frozenset(
+    {
+        "evidence_path",
+        "evidence_sha256",
+        "evidence_bytes",
+        "schema",
+        "schema_version",
+        "release_label",
+        "gate_passed",
+        "campaign_sha256",
+        "positive_run_count",
+        "fault_run_count",
+        "vehicle_classes",
+        "truth_free",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "checks",
+    }
+)
 _SIMULATOR_3D_CONTROL_KEYS = frozenset(
     {
         "schema_version",
@@ -557,6 +577,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "simulator_external_evidence",
         "px4_airframe_transaction",
         "px4_reported_position_response_matrix",
+        "px4_reported_position_response_campaign",
         "px4_mission_feedback",
         "simulator_3d_control",
         "simulator_scene_stream_set",
@@ -4127,6 +4148,115 @@ def _px4_reported_position_response_matrix_result(
     return result
 
 
+def _px4_reported_position_response_campaign_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+    expected_release_label: str | None,
+) -> dict[str, Any]:
+    """Re-hash and reproduce PX4 response repeats and injected faults."""
+
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": [],
+        "evidence": None,
+        "verification": None,
+    }
+    reasons: list[str] = result["reasons"]
+    if raw_record is None:
+        reasons.append("px4_reported_position_response_campaign record is absent")
+        return result
+    if not isinstance(raw_record, Mapping):
+        reasons.append("px4_reported_position_response_campaign must be an object")
+        return result
+    unknown = sorted(
+        set(raw_record).difference(_PX4_REPORTED_POSITION_RESPONSE_CAMPAIGN_KEYS)
+    )
+    if unknown:
+        reasons.append(
+            f"unknown px4_reported_position_response_campaign field(s): {unknown!r}"
+        )
+    path_value = raw_record.get("evidence_path")
+    evidence_path: Path | None = None
+    if not isinstance(path_value, str) or not path_value.strip():
+        reasons.append("px4 response campaign evidence_path is missing or empty")
+    else:
+        evidence_path = Path(path_value)
+        if not evidence_path.is_absolute():
+            evidence_path = manifest_directory / evidence_path
+        evidence_path = evidence_path.resolve()
+    expected_sha = raw_record.get("evidence_sha256")
+    expected_bytes = raw_record.get("evidence_bytes")
+    if not _is_sha256(expected_sha):
+        reasons.append("px4 response campaign evidence_sha256 is invalid")
+    if type(expected_bytes) is not int or expected_bytes < 1:
+        reasons.append("px4 response campaign evidence_bytes must be positive")
+    expected_values = {
+        "schema": "multidetect.px4-reported-position-response-campaign",
+        "schema_version": 1,
+        "gate_passed": True,
+        "truth_free": True,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "positive_run_count": 6,
+        "fault_run_count": 9,
+        "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
+    }
+    for field, expected in expected_values.items():
+        if raw_record.get(field) != expected:
+            reasons.append(f"px4 response campaign {field} must be {expected!r}")
+    if (
+        expected_release_label is not None
+        and raw_record.get("release_label") != expected_release_label
+    ):
+        reasons.append("px4 response campaign release_label does not match product")
+    if not _is_sha256(raw_record.get("campaign_sha256")):
+        reasons.append("px4 response campaign campaign_sha256 is invalid")
+    checks = raw_record.get("checks")
+    if not isinstance(checks, Mapping) or any(value is not True for value in checks.values()):
+        reasons.append("px4 response campaign checks must all be true")
+    if evidence_path is None or not evidence_path.is_file():
+        reasons.append("px4 response campaign evidence file does not exist")
+        return result
+    actual_sha = _sha256(evidence_path)
+    actual_bytes = evidence_path.stat().st_size
+    result["evidence"] = {
+        "path": str(evidence_path),
+        "sha256": actual_sha,
+        "bytes": actual_bytes,
+    }
+    if _is_sha256(expected_sha) and actual_sha.lower() != str(expected_sha).lower():
+        reasons.append("px4 response campaign evidence SHA-256 mismatch")
+    if type(expected_bytes) is int and actual_bytes != expected_bytes:
+        reasons.append("px4 response campaign evidence byte count mismatch")
+    try:
+        from scripts.verify_px4_reported_position_response_campaign import verify_file
+
+        verification = verify_file(evidence_path)
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        reasons.append(f"px4 response campaign verifier failed: {exc}")
+        verification = None
+    if verification is not None:
+        result["verification"] = verification
+        if verification.get("gate_passed") is not True:
+            reasons.extend(
+                f"px4_reported_position_response_campaign: {reason}"
+                for reason in verification.get("reasons", [])
+                if isinstance(reason, str) and reason
+            )
+        if verification.get("campaign_sha256") != raw_record.get("campaign_sha256"):
+            reasons.append("px4 response campaign digest does not match verifier")
+        verified_checks = verification.get("checks")
+        if not isinstance(verified_checks, Mapping) or dict(verified_checks) != dict(
+            checks if isinstance(checks, Mapping) else {}
+        ):
+            reasons.append("px4 response campaign checks do not match verifier")
+    result["passed"] = not reasons
+    return result
+
+
 def _px4_airframe_transaction_result(
     raw_record: object,
     *,
@@ -4791,6 +4921,22 @@ def evaluate_release_gate(
             for reason in px4_response_matrix_result["reasons"]
         )
 
+    raw_px4_response_campaign = manifest.get(
+        "px4_reported_position_response_campaign"
+    )
+    px4_response_campaign_result = _px4_reported_position_response_campaign_result(
+        raw_px4_response_campaign,
+        manifest_directory=path.parent,
+        expected_release_label=(
+            version.release_label if version is not None else manifest.get("release_label")
+        ),
+    )
+    if raw_px4_response_campaign is not None and not px4_response_campaign_result["passed"]:
+        top_reasons.extend(
+            f"px4_reported_position_response_campaign: {reason}"
+            for reason in px4_response_campaign_result["reasons"]
+        )
+
     raw_simulator_scene_stream_set = manifest.get("simulator_scene_stream_set")
     simulator_scene_stream_set_result = _simulator_scene_stream_set_result(
         raw_simulator_scene_stream_set,
@@ -5167,6 +5313,16 @@ def evaluate_release_gate(
                     f"px4_reported_position_response_matrix: {reason}"
                     for reason in px4_response_matrix_result["reasons"]
                 )
+            if not px4_response_campaign_result["present"]:
+                release_reasons.append(
+                    "final release requires a hash-bound three-airframe PX4 "
+                    "response repeatability and fault campaign"
+                )
+            elif not px4_response_campaign_result["passed"]:
+                release_reasons.extend(
+                    f"px4_reported_position_response_campaign: {reason}"
+                    for reason in px4_response_campaign_result["reasons"]
+                )
             if not simulator_combined_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound combined SIM dynamic-port evidence"
@@ -5269,6 +5425,8 @@ def evaluate_release_gate(
         "simulator_scenario_matrix_required_for_release": True,
         "px4_reported_position_response_matrix": px4_response_matrix_result,
         "px4_reported_position_response_matrix_required_for_release": True,
+        "px4_reported_position_response_campaign": px4_response_campaign_result,
+        "px4_reported_position_response_campaign_required_for_release": True,
         "simulator_combined": simulator_combined_result,
         "simulator_combined_required_for_release": True,
         "simulator_external_evidence": simulator_external_result,

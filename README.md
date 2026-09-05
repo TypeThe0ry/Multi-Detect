@@ -172,6 +172,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 重放。该矩阵现已作为 `px4_reported_position_response_matrix` 接入 E7；它只关闭外部 SIM 动态响应
 子门，硬件、HIL、REAL、人工视觉和实飞仍为 `not_claimed`。
 
+### v63 三机型响应重复性与故障注入
+
+`run_simulator_docker_ai_acceptance.py` 新增三个显式、仅 disposable loopback PX4 SITL 可用的负向
+故障：`target_refresh_dropout`、`heartbeat_dropout` 和 `flight_mode_loss`。每种故障都要求容器/PX4
+runtime 正常启动后由对应飞行安全门拒绝，不能靠启动失败制造假阴性。
+
+`run_px4_reported_position_response_campaign.py` 要求固定翼、多旋翼和 VTOL 各至少两次互不相同的
+正常响应，并要求每机型覆盖全部三种故障；它输出位移、持续时间、position sample 和目标更新率的
+minimum/P50/P95/maximum。独立 verifier 会重开全部 15 份源报告并复算结果。当前 campaign 已作为
+`px4_reported_position_response_campaign` 接入 E7；SIM 子门通过不改变硬件、HIL、REAL 或实飞声明。
+
 ### MultiDetectGCS
 
 QGC 源码位于 `ground-control/MultiDetectGCS/`。Windows 构建和 portable 部署见

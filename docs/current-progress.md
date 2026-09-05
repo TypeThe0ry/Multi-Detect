@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v62 工作树）
+最后更新：2026-09-05（v63 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `44e411edfdf88899fcab61d92bba1a0de5c66f20`（当前工作树变更前领先远端 5 个提交）。
+本地 `main` 提交 `508bf3c78382e4199d3d5f8d203b30b913d361c7`（当前工作树变更前领先远端 6 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -19,11 +19,32 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 原生 QGC。v61 在同一 HIL 进程内持续刷新 type 10/22，按 exact PID/HWND 采集无外部遮挡的目标地图
 与证据卡片机器截图，并把证据与当前五组 release parity 严格绑定。v62 又让固定翼、多旋翼和 VTOL
 通过同一 AI/MAVLink 路径驱动 disposable PX4/Gazebo，以 `GLOBAL_POSITION_INT` 证明实际位移，并将
-可重放的三机型矩阵正式接入 E7；人工视觉签字和现场证据仍未完成。
+可重放的三机型矩阵正式接入 E7。v63 又完成每机型两次正常响应与三种显式故障，共 15 份外部
+PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7；人工视觉签字和现场证据仍未完成。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v63 本轮已收口
+
+- 固定翼、多旋翼、VTOL 各完成 2 次正常 reported-position 响应；位移 P50/P95 分别为
+  `36.414368/38.702007 m`、`2.446236/3.593912 m`、`3.951534/4.101479 m`。
+- 三机型分别执行 `target_refresh_dropout`、`heartbeat_dropout`、`flight_mode_loss`，共 9 次真实
+  Docker/PX4 负向运行；每次 runtime gate 保持通过，对应状态分别为
+  `target_refresh_not_sustained`、`heartbeat_continuity_failed`、`flight_mode_loss_observed`，全部
+  `fail_closed=true`。
+- 新增 campaign builder/verifier/schema，重开 6 份 positive 与 9 份 fault 源报告并复算 P50/P95、
+  源哈希和 campaign digest。当前 campaign SHA-256 为
+  `BCD78748FD9D727E0E9C91510B7F82BE6AF3BDFEEA72A0022755FC1F6643CD81`。
+- E7 新增 `px4_reported_position_response_campaign`；当前 matrix/campaign 均
+  `present=true`、`passed=true`，总体仍有 32 个真实 blocker。
+- canonical release parity 文件 SHA-256 为
+  `E329C0BCFDC9673044D5E44D328B955B00902A97C6FCD545878EB31BDDF0B7FE`，
+  `px4_mission_path_hash=4B5A95F3A89F35557820FD530A105B011EC0095E8E84F24701291AC29DA802DD`。
+- 全量回归 3,269 tests：`3268 passed, 1 skipped, 0 failed, 0 errors`；JUnit 475,433 bytes、
+  SHA-256 `66B5910ED572B909D8533A09E683AB434DC70798BF62EFB3B80246A82686C199`；全仓 Ruff、compileall、
+  campaign/matrix 独立复验和 JSON Schema 校验均通过。
 
 ## v62 本轮已收口
 
@@ -240,10 +261,11 @@ v61 已将 high-slope evidence 的坐标、1σ、类别、距离和方位经签�
 MultiDetectGCS，并完成 exact PID/HWND 动态地图/证据卡片机器采集。下一步由人工检查同一证据画面并
 签字，再经 schema/manifest 评审接入 E7；负向样本必须继续 0 假点。
 
-### P1：三机型动态对等
+### P1：三机型动态对等（机器子门已完成）
 
-为 fixed-wing 和 VTOL 生成与 x500 等价的持续目标刷新、authority/watchdog、PX4 reported-position
-response 证据，不通过 simulator-only teleport 或独立控制器取巧。
+fixed-wing、multirotor、VTOL 已完成同一持续目标刷新、authority/watchdog、MANUAL_CONTROL 与 PX4
+reported-position 路径；v63 又完成每机型双重复与三故障 fail-closed。剩余工作属于人工、硬件和实飞门，
+不能用 SIM campaign 替代。
 
 ### P2：部署域模型和 replay-set
 

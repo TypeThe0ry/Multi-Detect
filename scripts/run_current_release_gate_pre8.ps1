@@ -51,12 +51,14 @@ param(
     # source records against the current release-parity file. The prior v52
     # summary now fails source recomputation because it records an older parity
     # file hash, so it remains historical evidence only.
-    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v62\simulator-external-runtime-ai-join-v62b-current-parity-pre8.json',
-    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v62\simulator-external-runtime-ai-revalidation-v62b-current-parity-pre8.json',
+    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v63\simulator-external-runtime-ai-join-v63-current-parity-pre8.json',
+    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v63\simulator-external-runtime-ai-revalidation-v63-current-parity-pre8.json',
     [string]$Px4AirframeTransactionEvidence = 'artifacts\evaluation\px4-airframe-mission-transaction-acceptance-latest.json',
     # External Docker/Gazebo response from fixed-wing, multirotor and VTOL,
     # measured exclusively from PX4 GLOBAL_POSITION_INT and bound to source.
-    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v62\px4-reported-position-response-matrix-v62-pre8-v2.json',
+    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v63\px4-reported-position-response-matrix-v63-pre8.json',
+    # Two positive runs and three explicit fail-closed faults for each airframe.
+    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v63\px4-reported-position-response-campaign-v63-pre8.json',
     # Optional HIL/REAL Mission feedback matrix. Each array item is
     # MODE|VEHICLE|MISSION_JSON|SIGNED_RUNTIME_PROFILE_JSON|REPORT_JSON.
     # Windows paths cannot contain '|',
@@ -244,6 +246,7 @@ $inputMap = [ordered]@{
     '--simulator-external-evidence-revalidation' = (Assert-InputFile -Requested $SimulatorExternalEvidenceRevalidation)
     '--px4-airframe-transaction-evidence' = (Assert-InputFile -Requested $Px4AirframeTransactionEvidence)
     '--px4-reported-position-response-matrix-evidence' = (Assert-InputFile -Requested $Px4ReportedPositionResponseMatrixEvidence)
+    '--px4-reported-position-response-campaign-evidence' = (Assert-InputFile -Requested $Px4ReportedPositionResponseCampaignEvidence)
 }
 $optionalInputMap = [ordered]@{
     '--field-evidence-bundle' = $FieldEvidenceBundle

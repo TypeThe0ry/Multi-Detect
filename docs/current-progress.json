@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T12:40:00Z",
+  "updated_at_utc": "2026-09-05T13:30:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "44e411edfdf88899fcab61d92bba1a0de5c66f20",
-    "commit_subject": "feat(qgc): capture live geolocation card on exact native process",
-    "commits_ahead_of_origin_main": 5
+    "commit": "508bf3c78382e4199d3d5f8d203b30b913d361c7",
+    "commit_subject": "feat(sim): gate three-airframe PX4 reported motion",
+    "commits_ahead_of_origin_main": 6
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v62",
+  "working_iteration": "v63",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v62-final-v2.xml",
-      "tests": 3261,
-      "passed": 3260,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v63-final.xml",
+      "tests": 3269,
+      "passed": 3268,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 144.437,
-      "junit_local_path": "tmp/current-progress-regression-v62-final-v2.xml",
-      "junit_file_bytes": 474112,
-      "junit_file_sha256": "746e1897e4e59bec2caf2baca16592470c1fd224633815f704dae62dc824341b",
+      "duration_seconds": 158.186,
+      "junit_local_path": "tmp/current-progress-regression-v63-final.xml",
+      "junit_file_bytes": 475433,
+      "junit_file_sha256": "66b5910ed572b909d8533a09e683ab434dc70798bf62efb3b80246a82686c199",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5146,
-    "file_sha256": "8c93e918a19f7abf30a81c2620015685b24c899ecfe96256f4617a01e3f4c51b",
+    "file_sha256": "e329c0bcfdc9673044d5e44d328b955b00902a97c6fcd545878eb31bddf0b7fe",
     "hashes": {
       "ui_contract_hash": "f20ca6c5fce0de613a38f58080e98ccb1bdf29c3425878c57ff9b9ec62084942",
       "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
       "task_contract_hash": "2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "b79c941af889bab50b2f42e674ec6662921233926e1c9271a65ceb9fc2702e55"
+      "px4_mission_path_hash": "4b5a95f3a89f35557820fd530a105b011ec0095e8e84f24701291ac29da802dd"
     }
   },
   "evidence": {
@@ -220,32 +220,44 @@
       }
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v62/px4-reported-position-response-matrix-v62-pre8-v2.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v63/px4-reported-position-response-matrix-v63-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "6858131cac4ff1090ff7d7936d68d841634c6f22ea450b28d7ac9a9f014a605a",
-      "matrix_sha256": "7124f746870f8cc2adcf7a78a385ebe8190320cbab67d972d437caac902c00ca",
+      "file_sha256": "2cb7b3dc051f199ac793590a4e2ba1bb53f173b8100f760db976b640e622bd5c",
+      "matrix_sha256": "e5c186062a2b6bcc5880e1f26b0331c7242fcd425327b5ad434247ae770f4b26",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
-        "fixed-wing": 33.872547,
-        "multirotor": 1.171039,
-        "vtol": 3.784929
+        "fixed-wing": 38.956189,
+        "multirotor": 3.721432,
+        "vtol": 4.118139
       },
       "position_source": "MAVLink GLOBAL_POSITION_INT",
       "truth_free": true,
       "hardware_acceptance": "not_claimed"
     },
-    "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v62/simulator-external-runtime-ai-join-v62b-current-parity-pre8.json",
+    "px4_reported_position_response_campaign": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v63/px4-reported-position-response-campaign-v63-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "8381c5354852b6aa17753578fd52261b35f40a9c97434b99edeb9468b8cb3a04",
+      "file_sha256": "10091d5b56503c9fd2fee9840d5d4d67d6431eae6f554216197dfdc0c207395c",
+      "campaign_sha256": "bcd78748fd9d727e0e9c91510b7f82be6af3bdfeea72a0022755fc1f6643cd81",
+      "gate_passed": true,
+      "positive_run_count": 6,
+      "fault_run_count": 9,
+      "fault_coverage": "3/3 faults x 3/3 airframes",
+      "truth_free": true,
+      "hardware_acceptance": "not_claimed"
+    },
+    "external_three_airframe_rebind": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v63/simulator-external-runtime-ai-join-v63-current-parity-pre8.json",
+      "distributed_in_git": false,
+      "file_sha256": "a02e5d478fdf19193cbd03e1f20312e5fb8fb528f94846865bcaacdd1c3223c8",
       "gate_passed": true,
       "new_external_runtime_claimed": false
     },
     "release_gate_report": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v62/release-gate-pre.8-current-20260905T124000Z-v6-bound-report.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v63/release-gate-pre.8-current-20260905T133000Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "eb6bf290b813031a4e102c8147709a1753f1dee4198a83e5425753f0e7430074",
+      "file_sha256": "f94b61d850f91bc451d658400c681bd92873c24dfcda3170212f090c3df7ac01",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32
@@ -263,6 +275,7 @@
     "qgc_geolocation_signed_transport_native_adoption_subgate": "passed",
     "qgc_geolocation_exact_pid_hwnd_machine_capture_subgate": "passed",
     "px4_reported_position_response_three_airframe_subgate": "passed",
+    "px4_reported_position_response_repeatability_fault_subgate": "passed",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
@@ -273,7 +286,6 @@
   "next_priorities": [
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "native_qgc_geolocation_evidence_card_human_visual_signature_and_e7_binding",
-    "px4_reported_position_response_fault_and_repeatability_campaign",
     "deployment_domain_model_and_replay_set_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",
     "outdoor_gnss_rtk_and_measured_camera_extrinsics_survey",

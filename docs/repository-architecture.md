@@ -1,5 +1,14 @@
 # 统一仓库架构
 
+## v63 PX4 响应 campaign（2026-09-05，`v0.3.0-pre.8`）
+
+| 组件 | 职责 | 声明边界 |
+|---|---|---|
+| `run_simulator_docker_ai_acceptance.py` | 在正常 reported-position gate 之外提供 target-refresh、heartbeat、mode-loss 三个显式 SITL 故障注入点 | 仅允许 disposable loopback PX4/Gazebo；故障必须在 runtime 成功后被安全门观察并 fail-closed |
+| `run_px4_reported_position_response_campaign.py` | 聚合三机型各 2 个 positive 与 3 个 fault，计算 minimum/P50/P95/maximum 并绑定 15 份源证据 | 重复源哈希、缺机型、缺故障、错误状态或硬件声明均关闭 campaign |
+| `verify_px4_reported_position_response_campaign.py` | 重开所有源报告、scenario、parity 与工具源码，重算统计和 campaign SHA-256 | 不信任汇总文件中的通过状态；源文件漂移即失败 |
+| E7 manifest/evaluator/schema | 绑定 `px4_reported_position_response_campaign` 的文件哈希、摘要、6/9 计数、三机型和 verifier checks | 只关闭 SIM 机器重复性/负向子门，不提升人工、HIL、REAL、硬件或实飞声明 |
+
 ## v62 三机型 PX4 reported-position 响应证据（2026-09-05，`v0.3.0-pre.8`）
 
 | 组件 | 职责 | 声明边界 |
