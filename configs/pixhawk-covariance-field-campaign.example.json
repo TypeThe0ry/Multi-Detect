@@ -1,0 +1,67 @@
+{
+  "schema": "multidetect.pixhawk-covariance-field-campaign/v1",
+  "schema_version": 1,
+  "release_label": "0.3.0-pre.8",
+  "entries": [
+    {
+      "runtime_mode": "hil",
+      "vehicle_class": "fixed-wing",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/hil/fixed-wing/mission.json",
+      "mission_feedback_path": "../field-inputs/hil/fixed-wing/feedback.json",
+      "runtime_profile_path": "../field-inputs/hil/fixed-wing/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/hil-fixed-wing.json"
+    },
+    {
+      "runtime_mode": "hil",
+      "vehicle_class": "multirotor",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/hil/multirotor/mission.json",
+      "mission_feedback_path": "../field-inputs/hil/multirotor/feedback.json",
+      "runtime_profile_path": "../field-inputs/hil/multirotor/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/hil-multirotor.json"
+    },
+    {
+      "runtime_mode": "hil",
+      "vehicle_class": "vtol",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/hil/vtol/mission.json",
+      "mission_feedback_path": "../field-inputs/hil/vtol/feedback.json",
+      "runtime_profile_path": "../field-inputs/hil/vtol/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/hil-vtol.json"
+    },
+    {
+      "runtime_mode": "real",
+      "vehicle_class": "fixed-wing",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/real/fixed-wing/mission.json",
+      "mission_feedback_path": "../field-inputs/real/fixed-wing/feedback.json",
+      "runtime_profile_path": "../field-inputs/real/fixed-wing/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/real-fixed-wing.json"
+    },
+    {
+      "runtime_mode": "real",
+      "vehicle_class": "multirotor",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/real/multirotor/mission.json",
+      "mission_feedback_path": "../field-inputs/real/multirotor/feedback.json",
+      "runtime_profile_path": "../field-inputs/real/multirotor/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/real-multirotor.json"
+    },
+    {
+      "runtime_mode": "real",
+      "vehicle_class": "vtol",
+      "endpoint": "serial:COM3",
+      "baud": 57600,
+      "mission_path": "../field-inputs/real/vtol/mission.json",
+      "mission_feedback_path": "../field-inputs/real/vtol/feedback.json",
+      "runtime_profile_path": "../field-inputs/real/vtol/runtime-profile.json",
+      "report_path": "../artifacts/evaluation/field-covariance/real-vtol.json"
+    }
+  ]
+}

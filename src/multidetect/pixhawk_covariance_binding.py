@@ -260,6 +260,27 @@ def _record(
     }
 
 
+def verify_pixhawk_covariance_leaf(
+    runtime_mode: str,
+    vehicle_class: str,
+    report_path: str | Path,
+    *,
+    manifest_directory: str | Path,
+) -> dict[str, object]:
+    """Re-open one field leaf and return its source-derived compact record."""
+
+    mode = runtime_mode.strip().lower()
+    vehicle = vehicle_class.strip().lower()
+    if (mode, vehicle) not in REQUIRED_COMBINATIONS:
+        raise PixhawkCovarianceBindingError(f"unknown covariance leaf {mode}/{vehicle}")
+    return _record(
+        mode,
+        vehicle,
+        _resolve(report_path, f"{mode}/{vehicle} covariance report"),
+        manifest_directory=Path(manifest_directory).resolve(),
+    )
+
+
 def _normalise(raw: object, index: int) -> tuple[str, str, object]:
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)) or len(raw) != 3:
         raise PixhawkCovarianceBindingError(f"binding {index} must be (MODE, VEHICLE, REPORT)")
@@ -427,5 +448,6 @@ __all__ = [
     "PixhawkCovarianceBindingError",
     "REQUIRED_COMBINATIONS",
     "build_pixhawk_covariance_binding",
+    "verify_pixhawk_covariance_leaf",
     "verify_pixhawk_covariance_binding",
 ]

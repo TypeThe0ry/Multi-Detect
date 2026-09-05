@@ -186,6 +186,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
     ),
     "px4_mission_path": (
         "configs/schemas/pixhawk-odometry-covariance-observation.schema.json",
+        "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
         "configs/schemas/autonomy-executable-mission.schema.json",
         "configs/schemas/autonomy-mission-compile-runtime.schema.json",
         "configs/schemas/px4-mission-feedback.schema.json",
@@ -219,6 +220,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "scripts/capture_pixhawk_odometry_covariance.py",
         "src/multidetect/pixhawk.py",
         "src/multidetect/pixhawk_covariance_binding.py",
+        "src/multidetect/field_covariance_campaign.py",
         "src/multidetect/px4_mission.py",
         "src/multidetect/px4_mission_feedback.py",
         "src/multidetect/px4_mission_feedback_binding.py",
