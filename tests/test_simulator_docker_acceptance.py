@@ -544,6 +544,9 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     assert result["source_row_order"] == module.GAZEBO_SIM_SOURCE_ROW_ORDER
     assert result["wire_row_order"] == module.GAZEBO_SIM_WIRE_ROW_ORDER
     assert result["vertical_flip_applied"] is module.GAZEBO_SIM_VERTICAL_FLIP_APPLIED
+    assert result["camera_calibration"]["camera_info_intrinsics_semantic_validation"] == (
+        module.GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
+    )
     assert result["frames"][0]["frame_id"] == "gazebo-sim-000000"
     assert result["frames"][0]["sensor_stamp_ns"] == 2_000_000_000
     assert result["frames"][0]["camera_info_source_skew_ns"] == 3
@@ -578,6 +581,9 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
     assert provenance["frame_telemetry"]["heading_deg"] == pytest.approx(90.0)
     assert manifest["claims"]["per_frame_sensor_geolocation_input"] == "passed"
     assert manifest["claims"]["target_geolocation_evaluation"] == "not_claimed"
+    assert manifest["source_attribution"]["camera_info_intrinsics_semantic_validation"] == (
+        module.GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
+    )
     assert manifest["source_attribution"]["source_row_order"] == (
         module.GAZEBO_SIM_SOURCE_ROW_ORDER
     )

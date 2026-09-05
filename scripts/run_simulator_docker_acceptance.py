@@ -45,6 +45,7 @@ if __package__ in {None, ""}:
 
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.backends.gazebo_sim import (
+    GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION,
     GAZEBO_SIM_SOURCE_ROW_ORDER,
     GAZEBO_SIM_TERRAIN_AGL_REFERENCE,
     GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -833,6 +834,9 @@ def _capture_gazebo_sensor_transport(
         ) from capture_error
     if telemetry is None or stats is None:  # pragma: no cover - guarded by require_complete
         raise DockerSimulatorAcceptanceError("Gazebo sensor transport completed without telemetry")
+    camera_calibration["camera_info_intrinsics_semantic_validation"] = (
+        stats.camera_info_intrinsics_semantic_validation
+    )
     qualified = bool(
         stats.complete
         and stats.received_frame_count == frame_count
@@ -842,6 +846,8 @@ def _capture_gazebo_sensor_transport(
         and stats.source_row_order == GAZEBO_SIM_SOURCE_ROW_ORDER
         and stats.wire_row_order == GAZEBO_SIM_WIRE_ROW_ORDER
         and stats.vertical_flip_applied is GAZEBO_SIM_VERTICAL_FLIP_APPLIED
+        and stats.camera_info_intrinsics_semantic_validation
+        == GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION
         and math.isfinite(telemetry.altitude_agl_m)
         and telemetry.altitude_agl_m > 0.0
         and telemetry.altitude_reference == GAZEBO_SIM_TERRAIN_AGL_REFERENCE
