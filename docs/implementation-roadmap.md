@@ -2,7 +2,15 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 三机型 PX4 动态响应与故障 campaign 收口（v63）
+## 当前 pre.8 QGC 人工视觉验收合同收口（v64）
+
+- [x] 将 exact PID/HWND 机器报告、PNG、QGC EXE 和当前 `ui_contract_hash` 绑定为可复验输入；
+- [x] 12 项人工可见性 checklist、明确 reviewer/UTC/decision/attestation 和内容摘要完成；
+- [x] 近地平线负控必须至少 5 帧有检测、全部 range invalid 且 0 个假坐标；
+- [x] 严格 JSON Schema、独立 verifier、CLI、模板和篡改/缺项/拒绝回归完成；
+- [ ] 操作者逐项复核 v61 PNG 并生成 accepted record；通过评审后再把该记录接入 E7。
+
+## pre.8 三机型 PX4 动态响应与故障 campaign 收口（v63）
 
 - [x] fixed-wing/multirotor/VTOL 使用同一 AI→MAVLink `MANUAL_CONTROL` 路径驱动 external PX4/Gazebo；
 - [x] 只从 `GLOBAL_POSITION_INT` 验证实际位移，禁止 Gazebo truth consumption 和 pose injection；
@@ -82,8 +90,9 @@
 - [ ] 以独立机械提交清理 410 个历史 Ruff format 文件；31 个 parity 绑定 Python 源会随之改变，
   因此完成后必须重新生成 parity，并重跑定位、三机型 external join、E7 和全量回归，不能删除 format
   gate 或复用旧 evidence 冒充完成。
-- [ ] 基于 v61 已通过的 exact PID/HWND 机器图，由操作者人工复核 evidence card/地图点/1σ 圆/复制/快照
-  并签字；通过正式 E7 schema/manifest 评审后再接入发布门。机器截图本身不冒充人工签字。
+- [ ] 基于 v61 已通过的 exact PID/HWND 机器图，使用 v64 review contract 由操作者逐项复核 evidence
+  card/地图点/1σ 圆/复制/快照并生成 accepted record；独立 verifier 通过后再接入 E7。机器截图本身
+  不冒充人工签字。
 - [x] fixed-wing 与 VTOL 对等动态 response evidence 已与 multirotor 一并纳入 source-bound matrix 和
   repeatability/fault campaign，并已重跑当前 E7 wrapper；该 SIM 子门不改变硬件或实飞 blocker。
 - [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。

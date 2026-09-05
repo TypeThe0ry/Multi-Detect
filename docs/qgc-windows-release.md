@@ -2469,6 +2469,39 @@ build/windows-v0.3.0-pre.7-release/portable-v0.3.0-pre.7/bin/MultiDetectReplayRt
 `86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3`。它证明同一 PID/HWND 上的
 动态机器可见状态，仍保留 `computer_use_tool_exposed=false`、`operator_visual_acceptance=not_claimed`。
 
+### v64 人工视觉 review 的生成与独立复验
+
+先打开并人工查看 v61 原始 PNG，不要使用聊天窗口里的缩放预览代替原图。复制 fail-closed 模板到
+本地 evidence 目录，把每个确实看到的字段逐项改为 `true`；未看到的项目必须保留 `false` 并使用
+`--decision rejected`。
+
+```powershell
+Copy-Item .\configs\qgc-visual-review-checklist.json `
+  .\artifacts\evaluation\terminal-continuation-v64\qgc-visual-checklist.json
+
+$env:PYTHONPATH = "src"
+python -m multidetect.qgc_visual_acceptance create `
+  --repository-root . `
+  --machine-report .\artifacts\evaluation\terminal-continuation-v61\px4-sitl-qgc-geolocation-native-visual-v61-pre8-v8.json `
+  --screenshot .\artifacts\evaluation\terminal-continuation-v61\native-visual-v8\qgc-native-style.png `
+  --qgc-executable .\build\windows-v0.3.0-pre.8-release\Release\MultiDetectGCS.exe `
+  --release-parity .\configs\release-parity.json `
+  --negative-control .\artifacts\evaluation\terminal-continuation-v57\gazebo-car-near-horizon-negative-evaluation-v58-pre8-v2.json `
+  --reviewer "你的姓名或审计标识" `
+  --reviewed-at-utc "2026-09-05T14:30:00Z" `
+  --checklist .\artifacts\evaluation\terminal-continuation-v64\qgc-visual-checklist.json `
+  --decision accepted `
+  --out .\artifacts\evaluation\terminal-continuation-v64\qgc-operator-visual-acceptance.json
+
+python -m multidetect.qgc_visual_acceptance verify `
+  .\artifacts\evaluation\terminal-continuation-v64\qgc-operator-visual-acceptance.json `
+  --repository-root .
+```
+
+验收要求 12 项全部为真，并绑定近地平线负控的 5/5 检测、5/5 invalid range、0 假坐标。记录中的
+`review_sha256` 只证明内容未被修改，不声明 reviewer 的密码学身份。当前没有 accepted record，故
+`operator_visual_acceptance=not_claimed`；生成和复验通过后仍需单独完成 E7 schema/manifest 绑定评审。
+
 ### v62 三机型 PX4/Gazebo 实际位移响应与 E7 绑定
 
 三份 disposable Docker acceptance 均从同一 perception/AI/authority/watchdog/MAVLink 路径驱动 PX4，

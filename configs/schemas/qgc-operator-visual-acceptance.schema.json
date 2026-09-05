@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/qgc-operator-visual-acceptance.schema.json",
+  "title": "Multi-Detect QGC operator visual acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "event", "review", "checklist",
+    "positive_visual_evidence", "negative_geolocation_control", "claim_boundary",
+    "gate_passed", "reasons", "review_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.qgc-operator-visual-acceptance"},
+    "schema_version": {"const": 1},
+    "event": {"const": "qgc_operator_visual_acceptance"},
+    "review": {"$ref": "#/$defs/review"},
+    "checklist": {"$ref": "#/$defs/checklist"},
+    "positive_visual_evidence": {"$ref": "#/$defs/positiveEvidence"},
+    "negative_geolocation_control": {"$ref": "#/$defs/negativeControl"},
+    "claim_boundary": {"$ref": "#/$defs/claimBoundary"},
+    "gate_passed": {"type": "boolean"},
+    "reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "review_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:|/|.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "reviewed_at_utc", "decision", "attestation", "notes"],
+      "properties": {
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at_utc": {"type": "string", "format": "date-time"},
+        "decision": {"enum": ["accepted", "rejected"]},
+        "attestation": {
+          "const": "I personally reviewed the bound screenshot and confirm that this checklist accurately records what was visibly rendered."
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_native_surface", "target_marker_visible", "uncertainty_circle_visible",
+        "latitude_longitude_visible", "target_class_visible", "distance_visible",
+        "bearing_visible", "freshness_visible", "copy_coordinate_control_visible",
+        "snapshot_control_visible", "record_control_visible", "read_only_notice_visible"
+      ],
+      "properties": {
+        "single_native_surface": {"type": "boolean"},
+        "target_marker_visible": {"type": "boolean"},
+        "uncertainty_circle_visible": {"type": "boolean"},
+        "latitude_longitude_visible": {"type": "boolean"},
+        "target_class_visible": {"type": "boolean"},
+        "distance_visible": {"type": "boolean"},
+        "bearing_visible": {"type": "boolean"},
+        "freshness_visible": {"type": "boolean"},
+        "copy_coordinate_control_visible": {"type": "boolean"},
+        "snapshot_control_visible": {"type": "boolean"},
+        "record_control_visible": {"type": "boolean"},
+        "read_only_notice_visible": {"type": "boolean"}
+      }
+    },
+    "machineChecks": {
+      "type": "object",
+      "additionalProperties": {"type": "boolean"},
+      "minProperties": 1
+    },
+    "machineReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "bytes", "sha256", "event", "run_id", "qgc_pid",
+        "qgc_hwnd_exact_client"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "event": {"const": "px4_sitl_qgc_operator_acceptance"},
+        "run_id": {"type": "string", "minLength": 1},
+        "qgc_pid": {"type": "integer", "minimum": 1},
+        "qgc_hwnd_exact_client": {"type": "object"}
+      }
+    },
+    "uiContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256", "ui_contract_hash"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "ui_contract_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "positiveEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "machine_report", "screenshot", "qgc_executable", "ui_contract", "machine_checks"
+      ],
+      "properties": {
+        "machine_report": {"$ref": "#/$defs/machineReport"},
+        "screenshot": {"$ref": "#/$defs/fileIdentity"},
+        "qgc_executable": {"$ref": "#/$defs/fileIdentity"},
+        "ui_contract": {"$ref": "#/$defs/uiContract"},
+        "machine_checks": {"$ref": "#/$defs/machineChecks"}
+      }
+    },
+    "negativeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "bytes", "sha256", "frame_count", "detection_frame_count",
+        "false_geolocation_point_count", "checks"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "frame_count": {"type": "integer", "minimum": 5},
+        "detection_frame_count": {"type": "integer", "minimum": 5},
+        "false_geolocation_point_count": {"const": 0},
+        "checks": {"$ref": "#/$defs/machineChecks"}
+      }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_visual_review_claimed", "cryptographic_identity_signature_claimed",
+        "hardware_acceptance", "hil_acceptance", "real_acceptance", "flight_acceptance"
+      ],
+      "properties": {
+        "human_visual_review_claimed": {"const": true},
+        "cryptographic_identity_signature_claimed": {"const": false},
+        "hardware_acceptance": {"const": "not_claimed"},
+        "hil_acceptance": {"const": "not_claimed"},
+        "real_acceptance": {"const": "not_claimed"},
+        "flight_acceptance": {"const": "not_claimed"}
+      }
+    }
+  }
+}

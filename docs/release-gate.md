@@ -4815,3 +4815,15 @@ $py = '.\ground-control\MultiDetectGCS\.venv\Scripts\python.exe'
 源码测试或 EXE smoke 自动升级为真实 HIL/REAL、室外 GNSS、实飞或人工视觉结论。缺失
 文件、SHA 不匹配、运行模式不匹配、parity 不一致或任一状态未通过都会保留具体原因，
 并让严格模式以退出码 `2` 结束。
+
+## v64 人工视觉记录的门禁边界
+
+`multidetect-qgc-visual-review` 现可生成并独立复验 source-bound 人工视觉记录：它绑定 exact
+PID/HWND machine report、PNG、QGC EXE、当前 `ui_contract_hash`，并要求近地平线负控至少 5 帧
+有检测但产生 0 个目标坐标。12 项人工 checklist、reviewer、UTC、decision 和固定 attestation 都会
+进入内容摘要；任一 bound file 漂移都会使 verifier fail-closed。
+
+该记录当前是 E7 的上游候选证据，还没有自动写入四模式 mode status。只有操作者在原始 PNG 上完成
+逐项点验、生成 accepted record、独立 verifier 通过，并完成 manifest/schema 接线评审后，才允许将
+对应模式的 `operator_visual_acceptance` 从 `not_claimed` 改为 `passed`。内容摘要不等同密码学身份签名，
+也不提升硬件、HIL、REAL 或实飞状态。

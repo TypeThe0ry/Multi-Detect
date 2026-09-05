@@ -1,0 +1,14 @@
+{
+  "single_native_surface": false,
+  "target_marker_visible": false,
+  "uncertainty_circle_visible": false,
+  "latitude_longitude_visible": false,
+  "target_class_visible": false,
+  "distance_visible": false,
+  "bearing_visible": false,
+  "freshness_visible": false,
+  "copy_coordinate_control_visible": false,
+  "snapshot_control_visible": false,
+  "record_control_visible": false,
+  "read_only_notice_visible": false
+}

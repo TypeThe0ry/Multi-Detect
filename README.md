@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v63：三机型 PX4/Gazebo 双重复响应、九项故障注入 campaign 及 E7 子门通过 |
+| 当前工程迭代 | v64：原生 QGC 人工视觉验收合同、负控绑定与独立复验就绪，人工签字仍待完成 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -182,6 +182,17 @@ runtime 正常启动后由对应飞行安全门拒绝，不能靠启动失败制
 正常响应，并要求每机型覆盖全部三种故障；它输出位移、持续时间、position sample 和目标更新率的
 minimum/P50/P95/maximum。独立 verifier 会重开全部 15 份源报告并复算结果。当前 campaign 已作为
 `px4_reported_position_response_campaign` 接入 E7；SIM 子门通过不改变硬件、HIL、REAL 或实飞声明。
+
+### v64 原生 QGC 人工视觉验收合同
+
+`multidetect-qgc-visual-review` 把人工点验绑定到 exact PID/HWND 机器报告、原始 PNG、实际 QGC EXE、
+当前 `ui_contract_hash` 和近地平线负控。12 项 checklist 必须逐项为 `true`，负控必须至少 5 帧均有
+检测、全部测距无效且假坐标为 0；任一文件漂移、遗漏、UI contract 变化或 decision 非 accepted 都
+fail-closed。`review_sha256` 是内容完整性摘要，不冒充电子身份签名。
+
+先复制并逐项检查 [`configs/qgc-visual-review-checklist.json`](configs/qgc-visual-review-checklist.json)，
+再按 [QGC Windows 发布说明](docs/qgc-windows-release.md)生成记录。人工确认完成并通过独立 verifier
+之前，E7 的 `operator_visual_acceptance` 继续保持 `not_claimed`。
 
 ### MultiDetectGCS
 

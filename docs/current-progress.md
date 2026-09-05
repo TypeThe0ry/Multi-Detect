@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v63 工作树）
+最后更新：2026-09-05（v64 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `508bf3c78382e4199d3d5f8d203b30b913d361c7`（当前工作树变更前领先远端 6 个提交）。
+本地 `main` 提交 `0a33fe4765af4a08c60c48502e92c8d90461f11e`（当前工作树变更前领先远端 8 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -20,11 +20,25 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 与证据卡片机器截图，并把证据与当前五组 release parity 严格绑定。v62 又让固定翼、多旋翼和 VTOL
 通过同一 AI/MAVLink 路径驱动 disposable PX4/Gazebo，以 `GLOBAL_POSITION_INT` 证明实际位移，并将
 可重放的三机型矩阵正式接入 E7。v63 又完成每机型两次正常响应与三种显式故障，共 15 份外部
-PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7；人工视觉签字和现场证据仍未完成。
+PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7。v64 新增 source-bound QGC 人工视觉
+review 合同、12 项 checklist、0 假点负控和独立 verifier；合同已就绪，但人工签字和现场证据仍未完成。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v64 本轮已收口
+
+- 新增 `multidetect.qgc_visual_acceptance` 和 `multidetect-qgc-visual-review` CLI，绑定 v61 exact
+  PID/HWND machine report、原始 PNG、实际 QGC EXE、当前 `ui_contract_hash` 与 geolocation 负控。
+- 12 项人工 checklist 覆盖单一原生 surface、地图点、1σ 圆、经纬度、类别、距离、方位、更新时间、
+  复制、快照、记录和只读声明；缺项、false 或非 accepted decision 均关闭 gate。
+- 负控必须至少 5 帧均有检测、全部 range invalid、全部包含预期 fail-closed reason 且 0 个假坐标；
+  当前 v58 负控 source-binding 预检为 5/5 检测、0/5 坐标。
+- 新增严格 JSON Schema、内容完整性摘要、独立重开 verifier 和 7 项定向回归。全仓 3,276 tests 为
+  `3275 passed, 1 skipped, 0 failed, 0 errors`；JUnit 476,289 bytes，SHA-256
+  `CA7A4F84146518BE23B47F9DFB0375BE58F77EF01846829375BFC3A323FD8881`。当前没有 accepted 人工 record，
+  因此 `qgc_manual_visual_acceptance=not_claimed`，E7 blocker 数不变。
 
 ## v63 本轮已收口
 
@@ -259,7 +273,8 @@ D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.
 
 v61 已将 high-slope evidence 的坐标、1σ、类别、距离和方位经签名协议持续送入原生
 MultiDetectGCS，并完成 exact PID/HWND 动态地图/证据卡片机器采集。下一步由人工检查同一证据画面并
-签字，再经 schema/manifest 评审接入 E7；负向样本必须继续 0 假点。
+使用 v64 checklist 生成 accepted record；独立 verifier 通过后再经 manifest 接线评审接入 E7。当前
+负向 source-binding 预检保持 5/5 检测、0 假点。
 
 ### P1：三机型动态对等（机器子门已完成）
 

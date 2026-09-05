@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T13:30:00Z",
+  "updated_at_utc": "2026-09-05T14:30:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "508bf3c78382e4199d3d5f8d203b30b913d361c7",
-    "commit_subject": "feat(sim): gate three-airframe PX4 reported motion",
-    "commits_ahead_of_origin_main": 6
+    "commit": "0a33fe4765af4a08c60c48502e92c8d90461f11e",
+    "commit_subject": "docs: align progress with v63 campaign",
+    "commits_ahead_of_origin_main": 8
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v63",
+  "working_iteration": "v64",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v63-final.xml",
-      "tests": 3269,
-      "passed": 3268,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v64-final.xml",
+      "tests": 3276,
+      "passed": 3275,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 158.186,
-      "junit_local_path": "tmp/current-progress-regression-v63-final.xml",
-      "junit_file_bytes": 475433,
-      "junit_file_sha256": "66b5910ed572b909d8533a09e683ab434dc70798bf62efb3b80246a82686c199",
+      "duration_seconds": 125.474,
+      "junit_local_path": "tmp/current-progress-regression-v64-final.xml",
+      "junit_file_bytes": 476289,
+      "junit_file_sha256": "ca7a4f84146518be23b47f9dfb0375be58f77ef01846829375bfc3a323fd8881",
       "distributed_in_git": false
     },
     "ruff": {
@@ -219,6 +219,23 @@
         "operator_visual_acceptance": "not_claimed"
       }
     },
+    "qgc_operator_visual_acceptance_contract": {
+      "implementation": "src/multidetect/qgc_visual_acceptance.py",
+      "schema": "configs/schemas/qgc-operator-visual-acceptance.schema.json",
+      "fail_closed_checklist": "configs/qgc-visual-review-checklist.json",
+      "cli": "multidetect-qgc-visual-review",
+      "required_visual_checks": 12,
+      "source_binding_precheck": {
+        "machine_checks_passed": true,
+        "negative_checks_passed": true,
+        "negative_detection_frames": 5,
+        "negative_false_geolocation_points": 0
+      },
+      "accepted_record_present": false,
+      "gate_passed": false,
+      "operator_visual_acceptance": "not_claimed",
+      "e7_binding": "not_connected_pending_human_review"
+    },
     "px4_reported_position_response_matrix": {
       "local_path": "artifacts/evaluation/terminal-continuation-v63/px4-reported-position-response-matrix-v63-pre8.json",
       "distributed_in_git": false,
@@ -276,6 +293,7 @@
     "qgc_geolocation_exact_pid_hwnd_machine_capture_subgate": "passed",
     "px4_reported_position_response_three_airframe_subgate": "passed",
     "px4_reported_position_response_repeatability_fault_subgate": "passed",
+    "qgc_manual_visual_acceptance_contract": "implemented_pending_human_review",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
@@ -285,7 +303,7 @@
   },
   "next_priorities": [
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
-    "native_qgc_geolocation_evidence_card_human_visual_signature_and_e7_binding",
+    "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
     "deployment_domain_model_and_replay_set_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",
     "outdoor_gnss_rtk_and_measured_camera_extrinsics_survey",

@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v64 QGC 人工视觉验收合同（2026-09-05）
+
+- 新增 `multidetect.qgc_visual_acceptance` 与 `multidetect-qgc-visual-review` CLI；人工 review 绑定 exact
+  PID/HWND 机器报告、原始 PNG、实际 QGC EXE、当前 UI contract 和 geolocation fail-closed 负控。
+- 新增 12 项严格 checklist、JSON Schema、内容摘要和独立 verifier；截图、EXE、parity、机器报告或
+  负控任一字节漂移都会关闭验收。
+- 真实 v61 screenshot/source 与 v58 近地平线负控已通过 source-binding 预检；负控 5/5 有检测、0/5
+  目标坐标。人工尚未逐项确认，因此 `operator_visual_acceptance` 与 E7 总门继续保持未声明/阻断。
+- 新增 fail-closed checklist 模板和 7 项回归，覆盖 schema、完整通过、截图/记录篡改、负控假点、缺项、
+  rejected decision 和 CLI template。
+- 全仓 3,276 tests：`3275 passed, 1 skipped, 0 failed, 0 errors`；Ruff、compileall、JSON Schema 和
+  真实 v61/v58 source-binding 预检通过。
+
 ### v0.3.0-pre.8 v63 三机型 PX4 响应重复性与故障注入（2026-09-05）
 
 - Docker AI acceptance runner 新增仅限 disposable loopback PX4 SITL 的目标刷新中断、心跳消费中断和
