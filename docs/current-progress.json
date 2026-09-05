@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T23:35:41Z",
+  "updated_at_utc": "2026-09-05T23:50:16Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "fad02de49b9cd97f29dd66ffa77af41d448aaf17",
-    "commit_subject": "feat(evidence): serialize covariance field sessions",
-    "commits_ahead_of_origin_main": 78
+    "commit": "11b7777f4d4cf09d4815842d0cc3f9c099e8b053",
+    "commit_subject": "fix(evidence): make capture lease lifecycle crash-atomic",
+    "commits_ahead_of_origin_main": 80
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v95",
+  "working_iteration": "v96",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v95-final.xml",
-      "tests": 3464,
-      "passed": 3463,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v96-final.xml",
+      "tests": 3468,
+      "passed": 3467,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 97.762,
-      "junit_local_path": "tmp/current-progress-regression-v95-final.xml",
-      "junit_file_bytes": 505454,
-      "junit_file_sha256": "106ede42c9c57a04ef6d30c864b2d876e2df3923b82c07ceed40fe7e0aef4fdc",
+      "duration_seconds": 99.785,
+      "junit_local_path": "tmp/current-progress-regression-v96-final.xml",
+      "junit_file_bytes": 506030,
+      "junit_file_sha256": "85cbaa7d6890737943a6a5a93cad06e51c920941ee1b62552a2ec51ceceb7d15",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 6561,
-    "file_sha256": "d541ab299719a3812e14a8cbc351a25cceb6bf4823b5331dc7ccf81532eb87ab",
+    "file_sha256": "279156ffc701b68ecf81a62cc1d33971268fc8bb343a62943805125ec1edfcea",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "71a7b6d05bdb4accd48a46f5cb0d9e87f59571439ec3477d6b27574665e20cea"
+      "px4_mission_path_hash": "fd77eac99d3b72b4c1e158f144d32d6a7b420888bb2cdcf83f078f85520bbdbc"
     }
   },
   "evidence": {
@@ -197,11 +197,16 @@
         "multidetect.pixhawk-covariance-field-journal-index/v1"
       ],
       "schema_path": "configs/schemas/pixhawk-covariance-field-journal.schema.json",
-      "schema_file_bytes": 6084,
-      "schema_file_sha256": "d6569c3890262da17f779fe1a8f7fd946cbe651abec94d17ca8b9fc740524d6f",
+      "schema_file_bytes": 6270,
+      "schema_file_sha256": "7d8e67753240d5f0575a071250a9b2d8a4d07293ab67ec2ffda5e9ddbb16cfbb",
       "module": "multidetect.field_covariance_journal",
       "commands": ["journal-status", "lease-status", "recover-lease", "verify-index"],
       "capture_lease_atomic_directory": true,
+      "capture_lease_prebuilt_before_atomic_publish": true,
+      "incomplete_candidates_nonblocking": true,
+      "release_unblocks_by_atomic_directory_move": true,
+      "released_lease_audit_preserved": true,
+      "released_lease_reconciled_by_index": true,
       "capture_lease_scoped_by_workspace_sha256": true,
       "second_process_capture_blocked": true,
       "silent_stale_lock_deletion": false,
@@ -210,6 +215,7 @@
       "exact_lease_id_recovery_required": true,
       "dead_owner_proof_required": true,
       "lease_and_recovery_audit_preserved": true,
+      "interrupted_recovery_exact_retry_supported": true,
       "journal_index_contiguous_prefix_required": true,
       "journal_index_reconciles_campaign_reports": true,
       "blocked_probes_counted": true,
@@ -219,6 +225,31 @@
         "hil_acceptance": "not_claimed",
         "real_acceptance": "not_claimed",
         "hardware_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      }
+    },
+    "field_link_read_only_current_probe": {
+      "local_path": "artifacts/evaluation/field-link-preflight-20260905T234120Z.json",
+      "distributed_in_git": false,
+      "file_bytes": 18138,
+      "file_sha256": "431fb5e5e9ac31fe1a6987f96c51b3e47110c4b899bc338bbcc923995c9d7944",
+      "interface_diagnostic_local_path": "artifacts/evaluation/field-link-interface-diagnostic-20260906-074123.json",
+      "interface_diagnostic_file_bytes": 4378,
+      "interface_diagnostic_file_sha256": "ccfaba658cde03c922ca2e0f0b1f8bf43defd92af35363206df624729743ccbb",
+      "samples_requested": 3,
+      "samples_collected": 3,
+      "hardware_link_ready": false,
+      "route_checks_passed": false,
+      "interface_alias": "Ethernet",
+      "interface_ipv4_cidr": "192.168.1.13/24",
+      "expected_aircraft_cidr": "192.168.144.0/24",
+      "interface_selection_status": "missing",
+      "offline_verification_passed": true,
+      "claims": {
+        "read_only_diagnostic": "passed",
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
         "flight_acceptance": "not_claimed"
       }
     },
@@ -648,6 +679,7 @@
     "portable_hil_real_covariance_workspace": "implemented_pending_physical_handoff",
     "receipt_bound_covariance_field_sessions": "implemented_pending_field_runs",
     "exclusive_covariance_field_journal": "implemented_pending_field_runs",
+    "crash_atomic_covariance_field_journal": "implemented_pending_field_power_loss_drill",
     "qgc_manual_visual_acceptance_contract": "implemented_pending_human_review",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",

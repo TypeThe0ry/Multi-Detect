@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v95 工作树）
+最后更新：2026-09-06（v96 工作树）
+
+## v96 本轮已收口
+
+- 修复 v95 active lease 的两个断电窗口：acquire 先在非阻断 `.lease-candidates/<lease-id>` 中 write-new、
+  fsync 完整文档，再原子 rename 整个目录到 active path；release 先原子移出 active path，再保留到
+  `released-leases/<lease-id>`，不存在“空 active 目录永久卡死”状态；
+- candidate 残留只计入 `nonblocking_candidate_count`，不会夺取 capture authority；managed candidate、
+  released、recovered 目录全部拒绝 symlink；
+- released lease 不再销毁。journal index 对每份 session 重开其 released `lease.json`，校验文件 SHA、
+  receipt/campaign/leaf/digest，并要求与 session 内嵌 lease 完全一致；缺失或替换均 fail-closed；
+- recovery 在写完 `recovery.json`、尚未 archive 时中断后可以安全重试，但必须使用相同精确 lease ID 与
+  相同 reason；不同请求、已有目标 archive 或活/未知 owner 都拒绝；
+- 当前机器完成新鲜只读 field-link 探测：Ethernet 为 `192.168.1.13/24`，飞机网段
+  `192.168.144.0/24` 无候选接口/route，3/3 样本未就绪；报告结构与绑定独立复验通过，但
+  `hardware_link_ready=false`，没有提升任何硬件声明；
+- `px4_mission_path_hash=FD77EAC9...20BBDC`。全量回归 3,468 tests：
+  `3467 passed, 1 skipped, 0 failed, 0 errors`，耗时 99.785 秒；JUnit 506,030 bytes、SHA-256
+  `85CBAA7D6890737943A6A5A93CAD06E51C920941EE1B62552A2EC51CECEB7D15`；全仓 Ruff 通过。
 
 ## v95 本轮已收口
 

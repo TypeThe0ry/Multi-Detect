@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 断电安全 lease 发布/释放（v96）
+
+- [x] 在非阻断 candidate 目录完成 lease write-new/fsync，再原子发布完整 active 目录；
+- [x] active release 用目录 rename 一步解除阻断，并保留 released lease 审计源；
+- [x] candidate 残留不阻断采集且可被 status 计数；managed lifecycle 目录拒绝 symlink；
+- [x] interrupted recovery 仅允许相同 lease ID/reason 续跑，不清除 staged recovery；
+- [x] journal index 重开每个 released lease 并与 session 嵌入内容逐字核对；
+- [ ] 在现场机器以真实进程强制终止/断电演练 acquire、release、recovery 三个边界。
+
 ## 独占 covariance capture journal（v95）
 
 - [x] 用 receipt/workspace digest 派生的原子目录 lease 串行化 probe、capture 与 session seal；

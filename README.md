@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v95：covariance 现场 journal 独占 lease、保留式死进程恢复与连续六叶 index；并发终端不能重复抓同一叶 |
+| 当前工程迭代 | v96：capture lease 候选预写后原子发布、释放原子移出 active path、恢复可续跑，并保留 released lease 审计链 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,21 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v96 断电安全的 lease 生命周期
+
+lease 不再先创建空的 active 目录再写文件。现在先在 `.lease-candidates/<lease-id>` 中完整写入并 fsync
+`lease.json`，再将整个非空目录原子发布为 active lease；若在发布前断电，残留 candidate 可见但不阻断
+下一次采集。正常释放也不再执行“先删 lease 文件、再删锁目录”，而是把整个 active 目录原子移到：
+
+```text
+released-leases/<lease-id>/lease.json
+```
+
+因此任意断电点都不会产生一个已删除身份文件却仍阻塞采集的空 active 锁。released lease 会作为成功
+session 的审计源永久保留；journal index 必须重开它，核对文件 hash，并要求内容与 session 内嵌 lease
+完全一致。恢复过程中若已经写完 `recovery.json`、但尚未完成目录移动，可用相同 lease ID 和相同 reason
+安全续跑；不同 reason 会 fail-closed。
 
 ### v95 独占采集 lease 与 journal index
 
