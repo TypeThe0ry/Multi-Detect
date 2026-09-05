@@ -85,6 +85,8 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     )
     assert "src/multidetect/terrain_dem.py" in document["source_files"]["core_algorithm"]
     assert "src/multidetect/target_image_anchor.py" in document["source_files"]["core_algorithm"]
+    assert "scripts/gazebo_sensor_stream.py" in document["source_files"]["core_algorithm"]
+    assert "src/multidetect/backends/gazebo_sim.py" in document["source_files"]["core_algorithm"]
     assert (
         "configs/schemas/target-event-replay-manifest.schema.json"
         in document["source_files"]["core_algorithm"]

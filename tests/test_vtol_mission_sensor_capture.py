@@ -500,7 +500,7 @@ def _sensor_payload(
         "scenario_id": scenario_id,
         "scenario_manifest_hash": scenario_manifest_hash,
         "sensor_binding_hash": sensor_binding_hash,
-        "wire_version": 2,
+        "wire_version": 3,
         "pixel_format": "BGR24",
         "frame_count": frame_count,
         "total_payload_bytes": frame_count * payload_bytes,
@@ -508,7 +508,7 @@ def _sensor_payload(
         "source_attribution": {
             "pixels": "actual_gazebo_camera_sensor_output",
             "environment": "software_simulation",
-            "wire": "MDGZSIM2",
+            "wire": "MDGZSIM3",
             "source_row_order": capture.GAZEBO_SIM_SOURCE_ROW_ORDER,
             "wire_row_order": capture.GAZEBO_SIM_WIRE_ROW_ORDER,
             "vertical_flip_applied": capture.GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -532,7 +532,7 @@ def _sensor_payload(
     )
     return {
         "qualified": True,
-        "wire_version": 2,
+        "wire_version": 3,
         "source_row_order": capture.GAZEBO_SIM_SOURCE_ROW_ORDER,
         "wire_row_order": capture.GAZEBO_SIM_WIRE_ROW_ORDER,
         "vertical_flip_applied": capture.GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -1159,7 +1159,7 @@ def test_mission_evidence_fails_closed_on_incomplete_or_overclaimed_run(
         )
 
 
-def test_wire_v2_capture_requires_persisted_truth_free_actual_pixels(tmp_path: Path) -> None:
+def test_wire_v3_capture_requires_persisted_truth_free_actual_pixels(tmp_path: Path) -> None:
     frame_directory = tmp_path / "frames"
     checks = _validate_sensor(_sensor_payload(frame_directory), frame_directory)
     assert all(checks.values())
@@ -1169,7 +1169,7 @@ def test_wire_v2_capture_requires_persisted_truth_free_actual_pixels(tmp_path: P
     ("path", "value", "message"),
     (
         ("qualified", False, "qualified"),
-        ("wire_version", 1, "wire_v2"),
+        ("wire_version", 1, "wire_v3"),
         ("source_row_order", "bottom_to_top", "row_order_normalized"),
         ("wire_row_order", "bottom_to_top", "row_order_normalized"),
         ("vertical_flip_applied", True, "row_order_normalized"),
@@ -1186,7 +1186,7 @@ def test_wire_v2_capture_requires_persisted_truth_free_actual_pixels(tmp_path: P
         ("pixel_persistence.hardware", "passed", "no_hardware_claim"),
     ),
 )
-def test_wire_v2_capture_fails_closed_on_non_persisted_or_overclaimed_pixels(
+def test_wire_v3_capture_fails_closed_on_non_persisted_or_overclaimed_pixels(
     tmp_path: Path,
     path: str,
     value: Any,
@@ -1206,7 +1206,7 @@ def test_wire_v2_capture_fails_closed_on_non_persisted_or_overclaimed_pixels(
         ("vertical_flip_applied", True),
     ),
 )
-def test_wire_v2_capture_rejects_rehashed_manifest_row_order_tampering(
+def test_wire_v3_capture_rejects_rehashed_manifest_row_order_tampering(
     tmp_path: Path,
     field: str,
     value: Any,
@@ -1233,7 +1233,7 @@ def test_wire_v2_capture_rejects_rehashed_manifest_row_order_tampering(
 
 
 @pytest.mark.parametrize("tamper", ("raw-frame", "manifest", "extra-file"))
-def test_wire_v2_capture_rehashes_real_files_and_sealed_directory(
+def test_wire_v3_capture_rehashes_real_files_and_sealed_directory(
     tmp_path: Path,
     tamper: str,
 ) -> None:
@@ -1262,7 +1262,7 @@ def test_wire_v2_capture_rehashes_real_files_and_sealed_directory(
         (1_000.0, 1_000.2, 1_000.1),
     ),
 )
-def test_wire_v2_capture_rejects_invalid_or_unbounded_barrier_timing(
+def test_wire_v3_capture_rejects_invalid_or_unbounded_barrier_timing(
     tmp_path: Path,
     ready: float,
     started: float,
@@ -1295,7 +1295,7 @@ def test_wire_v2_capture_rejects_invalid_or_unbounded_barrier_timing(
         (READY_MONOTONIC_S + 0.1, READY_MONOTONIC_S + 0.199),
     ),
 )
-def test_wire_v2_capture_rejects_frames_outside_outer_capture_interval(
+def test_wire_v3_capture_rejects_frames_outside_outer_capture_interval(
     tmp_path: Path,
     started: float,
     completed: float,

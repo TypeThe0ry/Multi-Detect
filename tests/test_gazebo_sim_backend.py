@@ -25,6 +25,7 @@ from multidetect.backends.gazebo_sim import (
     GAZEBO_SIM_WIRE_ROW_ORDER,
     GazeboSimBackend,
     GazeboSimTelemetryProvider,
+    gazebo_sim_attitude_sigmas_deg,
     read_gazebo_sim_wire_frame,
     reconstruct_gazebo_sim_wire_frame,
 )
@@ -79,6 +80,11 @@ def _wire_frame(
     position_up_m: float = 3.0,
     orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
     velocity_flu_mps: tuple[float, float, float] = (4.0, 5.0, 6.0),
+    attitude_covariance_enu_rad2: tuple[float, ...] = (
+        0.0001, 0.0, 0.0,
+        0.0, 0.0004, 0.0,
+        0.0, 0.0, 0.0009,
+    ),
 ) -> bytes:
     selected = payload if payload is not None else bytes((1, 2, 3, 4, 5, 6))
     packet = build_wire_frame(
@@ -104,6 +110,7 @@ def _wire_frame(
         velocity_forward_mps=velocity_flu_mps[0],
         velocity_left_mps=velocity_flu_mps[1],
         velocity_up_mps=velocity_flu_mps[2],
+        attitude_covariance_enu_rad2=attitude_covariance_enu_rad2,
         bgr_payload=selected,
     )
     if (
@@ -426,6 +433,31 @@ def test_gazebo_sim_wire_rejects_invalid_odometry_values(
 
 
 @pytest.mark.parametrize(
+    ("field_updates", "message"),
+    (
+        (((25, math.nan),), "9 finite"),
+        (((26, 0.01),), "symmetric"),
+        (((25, 1.0), (26, 2.0), (28, 2.0), (29, 1.0)), "semidefinite"),
+    ),
+)
+def test_gazebo_sim_wire_rejects_invalid_attitude_covariance(
+    field_updates: tuple[tuple[int, float], ...],
+    message: str,
+) -> None:
+    packet = _wire_frame(0, stamp_ns=2_000_000_000)
+    for index, value in field_updates:
+        packet = _replace_wire_field(packet, index, value)
+    with pytest.raises(RuntimeError, match=message):
+        read_gazebo_sim_wire_frame(
+            io.BytesIO(packet),
+            expected_sequence=0,
+            expected_width=2,
+            expected_height=1,
+            previous_sensor_stamp_ns=None,
+        )
+
+
+@pytest.mark.parametrize(
     ("field_index", "source_name"),
     ((10, "NavSat"), (11, "Odometry")),
 )
@@ -521,6 +553,50 @@ def test_gazebo_telemetry_preserves_navsat_and_odometry_source_ages() -> None:
     provider.snapshot(now_s=100.25)
     with pytest.raises(RuntimeError, match="telemetry is stale"):
         provider.snapshot(now_s=100.250_000_001)
+
+
+def test_gazebo_attitude_covariance_is_transformed_and_floored_with_provenance() -> None:
+    zero_wire = read_gazebo_sim_wire_frame(
+        io.BytesIO(
+            _wire_frame(
+                0,
+                stamp_ns=1_000_000_000,
+                attitude_covariance_enu_rad2=(0.0,) * 9,
+            )
+        ),
+        expected_sequence=0,
+        expected_width=2,
+        expected_height=1,
+        previous_sensor_stamp_ns=None,
+    )
+    provider = GazeboSimTelemetryProvider(
+        minimum_roll_sigma_deg=0.4,
+        minimum_pitch_sigma_deg=0.5,
+        minimum_heading_sigma_deg=1.2,
+    )
+    provider.update(zero_wire, observed_at_s=10.0)
+    floored = provider.snapshot(now_s=10.0)
+    assert floored.attitude_roll_sigma_deg == pytest.approx(0.4)
+    assert floored.attitude_pitch_sigma_deg == pytest.approx(0.5)
+    assert floored.attitude_heading_sigma_deg == pytest.approx(1.2)
+    assert (
+        floored.attitude_uncertainty_source
+        == "gazebo_odometry_covariance_with_configured_floor"
+    )
+
+    covariance = (
+        0.0004, 0.0001, 0.0,
+        0.0001, 0.0009, 0.0,
+        0.0, 0.0, 0.0016,
+    )
+    measured_wire = replace(zero_wire, attitude_covariance_enu_rad2=covariance)
+    transformed = gazebo_sim_attitude_sigmas_deg(measured_wire)
+    provider.update(measured_wire, observed_at_s=11.0)
+    measured = provider.snapshot(now_s=11.0)
+    assert transformed == pytest.approx(tuple(math.degrees(value) for value in (0.02, 0.03, 0.04)))
+    assert measured.attitude_roll_sigma_deg == pytest.approx(transformed[0])
+    assert measured.attitude_pitch_sigma_deg == pytest.approx(transformed[1])
+    assert measured.attitude_heading_sigma_deg == pytest.approx(transformed[2])
 
 
 def test_gazebo_telemetry_accepts_exact_age_limit_and_rejects_one_ns_over() -> None:
@@ -625,6 +701,21 @@ def test_gazebo_attitude_conversion_is_finite_and_canonical_at_gimbal_lock() -> 
         math.isfinite(value)
         for value in (telemetry.roll_deg, telemetry.pitch_deg, telemetry.heading_deg)
     )
+
+    wire = read_gazebo_sim_wire_frame(
+        io.BytesIO(
+            _wire_frame(
+                0,
+                stamp_ns=1_000_000_000,
+                orientation=(0.5, -0.5, 0.5, 0.5),
+            )
+        ),
+        expected_sequence=0,
+        expected_width=2,
+        expected_height=1,
+        previous_sensor_stamp_ns=None,
+    )
+    assert gazebo_sim_attitude_sigmas_deg(wire) == (180.0, 90.0, 180.0)
 
 
 def test_gazebo_agl_uses_navsat_msl_minus_scenario_dem_not_local_up() -> None:

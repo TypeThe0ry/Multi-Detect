@@ -92,6 +92,7 @@ def _wire(sequence: int, stamp_ns: int) -> bytes:
         velocity_forward_mps=0.0,
         velocity_left_mps=0.0,
         velocity_up_mps=0.0,
+        attitude_covariance_enu_rad2=(0.0,) * 9,
         bgr_payload=payload,
     )
 

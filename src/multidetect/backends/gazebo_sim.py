@@ -38,9 +38,9 @@ from ..terrain_dem import (
 )
 from ..vision import CapturedFrame
 
-GAZEBO_SIM_WIRE_MAGIC = b"MDGZSIM2"
-GAZEBO_SIM_WIRE_VERSION = 2
-GAZEBO_SIM_WIRE_HEADER = struct.Struct("<8sHHIQIIIIQQQ13dI32s")
+GAZEBO_SIM_WIRE_MAGIC = b"MDGZSIM3"
+GAZEBO_SIM_WIRE_VERSION = 3
+GAZEBO_SIM_WIRE_HEADER = struct.Struct("<8sHHIQIIIIQQQ22dI32s")
 GAZEBO_SIM_WIRE_HEADER_BYTES = GAZEBO_SIM_WIRE_HEADER.size
 GAZEBO_SIM_FLAG_CAMERA_INFO = 1 << 0
 GAZEBO_SIM_FLAG_NAVSAT = 1 << 1
@@ -95,7 +95,7 @@ def _gazebo_sensor_topics(
 
 @dataclass(frozen=True, slots=True)
 class GazeboSimWireFrame:
-    """One validated camera/NavSat/full-odometry wire-v2 frame."""
+    """One validated camera/NavSat/full-odometry/covariance wire-v3 frame."""
 
     sequence: int
     sensor_stamp_ns: int
@@ -118,6 +118,7 @@ class GazeboSimWireFrame:
     velocity_forward_mps: float
     velocity_left_mps: float
     velocity_up_mps: float
+    attitude_covariance_enu_rad2: tuple[float, ...]
     flags: int
     record_sha256: str
     unsigned_header: bytes
@@ -147,6 +148,7 @@ class GazeboSimWireTelemetryProvenance:
     velocity_forward_mps: float
     velocity_left_mps: float
     velocity_up_mps: float
+    attitude_covariance_enu_rad2: tuple[float, ...]
 
     @classmethod
     def from_wire(cls, wire: GazeboSimWireFrame) -> GazeboSimWireTelemetryProvenance:
@@ -164,10 +166,15 @@ class GazeboSimWireTelemetryProvenance:
             velocity_forward_mps=wire.velocity_forward_mps,
             velocity_left_mps=wire.velocity_left_mps,
             velocity_up_mps=wire.velocity_up_mps,
+            attitude_covariance_enu_rad2=wire.attitude_covariance_enu_rad2,
         )
 
     def to_mapping(self) -> dict[str, object]:
-        return asdict(self)
+        mapping = asdict(self)
+        # Keep the evidence representation JSON-native so a manifest survives
+        # serialize/reload without tuple-versus-list identity drift.
+        mapping["attitude_covariance_enu_rad2"] = list(self.attitude_covariance_enu_rad2)
+        return mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +263,7 @@ class GazeboSimFrameTelemetryProvenance:
 
 @dataclass(frozen=True, slots=True)
 class GazeboSimFrameProvenance:
-    """Immutable, pixel-free provenance for one accepted wire-v2 frame.
+    """Immutable, pixel-free provenance for one accepted wire-v3 frame.
 
     The image array returned by :meth:`GazeboSimFrameSource.read` continues to
     reference the one validated wire payload.  This record deliberately keeps
@@ -291,6 +298,8 @@ class GazeboSimFrameProvenance:
         """Return a JSON-ready copy without exposing mutable source state."""
 
         result = asdict(self)
+        if self.wire_telemetry is not None:
+            result["wire_telemetry"] = self.wire_telemetry.to_mapping()
         for optional_field in (
             "wire_unsigned_header_hex",
             "wire_telemetry",
@@ -442,6 +451,128 @@ def _ned_frd_kinematics(
     )
 
 
+def _rotation_about_axis(axis: int, angle_rad: float) -> tuple[tuple[float, float, float], ...]:
+    cosine, sine = math.cos(angle_rad), math.sin(angle_rad)
+    if axis == 0:
+        return ((1.0, 0.0, 0.0), (0.0, cosine, -sine), (0.0, sine, cosine))
+    if axis == 1:
+        return ((cosine, 0.0, sine), (0.0, 1.0, 0.0), (-sine, 0.0, cosine))
+    return ((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0))
+
+
+def _fixed_axis_euler_radians(
+    rotation: tuple[tuple[float, float, float], ...],
+) -> tuple[float, float, float] | None:
+    """Extract fixed-axis X/Y/Z angles represented by Rz(yaw)Ry(pitch)Rx(roll)."""
+
+    pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
+    if abs(math.cos(pitch)) <= 1.0e-6:
+        return None
+    return (
+        math.atan2(rotation[2][1], rotation[2][2]),
+        pitch,
+        math.atan2(rotation[1][0], rotation[0][0]),
+    )
+
+
+def _rotation_from_fixed_axis_euler(
+    roll: float,
+    pitch: float,
+    yaw: float,
+) -> tuple[tuple[float, float, float], ...]:
+    return _matmul3(
+        _matmul3(_rotation_about_axis(2, yaw), _rotation_about_axis(1, pitch)),
+        _rotation_about_axis(0, roll),
+    )
+
+
+def _ned_frd_euler_radians(
+    enu_from_flu: tuple[tuple[float, float, float], ...],
+) -> tuple[float, float, float] | None:
+    ned_from_enu = ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, -1.0))
+    flu_from_frd = ((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0))
+    ned_from_frd = _matmul3(_matmul3(ned_from_enu, enu_from_flu), flu_from_frd)
+    pitch = math.asin(max(-1.0, min(1.0, -ned_from_frd[2][0])))
+    if abs(math.cos(pitch)) <= 1.0e-6:
+        return None
+    return (
+        math.atan2(ned_from_frd[2][1], ned_from_frd[2][2]),
+        pitch,
+        math.atan2(ned_from_frd[1][0], ned_from_frd[0][0]),
+    )
+
+
+def _wrapped_radian_delta(left: float, right: float) -> float:
+    return (left - right + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def gazebo_sim_attitude_sigmas_deg(wire: GazeboSimWireFrame) -> tuple[float, float, float]:
+    """Transform Gazebo fixed-axis X/Y/Z covariance into NED/FRD Euler sigmas."""
+
+    covariance = _validate_attitude_covariance(wire.attitude_covariance_enu_rad2)
+    rotation = _quaternion_rotation_matrix(
+        wire.orientation_x, wire.orientation_y, wire.orientation_z, wire.orientation_w
+    )
+    source_euler = _fixed_axis_euler_radians(rotation)
+    if source_euler is None:
+        return (180.0, 90.0, 180.0)
+    epsilon = 1.0e-6
+    jacobian = [[0.0] * 3 for _ in range(3)]
+    for axis in range(3):
+        plus_angles = list(source_euler)
+        minus_angles = list(source_euler)
+        plus_angles[axis] += epsilon
+        minus_angles[axis] -= epsilon
+        plus = _ned_frd_euler_radians(_rotation_from_fixed_axis_euler(*plus_angles))
+        minus = _ned_frd_euler_radians(_rotation_from_fixed_axis_euler(*minus_angles))
+        if plus is None or minus is None:
+            # Euler roll/yaw are unobservable at gimbal lock.  Preserve the
+            # canonical mean pose but publish a deliberately unbounded angular
+            # budget so ranging cannot mistake that representation for precise.
+            return (180.0, 90.0, 180.0)
+        for output_axis in range(3):
+            jacobian[output_axis][axis] = (
+                _wrapped_radian_delta(plus[output_axis], minus[output_axis])
+                / (2.0 * epsilon)
+            )
+    variances: list[float] = []
+    for output_axis in range(3):
+        variance = sum(
+            jacobian[output_axis][row]
+            * covariance[row * 3 + column]
+            * jacobian[output_axis][column]
+            for row in range(3)
+            for column in range(3)
+        )
+        if variance < -1.0e-10:
+            raise RuntimeError("Gazebo SIM transformed attitude covariance is negative")
+        variances.append(max(0.0, variance))
+    return tuple(math.degrees(math.sqrt(value)) for value in variances)  # type: ignore[return-value]
+
+
+def _validate_attitude_covariance(values: object) -> tuple[float, ...]:
+    try:
+        covariance = tuple(float(value) for value in values)  # type: ignore[union-attr]
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Gazebo SIM attitude covariance is not numeric") from exc
+    if len(covariance) != 9 or not all(math.isfinite(value) for value in covariance):
+        raise RuntimeError("Gazebo SIM attitude covariance must contain 9 finite values")
+    scale = max(1.0, *(abs(value) for value in covariance))
+    tolerance = 1.0e-10 * scale
+    for row in range(3):
+        if covariance[row * 3 + row] < 0.0:
+            raise RuntimeError("Gazebo SIM attitude covariance diagonal is negative")
+        for column in range(row + 1, 3):
+            if abs(covariance[row * 3 + column] - covariance[column * 3 + row]) > tolerance:
+                raise RuntimeError("Gazebo SIM attitude covariance is not symmetric")
+    a, b, c, _d, e, f, _g, _h, i = covariance
+    minors = (a, e, i, a * e - b * b, a * i - c * c, e * i - f * f)
+    determinant = a * (e * i - f * f) - b * (b * i - c * f) + c * (b * f - c * e)
+    if any(value < -tolerance for value in (*minors, determinant)):
+        raise RuntimeError("Gazebo SIM attitude covariance is not positive semidefinite")
+    return covariance
+
+
 def gazebo_sim_ned_frd_kinematics(
     wire: GazeboSimWireFrame,
 ) -> tuple[float, float, float, float, float, float]:
@@ -503,6 +634,9 @@ class GazeboSimTelemetryProvider:
         simulated_satellites_visible: int = 12,
         simulated_gps_horizontal_accuracy_m: float = 1.5,
         simulated_gps_vertical_accuracy_m: float = 2.5,
+        minimum_roll_sigma_deg: float = 0.3,
+        minimum_pitch_sigma_deg: float = 0.3,
+        minimum_heading_sigma_deg: float = 1.0,
         terrain_dem: LocalDemGrid | None = None,
     ) -> None:
         self.maximum_age_s = require_real(maximum_age_s, "maximum_age_s", minimum=0.0)
@@ -530,6 +664,15 @@ class GazeboSimTelemetryProvider:
             minimum=0.0,
             maximum=1_000.0,
         )
+        self.minimum_roll_sigma_deg = require_real(
+            minimum_roll_sigma_deg, "minimum_roll_sigma_deg", minimum=0.0, maximum=180.0
+        )
+        self.minimum_pitch_sigma_deg = require_real(
+            minimum_pitch_sigma_deg, "minimum_pitch_sigma_deg", minimum=0.0, maximum=90.0
+        )
+        self.minimum_heading_sigma_deg = require_real(
+            minimum_heading_sigma_deg, "minimum_heading_sigma_deg", minimum=0.0, maximum=180.0
+        )
         if terrain_dem is not None and not isinstance(terrain_dem, LocalDemGrid):
             raise TypeError("terrain_dem must be a LocalDemGrid or None")
         self.terrain_dem = terrain_dem
@@ -545,6 +688,9 @@ class GazeboSimTelemetryProvider:
             raise TypeError("wire must be a GazeboSimWireFrame")
         roll_deg, pitch_deg, heading_deg, velocity_north, velocity_east, _velocity_down = (
             _ned_frd_kinematics(wire)
+        )
+        roll_sigma_deg, pitch_sigma_deg, heading_sigma_deg = (
+            gazebo_sim_attitude_sigmas_deg(wire)
         )
         with self._lock:
             if self._closed:
@@ -597,6 +743,18 @@ class GazeboSimTelemetryProvider:
                 gps_vertical_accuracy_m=self.simulated_gps_vertical_accuracy_m,
                 gps_observed_at_s=gps_observed,
                 attitude_observed_at_s=odometry_observed,
+                attitude_roll_sigma_deg=max(
+                    roll_sigma_deg, self.minimum_roll_sigma_deg
+                ),
+                attitude_pitch_sigma_deg=max(
+                    pitch_sigma_deg, self.minimum_pitch_sigma_deg
+                ),
+                attitude_heading_sigma_deg=max(
+                    heading_sigma_deg, self.minimum_heading_sigma_deg
+                ),
+                attitude_uncertainty_source=(
+                    "gazebo_odometry_covariance_with_configured_floor"
+                ),
                 position_observed_at_s=gps_observed,
                 velocity_north_mps=velocity_north,
                 velocity_east_mps=velocity_east,
@@ -1302,6 +1460,15 @@ def read_gazebo_sim_wire_frame(
         velocity_forward_mps,
         velocity_left_mps,
         velocity_up_mps,
+        covariance_xx,
+        covariance_xy,
+        covariance_xz,
+        covariance_yx,
+        covariance_yy,
+        covariance_yz,
+        covariance_zx,
+        covariance_zy,
+        covariance_zz,
         flags,
         digest,
     ) = GAZEBO_SIM_WIRE_HEADER.unpack(header)
@@ -1401,6 +1568,19 @@ def read_gazebo_sim_wire_frame(
     orientation_y /= quaternion_norm
     orientation_z /= quaternion_norm
     orientation_w /= quaternion_norm
+    attitude_covariance = _validate_attitude_covariance(
+        (
+            covariance_xx,
+            covariance_xy,
+            covariance_xz,
+            covariance_yx,
+            covariance_yy,
+            covariance_yz,
+            covariance_zx,
+            covariance_zy,
+            covariance_zz,
+        )
+    )
     payload = _read_exact(stream, payload_bytes, "Gazebo SIM BGR24 payload")
     digest_input = header[: GAZEBO_SIM_WIRE_HEADER_BYTES - hashlib.sha256().digest_size]
     digest_input += b"\x00" * hashlib.sha256().digest_size
@@ -1429,6 +1609,7 @@ def read_gazebo_sim_wire_frame(
         velocity_forward_mps=velocity_forward_mps,
         velocity_left_mps=velocity_left_mps,
         velocity_up_mps=velocity_up_mps,
+        attitude_covariance_enu_rad2=attitude_covariance,
         flags=flags,
         record_sha256=observed_digest.hex(),
         unsigned_header=digest_input,
@@ -1447,8 +1628,8 @@ def reconstruct_gazebo_sim_wire_frame(
 ) -> GazeboSimWireFrame:
     """Revalidate one persisted frame against its exact zero-digest wire header.
 
-    The persisted BGR24 file and this 204-byte header are sufficient to
-    reconstruct the original MDGZSIM2 record digest.  Reusing the production
+    The persisted BGR24 file and this fixed v3 header are sufficient to
+    reconstruct the original MDGZSIM3 record digest.  Reusing the production
     reader means timestamp, coordinate, odometry, quaternion, pixel-format and
     geometry rules are checked again instead of trusting a re-hashed JSON
     manifest.
@@ -1520,6 +1701,7 @@ __all__ = [
     "GazeboSimWireFrame",
     "GazeboSimWireTelemetryProvenance",
     "gazebo_sim_ned_frd_kinematics",
+    "gazebo_sim_attitude_sigmas_deg",
     "read_gazebo_sim_wire_frame",
     "reconstruct_gazebo_sim_wire_frame",
 ]

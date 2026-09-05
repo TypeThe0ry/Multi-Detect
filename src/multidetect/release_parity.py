@@ -80,6 +80,12 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
     ),
     "core_algorithm": (
+        # Gazebo is a SIM adapter, but its fixed wire and ENU/FLU covariance
+        # conversion feed the exact shared pose/ranging contract.  Bind both
+        # producer and consumer so SIM cannot retain a stale core identity
+        # after its telemetry semantics diverge from REPLAY/HIL/REAL.
+        "scripts/gazebo_sensor_stream.py",
+        "src/multidetect/backends/gazebo_sim.py",
         "src/multidetect/adaptive_ranging.py",
         "src/multidetect/depth_calibration.py",
         # The platform-neutral task planner is shared by REPLAY, SIM, HIL and

@@ -3168,7 +3168,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Assert-True $requiredSensorTopicsReady "Gazebo camera image/CameraInfo/NavSat/full-odometry topics were not ready within 90 seconds."
 
     # `gz topic -l` lists a topic created only by a subscriber as well as one
-    # backed by a publisher.  Full 3D odometry is a wire-v2 readiness source;
+    # backed by a publisher. Full 3D odometry plus angular covariance is a wire-v3 readiness source;
     # classify it separately as well so a subscriber-created topic name cannot
     # become a false pose/velocity-fusion claim.
     $odometryTopicListed = $lastSensorTopicList -contains $requiredOdometryTopic
@@ -3655,7 +3655,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Assert-True ($integratedEvidence.synchronization.maximum_frame_to_acceptance_latency_ms -le ($integratedEvidence.synchronization.allowed_ack_to_metadata_skew_ms + $integratedEvidence.synchronization.allowed_metadata_acceptance_ack_latency_ms)) "Frame-to-QGC-acceptance latency exceeded the composed barrier budget."
     Assert-True ($integratedEvidence.sensor_transport.complete -eq $true) "Gazebo sensor transport is incomplete."
     Assert-True ($integratedEvidence.sensor_transport.camera_info_intrinsics_semantic_validation -eq "validated_k_p_rectification_plumb_bob_distortion") "Gazebo CameraInfo K/P/R/D semantic validation is missing or incomplete."
-    Assert-True ($integratedEvidence.sensor_transport.odometry_required -eq $true) "Integrated SIM did not require Gazebo wire-v2 full odometry."
+    Assert-True ($integratedEvidence.sensor_transport.odometry_required -eq $true) "Integrated SIM did not require Gazebo wire-v3 full odometry and covariance."
     Assert-True ($integratedEvidence.sensor_transport.full_odometry_pose_velocity_fusion_claimed -eq $true) "Integrated SIM did not validate full odometry pose/velocity fusion."
     Assert-True ($integratedEvidence.sensor_transport.odometry_timestamp_frame_count -eq $Frames) "Integrated SIM did not bind full odometry to every accepted frame."
     Assert-True ($integratedEvidence.terrain_dem_sha256 -eq $terrainDemHash) "Integrated SIM AGL is not bound to the scenario terrain DEM."

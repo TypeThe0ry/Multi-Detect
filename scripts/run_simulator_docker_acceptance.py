@@ -294,7 +294,7 @@ def _empty_sensor_transport(
         "requested": requested,
         "requested_frame_count": frame_count,
         "qualified": False,
-        "wire_version": 2,
+        "wire_version": 3,
         "source_row_order": GAZEBO_SIM_SOURCE_ROW_ORDER,
         "wire_row_order": GAZEBO_SIM_WIRE_ROW_ORDER,
         "vertical_flip_applied": None,
@@ -497,14 +497,14 @@ def _verify_persisted_gazebo_frame(
     provenance = record.get("provenance")
     if not isinstance(provenance, dict):
         raise DockerSimulatorAcceptanceError("persisted Gazebo frame provenance is invalid")
-    v2_fields = (
+    wire_fields = (
         provenance.get("wire_unsigned_header_hex"),
         provenance.get("wire_telemetry"),
         provenance.get("frame_telemetry"),
     )
-    if all(value is None for value in v2_fields):
+    if all(value is None for value in wire_fields):
         return
-    if any(value is None for value in v2_fields):
+    if any(value is None for value in wire_fields):
         raise DockerSimulatorAcceptanceError(
             "persisted Gazebo per-frame telemetry evidence is incomplete"
         )
@@ -586,7 +586,7 @@ def _write_frame_set_manifest(
 
     for record in records:
         _verify_persisted_gazebo_frame(output_directory, record)
-    v2_records = tuple(
+    wire_records = tuple(
         all(
             key in record.get("provenance", {})
             for key in (
@@ -597,11 +597,11 @@ def _write_frame_set_manifest(
         )
         for record in records
     )
-    if any(v2_records) and not all(v2_records):
+    if any(wire_records) and not all(wire_records):
         raise DockerSimulatorAcceptanceError(
             "Gazebo frame-set cannot mix legacy and per-frame telemetry records"
         )
-    per_frame_telemetry_bound = bool(v2_records and all(v2_records))
+    per_frame_telemetry_bound = bool(wire_records and all(wire_records))
     if per_frame_telemetry_bound and (
         not isinstance(camera_calibration, dict) or not isinstance(terrain_dem, dict)
     ):
@@ -617,7 +617,7 @@ def _write_frame_set_manifest(
     source_attribution: dict[str, object] = {
         "pixels": "actual_gazebo_camera_sensor_output",
         "environment": "software_simulation",
-        "wire": "MDGZSIM2",
+        "wire": "MDGZSIM3",
         "source_row_order": GAZEBO_SIM_SOURCE_ROW_ORDER,
         "wire_row_order": GAZEBO_SIM_WIRE_ROW_ORDER,
         "vertical_flip_applied": GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -660,7 +660,7 @@ def _write_frame_set_manifest(
         "scenario_id": plan.scenario_id,
         "scenario_manifest_hash": plan.scenario_manifest_hash,
         "sensor_binding_hash": sensor_binding_hash,
-        "wire_version": 2,
+        "wire_version": 3,
         "pixel_format": "BGR24",
         "frame_count": len(records),
         "total_payload_bytes": sum(int(record["bytes"]) for record in records),
@@ -854,7 +854,7 @@ def _capture_gazebo_sensor_transport(
     )
     if not qualified:
         raise DockerSimulatorAcceptanceError(
-            "Gazebo sensor transport did not satisfy wire-v2 gates"
+            "Gazebo sensor transport did not satisfy wire-v3 gates"
         )
     if len(backend.frame_source.frame_provenance) != frame_count:
         raise DockerSimulatorAcceptanceError(
@@ -912,7 +912,7 @@ def _capture_gazebo_sensor_transport(
         "requested": True,
         "requested_frame_count": frame_count,
         "qualified": True,
-        "wire_version": 2,
+        "wire_version": 3,
         "source_row_order": GAZEBO_SIM_SOURCE_ROW_ORDER,
         "wire_row_order": GAZEBO_SIM_WIRE_ROW_ORDER,
         "vertical_flip_applied": GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
@@ -1825,7 +1825,7 @@ def _parser() -> argparse.ArgumentParser:
         "--sensor-frames",
         type=int,
         default=0,
-        help="capture this many real camera/NavSat/full-odometry wire-v2 frames",
+        help="capture this many real camera/NavSat/full-odometry/covariance wire-v3 frames",
     )
     parser.add_argument("--sensor-width", type=int, default=1280)
     parser.add_argument("--sensor-height", type=int, default=960)

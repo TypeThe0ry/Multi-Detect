@@ -11,7 +11,7 @@ sequence is deliberately strict:
 4. start the bounded evaluator router and wait for all three router sockets;
 5. start ``vtol_sitl_mission_acceptance.py`` in the background;
 6. wait for its transaction-bound fixed-wing flight-capture barrier;
-7. capture production wire-v2 Image/CameraInfo/NavSat/Odometry records from
+7. capture production wire-v3 Image/CameraInfo/NavSat/Odometry covariance records from
    that same still-running container; and
 8. wait for FW -> MC -> VTOL_LAND -> landed/disarmed completion before a
    graceful router stop and exact-ID container removal.
@@ -408,7 +408,7 @@ def prepare_capture_paths(
         label="mission_journal_path",
     )
     frames = _require_new_path(
-        frame_output_directory or run / "gazebo-wire-v2-frames",
+        frame_output_directory or run / "gazebo-wire-v3-frames",
         label="frame_output_directory",
     )
     mission_evidence = _require_new_path(
@@ -1201,7 +1201,7 @@ def validate_sensor_capture(
     capture_started_monotonic_s: float,
     capture_completed_monotonic_s: float,
 ) -> dict[str, bool]:
-    """Verify the persisted wire-v2 frame set, not just in-memory claims."""
+    """Verify the persisted wire-v3 frame set, not just in-memory claims."""
 
     persistence = _mapping(payload.get("pixel_persistence"))
     transport = _mapping(payload.get("transport"))
@@ -1276,14 +1276,14 @@ def validate_sensor_capture(
             and manifest_payload.get("scenario_id") == scenario_id
             and manifest_payload.get("scenario_manifest_hash") == scenario_manifest_hash
             and manifest_payload.get("sensor_binding_hash") == sensor_binding_hash
-            and manifest_payload.get("wire_version") == 2
+            and manifest_payload.get("wire_version") == 3
             and manifest_payload.get("pixel_format") == "BGR24"
             and manifest_payload.get("frame_count") == frame_count
             and manifest_payload.get("total_payload_bytes") == frame_count * expected_payload_bytes
             and _sequence(manifest_payload.get("frames")) == persisted_frames
             and source_attribution.get("pixels") == "actual_gazebo_camera_sensor_output"
             and source_attribution.get("environment") == "software_simulation"
-            and source_attribution.get("wire") == "MDGZSIM2"
+            and source_attribution.get("wire") == "MDGZSIM3"
             and source_attribution.get("source_row_order") == GAZEBO_SIM_SOURCE_ROW_ORDER
             and source_attribution.get("wire_row_order") == GAZEBO_SIM_WIRE_ROW_ORDER
             and source_attribution.get("vertical_flip_applied") is GAZEBO_SIM_VERTICAL_FLIP_APPLIED
@@ -1396,7 +1396,7 @@ def validate_sensor_capture(
     completed_time = _finite_float(capture_completed_monotonic_s)
     checks = {
         "qualified": payload.get("qualified") is True,
-        "wire_v2": payload.get("wire_version") == 2,
+        "wire_v3": payload.get("wire_version") == 3,
         "row_order_normalized": payload.get("source_row_order") == GAZEBO_SIM_SOURCE_ROW_ORDER
         and payload.get("wire_row_order") == GAZEBO_SIM_WIRE_ROW_ORDER
         and payload.get("vertical_flip_applied") is GAZEBO_SIM_VERTICAL_FLIP_APPLIED
@@ -1713,7 +1713,7 @@ def _base_evidence(
             "flight_capture_complete_marker": False,
             "flight_capture_interval": False,
             "same_container_sensor_capture": False,
-            "wire_v2_pixels": False,
+            "wire_v3_pixels": False,
             "complete_vtol_mission": False,
             "mission_journal_integrity": False,
             "router_graceful_stop": False,
@@ -2101,7 +2101,7 @@ def run_vtol_mission_sensor_capture(
             }
             evidence["gates"]["flight_capture_complete_marker"] = True
             evidence["gates"]["same_container_sensor_capture"] = True
-            evidence["gates"]["wire_v2_pixels"] = True
+            evidence["gates"]["wire_v3_pixels"] = True
 
             mission_exit = mission_process.wait(timeout=mission_timeout_s + 30.0)
             if mission_exit != 0:
@@ -2425,7 +2425,7 @@ def run_vtol_mission_sensor_capture(
         "flight_capture_complete_marker",
         "flight_capture_interval",
         "same_container_sensor_capture",
-        "wire_v2_pixels",
+        "wire_v3_pixels",
         "complete_vtol_mission",
         "mission_journal_integrity",
         "router_graceful_stop",

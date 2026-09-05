@@ -303,7 +303,7 @@ def evaluate_candidate_detector_controls(
             "actual_gazebo_pixels_persisted": frame_set.actual_gazebo_pixels_persisted,
             "telemetry_causal_binding": frame_set.telemetry_causal_binding,
             "telemetry_causal_binding_status": (
-                "hash_bound_wire_v2_nonfuture_sources_within_1_5s"
+                "hash_bound_wire_v3_nonfuture_sources_within_1_5s"
                 if frame_set.telemetry_causal_binding
                 else "not_proved"
             ),
@@ -698,9 +698,9 @@ def _verify_frame_set_binding(
     without_hash.pop("manifest_sha256", None)
     if canonical_sha256(without_hash) != claimed_manifest_sha:
         raise CandidateDetectorControlsInputError("frame-set manifest_sha256 is invalid")
-    if raw.get("wire_version") != 2 or raw.get("pixel_format") != "BGR24":
+    if raw.get("wire_version") != 3 or raw.get("pixel_format") != "BGR24":
         raise CandidateDetectorControlsInputError(
-            "frame-set manifest must bind wire_version=2 and pixel_format=BGR24"
+            "frame-set manifest must bind wire_version=3 and pixel_format=BGR24"
         )
     scenario_id = _nonempty_text(raw.get("scenario_id"), "frame-set scenario_id")
     scenario_manifest_hash = _sha256_text(
@@ -713,7 +713,7 @@ def _verify_frame_set_binding(
     required_source_attribution = {
         "pixels": "actual_gazebo_camera_sensor_output",
         "environment": "software_simulation",
-        "wire": "MDGZSIM2",
+        "wire": "MDGZSIM3",
         "truth_loaded_by_runtime": False,
     }
     if any(
@@ -721,7 +721,7 @@ def _verify_frame_set_binding(
         for key, expected in required_source_attribution.items()
     ):
         raise CandidateDetectorControlsInputError(
-            "frame-set source_attribution must preserve Gazebo/MDGZSIM2/truth-isolation identity"
+            "frame-set source_attribution must preserve Gazebo/MDGZSIM3/truth-isolation identity"
         )
     row_order_contract = {
         "source_row_order": "top_to_bottom",
@@ -918,7 +918,7 @@ def _verify_frame_set_binding(
         )
         if wire_telemetry != GazeboSimWireTelemetryProvenance.from_wire(wire).to_mapping():
             raise CandidateDetectorControlsInputError(
-                "selected frame wire telemetry does not match its MDGZSIM2 header"
+                "selected frame wire telemetry does not match its MDGZSIM3 header"
             )
         frame_telemetry = _mapping(
             provenance.get("frame_telemetry"),
@@ -987,7 +987,7 @@ def _verify_frame_set_binding(
         scenario_id=scenario_id,
         scenario_manifest_hash=scenario_manifest_hash,
         sensor_binding_hash=sensor_binding_hash,
-        wire_version=2,
+        wire_version=3,
         actual_gazebo_pixels_persisted=True,
         telemetry_causal_binding=True,
         runtime_truth_loaded=False,

@@ -30,8 +30,8 @@ from collections import deque
 from dataclasses import dataclass, replace
 from typing import Any, BinaryIO
 
-WIRE_MAGIC = b"MDGZSIM2"
-WIRE_VERSION = 2
+WIRE_MAGIC = b"MDGZSIM3"
+WIRE_VERSION = 3
 GAZEBO_SOURCE_ROW_ORDER = "top_to_bottom"
 WIRE_ROW_ORDER = "top_to_bottom"
 GAZEBO_VERTICAL_FLIP_APPLIED = False
@@ -41,9 +41,10 @@ GAZEBO_VERTICAL_FLIP_APPLIED = False
 # packed BGR stride, payload bytes, CameraInfo timestamp, NavSat timestamp,
 # Odometry timestamp, latitude, longitude, absolute MSL altitude, Gazebo ENU
 # position, Gazebo FLU->ENU orientation quaternion, body-FLU linear velocity,
-# flags, and whole-record SHA-256.  The digest is calculated with its own field
+# row-major 3x3 fixed-ENU-axis attitude covariance (rad^2), flags, and
+# whole-record SHA-256.  The digest is calculated with its own field
 # zeroed, so both telemetry and pixels are integrity bound.
-WIRE_HEADER = struct.Struct("<8sHHIQIIIIQQQ13dI32s")
+WIRE_HEADER = struct.Struct("<8sHHIQIIIIQQQ22dI32s")
 WIRE_HEADER_BYTES = WIRE_HEADER.size
 
 FLAG_CAMERA_INFO = 1 << 0
@@ -123,6 +124,7 @@ class SensorWireHeader:
     velocity_forward_mps: float
     velocity_left_mps: float
     velocity_up_mps: float
+    attitude_covariance_enu_rad2: tuple[float, ...]
     flags: int
     sha256: bytes
 
@@ -460,6 +462,38 @@ def _validate_odometry(
     return (*position, *normalized_quaternion, *velocity)
 
 
+def _validate_attitude_covariance(values: object) -> tuple[float, ...]:
+    """Validate one symmetric positive-semidefinite 3x3 covariance."""
+
+    try:
+        covariance = tuple(values)  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise ValueError("Odometry attitude covariance must be an iterable") from exc
+    if len(covariance) != 9:
+        raise ValueError("Odometry attitude covariance must contain exactly 9 values")
+    normalized = tuple(
+        _finite(f"attitude_covariance[{index}]", value)
+        for index, value in enumerate(covariance)
+    )
+    scale = max(1.0, *(abs(value) for value in normalized))
+    tolerance = 1.0e-10 * scale
+    for row in range(3):
+        if normalized[row * 3 + row] < 0.0:
+            raise ValueError("Odometry attitude covariance diagonal cannot be negative")
+        for column in range(row + 1, 3):
+            if abs(normalized[row * 3 + column] - normalized[column * 3 + row]) > tolerance:
+                raise ValueError("Odometry attitude covariance must be symmetric")
+    # Sylvester's criterion for PSD 3x3 matrices: every principal minor is
+    # non-negative.  This catches impossible cross-correlation even when each
+    # diagonal is individually plausible.
+    a, b, c, _d, e, f, _g, _h, i = normalized
+    principal_minors = (a, e, i, a * e - b * b, a * i - c * c, e * i - f * f)
+    determinant = a * (e * i - f * f) - b * (b * i - c * f) + c * (b * f - c * e)
+    if any(value < -tolerance for value in (*principal_minors, determinant)):
+        raise ValueError("Odometry attitude covariance must be positive semidefinite")
+    return normalized
+
+
 def _validate_geometry(
     *,
     width: int,
@@ -539,6 +573,9 @@ def _validate_header(header: SensorWireHeader) -> SensorWireHeader:
         velocity_left_mps=header.velocity_left_mps,
         velocity_up_mps=header.velocity_up_mps,
     )
+    attitude_covariance = _validate_attitude_covariance(
+        header.attitude_covariance_enu_rad2
+    )
     return SensorWireHeader(
         sequence=sequence,
         sensor_stamp_ns=sensor_stamp_ns,
@@ -562,13 +599,14 @@ def _validate_header(header: SensorWireHeader) -> SensorWireHeader:
         velocity_forward_mps=odometry[7],
         velocity_left_mps=odometry[8],
         velocity_up_mps=odometry[9],
+        attitude_covariance_enu_rad2=attitude_covariance,
         flags=flags,
         sha256=digest,
     )
 
 
 def pack_header(header: SensorWireHeader) -> bytes:
-    """Validate and pack one v2 fixed header."""
+    """Validate and pack one v3 fixed header."""
 
     value = _validate_header(header)
     return WIRE_HEADER.pack(
@@ -597,6 +635,7 @@ def pack_header(header: SensorWireHeader) -> bytes:
         value.velocity_forward_mps,
         value.velocity_left_mps,
         value.velocity_up_mps,
+        *value.attitude_covariance_enu_rad2,
         value.flags,
         value.sha256,
     )
@@ -637,6 +676,15 @@ def unpack_header(data: bytes) -> SensorWireHeader:
             velocity_forward_mps,
             velocity_left_mps,
             velocity_up_mps,
+            covariance_xx,
+            covariance_xy,
+            covariance_xz,
+            covariance_yx,
+            covariance_yy,
+            covariance_yz,
+            covariance_zx,
+            covariance_zy,
+            covariance_zz,
             flags,
             digest,
         ) = WIRE_HEADER.unpack(raw)
@@ -674,6 +722,17 @@ def unpack_header(data: bytes) -> SensorWireHeader:
             velocity_forward_mps=velocity_forward_mps,
             velocity_left_mps=velocity_left_mps,
             velocity_up_mps=velocity_up_mps,
+            attitude_covariance_enu_rad2=(
+                covariance_xx,
+                covariance_xy,
+                covariance_xz,
+                covariance_yx,
+                covariance_yy,
+                covariance_yz,
+                covariance_zx,
+                covariance_zy,
+                covariance_zz,
+            ),
             flags=flags,
             sha256=digest,
         )
@@ -728,7 +787,7 @@ def normalize_bgr24(
 
     The pure helper preserves source row order by default. Gazebo Harmonic's
     camera transport already emits top-to-bottom rows, which is also the
-    MDGZSIM2/OpenCV/QGC contract. The live callback therefore performs color
+    MDGZSIM3/OpenCV/QGC contract. The live callback therefore performs color
     conversion and padding removal without an extra vertical flip.
     """
 
@@ -819,6 +878,7 @@ def build_wire_frame(
     velocity_forward_mps: float,
     velocity_left_mps: float,
     velocity_up_mps: float,
+    attitude_covariance_enu_rad2: tuple[float, ...],
     bgr_payload: bytes | bytearray | memoryview,
 ) -> bytes:
     """Build a complete integrity-bound frame from telemetry and BGR24 pixels."""
@@ -848,6 +908,7 @@ def build_wire_frame(
         velocity_forward_mps=velocity_forward_mps,
         velocity_left_mps=velocity_left_mps,
         velocity_up_mps=velocity_up_mps,
+        attitude_covariance_enu_rad2=attitude_covariance_enu_rad2,
         flags=WIRE_READY_BGR24_FLAGS,
         sha256=b"\x00" * hashlib.sha256().digest_size,
     )
@@ -938,14 +999,15 @@ def _stamp_ns(message: Any) -> int:
 
 
 def _odometry_from_message(message: Any) -> tuple[float, ...]:
-    pose = getattr(getattr(message, "pose_with_covariance", None), "pose", None)
+    pose_with_covariance = getattr(message, "pose_with_covariance", None)
+    pose = getattr(pose_with_covariance, "pose", None)
     twist = getattr(getattr(message, "twist_with_covariance", None), "twist", None)
     position = getattr(pose, "position", None)
     orientation = getattr(pose, "orientation", None)
     linear = getattr(twist, "linear", None)
     if position is None or orientation is None or linear is None:
         raise ValueError("Odometry message is missing pose or linear velocity")
-    return _validate_odometry(
+    odometry = _validate_odometry(
         position_east_m=position.x,
         position_north_m=position.y,
         position_up_m=position.z,
@@ -957,6 +1019,20 @@ def _odometry_from_message(message: Any) -> tuple[float, ...]:
         velocity_left_mps=linear.y,
         velocity_up_mps=linear.z,
     )
+    covariance_message = getattr(pose_with_covariance, "covariance", None)
+    covariance_data = getattr(covariance_message, "data", None)
+    try:
+        covariance_6x6 = tuple(covariance_data)
+    except TypeError as exc:
+        raise ValueError("Odometry pose covariance data is missing") from exc
+    if len(covariance_6x6) != 36:
+        raise ValueError("Odometry pose covariance must contain exactly 36 values")
+    angular = tuple(
+        covariance_6x6[row * 6 + column]
+        for row in range(3, 6)
+        for column in range(3, 6)
+    )
+    return (*odometry, *_validate_attitude_covariance(angular))
 
 
 def _diagnostic(event: str, **fields: object) -> None:
@@ -1163,6 +1239,7 @@ def main() -> int:
                         "velocity_forward_mps": odometry[7],
                         "velocity_left_mps": odometry[8],
                         "velocity_up_mps": odometry[9],
+                        "attitude_covariance_enu_rad2": odometry[10:19],
                     }
                 )
                 counts["odometry"] += 1
@@ -1272,6 +1349,10 @@ def main() -> int:
                     velocity_forward_mps=float(odometry["velocity_forward_mps"]),
                     velocity_left_mps=float(odometry["velocity_left_mps"]),
                     velocity_up_mps=float(odometry["velocity_up_mps"]),
+                    attitude_covariance_enu_rad2=tuple(
+                        float(value)
+                        for value in odometry["attitude_covariance_enu_rad2"]
+                    ),
                     bgr_payload=bgr_payload,
                 )
                 with state_lock:

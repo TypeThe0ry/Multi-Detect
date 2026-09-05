@@ -182,7 +182,7 @@ def _write_frame_set(case: _Case, *, selected_frame_id: str = "gazebo-frame-0001
         "scenario_id": "terrain_pixel_validation_001",
         "scenario_manifest_hash": "a" * 64,
         "sensor_binding_hash": "b" * 64,
-        "wire_version": 2,
+        "wire_version": 3,
         "pixel_format": "BGR24",
         "frame_count": 1,
         "total_payload_bytes": frame_bytes,
@@ -190,7 +190,7 @@ def _write_frame_set(case: _Case, *, selected_frame_id: str = "gazebo-frame-0001
         "source_attribution": {
             "pixels": "actual_gazebo_camera_sensor_output",
             "environment": "software_simulation",
-            "wire": "MDGZSIM2",
+            "wire": "MDGZSIM3",
             "truth_loaded_by_runtime": False,
             "source_row_order": "top_to_bottom",
             "wire_row_order": "top_to_bottom",
@@ -363,7 +363,7 @@ def test_matching_frame_set_proves_gazebo_pixels_and_v2_causal_binding(tmp_path:
     assert document["frame_identity"]["frame_set_manifest_verified"] is True
     assert document["provenance"]["actual_gazebo_pixels_persisted"] is True
     assert document["provenance"]["telemetry_causal_binding"] is True
-    assert document["provenance"]["wire_version"] == 2
+    assert document["provenance"]["wire_version"] == 3
     assert document["provenance"]["maximum_source_skew_ns"] == 150_000_000
     assert document["provenance"]["source_row_order"] == "top_to_bottom"
     assert document["provenance"]["wire_row_order"] == "top_to_bottom"

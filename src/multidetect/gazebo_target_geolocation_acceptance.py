@@ -535,8 +535,8 @@ def evaluate_gazebo_target_geolocation(
             "sensor_binding_sha256": frame_set.sensor_binding_hash,
             "frame_count": len(frame_set.frames),
             "all_frames_verified_before_inference": True,
-            "wire_version": 2,
-            "wire": "MDGZSIM2",
+            "wire_version": 3,
+            "wire": "MDGZSIM3",
             "pixel_format": "BGR24",
             "actual_gazebo_pixels": True,
             "per_frame_wire_record_reconstructed": True,
@@ -927,9 +927,9 @@ def _verify_frame_set(
         raise GazeboTargetGeolocationInputError(
             "frame-set scenario manifest hash does not match the supplied scenario"
         )
-    if raw.get("wire_version") != 2 or raw.get("pixel_format") != "BGR24":
+    if raw.get("wire_version") != 3 or raw.get("pixel_format") != "BGR24":
         raise GazeboTargetGeolocationInputError(
-            "frame-set must use MDGZSIM2 wire version 2 and BGR24 pixels"
+            "frame-set must use MDGZSIM3 wire version 3 and BGR24 pixels"
         )
     sensor_binding_hash = _sha256_text(
         raw.get("sensor_binding_hash"), "frame-set sensor_binding_hash"
@@ -938,7 +938,7 @@ def _verify_frame_set(
     required_source = {
         "pixels": "actual_gazebo_camera_sensor_output",
         "environment": "software_simulation",
-        "wire": "MDGZSIM2",
+        "wire": "MDGZSIM3",
         "source_row_order": "top_to_bottom",
         "wire_row_order": "top_to_bottom",
         "vertical_flip_applied": False,
@@ -1139,7 +1139,7 @@ def _verify_frame_set(
             or provenance.get("flags") != wire.flags
         ):
             raise GazeboTargetGeolocationInputError(
-                f"{frame_id} manifest timestamps/flags do not match its MDGZSIM2 header"
+                f"{frame_id} manifest timestamps/flags do not match its MDGZSIM3 header"
             )
         wire_record_sha = _sha256_text(
             row.get("wire_record_sha256"), f"frames[{index}].wire_record_sha256"
@@ -1151,7 +1151,7 @@ def _verify_frame_set(
             != GazeboSimWireTelemetryProvenance.from_wire(wire).to_mapping()
         ):
             raise GazeboTargetGeolocationInputError(
-                f"MDGZSIM2 wire reconstruction mismatch for {frame_id}"
+                f"MDGZSIM3 wire reconstruction mismatch for {frame_id}"
             )
         telemetry = _verify_frame_telemetry(
             provenance,

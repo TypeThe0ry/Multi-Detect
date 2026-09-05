@@ -32,6 +32,7 @@ from scripts.gazebo_sensor_stream import (
     WIRE_VERSION,
     CausalSourceBuffer,
     WireOrderValidator,
+    _odometry_from_message,
     _shutdown_transport_node,
     build_wire_frame,
     decode_wire_blob,
@@ -44,6 +45,12 @@ from scripts.gazebo_sensor_stream import (
 )
 from scripts.gazebo_sensor_stream import main as sensor_stream_main
 
+TEST_ATTITUDE_COVARIANCE = (
+    0.0001, 0.0, 0.0,
+    0.0, 0.0004, 0.0,
+    0.0, 0.0, 0.0009,
+)
+
 
 def _frame(
     *,
@@ -52,6 +59,7 @@ def _frame(
     odometry_stamp_ns: int = 4,
     payload: bytes | None = None,
     orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
+    attitude_covariance: tuple[float, ...] = TEST_ATTITUDE_COVARIANCE,
 ) -> bytes:
     bgr = payload if payload is not None else bytes((3, 2, 1, 6, 5, 4))
     return build_wire_frame(
@@ -75,6 +83,7 @@ def _frame(
         velocity_forward_mps=4.0,
         velocity_left_mps=5.0,
         velocity_up_mps=6.0,
+        attitude_covariance_enu_rad2=attitude_covariance,
         bgr_payload=bgr,
     )
 
@@ -91,6 +100,18 @@ class _BinaryStdoutCapture:
 
 
 def _gazebo_message(*, stamp_ns: int, **fields: object) -> SimpleNamespace:
+    pose_with_covariance = fields.get("pose_with_covariance")
+    if pose_with_covariance is not None and not hasattr(pose_with_covariance, "covariance"):
+        pose_with_covariance.covariance = SimpleNamespace(
+            data=[
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0001, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0004, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0009,
+            ]
+        )
     sec, nsec = divmod(stamp_ns, 1_000_000_000)
     return SimpleNamespace(
         header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nsec=nsec)),
@@ -600,9 +621,9 @@ def test_normalize_rgba_drops_alpha_and_swaps_red_blue() -> None:
 
 def test_fixed_header_round_trip_contains_version_geometry_telemetry_and_digest() -> None:
     packet = _frame()
-    assert WIRE_MAGIC == b"MDGZSIM2"
-    assert WIRE_VERSION == 2
-    assert WIRE_HEADER_BYTES == WIRE_HEADER.size == 204
+    assert WIRE_MAGIC == b"MDGZSIM3"
+    assert WIRE_VERSION == 3
+    assert WIRE_HEADER_BYTES == WIRE_HEADER.size == 276
     header = unpack_header(packet[:WIRE_HEADER_BYTES])
     assert header.sequence == 0
     assert header.sensor_stamp_ns == 10
@@ -629,11 +650,67 @@ def test_fixed_header_round_trip_contains_version_geometry_telemetry_and_digest(
         header.velocity_left_mps,
         header.velocity_up_mps,
     ) == (4.0, 5.0, 6.0)
+    assert header.attitude_covariance_enu_rad2 == pytest.approx(
+        (0.0001, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.0009)
+    )
     assert header.flags & (FLAG_CAMERA_INFO | FLAG_NAVSAT | FLAG_ODOMETRY) == 7
     assert (header.flags & PIXEL_FORMAT_MASK) >> PIXEL_FORMAT_SHIFT == PIXEL_FORMAT_BGR24
     digest_input = packet[: WIRE_HEADER_BYTES - 32] + (b"\x00" * 32)
     assert header.sha256 == hashlib.sha256(digest_input + packet[WIRE_HEADER_BYTES:]).digest()
     assert pack_header(header) == packet[:WIRE_HEADER_BYTES]
+
+
+def _raw_odometry_message(covariance: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        pose_with_covariance=SimpleNamespace(
+            pose=SimpleNamespace(
+                position=SimpleNamespace(x=1.0, y=2.0, z=3.0),
+                orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+            ),
+            covariance=SimpleNamespace(data=covariance),
+        ),
+        twist_with_covariance=SimpleNamespace(
+            twist=SimpleNamespace(linear=SimpleNamespace(x=4.0, y=5.0, z=6.0))
+        ),
+    )
+
+
+def test_odometry_extracts_angular_block_from_pose_covariance() -> None:
+    covariance = [float(index) / 1000.0 for index in range(36)]
+    angular = (
+        0.010, 0.002, 0.003,
+        0.002, 0.020, 0.004,
+        0.003, 0.004, 0.030,
+    )
+    for row in range(3):
+        for column in range(3):
+            covariance[(row + 3) * 6 + column + 3] = angular[row * 3 + column]
+
+    extracted = _odometry_from_message(_raw_odometry_message(covariance))
+
+    assert extracted[-9:] == pytest.approx(angular)
+
+
+@pytest.mark.parametrize("covariance", (None, (), (0.0,) * 35, (0.0,) * 37))
+def test_odometry_rejects_missing_or_non_6x6_pose_covariance(covariance: object) -> None:
+    with pytest.raises(ValueError, match="covariance"):
+        _odometry_from_message(_raw_odometry_message(covariance))
+
+
+@pytest.mark.parametrize(
+    ("covariance", "message"),
+    (
+        ((math.nan,) + (0.0,) * 8, "must be finite"),
+        ((1.0, 0.25, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0), "symmetric"),
+        ((1.0, 2.0, 0.0, 2.0, 1.0, 0.0, 0.0, 0.0, 1.0), "semidefinite"),
+    ),
+)
+def test_wire_builder_rejects_invalid_attitude_covariance(
+    covariance: tuple[float, ...],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _frame(attitude_covariance=covariance)
 
 
 def test_odometry_pose_velocity_is_required_and_exposed() -> None:
@@ -1049,6 +1126,7 @@ def test_wire_source_age_accepts_exact_limit_and_rejects_one_nanosecond_over() -
         "velocity_forward_mps": 0.0,
         "velocity_left_mps": 0.0,
         "velocity_up_mps": 0.0,
+        "attitude_covariance_enu_rad2": TEST_ATTITUDE_COVARIANCE,
         "bgr_payload": b"\x00\x00\x00",
     }
     packet = build_wire_frame(**common)
@@ -1086,6 +1164,7 @@ def test_wire_allows_session_static_camera_info_but_keeps_it_causal() -> None:
         velocity_forward_mps=0.0,
         velocity_left_mps=0.0,
         velocity_up_mps=0.0,
+        attitude_covariance_enu_rad2=TEST_ATTITUDE_COVARIANCE,
         bgr_payload=b"\x00\x00\x00",
     )
     header, _payload = parse_wire_frame(packet)
@@ -1116,6 +1195,7 @@ def test_wire_rejects_zero_sensor_or_readiness_timestamp() -> None:
             velocity_forward_mps=0.0,
             velocity_left_mps=0.0,
             velocity_up_mps=0.0,
+            attitude_covariance_enu_rad2=TEST_ATTITUDE_COVARIANCE,
             bgr_payload=b"\x00\x00\x00",
         )
 
@@ -1158,6 +1238,7 @@ def test_wire_rejects_nonfinite_navsat(
             velocity_forward_mps=0.0,
             velocity_left_mps=0.0,
             velocity_up_mps=0.0,
+            attitude_covariance_enu_rad2=TEST_ATTITUDE_COVARIANCE,
             bgr_payload=b"\x00\x00\x00",
         )
 

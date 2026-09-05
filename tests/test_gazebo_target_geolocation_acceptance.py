@@ -342,6 +342,7 @@ def _build_case(
             velocity_forward_mps=0.0,
             velocity_left_mps=0.0,
             velocity_up_mps=0.0,
+            attitude_covariance_enu_rad2=(0.0,) * 9,
             bgr_payload=payload,
         )
         wire = read_gazebo_sim_wire_frame(
@@ -454,7 +455,7 @@ def _build_case(
         "scenario_id": scenario_id,
         "scenario_manifest_hash": canonical_sha256(scenario),
         "sensor_binding_hash": "a" * 64,
-        "wire_version": 2,
+        "wire_version": 3,
         "pixel_format": "BGR24",
         "frame_count": len(frame_rows),
         "total_payload_bytes": sum(item["bytes"] for item in frame_rows),
@@ -462,7 +463,7 @@ def _build_case(
         "source_attribution": {
             "pixels": "actual_gazebo_camera_sensor_output",
             "environment": "software_simulation",
-            "wire": "MDGZSIM2",
+            "wire": "MDGZSIM3",
             "source_row_order": "top_to_bottom",
             "wire_row_order": "top_to_bottom",
             "vertical_flip_applied": False,

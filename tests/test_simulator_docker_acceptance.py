@@ -365,7 +365,7 @@ def test_raw_bgr24_persistence_is_exact_hash_bound_and_tamper_evident(
         "repository_model_assets_sha256": model_assets["assets_sha256"],
         "truth_loaded_by_runtime": False,
         "vertical_flip_applied": module.GAZEBO_SIM_VERTICAL_FLIP_APPLIED,
-        "wire": "MDGZSIM2",
+        "wire": "MDGZSIM3",
         "wire_row_order": module.GAZEBO_SIM_WIRE_ROW_ORDER,
     }
     assert manifest["repository_model_assets"] == model_assets
@@ -471,6 +471,7 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
         velocity_forward_mps=0.0,
         velocity_left_mps=0.0,
         velocity_up_mps=0.0,
+        attitude_covariance_enu_rad2=(0.0,) * 9,
         bgr_payload=raw_pixels,
     )
 
@@ -674,7 +675,7 @@ def test_execute_starts_observes_and_always_cleans_container(
             "requested": True,
             "requested_frame_count": 2,
             "qualified": True,
-            "wire_version": 2,
+            "wire_version": 3,
             "odometry_required": True,
             "full_odometry_pose_velocity_fusion_claimed": True,
             "terrain_agl_reference": "GAZEBO_NAVSAT_MSL_MINUS_SCENARIO_DEM_MSL",
@@ -722,7 +723,7 @@ def test_execute_starts_observes_and_always_cleans_container(
     assert payload["telemetry"]["qualified"] is True
     assert payload["sensor_transport_gate_passed"] is True
     assert payload["sensor_transport"]["qualified"] is True
-    assert payload["sensor_transport"]["wire_version"] == 2
+    assert payload["sensor_transport"]["wire_version"] == 3
     assert payload["sensor_transport"]["terrain_agl_reference"] == (
         "GAZEBO_NAVSAT_MSL_MINUS_SCENARIO_DEM_MSL"
     )
