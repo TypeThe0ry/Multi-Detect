@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v75 设备校准嵌套证据（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+issued certificate file
+  -> equipment-record（path + bytes + SHA-256 + issuer + validity + accuracy）
+  -> equipment calibration JSON（strict schema）
+  -> mount survey reopens record + certificate
+  -> identity/accuracy/time-window checks
+```
+
+设备记录 schema 和 survey 执行代码均属于 shared task contract；证书内容仍需现场人员确认来自实际签发方。
+
 ## v74 现场工作表准备层（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

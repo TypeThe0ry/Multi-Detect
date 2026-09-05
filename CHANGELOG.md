@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v75 equipment calibration provenance（2026-09-06）
+
+- 新增严格 equipment-calibration schema 与 `equipment-record` CLI，自动 hash-bind 原始证书文件；
+- camera-mount survey 重新验证嵌套证书、issuer、有效起止时间、设备 ID 和角度/线性精度，并要求
+  survey 时间落在有效窗口；
+- 增加过期、错设备、证书事后篡改和 CLI record 生成回归；schema 纳入 shared task parity。
+
 ### v0.3.0-pre.8 v74 mount-survey field worksheet and preflight（2026-09-06）
 
 - 新增 `template` CLI，原子生成固定 CSV v1 表头和 5–1000 个稳定 sample ID，默认拒绝覆盖及 symlink；

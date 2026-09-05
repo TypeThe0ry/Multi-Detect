@@ -12,6 +12,14 @@ python .\scripts\camera_mount_survey.py template `
   --output .\field-data\raw-measurements.csv --sample-count 5
 python .\scripts\camera_mount_survey.py validate-raw `
   .\field-data\raw-measurements.csv --minimum-samples 5
+python .\scripts\camera_mount_survey.py equipment-record `
+  --equipment-id inclinometer-and-caliper-001 `
+  --issuer calibration-lab-a `
+  --valid-from-utc 2026-01-01T00:00:00Z `
+  --valid-until-utc 2027-01-01T00:00:00Z `
+  --angular-accuracy-deg 0.05 --linear-accuracy-m 0.002 `
+  --certificate .\field-data\equipment-certificate.pdf `
+  --output .\field-data\equipment-calibration.json
 python .\scripts\camera_mount_survey.py create --help
 python .\scripts\camera_mount_survey.py verify `
   .\artifacts\evaluation\camera-mount-survey-<stamp>.json `
@@ -31,6 +39,10 @@ sample_id,pitch_down_deg,yaw_right_deg,roll_clockwise_deg,offset_forward_m,offse
 
 空白模板必然无法通过 `validate-raw`；必须先把所有数值单元格填完。模板生成器默认拒绝覆盖已有文件，
 避免现场记录被误清空。预检只是格式和数值完整性检查，不代替 surveyor/reviewer、设备证书绑定或正式验证。
+
+`create --equipment-calibration` 必须指向 `equipment-record` 生成的 JSON，而不是直接指向 PDF。survey
+时间必须处于记录的 `valid_from_utc..valid_until_utc`，且命令中的 equipment ID/accuracy 必须完全匹配；
+原始证书文件被修改后，独立 verifier 会因嵌套 hash/size/path 不一致而拒绝。
 
 这份 runbook 是接通飞机 Ethernet 后的第一步。它只做网络、协议和证据检查，
 不登录 Jetson、不请求 MAVLink stream、不启动 RTSP 播放，也不发送飞控控制数据。

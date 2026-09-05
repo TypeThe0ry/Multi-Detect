@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v74：新增 mount-survey CSV 模板生成与只读预检 CLI，现场可在生成验收报告前发现格式/样本问题 |
+| 当前工程迭代 | v75：设备校准记录现绑定证书文件、有效期、设备身份与精度；survey 日期必须落在有效窗口内 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,12 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v75 测量设备校准证据链
+
+`equipment-record` 自动将校准证书文件的路径/大小/SHA-256 与 issuer、有效期、设备 ID、角度/线性精度
+写成严格记录。survey 会重新打开记录和证书，要求测量时间位于有效窗口、CLI 设备身份和精度与记录完全
+一致；证书事后变化、过期或错设备均 fail-closed。任意 PDF 文件已不能单独冒充有效校准。
 
 ### v74 现场测量模板与预检
 

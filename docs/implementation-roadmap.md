@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## 测量设备校准 provenance（v75）
+
+- [x] 定义设备 ID、issuer、有效期、精度与嵌套证书哈希的严格记录；
+- [x] 提供 `equipment-record` CLI 自动生成记录，避免人工计算证书哈希；
+- [x] survey 独立检查有效期覆盖测量时间、身份/精度一致和证书未变化；
+- [ ] 现场绑定真实量具证书并确认其校准有效期覆盖实际测量日期。
+
 ## Mount-survey 现场工作表与预检（v74）
 
 - [x] 原子生成固定 v1 CSV 空白模板，默认拒绝覆盖与 symlink；
