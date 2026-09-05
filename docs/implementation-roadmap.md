@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## Field-evidence bindings strict schema（v77）
+
+- [x] 显式声明八项输入 hash/bytes 与时间策略绑定；
+- [x] 显式声明 target-event、recording、camera-mount 与 calibration 绑定及 null 边界；
+- [x] 禁止未知 binding，覆盖 pending/complete 正测与额外 claim 负测；
+- [ ] 用真实现场八层输入生成 strict-schema-valid 报告并由第二机独立重算。
+
 ## Target-event 相机标定跨证据绑定（v76）
 
 - [x] 将严格相机标定复制进 replay bundle，并绑定 ID、bytes、SHA-256；

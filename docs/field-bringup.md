@@ -1,5 +1,11 @@
 # 现场链路 Bring-up（v0.3.0-pre.8）
 
+## v77 field-evidence 报告结构复核
+
+现场报告的 `bindings` 已禁止未知键，并固定八项输入 SHA-256/bytes、时间策略、target-event、recording、
+mount 与 calibration 字段类型。采集未完成时允许 canonical null/0；文件一旦出现，必须重新生成报告，不能
+手工在旧 pending JSON 中补 claim。发布侧仍会重新打开所有来源并比较整个确定性结果。
+
 ## v76 target-event 与 mount survey 标定一致性
 
 现场创建 target-event replay 时必须传入本次实际定位使用的同一份严格 camera calibration：

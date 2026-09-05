@@ -1,6 +1,13 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v76 工作树）
+最后更新：2026-09-06（v77 工作树）
+
+## v77 本轮已收口
+
+- `field-evidence-bundle.schema.json` 的 `bindings` 改为严格、无未知字段的机器合同；
+- 八项输入 hash/bytes、时间策略、target-event、recording、mount 与 calibration bindings 均有显式类型；
+- pending 与 complete 报告均经 Draft 2020-12 验证，任意额外 claim 会被 schema 拒绝；
+- verifier 仍重开所有来源并比较重算结果；结构通过不能代替来源真实性或 HIL/REAL 验收。
 
 ## v76 本轮已收口
 
@@ -43,7 +50,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `539c9c8a89b677b2c59a8f6615edad83fc5fc6e4`（当前文档提交前领先远端 40 个提交）。
+本地 `main` 提交 `224b0d07ce23ac9c0cfa7c5d991ac54f8df7e0a5`（当前文档提交前领先远端 42 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -99,7 +106,7 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v76 全仓回归为 3,328 tests：`3327 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
+- v77 全仓回归为 3,328 tests：`3327 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
   SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。

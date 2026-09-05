@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v77 field-evidence binding schema（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+8 input descriptors -> input_sha256/input_bytes (fixed keys)
+target-event + recording + mount survey -> typed optional bindings
+policy -> bounded telemetry age + REAL-domain requirement
+  -> strict JSON Schema (no unknown bindings)
+  -> independent source re-evaluation and deterministic section comparison
+```
+
+schema 负责结构边界，`verify_field_evidence_bundle_report` 负责重新读取来源和语义重算；两者不能相互替代。
+
 ## v76 target-event 标定跨证据绑定（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

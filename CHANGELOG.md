@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v77 strict field-evidence bindings schema（2026-09-06）
+
+- 将 field evidence 的 `bindings` 从任意 object 收紧为 `additionalProperties=false` 的显式 schema；
+- 对八项输入的 SHA-256/bytes、时间策略、target-event、recording、mount 与 calibration 绑定分别声明
+  类型和 null 边界，pending 与 complete 报告均受同一合同验证；
+- 增加完整/待采集报告 schema 正测和未知 binding 负测；该结构收口不提升任何现场验收声明。
+
 ### v0.3.0-pre.8 v76 target-event calibration cross-binding（2026-09-06）
 
 - target-event replay 可复制并 hash-bind 实际相机标定，manifest 记录 contained path、bytes、SHA-256 和

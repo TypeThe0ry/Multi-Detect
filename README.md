@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v76：目标事件回放携带实际相机标定副本；现场证据强制与 mount survey 的标定 ID/SHA-256 一致 |
+| 当前工程迭代 | v77：field-evidence bindings 使用严格 schema；未知或错类型的证据关联字段不再被接受 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,13 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v77 严格 field-evidence bindings 合同
+
+`field-evidence-bundle.schema.json` 不再把 `bindings` 当作任意 object。八项输入的 SHA-256/bytes、时间
+策略、target-event、recording、camera-mount 和 calibration 关联都有显式类型、空值与未知字段边界；
+pending 报告仍可表达空输入，而完整报告必须满足同一 strict schema。独立 verifier 继续重新打开所有输入
+并比较重算结果，形成“结构验证 + 来源重算”两层防线。
 
 ### v76 目标事件标定跨证据绑定
 
