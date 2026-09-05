@@ -5,6 +5,24 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v67 真实 900 帧联合 SIM 时间绑定收口（2026-09-05）
+
+- Gazebo Harmonic 的 `CameraInfo` 被明确建模为会话级静态标定：每帧仍校验正时间戳、因果性和
+  `Image` 几何一致性，但不再错误套用 NavSat/Odometry 的 1.5 秒动态遥测时效门。
+- NavSat/Odometry 保持严格的 1.5 秒上限。独立 transport worker 短暂错序时，只丢弃无法安全绑定
+  动态遥测的图像并等待新鲜样本；持续过期最终由 helper 有界超时 fail-closed，不输出旧 GPS 帧。
+- 真实首次重跑在 532 帧暴露 NavSat 7 秒错序并正确失败；修复后同一 pinned Docker PX4/Gazebo、
+  portable QGC 和当前源码完成 900/900 image/RTSP/type-23/type-24，4 张错序图像被安全丢弃后恢复。
+- 权威证据 `combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json` 为 255,480 bytes，
+  SHA-256 `FD386165212A68C6E2D053A0D58B05D796565AB716CB088439F0A6756EDC1090`；独立 verifier
+  41/41 checks 全部通过。容器已移除、9 个动态 loopback 端口全部释放、14550 未使用。
+- 四模式 machine-binding adapter 对该真实 source 的 SIM 绑定 19/19 通过；用同一 source 冒充 HIL 时
+  `runtime_mode_matches` 必然失败，证明机器证据不能跨模式重标。
+- 全仓 3,294 tests：`3293 passed, 1 skipped, 0 failed, 0 errors`；JUnit 478,731 bytes、SHA-256
+  `8261544D868E9222A22D7E5EFE5E1F437B19ECEFF5DB1567ECC02C3C38F617CD`。
+- 该结果只关闭 software-only SIM 联合机器门；相机 K/P/畸变语义验证、人工四模式视觉、HIL/REAL、
+  真实硬件、室外 GNSS/RTK 和实飞仍为 pending/not_claimed，最终 `v0.3.0` 继续阻断。
+
 ### v0.3.0-pre.8 v66 四模式 QGC 机器捕获统一契约（2026-09-05）
 
 - `capture_qgc_native_style.ps1` 与新增 `qgc-native-style-capture.schema.json` 定义 schema v2，强制显式

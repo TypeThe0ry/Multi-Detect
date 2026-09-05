@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v66 工作树）
+最后更新：2026-09-05（v67 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `020a385a31c64f9b668dd7acdfda631bbfd6386a`（当前工作树变更前领先远端 10 个提交）。
+本地 `main` 提交 `005da90c3aba2d079ed2ef3aa2e7fc147202d4c4`（当前文档提交前领先远端 17 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -24,11 +24,35 @@ PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7。v64 新�
 review 合同、12 项 checklist、0 假点负控和独立 verifier。v65 已把它接入 E7，并强制要求
 REPLAY/SIM/HIL/REAL 各自独立的机器来源与人工记录；当前仍是 0/4，人工签字和现场证据未完成。
 v66 进一步把机器捕获抽成四模式共用的 schema-v2 契约，绑定实际 EXE、parity、run、exact PID/client
-rect、遮挡和 PNG；历史 PX4 报告仅保留 HIL 兼容，REPLAY/SIM/REAL 不再伪装成 HIL 格式。
+rect、遮挡和 PNG；历史 PX4 报告仅保留 HIL 兼容，REPLAY/SIM/REAL 不再伪装成 HIL 格式。v67 修正
+Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定，NavSat/Odometry 仍受 1.5 秒动态门；
+短暂 transport callback 错序只丢弃不安全图像。当前源码已完成 900 帧真实联合 SIM，4 张错序图被丢弃
+后恢复，900 个有效帧全部取得 QGC post-adoption type-24 ACK。人工记录仍为 0/4。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v67 本轮已收口
+
+- `CameraInfo` 保持正时间戳、因果性和逐帧 width/height 绑定，但按 Harmonic 实际行为视为会话静态标定；
+  NavSat/Odometry 的 1.5 秒动态时效限制没有放宽。
+- 独立 worker 短暂错序时丢弃无法绑定新鲜动态遥测的 image；若 gap 持续，helper 仍由统一 deadline
+  fail-closed。新增计数分别记录 stale dynamic/NavSat/Odometry rejection。
+- 中间失败 source `combined-sim-qgc-20260905T141805Z-19928` 在 532 emitted frames 暴露 NavSat
+  `7,000,000,000 ns` 落后，门正确失败、容器和端口清理完成；它保留为根因 provenance。
+- 最终 source `combined-sim-qgc-20260905T142324Z-32372`：900/900 sensor、RTSP、signed type-23、
+  post-adoption type-24；4 张 stale dynamic 图像安全丢弃，VTOL attached、7-item Mission、QGC toolbar、
+  router 和 cleanup 全部通过。
+- source 255,480 bytes / SHA-256
+  `FD386165212A68C6E2D053A0D58B05D796565AB716CB088439F0A6756EDC1090`；独立 verifier 2,006 bytes /
+  SHA-256 `C195FFC92E88F53C54C4AC07C62891BD3806C13E97B47692F895DB9988DEAD60`，41/41 checks 全绿。
+- 四模式 machine-binding adapter 对该 source 的 SIM 绑定检查 19/19 通过；将同一 source 指定为 HIL 时
+  只在 `runtime_mode_matches` 失败，跨模式重标负控有效。该检查没有创建人工 accepted record。
+- 全仓 3,294 tests：`3293 passed, 1 skipped, 0 failed, 0 errors`；JUnit 478,731 bytes、SHA-256
+  `8261544D868E9222A22D7E5EFE5E1F437B19ECEFF5DB1567ECC02C3C38F617CD`。
+- 该机器门没有配置 target-geolocation acceptance，CameraInfo K/P/畸变语义仍 pending；四模式人工
+  视觉、HIL/REAL、硬件、室外 GNSS/RTK 和实飞不因本轮结果提升。
 
 ## v66 本轮已收口
 
@@ -307,7 +331,9 @@ D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.
 v61 已将 high-slope evidence 的坐标、1σ、类别、距离和方位经签名协议持续送入原生
 MultiDetectGCS，并完成 exact PID/HWND 动态地图/证据卡片机器采集。下一步由人工检查同一证据画面并
 使用 v64 checklist 生成 accepted record；独立 verifier 通过后再经 manifest 接线评审接入 E7。当前
-负向 source-binding 预检保持 5/5 检测、0 假点。
+负向 source-binding 预检保持 5/5 检测、0 假点。v67 combined-SIM source 已能被通用 adapter 识别为
+真实 SIM runtime，但它的 toolbar/Mission 截图没有配置 target-geolocation acceptance，不能直接充当
+包含地图点/1σ/证据卡片的人工记录；SIM 模式仍需专门运行该定位画面。
 
 ### P1：三机型动态对等（机器子门已完成）
 

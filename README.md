@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v65：E7 已强制要求 REPLAY/SIM/HIL/REAL 四份独立 QGC 人工视觉记录；当前 0/4，发布保持阻断 |
+| 当前工程迭代 | v67：当前源码完成真实 900 帧 PX4/Gazebo/QGC 联合 SIM 机器门；四模式人工视觉仍为 0/4 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -223,6 +223,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 已有 HIL wrapper 会自动传入 `-RuntimeMode hil`。旧 PX4-HIL acceptance JSON 仍可复验，但只允许归属
 HIL；四种模式仍需各自独立机器捕获和人工逐项签字，当前仍为 0/4。
+
+### v67 当前源码 900 帧联合 SIM 机器门
+
+当前源码提交 `005da90` 已在 pinned Docker PX4/Gazebo、同一 portable QGC 和动态 loopback 端口上
+完成真实 900 帧联合运行。Gazebo `CameraInfo` 按会话级静态标定处理；NavSat/Odometry 继续执行
+1.5 秒动态时效门。4 张因 transport worker 短暂错序而无法安全绑定动态遥测的图像被丢弃，随后用
+新鲜样本恢复；最终 image、RTSP、signed type-23 和 QGC post-adoption type-24 均为 900/900。
+
+权威 source evidence：
+`artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json`，255,480 bytes，
+SHA-256 `FD386165212A68C6E2D053A0D58B05D796565AB716CB088439F0A6756EDC1090`。独立 verifier 的 41/41
+checks 通过，容器和 9 个测试端口均清理。该机器门没有运行目标测距/落图验收，也没有产生人工签字；
+四模式视觉、K/P/畸变语义、HIL/REAL、硬件和室外 GNSS 仍待完成。
 
 ### MultiDetectGCS
 

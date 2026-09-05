@@ -18,6 +18,32 @@
 exact-PID/HWND 捕获重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
 的大小和 SHA 记录保留在下文历史条目中，不覆盖本段当前指纹。
 
+### v67 当前源码 900 帧 combined SIM/QGC/Mission gate
+
+当前成功运行：
+
+```text
+artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json
+git_head=005da90c3aba2d079ed2ef3aa2e7fc147202d4c4; dirty=false
+gate_passed=true; frames=900; type23=900; post-adoption type24=900
+```
+
+source 为 255,480 bytes，SHA-256
+`FD386165212A68C6E2D053A0D58B05D796565AB716CB088439F0A6756EDC1090`。独立
+`verify_combined_sim_evidence.py` 输出 2,006 bytes、SHA-256
+`C195FFC92E88F53C54C4AC07C62891BD3806C13E97B47692F895DB9988DEAD60`，41/41 checks 通过。
+传感器 helper 收到 1,298 个 image callback，其中 4 张因 NavSat/Odometry 短暂落后超过 1.5 秒被安全
+丢弃；最终 900 帧全部带因果、新鲜的动态遥测，helper exit 0。容器已移除，9 个动态 loopback 端口
+全部释放，受保护 14550 前后为空。
+
+通用四模式 machine-binding adapter 对此 source 的 SIM 校验 19/19 通过；同一 source 改以 HIL 模式
+绑定时 `runtime_mode_matches=false`，因此不能用 SIM 证据填充 HIL 人工记录。本次只读预检未生成
+operator accepted record。
+
+该运行复用了上方现有 portable EXE，未修改 QGC C++/QML，因此没有重复链接。它只证明 software-only
+SIM 机器链；desktop GPU ROI 在 GDI 截图中仍不作证明，operator visual 仍是 `not_claimed`，目标定位门
+在此场景中未配置，CameraInfo K/P/畸变语义、HIL/REAL、硬件和室外 GNSS 均未关闭。
+
 ### v66 四模式 native capture v2
 
 `scripts/capture_qgc_native_style.ps1` 现在要求调用方显式传入

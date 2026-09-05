@@ -1,5 +1,29 @@
 # 统一仓库架构
 
+## v67 联合 SIM 传感器时间策略（2026-09-05，`v0.3.0-pre.8`）
+
+```text
+Gazebo transport callbacks
+  CameraInfo -> session-static calibration: positive + causal + per-image geometry binding
+  NavSat/Odometry -> dynamic state: nearest causal sample, age <= 1.5 s
+  Image -> future/missing/stale dynamic binding? drop frame and wait
+        -> persistent gap? bounded helper timeout -> fail closed
+        -> fresh binding? MDGZSIM2 -> shared production core -> RTSP -> QGC type-24 ACK
+```
+
+`scripts/gazebo_sensor_stream.py` 保留每 topic 严格递增历史并选择 image 时刻之前最近样本。
+`CameraInfo` 的 Harmonic publisher 会重复发布但保留初始 sensor stamp，因此它的时间语义是会话级标定，
+不能冒充动态状态；其 width/height 仍逐帧约束图像。NavSat/Odometry 不降级：超过 1.5 秒的候选不会写入
+wire。由于 Gazebo transport worker 可短暂错序，单张 image 被丢弃而不是令整个无限传感器流立即退出；
+若新鲜动态样本没有赶上，进程仍在统一 deadline 退出失败。
+
+当前成功 source 为
+`artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json`：900 个有效帧、
+4 次 stale NavSat/Odometry 图像丢弃、900 个 type-24 ACK、VTOL attached/Mission/QGC toolbar gate 全通过，
+41/41 独立 checks 通过。该层仍把
+`camera_info_intrinsics_semantic_validation=pending_k_p_distortion_validation` 写入证据，不能据此声明完整
+相机标定、人工视觉、HIL/REAL 或硬件验收。
+
 ## v66 四模式 QGC machine-capture adapter（2026-09-05，`v0.3.0-pre.8`）
 
 ```text

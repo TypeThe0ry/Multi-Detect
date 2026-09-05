@@ -2,7 +2,19 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 QGC 四模式人工视觉 E7 收口（v66）
+## 当前源码 900 帧联合 SIM 时间绑定收口（v67）
+
+- [x] 将 Gazebo Harmonic `CameraInfo` 明确定义为会话级静态标定，保持正时间戳、因果性和逐帧几何
+  一致性检查，不再套用动态遥测 expiry；
+- [x] NavSat/Odometry 继续执行 1.5 秒动态时效门；独立 callback 短暂错序时丢弃不安全图像，持续
+  不新鲜时由有界 helper timeout fail-closed；
+- [x] 当前源码 `005da90` 完成真实 900/900 Gazebo image、RTSP、signed type-23、QGC post-adoption
+  type-24；4 张错序图像被丢弃后恢复，0 帧绑定旧动态遥测；
+- [x] combined source 的独立 verifier 41/41 通过，容器移除、9 个测试端口释放、14550 不变；
+- [ ] 完成 CameraInfo K/P/畸变语义标定验证，以及 REPLAY/SIM/HIL/REAL 四份人工视觉、HIL/REAL、
+  硬件和室外 GNSS/RTK 门。
+
+## pre.8 QGC 四模式人工视觉 E7 收口（v66）
 
 - [x] 将 exact PID/HWND 机器报告、PNG、QGC EXE 和当前 `ui_contract_hash` 绑定为可复验输入；
 - [x] 12 项人工可见性 checklist、明确 reviewer/UTC/decision/attestation 和内容摘要完成；

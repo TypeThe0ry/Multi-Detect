@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T13:35:07Z",
+  "updated_at_utc": "2026-09-05T14:35:02Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "020a385a31c64f9b668dd7acdfda631bbfd6386a",
-    "commit_subject": "feat(release): require four-mode QGC visual reviews",
-    "commits_ahead_of_origin_main": 10
+    "commit": "005da90c3aba2d079ed2ef3aa2e7fc147202d4c4",
+    "commit_subject": "fix(sim): drop transiently stale sensor frames",
+    "commits_ahead_of_origin_main": 17
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v66",
+  "working_iteration": "v67",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v66-final.xml",
-      "tests": 3286,
-      "passed": 3285,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v67-final.xml",
+      "tests": 3294,
+      "passed": 3293,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 136.96,
-      "junit_local_path": "tmp/current-progress-regression-v66-final.xml",
-      "junit_file_bytes": 477631,
-      "junit_file_sha256": "15f37922f866e1fcfbede011a461185333e25244b70447629955363635356c78",
+      "duration_seconds": 150.17,
+      "junit_local_path": "tmp/current-progress-regression-v67-final.xml",
+      "junit_file_bytes": 478731,
+      "junit_file_sha256": "8261544d868e9222a22d7e5efe5e1f437b19eceff5db1567ecc02c3c38f617cd",
       "distributed_in_git": false
     },
     "ruff": {
@@ -219,6 +219,47 @@
         "operator_visual_acceptance": "not_claimed"
       }
     },
+    "combined_sim_qgc_current_source": {
+      "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence.json",
+      "distributed_in_git": false,
+      "file_bytes": 255480,
+      "file_sha256": "fd386165212a68c6e2d053a0d58b05d796565ab716cb088439f0a6756edc1090",
+      "source_git_head": "005da90c3aba2d079ed2ef3aa2e7fc147202d4c4",
+      "source_dirty": false,
+      "gate_passed": true,
+      "runtime_mode": "sim",
+      "sensor_frames": 900,
+      "rtsp_frames": 900,
+      "runtime_status_type23": 900,
+      "post_adoption_type24_ack": 900,
+      "stale_dynamic_images_discarded": 4,
+      "stale_dynamic_frames_emitted": 0,
+      "camera_info_freshness_policy": "session_static_geometry_bound_causal_timestamp",
+      "dynamic_source_maximum_skew_ns": 1500000000,
+      "container_removed": true,
+      "test_ports_released": true,
+      "protected_port_14550_unchanged": true,
+      "target_geolocation_acceptance_configured": false,
+      "camera_info_intrinsics_semantic_validation": "pending_k_p_distortion_validation",
+      "operator_visual_acceptance": "not_claimed",
+      "qgc_machine_binding_precheck": {
+        "expected_runtime_mode": "sim",
+        "checks_passed": 19,
+        "checks_total": 19,
+        "gate_passed": true,
+        "hil_relabel_rejected": true,
+        "hil_relabel_failed_check": "runtime_mode_matches",
+        "human_review_record_created": false
+      },
+      "verification": {
+        "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T142324Z-32372/combined-evidence-verification.json",
+        "file_bytes": 2006,
+        "file_sha256": "c195ffc92e88f53c54c4ac07c62891bd3806c13e97b47692f895db9988dead60",
+        "checks_passed": 41,
+        "checks_total": 41,
+        "gate_passed": true
+      }
+    },
     "qgc_operator_visual_acceptance_contract": {
       "implementation": "src/multidetect/qgc_visual_acceptance.py",
       "schema": "configs/schemas/qgc-operator-visual-acceptance.schema.json",
@@ -299,6 +340,7 @@
     "qgc_geolocation_exact_pid_hwnd_machine_capture_subgate": "passed",
     "px4_reported_position_response_three_airframe_subgate": "passed",
     "px4_reported_position_response_repeatability_fault_subgate": "passed",
+    "combined_sim_qgc_current_source_subgate": "passed",
     "qgc_manual_visual_acceptance_contract": "implemented_pending_human_review",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
