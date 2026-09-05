@@ -82,7 +82,11 @@ MAX_ABS_LOCAL_POSITION_M = 1_000_000.0
 MAX_ABS_LINEAR_VELOCITY_MPS = 2_000.0
 MAX_STARTUP_ODOMETRY_VELOCITY_REJECTIONS = 8
 QUATERNION_NORM_TOLERANCE = 1.0e-3
-CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX = 1.0e-6
+# Gazebo derives the matrix from an SDF floating-point horizontal FOV.  The
+# published value differs from the host-side double calculation by roughly
+# 3.6e-5 px, so 1e-4 px covers transport/model quantization while remaining
+# orders of magnitude below any meaningful calibration discrepancy.
+CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX = 1.0e-4
 CAMERA_DISTORTION_ABSOLUTE_TOLERANCE = 1.0e-12
 
 # gz.msgs PixelFormatType values used by Gazebo Harmonic.
