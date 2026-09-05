@@ -270,6 +270,32 @@ def test_build_write_load_and_freshness_round_trip(
     assert loaded["source_binding"]["release_parity_hashes"]["px4_mission_path_hash"]
 
 
+def test_archived_verification_explicitly_relaxes_only_next_leaf_requirement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observation, _ = _observation(tmp_path, monkeypatch)
+    seen: list[bool] = []
+
+    def current_campaign(*args: object, **kwargs: object) -> dict[str, object]:
+        del args
+        seen.append(bool(kwargs["require_current_next_leaf"]))
+        return copy.deepcopy(observation["source_preflight"])
+
+    monkeypatch.setattr(online, "_verify_current_campaign", current_campaign)
+    verified = online.verify_online_covariance_preflight_observation(
+        observation,
+        require_current_next_leaf=False,
+    )
+
+    assert verified == observation
+    assert seen == [False]
+    with pytest.raises(online.OnlineCovariancePreflightError, match="must be boolean"):
+        online.verify_online_covariance_preflight_observation(
+            observation,
+            require_current_next_leaf=1,  # type: ignore[arg-type]
+        )
+
+
 def test_loader_enforces_default_expiry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     observation, _ = _observation(tmp_path, monkeypatch)
     output = online.write_online_covariance_preflight_observation(

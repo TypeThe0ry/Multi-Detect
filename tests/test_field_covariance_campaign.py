@@ -96,6 +96,7 @@ def _ready_online_probe(
         "runtime_mode": leaf.runtime_mode,
         "vehicle_class": leaf.vehicle_class,
         "gate_passed": True,
+        "evidence_sha256": "e" * 64,
     }
 
 
@@ -228,6 +229,81 @@ def test_zero_capture_process_exit_still_fails_when_report_verification_fails(
     assert status["capture_process_exit_code"] == 0
     assert status["capture_verified"] is False
     assert status["failed_count"] == 1
+
+
+def test_capture_persists_and_independently_reloads_online_preflight_before_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
+    monkeypatch.setattr(campaign, "probe_next", _ready_online_probe)
+    monkeypatch.setattr(campaign, "verify_pixhawk_covariance_leaf", _verified_record)
+    probe_path = tmp_path / "journal" / "online-preflight.json"
+    events: list[str] = []
+
+    def write_probe(
+        path: Path, document: dict[str, object], *, overwrite: bool
+    ) -> Path:
+        assert overwrite is False
+        events.append("write-probe")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def load_probe(path: Path, *, maximum_age_seconds: float) -> dict[str, object]:
+        assert path == probe_path.resolve()
+        assert maximum_age_seconds == campaign.DEFAULT_MAXIMUM_AGE_SECONDS
+        events.append("verify-probe")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        events.append("capture")
+        report = config.leaves[0].report_path
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("{}", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(campaign, "write_online_covariance_preflight_observation", write_probe)
+    monkeypatch.setattr(campaign, "load_online_covariance_preflight_observation", load_probe)
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+
+    exit_code, result = campaign.capture_next(
+        config,
+        samples=30,
+        interval_seconds=0.2,
+        minimum_odometry_messages=10,
+        minimum_accepted_covariances=5,
+        dry_run=False,
+        probe_report_out=probe_path,
+    )
+
+    assert exit_code == 0
+    assert events == ["write-probe", "verify-probe", "capture"]
+    assert result["online_preflight_path"] == str(probe_path.resolve())
+    assert result["online_preflight_verified_before_capture"] is True
+    assert result["online_preflight_file_sha256"] == campaign._sha256(probe_path)
+    assert result["capture_verified"] is True
+
+
+def test_capture_probe_output_cannot_alias_covariance_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
+    monkeypatch.setattr(campaign, "probe_next", _ready_online_probe)
+
+    with pytest.raises(campaign.FieldCovarianceCampaignError, match="aliases"):
+        campaign.capture_next(
+            config,
+            samples=30,
+            interval_seconds=0.2,
+            minimum_odometry_messages=10,
+            minimum_accepted_covariances=5,
+            dry_run=False,
+            probe_report_out=config.leaves[0].report_path,
+        )
+    assert not config.leaves[0].report_path.exists()
 
 
 def test_preflight_orders_all_six_ready_sources_and_binds_transport(
@@ -483,6 +559,39 @@ def test_verify_probe_cli_applies_default_expiry_and_matches_config(
         "maximum_age_seconds": campaign.DEFAULT_MAXIMUM_AGE_SECONDS,
     }
     assert json.loads(capsys.readouterr().out)["gate_passed"] is True
+
+
+def test_cli_status_output_cannot_overwrite_sources_reports_or_probe_artifact(
+    tmp_path: Path, capsys: object
+) -> None:
+    config_path = _write_config(tmp_path)
+    config = campaign.load_campaign_config(config_path)
+    assert (
+        campaign.main(
+            ["status", "--config", str(config_path), "--status-out", str(config_path)]
+        )
+        == 2
+    )
+    assert "aliases" in capsys.readouterr().err
+
+    shared = tmp_path / "shared-operational.json"
+    assert (
+        campaign.main(
+            [
+                "capture-next",
+                "--config",
+                str(config_path),
+                "--probe-report-out",
+                str(shared),
+                "--status-out",
+                str(shared),
+            ]
+        )
+        == 2
+    )
+    assert "aliases" in capsys.readouterr().err
+    assert not shared.exists()
+    assert not config.leaves[0].report_path.exists()
 
 
 def test_online_probe_stops_on_current_identity_match_and_closes_provider(

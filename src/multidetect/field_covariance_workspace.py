@@ -28,6 +28,7 @@ from .field_covariance_campaign import (
     REQUIRED_COMBINATIONS,
     CampaignConfig,
     campaign_preflight,
+    campaign_status,
     load_campaign_config,
 )
 
@@ -318,8 +319,13 @@ def _expected_files(manifest: Mapping[str, object]) -> set[str]:
     return expected
 
 
-def verify_field_covariance_workspace(path: str | Path) -> dict[str, object]:
-    """Verify a relocated workspace from bytes, current parity and source gates."""
+def verify_field_covariance_workspace(
+    path: str | Path, *, allow_campaign_reports: bool = False
+) -> dict[str, object]:
+    """Verify static bytes and optionally the campaign's declared generated reports."""
+
+    if not isinstance(allow_campaign_reports, bool):
+        raise FieldCovarianceWorkspaceError("allow_campaign_reports must be boolean")
 
     candidate = Path(path).expanduser()
     if candidate.is_symlink():
@@ -343,10 +349,15 @@ def verify_field_covariance_workspace(path: str | Path) -> dict[str, object]:
             raise FieldCovarianceWorkspaceError("workspace cannot contain symbolic links")
         if item.is_file():
             actual_files.add(item.relative_to(root).as_posix())
-    if actual_files != expected_files:
+    report_paths = {
+        str(_relative_path(entry["report_path"], name="campaign report"))
+        for entry in manifest["entries"]
+    }
+    allowed_files = expected_files | (report_paths if allow_campaign_reports else set())
+    if not expected_files.issubset(actual_files) or not actual_files.issubset(allowed_files):
         raise FieldCovarianceWorkspaceError(
             f"workspace file set mismatch: missing={sorted(expected_files - actual_files)!r}, "
-            f"unexpected={sorted(actual_files - expected_files)!r}"
+            f"unexpected={sorted(actual_files - allowed_files)!r}"
         )
 
     release_label, px4_hash, parity_sha256 = _current_parity()
@@ -404,6 +415,9 @@ def verify_field_covariance_workspace(path: str | Path) -> dict[str, object]:
         raise FieldCovarianceWorkspaceError("portable workspace source preflight is blocked")
     if _preflight_summary(preflight) != manifest["source_preflight"]:
         raise FieldCovarianceWorkspaceError("portable workspace preflight summary mismatch")
+    status = campaign_status(config)
+    if status["failed_count"]:
+        raise FieldCovarianceWorkspaceError("portable workspace has a failed campaign report")
     return {
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
@@ -413,6 +427,7 @@ def verify_field_covariance_workspace(path: str | Path) -> dict[str, object]:
         "workspace_sha256": claimed_hash,
         "leaf_count": len(config.leaves),
         "source_file_count": len(expected_files) - 2,
+        "campaign_report_count": status["passed_count"],
         "gate_passed": True,
         "next_command": (
             f"python -m multidetect.field_covariance_campaign preflight --config {campaign_path}"
@@ -565,7 +580,7 @@ def verify_field_covariance_workspace_receipt(path: str | Path) -> dict[str, obj
     destination = Path(destination_value)
     if not destination.is_absolute() or str(destination) != destination_value:
         raise FieldCovarianceWorkspaceError("receipt destination must be an absolute local path")
-    result = verify_field_covariance_workspace(destination)
+    result = verify_field_covariance_workspace(destination, allow_campaign_reports=True)
     release_label, px4_hash, parity_sha256 = _current_parity()
     if (
         result["workspace_sha256"] != receipt["workspace_sha256"]

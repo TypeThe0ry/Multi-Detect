@@ -31,6 +31,7 @@ from .online_covariance_preflight import (
     OnlineCovariancePreflightError,
     build_online_covariance_preflight_observation,
     load_online_covariance_preflight_observation,
+    write_online_covariance_preflight_observation,
 )
 from .pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
 from .pixhawk_covariance_binding import (
@@ -674,6 +675,35 @@ def _atomic_write(path: Path, document: Mapping[str, object]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _validate_status_output(
+    config: CampaignConfig,
+    status_out: Path | None,
+    *,
+    other_outputs: Sequence[Path | None] = (),
+) -> None:
+    if status_out is None:
+        return
+    candidate = status_out.expanduser()
+    if candidate.is_symlink():
+        raise FieldCovarianceCampaignError("status output cannot be a symbolic link")
+    output = candidate.resolve(strict=False)
+    reserved = {config.path}
+    for leaf in config.leaves:
+        reserved.update(
+            {
+                leaf.mission_path,
+                leaf.mission_feedback_path,
+                leaf.runtime_profile_path,
+                leaf.report_path,
+            }
+        )
+    reserved.update(
+        item.expanduser().resolve(strict=False) for item in other_outputs if item is not None
+    )
+    if output in reserved:
+        raise FieldCovarianceCampaignError("status output aliases a campaign source or output")
+
+
 def capture_next(
     config: CampaignConfig,
     *,
@@ -684,6 +714,7 @@ def capture_next(
     dry_run: bool,
     probe_samples: int = DEFAULT_PROBE_SAMPLES,
     probe_interval_seconds: float = DEFAULT_PROBE_INTERVAL_S,
+    probe_report_out: Path | None = None,
 ) -> tuple[int, dict[str, object]]:
     """Capture exactly one pending leaf; failed immutable reports stop progress."""
 
@@ -727,6 +758,10 @@ def capture_next(
         minimum_accepted_covariances=minimum_accepted_covariances,
     )
     if dry_run:
+        if probe_report_out is not None:
+            raise FieldCovarianceCampaignError(
+                "--probe-report-out cannot be used with --dry-run"
+            )
         return 0, {
             **before,
             "source_preflight": preflight,
@@ -738,6 +773,37 @@ def capture_next(
         samples=probe_samples,
         interval_seconds=probe_interval_seconds,
     )
+    probe_record: dict[str, object] = {}
+    if probe_report_out is not None:
+        candidate = probe_report_out.expanduser()
+        if candidate.is_symlink():
+            raise FieldCovarianceCampaignError("online preflight output cannot be a symlink")
+        resolved_probe = candidate.resolve(strict=False)
+        reserved = {config.path, *(item.report_path for item in config.leaves)}
+        if resolved_probe in reserved:
+            raise FieldCovarianceCampaignError(
+                "online preflight output aliases campaign or covariance report"
+            )
+        written = write_online_covariance_preflight_observation(
+            resolved_probe,
+            online_preflight,
+            overwrite=False,
+        )
+        reloaded = load_online_covariance_preflight_observation(
+            written,
+            maximum_age_seconds=DEFAULT_MAXIMUM_AGE_SECONDS,
+        )
+        if reloaded != online_preflight:
+            raise FieldCovarianceCampaignError(
+                "saved online preflight differs from the in-memory observation"
+            )
+        probe_record = {
+            "online_preflight_path": str(written),
+            "online_preflight_bytes": written.stat().st_size,
+            "online_preflight_file_sha256": _sha256(written),
+            "online_preflight_evidence_sha256": reloaded["evidence_sha256"],
+            "online_preflight_verified_before_capture": True,
+        }
     if probe_exit_code != 0 or online_preflight.get("gate_passed") is not True:
         return 1, {
             **before,
@@ -745,6 +811,7 @@ def capture_next(
             "online_preflight": online_preflight,
             "capture_started": False,
             "capture_verified": False,
+            **probe_record,
         }
     leaf.report_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(command, cwd=ROOT, check=False)
@@ -766,6 +833,7 @@ def capture_next(
         "capture_started": True,
         "capture_process_exit_code": result.returncode,
         "capture_verified": captured["status"] == "passed",
+        **probe_record,
     }
 
 
@@ -816,6 +884,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--status-out", type=Path)
     parser.add_argument("--binding-out", type=Path)
     parser.add_argument("--probe-report", type=Path)
+    parser.add_argument("--probe-report-out", type=Path)
     parser.add_argument("--maximum-age-seconds", type=float)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
@@ -839,8 +908,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = load_campaign_config(args.config)
+        _validate_status_output(
+            config,
+            args.status_out,
+            other_outputs=(args.binding_out, args.probe_report_out),
+        )
         if args.command != "verify-probe" and args.probe_report is not None:
             raise FieldCovarianceCampaignError("--probe-report is reserved for verify-probe")
+        if args.command != "capture-next" and args.probe_report_out is not None:
+            raise FieldCovarianceCampaignError(
+                "--probe-report-out is reserved for capture-next"
+            )
         if args.command != "verify-probe" and args.maximum_age_seconds is not None:
             raise FieldCovarianceCampaignError("--maximum-age-seconds is reserved for verify-probe")
         if args.command == "status":
@@ -898,6 +976,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 probe_samples=args.probe_samples,
                 probe_interval_seconds=args.probe_interval_seconds,
+                probe_report_out=args.probe_report_out,
             )
         else:
             if args.dry_run:

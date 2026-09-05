@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-covariance-field-session-record.schema.json",
+  "title": "Multi-Detect field covariance single-leaf session record v1",
+  "description": "Immutable operational record for one receipt-bound, preflight-sealed, verified covariance capture. Acceptance claims remain false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "created_at_utc", "receipt", "campaign",
+    "online_preflight", "covariance_report", "capture_result", "claims", "record_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.pixhawk-covariance-field-session-record/v1"},
+    "schema_version": {"const": 1},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "file_sha256", "receipt_sha256", "workspace_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "workspace_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "leaf_ordinal", "runtime_mode", "vehicle_class"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "leaf_ordinal": {"type": "integer", "minimum": 1, "maximum": 6},
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]}
+      }
+    },
+    "online_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "file_sha256", "evidence_sha256", "verified_before_capture"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "verified_before_capture": {"const": true}
+      }
+    },
+    "covariance_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "bytes", "file_sha256", "evidence_sha256", "records_verified",
+        "firmware_identity_hash"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "records_verified": {"type": "integer", "minimum": 1},
+        "firmware_identity_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "capture_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_process_exit_code", "capture_verified", "passed_count_after",
+        "pending_count_after", "campaign_complete_after"
+      ],
+      "properties": {
+        "capture_process_exit_code": {"const": 0},
+        "capture_verified": {"const": true},
+        "passed_count_after": {"type": "integer", "minimum": 1, "maximum": 6},
+        "pending_count_after": {"type": "integer", "minimum": 0, "maximum": 5},
+        "campaign_complete_after": {"type": "boolean"}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_eligible", "hardware_acceptance", "hil_acceptance",
+        "real_acceptance", "flight_acceptance"
+      ],
+      "properties": {
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "flight_acceptance": {"const": false}
+      }
+    },
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

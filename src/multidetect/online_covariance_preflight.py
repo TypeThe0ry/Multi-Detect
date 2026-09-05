@@ -166,6 +166,7 @@ def _verify_current_campaign(
     mission_path: Path,
     mission_feedback_path: Path,
     runtime_profile_path: Path,
+    require_current_next_leaf: bool,
 ) -> dict[str, object]:
     """Re-run the authoritative campaign selection and six-leaf source gate."""
 
@@ -197,13 +198,23 @@ def _verify_current_campaign(
             "online preflight leaf does not match current campaign"
         )
     status = campaign_status(config)
-    next_leaf = status.get("next_leaf")
-    if (
-        not isinstance(next_leaf, Mapping)
-        or (next_leaf.get("runtime_mode"), next_leaf.get("vehicle_class")) != key
-    ):
+    record = next(
+        item
+        for item in status["records"]
+        if (item["runtime_mode"], item["vehicle_class"]) == key
+    )
+    if require_current_next_leaf:
+        next_leaf = status.get("next_leaf")
+        if (
+            not isinstance(next_leaf, Mapping)
+            or (next_leaf.get("runtime_mode"), next_leaf.get("vehicle_class")) != key
+        ):
+            raise OnlineCovariancePreflightError(
+                "online preflight leaf is no longer the current next leaf"
+            )
+    elif record["status"] not in {"pending", "passed"}:
         raise OnlineCovariancePreflightError(
-            "online preflight leaf is no longer the current next leaf"
+            "archived online preflight leaf has a failed current report"
         )
     preflight = campaign_preflight(config)
     if preflight.get("gate_passed") is not True:
@@ -275,11 +286,14 @@ def verify_online_covariance_preflight_observation(
     *,
     maximum_age_seconds: float | None = None,
     now: datetime | None = None,
+    require_current_next_leaf: bool = True,
 ) -> dict[str, object]:
     """Rebuild source/current-link claims and optionally enforce UTC freshness."""
 
     if not isinstance(raw, Mapping):
         raise OnlineCovariancePreflightError("online preflight observation must be an object")
+    if not isinstance(require_current_next_leaf, bool):
+        raise OnlineCovariancePreflightError("require_current_next_leaf must be boolean")
     value = dict(raw)
     _validate_schema(value)
     claimed_hash = value["evidence_sha256"]
@@ -331,6 +345,7 @@ def verify_online_covariance_preflight_observation(
         mission_path=paths["mission"],
         mission_feedback_path=paths["mission_feedback"],
         runtime_profile_path=paths["runtime_profile"],
+        require_current_next_leaf=require_current_next_leaf,
     )
     if dict(source_preflight) != current_preflight:
         raise OnlineCovariancePreflightError("online observation source preflight is not current")
@@ -433,6 +448,7 @@ def load_online_covariance_preflight_observation(
     *,
     maximum_age_seconds: float | None = DEFAULT_MAXIMUM_AGE_SECONDS,
     now: datetime | None = None,
+    require_current_next_leaf: bool = True,
 ) -> dict[str, object]:
     """Load and independently verify one saved online preflight observation."""
 
@@ -446,6 +462,7 @@ def load_online_covariance_preflight_observation(
         _json_object(source, name="online preflight observation"),
         maximum_age_seconds=maximum_age_seconds,
         now=now,
+        require_current_next_leaf=require_current_next_leaf,
     )
 
 

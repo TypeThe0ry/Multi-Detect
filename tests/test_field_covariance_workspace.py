@@ -318,6 +318,36 @@ def test_receive_atomically_copies_and_receipt_verifies_without_source_media(
     assert verified["claims"]["hardware_acceptance"] is False
 
 
+def test_receipt_reverification_allows_only_declared_and_verified_campaign_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "receiver"
+    receipt = tmp_path / "receipt.json"
+    workspace.receive_field_covariance_workspace(exported, destination, receipt)
+    report = destination / "reports" / "hil" / "fixed-wing.json"
+    report.parent.mkdir(parents=True)
+    report.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="file set mismatch"):
+        workspace.verify_field_covariance_workspace(destination)
+    monkeypatch.setattr(
+        workspace,
+        "campaign_status",
+        lambda config: {"failed_count": 0, "passed_count": 1},
+    )
+    assert workspace.verify_field_covariance_workspace(
+        destination,
+        allow_campaign_reports=True,
+    )["campaign_report_count"] == 1
+    assert workspace.verify_field_covariance_workspace_receipt(receipt)["gate_passed"] is True
+
+    unexpected = destination / "reports" / "hil" / "not-a-leaf.json"
+    unexpected.write_text("{}", encoding="utf-8")
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="file set mismatch"):
+        workspace.verify_field_covariance_workspace_receipt(receipt)
+
+
 def test_receive_rejects_paths_inside_closed_bundles_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

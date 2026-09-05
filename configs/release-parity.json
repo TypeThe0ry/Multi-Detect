@@ -1,7 +1,7 @@
 {
   "parity": {
     "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
-    "px4_mission_path_hash": "6b5ab2eff88934ccf60b29ef556f685220517f22563699c3f7480a9b40f85f02",
+    "px4_mission_path_hash": "f8e8f4e0c16b88fcec21f5ee7233ba49d67e0331da58f0d111b84cdb514acce1",
     "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
     "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
@@ -36,6 +36,7 @@
       "configs/schemas/autonomy-executable-mission.schema.json",
       "configs/schemas/autonomy-mission-compile-runtime.schema.json",
       "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
+      "configs/schemas/pixhawk-covariance-field-session-record.schema.json",
       "configs/schemas/pixhawk-covariance-field-workspace-receipt.schema.json",
       "configs/schemas/pixhawk-covariance-field-workspace.schema.json",
       "configs/schemas/pixhawk-covariance-online-preflight.schema.json",
@@ -49,6 +50,7 @@
       "scripts/capture_pixhawk_odometry_covariance.py",
       "src/multidetect/approach_live.py",
       "src/multidetect/field_covariance_campaign.py",
+      "src/multidetect/field_covariance_session.py",
       "src/multidetect/field_covariance_workspace.py",
       "src/multidetect/fixed_wing_aim_control.py",
       "src/multidetect/mission_compile_cli.py",
