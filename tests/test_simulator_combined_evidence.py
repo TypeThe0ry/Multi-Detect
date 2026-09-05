@@ -68,6 +68,17 @@ def _combined_document() -> dict[str, object]:
         "integrated_sim_qgc": {
             "gate_passed": True,
             "runtime_mode": "sim",
+            "sensor_transport": {
+                "camera_info_intrinsics_semantic_validation": (
+                    "validated_k_p_rectification_plumb_bob_distortion"
+                ),
+                "complete": True,
+                "expected_frame_count": 3,
+                "received_frame_count": 3,
+                "odometry_required": True,
+                "odometry_timestamp_frame_count": 3,
+                "full_odometry_pose_velocity_fusion_claimed": True,
+            },
             "hardware_outputs_present": False,
             "real_pixhawk_contacted": False,
             "actuator_outputs_present": False,
@@ -185,6 +196,9 @@ def test_combined_sim_verifier_binds_dynamic_ports_and_e7_envelope(tmp_path: Pat
     assert result["checks"]["protected_port_unchanged"] is True
     assert result["checks"]["test_ports_released"] is True
     assert result["checks"]["release_mode_source_hash_matches"] is True
+    assert result["checks"]["camera_info_intrinsics_semantics_validated"] is True
+    assert result["checks"]["sensor_frames_complete"] is True
+    assert result["checks"]["odometry_frames_complete"] is True
     assert result["checks"]["no_hardware_claims"] is True
     assert result["checks"]["no_operator_visual_claim"] is True
 
@@ -282,6 +296,35 @@ def test_combined_sim_verifier_rejects_tampered_e7_source_hash(tmp_path: Path) -
     assert result["gate_passed"] is False
     assert result["checks"]["release_mode_source_hash_matches"] is False
     assert any("source SHA-256" in reason for reason in result["reasons"])
+
+
+@pytest.mark.parametrize(
+    ("field", "tampered_value", "failed_check"),
+    (
+        (
+            "camera_info_intrinsics_semantic_validation",
+            "pending_k_p_distortion_validation",
+            "camera_info_intrinsics_semantics_validated",
+        ),
+        ("received_frame_count", 2, "sensor_frames_complete"),
+        ("odometry_timestamp_frame_count", 2, "odometry_frames_complete"),
+    ),
+)
+def test_combined_sim_verifier_rejects_incomplete_sensor_semantics(
+    tmp_path: Path,
+    field: str,
+    tampered_value: object,
+    failed_check: str,
+) -> None:
+    document = _combined_document()
+    document["integrated_sim_qgc"]["sensor_transport"][field] = tampered_value  # type: ignore[index]
+    evidence_path = tmp_path / f"combined-{field}.json"
+    evidence_path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = verify_file(evidence_path, expected_release_label="0.3.0-pre.8")
+
+    assert result["gate_passed"] is False
+    assert result["checks"][failed_check] is False
 
 
 def test_combined_sim_verifier_rejects_hardware_or_visual_claims(tmp_path: Path) -> None:

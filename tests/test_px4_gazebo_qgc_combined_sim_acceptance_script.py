@@ -147,6 +147,11 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     assert "$integratedEvidence.sensor_transport.odometry_required -eq $true" in text
     assert (
         "$integratedEvidence.sensor_transport."
+        "camera_info_intrinsics_semantic_validation -eq "
+        '"validated_k_p_rectification_plumb_bob_distortion"'
+    ) in text
+    assert (
+        "$integratedEvidence.sensor_transport."
         "full_odometry_pose_velocity_fusion_claimed -eq $true"
     ) in text
     assert "Required Gazebo full-odometry publisher is absent" in text

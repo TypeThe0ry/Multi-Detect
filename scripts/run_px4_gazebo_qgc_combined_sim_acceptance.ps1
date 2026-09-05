@@ -3446,6 +3446,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     Assert-True ($integratedEvidence.synchronization.maximum_metadata_acceptance_ack_latency_ms -le $integratedEvidence.synchronization.allowed_metadata_acceptance_ack_latency_ms) "QGC runtime-status acceptance ACK latency exceeded the configured limit."
     Assert-True ($integratedEvidence.synchronization.maximum_frame_to_acceptance_latency_ms -le ($integratedEvidence.synchronization.allowed_ack_to_metadata_skew_ms + $integratedEvidence.synchronization.allowed_metadata_acceptance_ack_latency_ms)) "Frame-to-QGC-acceptance latency exceeded the composed barrier budget."
     Assert-True ($integratedEvidence.sensor_transport.complete -eq $true) "Gazebo sensor transport is incomplete."
+    Assert-True ($integratedEvidence.sensor_transport.camera_info_intrinsics_semantic_validation -eq "validated_k_p_rectification_plumb_bob_distortion") "Gazebo CameraInfo K/P/R/D semantic validation is missing or incomplete."
     Assert-True ($integratedEvidence.sensor_transport.odometry_required -eq $true) "Integrated SIM did not require Gazebo wire-v2 full odometry."
     Assert-True ($integratedEvidence.sensor_transport.full_odometry_pose_velocity_fusion_claimed -eq $true) "Integrated SIM did not validate full odometry pose/velocity fusion."
     Assert-True ($integratedEvidence.sensor_transport.odometry_timestamp_frame_count -eq $Frames) "Integrated SIM did not bind full odometry to every accepted frame."

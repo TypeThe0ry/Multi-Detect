@@ -47,6 +47,9 @@ PORT_RANGE_MAX = 60_000
 EXPECTED_PORT_COUNT = 9
 PROTECTED_GROUND_STATION_PORT = 14_550
 EXPECTED_RELEASE_MODE_EVENT = "sim_release_mode_evidence_prepared"
+EXPECTED_CAMERA_INFO_SEMANTIC_STATUS = (
+    "validated_k_p_rectification_plumb_bob_distortion"
+)
 
 PORT_FIELDS = (
     "operator_server_udp",
@@ -640,6 +643,51 @@ def verify_evidence(
         "required_sensor_topics_ready",
         sensor_topics.get("required_ready") if isinstance(sensor_topics, Mapping) else None,
     )
+    integrated_mapping = integrated if isinstance(integrated, Mapping) else {}
+    sensor_transport = integrated_mapping.get("sensor_transport")
+    sensor_transport_mapping = (
+        sensor_transport if isinstance(sensor_transport, Mapping) else {}
+    )
+    camera_info_semantics_ok = (
+        sensor_transport_mapping.get("camera_info_intrinsics_semantic_validation")
+        == EXPECTED_CAMERA_INFO_SEMANTIC_STATUS
+    )
+    checks["camera_info_intrinsics_semantics_validated"] = camera_info_semantics_ok
+    if not camera_info_semantics_ok:
+        _append_reason(
+            reasons,
+            "integrated_sim_qgc.sensor_transport CameraInfo K/P/R/D semantics "
+            f"must be {EXPECTED_CAMERA_INFO_SEMANTIC_STATUS!r}",
+        )
+    expected_sensor_frames = sensor_transport_mapping.get("expected_frame_count")
+    received_sensor_frames = sensor_transport_mapping.get("received_frame_count")
+    sensor_frames_complete = (
+        type(expected_sensor_frames) is int
+        and expected_sensor_frames > 0
+        and received_sensor_frames == expected_sensor_frames
+        and sensor_transport_mapping.get("complete") is True
+    )
+    checks["sensor_frames_complete"] = sensor_frames_complete
+    if not sensor_frames_complete:
+        _append_reason(
+            reasons,
+            "integrated_sim_qgc.sensor_transport must contain a positive and complete "
+            "expected/received frame count",
+        )
+    odometry_frames_complete = (
+        sensor_transport_mapping.get("odometry_required") is True
+        and type(sensor_transport_mapping.get("odometry_timestamp_frame_count")) is int
+        and sensor_transport_mapping.get("odometry_timestamp_frame_count")
+        == expected_sensor_frames
+        and sensor_transport_mapping.get("full_odometry_pose_velocity_fusion_claimed") is True
+    )
+    checks["odometry_frames_complete"] = odometry_frames_complete
+    if not odometry_frames_complete:
+        _append_reason(
+            reasons,
+            "integrated_sim_qgc.sensor_transport must bind full odometry pose/velocity "
+            "to every expected frame",
+        )
     _verify_optional_mission_journal(
         document,
         combined_path=combined_path,
