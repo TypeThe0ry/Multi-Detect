@@ -639,9 +639,9 @@ def _write_frame_set_manifest(
                 "per_frame_wire_telemetry_persisted": True,
                 "wire_record_recomputed_from_persisted_bytes": True,
                 "camera_intrinsics_source": "repository_calibration_hash_bound",
-                "camera_info_intrinsics_semantic_validation": (
-                    "pending_k_p_distortion_validation"
-                ),
+                "camera_info_intrinsics_semantic_validation": camera_calibration[
+                    "camera_info_intrinsics_semantic_validation"
+                ],
                 "terrain_source": "repository_dem_hash_bound",
             }
         )
