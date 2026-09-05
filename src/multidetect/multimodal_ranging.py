@@ -132,6 +132,7 @@ class AircraftPose:
     roll_sigma_deg: float = 0.3
     pitch_sigma_deg: float = 0.3
     heading_sigma_deg: float = 1.0
+    uncertainty_source: str = "configured_default"
 
     def __post_init__(self) -> None:
         values = (
@@ -153,6 +154,96 @@ class AircraftPose:
             raise ValueError("aircraft heading must be in [0, 360)")
         if any(value < 0.0 for value in values[4:]):
             raise ValueError("aircraft pose uncertainty cannot be negative")
+        if not isinstance(self.uncertainty_source, str) or not self.uncertainty_source.strip():
+            raise ValueError("aircraft pose uncertainty source cannot be empty")
+        object.__setattr__(self, "uncertainty_source", self.uncertainty_source.strip())
+
+
+def aircraft_pose_from_telemetry(
+    telemetry: object,
+    *,
+    captured_at_s: float | None = None,
+    fallback_roll_sigma_deg: float | None = None,
+    fallback_pitch_sigma_deg: float | None = None,
+    fallback_heading_sigma_deg: float | None = None,
+    fallback_source: str = "configured_fallback",
+) -> AircraftPose | None:
+    """Build one pose without silently inventing mixed uncertainty inputs.
+
+    A producer-supplied uncertainty tuple wins only when all three finite,
+    non-negative sigmas and its source are present.  An entirely absent tuple
+    may use an explicit all-axis fallback.  Partial/non-finite producer data is
+    rejected so a broken covariance adapter cannot masquerade as a valid pose.
+    """
+
+    timestamp = (
+        getattr(telemetry, "attitude_observed_at_s", math.nan)
+        if captured_at_s is None
+        else captured_at_s
+    )
+    attitude = (
+        getattr(telemetry, "roll_deg", math.nan),
+        getattr(telemetry, "pitch_deg", math.nan),
+        getattr(telemetry, "heading_deg", math.nan),
+        timestamp,
+    )
+    def finite_number(value: object) -> bool:
+        return (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+        )
+
+    if not all(finite_number(value) for value in attitude):
+        return None
+
+    telemetry_sigmas = (
+        getattr(telemetry, "attitude_roll_sigma_deg", math.nan),
+        getattr(telemetry, "attitude_pitch_sigma_deg", math.nan),
+        getattr(telemetry, "attitude_heading_sigma_deg", math.nan),
+    )
+    source = getattr(telemetry, "attitude_uncertainty_source", None)
+    supplied = tuple(
+        finite_number(value) for value in telemetry_sigmas
+    )
+    if all(supplied):
+        if (
+            any(float(value) < 0.0 for value in telemetry_sigmas)
+            or not isinstance(source, str)
+            or not source.strip()
+        ):
+            return None
+        sigmas = tuple(float(value) for value in telemetry_sigmas)
+        selected_source = source.strip()
+    elif any(supplied) or source is not None:
+        return None
+    else:
+        fallback = (
+            fallback_roll_sigma_deg,
+            fallback_pitch_sigma_deg,
+            fallback_heading_sigma_deg,
+        )
+        if not all(
+            finite_number(value)
+            and float(value) >= 0.0
+            for value in fallback
+        ):
+            return None
+        if not isinstance(fallback_source, str) or not fallback_source.strip():
+            return None
+        sigmas = tuple(float(value) for value in fallback)
+        selected_source = fallback_source.strip()
+
+    return AircraftPose(
+        captured_at_s=float(timestamp),
+        roll_deg=float(attitude[0]),
+        pitch_deg=float(attitude[1]),
+        heading_deg=float(attitude[2]) % 360.0,
+        roll_sigma_deg=sigmas[0],
+        pitch_sigma_deg=sigmas[1],
+        heading_sigma_deg=sigmas[2],
+        uncertainty_source=selected_source,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,6 +393,10 @@ class RangeSolution:
     vehicle_profile: str = "auto"
     navigation_state: str = "unknown"
     motion_regime: str = "unknown"
+    pose_roll_sigma_deg: float | None = None
+    pose_pitch_sigma_deg: float | None = None
+    pose_heading_sigma_deg: float | None = None
+    pose_uncertainty_source: str | None = None
     advisory_only: bool = True
     flight_control_enabled: bool = False
     physical_release_enabled: bool = False
@@ -328,9 +423,26 @@ class RangeSolution:
             self.north_offset_m,
             self.east_offset_m,
             self.data_freshness_s,
+            self.pose_roll_sigma_deg,
+            self.pose_pitch_sigma_deg,
+            self.pose_heading_sigma_deg,
         )
         if any(value is not None and not math.isfinite(value) for value in numeric):
             raise ValueError("range solution numeric values must be finite when supplied")
+        pose_sigmas = (
+            self.pose_roll_sigma_deg,
+            self.pose_pitch_sigma_deg,
+            self.pose_heading_sigma_deg,
+        )
+        if any(value is not None for value in pose_sigmas):
+            if (
+                not all(value is not None and value >= 0.0 for value in pose_sigmas)
+                or not isinstance(self.pose_uncertainty_source, str)
+                or not self.pose_uncertainty_source.strip()
+            ):
+                raise ValueError("range solution pose uncertainty must be complete")
+        elif self.pose_uncertainty_source is not None:
+            raise ValueError("range solution pose uncertainty source has no sigma tuple")
         if not math.isfinite(self.sensor_consistency) or not 0.0 <= self.sensor_consistency <= 1.0:
             raise ValueError("sensor consistency must be in [0, 1]")
         if any(
@@ -486,6 +598,10 @@ class MultiModalRangingEngine:
             "vehicle_profile": vehicle_profile,
             "navigation_state": navigation_state,
             "motion_regime": motion_regime,
+            "pose_roll_sigma_deg": pose.roll_sigma_deg,
+            "pose_pitch_sigma_deg": pose.pitch_sigma_deg,
+            "pose_heading_sigma_deg": pose.heading_sigma_deg,
+            "pose_uncertainty_source": pose.uncertainty_source,
         }
         reasons: list[str] = []
         pose_age = now_s - pose.captured_at_s
@@ -780,6 +896,10 @@ class MultiModalRangingEngine:
             "vehicle_profile": vehicle_profile,
             "navigation_state": navigation_state,
             "motion_regime": motion_regime,
+            "pose_roll_sigma_deg": pose.roll_sigma_deg,
+            "pose_pitch_sigma_deg": pose.pitch_sigma_deg,
+            "pose_heading_sigma_deg": pose.heading_sigma_deg,
+            "pose_uncertainty_source": pose.uncertainty_source,
         }
         if _has_duplicate_sources(measurement.source for measurement in direct_measurements):
             return self._invalid(base, "duplicate_direct_range_source")

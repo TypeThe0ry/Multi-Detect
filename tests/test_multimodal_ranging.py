@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from multidetect.domain import VehicleTelemetry
 from multidetect.multimodal_ranging import (
     AircraftPose,
     CameraCalibration,
@@ -18,6 +19,7 @@ from multidetect.multimodal_ranging import (
     TargetImageObservation,
     VerticalMeasurement,
     VerticalSource,
+    aircraft_pose_from_telemetry,
     load_camera_calibration,
 )
 from multidetect.terrain_dem import DemGpsTerrainObservation, LocalDemGrid
@@ -64,6 +66,84 @@ def _target(**changes: object) -> TargetImageObservation:
 
 def _agl(*, height_m: float = 50.0, sigma_m: float = 0.5) -> VerticalMeasurement:
     return VerticalMeasurement(VerticalSource.PIXHAWK_AGL, height_m, sigma_m, 10.0)
+
+
+def _telemetry_pose_input(**changes: object) -> VehicleTelemetry:
+    values: dict[str, object] = {
+        "altitude_agl_m": 50.0,
+        "roll_deg": 1.0,
+        "pitch_deg": -2.0,
+        "ground_speed_mps": 12.0,
+        "in_allowed_zone": True,
+        "geofence_healthy": True,
+        "position_healthy": True,
+        "link_healthy": True,
+        "flight_mode_allows_deploy": False,
+        "release_zone_clear": None,
+        "heading_deg": 91.0,
+        "attitude_observed_at_s": 10.0,
+    }
+    values.update(changes)
+    return VehicleTelemetry(**values)
+
+
+def test_pose_resolver_prefers_complete_telemetry_uncertainty_and_binds_source() -> None:
+    pose = aircraft_pose_from_telemetry(
+        _telemetry_pose_input(
+            attitude_roll_sigma_deg=0.12,
+            attitude_pitch_sigma_deg=0.18,
+            attitude_heading_sigma_deg=0.7,
+            attitude_uncertainty_source="estimator_covariance",
+        ),
+        fallback_roll_sigma_deg=1.0,
+        fallback_pitch_sigma_deg=1.0,
+        fallback_heading_sigma_deg=2.0,
+    )
+    assert pose is not None
+    assert (pose.roll_sigma_deg, pose.pitch_sigma_deg, pose.heading_sigma_deg) == pytest.approx(
+        (0.12, 0.18, 0.7)
+    )
+    assert pose.uncertainty_source == "estimator_covariance"
+
+
+def test_pose_resolver_uses_explicit_complete_fallback_when_tuple_is_absent() -> None:
+    pose = aircraft_pose_from_telemetry(
+        _telemetry_pose_input(),
+        fallback_roll_sigma_deg=0.4,
+        fallback_pitch_sigma_deg=0.5,
+        fallback_heading_sigma_deg=1.2,
+        fallback_source="field_profile_fallback",
+    )
+    assert pose is not None
+    assert (pose.roll_sigma_deg, pose.pitch_sigma_deg, pose.heading_sigma_deg) == pytest.approx(
+        (0.4, 0.5, 1.2)
+    )
+    assert pose.uncertainty_source == "field_profile_fallback"
+
+
+def test_pose_resolver_rejects_partial_or_unattributed_uncertainty() -> None:
+    assert (
+        aircraft_pose_from_telemetry(
+            _telemetry_pose_input(attitude_roll_sigma_deg=0.1),
+            fallback_roll_sigma_deg=0.4,
+            fallback_pitch_sigma_deg=0.5,
+            fallback_heading_sigma_deg=1.2,
+        )
+        is None
+    )
+    assert (
+        aircraft_pose_from_telemetry(
+            _telemetry_pose_input(
+                attitude_roll_sigma_deg=0.1,
+                attitude_pitch_sigma_deg=0.1,
+                attitude_heading_sigma_deg=0.5,
+            ),
+            fallback_roll_sigma_deg=0.4,
+            fallback_pitch_sigma_deg=0.5,
+            fallback_heading_sigma_deg=1.2,
+        )
+        is None
+    )
 
 
 def _terrain_grid(
@@ -128,6 +208,12 @@ def test_camera_ground_projection_returns_distance_bearing_and_ci() -> None:
     assert solution.slant_range_ci95_m[0] < solution.slant_range_m
     assert solution.slant_range_ci95_m[1] > solution.slant_range_m
     assert solution.data_freshness_s == pytest.approx(0.05)
+    assert (
+        solution.pose_roll_sigma_deg,
+        solution.pose_pitch_sigma_deg,
+        solution.pose_heading_sigma_deg,
+    ) == pytest.approx((0.3, 0.3, 1.0))
+    assert solution.pose_uncertainty_source == "configured_default"
     assert solution.advisory_only is True
     assert solution.flight_control_enabled is False
     assert solution.physical_release_enabled is False

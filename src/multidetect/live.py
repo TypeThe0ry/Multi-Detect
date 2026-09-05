@@ -46,13 +46,13 @@ from .monocular_avoidance import (
     OpenCVSparseFlowAvoidance,
 )
 from .multimodal_ranging import (
-    AircraftPose,
     CameraCalibration,
     MultiModalRangingEngine,
     RangeSolution,
     RangeValidity,
     VerticalMeasurement,
     VerticalSource,
+    aircraft_pose_from_telemetry,
 )
 from .operator_bridge import LiveOperatorBridge
 from .operator_link import (
@@ -4720,15 +4720,21 @@ class LiveMissionRunner:
             for measurement in (visual_direct, rgb_slam_direct, metric_direct)
             if measurement is not None
         )
-        pose = AircraftPose(
-            captured_at_s=telemetry.attitude_observed_at_s,
-            roll_deg=telemetry.roll_deg,
-            pitch_deg=telemetry.pitch_deg,
-            heading_deg=telemetry.heading_deg % 360.0,
-            roll_sigma_deg=config.roll_sigma_deg,
-            pitch_sigma_deg=config.pitch_sigma_deg,
-            heading_sigma_deg=config.heading_sigma_deg,
+        pose = aircraft_pose_from_telemetry(
+            telemetry,
+            fallback_roll_sigma_deg=config.roll_sigma_deg,
+            fallback_pitch_sigma_deg=config.pitch_sigma_deg,
+            fallback_heading_sigma_deg=config.heading_sigma_deg,
+            fallback_source="live_configured_fallback",
         )
+        if pose is None:
+            return _invalid_live_range_solution(
+                target_id=track.track_id,
+                frame_id=captured.frame_id,
+                calibration_id=config.calibration.calibration_id,
+                now_s=now_s,
+                reason="attitude_uncertainty_unavailable_or_malformed",
+            )
         # Sub-decimetre local-NED noise while parked is a learned zero, not a
         # geometric camera height.  Keep it out of the ground-ray solver and let
         # the temporal motion estimator wait for real platform excitation.
@@ -4853,15 +4859,7 @@ class LiveMissionRunner:
             )
         return engine.solve(
             calibration=config.calibration,
-            pose=AircraftPose(
-                captured_at_s=pose_timestamp_s,
-                roll_deg=telemetry.roll_deg,
-                pitch_deg=telemetry.pitch_deg,
-                heading_deg=telemetry.heading_deg % 360.0,
-                roll_sigma_deg=config.roll_sigma_deg,
-                pitch_sigma_deg=config.pitch_sigma_deg,
-                heading_sigma_deg=config.heading_sigma_deg,
-            ),
+            pose=replace(pose, captured_at_s=pose_timestamp_s),
             target=target,
             vertical_measurements=vertical_measurements,
             terrain_observation=terrain_observation,
@@ -5069,6 +5067,12 @@ def _range_solution_details(
         "relative_bearing_deg": solution.relative_bearing_deg,
         "absolute_bearing_deg": solution.absolute_bearing_deg,
         "bearing_sigma_deg": solution.bearing_sigma_deg,
+        "pose_uncertainty": {
+            "roll_sigma_deg": solution.pose_roll_sigma_deg,
+            "pitch_sigma_deg": solution.pose_pitch_sigma_deg,
+            "heading_sigma_deg": solution.pose_heading_sigma_deg,
+            "source": solution.pose_uncertainty_source,
+        },
         "north_offset_m": solution.north_offset_m,
         "east_offset_m": solution.east_offset_m,
         "data_freshness_s": solution.data_freshness_s,

@@ -12,6 +12,7 @@ from .multimodal_ranging import (
     DirectRangeSource,
     MultiModalRangingEngine,
     TargetImageObservation,
+    aircraft_pose_from_telemetry,
 )
 from .unified_tracking import UnifiedTrackSnapshot, UnifiedTrackState
 
@@ -179,11 +180,12 @@ class VisualInertialRangeEstimator:
         )
         if not all(math.isfinite(value) for value in values):
             return None
-        return AircraftPose(
-            captured_at_s=telemetry.attitude_observed_at_s,
-            roll_deg=telemetry.roll_deg,
-            pitch_deg=telemetry.pitch_deg,
-            heading_deg=telemetry.heading_deg % 360.0,
+        return aircraft_pose_from_telemetry(
+            telemetry,
+            fallback_roll_sigma_deg=0.3,
+            fallback_pitch_sigma_deg=0.3,
+            fallback_heading_sigma_deg=1.0,
+            fallback_source="visual_inertial_configured_fallback",
         )
 
     def _platform_position(

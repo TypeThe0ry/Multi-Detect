@@ -118,7 +118,9 @@ _TELEMETRY_OPTIONAL_INTS = frozenset(
         "mission_item_reached_sequence",
     }
 )
-_TELEMETRY_OPTIONAL_TEXT = frozenset({"flight_mode", "altitude_reference"})
+_TELEMETRY_OPTIONAL_TEXT = frozenset(
+    {"flight_mode", "altitude_reference", "attitude_uncertainty_source"}
+)
 _TELEMETRY_REQUIRED_FINITE_FLOATS = frozenset(
     {"altitude_agl_m", "roll_deg", "pitch_deg", "ground_speed_mps"}
 )
@@ -272,6 +274,16 @@ def _frame_to_mapping(frame: FrameObservation) -> dict[str, Any]:
         telemetry.pop("mission_item_reached_observed_at_s")
     if not isfinite(frame.telemetry.gps_absolute_altitude_m):
         telemetry.pop("gps_absolute_altitude_m")
+    if (
+        not isfinite(frame.telemetry.attitude_roll_sigma_deg)
+        and not isfinite(frame.telemetry.attitude_pitch_sigma_deg)
+        and not isfinite(frame.telemetry.attitude_heading_sigma_deg)
+        and frame.telemetry.attitude_uncertainty_source is None
+    ):
+        telemetry.pop("attitude_roll_sigma_deg")
+        telemetry.pop("attitude_pitch_sigma_deg")
+        telemetry.pop("attitude_heading_sigma_deg")
+        telemetry.pop("attitude_uncertainty_source")
     detections = [
         {
             "label": item.label,
@@ -334,6 +346,18 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         ),
         attitude_observed_at_s=_optional_float(
             telemetry_raw.get("attitude_observed_at_s")
+        ),
+        attitude_roll_sigma_deg=_optional_float(
+            telemetry_raw.get("attitude_roll_sigma_deg")
+        ),
+        attitude_pitch_sigma_deg=_optional_float(
+            telemetry_raw.get("attitude_pitch_sigma_deg")
+        ),
+        attitude_heading_sigma_deg=_optional_float(
+            telemetry_raw.get("attitude_heading_sigma_deg")
+        ),
+        attitude_uncertainty_source=_optional_string(
+            telemetry_raw.get("attitude_uncertainty_source")
         ),
         position_observed_at_s=_optional_float(
             telemetry_raw.get("position_observed_at_s")

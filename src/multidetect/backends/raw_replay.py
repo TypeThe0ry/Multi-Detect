@@ -91,7 +91,9 @@ _NULLABLE_INTEGER_FIELDS = frozenset(
         "mission_item_reached_sequence",
     }
 )
-_NULLABLE_TEXT_FIELDS = frozenset({"flight_mode", "altitude_reference"})
+_NULLABLE_TEXT_FIELDS = frozenset(
+    {"flight_mode", "altitude_reference", "attitude_uncertainty_source"}
+)
 _NULLABLE_REAL_FIELDS = frozenset(
     {
         "altitude_agl_m",
@@ -108,6 +110,9 @@ _NULLABLE_REAL_FIELDS = frozenset(
         "mission_sequence_observed_at_s",
         "mission_item_reached_observed_at_s",
         "attitude_observed_at_s",
+        "attitude_roll_sigma_deg",
+        "attitude_pitch_sigma_deg",
+        "attitude_heading_sigma_deg",
         "position_observed_at_s",
         "velocity_north_mps",
         "velocity_east_mps",
@@ -1203,6 +1208,16 @@ def _vehicle_telemetry_to_mapping(telemetry: VehicleTelemetry) -> dict[str, obje
         result.pop("mission_item_reached_observed_at_s")
     if not math.isfinite(telemetry.gps_absolute_altitude_m):
         result.pop("gps_absolute_altitude_m")
+    if (
+        not math.isfinite(telemetry.attitude_roll_sigma_deg)
+        and not math.isfinite(telemetry.attitude_pitch_sigma_deg)
+        and not math.isfinite(telemetry.attitude_heading_sigma_deg)
+        and telemetry.attitude_uncertainty_source is None
+    ):
+        result.pop("attitude_roll_sigma_deg")
+        result.pop("attitude_pitch_sigma_deg")
+        result.pop("attitude_heading_sigma_deg")
+        result.pop("attitude_uncertainty_source")
     return result
 
 

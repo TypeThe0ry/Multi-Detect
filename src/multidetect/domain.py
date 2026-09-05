@@ -174,6 +174,14 @@ class VehicleTelemetry:
     mission_item_reached_sequence: int | None = None
     mission_item_reached_observed_at_s: float = nan
     attitude_observed_at_s: float = nan
+    # Optional one-sigma attitude uncertainty at ``attitude_observed_at_s``.
+    # Producers must publish all three axes plus a non-empty source together;
+    # ranging treats partial tuples as malformed instead of silently mixing
+    # measured and configured uncertainty.
+    attitude_roll_sigma_deg: float = nan
+    attitude_pitch_sigma_deg: float = nan
+    attitude_heading_sigma_deg: float = nan
+    attitude_uncertainty_source: str | None = None
     position_observed_at_s: float = nan
     velocity_north_mps: float = nan
     velocity_east_mps: float = nan
