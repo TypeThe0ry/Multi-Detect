@@ -1,5 +1,17 @@
 # v0.3.0 E7 发布门
 
+## v87 HIL/REAL covariance 六叶发布矩阵（2026-09-06，`v0.3.0-pre.8`）
+
+E7 顶层新增 `pixhawk_covariance`。CLI 使用六次
+`--pixhawk-covariance-evidence MODE VEHICLE REPORT`，组合必须严格为 HIL/REAL × fixed-wing、
+multirotor、VTOL，且六份 report 路径互异。writer 与 evaluator 都会重新运行 v86 schema-v3 verifier，
+再核对每叶嵌入的 Mission、Mission feedback、signed runtime profile、endpoint、baud、HEARTBEAT、
+firmware identity、当前 transport/qualified link、read-only 与 hardware-control-disabled 状态。
+
+该矩阵还必须匹配四模式 E7 的 `px4_mission_path_hash`。预发布清单允许字段缺省，以兼容历史诊断；字段
+一旦出现便是 authoritative，任一叶失败会关闭总门。最终 release 无条件要求完整矩阵。当前只有外部
+PX4/Gazebo SIM 正控，没有伪造 HIL/REAL 六叶，因此这轮只关闭软件聚合缺口，最终发布状态不变。
+
 ## v86 strict covariance evidence contract（2026-09-06，`v0.3.0-pre.8`）
 
 covariance observation 现在必须同时通过 Draft 2020-12 schema v3、canonical evidence hash、当前

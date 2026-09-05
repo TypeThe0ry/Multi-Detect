@@ -1,5 +1,20 @@
 # 统一仓库架构
 
+## v87 E7 field covariance matrix（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+HIL/REAL × fixed-wing/multirotor/VTOL covariance report
+  -> schema-v3 report verifier + exact derived rebuild
+  -> reopen Mission / feedback v2 / signed runtime profile
+  -> bind endpoint + baud + heartbeat + firmware + current link qualification
+  -> six distinct leaves + current px4_mission_path_hash
+  -> E7 manifest schema/writer/evaluator/final-release blocker
+```
+
+`src/multidetect/pixhawk_covariance_binding.py` 只建立可重放索引，不复制一套弱化的报告判定。
+它动态加载仓库内 capture verifier，逐叶验证后才抽取 compact record；E7 evaluator 再次执行相同重放并
+与 source exact compare。当前仓库保留 SIM 正控，真实 HIL/REAL 六叶必须由现场独立采集。
+
 ## v86 strict covariance evidence schema（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

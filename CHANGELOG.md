@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v87 E7 field covariance matrix（2026-09-06）
+
+- E7 manifest 新增可选但一旦提供即 authoritative 的 `pixhawk_covariance`；最终 `v0.3.0` 强制要求
+  HIL/REAL × fixed-wing/multirotor/VTOL 六份互异报告；
+- 每叶重新运行 covariance observation schema-v3 verifier，并重新打开其 Mission、Mission feedback、
+  signed runtime profile，核对 endpoint、baud、HEARTBEAT、firmware、current qualified link 与只读边界；
+- 六叶 binding 与四模式 `px4_mission_path_hash` 交叉绑定；重复、缺失、未知组合、compact record 篡改、
+  source 漂移或 parity 漂移全部 fail-closed；
+- release manifest JSON Schema、writer API、CLI、evaluator、最终发布 blocker 与专项回归完成。当前仓库只有
+  SIM 正证据，尚无六份真实 HIL/REAL 报告，因此最终版本仍保持阻断；全量回归 3,391 tests：
+  `3390 passed, 1 skipped`，全仓 Ruff 通过。
+
 ### v0.3.0-pre.8 v86 strict covariance evidence schema（2026-09-06）
 
 - 新增 Draft 2020-12 `pixhawk-odometry-covariance-observation` schema v3，所有保留对象默认

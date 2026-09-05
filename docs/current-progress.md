@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v86 工作树）
+最后更新：2026-09-06（v87 工作树）
+
+## v87 本轮已收口
+
+- 新增 `pixhawk_covariance` E7 六叶矩阵，覆盖 HIL/REAL × fixed-wing/multirotor/VTOL；预发布可缺省，
+  一旦提供即 authoritative，最终 release 必须完整提供；
+- 每叶不信任摘要字段，而是调用 schema-v3 observation verifier 重建报告，并重新打开 Mission、feedback、
+  runtime profile；compact E7 记录与当前 source exact compare；
+- binding 固定 runtime/airframe、report/source hash、Mission adapter、endpoint/baud、HEARTBEAT、firmware、
+  current transport/qualified link、read-only/hardware-control-disabled 与 `px4_mission_path_hash`；
+- manifest builder/API/CLI、严格 JSON Schema、evaluator、final-release blocker 和重复/篡改/source-drift
+  回归已接线；parity 变化后旧 v86 SIM 报告按设计被共享 leaf verifier 拒绝；
+- 真实六叶 HIL/REAL covariance 尚未采集，所以这轮关闭的是 E7 软件消费缺口，不宣称硬件、室外 GNSS、
+  HIL/REAL 或实飞通过，最终 `v0.3.0` 保持阻断。
+- `px4_mission_path_hash` 更新为 `AADF6672...41715`；全量回归 3,391 tests：
+  `3390 passed, 1 skipped, 0 failed, 0 errors`，JUnit 494,984 bytes、SHA-256
+  `A7FA11B6D5236372B0BC051B092E03F47AD899F25C95751C58F7ADA00C002A88`；全仓 Ruff 通过。
 
 ## v86 本轮已收口
 

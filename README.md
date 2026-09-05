@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v86：PX4 covariance observation 升级为严格 schema v3；writer/reader 双重验证，证据 diagnostics 闭合精简并纳入 PX4 Mission parity |
+| 当前工程迭代 | v87：E7 新增 HIL/REAL × 三机型 Pixhawk covariance 六叶矩阵；逐叶重放 schema-v3 verifier，并交叉绑定 Mission/feedback/profile/link/firmware/parity |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |

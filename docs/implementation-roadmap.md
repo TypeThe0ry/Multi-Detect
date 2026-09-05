@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## E7 HIL/REAL estimator covariance 六叶矩阵（v87）
+
+- [x] 定义 HIL/REAL × fixed-wing/multirotor/VTOL 精确覆盖与互异 source 约束；
+- [x] 每叶重放 schema-v3 verifier，并绑定 Mission/feedback/profile/link/firmware；
+- [x] 接入 release manifest schema、writer API/CLI、evaluator 与 final-release blocker；
+- [x] 与四模式 `px4_mission_path_hash` 交叉绑定，覆盖重复、篡改与 source 漂移；
+- [ ] 在真实三机型 Pixhawk 上分别采集 HIL/REAL 六份通过报告，并由第二机重放后写入 E7。
+
 ## 杆臂几何不确定性传播（v78）
 
 - [x] 审计 GNSS datum→camera→target→WGS-84 均值链，确认杆臂只应用一次；

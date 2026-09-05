@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T21:29:46Z",
+  "updated_at_utc": "2026-09-05T21:49:20Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "4a8f29a289d1e5b31257bb8443090b0f9c56fe25",
-    "commit_subject": "feat(evidence): enforce strict covariance schema",
-    "commits_ahead_of_origin_main": 60
+    "commit": "c03256b7e584c6449b7ee2d4402ddc2479b6b3a8",
+    "commit_subject": "feat(evidence): bind field covariance matrix into E7",
+    "commits_ahead_of_origin_main": 62
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v86",
+  "working_iteration": "v87",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v86-final.xml",
-      "tests": 3386,
-      "passed": 3385,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v87-final.xml",
+      "tests": 3391,
+      "passed": 3390,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 90.728,
-      "junit_local_path": "tmp/current-progress-regression-v86-final.xml",
-      "junit_file_bytes": 494307,
-      "junit_file_sha256": "52ad5a17d952f5ba23a71631d9f4dae59b43ff2c83ab461570adc94590049376",
+      "duration_seconds": 92.812,
+      "junit_local_path": "tmp/current-progress-regression-v87-final.xml",
+      "junit_file_bytes": 494984,
+      "junit_file_sha256": "a7fa11b6d5236372b0bc051b092e03f47ad899f25c95751c58f7ada00c002a88",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,17 +63,37 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 5792,
-    "file_sha256": "2504fc3f19f7fd33726ad8aa21211e787f9afa1a080066761306a3e849c1a3b5",
+    "bytes": 5847,
+    "file_sha256": "c40daf56d94ad1f282100129d37b2406cf612d105fc18415cda5a5d6dbe2305e",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "6b1c9b223a54f5adbfe95bd119e7360d0deabf37dc046e76e1eab2ffe9af43d8"
+      "px4_mission_path_hash": "aadf6672beff6819da432925c0b80f77c7ca6a5ed607fed794c3574f98241715"
     }
   },
   "evidence": {
+    "pixhawk_covariance_e7_contract": {
+      "schema_version": 1,
+      "manifest_field": "pixhawk_covariance",
+      "required_runtime_modes": ["hil", "real"],
+      "required_vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
+      "required_observations": 6,
+      "leaf_schema": "multidetect.pixhawk-odometry-covariance-observation/v3",
+      "writer_and_evaluator_reverify_sources": true,
+      "px4_mission_path_hash_bound": true,
+      "prerelease_absence_allowed": true,
+      "final_release_required": true,
+      "real_hil_matrix_collected": false,
+      "claims": {
+        "software_gate_implemented": "passed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "hardware_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      }
+    },
     "px4_estimator_attitude_covariance_sim": {
       "local_path": "artifacts/evaluation/terminal-continuation-v86/px4-sitl-covariance-schema-v3-v86-pre8-final.json",
       "distributed_in_git": false,
