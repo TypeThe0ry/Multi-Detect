@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v93 transactional covariance workspace receive（2026-09-06）
+
+- `field_covariance_workspace` 新增 `receive`：先验源介质，按闭合 manifest 精确复制 20 文件到同盘临时
+  目录，再复验 workspace digest、当前 parity 与六叶 source preflight 后原子落位；
+- 禁止目标/回执覆盖、目标位于源 bundle 内或回执位于任一闭合 bundle 内；回执写失败会回滚本次新建
+  目标，源介质保持不变；
+- 新增闭合、canonical-digest-bound 的本机接收回执和 `verify-receipt`；移除源介质后仍会重开本机
+  destination、逐文件 hash、campaign 与 preflight，不把源路径当作在线证据；
+- 回执只证明静态接收事务，live identity/covariance/hardware/HIL/REAL/flight claims 固定为 false，接收机
+  仍必须运行本机 `preflight -> probe-next -> capture-next`；
+- receipt schema 与实现纳入 PX4 Mission parity，`px4_mission_path_hash` 更新为
+  `6b5ab2ef...f85f02`。全量回归 3,445 tests：`3444 passed, 1 skipped`，全仓 Ruff 通过；产品继续
+  保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v92 portable covariance campaign workspace（2026-09-06）
 
 - 新增 `field_covariance_workspace export/verify`：导出前运行真实六叶 source preflight，并把

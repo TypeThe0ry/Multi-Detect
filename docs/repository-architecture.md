@@ -1,5 +1,27 @@
 # 统一仓库架构
 
+## v93 transactional workspace receive（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+removable-media bundle
+  -> verify closed 20-file source + current parity + six-leaf preflight
+  -> copy exact manifest file set to destination sibling temp directory
+  -> verify copied workspace again
+  -> atomic publish local destination
+  -> write-new external receipt
+       source/destination absolute paths
+       workspace + receipt canonical digests
+       current parity + 6 leaves + 18 sources + 20 JSON files
+       all acceptance claims false
+  -> source media may be removed
+  -> verify-receipt reopens the local destination
+  -> local preflight/probe/capture remains mandatory
+```
+
+接收回执故意位于 workspace 外，避免破坏 v92 的精确闭合文件集。回执中的源路径只是事务 provenance；
+独立复验依赖本机 destination、当前 parity 与内容 hash，不声称源介质仍然存在。复制或回执任一步失败时，
+只清理本次临时目录/新目标，既有文件绝不覆盖。receipt schema 同样纳入 `px4_mission_path_hash`。
+
 ## v92 portable field covariance workspace（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

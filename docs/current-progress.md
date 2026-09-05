@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v92 工作树）
+最后更新：2026-09-06（v93 工作树）
+
+## v93 本轮已收口
+
+- `field_covariance_workspace receive` 先重验移动介质 bundle，只复制 manifest 声明的精确 20 文件到目标
+  同盘临时目录，再重验 workspace digest、当前 parity、相对路径 campaign 和六叶 source preflight，最后
+  原子发布本机副本；
+- destination/receipt 均为 write-new，拒绝覆盖、目标位于 source 内、receipt 位于 source/destination 内和
+  symlink；回执写失败会删除本轮刚发布的 destination，源介质不变；
+- 新增 closed-schema、canonical-digest-bound 的外部接收回执及 `verify-receipt`。拔除源介质后仍会重开
+  本机 destination、逐文件 hash、campaign、parity 与 preflight；源绝对路径只作为事务 provenance；
+- 回执核对 6 leaves、18 sources、20 JSON、下一条本机 preflight argv，且 live identity、covariance、
+  hardware、HIL、REAL、flight 全部固定为 false；现场仍必须重新 probe/capture；
+- receipt schema/module 已纳入 PX4 Mission parity，`px4_mission_path_hash` 更新为
+  `6B5AB2EF...F85F02`。当前未接入物理介质或真实 Pixhawk，没有生成实际接收回执或 acceptance。
+- 全量回归 3,445 tests：`3444 passed, 1 skipped, 0 failed, 0 errors`，耗时 96.462 秒；JUnit
+  502,750 bytes、SHA-256 `D3DCDE46F027DD67C86D437AE879FAA11F14A4480C308B0F2F74CCDC49F7A31D`；
+  全仓 Ruff 通过。
 
 ## v92 本轮已收口
 

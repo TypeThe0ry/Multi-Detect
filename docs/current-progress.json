@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T22:50:31Z",
+  "updated_at_utc": "2026-09-05T22:59:37Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "42bc4e5d8a05c52fdf41a4d13bcfe3c148c6d2ba",
-    "commit_subject": "feat(evidence): export portable covariance workspace",
-    "commits_ahead_of_origin_main": 72
+    "commit": "41f73b3cb255efa59cac2eb1f3a13843fe02b66f",
+    "commit_subject": "feat(evidence): receive portable covariance workspace",
+    "commits_ahead_of_origin_main": 74
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v92",
+  "working_iteration": "v93",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v92-final.xml",
-      "tests": 3439,
-      "passed": 3438,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v93-final.xml",
+      "tests": 3445,
+      "passed": 3444,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 94.448,
-      "junit_local_path": "tmp/current-progress-regression-v92-final.xml",
-      "junit_file_bytes": 501885,
-      "junit_file_sha256": "8714cca8795dd428d9befb4323005e639b77d23445b895e5b1b8649418e46065",
+      "duration_seconds": 96.462,
+      "junit_local_path": "tmp/current-progress-regression-v93-final.xml",
+      "junit_file_bytes": 502750,
+      "junit_file_sha256": "d3dcde46f027dd67c86d437ae879faa11f14a4480c308b0f2f74ccdc49f7a31d",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,14 +63,14 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 6228,
-    "file_sha256": "e8208a8abdf70e07ba02dc45448dc70f5179df91829ced956c62587de8f49620",
+    "bytes": 6308,
+    "file_sha256": "ceb36723c98bcab397b8b3015986093aec51dc2e950c04f26df518e5eb34919f",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "b30a0daec4837890b28546a5e3a2a06ca3c4e3553b60432c1237b1c42baf266b"
+      "px4_mission_path_hash": "6b5ab2eff88934ccf60b29ef556f685220517f22563699c3f7480a9b40f85f02"
     }
   },
   "evidence": {
@@ -116,7 +116,7 @@
         "schema_file_bytes": 3983,
         "schema_file_sha256": "06f6540256553c752e513477c7265063d2beb7d8132284b82cf36308322850c0",
         "module": "multidetect.field_covariance_workspace",
-        "commands": ["export", "verify"],
+        "commands": ["export", "verify", "receive", "verify-receipt"],
         "source_files": 18,
         "total_json_files": 20,
         "relative_source_and_report_paths": true,
@@ -127,6 +127,15 @@
         "field_covariance_reports_included": false,
         "receiver_must_repeat_online_probe": true,
         "receiver_must_capture_each_leaf": true,
+        "receipt_schema": "multidetect.pixhawk-covariance-field-workspace-receipt/v1",
+        "receipt_schema_path": "configs/schemas/pixhawk-covariance-field-workspace-receipt.schema.json",
+        "receipt_schema_file_bytes": 3244,
+        "receipt_schema_file_sha256": "3d9994ba1e982e40c41d21678966cb37added19ec32e478f5223bd5f4cdbf268",
+        "transactional_receive_atomic_publish": true,
+        "destination_and_receipt_overwrite_disabled": true,
+        "receipt_outside_closed_bundle": true,
+        "receipt_failure_rolls_back_new_destination": true,
+        "source_media_required_for_receipt_reverification": false,
         "physical_second_machine_handoff_completed": false
       },
       "one_leaf_per_capture": true,

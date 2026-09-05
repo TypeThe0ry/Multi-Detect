@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 事务式接收 covariance workspace（v93）
+
+- [x] 接收前完整验证源介质，只复制 manifest 精确声明的 20 个文件；
+- [x] 在目标同盘临时目录复验 workspace/parity/preflight，成功后才原子落位；
+- [x] 拒绝覆盖、bundle 内目标/回执和 symlink，回执写失败时回滚本次新副本；
+- [x] 在 bundle 外生成 closed-schema、digest-bound 本机回执，并支持拔除源介质后独立复验；
+- [x] 回执所有 acceptance claims 固定为 false，并给出本机 preflight argv；
+- [ ] 在第二台现场机从真实移动介质运行 receive/verify-receipt，再逐叶在线采集。
+
 ## 可搬迁 covariance campaign workspace（v92）
 
 - [x] 导出精确六叶的 18 份 Mission/feedback/profile 原始字节，并生成相对路径 portable campaign；

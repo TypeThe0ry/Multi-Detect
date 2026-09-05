@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v92：可搬迁的六叶 covariance 静态工作空间；封装 18 份 Mission/feedback/profile 原始字节和相对路径 campaign，第二机重验后重新在线探测 |
+| 当前工程迭代 | v93：事务式接收可搬迁 covariance workspace；源介质先验、20 文件原子复制、本机复验、bundle 外 hash-bound 回执和失败回滚 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,33 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v93 第二机事务式接收与回执
+
+第二台现场机不要直接在移动介质上采集。先把已导出的 bundle 验证并原子接收到本机目录，回执必须放在
+bundle 外：
+
+```powershell
+python -m multidetect.field_covariance_workspace receive `
+  --bundle E:\covariance-workspace `
+  --out D:\FieldEvidence\covariance-workspace `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json
+```
+
+`receive` 先完整验证源介质，只复制 manifest 声明的 20 个文件到同盘临时目录，再验证本机副本并原子
+落位。目标目录或回执已存在时拒绝覆盖；回执写失败时删除本次新副本。回执记录源/目标路径、workspace
+digest、当前 parity、六叶/18 源/20 文件复验结果和下一条 argv，但所有硬件、HIL、REAL、flight claims
+仍固定为 false。
+
+源介质移除后仍可复验本机副本与回执：
+
+```powershell
+python -m multidetect.field_covariance_workspace verify-receipt `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json
+```
+
+通过只证明接收事务和静态 workspace 当前一致；随后仍须在本机运行
+`preflight -> probe-next -> capture-next`。
 
 ### v92 可搬迁的六叶 covariance 工作空间
 

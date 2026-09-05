@@ -1,5 +1,32 @@
 # v0.3.0 E7 发布门
 
+## v93 transactional workspace receive（2026-09-06，`v0.3.0-pre.8`）
+
+第二台机器从只读/移动介质接收时执行：
+
+```powershell
+python -m multidetect.field_covariance_workspace receive `
+  --bundle E:\covariance-workspace `
+  --out D:\FieldEvidence\covariance-workspace `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json
+```
+
+接收器不使用普通目录复制作为成功判据。它先运行 v92 verifier，然后只复制闭合集中的 20 个文件到目标
+同盘临时目录，对副本再次运行 workspace verifier 和六叶 preflight，最后原子 rename。目标和回执均是
+write-new；回执必须位于源/目标 bundle 外，回执落盘失败会回滚刚创建的目标。
+
+拔除源介质后执行：
+
+```powershell
+python -m multidetect.field_covariance_workspace verify-receipt `
+  --receipt D:\FieldEvidence\receipts\covariance-workspace-receipt.json
+```
+
+该命令重算 receipt digest，按绝对本机 destination 重验 20 文件、workspace digest、当前 release parity、
+campaign 和 source preflight，并核对下一条 argv 与 false claims。它不要求源介质仍在线，也不观察
+Pixhawk；所以 receipt 不是 E7 叶证据。只有随后本机 probe/capture 产生并复验的六份 covariance report
+才能进入 E7。
+
 ## v92 portable covariance workspace（2026-09-06，`v0.3.0-pre.8`）
 
 第一台准备机导出：
