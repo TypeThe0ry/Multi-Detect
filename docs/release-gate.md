@@ -1,5 +1,32 @@
 # v0.3.0 E7 发布门
 
+## v88 六叶现场采集 runner（2026-09-06，`v0.3.0-pre.8`）
+
+先复制并填写 `configs/pixhawk-covariance-field-campaign.example.json`。其中每个叶必须指向已经生成并
+验证过的 executable Mission、PX4 Mission feedback v2、signed runtime profile，以及本叶唯一的
+write-new report path。依次运行：
+
+```powershell
+python -m multidetect.field_covariance_campaign status `
+  --config .\configs\pixhawk-covariance-field-campaign.json
+
+python -m multidetect.field_covariance_campaign capture-next `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --dry-run
+
+python -m multidetect.field_covariance_campaign capture-next `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --status-out .\artifacts\evaluation\field-covariance\status.json
+
+python -m multidetect.field_covariance_campaign verify `
+  --config .\configs\pixhawk-covariance-field-campaign.json `
+  --binding-out .\artifacts\evaluation\field-covariance\matrix-binding.json
+```
+
+每次正式 `capture-next` 前必须先看 `next_leaf`，连接对应机型并确认 endpoint。runner 不自动切换飞控，
+不启用 hardware control，一次只采一个叶。已有失败报告会保持原样并阻止继续；检查原因后应人工归档
+失败文件，再重新运行，而不是原地覆盖证据。六叶完成后输出的 `e7_arguments` 可直接附加到 manifest CLI。
+
 ## v87 HIL/REAL covariance 六叶发布矩阵（2026-09-06，`v0.3.0-pre.8`）
 
 E7 顶层新增 `pixhawk_covariance`。CLI 使用六次

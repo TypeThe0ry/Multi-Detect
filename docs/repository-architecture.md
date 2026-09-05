@@ -1,5 +1,21 @@
 # 统一仓库架构
 
+## v88 field covariance campaign operator loop（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+strict six-leaf campaign config
+  -> status: reopen all existing reports -> failed | pending | passed
+  -> exactly one next HIL/REAL airframe
+  -> capture-next: isolated schema-v3 capture process
+  -> verify persisted report regardless of process exit
+  -> repeat six times
+  -> verify: build E7 covariance matrix + emit six CLI argument groups
+```
+
+`src/multidetect/field_covariance_campaign.py` 是现场 operator loop；它不控制模式、Mission 或执行器，
+只启动已有 telemetry-only capture。status 文件允许原子覆盖以反映进度，六份 observation report 仍使用
+write-new 语义且不可静默覆盖。配置模板与 Schema 分别位于 `configs/` 与 `configs/schemas/`。
+
 ## v87 E7 field covariance matrix（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

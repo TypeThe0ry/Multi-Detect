@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 六叶 covariance 现场采集 runner（v88）
+
+- [x] 严格配置固定 HIL/REAL × fixed-wing/multirotor/VTOL，预解析全部 source/output；
+- [x] status 每次重验已存在叶并给出唯一 next leaf；
+- [x] capture-next 一次只处理一个叶，支持 dry-run 且拒绝覆盖失败报告；
+- [x] 进程返回与落盘 verifier 双重判定，完整后复用 E7 builder；
+- [x] 输出六组 E7 参数和可选 matrix binding，更新 Schema、parity、测试与文档；
+- [ ] 准备真实六份 Mission feedback/profile，按 runner 指引连接三机型并完成现场采集。
+
 ## E7 HIL/REAL estimator covariance 六叶矩阵（v87）
 
 - [x] 定义 HIL/REAL × fixed-wing/multirotor/VTOL 精确覆盖与互异 source 约束；

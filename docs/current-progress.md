@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v87 工作树）
+最后更新：2026-09-06（v88 工作树）
+
+## v88 本轮已收口
+
+- 新增 `field_covariance_campaign` CLI 与严格 Draft 2020-12 配置 Schema，固定 HIL/REAL × 三机型六叶；
+- `status` 从当前 source 重验每个已有报告并显示唯一下一叶；`capture-next --dry-run` 可在打开串口前
+  审阅完整命令，正式调用每次只采一个叶子；
+- 报告沿用 write-new 不覆盖；既有失败报告会中止 campaign。采集进程即使退出 0，runner 仍检查报告
+  schema、source/parity、Mission/profile/feedback/link/firmware，失败则返回 1；
+- 六叶通过后 `verify` 直接调用 v87 E7 builder，并生成完整 E7 CLI 参数；状态快照可原子更新，但不被当作
+  release evidence；
+- 提供 `configs/pixhawk-covariance-field-campaign.example.json`，Schema 与 runner 纳入 PX4 Mission parity。
+  当前缺真实现场 source 与硬件，因此未执行 HIL/REAL 采集，最终版本保持阻断。
+- `px4_mission_path_hash` 更新为 `E3371122...89B83`；全量回归 3,403 tests：
+  `3402 passed, 1 skipped, 0 failed, 0 errors`，JUnit 496,778 bytes、SHA-256
+  `DA2B4104B657A64051DB879E75B1C5DCD5B3C8ABDA90C02D242915A069BBA25A`；全仓 Ruff 通过。
 
 ## v87 本轮已收口
 

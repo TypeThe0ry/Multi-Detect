@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v88 field covariance campaign runner（2026-09-06）
+
+- 新增严格 schema-v1 六叶 campaign 配置与可复制模板，启动前解析全部 Mission、feedback、profile、
+  endpoint、report 路径并拒绝重复组合、未知字段、symlink 与 source/output alias；
+- `status` 每次重验已有报告并给出唯一 next leaf；`capture-next` 默认一次只采一个明确的 mode/airframe，
+  支持 dry-run，既有报告永不静默覆盖；
+- 采集子进程退出 0 后仍强制重验落盘报告，复验失败返回非零；失败的不可变报告阻止继续采集，避免跳过
+  现场异常；
+- `verify` 复用 E7 六叶 builder，完整时输出六组 `--pixhawk-covariance-evidence` 参数，并可原子写出
+  matrix binding；runner 与 Schema 均纳入 `px4_mission_path_hash`；全量回归 3,403 tests：
+  `3402 passed, 1 skipped`，全仓 Ruff 通过。
+
 ### v0.3.0-pre.8 v87 E7 field covariance matrix（2026-09-06）
 
 - E7 manifest 新增可选但一旦提供即 authoritative 的 `pixhawk_covariance`；最终 `v0.3.0` 强制要求
