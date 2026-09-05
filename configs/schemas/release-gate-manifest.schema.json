@@ -74,6 +74,9 @@
     "px4_mission_feedback": {
       "$ref": "#/$defs/px4MissionFeedbackRecord"
     },
+    "pixhawk_covariance": {
+      "$ref": "#/$defs/pixhawkCovarianceRecord"
+    },
     "model_review": {
       "$ref": "#/$defs/modelReviewRecord"
     }
@@ -1384,6 +1387,122 @@
             "all_firmware_identities_bound": {"const": true},
             "all_endpoints_bound": {"const": true},
             "all_output_locked": {"const": true},
+            "px4_mission_path_bound": {"const": true},
+            "no_errors": {"const": true}
+          }
+        }
+      }
+    },
+    "pixhawkCovarianceObservationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode", "vehicle_class", "report_path", "report_sha256",
+        "report_bytes", "evidence_sha256", "records_verified", "endpoint", "baud",
+        "mission_path", "mission_file_sha256", "mission_id", "mission_sha256",
+        "airframe_adapter_id", "airframe_adapter_hash", "mission_feedback_path",
+        "mission_feedback_file_sha256", "mission_feedback_evidence_sha256",
+        "runtime_profile_path", "runtime_profile_file_sha256", "runtime_profile_sha256",
+        "runtime_profile_id", "heartbeat_identity", "firmware_identity_hash",
+        "mode_binding_sha256", "read_only", "hardware_control_enabled",
+        "transport_link_healthy", "qualified_link_healthy", "gate_passed"
+      ],
+      "properties": {
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "records_verified": {"type": "integer", "minimum": 1},
+        "endpoint": {"type": "string", "minLength": 1},
+        "baud": {"type": "integer", "minimum": 1},
+        "mission_path": {"type": "string", "minLength": 1},
+        "mission_file_sha256": {"$ref": "#/$defs/sha256"},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_sha256": {"$ref": "#/$defs/sha256"},
+        "airframe_adapter_id": {"type": "string", "minLength": 1},
+        "airframe_adapter_hash": {"$ref": "#/$defs/sha256"},
+        "mission_feedback_path": {"type": "string", "minLength": 1},
+        "mission_feedback_file_sha256": {"$ref": "#/$defs/sha256"},
+        "mission_feedback_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_path": {"type": "string", "minLength": 1},
+        "runtime_profile_file_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_profile_id": {"enum": ["hil", "flight"]},
+        "heartbeat_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_system_id", "source_component_id", "autopilot_id",
+            "vehicle_type_id", "system_status_id", "mavlink_version"
+          ],
+          "properties": {
+            "source_system_id": {"type": "integer", "minimum": 1, "maximum": 255},
+            "source_component_id": {"type": "integer", "minimum": 1, "maximum": 255},
+            "autopilot_id": {"type": "integer", "minimum": 0, "maximum": 255},
+            "vehicle_type_id": {"type": "integer", "minimum": 0, "maximum": 255},
+            "system_status_id": {"type": "integer", "minimum": 0, "maximum": 255},
+            "mavlink_version": {"type": "integer", "minimum": 0, "maximum": 255}
+          }
+        },
+        "firmware_identity_hash": {"$ref": "#/$defs/sha256"},
+        "mode_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "read_only": {"const": true},
+        "hardware_control_enabled": {"const": false},
+        "transport_link_healthy": {"const": true},
+        "qualified_link_healthy": {"const": true},
+        "gate_passed": {"const": true}
+      }
+    },
+    "pixhawkCovarianceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "release_label", "required_runtime_modes",
+        "required_vehicle_classes", "px4_mission_path_hash", "observations",
+        "read_only", "hardware_control_enabled", "gate_passed", "checks"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "release_label": {
+          "type": "string",
+          "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"
+        },
+        "required_runtime_modes": {"const": ["hil", "real"]},
+        "required_vehicle_classes": {"const": ["fixed-wing", "multirotor", "vtol"]},
+        "px4_mission_path_hash": {"$ref": "#/$defs/sha256"},
+        "observations": {
+          "type": "array", "minItems": 6, "maxItems": 6,
+          "items": {"$ref": "#/$defs/pixhawkCovarianceObservationRecord"}
+        },
+        "read_only": {"const": true},
+        "hardware_control_enabled": {"const": false},
+        "gate_passed": {"const": true},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "binding_count", "coverage_complete", "reports_distinct", "reports_verified",
+            "sources_hash_bound", "missions_current", "feedback_bound", "profiles_bound",
+            "runtime_modes_exact", "airframes_exact", "links_current", "firmware_current",
+            "read_only", "hardware_control_disabled", "px4_mission_path_bound", "no_errors"
+          ],
+          "properties": {
+            "binding_count": {"const": true},
+            "coverage_complete": {"const": true},
+            "reports_distinct": {"const": true},
+            "reports_verified": {"const": true},
+            "sources_hash_bound": {"const": true},
+            "missions_current": {"const": true},
+            "feedback_bound": {"const": true},
+            "profiles_bound": {"const": true},
+            "runtime_modes_exact": {"const": true},
+            "airframes_exact": {"const": true},
+            "links_current": {"const": true},
+            "firmware_current": {"const": true},
+            "read_only": {"const": true},
+            "hardware_control_disabled": {"const": true},
             "px4_mission_path_bound": {"const": true},
             "no_errors": {"const": true}
           }

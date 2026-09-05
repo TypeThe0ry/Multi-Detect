@@ -218,6 +218,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # prevents a stale capture/verifier from blessing a changed parser.
         "scripts/capture_pixhawk_odometry_covariance.py",
         "src/multidetect/pixhawk.py",
+        "src/multidetect/pixhawk_covariance_binding.py",
         "src/multidetect/px4_mission.py",
         "src/multidetect/px4_mission_feedback.py",
         "src/multidetect/px4_mission_feedback_binding.py",

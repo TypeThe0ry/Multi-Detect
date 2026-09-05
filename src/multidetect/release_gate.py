@@ -603,6 +603,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "px4_reported_position_response_campaign",
         "qgc_operator_visual_acceptance",
         "px4_mission_feedback",
+        "pixhawk_covariance",
         "simulator_3d_control",
         "simulator_scene_stream_set",
         "model_review",
@@ -4571,6 +4572,46 @@ def _px4_mission_feedback_result(
     return result
 
 
+def _pixhawk_covariance_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+    expected_release_label: str | None,
+) -> dict[str, Any]:
+    """Re-open all six current-link covariance observations."""
+
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": [],
+        "checks": None,
+        "observations": [],
+        "px4_mission_path_hash": None,
+        "verification": None,
+    }
+    if raw_record is None:
+        result["reasons"].append("pixhawk_covariance record is absent")
+        return result
+    try:
+        from .pixhawk_covariance_binding import verify_pixhawk_covariance_binding
+
+        verification = verify_pixhawk_covariance_binding(
+            raw_record,
+            manifest_directory=manifest_directory,
+            expected_release_label=expected_release_label,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+        result["reasons"].append(f"pixhawk_covariance verifier failed: {exc}")
+        return result
+    result["verification"] = verification
+    result["passed"] = verification.get("passed") is True
+    result["reasons"] = list(verification.get("reasons", []))
+    result["checks"] = verification.get("checks")
+    result["observations"] = verification.get("observations", [])
+    result["px4_mission_path_hash"] = verification.get("px4_mission_path_hash")
+    return result
+
+
 def _model_review_result(
     raw_record: object,
     *,
@@ -5068,6 +5109,20 @@ def evaluate_release_gate(
             f"px4_mission_feedback: {reason}" for reason in px4_mission_feedback_result["reasons"]
         )
 
+    raw_pixhawk_covariance = manifest.get("pixhawk_covariance")
+    pixhawk_covariance_result = _pixhawk_covariance_result(
+        raw_pixhawk_covariance,
+        manifest_directory=path.parent,
+        expected_release_label=(
+            version.release_label if version is not None else manifest.get("release_label")
+        ),
+    )
+    if raw_pixhawk_covariance is not None and not pixhawk_covariance_result["passed"]:
+        top_reasons.extend(
+            f"pixhawk_covariance: {reason}"
+            for reason in pixhawk_covariance_result["reasons"]
+        )
+
     raw_model_review = manifest.get("model_review")
     model_review_result = _model_review_result(
         raw_model_review,
@@ -5114,6 +5169,27 @@ def evaluate_release_gate(
                     verification["passed"] = False
                 px4_mission_feedback_result["passed"] = False
                 prefixed = f"px4_mission_feedback: {reason}"
+                if prefixed not in top_reasons:
+                    top_reasons.append(prefixed)
+
+    if raw_pixhawk_covariance is not None:
+        px4_hashes = {
+            str(result["parity"]["px4_mission_path_hash"]).lower()
+            for result in mode_results.values()
+            if isinstance(result.get("parity"), Mapping)
+            and "px4_mission_path_hash" in result["parity"]
+        }
+        if len(px4_hashes) == 1:
+            expected_px4_hash = next(iter(px4_hashes))
+            if pixhawk_covariance_result.get("px4_mission_path_hash") != expected_px4_hash:
+                reason = "px4_mission_path_hash does not match the four-mode E7 parity"
+                if reason not in pixhawk_covariance_result["reasons"]:
+                    pixhawk_covariance_result["reasons"].append(reason)
+                checks = pixhawk_covariance_result.get("checks")
+                if isinstance(checks, dict):
+                    checks["px4_mission_path_bound"] = False
+                pixhawk_covariance_result["passed"] = False
+                prefixed = f"pixhawk_covariance: {reason}"
                 if prefixed not in top_reasons:
                     top_reasons.append(prefixed)
 
@@ -5383,6 +5459,16 @@ def evaluate_release_gate(
                     f"px4_mission_feedback: {reason}"
                     for reason in px4_mission_feedback_result["reasons"]
                 )
+            if not pixhawk_covariance_result["present"]:
+                release_reasons.append(
+                    "final release requires a hash-bound HIL/REAL x three-airframe "
+                    "Pixhawk covariance matrix"
+                )
+            elif not pixhawk_covariance_result["passed"]:
+                release_reasons.extend(
+                    f"pixhawk_covariance: {reason}"
+                    for reason in pixhawk_covariance_result["reasons"]
+                )
             if not model_review_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound eligible model-review bundle"
@@ -5442,6 +5528,8 @@ def evaluate_release_gate(
         "px4_airframe_transaction_required_for_release": True,
         "px4_mission_feedback": px4_mission_feedback_result,
         "px4_mission_feedback_required_for_release": True,
+        "pixhawk_covariance": pixhawk_covariance_result,
+        "pixhawk_covariance_required_for_release": True,
         "model_review": model_review_result,
         "model_review_required_for_release": True,
         "parity": parity_results,

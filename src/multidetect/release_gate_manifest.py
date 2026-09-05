@@ -2192,6 +2192,32 @@ def _px4_mission_feedback_record(
         ) from exc
 
 
+def _pixhawk_covariance_record(
+    covariance_evidence: Sequence[object],
+    *,
+    output_identity: Path,
+    manifest_directory: Path,
+    release_label: str,
+    px4_mission_path_hash: str,
+) -> dict[str, object]:
+    """Create the exact HIL/REAL x three-airframe covariance binding."""
+
+    try:
+        from .pixhawk_covariance_binding import build_pixhawk_covariance_binding
+
+        return build_pixhawk_covariance_binding(
+            covariance_evidence,
+            manifest_directory=manifest_directory,
+            output_identity=output_identity,
+            release_label=release_label,
+            px4_mission_path_hash=px4_mission_path_hash,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+        raise ReleaseGateManifestError(
+            f"pixhawk_covariance evidence verifier did not pass: {exc}"
+        ) from exc
+
+
 def _model_review_record(
     model_review_bundle: str | Path,
     *,
@@ -2285,6 +2311,7 @@ def build_release_gate_manifest(
     px4_reported_position_response_campaign_evidence: str | Path | None = None,
     qgc_operator_visual_acceptance_evidence: Sequence[str | Path] | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
+    pixhawk_covariance_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     real_target_accuracy_report: str | Path | None = None,
     real_target_state_evidence_report: str | Path | None = None,
@@ -2582,6 +2609,18 @@ def build_release_gate_manifest(
         else None
     )
 
+    pixhawk_covariance_record = (
+        _pixhawk_covariance_record(
+            pixhawk_covariance_evidence,
+            output_identity=output_identity,
+            manifest_directory=manifest_directory,
+            release_label=version.release_label,
+            px4_mission_path_hash=normalized_parity["px4_mission_path_hash"],
+        )
+        if pixhawk_covariance_evidence is not None
+        else None
+    )
+
     simulator_3d_control_record = (
         _simulator_3d_control_record(
             simulator_3d_control_evidence,
@@ -2666,6 +2705,8 @@ def build_release_gate_manifest(
         document["qgc_operator_visual_acceptance"] = qgc_operator_visual_acceptance_record
     if px4_mission_feedback_record is not None:
         document["px4_mission_feedback"] = px4_mission_feedback_record
+    if pixhawk_covariance_record is not None:
+        document["pixhawk_covariance"] = pixhawk_covariance_record
     if simulator_3d_control_record is not None:
         document["simulator_3d_control"] = simulator_3d_control_record
     if simulator_scene_stream_set_record is not None:
@@ -2737,6 +2778,7 @@ def create_release_gate_manifest(
     px4_reported_position_response_campaign_evidence: str | Path | None = None,
     qgc_operator_visual_acceptance_evidence: Sequence[str | Path] | None = None,
     px4_mission_feedback_evidence: Sequence[object] | None = None,
+    pixhawk_covariance_evidence: Sequence[object] | None = None,
     simulator_3d_control_evidence: Sequence[str | Path] | None = None,
     actuator_safety_evidence: str | Path | None = None,
     field_evidence_bundle: str | Path | None = None,
@@ -2783,6 +2825,7 @@ def create_release_gate_manifest(
         ),
         qgc_operator_visual_acceptance_evidence=(qgc_operator_visual_acceptance_evidence),
         px4_mission_feedback_evidence=px4_mission_feedback_evidence,
+        pixhawk_covariance_evidence=pixhawk_covariance_evidence,
         simulator_3d_control_evidence=simulator_3d_control_evidence,
         field_evidence_bundle=field_evidence_bundle,
         real_alert_link_bench_report=real_alert_link_bench_report,
@@ -3064,6 +3107,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--pixhawk-covariance-evidence",
+        dest="pixhawk_covariance_evidence",
+        action="append",
+        nargs=3,
+        metavar=("MODE", "VEHICLE", "REPORT"),
+        help=(
+            "repeatable schema-v3 Pixhawk covariance observation; provide exactly "
+            "HIL and REAL reports for fixed-wing, multirotor and VTOL"
+        ),
+    )
+    parser.add_argument(
         "--simulator-3d-control-evidence",
         "--sim-3d-control-evidence",
         dest="simulator_3d_control_evidence",
@@ -3264,6 +3318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             qgc_operator_visual_acceptance_evidence=(args.qgc_operator_visual_acceptance_evidence),
             px4_mission_feedback_evidence=args.px4_mission_feedback_evidence,
+            pixhawk_covariance_evidence=args.pixhawk_covariance_evidence,
             simulator_3d_control_evidence=args.simulator_3d_control_evidence,
             simulator_scene_stream_set_evidence=args.simulator_scene_stream_set_evidence,
             field_evidence_bundle=args.field_evidence_bundle,
@@ -3296,6 +3351,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "px4_reported_position_response_campaign",
             "qgc_operator_visual_acceptance",
             "px4_mission_feedback",
+            "pixhawk_covariance",
             "simulator_3d_control",
             "simulator_scene_stream_set",
             "field_evidence_bundle",
