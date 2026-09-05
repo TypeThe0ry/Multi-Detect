@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v85：covariance 证据新增当前 transport、operational qualification 与本次采集 firmware freshness 硬门；HIL/REAL mode binding 同步 fail-closed |
+| 当前工程迭代 | v86：PX4 covariance observation 升级为严格 schema v3；writer/reader 双重验证，证据 diagnostics 闭合精简并纳入 PX4 Mission parity |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v86 严格 covariance evidence schema
+
+[`pixhawk-odometry-covariance-observation.schema.json`](configs/schemas/pixhawk-odometry-covariance-observation.schema.json)
+把报告顶层、records、16 项 evidence diagnostics、HIL/REAL mode binding、checks、source binding 与
+claims 全部固定为 Draft 2020-12 闭合对象。writer 在原子落盘前验证，verifier 在 digest 和源码重建前
+再次验证；未知字段、缺字段、错误类型和非 JSON 容器都会被拒绝。motion/vertical/mission 等与本证据门
+无关的 provider 内部快照不再序列化。Schema 文件 hash 进入报告，并与脚本一起进入
+`px4_mission_path_hash`。当前 PX4 SITL v3 实采 223/223 条 covariance、113 条记录并独立复核通过。
 
 ### v85 当前链路与本次采集身份门禁
 

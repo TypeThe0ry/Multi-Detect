@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v86 strict covariance evidence schema（2026-09-06）
+
+- 新增 Draft 2020-12 `pixhawk-odometry-covariance-observation` schema v3，所有保留对象默认
+  `additionalProperties=false`；
+- capture writer 在落盘前验证，verifier 在 digest/源码重建前再次验证；Schema path/hash 进入
+  source binding，Schema 本身进入 `px4_mission_path` parity；
+- evidence diagnostics 从宽泛 provider dump 收敛为 16 项门禁相关字段；tuple reasons 规范化为 JSON
+  array，无 covariance 的失败报告仍可按闭合结构留证；
+- `pixhawk` optional dependency 加入 `jsonschema>=4.20`；新增 Schema、未知/缺失/错类型、精简和失败报告
+  回归；当前 PX4 SITL v3 实采 223/223 条通过并保存 113 条记录。
+
 ### v0.3.0-pre.8 v85 current qualified covariance evidence（2026-09-06）
 
 - covariance observation 现在硬性要求采集结束时 transport link 与 qualified link 当前健康，且

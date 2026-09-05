@@ -1,5 +1,13 @@
 # v0.3.0 E7 发布门
 
+## v86 strict covariance evidence contract（2026-09-06，`v0.3.0-pre.8`）
+
+covariance observation 现在必须同时通过 Draft 2020-12 schema v3、canonical evidence hash、当前
+Schema/script/provider/parity source binding 和 raw diagnostics/records 派生重建。Schema 与所有关键
+嵌套对象均关闭未知字段；失败采集仍能以显式 null/空数组形成可复核证据，但不能形成通过 claim。
+Schema 自身加入 `px4_mission_path_hash`，因此 REPLAY/SIM/HIL/REAL 不能在保持旧 parity 身份时漂移
+现场 covariance 格式。该子门不替代真实 HIL/REAL、硬件、室外 GNSS、人工视觉或实飞验收。
+
 ## v85 current-link covariance 子门（2026-09-06，`v0.3.0-pre.8`）
 
 PX4 estimator covariance 子门现在除消息数量、raw covariance、来源、只读发送预算与 firmware hash

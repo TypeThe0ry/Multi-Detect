@@ -1,6 +1,26 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v85 工作树）
+最后更新：2026-09-06（v86 工作树）
+
+## v86 本轮已收口
+
+- 新增严格 Draft 2020-12 covariance observation schema v3：顶层、record、diagnostics、request、
+  heartbeat、firmware、HIL/REAL binding、checks、source binding 与 claims 全部闭合；
+- writer 在原子写入前执行 Schema 验证，verifier 读取后先做 Schema 验证，再做 canonical digest、
+  当前源码/source hash 与 derived checks/claims 的完整重建；
+- 报告只保留 16 项门禁相关 diagnostics；motion/vertical/mission 等内部状态不再冻结进证据契约；
+  tuple reasons 统一为 JSON array，缺 covariance 的失败报告仍能生成并被 verifier 复核；
+- Schema path 与 SHA-256 直接进入 source binding，Schema 文件加入 PX4 Mission parity；`pixhawk`
+  optional dependency 显式包含 `jsonschema>=4.20`；
+- 当前 digest-pinned PX4 SITL 实采 223 条 ODOMETRY、223 条有效 covariance、保存 113 条记录；
+  schema v3 写前/读后验证及独立 verifier 全部通过，容器已清理；
+- Schema 22,231 bytes、SHA-256 `76DD77A2...A3B95`；证据 80,848 bytes、文件 SHA-256
+  `98C7C297...AB02C`、evidence SHA-256 `C0579775...29A80`；
+- `px4_mission_path_hash` 更新为 `6B1C9B22...F43D8`。HIL/REAL 实机、硬件、室外 GNSS、人工
+  QGC 与实飞继续保持未通过，最终版本仍阻断。
+- 全量回归 3,386 tests：`3385 passed, 1 skipped, 0 failed, 0 errors`；JUnit 494,307 bytes、
+  SHA-256 `52AD5A17D952F5BA23A71631D9F4DAE59B43FF2C83AB461570ADC94590049376`；全仓 Ruff
+  通过，历史 format 债务保持 412 个文件。
 
 ## v85 本轮已收口
 

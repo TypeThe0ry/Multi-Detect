@@ -1,5 +1,20 @@
 # 统一仓库架构
 
+## v86 strict covariance evidence schema（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+provider full diagnostics
+  -> _evidence_diagnostics(): 16-field closed projection
+  -> build derived checks/claims + source/schema/parity hashes
+  -> Draft 2020-12 validation
+  -> atomic write-new
+  -> verifier: schema -> digest -> current source reopen -> exact rebuild
+```
+
+`configs/schemas/pixhawk-odometry-covariance-observation.schema.json` 属于 PX4 Mission contract；
+schema 与 capture script 任一变化都会刷新同一个 `px4_mission_path_hash`。失败报告允许必要的 null/空
+集合以保留诊断，但 passing record、请求集合、hash 和 mode binding 仍有严格结构与数值约束。
+
 ## v85 current qualified covariance evidence（2026-09-06，`v0.3.0-pre.8`）
 
 `capture_pixhawk_odometry_covariance.py` 在报告层和 HIL/REAL identity binding 层都消费同一个
