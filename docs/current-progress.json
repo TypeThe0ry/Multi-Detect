@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T19:59:55Z",
+  "updated_at_utc": "2026-09-05T20:30:38Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "edbe9858e7ac489a59ef3d29aa67752c0cd85630",
-    "commit_subject": "feat(sim): seal derived attitude uncertainty evidence",
-    "commits_ahead_of_origin_main": 50
+    "commit": "9f8989d053d4e3c0388b29107337a642181f541e",
+    "commit_subject": "feat(telemetry): ingest PX4 attitude covariance",
+    "commits_ahead_of_origin_main": 52
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v81",
+  "working_iteration": "v82",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v81-final.xml",
-      "tests": 3345,
-      "passed": 3344,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v82-final.xml",
+      "tests": 3358,
+      "passed": 3357,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 133.593,
-      "junit_local_path": "tmp/current-progress-regression-v81-final.xml",
-      "junit_file_bytes": 487590,
-      "junit_file_sha256": "9346a922eb7a62b5ac8e3bf2500aff88ca94c48bc756abede43d0c82baa6187d",
+      "duration_seconds": 94.158,
+      "junit_local_path": "tmp/current-progress-regression-v82-final.xml",
+      "junit_file_bytes": 489660,
+      "junit_file_sha256": "e9306292dd5f64e79075fae9fcd5ae24b69b17372e6172755009315c2f9f81d9",
       "distributed_in_git": false
     },
     "ruff": {
@@ -50,30 +50,63 @@
       "passed": false,
       "command": "python -m ruff format --check .",
       "status": "preexisting_repository_hygiene_debt",
-      "unformatted_files": 410,
+      "unformatted_files": 412,
       "breakdown": {
         "ground-control": 205,
-        "src": 95,
-        "tests": 86,
-        "scripts": 24
+        "src": 94,
+        "tests": 88,
+        "scripts": 25
       },
-      "release_parity_bound_python_files_affected": 31,
+      "release_parity_bound_python_files_affected": 33,
       "ci_impact": "manual validation format step remains failing until an isolated baseline migration"
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 5659,
-    "file_sha256": "a208c0af57735d4124fc437695d2bedadc980f9dfdb37c89331fa23a0f79dcb2",
+    "bytes": 5715,
+    "file_sha256": "6cdaa41e3db4b0dbf4eee7885d2957d142317c752f2c0fb41b68fd54591595db",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"
+      "px4_mission_path_hash": "16e8427a312c7b29fe3aa098c5852f52c5876bf8b2fd9d0abee8a375e89e1930"
     }
   },
   "evidence": {
+    "px4_estimator_attitude_covariance_sim": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v82/px4-sitl-odometry-covariance-v82-pre8-final.json",
+      "distributed_in_git": false,
+      "file_bytes": 37510,
+      "file_sha256": "35a66193f0cc2a270cbabb0e838a9abdc9bbed2fb344b7354fb9b1910f50fbd5",
+      "evidence_sha256": "14c754031a423fb8bb3fa1b4ec24600c82c9ba846b6892dcac24a2185c5202a2",
+      "gate_passed": true,
+      "runtime_mode": "sim",
+      "odometry_messages_observed": 64,
+      "accepted_covariances_observed": 64,
+      "records_verified": 47,
+      "child_frame_id": 1,
+      "reset_counter": 12,
+      "raw_angular_variance_rad2": [
+        0.00006968907837290317,
+        0.00006898331048432738,
+        0.016177203506231308
+      ],
+      "attitude_sigma_deg": {
+        "roll": 0.478305079430516,
+        "pitch": 0.475876927054445,
+        "heading": 7.28742934069953
+      },
+      "attitude_uncertainty_source": "mavlink_odometry_pose_covariance_local_ned_with_configured_floor",
+      "container_cleanup_passed": true,
+      "claims": {
+        "sim_acceptance": "passed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "hardware_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      }
+    },
     "gazebo_three_airframe_covariance_wire_v3": {
       "distributed_in_git": false,
       "wire_version": 3,
@@ -436,7 +469,7 @@
     "flight_acceptance": "not_claimed"
   },
   "next_priorities": [
-    "real_estimator_attitude_covariance_adapter_and_nonzero_source_validation",
+    "hil_real_pixhawk_odometry_covariance_capture_and_source_review",
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
     "deployment_domain_model_and_replay_set_review",

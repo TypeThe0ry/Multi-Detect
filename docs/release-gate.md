@@ -1,5 +1,24 @@
 # v0.3.0 E7 发布门
 
+## v82 PX4 estimator covariance SIM 子门（2026-09-06，`v0.3.0-pre.8`）
+
+共享只读 Pixhawk ingress 已消费 MAVLink `ODOMETRY.pose_covariance`：source system/component、parent/child
+frame、非回退时间和 250 ms attitude association 全部 fail-closed；21 项 upper triangle 被还原为
+roll/pitch/yaw 3×3 covariance，并验证 finite、正方差和 PSD。配置 floor 只在真实 sigma 派生后应用，
+来源明确标记；无效新消息不会继续暴露旧 uncertainty。采集器只发送
+`MAV_CMD_SET_MESSAGE_INTERVAL`，没有 mission、mode、parameter-write 或 actuator 指令。
+
+pinned external PX4/Gazebo SIM 观察到 64/64 条非零 estimator covariance，保存 47 条变化记录，
+重建 verifier 和全部 checks 通过，容器已清理。证据位于
+`artifacts/evaluation/terminal-continuation-v82/px4-sitl-odometry-covariance-v82-pre8-final.json`，本地文件
+SHA-256 为 `35a66193...0fbd5`，canonical evidence SHA-256 为 `14c75403...202a2`。该 ignored local
+artifact 不在 Git 分发范围内。
+
+这证明 SIM 上的实际 PX4 estimator covariance 可以进入同一共享算法，不构成 HIL/REAL、真实 Pixhawk、
+室外 GNSS、三机型硬件响应、人工 QGC 或实飞验收；E7 仍有 32 blockers。v82 全仓回归为
+3,358 tests：`3357 passed, 1 skipped, 0 failed, 0 errors`，JUnit SHA-256 为
+`e9306292...f81d9`。
+
 ## v81 三机型外部 covariance 证据子门（2026-09-06，`v0.3.0-pre.8`）
 
 fixed-wing、multirotor、VTOL 各完成一次 pinned Docker/PX4/Gazebo 外部运行和 3 帧 `MDGZSIM3`

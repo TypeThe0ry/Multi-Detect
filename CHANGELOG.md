@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v82 PX4 estimator attitude covariance（2026-09-06）
+
+- 只读 Pixhawk provider 新增 MAVLink `ODOMETRY` 331 请求与严格 source/frame/time association，从
+  21 项 upper triangle 提取 roll/pitch/yaw 3×3 covariance，验证 finite、正方差和 PSD 后发布带来源的
+  `1σ`；无效新样本清空旧 sigma，避免 stale precision 复用；
+- 修复 `ODOMETRY.child_frame_id=BODY_FRD` 时把 body twist 静默当作 north/east velocity 的语义错误；
+- 新增 telemetry-only 采集/重建 verifier；即使篡改派生 checks/claims 后重算摘要也会被原始 records、
+  diagnostics 与当前 provider/script/parity 重建拒绝；
+- pinned Docker/PX4/Gazebo 外部 SIM 实采 64 条非零 estimator covariance，47 条记录与 gate 全通过，
+  容器完成 stop/rm。`px4_mission_path_hash` 更新为 `16e8427a...e1930`；HIL/REAL、真实硬件、室外
+  GNSS、人工 QGC 与最终发布状态不变；全量回归 3,358 tests：`3357 passed, 1 skipped, 0 failed,
+  0 errors`，全仓 Ruff 通过。
+
 ### v0.3.0-pre.8 v81 three-airframe covariance evidence（2026-09-06）
 
 - fixed-wing、multirotor、VTOL 分别在 pinned Docker/PX4/Gazebo 外部进程采集 3 帧 `MDGZSIM3`，

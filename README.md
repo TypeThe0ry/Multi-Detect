@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v81：三机型外部 Docker/PX4/Gazebo `MDGZSIM3` 实采，并封存逐帧 covariance→sigma 来源证据 |
+| 当前工程迭代 | v82：真实 PX4 `ODOMETRY.pose_covariance` 姿态不确定性进入共享测距，并完成非零 estimator source 的外部 SIM 实采 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,20 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v82 PX4 estimator 姿态协方差闭环
+
+只读 Pixhawk provider 现在请求 MAVLink `ODOMETRY`（message 331），严格绑定 HEARTBEAT 的
+system/component identity、`LOCAL_NED` parent frame、允许的 `LOCAL_NED/BODY_FRD` child frame 和
+250 ms 姿态时间关联。它从 21 项 upper-triangle pose covariance 提取 roll/pitch/yaw 3×3 block，验证
+finite、正方差和 PSD 后输出 `1σ`；unknown、错源、错 frame、时间回退、非 PSD 或部分无效输入都
+fail-closed。`BODY_FRD` twist 不再被误标为 north/east velocity。
+
+pinned Docker/PX4/Gazebo 外部运行实采 64 条 `ODOMETRY`，64 条有效 covariance，保存 47 条变化记录；
+最终原始角度方差为 `6.9689e-05 / 6.8983e-05 / 1.6177e-02 rad²`，派生 roll/pitch/heading
+`1σ = 0.478° / 0.476° / 7.287°`，证明 PX4 estimator 的非零来源已走通实际 MAVLink ingress。证据
+经 canonical hash、provider/script/parity source binding 和重建 verifier 复核。该结果只关闭 SIM
+软件子门；HIL/REAL、真实 Pixhawk、室外 GNSS、硬件与实飞仍未声明通过。
 
 ### v81 三机型外部 covariance 证据闭环
 

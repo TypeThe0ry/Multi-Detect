@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v82 PX4 estimator covariance ingress（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+PX4 estimator -> MAVLink ODOMETRY(331)
+  -> heartbeat system/component identity binding
+  -> LOCAL_NED parent + LOCAL_NED/BODY_FRD child validation
+  -> q attitude + 21-value upper-triangle pose covariance
+  -> angular 3x3 finite / positive diagonal / PSD validation
+  -> sqrt(diagonal) rad->deg + explicit R/P/H floor
+  -> <=250 ms attitude association + freshness
+  -> VehicleTelemetry uncertainty tuple + shared ranging/evidence
+  -> telemetry-only capture -> source/parity binding -> reconstruction verifier
+```
+
+`src/multidetect/pixhawk.py` 和 `scripts/capture_pixhawk_odometry_covariance.py` 属于
+`px4_mission_path_hash`。parent frame 决定 position；child frame 决定 twist，因此 `BODY_FRD` twist 不会
+被冒充为 N/E velocity。SIM/HIL/REAL 使用同一 parser/report contract，runtime mode 只改变可声明的门。
+
 ## v81 三机型外部 covariance evidence（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

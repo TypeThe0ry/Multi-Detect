@@ -9,6 +9,17 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v82 实际 PX4 estimator covariance 观察
+
+在 pinned PX4/Gazebo VTOL 外部容器中，主机只读 companion link 请求 `ODOMETRY` 并走生产
+`PixhawkReadOnlyTelemetryProvider`。最终正式 capture 收到 64 条、接受 64 条 source-bound covariance，
+47 条变化记录全部具有非零角方差；最新 roll/pitch/heading `1σ` 为
+`0.478°/0.476°/7.287°`。这与 v81 Gazebo sensor publisher 的全零 covariance 是两条不同来源：v82
+验证的是 PX4 estimator 经 MAVLink 的真实非零输出，v81 验证的是 Gazebo camera/odometry wire。
+
+采集只发 telemetry interval request，未发送飞行控制；报告和 verifier 绑定当前 provider、脚本、parity
+并重建派生门。容器 stop/rm 已通过。SIM 观察不能代替 HIL/REAL Pixhawk 或室外飞行验收。
+
 ## v81 三机型外部 `MDGZSIM3` evidence
 
 三类机型各由独立 pinned container 采集 3 帧，frame-set 保存 wire 原始 covariance 和 backend 最终

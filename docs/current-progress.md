@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v81 工作树）
+最后更新：2026-09-06（v82 工作树）
+
+## v82 本轮已收口
+
+- Pixhawk 只读 ingress 请求并解析 MAVLink `ODOMETRY` 331 的 21 项 pose covariance，提取姿态 3×3
+  block，要求 finite、正方差和 PSD，并使用 `0.3°/0.3°/1.0°` 显式下限；
+- covariance 必须来自已确认 HEARTBEAT 的同 system/component、`LOCAL_NED` parent、合法 child frame，
+  且与当前姿态相差不超过 250 ms；无效新样本会清空旧 uncertainty，不复用假精度；
+- `BODY_FRD` child frame 的 twist 不再映射为 north/east，避免机体系速度污染导航速度；
+- 外部 pinned Docker/PX4/Gazebo 实采 64 条 `ODOMETRY`，64 条 covariance 通过，保存 47 条记录；最终
+  raw angular variance 为 `6.9689e-05/6.8983e-05/1.6177e-02 rad²`，派生 `1σ` 为
+  `0.478°/0.476°/7.287°`，source 为
+  `mavlink_odometry_pose_covariance_local_ned_with_configured_floor`；
+- 采集报告以 canonical SHA-256 绑定 provider、采集/验证脚本和 release parity，并从 raw records 与
+  diagnostics 重建全部 checks/claims；SIM gate 通过、容器清理通过，HIL/REAL/硬件/室外/实飞仍未声明；
+- `px4_mission_path_hash` 更新为 `16e8427a...e1930`。E7 仍为 32 blockers，最终版本仍阻断。
 
 ## v81 本轮已收口
 
@@ -139,8 +154,8 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v81 全仓回归目标为 3,345 tests：`3344 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
-  SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
+- v82 全仓回归为 3,358 tests：`3357 passed, 1 skipped, 0 failed, 0 errors`；JUnit 为 489,660 bytes、
+  SHA-256 `e9306292...f81d9`、suite time 94.158 s；全仓 Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
 
