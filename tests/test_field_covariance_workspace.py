@@ -133,6 +133,12 @@ def test_schema_is_closed() -> None:
     assert schema["$defs"]["entry"]["additionalProperties"] is False
     assert schema["$defs"]["file"]["additionalProperties"] is False
 
+    receipt_schema = json.loads(workspace.RECEIPT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(receipt_schema)
+    assert receipt_schema["additionalProperties"] is False
+    assert receipt_schema["properties"]["verification"]["additionalProperties"] is False
+    assert receipt_schema["properties"]["claims"]["additionalProperties"] is False
+
 
 def test_export_is_portable_and_verifies_after_root_move(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -275,3 +281,154 @@ def test_cli_export_and_verify(
     assert workspace.main(["verify", "--bundle", str(exported)]) == 0
     verify_result = json.loads(capsys.readouterr().out)
     assert verify_result["workspace_sha256"] == export_result["workspace_sha256"]
+
+
+def test_receive_atomically_copies_and_receipt_verifies_without_source_media(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "receiver" / "campaign-workspace"
+    receipt = tmp_path / "receiver" / "receipts" / "workspace-receipt.json"
+
+    result = workspace.receive_field_covariance_workspace(
+        exported,
+        destination,
+        receipt,
+        received_at=datetime(2026, 9, 6, 8, 0, tzinfo=UTC),
+    )
+
+    assert result["gate_passed"] is True
+    assert result["source_workspace_root"] == str(exported.resolve())
+    assert result["destination_workspace_root"] == str(destination.resolve())
+    assert result["verification"] == {
+        "source_gate_passed": True,
+        "destination_gate_passed": True,
+        "leaf_count": 6,
+        "source_file_count": 18,
+        "total_json_file_count": 20,
+    }
+    assert len(list(destination.rglob("*.json"))) == 20
+    assert receipt.is_file()
+    assert not (destination / receipt.name).exists()
+
+    shutil.rmtree(exported)
+    verified = workspace.verify_field_covariance_workspace_receipt(receipt)
+    assert verified["gate_passed"] is True
+    assert verified["receipt_sha256"] == result["receipt_sha256"]
+    assert verified["claims"]["hardware_acceptance"] is False
+
+
+def test_receive_rejects_paths_inside_closed_bundles_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = exported / "received"
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="inside source"):
+        workspace.receive_field_covariance_workspace(
+            exported,
+            destination,
+            tmp_path / "receipt.json",
+        )
+    assert not destination.exists()
+
+    destination = tmp_path / "receiver"
+    receipt = destination / "receipt.json"
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="outside"):
+        workspace.receive_field_covariance_workspace(exported, destination, receipt)
+    assert not destination.exists()
+    assert not receipt.exists()
+
+
+def test_receive_never_overwrites_destination_or_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "existing-destination"
+    destination.mkdir()
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="destination already exists"):
+        workspace.receive_field_covariance_workspace(
+            exported,
+            destination,
+            tmp_path / "receipt.json",
+        )
+
+    destination.rmdir()
+    receipt = tmp_path / "existing-receipt.json"
+    receipt.write_text("keep", encoding="utf-8")
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="receipt already exists"):
+        workspace.receive_field_covariance_workspace(exported, destination, receipt)
+    assert receipt.read_text(encoding="utf-8") == "keep"
+    assert not destination.exists()
+
+
+def test_receive_rolls_back_new_destination_when_receipt_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "rolled-back-destination"
+    receipt = tmp_path / "failed-receipt.json"
+    monkeypatch.setattr(
+        workspace,
+        "_write_new_json",
+        lambda path, document: (_ for _ in ()).throw(OSError("receipt disk full")),
+    )
+
+    with pytest.raises(OSError, match="receipt disk full"):
+        workspace.receive_field_covariance_workspace(exported, destination, receipt)
+    assert not destination.exists()
+    assert not receipt.exists()
+    assert workspace.verify_field_covariance_workspace(exported)["gate_passed"] is True
+
+
+def test_receipt_rejects_document_and_received_workspace_tamper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "receiver"
+    receipt = tmp_path / "receipt.json"
+    workspace.receive_field_covariance_workspace(exported, destination, receipt)
+    original_receipt = receipt.read_bytes()
+
+    document = json.loads(original_receipt)
+    document["received_at_utc"] = "2026-09-06T09:00:00Z"
+    receipt.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="receipt digest mismatch"):
+        workspace.verify_field_covariance_workspace_receipt(receipt)
+
+    receipt.write_bytes(original_receipt)
+    mission = next((destination / "sources").rglob("mission.json"))
+    mission.write_bytes(mission.read_bytes() + b"\n")
+    with pytest.raises(workspace.FieldCovarianceWorkspaceError, match="hash or size"):
+        workspace.verify_field_covariance_workspace_receipt(receipt)
+
+
+def test_cli_receive_and_verify_receipt_after_source_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: object,
+) -> None:
+    exported = _export(tmp_path, monkeypatch)
+    destination = tmp_path / "cli-received"
+    receipt = tmp_path / "cli-receipt.json"
+
+    assert (
+        workspace.main(
+            [
+                "receive",
+                "--bundle",
+                str(exported),
+                "--out",
+                str(destination),
+                "--receipt",
+                str(receipt),
+            ]
+        )
+        == 0
+    )
+    received = json.loads(capsys.readouterr().out)
+    assert received["gate_passed"] is True
+    shutil.rmtree(exported)
+
+    assert workspace.main(["verify-receipt", "--receipt", str(receipt)]) == 0
+    verified = json.loads(capsys.readouterr().out)
+    assert verified["workspace_sha256"] == received["workspace_sha256"]

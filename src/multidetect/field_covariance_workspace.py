@@ -33,8 +33,16 @@ from .field_covariance_campaign import (
 
 SCHEMA = "multidetect.pixhawk-covariance-field-workspace/v1"
 SCHEMA_VERSION = 1
+RECEIPT_SCHEMA = "multidetect.pixhawk-covariance-field-workspace-receipt/v1"
+RECEIPT_SCHEMA_VERSION = 1
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "configs" / "schemas" / "pixhawk-covariance-field-workspace.schema.json"
+RECEIPT_SCHEMA_PATH = (
+    ROOT
+    / "configs"
+    / "schemas"
+    / "pixhawk-covariance-field-workspace-receipt.schema.json"
+)
 PARITY_PATH = ROOT / "configs" / "release-parity.json"
 MANIFEST_NAME = "workspace.manifest.json"
 CAMPAIGN_NAME = "campaign.json"
@@ -75,13 +83,23 @@ def _json_object(path: Path, *, name: str) -> dict[str, Any]:
     return value
 
 
-def _validate_schema(document: Mapping[str, object]) -> None:
-    schema = _json_object(SCHEMA_PATH, name="field workspace JSON Schema")
+def _validate_document(
+    document: Mapping[str, object], *, schema_path: Path, name: str
+) -> None:
+    schema = _json_object(schema_path, name=f"{name} JSON Schema")
     try:
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)
     except Exception as exc:
-        raise FieldCovarianceWorkspaceError(f"workspace schema validation failed: {exc}") from exc
+        raise FieldCovarianceWorkspaceError(f"{name} schema validation failed: {exc}") from exc
+
+
+def _validate_schema(document: Mapping[str, object]) -> None:
+    _validate_document(document, schema_path=SCHEMA_PATH, name="workspace")
+
+
+def _validate_receipt_schema(document: Mapping[str, object]) -> None:
+    _validate_document(document, schema_path=RECEIPT_SCHEMA_PATH, name="workspace receipt")
 
 
 def _relative_path(value: object, *, name: str) -> PurePosixPath:
@@ -403,6 +421,180 @@ def verify_field_covariance_workspace(path: str | Path) -> dict[str, object]:
     }
 
 
+def _require_new_path(path: str | Path, *, name: str) -> Path:
+    requested = Path(path).expanduser()
+    if requested.is_symlink() or requested.exists():
+        raise FieldCovarianceWorkspaceError(f"{name} already exists: {requested}")
+    return requested.resolve(strict=False)
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _write_new_json(path: Path, document: Mapping[str, object]) -> None:
+    payload = (json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n").encode()
+    created = False
+    try:
+        with path.open("xb") as stream:
+            created = True
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def receive_field_covariance_workspace(
+    source: str | Path,
+    destination: str | Path,
+    receipt_path: str | Path,
+    *,
+    received_at: datetime | None = None,
+) -> dict[str, object]:
+    """Verify removable media, atomically copy it locally, and write an external receipt."""
+
+    source_result = verify_field_covariance_workspace(source)
+    source_root = Path(source_result["workspace_root"])
+    output = _require_new_path(destination, name="workspace destination")
+    receipt_output = _require_new_path(receipt_path, name="workspace receipt")
+    if _is_within(output, source_root):
+        raise FieldCovarianceWorkspaceError("workspace destination cannot be inside source")
+    if _is_within(receipt_output, source_root) or _is_within(receipt_output, output):
+        raise FieldCovarianceWorkspaceError(
+            "workspace receipt must remain outside source and destination bundles"
+        )
+    timestamp = datetime.now(UTC) if received_at is None else received_at
+    if (
+        not isinstance(timestamp, datetime)
+        or timestamp.tzinfo is None
+        or timestamp.utcoffset() is None
+    ):
+        raise FieldCovarianceWorkspaceError("received_at must be timezone-aware")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    receipt_output.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = _json_object(source_root / MANIFEST_NAME, name="workspace manifest")
+    expected_files = _expected_files(manifest)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    published = False
+    try:
+        for relative in sorted(expected_files):
+            source_file = _bundle_file(source_root, relative, name=f"source file {relative}")
+            destination_file = temporary.joinpath(*PurePosixPath(relative).parts)
+            destination_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_file, destination_file)
+        temporary_result = verify_field_covariance_workspace(temporary)
+        if temporary_result["workspace_sha256"] != source_result["workspace_sha256"]:
+            raise FieldCovarianceWorkspaceError("received workspace identity changed during copy")
+        os.replace(temporary, output)
+        published = True
+        destination_result = verify_field_covariance_workspace(output)
+        release_label, px4_hash, parity_sha256 = _current_parity()
+        campaign_path = output / CAMPAIGN_NAME
+        receipt: dict[str, object] = {
+            "schema": RECEIPT_SCHEMA,
+            "schema_version": RECEIPT_SCHEMA_VERSION,
+            "received_at_utc": timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "source_workspace_root": str(source_root),
+            "destination_workspace_root": str(output),
+            "workspace_sha256": destination_result["workspace_sha256"],
+            "release_label": release_label,
+            "release_parity": {
+                "path": "configs/release-parity.json",
+                "file_sha256": parity_sha256,
+                "px4_mission_path_hash": px4_hash,
+            },
+            "verification": {
+                "source_gate_passed": True,
+                "destination_gate_passed": True,
+                "leaf_count": destination_result["leaf_count"],
+                "source_file_count": destination_result["source_file_count"],
+                "total_json_file_count": len(expected_files),
+            },
+            "next_action": {
+                "argv": [
+                    "python",
+                    "-m",
+                    "multidetect.field_covariance_campaign",
+                    "preflight",
+                    f"--config={campaign_path}",
+                ]
+            },
+            "claims": dict(destination_result["claims"]),
+        }
+        receipt["receipt_sha256"] = _canonical_sha256(receipt)
+        _validate_receipt_schema(receipt)
+        _write_new_json(receipt_output, receipt)
+        return {
+            **receipt,
+            "receipt_path": str(receipt_output),
+            "gate_passed": True,
+        }
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        if published:
+            shutil.rmtree(output, ignore_errors=True)
+        receipt_output.unlink(missing_ok=True)
+        raise
+
+
+def verify_field_covariance_workspace_receipt(path: str | Path) -> dict[str, object]:
+    """Re-open a local receipt and its received workspace without requiring source media."""
+
+    candidate = Path(path).expanduser()
+    if candidate.is_symlink():
+        raise FieldCovarianceWorkspaceError("workspace receipt cannot be a symbolic link")
+    receipt_path = candidate.resolve(strict=True)
+    if not receipt_path.is_file():
+        raise FieldCovarianceWorkspaceError("workspace receipt must be a regular file")
+    receipt = _json_object(receipt_path, name="workspace receipt")
+    _validate_receipt_schema(receipt)
+    claimed_hash = receipt["receipt_sha256"]
+    without_hash = dict(receipt)
+    del without_hash["receipt_sha256"]
+    if claimed_hash != _canonical_sha256(without_hash):
+        raise FieldCovarianceWorkspaceError("workspace receipt digest mismatch")
+    destination_value = receipt["destination_workspace_root"]
+    destination = Path(destination_value)
+    if not destination.is_absolute() or str(destination) != destination_value:
+        raise FieldCovarianceWorkspaceError("receipt destination must be an absolute local path")
+    result = verify_field_covariance_workspace(destination)
+    release_label, px4_hash, parity_sha256 = _current_parity()
+    if (
+        result["workspace_sha256"] != receipt["workspace_sha256"]
+        or result["release_label"] != receipt["release_label"]
+        or receipt["release_parity"]
+        != {
+            "path": "configs/release-parity.json",
+            "file_sha256": parity_sha256,
+            "px4_mission_path_hash": px4_hash,
+        }
+        or release_label != receipt["release_label"]
+    ):
+        raise FieldCovarianceWorkspaceError("workspace receipt no longer matches current state")
+    expected_argv = [
+        "python",
+        "-m",
+        "multidetect.field_covariance_campaign",
+        "preflight",
+        f"--config={destination / CAMPAIGN_NAME}",
+    ]
+    if receipt["next_action"]["argv"] != expected_argv or receipt["claims"] != result["claims"]:
+        raise FieldCovarianceWorkspaceError("workspace receipt derived fields do not match")
+    return {
+        **receipt,
+        "receipt_path": str(receipt_path),
+        "gate_passed": True,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -411,6 +603,12 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", required=True, type=Path)
     verify = subparsers.add_parser("verify")
     verify.add_argument("--bundle", required=True, type=Path)
+    receive = subparsers.add_parser("receive")
+    receive.add_argument("--bundle", required=True, type=Path)
+    receive.add_argument("--out", required=True, type=Path)
+    receive.add_argument("--receipt", required=True, type=Path)
+    verify_receipt = subparsers.add_parser("verify-receipt")
+    verify_receipt.add_argument("--receipt", required=True, type=Path)
     return parser
 
 
@@ -420,8 +618,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "export":
             root = export_field_covariance_workspace(load_campaign_config(args.config), args.out)
             result = verify_field_covariance_workspace(root)
-        else:
+        elif args.command == "verify":
             result = verify_field_covariance_workspace(args.bundle)
+        elif args.command == "receive":
+            result = receive_field_covariance_workspace(args.bundle, args.out, args.receipt)
+        else:
+            result = verify_field_covariance_workspace_receipt(args.receipt)
         print(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2))
         return 0
     except (FieldCovarianceWorkspaceError, OSError, ValueError) as exc:
@@ -437,9 +639,14 @@ __all__ = [
     "CAMPAIGN_NAME",
     "FieldCovarianceWorkspaceError",
     "MANIFEST_NAME",
+    "RECEIPT_SCHEMA",
+    "RECEIPT_SCHEMA_PATH",
+    "RECEIPT_SCHEMA_VERSION",
     "SCHEMA",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
     "export_field_covariance_workspace",
+    "receive_field_covariance_workspace",
     "verify_field_covariance_workspace",
+    "verify_field_covariance_workspace_receipt",
 ]

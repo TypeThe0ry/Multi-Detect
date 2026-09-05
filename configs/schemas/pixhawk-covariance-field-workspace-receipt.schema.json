@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-covariance-field-workspace-receipt.schema.json",
+  "title": "Multi-Detect received Pixhawk covariance field workspace receipt v1",
+  "description": "Local transaction receipt for a verified removable-media workspace copy. It is not hardware or flight acceptance evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "received_at_utc", "source_workspace_root",
+    "destination_workspace_root", "workspace_sha256", "release_label",
+    "release_parity", "verification", "next_action", "claims", "receipt_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.pixhawk-covariance-field-workspace-receipt/v1"},
+    "schema_version": {"const": 1},
+    "received_at_utc": {"type": "string", "format": "date-time"},
+    "source_workspace_root": {"type": "string", "minLength": 1},
+    "destination_workspace_root": {"type": "string", "minLength": 1},
+    "workspace_sha256": {"$ref": "#/$defs/sha256"},
+    "release_label": {"type": "string", "minLength": 1},
+    "release_parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "px4_mission_path_hash"],
+      "properties": {
+        "path": {"const": "configs/release-parity.json"},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "px4_mission_path_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_gate_passed", "destination_gate_passed", "leaf_count",
+        "source_file_count", "total_json_file_count"
+      ],
+      "properties": {
+        "source_gate_passed": {"const": true},
+        "destination_gate_passed": {"const": true},
+        "leaf_count": {"const": 6},
+        "source_file_count": {"const": 18},
+        "total_json_file_count": {"const": 20}
+      }
+    },
+    "next_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv"],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            {"const": "python"},
+            {"const": "-m"},
+            {"const": "multidetect.field_covariance_campaign"},
+            {"const": "preflight"},
+            {"type": "string", "pattern": "^--config=.+$"}
+          ],
+          "items": false
+        }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "live_identity_observed", "covariance_observed", "hardware_acceptance",
+        "hil_acceptance", "real_acceptance", "flight_acceptance"
+      ],
+      "properties": {
+        "live_identity_observed": {"const": false},
+        "covariance_observed": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "flight_acceptance": {"const": false}
+      }
+    },
+    "receipt_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

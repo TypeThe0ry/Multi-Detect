@@ -189,6 +189,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "configs/schemas/pixhawk-covariance-field-campaign.schema.json",
         "configs/schemas/pixhawk-covariance-online-preflight.schema.json",
         "configs/schemas/pixhawk-covariance-field-workspace.schema.json",
+        "configs/schemas/pixhawk-covariance-field-workspace-receipt.schema.json",
         "configs/schemas/autonomy-executable-mission.schema.json",
         "configs/schemas/autonomy-mission-compile-runtime.schema.json",
         "configs/schemas/px4-mission-feedback.schema.json",
