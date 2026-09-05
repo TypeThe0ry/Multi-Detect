@@ -75,6 +75,8 @@ _DEVICE_UID_HASH_DOMAIN = b"multidetect:autopilot-device-uid:v1\x00"
 # MAV_CMD_SET_MESSAGE_INTERVAL only changes this companion-computer link's
 # telemetry cadence.  It never changes flight mode, parameters or actuators.
 _MAV_CMD_SET_MESSAGE_INTERVAL = 511
+_MAV_CMD_REQUEST_MESSAGE = 512
+_AUTOPILOT_VERSION_MESSAGE_ID = 148
 _RANGING_STREAM_INTERVALS_US: tuple[tuple[str, int, int], ...] = (
     ("ATTITUDE", 30, 50_000),
     ("ODOMETRY", 331, 50_000),
@@ -333,6 +335,7 @@ class PixhawkReadOnlyConfig:
     expected_vehicle_type_id: int | None = None
     require_operational_state: bool = False
     request_ranging_streams: bool = False
+    request_autopilot_version: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.endpoint, str) or not self.endpoint.strip():
@@ -360,6 +363,8 @@ class PixhawkReadOnlyConfig:
             raise ValueError("Pixhawk operational-state requirement must be boolean")
         if not isinstance(self.request_ranging_streams, bool):
             raise ValueError("Pixhawk ranging-stream request setting must be boolean")
+        if not isinstance(self.request_autopilot_version, bool):
+            raise ValueError("Pixhawk autopilot-version request setting must be boolean")
 
     @property
     def qualification_required(self) -> bool:
@@ -488,6 +493,9 @@ class PixhawkReadOnlyTelemetryProvider:
         self._messages_transmitted = 0
         self._stream_request_attempts = 0
         self._last_stream_request_s: float | None = None
+        self._autopilot_version_request_attempts = 0
+        self._last_autopilot_version_request_s: float | None = None
+        self._autopilot_version_request_binding: tuple[int | None, ...] | None = None
 
     @property
     def is_read_only(self) -> bool:
@@ -715,6 +723,17 @@ class PixhawkReadOnlyTelemetryProvider:
                     for name, _message_id, interval_us in _RANGING_STREAM_INTERVALS_US
                 },
             },
+            "autopilot_version_requests": {
+                "enabled": self.config.request_autopilot_version,
+                "attempts": self._autopilot_version_request_attempts,
+                "last_request_age_s": self._sample_age(
+                    self._last_autopilot_version_request_s,
+                    now_s,
+                ),
+                "command_id": _MAV_CMD_REQUEST_MESSAGE,
+                "message_id": _AUTOPILOT_VERSION_MESSAGE_ID,
+                "response_observed": self._autopilot_version_identity is not None,
+            },
             "vertical": {
                 "altitude_agl_m": (
                     snapshot.altitude_agl_m if math.isfinite(snapshot.altitude_agl_m) else None
@@ -807,6 +826,7 @@ class PixhawkReadOnlyTelemetryProvider:
             if message is None:
                 break
             self.ingest_message(message, received_at_s=now_s)
+        self._maybe_request_autopilot_version(now_s=now_s)
         self._maybe_request_ranging_streams(now_s=now_s)
         connection_mode = getattr(connection, "flightmode", None)
         if isinstance(connection_mode, str) and connection_mode.strip():
@@ -1396,6 +1416,56 @@ class PixhawkReadOnlyTelemetryProvider:
         self._messages_transmitted += sent
         self._stream_request_attempts += 1
         self._last_stream_request_s = now_s
+
+    def _maybe_request_autopilot_version(self, *, now_s: float) -> None:
+        """Request one sanitized firmware identity with bounded retries.
+
+        ``AUTOPILOT_VERSION`` is not guaranteed to be broadcast periodically.
+        MAV_CMD_REQUEST_MESSAGE asks the already-qualified autopilot to return
+        message 148.  The request changes no parameter, mode, mission, actuator,
+        or stream rate.  At most three attempts are made for each distinct
+        heartbeat identity, and requests stop immediately after a valid response.
+        """
+
+        if not self.config.request_autopilot_version:
+            return
+        binding = _heartbeat_binding(self._heartbeat_identity)
+        if binding != self._autopilot_version_request_binding:
+            self._autopilot_version_request_binding = binding
+            self._autopilot_version_request_attempts = 0
+            self._last_autopilot_version_request_s = None
+        if self._autopilot_version_identity is not None:
+            return
+        if self._autopilot_version_request_attempts >= 3:
+            return
+        if self._heartbeat_identity.source_system_id is None:
+            return
+        if (
+            self._last_autopilot_version_request_s is not None
+            and now_s - self._last_autopilot_version_request_s < 5.0
+        ):
+            return
+        connection = self._connection
+        mav = getattr(connection, "mav", None)
+        send = getattr(mav, "command_long_send", None)
+        if not callable(send):
+            return
+        send(
+            self._heartbeat_identity.source_system_id,
+            self._heartbeat_identity.source_component_id or 1,
+            _MAV_CMD_REQUEST_MESSAGE,
+            0,
+            float(_AUTOPILOT_VERSION_MESSAGE_ID),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+        self._messages_transmitted += 1
+        self._autopilot_version_request_attempts += 1
+        self._last_autopilot_version_request_s = now_s
 
     def _update_gps_home_relative_altitude(self, *, now_s: float) -> None:
         """Use GPS altitude only after PX4 supplies a matching home reference.

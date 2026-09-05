@@ -1245,6 +1245,64 @@ def test_pixhawk_requests_dynamic_ranging_streams_after_heartbeat_with_bounded_r
     assert diagnostics["ranging_stream_requests"]["attempts"] == 3
 
 
+def test_pixhawk_requests_autopilot_version_once_and_stops_after_response() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:127.0.0.1:14550",
+            expected_system_id=1,
+            request_autopilot_version=True,
+        )
+    )
+    connection = _RangingStreamConnection()
+    provider._connection = connection
+    _ingest_px4_heartbeat(provider)
+
+    provider.snapshot(now_s=10.0)
+    provider.snapshot(now_s=12.0)
+    provider.ingest_message(_autopilot_version_message(), received_at_s=12.1)
+    provider.snapshot(now_s=15.0)
+
+    assert len(connection.mav.calls) == 1
+    request = connection.mav.calls[0]
+    assert int(request[2]) == 512
+    assert int(request[4]) == 148
+    assert provider.messages_transmitted == 1
+    diagnostics = provider.diagnostics(now_s=15.1)
+    assert diagnostics["autopilot_version_requests"] == {
+        "enabled": True,
+        "attempts": 1,
+        "last_request_age_s": pytest.approx(5.1),
+        "command_id": 512,
+        "message_id": 148,
+        "response_observed": True,
+    }
+
+
+def test_pixhawk_autopilot_version_request_is_bounded_and_resets_for_rebound_vehicle() -> None:
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            "udp:127.0.0.1:14550",
+            expected_system_id=1,
+            request_autopilot_version=True,
+        )
+    )
+    connection = _RangingStreamConnection()
+    provider._connection = connection
+    _ingest_px4_heartbeat(provider)
+
+    for now_s in (10.0, 12.0, 15.0, 20.0, 30.0):
+        provider.snapshot(now_s=now_s)
+
+    assert len(connection.mav.calls) == 3
+    assert all(int(call[2]) == 512 and int(call[4]) == 148 for call in connection.mav.calls)
+
+    _ingest_px4_heartbeat(provider, received_at_s=31.0, vehicle_type_id=2)
+    provider.snapshot(now_s=31.0)
+
+    assert len(connection.mav.calls) == 4
+    assert provider.diagnostics(now_s=31.1)["autopilot_version_requests"]["attempts"] == 1
+
+
 def test_pixhawk_default_receive_only_mode_sends_no_stream_requests() -> None:
     provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     connection = _RangingStreamConnection()
@@ -1258,6 +1316,14 @@ def test_pixhawk_default_receive_only_mode_sends_no_stream_requests() -> None:
 
     assert connection.mav.calls == []
     assert provider.messages_transmitted == 0
+
+
+def test_pixhawk_config_rejects_non_boolean_autopilot_version_request() -> None:
+    with pytest.raises(ValueError, match="autopilot-version request"):
+        PixhawkReadOnlyConfig(
+            "udp:127.0.0.1:14550",
+            request_autopilot_version=1,  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.parametrize("stale_after_seconds", [float("nan"), float("inf"), True])

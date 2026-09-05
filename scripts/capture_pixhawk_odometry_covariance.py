@@ -41,6 +41,7 @@ SCHEMA = "multidetect.pixhawk-odometry-covariance-observation/v2"
 UNCERTAINTY_SOURCE = "mavlink_odometry_pose_covariance_local_ned_with_configured_floor"
 _LOCAL_UDP = re.compile(r"udpin:(?:0\.0\.0\.0|127\.0\.0\.1):(\d{1,5})")
 _UDP_ENDPOINT = re.compile(r"(?:udp|udpin|udpout):[^:]*:(\d{1,5})")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 _HEARTBEAT_IDENTITY_FIELDS = (
     "source_system_id",
     "source_component_id",
@@ -286,17 +287,29 @@ def build_observation_report(
     message_counts = diagnostics.get("message_type_counts")
     uncertainty = diagnostics.get("attitude_uncertainty")
     requests = diagnostics.get("ranging_stream_requests")
+    identity_requests = diagnostics.get("autopilot_version_requests")
+    autopilot_version = diagnostics.get("autopilot_version_identity")
     if not isinstance(message_counts, Mapping):
         message_counts = {}
     if not isinstance(uncertainty, Mapping):
         uncertainty = {}
     if not isinstance(requests, Mapping):
         requests = {}
+    if not isinstance(identity_requests, Mapping):
+        identity_requests = {}
+    if not isinstance(autopilot_version, Mapping):
+        autopilot_version = {}
     requested_intervals = requests.get("requested_message_intervals_us")
     if not isinstance(requested_intervals, Mapping):
         requested_intervals = {}
     attempts = requests.get("attempts")
     attempts = attempts if isinstance(attempts, int) and not isinstance(attempts, bool) else 0
+    identity_attempts = identity_requests.get("attempts")
+    identity_attempts = (
+        identity_attempts
+        if isinstance(identity_attempts, int) and not isinstance(identity_attempts, bool)
+        else 0
+    )
     transmitted = diagnostics.get("messages_transmitted")
     transmitted = (
         transmitted if isinstance(transmitted, int) and not isinstance(transmitted, bool) else -1
@@ -347,9 +360,18 @@ def build_observation_report(
         ),
         "latest_covariance_source_exact": uncertainty.get("source") == UNCERTAINTY_SOURCE,
         "odometry_interval_requested": requested_intervals.get("ODOMETRY") == 50_000,
+        "autopilot_version_identity_observed": (
+            identity_requests.get("enabled") is True
+            and 1 <= identity_attempts <= 3
+            and identity_requests.get("command_id") == 512
+            and identity_requests.get("message_id") == 148
+            and identity_requests.get("response_observed") is True
+            and isinstance(autopilot_version.get("identity_hash"), str)
+            and _SHA256.fullmatch(str(autopilot_version.get("identity_hash"))) is not None
+        ),
         "telemetry_requests_only": (
             attempts > 0
-            and transmitted == attempts * len(requested_intervals)
+            and transmitted == attempts * len(requested_intervals) + identity_attempts
             and diagnostics.get("hardware_control_enabled") is False
         ),
         "runtime_identity_binding": (
@@ -592,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_autopilot_id=12,
             require_operational_state=args.runtime_mode in {"hil", "real"},
             request_ranging_streams=True,
+            request_autopilot_version=True,
         )
     )
     records: list[dict[str, object]] = []

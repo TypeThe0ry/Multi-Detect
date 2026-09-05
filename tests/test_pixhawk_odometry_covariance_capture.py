@@ -14,7 +14,7 @@ def _diagnostics() -> dict[str, object]:
     covariance = [0.0001, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.0009]
     return {
         "message_type_counts": {"ODOMETRY": 30, "ATTITUDE": 40},
-        "messages_transmitted": 14,
+        "messages_transmitted": 15,
         "configured_endpoint": "COM7",
         "resolved_endpoint": "COM7",
         "read_only": True,
@@ -26,7 +26,15 @@ def _diagnostics() -> dict[str, object]:
             "vehicle_type_id": 2,
             "mavlink_version": 3,
         },
-        "autopilot_version_identity": {"identity_hash": "firmware-sha256"},
+        "autopilot_version_identity": {"identity_hash": "a" * 64},
+        "autopilot_version_requests": {
+            "enabled": True,
+            "attempts": 1,
+            "last_request_age_s": 0.5,
+            "command_id": 512,
+            "message_id": 148,
+            "response_observed": True,
+        },
         "ranging_stream_requests": {
             "attempts": 2,
             "requested_message_intervals_us": {
@@ -107,6 +115,27 @@ def test_observation_report_rejects_zero_attitude_variance() -> None:
     assert report["claims"]["sim_acceptance"] == "not_claimed"
 
 
+def test_observation_report_fails_closed_without_requested_firmware_identity() -> None:
+    diagnostics = _diagnostics()
+    diagnostics["autopilot_version_identity"] = None
+    diagnostics["autopilot_version_requests"] = {
+        "enabled": True,
+        "attempts": 3,
+        "last_request_age_s": 0.5,
+        "command_id": 512,
+        "message_id": 148,
+        "response_observed": False,
+    }
+    diagnostics["messages_transmitted"] = 17
+
+    report = _report(diagnostics)
+
+    assert report["checks"]["telemetry_requests_only"] is True
+    assert report["checks"]["autopilot_version_identity_observed"] is False
+    assert report["gate_passed"] is False
+    assert report["claims"]["sim_acceptance"] == "not_claimed"
+
+
 def test_observation_report_verifier_rebuilds_every_derived_field() -> None:
     report = _report(_diagnostics())
 
@@ -178,7 +207,7 @@ def _install_mode_binding_fixtures(
                 "vehicle_type_id": 2,
                 "mavlink_version": 3,
             },
-            "observed_identity": {"firmware_identity_hash": "firmware-sha256"},
+            "observed_identity": {"firmware_identity_hash": "a" * 64},
             "binding_sha256": "feedback-binding-sha256",
             "profile_document_sha256": "profile-document-sha256",
             "profile_sha256": "profile-sha256",
@@ -253,7 +282,7 @@ def test_hil_observation_fails_closed_on_current_firmware_mismatch(
     tmp_path: Path,
 ) -> None:
     diagnostics = _diagnostics()
-    diagnostics["autopilot_version_identity"] = {"identity_hash": "different-firmware"}
+    diagnostics["autopilot_version_identity"] = {"identity_hash": "b" * 64}
 
     report = _hil_report(monkeypatch, tmp_path, diagnostics=diagnostics)
 
