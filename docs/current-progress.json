@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T18:55:02Z",
+  "updated_at_utc": "2026-09-05T19:05:04Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "224b0d07ce23ac9c0cfa7c5d991ac54f8df7e0a5",
-    "commit_subject": "fix(field): make evidence bindings schema strict",
-    "commits_ahead_of_origin_main": 42
+    "commit": "dc52ebb983fd15752e3043c09e851fce1af3aed6",
+    "commit_subject": "fix(ranging): propagate lever arm geometry uncertainty",
+    "commits_ahead_of_origin_main": 44
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v77",
+  "working_iteration": "v78",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v77-final.xml",
-      "tests": 3328,
-      "passed": 3327,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v78-final.xml",
+      "tests": 3329,
+      "passed": 3328,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 98.121,
-      "junit_local_path": "tmp/current-progress-regression-v77-final.xml",
-      "junit_file_bytes": 483790,
-      "junit_file_sha256": "cade98c50e3972047efb152b4a377054c747e73e53f5c2287ce41c1806b452bb",
+      "duration_seconds": 102.618,
+      "junit_local_path": "tmp/current-progress-regression-v78-final.xml",
+      "junit_file_bytes": 483932,
+      "junit_file_sha256": "b87f654e96ce0cf170ff777dc219ee5c89b77722c256201f598098555847d61a",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,10 +64,10 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5570,
-    "file_sha256": "6da3de7b173d5938219a4063875c360c77e7b1742ec0389b4bef1b657a933a85",
+    "file_sha256": "712552c1b7644c04dd9811ef4306a2933f19c03c1f9bc3d4ac6151c7fafc2137",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
-      "core_algorithm_hash": "bebbf1b559add8479fb4d184ea4ef25891902aa27784ce1b8b51bdce62334738",
+      "core_algorithm_hash": "7b7b2ef0d7e9b1b11d06debf8b67a998795f97178586abdd3e6e29081fe98561",
       "task_contract_hash": "4959cbd8b2819e76b3f7b80596df96c0a6bb738f548634153db2ca6ca5535f36",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
       "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"

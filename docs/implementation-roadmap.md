@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## 杆臂几何不确定性传播（v78）
+
+- [x] 审计 GNSS datum→camera→target→WGS-84 均值链，确认杆臂只应用一次；
+- [x] 姿态、mount 与像素扰动同时生成 ray/camera-offset NED 端点；
+- [x] camera slant、DEM、ground range 和 bearing 共用同一端点集合；
+- [x] 增加短距离大杆臂下旧 ray-only derivative 失真的回归；
+- [ ] 用真实安装杆臂和姿态协方差完成室外已知真值覆盖率验证。
+
 ## Field-evidence bindings strict schema（v77）
 
 - [x] 显式声明八项输入 hash/bytes 与时间策略绑定；

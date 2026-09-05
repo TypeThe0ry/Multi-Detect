@@ -297,6 +297,10 @@ Python 侧的 `multidetect.target_event_replay.TargetEventReplayBuilder` 将一�
 
 每个事件同时绑定：视频帧或深度图、目标 ID/类别、捕获时间、实际距离及 `VALID/DEGRADED/UNAVAILABLE` 状态、相对方位、GPS 质量、WGS84 坐标和水平 `1σ`。GPS 可带与事件共用单调时钟的 `observed_at_s`；回放事件会写入派生的 `gps_age_s` 和 `gps_freshness`（`fresh`/`stale`/`unknown`），加载时重新计算并校验，防止把旧坐标冒充当前观测。写入和加载都会执行以下门：
 
+定位核心把 GNSS→camera 杆臂和相机射线组成一个完整 NED 目标向量。姿态、mount 三轴和像素中心的
+`±1σ` 扰动会同时更新 ray/camera-offset 端点，并用于 slant、DEM、ground range 和 bearing sigma；
+WGS-84 只投影最终 N/E offset 一次，不会再次叠加杆臂。
+
 - `events.jsonl`、每个媒体文件和 manifest 都有 SHA-256 与字节数校验；路径必须留在 bundle 内，禁止 `..` 穿越；
 - 事件序号从 0 连续递增，捕获时间严格递增，媒体路径不能重复；
 - 若多个事件带有 GPS `observed_at_s`，这些观测时间也必须在回放中保持非递减（允许中间的旧版事件省略该字段）；这样不会把较新的目标帧和较旧的飞机定位样本拼成“时间倒退”的证据。

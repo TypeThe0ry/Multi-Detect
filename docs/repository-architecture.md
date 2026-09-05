@@ -1,5 +1,22 @@
 # 统一仓库架构
 
+## v78 共享几何不确定性端点（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+nominal camera ray + GNSS→camera body-FRD lever arm
+  -> aircraft attitude rotation
+  -> NED ray + NED camera offset
+  -> one-at-a-time ±1σ geometry endpoints
+       |- camera-ground slant
+       |- DEM intersection
+       |- GNSS-datum ground range
+       `- GNSS-datum absolute bearing
+  -> WGS-84 projection + horizontal uncertainty
+```
+
+`_GeometryPerturbation` 把射线和杆臂作为同一物理端点传播；均值仍由一个总 N/E offset 投影，避免杆臂
+重复应用。该实现属于 shared `core_algorithm_hash`，REPLAY/SIM/HIL/REAL 不能分叉使用旧误差模型。
+
 ## v77 field-evidence binding schema（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

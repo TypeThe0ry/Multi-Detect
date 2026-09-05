@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v78 lever-arm geometry uncertainty propagation（2026-09-06）
+
+- 将 ray uncertainty endpoint 扩展为成对的 NED ray 与 camera-offset 几何端点；姿态扰动会同时旋转
+  光轴和 GNSS→camera 杆臂；
+- camera-ground slant、DEM ray intersection、ground range 与 absolute-bearing sigma 统一使用这些端点，
+  修复近距离/大杆臂场景仍按纯射线 bearing derivative 估计的问题；
+- 增加旧实现会失败的非零杆臂 bearing 回归，并重跑 WGS-84、集成 SIM 与 Gazebo 定位相关测试。
+
 ### v0.3.0-pre.8 v77 strict field-evidence bindings schema（2026-09-06）
 
 - 将 field evidence 的 `bindings` 从任意 object 收紧为 `additionalProperties=false` 的显式 schema；

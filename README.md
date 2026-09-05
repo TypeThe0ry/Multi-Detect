@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v77：field-evidence bindings 使用严格 schema；未知或错类型的证据关联字段不再被接受 |
+| 当前工程迭代 | v78：室外测距用统一“射线 + GNSS→相机杆臂”扰动端点传播距离、方位与不确定性 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,13 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v78 杆臂几何不确定性端点传播
+
+共享 multimodal ranging 不再只扰动相机射线并把杆臂固定在名义值。roll/pitch、mount 三轴和像素中心的
+每个 `±1σ` 样本现在同时生成 NED 射线与 GNSS→相机杆臂端点；camera-ground slant、DEM 交点、ground
+range 和 absolute bearing 共用同一几何样本。这样近距离、大杆臂或倾斜机体不会得到与零杆臂相同的
+bearing sigma，也不会漏掉姿态不确定性导致的杆臂 down/水平分量变化。
 
 ### v77 严格 field-evidence bindings 合同
 

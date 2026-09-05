@@ -1,6 +1,13 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v77 工作树）
+最后更新：2026-09-06（v78 工作树）
+
+## v78 本轮已收口
+
+- 确认杆臂均值只在 ranging NED offset 应用一次，WGS-84 投影没有重复叠加；
+- 将每个姿态/mount/像素 `±1σ` 样本升级为 ray 与 camera-offset 成对几何端点；
+- camera slant、DEM 交点、ground range 与 bearing sigma 共用端点传播，姿态扰动同时旋转杆臂；
+- 新增短距离大杆臂负回归：旧 ray-only 模型会返回与零杆臂相同 sigma，新模型明确区分。
 
 ## v77 本轮已收口
 
@@ -50,7 +57,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `224b0d07ce23ac9c0cfa7c5d991ac54f8df7e0a5`（当前文档提交前领先远端 42 个提交）。
+本地 `main` 提交 `dc52ebb983fd15752e3043c09e851fce1af3aed6`（当前文档提交前领先远端 44 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -106,7 +113,7 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v77 全仓回归为 3,328 tests：`3327 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
+- v78 全仓回归为 3,329 tests：`3328 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
   SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。

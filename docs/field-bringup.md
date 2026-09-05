@@ -1,5 +1,12 @@
 # 现场链路 Bring-up（v0.3.0-pre.8）
 
+## v78 杆臂与姿态不确定性现场输入
+
+测量得到的 GNSS→camera forward/right/down 不只是修正名义落点；其 NED 分量会随飞机 roll/pitch 改变。
+运行时使用相机标定中的杆臂均值/`camera_offset_sigma_m` 与遥测姿态 sigma 做统一端点传播。现场验收应
+保留真实姿态协方差来源；若飞控只提供固定默认 sigma，报告必须明确这一限制，并用已知真值覆盖率判断
+`1σ` 是否保守，不能仅凭平均误差调小 uncertainty。
+
 ## v77 field-evidence 报告结构复核
 
 现场报告的 `bindings` 已禁止未知键，并固定八项输入 SHA-256/bytes、时间策略、target-event、recording、
