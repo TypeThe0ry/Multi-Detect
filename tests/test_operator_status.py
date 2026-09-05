@@ -229,6 +229,30 @@ def test_range_status_builder_deduplicates_collapsed_geometry_reasons() -> None:
     assert status.reasons == ("target_geometry_uncertainty_unbounded",)
 
 
+@pytest.mark.parametrize(
+    "internal_reason",
+    ["absolute_range_uncertainty_inflated", "direct_range_uncertainty_inflated"],
+)
+def test_range_status_builder_maps_internal_uncertainty_inflation_to_wire_reason(
+    internal_reason: str,
+) -> None:
+    solution = replace(
+        _valid_range_solution(freshness_s=0.1),
+        validity=RangeValidity.DEGRADED,
+        reasons=(internal_reason,),
+    )
+
+    status = build_range_status_message(
+        sequence=3,
+        solution=solution,
+        source_frame_id="frame-a",
+        source_captured_at_s=99.9,
+    )
+
+    assert solution.reasons == (internal_reason,)
+    assert status.reasons == ("direct_degraded_metric_range",)
+
+
 def test_runtime_status_builder_binds_mode_health_scenario_profile_and_run() -> None:
     status = build_runtime_status_message(
         sequence=7,

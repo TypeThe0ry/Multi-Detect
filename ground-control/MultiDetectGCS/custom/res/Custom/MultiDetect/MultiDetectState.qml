@@ -16,6 +16,10 @@ QtObject {
     // Production metadata only. No API in this singleton can write flight
     // controls, upload a mission, drive an actuator, or release a payload.
     readonly property var _operator: (typeof multiDetectOperator !== "undefined") ? multiDetectOperator : null
+    readonly property bool _hilSelectionDiagnosticEnabled:
+        (typeof multiDetectHilUiGeometryExport !== "undefined") &&
+        multiDetectHilUiGeometryExport === true
+    property int _hilSelectionDiagnosticSequence: 0
     property bool _ruleSafetyAllowed: false
     property string activePayloadSlot: ""
     property string authorizationBinding: ""
@@ -753,6 +757,27 @@ QtObject {
         }
 
         function onSelectionAcknowledged(acknowledgement) {
+            if (root._hilSelectionDiagnosticEnabled) {
+                ++root._hilSelectionDiagnosticSequence;
+                console.info("MULTIDETECT_HIL_UI_SELECTION " + JSON.stringify({
+                    "schema": "multidetect.qgc-hil-ui-selection",
+                    "schema_version": 1,
+                    "sequence": root._hilSelectionDiagnosticSequence,
+                    "phase": "selection_acknowledged",
+                    "command_id": String(acknowledgement.commandId || ""),
+                    "acknowledged_sequence": Number(acknowledgement.acknowledgedSequence || 0),
+                    "accepted": acknowledgement.accepted === true,
+                    "reason": Number(acknowledgement.reason),
+                    "correlated": acknowledgement.correlated === true,
+                    "selection_command_id": root.selectionCommandId,
+                    "pending_action": root.pendingSelectionAction,
+                    "selection_awaiting_track_status": root.selectionAwaitingTrackStatus,
+                    "target_id": root.targetId,
+                    "target_box_valid": root.targetBoxValid,
+                    "interaction_state": root.interactionState,
+                    "emitted_at_epoch_ms": Date.now()
+                }));
+            }
             if (!acknowledgement.correlated)
                 return;
             const acknowledgementCommandId = String(acknowledgement.commandId || "");
@@ -805,6 +830,24 @@ QtObject {
             const correlatedTrackSelection =
                     root._isLocalTrackSelectionCommand(statusSelectionCommandId);
             const correlatedSelection = targetsCurrentSelection || correlatedTrackSelection;
+            if (root._hilSelectionDiagnosticEnabled) {
+                ++root._hilSelectionDiagnosticSequence;
+                console.info("MULTIDETECT_HIL_UI_SELECTION " + JSON.stringify({
+                    "schema": "multidetect.qgc-hil-ui-selection",
+                    "schema_version": 1,
+                    "sequence": root._hilSelectionDiagnosticSequence,
+                    "phase": "track_status_received",
+                    "selection_command_id": statusSelectionCommandId,
+                    "current_selection_command_id": root.selectionCommandId,
+                    "correlated": correlatedSelection,
+                    "targets_current_selection": targetsCurrentSelection,
+                    "state": String(status.state || ""),
+                    "target_id": String(status.targetId || ""),
+                    "bbox_valid": status.bboxValid === true,
+                    "target_present": status.targetPresent === true,
+                    "emitted_at_epoch_ms": Date.now()
+                }));
+            }
             if (root.selectionAwaitingTrackStatus && !correlatedSelection)
                 return;
             // Tracking packets from an earlier QGC process or direct client are
@@ -942,6 +985,30 @@ QtObject {
             root.pendingCancelledTargetId = "";
             root._reconcileCurrentTargetFromPool();
             root._updateInteractionState();
+            // Emit only after every authoritative field above has been
+            // committed.  The Combined-SIM gate must prove that QGC adopted
+            // the correlated TrackStatus into its native UI state; merely
+            // observing the incoming packet is not sufficient.
+            if (root._hilSelectionDiagnosticEnabled) {
+                ++root._hilSelectionDiagnosticSequence;
+                console.info("MULTIDETECT_HIL_UI_SELECTION " + JSON.stringify({
+                    "schema": "multidetect.qgc-hil-ui-selection",
+                    "schema_version": 1,
+                    "sequence": root._hilSelectionDiagnosticSequence,
+                    "phase": "track_status_adopted",
+                    "selection_command_id": statusSelectionCommandId,
+                    "correlated": correlatedSelection,
+                    "state": root.trackingState,
+                    "target_id": root.targetId,
+                    "source_target_id": String(status.targetId || ""),
+                    "bbox_valid": root.targetBoxValid,
+                    "target_present": status.targetPresent === true,
+                    "interaction_state": root.interactionState,
+                    "pending_action": root.pendingSelectionAction,
+                    "selection_awaiting_track_status": root.selectionAwaitingTrackStatus,
+                    "emitted_at_epoch_ms": Date.now()
+                }));
+            }
         }
 
         enabled: target !== null

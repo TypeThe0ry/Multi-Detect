@@ -49,6 +49,11 @@ from .target_geolocation import target_geolocation_from_ned_offset
 from .unified_tracking import UnifiedTrackSnapshot, UnifiedTrackState
 
 _RANGE_REASON_WIRE_ALIASES = {
+    # The v2 range packet has a fixed 32-bit reason mask. Preserve the exact
+    # inflated CI in the numeric fields while collapsing the two internal
+    # inflation diagnostics to the registered degraded-range wire reason.
+    "absolute_range_uncertainty_inflated": "direct_degraded_metric_range",
+    "direct_range_uncertainty_inflated": "direct_degraded_metric_range",
     "target_ray_uncertainty_unavailable": "target_geometry_uncertainty_unbounded",
     "target_ray_uncertainty_crosses_horizon": "target_geometry_uncertainty_unbounded",
     "camera_offset_uncertainty_unbounded": "target_geometry_uncertainty_unbounded",

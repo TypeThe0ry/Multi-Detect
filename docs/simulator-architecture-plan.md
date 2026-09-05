@@ -9,6 +9,18 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v70 原生 QGC 目标选择与定位进入同一 Combined 生命周期
+
+当前 VTOL composite camera 的 SDF pose 与 calibration 都使用 35° pitch-down。Combined runner 在
+RTSP 画面出现候选目标后，从 QGC 导出的 QML scene geometry 计算屏幕中心，验证命中窗口属于 exact
+PID/HWND，再发送真实鼠标点击。验收要求 selection ACK、TRACKING status 与 QML adoption 同时相关，
+随后 active operator target 才进入共享 ranging/geolocation。
+
+range contribution 的 wire 权重以 254 为总预算联合量化：每个上报来源至少保留 1，但四舍五入总和
+不得超过 254。这避免主来源约 0.99875 与微小 VIO 约 0.00125 被独立编码成 254+1 后遭 decoder
+fail-closed。current-parity 900 帧 run 发布 831 份 range/geolocation、112 份合格坐标且 0 transport
+error；该闭环仍是 software/SIM display-only，不升级人工视觉、HIL/REAL、真实硬件或室外 GNSS 门。
+
 ### v59 多高度/距离/坡度定位矩阵（2026-09-05，pre.8）
 
 单场景定位 evidence 升级为 schema v2，并绑定 `gazebo_target_geolocation_acceptance.py` 的源码

@@ -4870,6 +4870,7 @@ def _run_integrated_replay_qgc(args: argparse.Namespace) -> int:
             mavlink=operator_adapter,
             guard=SelectionCommandGuard(operator_geometry),
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
+            command_clock=backend.clock.monotonic,
         )
         frame_publisher = SubprocessReplayRtspPublisher(
             args.rtsp_helper,
@@ -5408,6 +5409,7 @@ def _run_integrated_sim_qgc(args: argparse.Namespace) -> int:
             mavlink=operator_adapter,
             guard=SelectionCommandGuard(operator_geometry),
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
+            command_clock=backend.clock.monotonic,
         )
         frame_publisher = SubprocessReplayRtspPublisher(
             args.rtsp_helper,
@@ -6262,6 +6264,7 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             mavlink=operator_adapter,
             guard=SelectionCommandGuard(operator_geometry),
             metadata_peer_timeout_s=args.operator_metadata_peer_timeout_seconds,
+            command_clock=time.monotonic,
         )
         operator_bridge = LiveOperatorBridge(
             operator_transport,

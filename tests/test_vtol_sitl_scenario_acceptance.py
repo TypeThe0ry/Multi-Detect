@@ -74,7 +74,7 @@ def test_repository_standard_vtol_mono_cam_model_preserves_tested_composition() 
     include_pose = includes[1].find("pose")
     assert include_pose is not None
     assert include_pose.attrib == {"relative_to": "base_link"}
-    assert include_pose.text == "0.35 0 -0.02 0 0 0"
+    assert include_pose.text == "0.35 0 -0.02 0 0.6108652381980153 0"
     joint = model.find("joint")
     assert joint is not None
     assert joint.attrib == {"name": "CameraJoint", "type": "fixed"}
@@ -83,7 +83,7 @@ def test_repository_standard_vtol_mono_cam_model_preserves_tested_composition() 
     pose = joint.find("pose")
     assert pose is not None
     assert pose.attrib == {"relative_to": "base_link"}
-    assert pose.text == "0.35 0 -0.02 0 0 0"
+    assert pose.text == "0.35 0 -0.02 0 0.6108652381980153 0"
 
 
 def _valid_container_inspect(module: object) -> dict[str, object]:

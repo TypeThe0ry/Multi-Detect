@@ -2682,6 +2682,8 @@ def test_manual_trk_metric_depth_keeps_range_input_without_an_lck() -> None:
     assert result.processed_frames == 3
     assert metric_depth.submitted_target_ids
     assert set(metric_depth.submitted_target_ids) == {tracked_target_id}
+    assert result.ranging_assessment_count == 3
+    assert result.ranging_degraded_count == 3
 
 
 def test_manual_exclusive_lck_isolates_metric_depth_submit_failure() -> None:

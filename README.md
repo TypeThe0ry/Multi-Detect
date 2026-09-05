@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v69：combined verifier 独立强制 CameraInfo、sensor 900/900 与 odometry 900/900；四模式人工视觉仍为 0/4 |
+| 当前工程迭代 | v70：原生 QGC 目标点击→TRK→测距→GPS 落图已进入同一 900 帧 Combined SIM 机器门；四模式人工视觉仍为 0/4 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v70 当前 Combined SIM 机器闭环
+
+当前 parity 下的 `combined-sim-qgc-20260905T172856Z-51520` 已完成 900 帧真实
+PX4/Gazebo/QGC 联合验收：原生 Fly View 按候选框中心点击并收到相关 `SELECT_TRK` ACK，QGC 状态
+进入 `TRK`；随后连续发布 831 份测距状态和 831 份目标定位状态，其中 112 帧满足定位质量门，
+719 帧明确保持不可定位，operator transport error 为 0。900/900 RTSP frame ACK、signed runtime
+type 23 与 QGC post-adoption type 24 完整闭合；VTOL Mission 同时完成 MC→FW→MC→着陆/解锁，
+容器及测试端口全部清理。
+
+该记录是 software/SIM 机器证据，`operator_visual_acceptance=not_claimed`；它没有关闭人工视觉、
+真实 Jetson/相机/Pixhawk、室外 GNSS/RTK、HIL/REAL 或实飞门，最终 `v0.3.0` 仍阻断。
 
 ## 快速开始
 

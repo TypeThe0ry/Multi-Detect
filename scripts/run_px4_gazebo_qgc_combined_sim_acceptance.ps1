@@ -1947,6 +1947,55 @@ function Wait-QgcHilUiGeometryRecord {
     return $null
 }
 
+function Wait-QgcHilUiSelectionRecord {
+    param(
+        [string[]]$Paths,
+        [Diagnostics.Process]$Process,
+        [string]$Phase,
+        [long]$MinimumEmittedAtEpochMs,
+        [string]$CommandId = "",
+        [int]$TimeoutMilliseconds = 5000
+    )
+    $marker = "MULTIDETECT_HIL_UI_SELECTION "
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        Assert-True (-not $Process.HasExited) "QGC exited while waiting for selection diagnostic '$Phase'."
+        $latest = $null
+        foreach ($path in $Paths) {
+            $text = Get-TextIfPresent -Path $path
+            if ([string]::IsNullOrWhiteSpace($text)) { continue }
+            foreach ($line in [regex]::Split($text, "\r?\n")) {
+                $markerIndex = $line.IndexOf($marker, [StringComparison]::Ordinal)
+                if ($markerIndex -lt 0) { continue }
+                $candidate = $line.Substring($markerIndex + $marker.Length).Trim()
+                $jsonEnd = $candidate.LastIndexOf('}')
+                if ($jsonEnd -lt 0) { continue }
+                try { $record = $candidate.Substring(0, $jsonEnd + 1) | ConvertFrom-Json }
+                catch { continue }
+                if ($record.schema -ne "multidetect.qgc-hil-ui-selection" -or
+                    [int]$record.schema_version -ne 1 -or $record.phase -ne $Phase -or
+                    [long]$record.emitted_at_epoch_ms -lt $MinimumEmittedAtEpochMs) {
+                    continue
+                }
+                $recordCommandId = if ($Phase -eq "selection_acknowledged") {
+                    [string]$record.command_id
+                } else {
+                    [string]$record.selection_command_id
+                }
+                if (-not [string]::IsNullOrWhiteSpace($CommandId) -and $recordCommandId -ne $CommandId) {
+                    continue
+                }
+                if ($null -eq $latest -or [long]$record.sequence -gt [long]$latest.sequence) {
+                    $latest = $record
+                }
+            }
+        }
+        if ($null -ne $latest) { return $latest }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+
 function Wait-QgcHilUiGeometryRecordStable {
     param(
         [string[]]$Paths,
@@ -2636,6 +2685,155 @@ foreach ($required in @(
 )) {
     Assert-True (Test-Path -LiteralPath $required -PathType Leaf) "Required combined-SIM artifact is missing: $required"
 }
+
+function Invoke-QgcNativeTargetSelection {
+    param(
+        [Diagnostics.Process]$Process,
+        [string[]]$QgcLogPaths
+    )
+    $perMonitorV2 = [IntPtr](-4)
+    $previousDpiContext = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($perMonitorV2)
+    Assert-True ($previousDpiContext -ne [IntPtr]::Zero) `
+        "Unable to enter per-monitor-v2 DPI context for exact target input."
+    $dpiContextRestored = $false
+    $selectionResult = $null
+    $window = Get-QgcWindow -Process $Process
+    $previousForeground = Set-QgcWindowCaptureForeground -Window $window
+    [MultiDetectWindow.Native+POINT]$previousCursor = New-Object MultiDetectWindow.Native+POINT
+    Assert-True ([MultiDetectWindow.Native]::GetCursorPos([ref]$previousCursor)) `
+        "Unable to preserve pointer before native target selection."
+    try {
+        $record = Wait-QgcHilUiGeometryRecord -Paths $QgcLogPaths -Process $Process `
+            -Role "target_candidate_ready" -TimeoutMilliseconds 8000
+        Assert-True ($null -ne $record) `
+            "QGC emitted no acceptance-only target hit geometry from its native video overlay."
+        Assert-True ($record.visible -eq $true -and $record.enabled -eq $true -and
+                     $record.item_object_name -eq "multiDetectTargetCandidate" -and
+                     $record.bbox_valid -eq $true -and
+                     $record.selection_action -eq "SELECT_TRK" -and
+                     -not [string]::IsNullOrWhiteSpace([string]$record.target_id)) `
+            "QGC target hit geometry is stale or lacks target identity/selection semantics."
+
+        $capture = Save-QgcWindowCapture -Process $Process -Path (Join-Path $RunDirectory "qgc-before-target-selection.png")
+        $client = $capture.exact_client_rect_screen_physical
+        # Refresh after foreground/capture layout changes and click immediately;
+        # target boxes are live geometry and must not be treated as static UI.
+        $fresh = Wait-QgcHilUiGeometryRecord -Paths $QgcLogPaths -Process $Process `
+            -Role "target_candidate_ready" -MinimumSequence ([long]$record.sequence) `
+            -TimeoutMilliseconds 2500
+        Assert-True ($null -ne $fresh -and [string]$fresh.target_id -eq [string]$record.target_id) `
+            "QGC target geometry did not refresh with stable target identity before selection."
+        $mapping = Convert-QgcHilUiGeometryToPhysicalScreenRect -Record $fresh `
+            -ClientLeft ([int]$client.left) -ClientTop ([int]$client.top) `
+            -ClientWidth ([int]$client.width) -ClientHeight ([int]$client.height)
+        $rect = $mapping.bounding_rect
+        $clickX = [int][Math]::Round(($rect.left + $rect.right) / 2.0)
+        $clickY = [int][Math]::Round(($rect.top + $rect.bottom) / 2.0)
+        $provenance = Get-QgcPointProvenanceSample -Name "target_center" `
+            -ScreenX $clickX -ScreenY $clickY -ExpectedRootHwnd $window.Handle `
+            -ExpectedProcessId ([uint32]$Process.Id)
+        Assert-True ($provenance.qgc_hwnd_matches -and $provenance.qgc_pid_matches) `
+            "Target centre is not rooted in the exact QGC HWND/PID."
+
+        $pointerReady = $false
+        $attempt = 0
+        [MultiDetectWindow.Native+POINT]$actual = New-Object MultiDetectWindow.Native+POINT
+        for ($attempt = 1; $attempt -le 8; $attempt++) {
+            Assert-True ([MultiDetectWindow.Native]::SetCursorPos($clickX, $clickY)) `
+                "Unable to move native pointer to target centre."
+            Start-Sleep -Milliseconds 75
+            $null = [MultiDetectWindow.Native]::GetCursorPos([ref]$actual)
+            $foreground = [MultiDetectWindow.Native]::GetForegroundWindow()
+            [uint32]$foregroundOwner = 0
+            $null = [MultiDetectWindow.Native]::GetWindowThreadProcessId($foreground, [ref]$foregroundOwner)
+            $pointCheck = Get-QgcPointProvenanceSample -Name "target_center_attempt_$attempt" `
+                -ScreenX $clickX -ScreenY $clickY -ExpectedRootHwnd $window.Handle `
+                -ExpectedProcessId ([uint32]$Process.Id)
+            $pointerReady = $actual.X -eq $clickX -and $actual.Y -eq $clickY -and
+                            $foreground -eq $window.Handle -and
+                            $foregroundOwner -eq $Process.Id -and
+                            $pointCheck.qgc_hwnd_matches -and $pointCheck.qgc_pid_matches
+            if ($pointerReady) { break }
+            $null = Set-QgcWindowCaptureForeground -Window $window
+        }
+        Assert-True $pointerReady `
+            "Native pointer did not reach the exact QGC target coordinate/owner in 8 attempts."
+        $sentAt = (Get-Date).ToUniversalTime()
+        Assert-True ([MultiDetectWindow.Native]::SendLeftClick()) `
+            "SendInput did not deliver the native SELECT_TRK target click."
+        $sentAtEpochMs = [DateTimeOffset]$sentAt
+        $sentAtEpochMs = $sentAtEpochMs.ToUnixTimeMilliseconds()
+        $selectionAck = Wait-QgcHilUiSelectionRecord -Paths $QgcLogPaths -Process $Process `
+            -Phase "selection_acknowledged" -MinimumEmittedAtEpochMs $sentAtEpochMs `
+            -TimeoutMilliseconds 5000
+        Assert-True ($null -ne $selectionAck) `
+            "QGC received no SelectionAck after the native SELECT_TRK click."
+        Assert-True ($selectionAck.correlated -eq $true) `
+            "Jetson SelectionAck was not correlated with the native QGC SELECT_TRK command."
+        Assert-True ($selectionAck.accepted -eq $true) `
+            "Jetson rejected the native QGC SELECT_TRK command (reason=$($selectionAck.reason))."
+        Assert-True (-not [string]::IsNullOrWhiteSpace([string]$selectionAck.command_id)) `
+            "Accepted SelectionAck omitted its command id."
+        $trackStatus = Wait-QgcHilUiSelectionRecord -Paths $QgcLogPaths -Process $Process `
+            -Phase "track_status_received" -MinimumEmittedAtEpochMs $sentAtEpochMs `
+            -CommandId ([string]$selectionAck.command_id) -TimeoutMilliseconds 8000
+        Assert-True ($null -ne $trackStatus -and $trackStatus.correlated -eq $true) `
+            "QGC received no correlated TrackStatus for the accepted native SELECT_TRK command."
+        $adopted = Wait-QgcHilUiSelectionRecord -Paths $QgcLogPaths -Process $Process `
+            -Phase "track_status_adopted" -MinimumEmittedAtEpochMs $sentAtEpochMs `
+            -CommandId ([string]$selectionAck.command_id) -TimeoutMilliseconds 8000
+        Assert-True ($null -ne $adopted -and $adopted.correlated -eq $true -and
+                     [string]$adopted.state -eq "TRACKING" -and
+                     $adopted.bbox_valid -eq $true -and
+                     [string]$adopted.interaction_state -eq "TRK" -and
+                     [string]$adopted.target_id -eq [string]$trackStatus.target_id) `
+            "QGC did not commit the correlated TrackStatus into its native operator-tracked UI state."
+        $selectionResult = [ordered]@{
+            target_id = [string]$adopted.target_id
+            clicked_candidate_target_id = [string]$fresh.target_id
+            adopted_target_id = [string]$adopted.target_id
+            target_label = [string]$fresh.target_label
+            geometry_sequence = [long]$fresh.sequence
+            geometry_state = [string]$fresh.state
+            qml_scene_rect = $fresh.scene_rect
+            qml_window_scene_size = $fresh.window_scene_size
+            physical_screen_rect = $rect
+            screen_x = $clickX
+            screen_y = $clickY
+            pointer_position_attempts = $attempt
+            qgc_hwnd_matches = [bool]$provenance.qgc_hwnd_matches
+            qgc_pid_matches = [bool]$provenance.qgc_pid_matches
+            provenance = $provenance
+            click_sent_at_utc = $sentAt.ToString('o')
+            selection_action = "SELECT_TRK"
+            command_id = [string]$selectionAck.command_id
+            selection_acknowledged_sequence = [long]$selectionAck.acknowledged_sequence
+            selection_ack_reason = [int]$selectionAck.reason
+            selection_ack_correlated = [bool]$selectionAck.correlated
+            track_status_state = [string]$trackStatus.state
+            track_status_target_id = [string]$trackStatus.target_id
+            correlated_track_status_proved = $true
+            adopted_state_sequence = [long]$adopted.sequence
+            adopted_state = [string]$adopted.state
+            adopted_interaction_state = [string]$adopted.interaction_state
+            qgc_operator_tracked_adoption_proved = $true
+            method = "qgc_overlay_geometry_plus_exact_pid_hwnd_foreground_pointer_click"
+        }
+    }
+    finally {
+        $null = [MultiDetectWindow.Native]::SetCursorPos($previousCursor.X, $previousCursor.Y)
+        Restore-QgcWindowCaptureForeground -Window $window -Previous $previousForeground
+        $null = [MultiDetectWindow.Native]::SetThreadDpiAwarenessContext($previousDpiContext)
+        $dpiContextRestored = [MultiDetectWindow.Native]::AreDpiAwarenessContextsEqual(
+            [MultiDetectWindow.Native]::GetThreadDpiAwarenessContext(), $previousDpiContext
+        )
+    }
+    Assert-True $dpiContextRestored `
+        "Target input thread DPI-awareness context was not restored."
+    Assert-True ($null -ne $selectionResult) `
+        "Native target selection completed without producing evidence."
+    return $selectionResult
+}
 $ModelManifestDocument = Get-Content -LiteralPath $ModelManifest -Raw | ConvertFrom-Json
 $ModelInputShape = @($ModelManifestDocument.input.shape)
 Assert-True ($ModelInputShape.Count -eq 4) "Model manifest input.shape must contain exactly four NCHW dimensions."
@@ -2861,6 +3059,7 @@ $qgcVideoSettingsAfterRun = $null
 $qgcVideoBackendSettingsEvidence = $null
 $qgcStartTimeUtc = $null
 $pipSwap = $null
+$nativeTargetSelection = $null
 $qgcUdpPortsDuring = @()
 $failure = $null
 $qgcCloseMethod = $null
@@ -3019,6 +3218,8 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--airframe-profile-sha256", $airframeProfileHash,
         "--terrain-dem", $TerrainDem,
         "--camera-info-calibration", (Join-Path $Root "simulation\gazebo\calibration\gazebo-front-camera-v1.json"),
+        "--ranging-calibration", (Join-Path $Root "simulation\gazebo\calibration\gazebo-front-camera-v1.json"),
+        "--require-target-geolocation",
         "--stream-script", "/workspace/scripts/gazebo_sensor_stream.py",
         "--model-instance", "standard_vtol_mono_cam_0", "--gazebo-world", "default",
         "--frame-count", "$Frames", "--stream-timeout-seconds", "$SensorStreamTimeoutSeconds",
@@ -3029,7 +3230,12 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
         "--frame-ack-timeout-seconds", "3",
         "--metadata-acceptance-ack-timeout-seconds", "3",
         "--helper-exit-timeout-seconds", "10",
-        "--maximum-ack-to-metadata-skew-ms", "100",
+        # The synchronized bridge performs the real inference/metadata pass
+        # between the helper's frame ACK and RuntimeStatus.  A native target
+        # click can add UI/UDP arbitration plus a transient Windows scheduling
+        # cycle, so allow one bounded second instead of a brittle sub-frame
+        # budget. The independent end-to-end QGC acceptance deadline stays 3 s.
+        "--maximum-ack-to-metadata-skew-ms", "1000",
         "--qgc-heartbeat-ready-timeout-seconds", "30",
         "--operator-udp-bind-host", "127.0.0.1", "--operator-udp-port", "$OperatorServerPort",
         "--operator-hmac-key-env", "MULTIDETECT_OPERATOR_KEY",
@@ -3135,6 +3341,8 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     $pipSwappedSequenceAfterCapture = Get-LatestQgcRuntimeStatusSequence -Paths @($QgcStdout, $QgcStderr)
     Assert-True ($pipSwappedSequenceAfterCapture -gt 0) "QGC emitted no type-24 sequence before the first live-video capture."
     $pipSwappedCapture["post_adoption_type24_sequence_after_capture"] = $pipSwappedSequenceAfterCapture
+    $nativeTargetSelection = Invoke-QgcNativeTargetSelection -Process $qgcProcess `
+        -QgcLogPaths @($QgcStdout, $QgcStderr)
     $postAdoptionAckCountBeforeFixedWing = Get-TextPatternCount -Paths @($QgcStdout, $QgcStderr) -Pattern "runtime status adopted and acknowledged sequence="
 
     $vtolArguments = @(
@@ -3416,7 +3624,7 @@ exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
     $integratedEvidence = Get-Content -LiteralPath $IntegratedResult -Raw | ConvertFrom-Json
     $vtolEvidence = Get-Content -LiteralPath $VtolResult -Raw | ConvertFrom-Json
     $expectedRuntimeRunHash64Hex = ([string]$integratedEvidence.run_identity_hash).Substring(0, 16).ToLowerInvariant()
-    Assert-True ($integratedEvidence.schema_version -eq 2) "Integrated QGC evidence is not canonical schema version 2."
+    Assert-True ($integratedEvidence.schema_version -eq 3) "Integrated QGC evidence is not canonical schema version 3."
     Assert-True ($integratedEvidence.event -eq "integrated_sim_qgc_finished") "Integrated result event is wrong."
     Assert-True ($integratedEvidence.runtime_mode -eq "sim") "Integrated runtime mode is not SIM."
     Assert-True ($integratedEvidence.qgc_transport_acceptance_gate -eq "passed_rtsp_frame_ack_and_runtime_status_post_adoption_ack") "Integrated result did not pass the canonical QGC transport acceptance gate."
@@ -3753,7 +3961,10 @@ $evidence = [ordered]@{
         $null -ne $missionEvidence -and $null -ne $fixedWingCapture -and
         $null -ne $missionActiveCapture -and $null -ne $nativeVideoGrabEvidence -and
         $nativeVideoGrabEvidence.transport_bound_native_qquickitem_video_surface_proved -eq $true -and
-        $null -ne $toolbarEvidence -and $toolbarEvidence.gate_passed -eq $true
+        $null -ne $toolbarEvidence -and $toolbarEvidence.gate_passed -eq $true -and
+        $null -ne $nativeTargetSelection -and
+        $nativeTargetSelection.qgc_operator_tracked_adoption_proved -eq $true -and
+        $integratedEvidence.target_geolocation_acceptance.gate_passed -eq $true
     )
     failure = $failure
     release_status = $ReleaseStatus
@@ -3889,6 +4100,7 @@ $evidence = [ordered]@{
         video_backend_ab = $qgcVideoBackendSettingsEvidence
         native_video_log_diagnostics = $qgcNativeVideoDiagnostics
         pip_swap = $pipSwap
+        native_target_selection = $nativeTargetSelection
         initial_capture = $initialCapture
         pip_swapped_capture = $pipSwappedCapture
         fixed_wing_capture = $fixedWingCapture

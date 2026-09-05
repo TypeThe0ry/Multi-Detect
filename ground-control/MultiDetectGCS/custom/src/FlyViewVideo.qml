@@ -92,6 +92,7 @@ Item {
         property real _pressX:      0
         property real _pressY:      0
         property bool _dragging:    false
+        property bool _multiDetectTargetPress: false
         readonly property real _dragThreshold: 10
 
         onDoubleClicked: QGroundControl.videoManager.fullScreen = !QGroundControl.videoManager.fullScreen
@@ -100,9 +101,19 @@ Item {
             _pressX = mouse.x
             _pressY = mouse.y
             _dragging = false
+            const overlayPoint = mapToItem(multiDetectVideoOverlay, mouse.x, mouse.y)
+            _multiDetectTargetPress = multiDetectVideoOverlay.interactionEnabled &&
+                                      multiDetectVideoOverlay.hasStablePointerAt(
+                                          overlayPoint.x, overlayPoint.y)
+            if (_multiDetectTargetPress)
+                multiDetectVideoOverlay._emitHilTargetPointerEvent(
+                    "native_owner_pressed", overlayPoint.x, overlayPoint.y,
+                    true, false, true)
         }
 
         onPositionChanged: (mouse) => {
+            if (_multiDetectTargetPress)
+                return
             if (!_dragging && (Math.abs(mouse.x - _pressX) >= _dragThreshold || Math.abs(mouse.y - _pressY) >= _dragThreshold)) {
                 _dragging = true
                 onScreenGimbalController.mouseDragStart(_pressX, _pressY)
@@ -115,7 +126,14 @@ Item {
         }
 
         onReleased: (mouse) => {
-            if (_dragging) {
+            if (_multiDetectTargetPress) {
+                const overlayPoint = mapToItem(multiDetectVideoOverlay, mouse.x, mouse.y)
+                const handled = multiDetectVideoOverlay.handleStablePointerAt(
+                    overlayPoint.x, overlayPoint.y)
+                multiDetectVideoOverlay._emitHilTargetPointerEvent(
+                    "native_owner_released", overlayPoint.x, overlayPoint.y,
+                    true, handled, handled)
+            } else if (_dragging) {
                 onScreenGimbalController.mouseDragEnd()
                 cameraTrackingController.mouseDragEnd(mouse.x, mouse.y)
             } else {
@@ -123,6 +141,7 @@ Item {
                 cameraTrackingController.mouseClicked(mouse.x, mouse.y)
             }
             _dragging = false
+            _multiDetectTargetPress = false
         }
     }
 
@@ -136,6 +155,11 @@ Item {
         interactionEnabled:     _root.pipState.state === _root.pipState.fullState
         visible:                videoStreaming.visible
         width:                  videoStreaming.getWidth()
+        // The native gimbal/camera MouseArea is an earlier sibling. Give the
+        // overlay an explicit higher stack order so target presses reach its
+        // stable hit-test layer; empty presses are rejected there and continue
+        // to the stock QGC controller unchanged.
+        z:                      10
 
         // Acceptance-only native video evidence. This code deliberately owns
         // no player or VideoOutput: it recursively discovers QGC's existing

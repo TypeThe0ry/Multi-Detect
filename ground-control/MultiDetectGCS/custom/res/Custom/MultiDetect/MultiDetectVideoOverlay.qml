@@ -60,6 +60,17 @@ Item {
     // must not inherit the neutral Qt Button text colour, otherwise the action
     // is too easy to confuse with the nearby TRK/cancel controls.
     readonly property color _lockActionTextColor: qgcPal.colorRed
+    // The combined SIM acceptance uses the same fail-closed geometry-export
+    // switch as the native toolbar smoke.  This exports only the hit rectangle
+    // of a target already rendered by this one QGC overlay; it neither selects
+    // the target nor creates an alternate control surface.  The PowerShell
+    // harness still has to map the rectangle through the exact QGC HWND/PID and
+    // deliver a real native pointer click, which then follows sendTargetSelection.
+    property int _hilTargetGeometrySequence: 0
+    property int _hilTargetGeometryTicks: 0
+    readonly property bool _hilTargetGeometryExportEnabled:
+        typeof multiDetectHilUiGeometryExport !== "undefined" &&
+        multiDetectHilUiGeometryExport === true
 
     onInteractionEnabledChanged: {
         if (!interactionEnabled)
@@ -391,6 +402,115 @@ Item {
                pixelY >= geometry.y && pixelY <= geometry.y + geometry.height;
     }
 
+    function _emitHilTargetGeometry() {
+        if (!_hilTargetGeometryExportEnabled || !interactionEnabled ||
+                !visible || !mainWindow || !mainWindow.contentItem)
+            return;
+        const entries = MultiDetectState.selectableTargetPoolEntries;
+        if (entries === undefined || entries === null)
+            return;
+        let entry = null;
+        for (let index = 0; index < entries.length; ++index) {
+            const candidate = entries[index];
+            if (candidate !== undefined && candidate !== null &&
+                    candidate.bboxValid === true &&
+                    !MultiDetectState.isCancellationPendingTarget(candidate) &&
+                    !MultiDetectState.isDemotedPrimaryLockAwaitingPool(candidate)) {
+                entry = candidate;
+                break;
+            }
+        }
+        if (entry === null)
+            return;
+
+        const tracked = MultiDetectState.isOperatorTrackedTarget(entry);
+        const candidateVisible = tracked || !MultiDetectState.targetBoxValid ||
+                                 String(entry.targetId || "") !== MultiDetectState.targetId;
+        if (!candidateVisible)
+            return;
+        const diameter = Math.max(34, ScreenTools.defaultFontPixelHeight * 2.2);
+        const centerX = (Number(entry.x1) + Number(entry.x2)) * 0.5 * root.width;
+        const centerY = (Number(entry.y1) + Number(entry.y2)) * 0.5 * root.height;
+        const localLeft = tracked ? Number(entry.x1) * root.width : centerX - diameter * 0.5;
+        const localTop = tracked ? Number(entry.y1) * root.height : centerY - diameter * 0.5;
+        const localWidth = tracked ? (Number(entry.x2) - Number(entry.x1)) * root.width : diameter;
+        const localHeight = tracked ? (Number(entry.y2) - Number(entry.y1)) * root.height : diameter;
+        const sceneWidth = Number(mainWindow.contentItem.width);
+        const sceneHeight = Number(mainWindow.contentItem.height);
+        if (![localLeft, localTop, localWidth, localHeight, sceneWidth, sceneHeight]
+                .every(Number.isFinite) || localWidth <= 0 || localHeight <= 0 ||
+                sceneWidth <= 0 || sceneHeight <= 0)
+            return;
+        const topLeft = root.mapToItem(mainWindow.contentItem, localLeft, localTop);
+        const bottomRight = root.mapToItem(mainWindow.contentItem,
+                                           localLeft + localWidth,
+                                           localTop + localHeight);
+        const left = Math.min(Number(topLeft.x), Number(bottomRight.x));
+        const top = Math.min(Number(topLeft.y), Number(bottomRight.y));
+        const right = Math.max(Number(topLeft.x), Number(bottomRight.x));
+        const bottom = Math.max(Number(topLeft.y), Number(bottomRight.y));
+        if (![left, top, right, bottom].every(Number.isFinite) ||
+                right <= left || bottom <= top)
+            return;
+        let ratio = Number(mainWindow.devicePixelRatio);
+        if (!Number.isFinite(ratio) || ratio <= 0)
+            ratio = Number(mainWindow.screen ? mainWindow.screen.devicePixelRatio : 1.0);
+        ++_hilTargetGeometrySequence;
+        console.info("MULTIDETECT_HIL_UI_GEOMETRY " + JSON.stringify({
+            "schema": "multidetect.qgc-hil-ui-geometry",
+            "schema_version": 1,
+            "sequence": _hilTargetGeometrySequence,
+            "role": "target_candidate_ready",
+            "state": tracked ? "operator_tracked" : "candidate",
+            "item_object_name": "multiDetectTargetCandidate",
+            "visible": candidateVisible,
+            "enabled": true,
+            "opacity": 1.0,
+            "scene_rect": {
+                "left": left, "top": top, "right": right, "bottom": bottom,
+                "width": right - left, "height": bottom - top
+            },
+            "window_scene_size": {"width": sceneWidth, "height": sceneHeight},
+            "device_pixel_ratio": ratio,
+            "emitted_at_epoch_ms": Date.now(),
+            "target_id": String(entry.targetId || ""),
+            "target_label": String(entry.label || ""),
+            "operator_tracked": tracked,
+            "bbox_valid": true,
+            "selection_action": "SELECT_TRK"
+        }));
+    }
+
+    function _emitHilTargetPointerEvent(phase, pixelX, pixelY, stableHit, handled,
+                                        accepted) {
+        if (!_hilTargetGeometryExportEnabled)
+            return;
+        console.info("MULTIDETECT_HIL_UI_POINTER " + JSON.stringify({
+            "schema": "multidetect.qgc-hil-ui-pointer",
+            "schema_version": 1,
+            "phase": String(phase),
+            "local_x": Number(pixelX),
+            "local_y": Number(pixelY),
+            "stable_hit": stableHit === true,
+            "handled": handled === true,
+            "accepted": accepted === true,
+            "interaction_enabled": root.interactionEnabled,
+            "selection_mode": MultiDetectState.selectionMode,
+            "emitted_at_epoch_ms": Date.now()
+        }));
+    }
+
+    Timer {
+        interval: 200
+        repeat: true
+        running: root._hilTargetGeometryExportEnabled && root.visible &&
+                 root._hilTargetGeometryTicks < 300
+        onTriggered: {
+            ++root._hilTargetGeometryTicks;
+            root._emitHilTargetGeometry();
+        }
+    }
+
     function _trackedActionHitAt(pixelX, pixelY) {
         const entries = MultiDetectState.operatorTrackedTargetPoolEntries;
         if (entries === undefined || entries === null)
@@ -476,6 +596,17 @@ Item {
         return _handleTrackedActionAt(pixelX, pixelY) ||
                _handleSelectedActionAt(pixelX, pixelY) ||
                _selectCandidateAt(pixelX, pixelY);
+    }
+
+    // FlyViewVideo's stock full-surface MouseArea is the authoritative native
+    // input owner in some Qt/graphics backends. These narrow wrappers let that
+    // owner route only genuine target hits into the same selection functions.
+    function hasStablePointerAt(pixelX, pixelY) {
+        return _hasStablePointerHitAt(pixelX, pixelY);
+    }
+
+    function handleStablePointerAt(pixelX, pixelY) {
+        return _handleStablePointerAt(pixelX, pixelY);
     }
 
     function _sampleDepth(normalizedX, normalizedY) {
@@ -682,8 +813,21 @@ Item {
         // Reject the press itself on empty video, rather than forwarding only
         // the later composed click. This preserves QGC's native press/move/
         // release stream and therefore its gimbal and camera-tracking drags.
-        onPressed: mouse => mouse.accepted = root._hasStablePointerHitAt(mouse.x, mouse.y)
-        onClicked: mouse => mouse.accepted = root._handleStablePointerAt(mouse.x, mouse.y)
+        onPressed: mouse => {
+            const stableHit = root._hasStablePointerHitAt(mouse.x, mouse.y);
+            mouse.accepted = stableHit;
+            root._emitHilTargetPointerEvent("pressed", mouse.x, mouse.y,
+                                            stableHit, false, mouse.accepted);
+        }
+        onReleased: mouse => root._emitHilTargetPointerEvent(
+            "released", mouse.x, mouse.y,
+            root._hasStablePointerHitAt(mouse.x, mouse.y), false, mouse.accepted)
+        onClicked: mouse => {
+            const handled = root._handleStablePointerAt(mouse.x, mouse.y);
+            mouse.accepted = handled;
+            root._emitHilTargetPointerEvent("clicked", mouse.x, mouse.y,
+                                            handled, handled, mouse.accepted);
+        }
         onDoubleClicked: mouse => mouse.accepted = false
     }
 

@@ -1028,7 +1028,10 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
         ack_latency_ms = ack_latency_ns / 1_000_000.0
         frame_to_acceptance_ms = frame_to_acceptance_ns / 1_000_000.0
         if skew_ms > self.maximum_ack_to_metadata_skew_ms:
-            errors.append("runtime-status frame ACK-to-metadata skew exceeded")
+            errors.append(
+                "runtime-status frame ACK-to-metadata skew exceeded "
+                f"({skew_ms:.3f} ms > {self.maximum_ack_to_metadata_skew_ms:.3f} ms)"
+            )
             return False
         if ack_latency_ms > self.metadata_acceptance_timeout_s * 1000.0:
             errors.append("RuntimeStatusAcceptanceAckLatencyExceeded")

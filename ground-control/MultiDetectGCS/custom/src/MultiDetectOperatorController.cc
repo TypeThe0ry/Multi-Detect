@@ -1705,7 +1705,15 @@ void MultiDetectOperatorController::_observeRemoteWireTime(quint64 remoteSentAtM
     }
     const bool observationStale = _remoteWireClockValid && localReceivedAtMs >= _remoteWireObservedAtLocalMs &&
                                   localReceivedAtMs - _remoteWireObservedAtLocalMs > 3000;
-    if (!_remoteWireClockValid || observationStale || remoteSentAtMs >= _remoteWireTimestampMs) {
+    // A status object may be published repeatedly with its original produced-at
+    // timestamp.  Rebasing the local observation on an equal timestamp freezes
+    // the estimated remote clock; after one selection TTL every otherwise fresh
+    // QGC command is then rejected as stale. A newer timestamp advances the
+    // estimate, while a different timestamp after inactivity may establish a
+    // restarted remote epoch. An equal timestamp must always keep extrapolating.
+    const bool timestampAdvanced = _remoteWireClockValid && remoteSentAtMs > _remoteWireTimestampMs;
+    const bool timestampEpochReset = observationStale && remoteSentAtMs != _remoteWireTimestampMs;
+    if (!_remoteWireClockValid || timestampAdvanced || timestampEpochReset) {
         _remoteWireTimestampMs = remoteSentAtMs;
         _remoteWireObservedAtLocalMs = localReceivedAtMs;
         _remoteWireClockValid = true;

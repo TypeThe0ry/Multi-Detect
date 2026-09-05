@@ -1,15 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v69 工作树）
+最后更新：2026-09-06（v70 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `194bb4b85c7881507bd4c3206405743e165b9c49`（当前文档提交前领先远端 28 个提交）。
+本地 `main` 提交 `c297a9285a014de394c5bf42e6098ff43b20a295`（当前文档提交前领先远端 29 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
 机器可读镜像：[current-progress.json](current-progress.json)
 
 ## 结论先行
+
+v70 已把原生 QGC 的真实目标点击纳入同一个 PX4/Gazebo/QGC Combined SIM 生命周期：机器按
+QML 候选框几何映射到 exact PID/HWND，发送一次 `SELECT_TRK`，验证 ACK 与后续 TRACKING 状态均与
+同一 command/target 相关，再让该 operator target 驱动共享测距和目标定位。相机安装俯角同步修正为
+35°，GPS/DEM/相机地面射线链恢复可观测区域；测距 contribution wire 权重改为总预算量化，避免极小
+VIO 权重与主来源四舍五入后总和超过 1 而间歇性拒绝 packet。当前 parity 的权威 900 帧 run 中，
+831 份 range 和 831 份 geolocation status 全部发出，112 帧合格落图、719 帧明确不可定位、0 transport
+error，Combined、VTOL attached 与 7-item Mission 均通过。
 
 当前仓库已经形成统一的感知、跟踪、测距、目标落图、QGC、数字孪生、任务规划、PX4 Mission、
 operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazebo BGR24 像素经过同一候选 ONNX、
@@ -34,6 +42,27 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v70 本轮已收口
+
+- 原生 QGC Fly View 候选目标支持 source-bound 点击，`SELECT_TRK` ACK、TRACKING 状态和 QML
+  `TRK` adoption 必须属于同一 command/target；取消仍保持单击状态机语义。
+- active operator target 进入共享 multimodal ranging；GPS/测距合格时发布 WGS-84/1σ，任何质量门
+  不合格时发布明确不可定位状态，不落假点，也不产生飞控或载荷指令。
+- Gazebo VTOL 相机与标定统一为 35° 俯角；range contribution 使用 254 单位总预算量化，保留每个
+  非零来源且保证解码权重总和不超过 1。主来源约 0.99875、VIO 约 0.00125 的回归已覆盖。
+- 当前 parity 真实 source `combined-sim-qgc-20260905T172856Z-51520`：258,942 bytes，SHA-256
+  `FE45B4DCAAD69AEFA7871609A58D33723547C1B46B5A708DBF1A00E495DC59E0`；900/900 frame/type23/type24，
+  831/831 range/geolocation status，112 个合格坐标，0 transport error，最大端到端 ACK 609 ms。
+- 原生 QGC 点击第一次命中，相关目标 `flame` 进入 TRK；native QQuickItem pixels、transport-bound
+  visible surface 和 toolbar smoke 均通过。VTOL Mission 最大离家 `134.918 m`、相对高度 `24.116 m`，
+  MC/FW/MC、land/disarm 完整；容器移除、9 个测试端口释放、14550 不变。
+- portable EXE 为 46,579,712 bytes，SHA-256
+  `FFCC4FCF45EAE6E7A52ED6B2585BCCF29E5F36776D03D2EFA7F6527D1A96255B`。
+- 当前 HEAD 全仓 3,317 tests：`3316 passed, 1 skipped, 0 failed, 0 errors`；JUnit 482,309 bytes，
+  SHA-256 `67CBBE1C25256FA4619B375819748BFD9605CD4A2BC8F898CB7D7042DF5DE203`；Ruff 全仓通过。
+- 以上仍是 dirty-worktree、current-parity 的 software/SIM 机器证据，不声明人工视觉、真实硬件、
+  室外 GNSS/RTK、HIL/REAL 或实飞；最终 `v0.3.0` 继续阻断。
 
 ## v69 本轮已收口
 

@@ -21,7 +21,7 @@ model SDF files:
 | Calibration ID | Composition | Forward / right / down | Pitch down |
 | --- | --- | --- | --- |
 | `gazebo-multirotor-front-camera-v1` | `x500_mono_cam` | 0.18 / 0.00 / 0.12 m | 0.18 rad |
-| `gazebo-front-camera-v1` | `standard_vtol_mono_cam` | 0.35 / 0.00 / 0.02 m | 0 rad |
+| `gazebo-front-camera-v1` | `standard_vtol_mono_cam` | 0.35 / 0.00 / 0.02 m | 0.6108652381980153 rad (35°) |
 | `gazebo-fixed-wing-front-camera-v1` | `rc_cessna_mono_cam` | 0.48 / 0.00 / 0.10 m | 0 rad |
 
 Runtime acceptance must check the calibration ID against the scenario RGB

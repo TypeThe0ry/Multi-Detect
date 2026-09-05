@@ -32,6 +32,7 @@ CUSTOM_QRC = CUSTOM_ROOT / "custom.qrc"
 CUSTOM_CMAKE = CUSTOM_ROOT / "CMakeLists.txt"
 CUSTOM_PLUGIN_HEADER = CUSTOM_ROOT / "src" / "CustomPlugin.h"
 CUSTOM_PLUGIN_SOURCE = CUSTOM_ROOT / "src" / "CustomPlugin.cc"
+OPERATOR_CONTROLLER_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorController.cc"
 
 
 def _read(path: Path) -> str:
@@ -180,22 +181,17 @@ def test_acceptance_video_export_is_native_unique_and_fail_closed() -> None:
     assert "QtMultimedia" not in _imports(FLY_VIEW_VIDEO)
 
 
-def test_custom_video_is_upstream_qgc_plus_one_overlay() -> None:
-    upstream = _qml_code(UPSTREAM_FLY_VIEW_VIDEO)
-    custom = _without_qml_component(_qml_code(FLY_VIEW_VIDEO), "MultiDetectVideoOverlay")
-    custom = re.sub(
-        r"^\s*import\s+(?:Custom\.MultiDetect|QGroundControl\.FlyView)\s*$",
-        "",
-        custom,
-        flags=re.MULTILINE,
-    )
-    assert _normalized_qml(custom) == _normalized_qml(upstream)
-
+def test_custom_video_preserves_native_order_and_routes_target_hits() -> None:
     video = _qml_code(FLY_VIEW_VIDEO)
     native_mouse = video.index("id:                         flyViewVideoMouseArea")
     multidetect_overlay = video.index("MultiDetectVideoOverlay {")
     proximity_radar = video.index("ProximityRadarVideoView{")
     assert native_mouse < multidetect_overlay < proximity_radar
+    assert "property bool _multiDetectTargetPress: false" in video
+    assert "mapToItem(multiDetectVideoOverlay, mouse.x, mouse.y)" in video
+    assert "multiDetectVideoOverlay.hasStablePointerAt(" in video
+    assert "multiDetectVideoOverlay.handleStablePointerAt(" in video
+    assert "if (_multiDetectTargetPress)" in video
 
 
 def test_native_gimbal_tracking_pointer_chain_is_preserved() -> None:
@@ -221,12 +217,18 @@ def test_native_gimbal_tracking_pointer_chain_is_preserved() -> None:
 
     overlay = _qml_code(VIDEO_OVERLAY)
     assert "function _hasStablePointerHitAt(pixelX, pixelY)" in overlay
+    assert "const stableHit = root._hasStablePointerHitAt(mouse.x, mouse.y);" in overlay
+    assert "mouse.accepted = stableHit;" in overlay
+    assert "const handled = root._handleStablePointerAt(mouse.x, mouse.y);" in overlay
+    assert "mouse.accepted = handled;" in overlay
+    assert 'root._emitHilTargetPointerEvent("pressed"' in overlay
+    assert 'root._emitHilTargetPointerEvent("clicked"' in overlay
+
     assert re.search(
-        r"onPressed\s*:\s*mouse\s*=>\s*mouse\.accepted\s*=\s*"
-        r"root\._hasStablePointerHitAt\(mouse\.x,\s*mouse\.y\)",
-        overlay,
+        r"MultiDetectVideoOverlay\s*\{[\s\S]*?id\s*:\s*multiDetectVideoOverlay"
+        r"[\s\S]*?z\s*:\s*10",
+        video,
     )
-    assert "onClicked: mouse => mouse.accepted = root._handleStablePointerAt" in overlay
 
 
 def test_pip_is_read_only_annotations_without_operator_chrome() -> None:
@@ -408,6 +410,56 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : \"--\"" in layer
     assert "root._optionalNumberText(parent.parent.entry.range_m, 1, \" m\")" in card
     assert "root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, \"°\")" in card
+
+
+def test_isolated_hil_exports_live_target_hit_geometry_without_selecting_it() -> None:
+    overlay = _qml_code(VIDEO_OVERLAY)
+
+    assert "_hilTargetGeometryExportEnabled" in overlay
+    assert 'typeof multiDetectHilUiGeometryExport !== "undefined"' in overlay
+    assert "function _emitHilTargetGeometry()" in overlay
+    assert '"role": "target_candidate_ready"' in overlay
+    assert '"item_object_name": "multiDetectTargetCandidate"' in overlay
+    assert '"selection_action": "SELECT_TRK"' in overlay
+    assert "root.mapToItem(mainWindow.contentItem" in overlay
+    export_start = overlay.index("function _emitHilTargetGeometry()")
+    export_end = overlay.index("Timer {", export_start)
+    export_body = overlay[export_start:export_end]
+    assert "sendTargetSelection" not in export_body
+    assert "selectCandidate(" not in export_body
+
+
+def test_selection_diagnostics_are_acceptance_only_and_cover_ack_and_track_status() -> None:
+    state = _qml_code(MULTIDETECT_STATE)
+    overlay = _qml_code(VIDEO_OVERLAY)
+
+    assert "_hilSelectionDiagnosticEnabled" in state
+    assert '"schema": "multidetect.qgc-hil-ui-selection"' in state
+    assert '"phase": "selection_acknowledged"' in state
+    assert '"accepted": acknowledgement.accepted === true' in state
+    assert '"reason": Number(acknowledgement.reason)' in state
+    assert '"correlated": acknowledgement.correlated === true' in state
+    assert '"phase": "track_status_received"' in state
+    assert '"phase": "track_status_adopted"' in state
+    assert '"interaction_state": root.interactionState' in state
+    assert '"selection_command_id": statusSelectionCommandId' in state
+    assert '"targets_current_selection": targetsCurrentSelection' in state
+    assert "const candidateVisible = tracked || !MultiDetectState.targetBoxValid" in overlay
+    assert "if (!candidateVisible)" in overlay
+    assert '"visible": candidateVisible' in overlay
+
+
+def test_repeated_equal_remote_status_timestamp_cannot_freeze_qgc_command_clock() -> None:
+    controller = _read(OPERATOR_CONTROLLER_SOURCE)
+
+    observer_start = controller.index(
+        "void MultiDetectOperatorController::_observeRemoteWireTime"
+    )
+    observer = controller[observer_start:]
+    assert "remoteSentAtMs > _remoteWireTimestampMs" in observer
+    assert "remoteSentAtMs >= _remoteWireTimestampMs" not in observer
+    assert "observationStale && remoteSentAtMs != _remoteWireTimestampMs" in observer
+    assert "_remoteWireClockValid || observationStale ||" not in observer
 
 
 def test_mode3_banner_never_labels_locked_output_as_active_aim() -> None:

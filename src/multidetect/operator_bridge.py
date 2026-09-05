@@ -1022,7 +1022,7 @@ class LiveOperatorBridge:
         try:
             publish(status, peer=peer)
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
-            errors.append(type(exc).__name__)
+            errors.append(f"{type(exc).__name__}: {exc}")
             return False
         return True
 
@@ -1177,7 +1177,10 @@ class LiveOperatorBridge:
             error = self.transport.poll_error()
             if error is None:
                 break
-            errors.append(type(error).__name__)
+            detail = str(error).strip()
+            errors.append(
+                f"{type(error).__name__}: {detail}" if detail else type(error).__name__
+            )
         return errors
 
     def _mission_status_due(self, status: MissionStatusMessage) -> bool:

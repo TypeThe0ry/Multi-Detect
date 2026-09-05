@@ -1008,7 +1008,7 @@ def test_bridge_reports_transport_error_without_exposing_a_control_path() -> Non
     )
     bridge.close()
 
-    assert result.transport_errors == ("ValueError",)
+    assert result.transport_errors == ("ValueError: bad signed datagram",)
     assert result.published_statuses == ()
 
 

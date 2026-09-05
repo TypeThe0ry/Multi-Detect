@@ -616,10 +616,7 @@ class OperatorTunnelCodec:
                     "ranging data freshness exceeds the "
                     f"{MAX_RANGE_STATUS_SOURCE_AGE_S:.3f}s wire freshness limit"
                 )
-        contributions = tuple(
-            _encode_range_contribution(contribution)
-            for contribution in status.source_contributions
-        )
+        contributions = _encode_range_contributions(status.source_contributions)
         contribution_slots = contributions + (b"\0\0\0\0\0\0",) * (3 - len(contributions))
         body = _RANGE_STATUS.pack(
             _hash64(status.status_id),
@@ -2762,12 +2759,51 @@ def _decode_range_status_flags(value: int) -> tuple[str, str, str]:
     return vehicle, navigation, motion
 
 
-def _encode_range_contribution(contribution: RangeSourceContribution) -> bytes:
+def _encode_range_contributions(
+    contributions: tuple[RangeSourceContribution, ...],
+) -> tuple[bytes, ...]:
+    """Quantize non-zero weights without making their decoded sum exceed one.
+
+    Zero denotes an empty wire slot, so every reported contribution needs a
+    value in ``1..254``. Independent rounding can turn a dominant/tiny pair
+    such as ``0.99875/0.00125`` into ``254/254 + 1/254``. Preserve both
+    sources, then remove any rounding overflow from the largest buckets.
+    """
+
+    encoded_weights = [max(1, _encode_ratio(item.weight)) for item in contributions]
+    overflow = max(0, sum(encoded_weights) - 254)
+    for index in sorted(
+        range(len(encoded_weights)),
+        key=lambda item: encoded_weights[item],
+        reverse=True,
+    ):
+        if overflow == 0:
+            break
+        reduction = min(overflow, encoded_weights[index] - 1)
+        encoded_weights[index] -= reduction
+        overflow -= reduction
+    if overflow:
+        raise ValueError("range contribution weights cannot fit the wire budget")
+    return tuple(
+        _encode_range_contribution(item, encoded_weight=weight)
+        for item, weight in zip(contributions, encoded_weights, strict=True)
+    )
+
+
+def _encode_range_contribution(
+    contribution: RangeSourceContribution,
+    *,
+    encoded_weight: int | None = None,
+) -> bytes:
     try:
         source_index = RANGING_SOURCE_IDS.index(contribution.source) + 1
     except ValueError as exc:
         raise ValueError("range contribution source is not registered") from exc
-    weight = max(1, _encode_ratio(contribution.weight))
+    weight = (
+        max(1, _encode_ratio(contribution.weight))
+        if encoded_weight is None
+        else encoded_weight
+    )
     return struct.pack(
         ">BBHH",
         source_index,

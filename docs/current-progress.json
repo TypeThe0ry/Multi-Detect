@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T15:37:38Z",
+  "updated_at_utc": "2026-09-05T17:36:52Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "194bb4b85c7881507bd4c3206405743e165b9c49",
-    "commit_subject": "test(sim): update E7 combined sensor fixture",
-    "commits_ahead_of_origin_main": 28
+    "commit": "c297a9285a014de394c5bf42e6098ff43b20a295",
+    "commit_subject": "docs(progress): record v69 combined sensor hard gate",
+    "commits_ahead_of_origin_main": 29
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v69",
+  "working_iteration": "v70",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v69-final.xml",
-      "tests": 3309,
-      "passed": 3308,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v70-final.xml",
+      "tests": 3317,
+      "passed": 3316,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 90.676,
-      "junit_local_path": "tmp/current-progress-regression-v69-final.xml",
-      "junit_file_bytes": 481013,
-      "junit_file_sha256": "3af69527d05ccc985502c195d09dde44793d7280111b04410b8b2dcb3c3661c6",
+      "duration_seconds": 88.459,
+      "junit_local_path": "tmp/current-progress-regression-v70-final.xml",
+      "junit_file_bytes": 482309,
+      "junit_file_sha256": "67cbbe1c25256fa4619b375819748bfd9605cd4a2bc8f898cb7d7042df5de203",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,11 +64,11 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5146,
-    "file_sha256": "289c1a3dd638c2a503abea44ee3f87564bb38d1232fb1428e92ea004180d060b",
+    "file_sha256": "663951814523af015b001968429f0b82c5aeb643e24e3342600c8dd4ea3ef5ce",
     "hashes": {
-      "ui_contract_hash": "f20ca6c5fce0de613a38f58080e98ccb1bdf29c3425878c57ff9b9ec62084942",
+      "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
-      "task_contract_hash": "2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af",
+      "task_contract_hash": "edb04927663bc828a8fcf5e10cee498f907bc5528d0c9c387541d178375e1792",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
       "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"
     }
@@ -238,12 +238,12 @@
       "operator_visual_acceptance": "not_claimed"
     },
     "combined_sim_qgc_current_source": {
-      "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T152520Z-75420/combined-evidence.json",
+      "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T172856Z-51520/combined-evidence.json",
       "distributed_in_git": false,
-      "file_bytes": 255256,
-      "file_sha256": "9cab1bc405571c2f287d1545d77b7ea1f7c4a56cc163ab76e1402cb362db121b",
-      "source_git_head": "46920e1c80041664ba53813ed3841a5887bd5f20",
-      "source_dirty": false,
+      "file_bytes": 258942,
+      "file_sha256": "fe45b4dcaad69aefa7871609a58d33723547c1b46b5a708dbf1a00e495dc59e0",
+      "source_git_head": "c297a9285a014de394c5bf42e6098ff43b20a295",
+      "source_dirty": true,
       "gate_passed": true,
       "runtime_mode": "sim",
       "sensor_frames": 900,
@@ -257,14 +257,24 @@
       "container_removed": true,
       "test_ports_released": true,
       "protected_port_14550_unchanged": true,
-      "target_geolocation_acceptance_configured": false,
+      "target_geolocation_acceptance_configured": true,
+      "native_qgc_target_selection_count": 1,
+      "native_qgc_target_selection_action": "SELECT_TRK",
+      "native_qgc_target_selection_correlated": true,
+      "native_qgc_target_adopted_state": "TRK",
+      "range_status_count": 831,
+      "target_geolocation_status_count": 831,
+      "qualified_target_geolocation_count": 112,
+      "withheld_target_geolocation_count": 719,
+      "operator_transport_error_count": 0,
+      "maximum_frame_to_acceptance_latency_ms": 609.0,
       "camera_info_intrinsics_semantic_validation": "validated_k_p_rectification_plumb_bob_distortion",
       "camera_calibration_id": "gazebo-front-camera-v1",
       "odometry_frames": 900,
       "payload_bytes": 3317760000,
       "mission_item_count": 7,
-      "mission_maximum_distance_from_home_m": 130.616,
-      "mission_maximum_relative_altitude_m": 23.857,
+      "mission_maximum_distance_from_home_m": 134.918,
+      "mission_maximum_relative_altitude_m": 24.116,
       "qgc_pip_pointer_position_attempts": 1,
       "operator_visual_acceptance": "not_claimed",
       "qgc_machine_binding_precheck": {
@@ -277,11 +287,8 @@
         "human_review_record_created": false
       },
       "verification": {
-        "local_path": "artifacts/evaluation/combined-sim-qgc-20260905T152520Z-75420/independent-verification.json",
-        "file_bytes": 2139,
-        "file_sha256": "1eefd154df164f307d62ef1cffcc7479e343b8e3fc6a7017a9bbe61eb19502d0",
-        "checks_passed": 44,
-        "checks_total": 44,
+        "mode": "combined_runner_internal_plus_protocol_unit_regression",
+        "integrated_schema_version": 3,
         "gate_passed": true
       }
     },

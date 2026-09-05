@@ -361,6 +361,36 @@ def test_range_status_round_trip_carries_uncertainty_and_consistency() -> None:
     assert message.physical_release_enabled is False
 
 
+def test_range_status_weight_quantization_preserves_tiny_contribution_budget() -> None:
+    status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=104,
+        target_id="target-fire-7",
+        calibration_id="camera-main-v2",
+        source_frame_id="jetson-frame-703",
+        source_captured_at_s=1_000.20,
+        produced_at_s=1_000.25,
+        validity=RangeValidity.DEGRADED,
+        reasons=("direct_degraded_metric_range",),
+        sources=("camera_ground", "vio"),
+        rejected_sources=(),
+        slant_range_m=50.0,
+        data_freshness_s=0.05,
+        sensor_consistency=0.94,
+        source_contributions=(
+            RangeSourceContribution("camera_ground", 50.0, 5.0, 0.99875, 0.0),
+            RangeSourceContribution("vio", 190.0, 154.0, 0.00125, 0.0),
+        ),
+    )
+
+    decoded = _codec().decode(_codec().encode_range_status(status)).message
+
+    assert isinstance(decoded, RangeStatusMessage)
+    assert len(decoded.source_contributions) == 2
+    assert all(item.weight > 0.0 for item in decoded.source_contributions)
+    assert sum(item.weight for item in decoded.source_contributions) <= 1.0
+
+
 def test_range_status_round_trip_supports_geometry_uncertainty_bit_31() -> None:
     status = RangeStatusMessage(
         status_id=STATUS_ID,

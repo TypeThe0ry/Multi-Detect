@@ -2251,6 +2251,19 @@ class LiveMissionRunner:
                 if self.ranging_engine is not None and unified_update is not None:
                     ranging_started_s = self.performance_clock.monotonic()
                     try:
+                        # A native QGC SELECT_TRK is intentionally not an
+                        # exclusive/primary LCK, but it is still the operator's
+                        # active target and must drive the range/geolocation
+                        # card. Prefer that active TRK; fall back to the
+                        # exclusive primary target when no TRK is selected.
+                        operator_ranging_track_id = (
+                            self.selection_target_pool.active_track_id
+                            if self.selection_target_pool is not None
+                            else None
+                        )
+                        ranging_focus_track_id = (
+                            operator_ranging_track_id or unified_update.primary_track_id
+                        )
                         if self.metric_depth_runner is not None:
                             metric_tracks = tuple(
                                 track
@@ -2477,7 +2490,7 @@ class LiveMissionRunner:
                                         target_speed_mps,
                                         frame_event_at_s,
                                     )
-                                if track.track_id == unified_update.primary_track_id:
+                                if track.track_id == ranging_focus_track_id:
                                     source_binding = RangeSolutionFrameBinding.from_solution(
                                         track_solution,
                                         source_frame_id=captured.frame_id,
@@ -2694,7 +2707,10 @@ class LiveMissionRunner:
                         ),
                         None,
                     )
-                    if primary_snapshot is not None:
+                    if (
+                        primary_snapshot is not None
+                        and primary_snapshot.track_id == latest_ranging_solution.target_id
+                    ):
                         try:
                             primary_range_evidence = PrimaryRangeEvidence(
                                 source_target_id=primary_snapshot.track_id,

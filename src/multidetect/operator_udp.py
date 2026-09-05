@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
 from queue import Empty, SimpleQueue
@@ -153,6 +154,7 @@ class UdpOperatorSelectionServer:
         payload_target_guard: PayloadTargetConfirmationCommandGuard | None = None,
         receive_timeout_s: float | None = None,
         metadata_peer_timeout_s: float = 5.0,
+        command_clock: Callable[[], float] = time.time,
     ) -> None:
         if not bind_host.strip():
             raise ValueError("UDP bind host cannot be empty")
@@ -162,8 +164,11 @@ class UdpOperatorSelectionServer:
             raise ValueError("UDP receive timeout must be positive")
         if not isfinite(metadata_peer_timeout_s) or metadata_peer_timeout_s <= 0.0:
             raise ValueError("metadata peer timeout must be finite and positive")
+        if not callable(command_clock):
+            raise TypeError("command_clock must be callable")
         self.mavlink = mavlink
         self.metadata_peer_timeout_s = metadata_peer_timeout_s
+        self._command_clock = command_clock
         self.selection_server = SelectionCommandServer(mavlink.codec, guard)
         self.authorization_guard = authorization_guard or AuthorizationDecisionCommandGuard()
         self.authorization_server = AuthorizationDecisionCommandServer(
@@ -256,11 +261,17 @@ class UdpOperatorSelectionServer:
         # operation, but only an authenticated HEARTBEAT marks it eligible for
         # the synchronized runtime-status acceptance barrier.
         self._register_metadata_peer(peer, from_heartbeat=False)
+        # QGC derives command time from authenticated Jetson status envelopes.
+        # Integrated/live runtimes inject that exact runtime clock; standalone
+        # diagnostic clients retain the historical Unix-time default.
+        received_at_s = float(self._command_clock())
+        if not isfinite(received_at_s) or received_at_s < 0.0:
+            raise ValueError("operator command clock returned an invalid timestamp")
         self._acknowledgement_sequence = (self._acknowledgement_sequence + 1) & 0xFFFFFFFF
         if packet.message_type is WireMessageType.TARGET_SELECTION:
             result = self.selection_server.handle_selection(
                 inner,
-                received_at_s=time.time(),
+                received_at_s=received_at_s,
                 acknowledgement_sequence=self._acknowledgement_sequence,
             )
         elif packet.message_type is WireMessageType.AUTHORIZATION_DECISION:
@@ -279,7 +290,7 @@ class UdpOperatorSelectionServer:
                         acknowledged_sequence=packet.message.sequence,
                     ),
                     sequence=self._acknowledgement_sequence,
-                    sent_at_s=time.time(),
+                    sent_at_s=received_at_s,
                 )
                 result = ServerAuthorizationDecisionResult(
                     packet.message,
@@ -290,7 +301,7 @@ class UdpOperatorSelectionServer:
             else:
                 result = self.authorization_server.handle_decision(
                     inner,
-                    received_at_s=time.time(),
+                    received_at_s=received_at_s,
                     acknowledgement_sequence=self._acknowledgement_sequence,
                 )
         elif packet.message_type is WireMessageType.APPROACH_CONFIRMATION:
@@ -304,7 +315,7 @@ class UdpOperatorSelectionServer:
             else:
                 acceptance = self.approach_guard.evaluate(
                     packet.message,
-                    received_at_s=time.time(),
+                    received_at_s=received_at_s,
                 )
             reason = _approach_ack_reason(acceptance)
             acknowledgement_payload = self.mavlink.codec.encode_approach_ack(
@@ -315,7 +326,7 @@ class UdpOperatorSelectionServer:
                     acknowledged_sequence=packet.message.sequence,
                 ),
                 sequence=self._acknowledgement_sequence,
-                sent_at_s=time.time(),
+                sent_at_s=received_at_s,
             )
             result = ServerApproachConfirmationResult(
                 packet.message,
@@ -336,7 +347,7 @@ class UdpOperatorSelectionServer:
             else:
                 acceptance = self.payload_target_guard.evaluate(
                     packet.message,
-                    received_at_s=time.time(),
+                    received_at_s=received_at_s,
                 )
             reason = _payload_target_ack_reason(acceptance)
             acknowledgement_payload = self.mavlink.codec.encode_payload_target_ack(
@@ -347,7 +358,7 @@ class UdpOperatorSelectionServer:
                     acknowledged_sequence=packet.message.sequence,
                 ),
                 sequence=self._acknowledgement_sequence,
-                sent_at_s=time.time(),
+                sent_at_s=received_at_s,
             )
             result = ServerPayloadTargetConfirmationResult(
                 packet.message,

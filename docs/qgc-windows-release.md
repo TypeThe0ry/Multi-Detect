@@ -11,10 +11,21 @@
 
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
+
+### v70 当前 portable 与原生目标点击闭环（2026-09-06）
+
+当前 portable 主 EXE 为 `46,579,712` bytes，SHA-256
+`FFCC4FCF45EAE6E7A52ED6B2585BCCF29E5F36776D03D2EFA7F6527D1A96255B`。必须从完整 portable
+目录启动，不能只复制裸 EXE。
+
+`combined-sim-qgc-20260905T172856Z-51520` 在 exact QGC PID/HWND 上按 QML 候选框中心真实点击，
+第一次命中后发送 `SELECT_TRK`，ACK、TRACKING 和 QML `TRK` adoption 均绑定同一目标；随后 900 帧
+runtime/type24 全闭合，831 份 range 与 831 份 geolocation 状态进入 QGC transport，0 transport error。
+本记录证明机器交互与 transport，不声明人工渲染签字；`operator_visual_acceptance=not_claimed`。
 必须从完整 portable 目录启动，以便同时加载 Qt、QML、GStreamer、翻译和插件运行时；裸
 `Release\MultiDetectGCS.exe` 只是链接产物，不是单文件发布物。当前 Release 与 portable 主 EXE
-在本机字节一致：`46,576,640` bytes，SHA-256
-`62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`。v61 已为持续定位刷新和
+在本机字节一致：`46,579,712` bytes，SHA-256
+`FFCC4FCF45EAE6E7A52ED6B2585BCCF29E5F36776D03D2EFA7F6527D1A96255B`。v70 已为原生目标点击和
 exact-PID/HWND 捕获重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
 的大小和 SHA 记录保留在下文历史条目中，不覆盖本段当前指纹。
 

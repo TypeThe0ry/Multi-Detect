@@ -358,6 +358,42 @@ def test_native_multidetect_toolbar_uses_qgc_scene_geometry_and_exact_hwnd_input
     assert "drawerClosedAfterEscape" in text
     assert "not_required_qgc_qml_geometry_export" in text
     assert "qgc-native-toolbar-indicator-observation.json" in text
+
+
+def test_native_target_selection_drives_the_real_qgc_overlay_and_geolocation_gate() -> None:
+    text = _read_script()
+
+    assert "function Invoke-QgcNativeTargetSelection" in text
+    assert 'Role "target_candidate_ready"' in text
+    assert 'selection_action -eq "SELECT_TRK"' in text
+    assert "Convert-QgcHilUiGeometryToPhysicalScreenRect -Record $fresh" in text
+    assert '"Unable to enter per-monitor-v2 DPI context for exact target input."' in text
+    assert '"Target input thread DPI-awareness context was not restored."' in text
+    assert "Get-QgcPointProvenanceSample -Name \"target_center\"" in text
+    assert "[MultiDetectWindow.Native]::SendLeftClick()" in text
+    assert "function Wait-QgcHilUiSelectionRecord" in text
+    assert '"multidetect.qgc-hil-ui-selection"' in text
+    assert '-Phase "selection_acknowledged"' in text
+    assert '$selectionAck.correlated -eq $true' in text
+    assert '$selectionAck.accepted -eq $true' in text
+    rejection_message = (
+        '"Jetson rejected the native QGC SELECT_TRK command '
+        '(reason=$($selectionAck.reason))."'
+    )
+    assert rejection_message in text
+    assert '-Phase "track_status_received"' in text
+    assert '-Phase "track_status_adopted"' in text
+    assert 'clicked_candidate_target_id = [string]$fresh.target_id' in text
+    assert 'adopted_target_id = [string]$adopted.target_id' in text
+    assert "correlated_track_status_proved = $true" in text
+    assert '[string]$adopted.state -eq "TRACKING"' in text
+    assert '[string]$adopted.interaction_state -eq "TRK"' in text
+    assert "qgc_operator_tracked_adoption_proved = $true" in text
+    assert '"--ranging-calibration"' in text
+    assert '"--require-target-geolocation"' in text
+    assert "$integratedEvidence.target_geolocation_acceptance.gate_passed -eq $true" in text
+    assert "native_target_selection = $nativeTargetSelection" in text
+    assert "MultiDetectState.selectCandidate" not in text
     assert "qgc-native-toolbar-indicator-evidence.json" in text
     assert "qgc-native-toolbar-drawer-open.png" in text
     assert '"--observation", $ObservationPath' in text
@@ -694,6 +730,7 @@ def test_multi_endpoint_router_attached_vtol_and_integrated_sim_share_one_contai
     assert '"--terrain-dem", $TerrainDem' in text
     assert '"--rtsp-helper", $RtspHelper' in text
     assert '"--metadata-acceptance-ack-timeout-seconds", "3"' in text
+    assert '"--maximum-ack-to-metadata-skew-ms", "1000"' in text
     assert '"--operator-hmac-key-env", "MULTIDETECT_OPERATOR_KEY"' in text
     assert (
         '"--mavlink-signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"'
@@ -727,6 +764,10 @@ def test_multi_endpoint_router_attached_vtol_and_integrated_sim_share_one_contai
     assert "post_adoption_runtime_status_type24_sequences" in text
     assert "runtime_status_sequences_contiguous_from_one" in text
     assert "runtime_status_run_hash_bound_to_integrated_identity" in text
+    assert (
+        '$integratedEvidence.schema_version -eq 3) "Integrated QGC evidence is not '
+        'canonical schema version 3."'
+    ) in text
     assert "schema_version = 2" in text
     assert "legacy alias of canonical valid type-24 acknowledgements" in text
     assert 'type24_scope = "native controller post-adoption only"' in text

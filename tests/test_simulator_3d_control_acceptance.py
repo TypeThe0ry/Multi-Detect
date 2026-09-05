@@ -13,6 +13,7 @@ from scripts.run_simulator_3d_control_acceptance import main, run_acceptance
 from scripts.verify_simulator_3d_control_evidence import main as verify_3d_main
 
 ROOT = Path(__file__).resolve().parents[1]
+VTOL_MANIFEST = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
 FIXED_WING_MANIFEST = ROOT / "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json"
 MULTIROTOR_MANIFEST = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
 V56_EVIDENCE_DIR = ROOT / "artifacts/evaluation/terminal-continuation-v56"
@@ -209,11 +210,19 @@ def test_simulator_3d_control_cli_rejects_non_object_manifest(
 def test_simulator_3d_control_verifier_cli_binds_three_airframes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    evidence = [
-        V56_VTOL_EVIDENCE,
-        V56_FIXED_WING_EVIDENCE,
-        V56_MULTIROTOR_EVIDENCE,
-    ]
+    evidence = []
+    for name, manifest in (
+        ("vtol", VTOL_MANIFEST),
+        ("fixed-wing", FIXED_WING_MANIFEST),
+        ("multirotor", MULTIROTOR_MANIFEST),
+    ):
+        source = tmp_path / f"simulator-3d-{name}.json"
+        result = run_acceptance(manifest, launch_job_dir=tmp_path / f"launch-{name}")
+        source.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        evidence.append(source)
     output = tmp_path / "simulator-3d-binding.json"
     exit_code = verify_3d_main(
         [
@@ -221,7 +230,7 @@ def test_simulator_3d_control_verifier_cli_binds_three_airframes(
             "--expected-release-label",
             "0.3.0-pre.8",
             "--manifest-directory",
-            str(ROOT / "artifacts/evaluation"),
+            str(tmp_path),
             "--out",
             str(output),
             *(str(path) for path in evidence),

@@ -178,6 +178,37 @@ def test_runtime_status_round_trips_over_direct_signed_udp_metadata_link() -> No
     assert received.physical_release_enabled is False
 
 
+def test_selection_guard_uses_injected_runtime_clock_domain() -> None:
+    jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
+    g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSelectionServer(
+        bind_host="127.0.0.1",
+        port=0,
+        mavlink=jetson,
+        guard=SelectionCommandGuard(GEOMETRY),
+        command_clock=lambda: 100.1,
+    ) as server:
+        server.start_background()
+        command = TargetSelectionCommand(
+            command_id="99999999-9999-4999-8999-999999999998",
+            session_id="88888888-8888-4888-8888-888888888887",
+            sequence=1,
+            action=SelectionAction.SELECT,
+            geometry=GEOMETRY,
+            issued_at_s=100.0,
+            expires_at_s=103.0,
+            bbox=BoundingBox(0.1, 0.1, 0.3, 0.4),
+        )
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as channel:
+            channel.settimeout(1.0)
+            channel.sendto(g20.encode_selection(command), server.bound_address)
+            acknowledgement_datagram, _ = channel.recvfrom(4096)
+
+    acknowledgement_packet = g20.decode_frame(acknowledgement_datagram)
+    assert acknowledgement_packet.message.accepted is True
+
+
 def test_runtime_status_requires_matching_post_adoption_acceptance_ack() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))

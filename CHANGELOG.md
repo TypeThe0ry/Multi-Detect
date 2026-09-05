@@ -5,6 +5,23 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v70 原生目标点击、测距与 GPS 落图 Combined 闭环（2026-09-06）
+
+- 原生 QGC Fly View 现在可按 source-bound 候选框中心发送 `SELECT_TRK`，并以同一 command/target 的
+  ACK、TRACKING 与 QML adoption 证明真实点击后进入 TRK；不依赖测试专用自动状态注入。
+- active operator target 接入共享 multimodal ranging 和 geolocation 发布；质量合格才给出 WGS-84/1σ，
+  不合格则明确不可定位，保持 display-only、0 飞控与 0 物理载荷输出。
+- Gazebo VTOL camera pose/标定统一为 35° 俯角。修复 range contribution 独立四舍五入导致
+  `254/254 + 1/254` 的 wire 自校验失败；新量化保留非零小来源且总预算不超过 254。
+- current-parity 900 帧 Combined source `combined-sim-qgc-20260905T172856Z-51520` 通过：831 份 range、
+  831 份 geolocation、112 个合格坐标、0 transport error，900/900 type23/type24；VTOL attached 与
+  7-item Mission 同时通过，容器/端口清理完成。
+- portable EXE 为 46,579,712 bytes / SHA-256
+  `FFCC4FCF45EAE6E7A52ED6B2585BCCF29E5F36776D03D2EFA7F6527D1A96255B`；版本继续保持 prerelease，
+  人工视觉、真实硬件、室外 GNSS/RTK、HIL/REAL 和实飞门仍未关闭。
+- 全仓 3,317 tests：`3316 passed, 1 skipped, 0 failed, 0 errors`；Ruff、QGC self-tests、portable
+  增量构建和 current-parity Combined 均通过。
+
 ### v0.3.0-pre.8 v69 combined-SIM 独立传感器硬门（2026-09-05）
 
 - 独立 combined verifier 现在强制 CameraInfo 为 `validated_k_p_rectification_plumb_bob_distortion`、
