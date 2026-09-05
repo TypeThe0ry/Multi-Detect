@@ -32,6 +32,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "configs" / "schemas" / "pixhawk-covariance-field-journal.schema.json"
 LEASE_FILE = "lease.json"
 RECOVERY_FILE = "recovery.json"
+CANDIDATES_DIR = ".lease-candidates"
+RELEASED_DIR = "released-leases"
 _LEASE_ID_LENGTH = 32
 
 
@@ -149,6 +151,16 @@ def _lease_directory(journal: Path, workspace_sha256: object) -> Path:
     return journal / f".{workspace_sha256}.capture-lease"
 
 
+def _managed_directory(journal: Path, name: str) -> Path:
+    path = journal / name
+    if path.is_symlink():
+        raise FieldCovarianceJournalError(f"{name} cannot be a symbolic link")
+    path.mkdir(exist_ok=True)
+    if path.is_symlink() or not path.is_dir():
+        raise FieldCovarianceJournalError(f"{name} must be a regular directory")
+    return path
+
+
 def _load_lease(path: Path) -> dict[str, object]:
     if path.is_symlink() or not path.is_dir():
         raise FieldCovarianceJournalError("capture lease path is not a regular directory")
@@ -224,6 +236,7 @@ class CaptureLease:
     directory: Path
     document: dict[str, object]
     released: bool = False
+    retained_directory: Path | None = None
 
     def __enter__(self) -> CaptureLease:
         return self
@@ -234,9 +247,13 @@ class CaptureLease:
         current = _load_lease(self.directory)
         if current != self.document:
             raise FieldCovarianceJournalError("capture lease changed while held")
-        (self.directory / LEASE_FILE).unlink()
-        self.directory.rmdir()
+        released_parent = _managed_directory(self.directory.parent, RELEASED_DIR)
+        retired = released_parent / str(self.document["lease_id"])
+        if retired.exists() or retired.is_symlink():
+            raise FieldCovarianceJournalError("released lease quarantine already exists")
+        os.rename(self.directory, retired)
         self.released = True
+        self.retained_directory = retired
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         del exc_type, exc, traceback
@@ -278,44 +295,64 @@ def acquire_capture_lease(
     if leaf.key != (runtime_mode, vehicle_class):
         raise FieldCovarianceJournalError("lease leaf does not match campaign order")
     lease_dir = _lease_directory(journal, receipt["workspace_sha256"])
-    try:
-        lease_dir.mkdir()
-    except FileExistsError as exc:
+    if lease_dir.exists() or lease_dir.is_symlink():
         existing = _load_lease(lease_dir)
         raise FieldCovarianceJournalError(
             "capture lease already held: "
             f"lease_id={existing['lease_id']} owner={existing['owner']}"
-        ) from exc
-    try:
-        lease = _with_digest(
-            {
-                "schema": LEASE_SCHEMA,
-                "schema_version": SCHEMA_VERSION,
-                "lease_id": identifier,
-                "acquired_at_utc": acquired_text,
-                "owner": _owner(),
-                "receipt": _receipt_record(receipt),
-                "campaign": {
-                    "path": str(campaign_path),
-                    "file_sha256": _sha256(campaign_path),
-                    "leaf": {
-                        "leaf_ordinal": leaf_ordinal,
-                        "runtime_mode": runtime_mode,
-                        "vehicle_class": vehicle_class,
-                    },
-                },
-                "claims": {
-                    "release_eligible": False,
-                    "hardware_acceptance": False,
-                    "flight_acceptance": False,
+        )
+    lease = _with_digest(
+        {
+            "schema": LEASE_SCHEMA,
+            "schema_version": SCHEMA_VERSION,
+            "lease_id": identifier,
+            "acquired_at_utc": acquired_text,
+            "owner": _owner(),
+            "receipt": _receipt_record(receipt),
+            "campaign": {
+                "path": str(campaign_path),
+                "file_sha256": _sha256(campaign_path),
+                "leaf": {
+                    "leaf_ordinal": leaf_ordinal,
+                    "runtime_mode": runtime_mode,
+                    "vehicle_class": vehicle_class,
                 },
             },
-            "lease_sha256",
-        )
-        _write_new(lease_dir / LEASE_FILE, lease)
+            "claims": {
+                "release_eligible": False,
+                "hardware_acceptance": False,
+                "flight_acceptance": False,
+            },
+        },
+        "lease_sha256",
+    )
+    candidates = _managed_directory(journal, CANDIDATES_DIR)
+    candidate = candidates / identifier
+    if candidate.exists() or candidate.is_symlink():
+        raise FieldCovarianceJournalError("capture lease candidate already exists")
+    candidate.mkdir()
+    try:
+        _write_new(candidate / LEASE_FILE, lease)
+        if lease_dir.exists() or lease_dir.is_symlink():
+            existing = _load_lease(lease_dir)
+            raise FieldCovarianceJournalError(
+                "capture lease already held: "
+                f"lease_id={existing['lease_id']} owner={existing['owner']}"
+            )
+        try:
+            os.rename(candidate, lease_dir)
+        except OSError as exc:
+            if lease_dir.exists() or lease_dir.is_symlink():
+                existing = _load_lease(lease_dir)
+                raise FieldCovarianceJournalError(
+                    "capture lease already held: "
+                    f"lease_id={existing['lease_id']} owner={existing['owner']}"
+                ) from exc
+            raise
     except BaseException:
-        (lease_dir / LEASE_FILE).unlink(missing_ok=True)
-        lease_dir.rmdir()
+        (candidate / LEASE_FILE).unlink(missing_ok=True)
+        if candidate.exists():
+            candidate.rmdir()
         raise
     return CaptureLease(lease_dir, lease)
 
@@ -326,11 +363,21 @@ def capture_lease_status(
     receipt = verify_field_covariance_workspace_receipt(receipt_path)
     journal = _journal_path(journal_directory)
     lease_dir = _lease_directory(journal, receipt["workspace_sha256"])
+    candidates = _managed_directory(journal, CANDIDATES_DIR)
+    released = _managed_directory(journal, RELEASED_DIR)
+    candidate_count = sum(
+        1 for path in candidates.iterdir() if path.is_dir() and not path.is_symlink()
+    )
+    released_count = sum(
+        1 for path in released.iterdir() if path.is_dir() and not path.is_symlink()
+    )
     if not lease_dir.exists():
         return {
             "state": "absent",
             "lease_directory": str(lease_dir),
             "workspace_sha256": receipt["workspace_sha256"],
+            "nonblocking_candidate_count": candidate_count,
+            "released_lease_count": released_count,
             "gate_passed": True,
         }
     lease = _load_lease(lease_dir)
@@ -341,6 +388,8 @@ def capture_lease_status(
         "lease_directory": str(lease_dir),
         "lease": lease,
         "owner_process_state": _owner_process_state(lease["owner"]),
+        "nonblocking_candidate_count": candidate_count,
+        "released_lease_count": released_count,
         "gate_passed": False,
     }
 
@@ -368,41 +417,54 @@ def recover_dead_capture_lease(
         raise FieldCovarianceJournalError(
             f"capture lease owner is not proven dead: {owner_state}"
         )
-    _, recovered_text = _timestamp(recovered_at)
     lease_path = lease_dir / LEASE_FILE
-    recovery = _with_digest(
-        {
-            "schema": RECOVERY_SCHEMA,
-            "schema_version": SCHEMA_VERSION,
-            "recovered_at_utc": recovered_text,
-            "reason": reason.strip(),
-            "lease_id": lease["lease_id"],
-            "lease_file_sha256": _sha256(lease_path),
-            "lease_sha256": lease["lease_sha256"],
-            "owner_state": "dead",
-            "recovered_by": _owner(),
-            "receipt": _receipt_record(receipt),
-            "claims": {
-                "release_eligible": False,
-                "hardware_acceptance": False,
-                "flight_acceptance": False,
-            },
-        },
-        "recovery_sha256",
-    )
     recovery_path = lease_dir / RECOVERY_FILE
-    _write_new(recovery_path, recovery)
-    archive_parent = journal / "recovered-leases"
-    archive_parent.mkdir(exist_ok=True)
+    if recovery_path.exists() or recovery_path.is_symlink():
+        if recovery_path.is_symlink() or not recovery_path.is_file():
+            raise FieldCovarianceJournalError("staged lease recovery is not a regular file")
+        recovery = _json_object(recovery_path, name="staged lease recovery")
+        _validate(recovery)
+        if recovery.get("schema") != RECOVERY_SCHEMA:
+            raise FieldCovarianceJournalError("staged lease recovery schema is wrong")
+        _verify_digest(recovery, "recovery_sha256", name="staged lease recovery")
+        if (
+            recovery["reason"] != reason.strip()
+            or recovery["lease_id"] != lease["lease_id"]
+            or recovery["lease_file_sha256"] != _sha256(lease_path)
+            or recovery["lease_sha256"] != lease["lease_sha256"]
+            or recovery["receipt"] != _receipt_record(receipt)
+        ):
+            raise FieldCovarianceJournalError(
+                "staged lease recovery does not match this exact retry"
+            )
+    else:
+        _, recovered_text = _timestamp(recovered_at)
+        recovery = _with_digest(
+            {
+                "schema": RECOVERY_SCHEMA,
+                "schema_version": SCHEMA_VERSION,
+                "recovered_at_utc": recovered_text,
+                "reason": reason.strip(),
+                "lease_id": lease["lease_id"],
+                "lease_file_sha256": _sha256(lease_path),
+                "lease_sha256": lease["lease_sha256"],
+                "owner_state": "dead",
+                "recovered_by": _owner(),
+                "receipt": _receipt_record(receipt),
+                "claims": {
+                    "release_eligible": False,
+                    "hardware_acceptance": False,
+                    "flight_acceptance": False,
+                },
+            },
+            "recovery_sha256",
+        )
+        _write_new(recovery_path, recovery)
+    archive_parent = _managed_directory(journal, "recovered-leases")
     archive = archive_parent / str(lease["lease_id"])
     if archive.exists() or archive.is_symlink():
-        recovery_path.unlink(missing_ok=True)
         raise FieldCovarianceJournalError("lease recovery archive already exists")
-    try:
-        os.replace(lease_dir, archive)
-    except BaseException:
-        recovery_path.unlink(missing_ok=True)
-        raise
+    os.rename(lease_dir, archive)
     return {
         **recovery,
         "archive_directory": str(archive),
@@ -430,6 +492,7 @@ def build_field_covariance_journal_index(
     status = campaign_status(config)
     records: list[dict[str, object]] = []
     referenced_probes: set[Path] = set()
+    released_parent = _managed_directory(journal, RELEASED_DIR)
     for path in sorted(journal.glob("*.session.json")):
         verified = verify_field_covariance_session_record(path)
         if (
@@ -438,6 +501,14 @@ def build_field_covariance_journal_index(
         ):
             raise FieldCovarianceJournalError("journal session belongs to another receipt")
         campaign = verified["campaign"]
+        embedded_lease = verified["capture_lease"]
+        released_directory = released_parent / str(embedded_lease["lease_id"])
+        released_lease = _load_lease(released_directory)
+        if released_lease != embedded_lease:
+            raise FieldCovarianceJournalError(
+                "released capture lease does not match journal session"
+            )
+        released_lease_path = released_directory / LEASE_FILE
         records.append(
             {
                 "leaf_ordinal": campaign["leaf_ordinal"],
@@ -446,6 +517,8 @@ def build_field_covariance_journal_index(
                 "path": str(path.resolve(strict=True)),
                 "file_sha256": _sha256(path),
                 "record_sha256": verified["record_sha256"],
+                "released_lease_path": str(released_lease_path.resolve(strict=True)),
+                "released_lease_file_sha256": _sha256(released_lease_path),
             }
         )
         referenced_probes.add(Path(verified["online_preflight"]["path"]).resolve(strict=True))
@@ -544,6 +617,7 @@ def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]
     if journal.is_symlink() or not journal.resolve(strict=True).is_dir():
         raise FieldCovarianceJournalError("indexed journal directory changed")
     journal = journal.resolve(strict=True)
+    released_parent = (journal / RELEASED_DIR).resolve(strict=True)
     campaign_path = Path(index["campaign"]["path"]).resolve(strict=True)
     if _sha256(campaign_path) != index["campaign"]["file_sha256"]:
         raise FieldCovarianceJournalError("journal index campaign changed")
@@ -574,6 +648,14 @@ def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]
         if _sha256(record_path) != record["file_sha256"]:
             raise FieldCovarianceJournalError("indexed session file changed")
         verified = verify_field_covariance_session_record(record_path)
+        released_lease_path = Path(record["released_lease_path"]).resolve(strict=True)
+        if (
+            released_lease_path.parent.parent != released_parent
+            or released_lease_path.name != LEASE_FILE
+            or _sha256(released_lease_path) != record["released_lease_file_sha256"]
+            or _load_lease(released_lease_path.parent) != verified["capture_lease"]
+        ):
+            raise FieldCovarianceJournalError("indexed released lease identity changed")
         if (
             verified["record_sha256"] != record["record_sha256"]
             or verified["receipt"]["receipt_sha256"]

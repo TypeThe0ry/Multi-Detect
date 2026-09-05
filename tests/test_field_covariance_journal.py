@@ -74,6 +74,8 @@ def test_capture_lease_is_atomic_visible_and_released(
     journal_path = tmp_path / "journal"
     lease = _acquire(receipt_path, journal_path)
     _validate_schema(lease.document)
+    assert (lease.directory / journal.LEASE_FILE).is_file()
+    assert not list((journal_path / journal.CANDIDATES_DIR).iterdir())
     status = journal.capture_lease_status(receipt_path, journal_path)
     assert status["state"] == "held"
     assert status["lease"]["lease_id"] == "1" * 32
@@ -83,6 +85,40 @@ def test_capture_lease_is_atomic_visible_and_released(
     lease.release()
     assert journal.capture_lease_status(receipt_path, journal_path)["state"] == "absent"
     assert lease.released is True
+
+
+def test_incomplete_candidate_is_visible_but_never_blocks_active_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, receipt_path, _, _ = _runtime(tmp_path, monkeypatch)
+    journal_path = tmp_path / "journal"
+    stale = journal_path / journal.CANDIDATES_DIR / ("f" * 32)
+    stale.mkdir(parents=True)
+
+    lease = _acquire(receipt_path, journal_path)
+    status = journal.capture_lease_status(receipt_path, journal_path)
+
+    assert status["state"] == "held"
+    assert status["nonblocking_candidate_count"] == 1
+    assert lease.directory.is_dir()
+    lease.release()
+
+
+def test_release_atomically_unblocks_and_preserves_released_lease_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, receipt_path, _, _ = _runtime(tmp_path, monkeypatch)
+    journal_path = tmp_path / "journal"
+    lease = _acquire(receipt_path, journal_path)
+    lease.release()
+
+    assert lease.released is True
+    assert not lease.directory.exists()
+    assert lease.retained_directory is not None
+    assert (lease.retained_directory / journal.LEASE_FILE).is_file()
+    replacement = _acquire(receipt_path, journal_path, lease_id="2" * 32)
+    assert replacement.directory.is_dir()
+    replacement.release()
 
 
 def test_capture_lease_refuses_tampered_release(
@@ -137,11 +173,60 @@ def test_recovery_requires_exact_dead_owner_and_preserves_audit(
     assert not lease.directory.exists()
 
 
+def test_interrupted_recovery_is_resumable_only_with_same_exact_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, receipt_path, _, _ = _runtime(tmp_path, monkeypatch)
+    journal_path = tmp_path / "journal"
+    lease = _acquire(receipt_path, journal_path)
+    monkeypatch.setattr(journal, "_owner_process_state", lambda owner: "dead")
+    real_rename = journal.os.rename
+    interrupted = False
+
+    def interrupt_once(source: object, destination: object) -> None:
+        nonlocal interrupted
+        if not interrupted and Path(source) == lease.directory:
+            interrupted = True
+            raise OSError("simulated power interruption before recovery publish")
+        real_rename(source, destination)
+
+    monkeypatch.setattr(journal.os, "rename", interrupt_once)
+    with pytest.raises(OSError, match="simulated power interruption"):
+        journal.recover_dead_capture_lease(
+            receipt_path,
+            journal_path,
+            expected_lease_id="1" * 32,
+            reason="same exact recovery",
+            recovered_at=datetime(2026, 9, 6, 2, 3, 4, tzinfo=UTC),
+        )
+    assert (lease.directory / journal.RECOVERY_FILE).is_file()
+    with pytest.raises(journal.FieldCovarianceJournalError, match="exact retry"):
+        journal.recover_dead_capture_lease(
+            receipt_path,
+            journal_path,
+            expected_lease_id="1" * 32,
+            reason="different recovery",
+        )
+
+    recovered = journal.recover_dead_capture_lease(
+        receipt_path,
+        journal_path,
+        expected_lease_id="1" * 32,
+        reason="same exact recovery",
+    )
+    archive = Path(recovered["archive_directory"])
+    assert archive.is_dir()
+    assert (archive / journal.LEASE_FILE).is_file()
+    assert (archive / journal.RECOVERY_FILE).is_file()
+    assert not lease.directory.exists()
+
+
 def _session_record(
     path: Path,
     probe_path: Path,
     receipt: dict[str, object],
     ordinal: int,
+    capture_lease: dict[str, object],
 ) -> dict[str, object]:
     mode, vehicle = REQUIRED_COMBINATIONS[ordinal - 1]
     return {
@@ -155,6 +240,7 @@ def _session_record(
             "vehicle_class": vehicle,
         },
         "online_preflight": {"path": str(probe_path.resolve())},
+        "capture_lease": capture_lease,
         "record_sha256": hashlib.sha256(str(path).encode()).hexdigest(),
     }
 
@@ -165,9 +251,11 @@ def _install_index_runtime(
     *,
     count: int,
 ) -> tuple[Path, Path, dict[str, object], list[dict[str, object]], dict[str, object]]:
-    _, _, receipt_path, receipt, config = _runtime(tmp_path, monkeypatch)
+    _, campaign_path, receipt_path, receipt, config = _runtime(tmp_path, monkeypatch)
     journal_path = tmp_path / "journal"
     journal_path.mkdir()
+    released_parent = journal_path / journal.RELEASED_DIR
+    released_parent.mkdir()
     records: list[dict[str, object]] = []
     by_path: dict[Path, dict[str, object]] = {}
     for ordinal in range(1, count + 1):
@@ -176,7 +264,41 @@ def _install_index_runtime(
         probe_path = journal_path / f"{ordinal:02d}-{mode}-{vehicle}.online-preflight.json"
         record_path.write_text("{}", encoding="utf-8")
         probe_path.write_text("{}", encoding="utf-8")
-        verified = _session_record(record_path, probe_path, receipt, ordinal)
+        lease_id = f"{ordinal:032x}"
+        lease = journal._with_digest(
+            {
+                "schema": journal.LEASE_SCHEMA,
+                "schema_version": journal.SCHEMA_VERSION,
+                "lease_id": lease_id,
+                "acquired_at_utc": "2026-09-06T01:02:03Z",
+                "owner": {"hostname": "capture-host", "pid": ordinal},
+                "receipt": {
+                    "path": str(receipt_path.resolve()),
+                    "file_sha256": _sha(receipt_path),
+                    "receipt_sha256": receipt["receipt_sha256"],
+                    "workspace_sha256": receipt["workspace_sha256"],
+                },
+                "campaign": {
+                    "path": str(campaign_path.resolve()),
+                    "file_sha256": _sha(campaign_path),
+                    "leaf": {
+                        "leaf_ordinal": ordinal,
+                        "runtime_mode": mode,
+                        "vehicle_class": vehicle,
+                    },
+                },
+                "claims": {
+                    "release_eligible": False,
+                    "hardware_acceptance": False,
+                    "flight_acceptance": False,
+                },
+            },
+            "lease_sha256",
+        )
+        released = released_parent / lease_id
+        released.mkdir()
+        (released / journal.LEASE_FILE).write_text(json.dumps(lease), encoding="utf-8")
+        verified = _session_record(record_path, probe_path, receipt, ordinal, lease)
         records.append(verified)
         by_path[record_path.resolve()] = verified
     blocked = journal_path / "blocked.online-preflight.json"
@@ -247,6 +369,20 @@ def test_journal_index_rejects_gap_and_campaign_count_mismatch(
     status["pending_count"] = 3
     monkeypatch.setattr(journal, "campaign_status", lambda current: dict(status))
     with pytest.raises(journal.FieldCovarianceJournalError, match="count does not match"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+def test_journal_index_requires_preserved_released_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    released = journal_path / journal.RELEASED_DIR / f"{1:032x}"
+    (released / journal.LEASE_FILE).unlink()
+    released.rmdir()
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="capture lease"):
         journal.build_field_covariance_journal_index(receipt_path, journal_path)
 
 
