@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/camera-mount-measurement-preflight.schema.json",
+  "title": "Multi-Detect camera mount raw measurement preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event", "schema_version", "evidence_type", "release_label", "input",
+    "expected_columns", "minimum_samples", "sample_count", "sample_ids_unique",
+    "blocking_reasons", "gate_passed", "hardware_acceptance", "release_eligible",
+    "read_only_evidence", "advisory_only", "contains_flight_control", "simulated_values_used"
+  ],
+  "properties": {
+    "event": {"const": "camera_mount_measurements_preflighted"},
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "multidetect.camera-mount-measurement-preflight.v1"},
+    "release_label": {"type": "string", "pattern": "^0\\.3\\.0(?:-pre\\.[1-9][0-9]*)?$"},
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "expected_columns": {
+      "const": [
+        "sample_id", "pitch_down_deg", "yaw_right_deg", "roll_clockwise_deg",
+        "offset_forward_m", "offset_right_m", "offset_down_m"
+      ]
+    },
+    "minimum_samples": {"type": "integer", "minimum": 5, "maximum": 1000},
+    "sample_count": {"type": "integer", "minimum": 0, "maximum": 1000},
+    "sample_ids_unique": {"type": "boolean"},
+    "blocking_reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "gate_passed": {"type": "boolean"},
+    "hardware_acceptance": {"const": "not_claimed"},
+    "release_eligible": {"const": false},
+    "read_only_evidence": {"const": true},
+    "advisory_only": {"const": true},
+    "contains_flight_control": {"const": false},
+    "simulated_values_used": {"const": false}
+  }
+}

@@ -32,6 +32,9 @@ from .product_version import PRODUCT_VERSION
 
 CAMERA_MOUNT_SURVEY_SCHEMA_VERSION = 1
 CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE = "multidetect.camera-mount-survey.v1"
+CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE = (
+    "multidetect.camera-mount-measurement-preflight.v1"
+)
 CAMERA_MOUNT_SURVEY_FRAME = "aircraft_frd"
 _SAMPLE_FIELDS = (
     "pitch_down_deg",
@@ -211,6 +214,96 @@ def write_camera_mount_survey(
     payload = (
         json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return output
+
+
+def write_camera_mount_measurement_template(
+    destination: str | Path,
+    *,
+    sample_count: int = 5,
+    overwrite: bool = False,
+) -> Path:
+    """Write a deterministic blank v1 measurement worksheet atomically."""
+
+    count = _integer(sample_count, "sample_count", minimum=5)
+    if count > 1000:
+        raise ValueError("sample_count must be at most 1000")
+    rows = [",".join(_RAW_CSV_COLUMNS)]
+    rows.extend(f"measurement-{index + 1:03d},,,,,," for index in range(count))
+    payload = ("\n".join(rows) + "\n").encode("utf-8")
+    return _write_bytes(destination, payload, overwrite=overwrite, label="measurement template")
+
+
+def check_camera_mount_measurements(
+    source: str | Path,
+    *,
+    minimum_samples: int = 5,
+) -> dict[str, Any]:
+    """Preflight one completed raw CSV without creating acceptance evidence."""
+
+    minimum = _integer(minimum_samples, "minimum_samples", minimum=5)
+    if minimum > 1000:
+        raise ValueError("minimum_samples must be at most 1000")
+    reference = _file_reference(source)
+    reasons: list[str] = []
+    samples: list[dict[str, object]] = []
+    try:
+        samples = _load_raw_measurements_csv(Path(reference["path"]))
+    except (OSError, TypeError, ValueError) as exc:
+        reasons.append(f"{type(exc).__name__}: {exc}")
+    sample_ids = [sample["sample_id"] for sample in samples]
+    if samples and len(samples) < minimum:
+        reasons.append(f"sample count {len(samples)} is below required minimum {minimum}")
+    if samples and len(sample_ids) != len(set(sample_ids)):
+        reasons.append("sample IDs are not unique")
+    return {
+        "event": "camera_mount_measurements_preflighted",
+        "schema_version": 1,
+        "evidence_type": CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE,
+        "release_label": PRODUCT_VERSION.release_label,
+        "input": reference,
+        "expected_columns": list(_RAW_CSV_COLUMNS),
+        "minimum_samples": minimum,
+        "sample_count": len(samples),
+        "sample_ids_unique": bool(samples) and len(sample_ids) == len(set(sample_ids)),
+        "blocking_reasons": reasons,
+        "gate_passed": not reasons,
+        "hardware_acceptance": "not_claimed",
+        "release_eligible": False,
+        "read_only_evidence": True,
+        "advisory_only": True,
+        "contains_flight_control": False,
+        "simulated_values_used": False,
+    }
+
+
+def _write_bytes(
+    destination: str | Path,
+    payload: bytes,
+    *,
+    overwrite: bool,
+    label: str,
+) -> Path:
+    requested = Path(destination).expanduser()
+    if requested.is_symlink():
+        raise FileExistsError(f"camera mount {label} output must not be a symlink: {requested}")
+    output = requested.resolve()
+    if output.exists() and not overwrite:
+        raise FileExistsError(f"camera mount {label} output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
     )
@@ -577,6 +670,15 @@ def _utc_timestamp(value: object, name: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    template = commands.add_parser("template", help="write a blank raw-measurement CSV")
+    template.add_argument("--output", required=True, type=Path)
+    template.add_argument("--sample-count", type=int, default=5)
+    template.add_argument("--overwrite", action="store_true")
+    preflight = commands.add_parser(
+        "validate-raw", help="validate a completed raw CSV before survey creation"
+    )
+    preflight.add_argument("raw_measurements", type=Path)
+    preflight.add_argument("--minimum-samples", type=int, default=5)
     create = commands.add_parser("create", help="create physical mount survey evidence")
     for name in (
         "survey-id",
@@ -609,6 +711,29 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "template":
+        try:
+            output = write_camera_mount_measurement_template(
+                args.output,
+                sample_count=args.sample_count,
+                overwrite=args.overwrite,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"camera mount measurement template failed: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps({"output": str(output), "sample_count": args.sample_count}, indent=2))
+        return 0
+    if args.command == "validate-raw":
+        try:
+            result = check_camera_mount_measurements(
+                args.raw_measurements,
+                minimum_samples=args.minimum_samples,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"camera mount raw measurement preflight failed: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True))
+        return 0 if result["gate_passed"] else 1
     if args.command == "verify":
         result = verify_camera_mount_survey(
             args.survey,
@@ -647,10 +772,13 @@ __all__ = [
     "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE",
     "CAMERA_MOUNT_SURVEY_FRAME",
     "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION",
+    "CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE",
     "build_parser",
+    "check_camera_mount_measurements",
     "create_camera_mount_survey",
     "main",
     "verify_camera_mount_survey",
+    "write_camera_mount_measurement_template",
     "write_camera_mount_survey",
 ]
 

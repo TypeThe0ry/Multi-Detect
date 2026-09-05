@@ -231,6 +231,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".camera_mount_survey",
         "CAMERA_MOUNT_SURVEY_FRAME",
     ),
+    "CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE": (
+        ".camera_mount_survey",
+        "CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE",
+    ),
+    "check_camera_mount_measurements": (
+        ".camera_mount_survey",
+        "check_camera_mount_measurements",
+    ),
     "create_camera_mount_survey": (
         ".camera_mount_survey",
         "create_camera_mount_survey",
@@ -242,6 +250,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "write_camera_mount_survey": (
         ".camera_mount_survey",
         "write_camera_mount_survey",
+    ),
+    "write_camera_mount_measurement_template": (
+        ".camera_mount_survey",
+        "write_camera_mount_measurement_template",
     ),
     "PlannedMissionCompilation": (
         ".mission_planning",
@@ -461,9 +473,12 @@ __all__ = [
     "CAMERA_MOUNT_SURVEY_SCHEMA_VERSION",
     "CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE",
     "CAMERA_MOUNT_SURVEY_FRAME",
+    "CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE",
+    "check_camera_mount_measurements",
     "create_camera_mount_survey",
     "verify_camera_mount_survey",
     "write_camera_mount_survey",
+    "write_camera_mount_measurement_template",
     "PLANNED_MISSION_COMPILATION_SCHEMA_VERSION",
     "PlannedMissionCompilation",
     "compile_planned_task_mission",

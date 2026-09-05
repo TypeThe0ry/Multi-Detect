@@ -96,6 +96,10 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "configs/schemas/camera-mount-survey.schema.json"
         in document["source_files"]["task_contract"]
     )
+    assert (
+        "configs/schemas/camera-mount-measurement-preflight.schema.json"
+        in document["source_files"]["task_contract"]
+    )
     assert "src/multidetect/camera_mount_survey.py" in document["source_files"]["task_contract"]
     assert "src/multidetect/field_evidence_bundle.py" in document["source_files"]["task_contract"]
     assert "src/multidetect/backends/raw_replay.py" in document["source_files"]["task_contract"]

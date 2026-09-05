@@ -6,11 +6,15 @@ import sys
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from multidetect.camera_mount_survey import (
+    CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE,
     CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE,
+    check_camera_mount_measurements,
     create_camera_mount_survey,
     verify_camera_mount_survey,
+    write_camera_mount_measurement_template,
     write_camera_mount_survey,
 )
 
@@ -186,6 +190,42 @@ def test_declared_samples_cannot_diverge_from_hash_bound_raw_csv(tmp_path: Path)
     assert "samples_match_raw_measurements" in report["blocking_reasons"]
 
 
+def test_measurement_template_and_preflight_form_a_strict_field_workflow(
+    tmp_path: Path,
+) -> None:
+    raw = tmp_path / "raw-measurements.csv"
+    output = write_camera_mount_measurement_template(raw, sample_count=5)
+    assert output == raw.resolve()
+    lines = raw.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == (
+        "sample_id,pitch_down_deg,yaw_right_deg,roll_clockwise_deg,"
+        "offset_forward_m,offset_right_m,offset_down_m"
+    )
+    assert lines[1] == "measurement-001,,,,,,"
+    assert len(lines) == 6
+    with pytest.raises(FileExistsError):
+        write_camera_mount_measurement_template(raw)
+
+    blank = check_camera_mount_measurements(raw)
+    assert blank["gate_passed"] is False
+    assert blank["release_eligible"] is False
+    assert blank["hardware_acceptance"] == "not_claimed"
+
+    _write_raw_measurements(raw)
+    completed = check_camera_mount_measurements(raw)
+    assert completed["evidence_type"] == CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE
+    assert completed["sample_count"] == 5
+    assert completed["sample_ids_unique"] is True
+    assert completed["blocking_reasons"] == []
+    assert completed["gate_passed"] is True
+    schema = json.loads(
+        (ROOT / "configs" / "schemas" / "camera-mount-measurement-preflight.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    jsonschema.Draft202012Validator(schema).validate(completed)
+
+
 def test_mount_survey_matches_strict_json_schema(tmp_path: Path) -> None:
     report = _report(tmp_path)
     schema = json.loads(
@@ -212,3 +252,33 @@ def test_mount_survey_cli_is_available_without_installed_package() -> None:
     assert completed.returncode == 0, completed.stderr
     assert "create" in completed.stdout
     assert "verify" in completed.stdout
+    assert "template" in completed.stdout
+    assert "validate-raw" in completed.stdout
+
+
+def test_measurement_template_and_preflight_cli_round_trip(tmp_path: Path) -> None:
+    script = ROOT / "scripts" / "camera_mount_survey.py"
+    raw = tmp_path / "field-measurements.csv"
+    generated = subprocess.run(
+        [sys.executable, str(script), "template", "--output", str(raw)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert generated.returncode == 0, generated.stderr
+    assert raw.is_file()
+    _write_raw_measurements(raw)
+    validated = subprocess.run(
+        [sys.executable, str(script), "validate-raw", str(raw)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert validated.returncode == 0, validated.stderr
+    result = json.loads(validated.stdout)
+    assert result["sample_count"] == 5
+    assert result["gate_passed"] is True
