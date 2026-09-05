@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v84：只读 Pixhawk provider 有界请求 `AUTOPILOT_VERSION`，现场 covariance 身份门不再依赖偶然广播；外部 PX4 SIM 实证一次请求即返回 |
+| 当前工程迭代 | v85：covariance 证据新增当前 transport、operational qualification 与本次采集 firmware freshness 硬门；HIL/REAL mode binding 同步 fail-closed |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v85 当前链路与本次采集身份门禁
+
+covariance 采集不再允许用断链后缓存、未通过 operational qualification 或采集前遗留的 firmware
+身份形成通过证据。报告和 HIL/REAL `mode_binding` 都要求当前 transport/qualified link 为健康、
+qualification 明确 required 且 passed、reasons 为空；`AUTOPILOT_VERSION` 的 age 必须落在本次采集
+时长内。当前源码在 digest 固定的 PX4 SITL 独立进程上实采 220 条 ODOMETRY/220 条有效 covariance，
+保存 111 条记录，三项新增门禁与独立 verifier 全部通过；这仍不替代真实 HIL/REAL、硬件、室外
+GNSS、人工 QGC 或实飞验收。
 
 ### v84 有界 PX4 firmware 身份请求
 

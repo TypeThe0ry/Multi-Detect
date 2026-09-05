@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T20:55:55Z",
+  "updated_at_utc": "2026-09-05T21:09:33Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "5fb7303722a3ccd6d8b5df1a3de388e72490e4f2",
-    "commit_subject": "feat(telemetry): request bounded PX4 firmware identity",
-    "commits_ahead_of_origin_main": 56
+    "commit": "cd715d37375e69b02ecb2f333d6c2511d0e9332c",
+    "commit_subject": "feat(telemetry): gate covariance on current qualified link",
+    "commits_ahead_of_origin_main": 58
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v84",
+  "working_iteration": "v85",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v84-final.xml",
-      "tests": 3373,
-      "passed": 3372,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v85-final.xml",
+      "tests": 3379,
+      "passed": 3378,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 95.091,
-      "junit_local_path": "tmp/current-progress-regression-v84-final.xml",
-      "junit_file_bytes": 491817,
-      "junit_file_sha256": "0cbb1a09d4d21f774a174078cad68aaba686c32ba9ac709f6520f59abce4a996",
+      "duration_seconds": 90.435,
+      "junit_local_path": "tmp/current-progress-regression-v85-final.xml",
+      "junit_file_bytes": 493089,
+      "junit_file_sha256": "63351a22d8074bad318a2796a8429caee70a22815189e0e3008d9903df0cc5f7",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,45 +64,48 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5715,
-    "file_sha256": "812fe13f1e59fb01a0d1f378617c2fbf2d7294a7393d06f117cc9eb51a09fa68",
+    "file_sha256": "7144f015ffee70d2c1ad33edbb1b33808758fc940b88b8d5d55590c0fe37e350",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "3f118e577fbc2906e203065050e13b58947acca8860fd0953b106204d4c4069c"
+      "px4_mission_path_hash": "7d18dfa5e8ac2848d15fd80cd024ac9bbaac6562a4c0df0829386c5684b5f514"
     }
   },
   "evidence": {
     "px4_estimator_attitude_covariance_sim": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v84/px4-sitl-version-covariance-v84-pre8-final.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v85/px4-sitl-current-link-covariance-v85-pre8-final-v2.json",
       "distributed_in_git": false,
       "schema": "multidetect.pixhawk-odometry-covariance-observation/v2",
-      "file_bytes": 81564,
-      "file_sha256": "e825eada70107318c1d78a9df138afa82d227d7659fee1b48a0a5a03f9acb29e",
-      "evidence_sha256": "f2098ec5625ebb4f9e9bc2fac4e4ac45188c926cccc6c47022ab1a098c09bd77",
+      "file_bytes": 81010,
+      "file_sha256": "b2a1462f0656ae11324916df3811cc83c24f5c77111524fc07dac4984acdc3c8",
+      "evidence_sha256": "23a37d0f6c3f5e0e2b0a6cba6499ae1781d6613eeab8642afc8b2592534a3bc9",
       "gate_passed": true,
       "runtime_mode": "sim",
-      "odometry_messages_observed": 207,
-      "accepted_covariances_observed": 207,
-      "records_verified": 112,
+      "odometry_messages_observed": 220,
+      "accepted_covariances_observed": 220,
+      "records_verified": 111,
       "child_frame_id": 1,
-      "reset_counter": 12,
+      "reset_counter": 11,
       "raw_angular_variance_rad2": [
-        0.00004696616088040173,
-        0.000048148780479095876,
-        0.013809813186526299
+        0.00038773156120441854,
+        0.0003852766240015626,
+        0.03414560481905937
       ],
       "attitude_sigma_deg": {
-        "roll": 0.392658644593311,
-        "pitch": 0.397571531050825,
-        "heading": 6.73312278376122
+        "roll": 1.1282054915758177,
+        "pitch": 1.124628182015468,
+        "heading": 10.58741745304301
       },
       "messages_transmitted": 22,
       "ranging_stream_request_attempts": 3,
       "autopilot_version_request_attempts": 1,
       "autopilot_version_response_observed": true,
-      "firmware_identity_hash": "8f527860c57342edbbeee621a484238c35859cbcbd8cfa1f91787afd73cfdc81",
+      "firmware_identity_hash": "397a4f3bda7c82ee65448842803c2b2526a1f4282bc6d8b400a337d57ae73081",
+      "transport_link_current": true,
+      "qualified_link_current": true,
+      "autopilot_version_current_session": true,
       "raw_device_uid_serialized": false,
       "attitude_uncertainty_source": "mavlink_odometry_pose_covariance_local_ned_with_configured_floor",
       "container_cleanup_passed": true,

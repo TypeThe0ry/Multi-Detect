@@ -1,5 +1,12 @@
 # 统一仓库架构
 
+## v85 current qualified covariance evidence（2026-09-06，`v0.3.0-pre.8`）
+
+`capture_pixhawk_odometry_covariance.py` 在报告层和 HIL/REAL identity binding 层都消费同一个
+provider 结束快照：transport、qualified link、operational qualification 任一不是当前通过即
+fail-closed；firmware age 还必须不大于采集 duration 加 1 秒边界。该约束防止断链后缓存的姿态
+covariance/firmware 身份与旧 Mission 材料拼成伪现场证据，不改变 provider 的遥测解析或控制边界。
+
 ## v84 bounded firmware identity acquisition（2026-09-06，`v0.3.0-pre.8`）
 
 `PixhawkReadOnlyTelemetryProvider.snapshot()` 在 receive drain 后依次执行可选 firmware identity request 与

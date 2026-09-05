@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v85 current qualified covariance evidence（2026-09-06）
+
+- covariance observation 现在硬性要求采集结束时 transport link 与 qualified link 当前健康，且
+  operational qualification 为 required/passed、无失败原因；
+- firmware observation age 必须属于本次采集时窗，防止启动前缓存身份被复用为当前证据；
+- HIL/REAL mode binding 同步绑定 provider transport、qualified link 和 operational qualification；
+- 新增 SIM 报告与 HIL binding 六个 fail-closed 负回归；当前 PX4 SITL 实采 220/220 条通过，保存
+  111 条 covariance，固件身份请求 1 次，总发送仍严格为 `3×7+1=22`。
+
 ### v0.3.0-pre.8 v84 bounded PX4 firmware identity request（2026-09-06）
 
 - `PixhawkReadOnlyTelemetryProvider` 新增显式、默认关闭的 `request_autopilot_version`：只在绑定到 autopilot

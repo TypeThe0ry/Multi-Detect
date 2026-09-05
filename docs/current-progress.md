@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v84 工作树）
+最后更新：2026-09-06（v85 工作树）
+
+## v85 本轮已收口
+
+- covariance report 新增 `transport_link_current`、`qualified_link_current` 与
+  `autopilot_version_current_session` 三项硬门，拒绝断链缓存、未通过 operational qualification
+  或不属于本次采集时窗的 firmware 身份；
+- HIL/REAL `mode_binding` 同步加入 provider transport、qualified link 与 qualification 三项检查，
+  即使 Mission/profile/firmware hash 匹配，当前链路不合格也不能形成现场 covariance 证据；
+- 六个负回归覆盖 SIM 报告与 HIL binding 的 stale/unqualified 状态；相关 Pixhawk/capture 专项
+  101 项通过；
+- 当前源码在 digest 固定 PX4 SITL 独立进程实采 220 条 ODOMETRY、220 条有效 covariance、保存
+  111 条记录；新增三门均通过，发送严格为 `3×7+1=22`，verifier 通过且容器已清理；
+- 证据文件 81,010 bytes，SHA-256 `B2A1462F...DC3C8`，evidence SHA-256
+  `23A37D0F...A3BC9`；firmware identity 为 `397A4F3B...73081`；
+- `px4_mission_path_hash` 更新为 `7D18DFA5...5F514`。HIL/REAL 实机、硬件、室外 GNSS、人工
+  QGC 和实飞声明保持未通过；严格 covariance JSON Schema 作为下一独立迭代。
+- 全量回归 3,379 tests：`3378 passed, 1 skipped, 0 failed, 0 errors`；JUnit 493,089 bytes、
+  SHA-256 `63351A22D8074BAD318A2796A8429CAEE70A22815189E0E3008D9903DF0CC5F7`；全仓 Ruff
+  通过，历史 format 债务保持 412 个文件，没有因本轮增加。
 
 ## v84 本轮已收口
 

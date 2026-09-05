@@ -1,5 +1,13 @@
 # v0.3.0 E7 发布门
 
+## v85 current-link covariance 子门（2026-09-06，`v0.3.0-pre.8`）
+
+PX4 estimator covariance 子门现在除消息数量、raw covariance、来源、只读发送预算与 firmware hash
+外，还要求结束快照的 transport link 当前健康、operational qualification 当前通过且无 reasons，
+以及 firmware response age 落在本次采集时长内。HIL/REAL mode binding 也重复执行同组 provider
+健康检查，不能靠外层报告标签绕过。当前 PX4 SITL 证据三项均通过并由 verifier 重建；它只关闭
+SIM 下的当前链路证据缺口，不提升 HIL/REAL、硬件、室外 GNSS、人工视觉或实飞状态。
+
 ## v84 PX4 firmware identity availability 子门（2026-09-06，`v0.3.0-pre.8`）
 
 现场 covariance 门所需的 `AUTOPILOT_VERSION` 不再依赖 PX4 偶然广播。provider 只在已绑定 autopilot
