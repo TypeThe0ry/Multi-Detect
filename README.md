@@ -204,6 +204,26 @@ fail-closed。`review_sha256` 是内容完整性摘要，不冒充电子身份�
 当前 v61 exact PID/HWND 截图只证明 HIL 机器渲染，不能复制为其他三个模式。仓库当前没有人工
 accepted record，E7 中该集合为 `present=false/passed=false`，所以没有把人工验收状态提前改成通过。
 
+### v66 四模式机器捕获统一契约
+
+机器捕获不再要求 REPLAY/SIM/REAL 伪装成 PX4-HIL 报告。`capture_qgc_native_style.ps1` 现在强制
+显式选择 `replay/sim/hil/real`，并在 schema-v2 observation 内绑定实际 EXE、canonical
+`release-parity.json`、run ID、exact PID/client rect、遮挡状态和 PNG 身份。示例（先由对应模式的
+runner 启动并稳定 QGC，再附着其精确 PID）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\capture_qgc_native_style.ps1 `
+  -ExistingProcessId $qgcPid `
+  -RuntimeMode replay `
+  -RunId replay-visual-001 `
+  -ReleaseParityPath .\configs\release-parity.json `
+  -OutputDirectory .\artifacts\evaluation\replay-visual-001
+```
+
+已有 HIL wrapper 会自动传入 `-RuntimeMode hil`。旧 PX4-HIL acceptance JSON 仍可复验，但只允许归属
+HIL；四种模式仍需各自独立机器捕获和人工逐项签字，当前仍为 0/4。
+
 ### MultiDetectGCS
 
 QGC 源码位于 `ground-control/MultiDetectGCS/`。Windows 构建和 portable 部署见

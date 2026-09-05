@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v66 四模式 QGC machine-capture adapter（2026-09-05，`v0.3.0-pre.8`）
+
+```text
+REPLAY / SIM / HIL / REAL runner
+  -> exact MultiDetectGCS PID + explicit runtime_mode + run_id
+  -> capture_qgc_native_style.ps1 schema v2
+  -> bind EXE + release parity + exact client rect + occlusion state + PNG
+  -> qgc_visual_acceptance native-v2 adapter
+  -> normalized machine binding + human checklist + E7 four-mode aggregate
+```
+
+`configs/schemas/qgc-native-style-capture.schema.json` 定义 schema-v2 capture 四模式统一主契约；它不依赖
+HIL 专属的 `jetson_metadata_hil` 或外层 assertions。
+适配器仍能读取历史 `px4_sitl_qgc_operator_acceptance`，但 legacy event 只对 `runtime_mode=hil` 有效。
+这避免“代码字段声称四模式、源报告实际只能来自 HIL”的假对等。native-v2 必须同时通过 event/version、
+mode、PID、client rect、零遮挡、单一 surface、PNG、EXE identity、parity identity、UI contract 和
+`operator_visual_acceptance=not_claimed` 检查；人工声明仍只能由后续 review record 给出。
+
 ## v65 四模式 QGC 人工视觉 E7 证据（2026-09-05，`v0.3.0-pre.8`）
 
 | 组件 | 职责 | 声明边界 |

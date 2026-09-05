@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/qgc-native-style-capture.schema.json",
+  "title": "Multi-Detect QGC native style machine capture",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema", "schema_version", "event", "runtime_mode", "run_id",
+    "executable_identity", "release_parity", "attached_existing_process",
+    "requested_existing_process_id", "qgc_pid", "exact_client_rect_screen",
+    "external_occluders_after", "single_native_surface_machine_check",
+    "capture", "operator_visual_acceptance", "error", "capture_gate_passed"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.qgc-native-style-capture"},
+    "schema_version": {"const": 2},
+    "event": {"const": "qgc_native_style_capture"},
+    "runtime_mode": {"enum": ["replay", "sim", "hil", "real"]},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "executable_identity": {"$ref": "#/$defs/fileIdentity"},
+    "release_parity": {
+      "allOf": [
+        {"$ref": "#/$defs/fileIdentity"},
+        {
+          "type": "object",
+          "required": ["parity"],
+          "properties": {"parity": {"$ref": "#/$defs/parity"}}
+        }
+      ]
+    },
+    "attached_existing_process": {"type": "boolean"},
+    "requested_existing_process_id": {"type": ["integer", "null"], "minimum": 1},
+    "qgc_pid": {"type": "integer", "minimum": 1},
+    "exact_client_rect_screen": {"$ref": "#/$defs/rect"},
+    "external_occluders_after": {"type": "array", "maxItems": 0},
+    "single_native_surface_machine_check": {"const": true},
+    "capture": {"$ref": "#/$defs/fileIdentity"},
+    "operator_visual_acceptance": {"const": "not_claimed"},
+    "error": {"type": "null"},
+    "capture_gate_passed": {"const": true}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9A-Fa-f]{64}$"},
+    "fileIdentity": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "rect": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "parity": {
+      "type": "object",
+      "required": ["ui_contract_hash"],
+      "properties": {"ui_contract_hash": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}

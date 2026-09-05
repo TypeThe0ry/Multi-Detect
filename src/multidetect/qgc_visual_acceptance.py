@@ -43,6 +43,7 @@ REQUIRED_CHECKS = (
     "read_only_notice_visible",
 )
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TOP_LEVEL_KEYS = frozenset(
     {
         "schema",
@@ -167,6 +168,49 @@ def _normalise_checklist(value: Mapping[str, object]) -> dict[str, bool]:
     return result
 
 
+def _machine_runtime_mode(machine: Mapping[str, Any], qgc: Mapping[str, Any]) -> str | None:
+    value = machine.get("runtime_mode")
+    if not isinstance(value, str):
+        value = qgc.get("runtime_mode")
+    if not isinstance(value, str) and qgc.get("isolated_hil_cli") is True:
+        value = "hil"
+    return value.strip().lower() if isinstance(value, str) else None
+
+
+def _legacy_hil_machine_parts(
+    machine: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
+    qgc = _mapping(machine.get("qgc"), label="machine.qgc")
+    capture = _mapping(
+        qgc.get("native_visual_machine_capture"),
+        label="machine.qgc.native_visual_machine_capture",
+    )
+    assertions = _mapping(machine.get("assertions"), label="machine.assertions")
+    target = _mapping(
+        _mapping(machine.get("jetson_metadata_hil"), label="machine.jetson_metadata_hil").get(
+            "target_geolocation_evidence"
+        ),
+        label="machine target geolocation evidence",
+    )
+    expected_parity = _mapping(
+        target.get("expected_release_parity"), label="machine expected release parity"
+    )
+    return (
+        qgc,
+        capture,
+        assertions,
+        _mapping(expected_parity.get("parity"), label="machine embedded release parity"),
+    )
+
+
+def _native_capture_machine_parts(
+    machine: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
+    executable = _mapping(machine.get("executable_identity"), label="machine executable identity")
+    parity = _mapping(machine.get("release_parity"), label="machine release parity")
+    return executable, parity, _mapping(parity.get("parity"), label="machine embedded parity")
+
+
 def _machine_binding(
     machine_path: Path,
     screenshot_path: Path,
@@ -180,44 +224,71 @@ def _machine_binding(
     executable_raw, executable_identity = _file_identity(executable_path)
     parity, parity_raw = _load_object(parity_path, label="release parity")
 
-    qgc = _mapping(machine.get("qgc"), label="machine.qgc")
-    capture = _mapping(
-        qgc.get("native_visual_machine_capture"),
-        label="machine.qgc.native_visual_machine_capture",
-    )
-    capture_file = _mapping(capture.get("capture"), label="machine capture file")
-    assertions = _mapping(machine.get("assertions"), label="machine.assertions")
-    target = _mapping(
-        _mapping(machine.get("jetson_metadata_hil"), label="machine.jetson_metadata_hil").get(
-            "target_geolocation_evidence"
-        ),
-        label="machine target geolocation evidence",
-    )
-    expected_parity = _mapping(
-        target.get("expected_release_parity"), label="machine expected release parity"
-    )
-    embedded_parity = _mapping(
-        expected_parity.get("parity"), label="machine embedded release parity"
-    )
     current_parity = _mapping(parity.get("parity", parity), label="current release parity")
+    source_schema = machine.get("schema")
+    native_capture = source_schema == "multidetect.qgc-native-style-capture"
+    if native_capture:
+        executable, parity_binding, embedded_parity = _native_capture_machine_parts(machine)
+        qgc: Mapping[str, Any] = {}
+        capture = machine
+        assertions: Mapping[str, Any] = {}
+        machine_mode = _machine_runtime_mode(machine, qgc)
+        machine_event_valid = (
+            machine.get("schema_version") == 2
+            and machine.get("event") == "qgc_native_style_capture"
+            and isinstance(machine.get("run_id"), str)
+            and _RUN_ID_RE.fullmatch(machine["run_id"]) is not None
+        )
+        machine_gate = machine.get("capture_gate_passed") is True
+        attached = machine.get("attached_existing_process") is True
+        requested_pid = machine.get("requested_existing_process_id")
+        qgc_pid = machine.get("qgc_pid")
+        capture_bound_to_pid = (
+            type(qgc_pid) is int and qgc_pid > 0 and (not attached or requested_pid == qgc_pid)
+        )
+        qgc_path_value = executable.get("path")
+        qgc_sha_value = executable.get("sha256")
+        parity_path_value = parity_binding.get("path")
+        parity_identity_matches = (
+            isinstance(parity_path_value, str)
+            and Path(parity_path_value).resolve() == parity_path
+            and parity_binding.get("bytes") == len(parity_raw)
+            and str(parity_binding.get("sha256", "")).lower() == _sha256_bytes(parity_raw)
+        )
+    else:
+        qgc, capture, assertions, embedded_parity = _legacy_hil_machine_parts(machine)
+        machine_mode = _machine_runtime_mode(machine, qgc)
+        machine_event_valid = (
+            machine.get("event") == "px4_sitl_qgc_operator_acceptance"
+            and source_schema is None
+            and expected_runtime_mode == "hil"
+        )
+        machine_gate = assertions.get("all_passed") is True
+        capture_bound_to_pid = (
+            assertions.get("native_visual_capture_bound_to_acceptance_pid") is True
+        )
+        qgc_path_value = qgc.get("executable")
+        qgc_sha_value = qgc.get("executable_sha256")
+        parity_identity_matches = True
 
-    machine_mode_value = machine.get("runtime_mode")
-    if not isinstance(machine_mode_value, str):
-        machine_mode_value = qgc.get("runtime_mode")
-    if not isinstance(machine_mode_value, str) and qgc.get("isolated_hil_cli") is True:
-        machine_mode_value = "hil"
-    machine_mode = (
-        machine_mode_value.strip().lower() if isinstance(machine_mode_value, str) else None
-    )
-
+    capture_file = _mapping(capture.get("capture"), label="machine capture file")
     capture_path_value = capture_file.get("path")
-    qgc_path_value = qgc.get("executable")
+    rect = capture.get("exact_client_rect_screen")
+    valid_rect = (
+        isinstance(rect, Mapping)
+        and type(rect.get("width")) is int
+        and rect["width"] > 0
+        and type(rect.get("height")) is int
+        and rect["height"] > 0
+    )
     checks = {
-        "machine_event": machine.get("event") == "px4_sitl_qgc_operator_acceptance",
+        "machine_event": machine_event_valid,
         "runtime_mode_matches": machine_mode == expected_runtime_mode,
-        "machine_gate": assertions.get("all_passed") is True,
-        "capture_bound_to_pid": assertions.get("native_visual_capture_bound_to_acceptance_pid")
-        is True,
+        "machine_gate": machine_gate,
+        "capture_bound_to_pid": capture_bound_to_pid,
+        "valid_exact_client_rect": valid_rect,
+        "no_external_occluders": not native_capture
+        or capture.get("external_occluders_after") == [],
         "single_native_surface": capture.get("single_native_surface_machine_check") is True,
         "machine_did_not_claim_human_review": capture.get("operator_visual_acceptance")
         == "not_claimed",
@@ -230,22 +301,30 @@ def _machine_binding(
         "capture_is_png": screenshot_raw.startswith(b"\x89PNG\r\n\x1a\n"),
         "executable_path_matches": isinstance(qgc_path_value, str)
         and Path(qgc_path_value).resolve() == executable_path,
-        "executable_sha256_matches": str(qgc.get("executable_sha256", "")).lower()
+        "executable_sha256_matches": str(qgc_sha_value or "").lower()
         == executable_identity["sha256"],
+        "executable_bytes_match": not native_capture
+        or executable.get("bytes") == len(executable_raw),
+        "release_parity_identity_matches": parity_identity_matches,
+        "release_parity_values_match_current": not native_capture
+        or dict(embedded_parity) == dict(current_parity),
         "ui_contract_matches_current": embedded_parity.get("ui_contract_hash")
         == current_parity.get("ui_contract_hash"),
     }
+    machine_report_binding = {
+        "path": _relative(machine_path, root, label="machine report"),
+        "bytes": len(machine_raw),
+        "sha256": _sha256_bytes(machine_raw),
+        "event": machine.get("event"),
+        "runtime_mode": machine_mode,
+        "run_id": machine.get("run_id"),
+        "qgc_pid": capture.get("qgc_pid"),
+        "qgc_hwnd_exact_client": capture.get("exact_client_rect_screen"),
+    }
+    if source_schema is not None:
+        machine_report_binding["schema"] = source_schema
     binding = {
-        "machine_report": {
-            "path": _relative(machine_path, root, label="machine report"),
-            "bytes": len(machine_raw),
-            "sha256": _sha256_bytes(machine_raw),
-            "event": machine.get("event"),
-            "runtime_mode": machine_mode,
-            "run_id": machine.get("run_id"),
-            "qgc_pid": capture.get("qgc_pid"),
-            "qgc_hwnd_exact_client": capture.get("exact_client_rect_screen"),
-        },
+        "machine_report": machine_report_binding,
         "screenshot": {
             "path": _relative(screenshot_path, root, label="screenshot"),
             **screenshot_identity,

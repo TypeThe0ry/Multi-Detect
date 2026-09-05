@@ -2,6 +2,11 @@
 param(
     [string]$ExecutablePath = '',
     [string]$OutputDirectory = '',
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('replay', 'sim', 'hil', 'real')]
+    [string]$RuntimeMode,
+    [string]$RunId = '',
+    [string]$ReleaseParityPath = '',
     [ValidateRange(500, 30000)]
     [int]$SettleMilliseconds = 3500,
     [ValidateRange(-1, 16)]
@@ -35,6 +40,19 @@ function Resolve-ExistingFile {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$RuntimeMode = $RuntimeMode.ToLowerInvariant()
+if (-not $ReleaseParityPath) {
+    $ReleaseParityPath = Join-Path $repoRoot 'configs\release-parity.json'
+}
+$ReleaseParityPath = Resolve-ExistingFile $ReleaseParityPath
+if (-not $ReleaseParityPath) {
+    throw 'Release parity is unavailable. Pass -ReleaseParityPath <repository>\configs\release-parity.json.'
+}
+$releaseParityRaw = Get-Content -LiteralPath $ReleaseParityPath -Raw
+$releaseParityDocument = $releaseParityRaw | ConvertFrom-Json
+if (-not $releaseParityDocument.parity.ui_contract_hash) {
+    throw "Release parity has no parity.ui_contract_hash: $ReleaseParityPath"
+}
 $attachedProcess = $ExistingProcessId -gt 0
 $attachedQgcProcess = $null
 if (-not $attachedProcess -and -not $ExecutablePath) {
@@ -74,6 +92,12 @@ if (-not $OutputDirectory) {
 }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+if (-not $RunId) {
+    $RunId = Split-Path -Leaf $OutputDirectory
+}
+if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+    throw 'RunId must contain 1-128 ASCII letters, digits, dot, underscore or hyphen.'
+}
 
 if (-not ([System.Management.Automation.PSTypeName]'MultiDetectNativeStyle.Native').Type) {
     Add-Type -TypeDefinition @'
@@ -409,12 +433,42 @@ if (Test-Path -LiteralPath $capturePath -PathType Leaf) {
     $captureHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $capturePath).Hash
     $captureBytes = (Get-Item -LiteralPath $capturePath).Length
 }
+$executableHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ExecutablePath).Hash
+$executableBytes = (Get-Item -LiteralPath $ExecutablePath).Length
+$releaseParityHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ReleaseParityPath).Hash
+$releaseParityBytes = (Get-Item -LiteralPath $ReleaseParityPath).Length
+$captureGatePassed = [bool](
+    $captureSucceeded -and
+    -not $captureError -and
+    $captureBytes -gt 0 -and
+    $captureHash -and
+    $process -and
+    $process.Id -gt 0 -and
+    $captureRect -and
+    $captureRect.Width -gt 0 -and
+    $captureRect.Height -gt 0 -and
+    $occludersAfter.Count -eq 0
+)
 $observation = [ordered]@{
     schema = 'multidetect.qgc-native-style-capture'
-    schema_version = 1
+    schema_version = 2
+    event = 'qgc_native_style_capture'
+    runtime_mode = $RuntimeMode
+    run_id = $RunId
     started_at_utc = $startedAt.ToString('o')
     finished_at_utc = $endedAt.ToString('o')
     executable = $ExecutablePath
+    executable_identity = [ordered]@{
+        path = $ExecutablePath
+        bytes = $executableBytes
+        sha256 = $executableHash
+    }
+    release_parity = [ordered]@{
+        path = $ReleaseParityPath
+        bytes = $releaseParityBytes
+        sha256 = $releaseParityHash
+        parity = $releaseParityDocument.parity
+    }
     attached_existing_process = [bool]$attachedProcess
     requested_existing_process_id = if ($attachedProcess) { $ExistingProcessId } else { $null }
     requested_capture_width = $CaptureWidth
@@ -437,6 +491,7 @@ $observation = [ordered]@{
     qml_rendering_proved = $false
     desktop_capture_gpu_surface_proved = $false
     error = $captureError
+    capture_gate_passed = $captureGatePassed
 }
 $observation | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $observationPath -Encoding UTF8
 

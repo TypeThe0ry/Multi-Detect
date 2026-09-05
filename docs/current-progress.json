@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T15:00:00Z",
+  "updated_at_utc": "2026-09-05T13:35:07Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "e5d4fc208f3cb7b6185955683d7e246c708879a9",
-    "commit_subject": "feat(qgc): bind human visual acceptance evidence",
-    "commits_ahead_of_origin_main": 9
+    "commit": "020a385a31c64f9b668dd7acdfda631bbfd6386a",
+    "commit_subject": "feat(release): require four-mode QGC visual reviews",
+    "commits_ahead_of_origin_main": 10
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v65",
+  "working_iteration": "v66",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v65-final.xml",
-      "tests": 3282,
-      "passed": 3281,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v66-final.xml",
+      "tests": 3286,
+      "passed": 3285,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 115.24,
-      "junit_local_path": "tmp/current-progress-regression-v65-final.xml",
-      "junit_file_bytes": 477082,
-      "junit_file_sha256": "c893ddedee6a07f659f354c0c3dd13214dfa81014f08eec380f977ed4c77ee7a",
+      "duration_seconds": 136.96,
+      "junit_local_path": "tmp/current-progress-regression-v66-final.xml",
+      "junit_file_bytes": 477631,
+      "junit_file_sha256": "15f37922f866e1fcfbede011a461185333e25244b70447629955363635356c78",
       "distributed_in_git": false
     },
     "ruff": {
@@ -222,6 +222,10 @@
     "qgc_operator_visual_acceptance_contract": {
       "implementation": "src/multidetect/qgc_visual_acceptance.py",
       "schema": "configs/schemas/qgc-operator-visual-acceptance.schema.json",
+      "machine_capture_schema": "multidetect.qgc-native-style-capture/v2",
+      "machine_capture_schema_path": "configs/schemas/qgc-native-style-capture.schema.json",
+      "machine_capture_script": "scripts/capture_qgc_native_style.ps1",
+      "machine_capture_adapters": ["native_v2_four_mode", "legacy_px4_hil_only"],
       "fail_closed_checklist": "configs/qgc-visual-review-checklist.json",
       "cli": "multidetect-qgc-visual-review",
       "required_visual_checks": 12,

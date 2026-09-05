@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "capture_qgc_native_style.ps1"
+SCHEMA = ROOT / "configs" / "schemas" / "qgc-native-style-capture.schema.json"
 
 
 def _read() -> str:
@@ -11,6 +12,7 @@ def _read() -> str:
 
 
 def test_native_style_capture_script_is_present_and_exact_client_bound() -> None:
+    assert SCHEMA.is_file()
     source = _read()
     for fragment in (
         "--offline",
@@ -23,6 +25,15 @@ def test_native_style_capture_script_is_present_and_exact_client_bound() -> None
         "ComputerUseOperatorAuthorized",
         "HideStubbornOccluders",
         "ExistingProcessId",
+        "[Parameter(Mandatory = $true)]",
+        "[string]$RuntimeMode",
+        "ReleaseParityPath",
+        "RunId",
+        "schema_version = 2",
+        "event = 'qgc_native_style_capture'",
+        "executable_identity",
+        "release_parity",
+        "capture_gate_passed",
         "CaptureWidth = 1600",
         "CaptureHeight = 900",
         "$requestedWindowWidth = [Math]::Max",

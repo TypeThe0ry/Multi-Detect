@@ -13,10 +13,23 @@
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 必须从完整 portable 目录启动，以便同时加载 Qt、QML、GStreamer、翻译和插件运行时；裸
 `Release\MultiDetectGCS.exe` 只是链接产物，不是单文件发布物。当前 Release 与 portable 主 EXE
-在本机字节一致：`46,576,128` bytes，SHA-256
-`06E7B1BBEC1B96DC6E5A231B12B88725122476075ED86A24BBEF554CB899E5FE`。v51 已为
-`RANGE_STATUS` bit 31 协议扩展重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
+在本机字节一致：`46,576,640` bytes，SHA-256
+`62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`。v61 已为持续定位刷新和
+exact-PID/HWND 捕获重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
 的大小和 SHA 记录保留在下文历史条目中，不覆盖本段当前指纹。
+
+### v66 四模式 native capture v2
+
+`scripts/capture_qgc_native_style.ps1` 现在要求调用方显式传入
+`-RuntimeMode replay|sim|hil|real`。输出 `process-observation.json` 为
+`multidetect.qgc-native-style-capture` schema v2，并由
+`configs/schemas/qgc-native-style-capture.schema.json` 校验；它包含 event、run ID、EXE identity、canonical
+release-parity identity/五组摘要、exact PID/client rect、遮挡和 PNG identity；`capture_gate_passed`
+只代表机器捕获链通过，不代表人工视觉签字。HIL acceptance wrapper 已自动传入 `hil` 和同一 run ID。
+
+人工记录生成器优先读取这一通用格式；历史 `px4_sitl_qgc_operator_acceptance` 仍可作为 legacy HIL
+来源，但其 event 在 REPLAY/SIM/REAL 下必然 fail-closed。四模式各自完成机器捕获后，仍须分别用同一
+12 项 checklist 生成 accepted review，不能复用截图或 machine report。
 
 ### v55 PX4 position-response acceptance；portable 不重复链接（2026-09-05，pre.8）
 

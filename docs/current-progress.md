@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v65 工作树）
+最后更新：2026-09-05（v66 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `e5d4fc208f3cb7b6185955683d7e246c708879a9`（当前工作树变更前领先远端 9 个提交）。
+本地 `main` 提交 `020a385a31c64f9b668dd7acdfda631bbfd6386a`（当前工作树变更前领先远端 10 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -23,10 +23,26 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 PX4/Gazebo 源报告，并把 repeatability/fault campaign 接入 E7。v64 新增 source-bound QGC 人工视觉
 review 合同、12 项 checklist、0 假点负控和独立 verifier。v65 已把它接入 E7，并强制要求
 REPLAY/SIM/HIL/REAL 各自独立的机器来源与人工记录；当前仍是 0/4，人工签字和现场证据未完成。
+v66 进一步把机器捕获抽成四模式共用的 schema-v2 契约，绑定实际 EXE、parity、run、exact PID/client
+rect、遮挡和 PNG；历史 PX4 报告仅保留 HIL 兼容，REPLAY/SIM/REAL 不再伪装成 HIL 格式。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v66 本轮已收口
+
+- `capture_qgc_native_style.ps1` 与仓库 JSON Schema 定义 schema v2 并强制显式 runtime mode；报告绑定
+  run ID、实际 QGC
+  EXE identity、canonical parity identity/五组摘要、exact PID/client rect、遮挡状态和 PNG identity。
+- 单记录 verifier 使用 native-v2 / legacy-HIL 双适配器；新报告直接覆盖四模式，旧 PX4 event 仅允许
+  HIL。mode/PID/rect/遮挡/PNG/EXE/parity/UI contract 任一不一致都会关闭记录。
+- HIL acceptance wrapper 已传入明确的 `hil`、同一 run ID 和 canonical parity。当前仍未产生任何人工
+  accepted record，因此 E7 仍为 0/4、32 blockers、最终 `v0.3.0` 继续阻断。
+- 全仓 3,286 tests：`3285 passed, 1 skipped, 0 failed, 0 errors`；JUnit 477,631 bytes，SHA-256
+  `15F37922F866E1FCFBEDE011A461185333E25244B70447629955363635356C78`。Ruff、compileall、schema、
+  PowerShell parser 与 parity 重算通过；parity 文件前后同为
+  `289C1A3DD638C2A503ABEA44EE3F87564BB38D1232FB1428E92EA004180D060B`。
 
 ## v65 本轮已收口
 
@@ -227,7 +243,7 @@ v59 矩阵内部摘要为：
 ## 当前共享契约身份
 
 `configs/release-parity.json`：5,146 bytes，文件 SHA-256
-`08807AA127A1F1E61D31FF503E4EC4D3BC6803C7369D671DFD864B4B22646A73`。
+`289C1A3DD638C2A503ABEA44EE3F87564BB38D1232FB1428E92EA004180D060B`。
 
 | 契约组 | 当前哈希 |
 |---|---|
@@ -235,7 +251,7 @@ v59 矩阵内部摘要为：
 | Core algorithm | `505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9` |
 | Task contract | `2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af` |
 | Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
-| PX4 Mission path | `18023962f68a61fdfb14c44e5f0a6a5bb713c782166386bd2b1f2bf7b567651d` |
+| PX4 Mission path | `f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a` |
 
 ## 功能成熟度矩阵
 

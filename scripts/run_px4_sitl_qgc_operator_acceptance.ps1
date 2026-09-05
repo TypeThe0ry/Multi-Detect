@@ -602,6 +602,9 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             "-File", $NativeCaptureScript,
             "-ExistingProcessId", "$($qgcProcess.Id)",
             "-OutputDirectory", $NativeVisualEvidenceDirectory,
+            "-RuntimeMode", "hil",
+            "-RunId", $RunId,
+            "-ReleaseParityPath", $ReleaseParityPath,
             "-SettleMilliseconds", "1500",
             "-HideStubbornOccluders"
         )

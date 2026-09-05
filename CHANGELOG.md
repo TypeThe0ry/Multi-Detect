@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v66 四模式 QGC 机器捕获统一契约（2026-09-05）
+
+- `capture_qgc_native_style.ps1` 与新增 `qgc-native-style-capture.schema.json` 定义 schema v2，强制显式
+  `runtime_mode`，并绑定 run ID、QGC EXE
+  路径/字节/SHA-256、当前 release-parity 路径/字节/SHA-256/五组摘要、exact PID/client rect、遮挡和 PNG。
+- `qgc_visual_acceptance.py` 新增通用 native-v2 与 legacy PX4-HIL 两个适配器。新契约可原生承载
+  REPLAY/SIM/HIL/REAL；旧 `px4_sitl_qgc_operator_acceptance` 只允许作为 HIL 来源，不能冒充其他模式。
+- native-v2 对错误 event/version、模式不匹配、PID 绑定失败、无效 client rect、外部遮挡、截图/EXE/parity
+  身份漂移、非 PNG、机器冒充人工签字或 UI contract 过期全部 fail-closed。HIL wrapper 已显式传入
+  `hil`、run ID 和 canonical parity。
+- 全仓 3,286 tests：`3285 passed, 1 skipped, 0 failed, 0 errors`；JUnit 477,631 bytes、SHA-256
+  `15F37922F866E1FCFBEDE011A461185333E25244B70447629955363635356C78`。Ruff、compileall、全部相关
+  JSON Schema、PowerShell parser 和 release parity 重算通过；parity 文件及五组哈希均未变化。
+
 ### v0.3.0-pre.8 v65 四模式 QGC 人工视觉 E7 门（2026-09-05）
 
 - 单份视觉记录新增强制 `runtime_mode` 并复验 machine report 的模式身份；v61 exact PID/HWND 捕获只

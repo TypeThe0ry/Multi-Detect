@@ -44,34 +44,36 @@ def _fixture(tmp_path: Path, runtime_mode: str = "hil") -> dict[str, Path]:
     _write_json(
         machine,
         {
-            "event": "px4_sitl_qgc_operator_acceptance",
+            "schema": "multidetect.qgc-native-style-capture",
+            "schema_version": 2,
+            "event": "qgc_native_style_capture",
             "runtime_mode": runtime_mode,
             "run_id": f"visual-test-{runtime_mode}",
-            "qgc": {
-                "executable": str(executable),
-                "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
-                "isolated_hil_cli": True,
-                "native_visual_machine_capture": {
-                    "qgc_pid": 1234,
-                    "exact_client_rect_screen": {"width": 1600, "height": 900},
-                    "single_native_surface_machine_check": True,
-                    "operator_visual_acceptance": "not_claimed",
-                    "error": None,
-                    "capture": {
-                        "path": str(screenshot),
-                        "bytes": screenshot.stat().st_size,
-                        "sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
-                    },
-                },
+            "executable": str(executable),
+            "executable_identity": {
+                "path": str(executable),
+                "bytes": executable.stat().st_size,
+                "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
             },
-            "assertions": {
-                "all_passed": True,
-                "native_visual_capture_bound_to_acceptance_pid": True,
+            "release_parity": {
+                "path": str(parity),
+                "bytes": parity.stat().st_size,
+                "sha256": hashlib.sha256(parity.read_bytes()).hexdigest(),
+                "parity": {"ui_contract_hash": ui_hash},
             },
-            "jetson_metadata_hil": {
-                "target_geolocation_evidence": {
-                    "expected_release_parity": {"parity": {"ui_contract_hash": ui_hash}}
-                }
+            "attached_existing_process": True,
+            "requested_existing_process_id": 1234,
+            "qgc_pid": 1234,
+            "exact_client_rect_screen": {"width": 1600, "height": 900},
+            "external_occluders_after": [],
+            "single_native_surface_machine_check": True,
+            "operator_visual_acceptance": "not_claimed",
+            "error": None,
+            "capture_gate_passed": True,
+            "capture": {
+                "path": str(screenshot),
+                "bytes": screenshot.stat().st_size,
+                "sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
             },
         },
     )
@@ -124,6 +126,41 @@ def _accepted(files: dict[str, Path]) -> dict[str, object]:
     )
 
 
+def _rewrite_as_legacy_px4_report(files: dict[str, Path], *, runtime_mode: str = "hil") -> None:
+    current = json.loads(files["machine"].read_text(encoding="utf-8"))
+    ui_hash = current["release_parity"]["parity"]["ui_contract_hash"]
+    _write_json(
+        files["machine"],
+        {
+            "event": "px4_sitl_qgc_operator_acceptance",
+            "runtime_mode": runtime_mode,
+            "run_id": f"legacy-{runtime_mode}",
+            "qgc": {
+                "executable": str(files["executable"]),
+                "executable_sha256": hashlib.sha256(files["executable"].read_bytes()).hexdigest(),
+                "isolated_hil_cli": True,
+                "native_visual_machine_capture": {
+                    "qgc_pid": 1234,
+                    "exact_client_rect_screen": {"width": 1600, "height": 900},
+                    "single_native_surface_machine_check": True,
+                    "operator_visual_acceptance": "not_claimed",
+                    "error": None,
+                    "capture": current["capture"],
+                },
+            },
+            "assertions": {
+                "all_passed": True,
+                "native_visual_capture_bound_to_acceptance_pid": True,
+            },
+            "jetson_metadata_hil": {
+                "target_geolocation_evidence": {
+                    "expected_release_parity": {"parity": {"ui_contract_hash": ui_hash}}
+                }
+            },
+        },
+    )
+
+
 def test_accepted_record_is_schema_valid_and_reproducible(tmp_path: Path) -> None:
     files = _fixture(tmp_path)
     document = _accepted(files)
@@ -142,6 +179,52 @@ def test_accepted_record_is_schema_valid_and_reproducible(tmp_path: Path) -> Non
     )
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)
+
+    machine_schema = json.loads(
+        (ROOT / "configs/schemas/qgc-native-style-capture.schema.json").read_text(encoding="utf-8")
+    )
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(machine_schema)
+    Draft202012Validator(machine_schema, format_checker=FormatChecker()).validate(machine)
+
+
+def test_legacy_px4_hil_machine_report_remains_accepted(tmp_path: Path) -> None:
+    files = _fixture(tmp_path)
+    _rewrite_as_legacy_px4_report(files)
+    document = _accepted(files)
+    assert document["gate_passed"] is True
+    assert "schema" not in document["positive_visual_evidence"]["machine_report"]
+
+
+def test_legacy_px4_hil_machine_report_cannot_claim_sim(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "sim")
+    _rewrite_as_legacy_px4_report(files, runtime_mode="sim")
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    assert document["positive_visual_evidence"]["machine_checks"]["machine_event"] is False
+
+
+def test_native_capture_with_occluder_remains_closed(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "real")
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    machine["external_occluders_after"] = [{"pid": 99, "title": "cover"}]
+    _write_json(files["machine"], machine)
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    assert document["positive_visual_evidence"]["machine_checks"]["no_external_occluders"] is False
+
+
+def test_native_capture_stale_embedded_ui_contract_remains_closed(tmp_path: Path) -> None:
+    files = _fixture(tmp_path, "replay")
+    machine = json.loads(files["machine"].read_text(encoding="utf-8"))
+    machine["release_parity"]["parity"]["ui_contract_hash"] = "2" * 64
+    _write_json(files["machine"], machine)
+    document = _accepted(files)
+    assert document["gate_passed"] is False
+    assert (
+        document["positive_visual_evidence"]["machine_checks"]["ui_contract_matches_current"]
+        is False
+    )
 
 
 def test_screenshot_tamper_fails_independent_verification(tmp_path: Path) -> None:
@@ -258,9 +341,7 @@ def test_four_mode_release_gate_binding_is_reproducible(tmp_path: Path) -> None:
     assert all(record["passed"] for record in result["records"])
 
     release_schema = json.loads(
-        (ROOT / "configs/schemas/release-gate-manifest.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "configs/schemas/release-gate-manifest.schema.json").read_text(encoding="utf-8")
     )
     aggregate_schema = {
         "$schema": release_schema["$schema"],
@@ -324,9 +405,7 @@ def test_machine_runtime_mode_mismatch_keeps_visual_record_closed(tmp_path: Path
         runtime_mode="real",
     )
     assert document["gate_passed"] is False
-    assert (
-        document["positive_visual_evidence"]["machine_checks"]["runtime_mode_matches"] is False
-    )
+    assert document["positive_visual_evidence"]["machine_checks"]["runtime_mode_matches"] is False
 
 
 def test_release_gate_rejects_cross_mode_source_reuse(tmp_path: Path) -> None:
@@ -336,9 +415,7 @@ def test_release_gate_rejects_cross_mode_source_reuse(tmp_path: Path) -> None:
         output_identity=(tmp_path / "release-gate.json").resolve(),
         manifest_directory=tmp_path.resolve(),
     )
-    aggregate["records"][1]["screenshot_sha256"] = aggregate["records"][0][
-        "screenshot_sha256"
-    ]
+    aggregate["records"][1]["screenshot_sha256"] = aggregate["records"][0]["screenshot_sha256"]
     result = _qgc_operator_visual_acceptance_result(
         aggregate,
         manifest_directory=tmp_path.resolve(),
@@ -353,7 +430,7 @@ def test_manifest_builder_rejects_same_screenshot_across_modes(tmp_path: Path) -
     sim = _fixture(tmp_path, "sim")
     hil = _fixture(tmp_path, "hil")
     hil_machine = json.loads(hil["machine"].read_text(encoding="utf-8"))
-    hil_capture = hil_machine["qgc"]["native_visual_machine_capture"]["capture"]
+    hil_capture = hil_machine["capture"]
     hil_capture.update(
         {
             "path": str(sim["screenshot"]),
