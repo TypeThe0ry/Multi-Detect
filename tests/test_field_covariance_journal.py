@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -171,6 +172,8 @@ def test_recovery_requires_exact_dead_owner_and_preserves_audit(
     _validate_schema(json.loads(recovery_path.read_text(encoding="utf-8")))
     assert recovered["lease_file_sha256"] == _sha(archive / journal.LEASE_FILE)
     assert not lease.directory.exists()
+    status = journal.capture_lease_status(receipt_path, journal_path)
+    assert status["recovered_lease_count"] == 1
 
 
 def test_interrupted_recovery_is_resumable_only_with_same_exact_request(
@@ -345,6 +348,9 @@ def test_journal_index_reconciles_contiguous_prefix_and_verifies(
     assert [item["record_sha256"] for item in index["records"]] == [
         item["record_sha256"] for item in records
     ]
+    assert all(item["lease_archive_kind"] == "released" for item in index["records"])
+    assert all(item["recovery_path"] is None for item in index["records"])
+    assert all(item["recovery_file_sha256"] is None for item in index["records"])
     output = tmp_path / "journal-index.json"
     written = journal.write_field_covariance_journal_index(
         receipt_path, journal_path, output
@@ -382,7 +388,129 @@ def test_journal_index_requires_preserved_released_lease(
     (released / journal.LEASE_FILE).unlink()
     released.rmdir()
 
-    with pytest.raises(journal.FieldCovarianceJournalError, match="capture lease"):
+    with pytest.raises(journal.FieldCovarianceJournalError, match="exactly one"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+def test_journal_index_accepts_recovered_lease_after_session_commit_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    lease_id = f"{1:032x}"
+    released = journal_path / journal.RELEASED_DIR / lease_id
+    active = journal._lease_directory(journal_path, "b" * 64)
+    released.rename(active)
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="exactly one"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+    monkeypatch.setattr(journal, "_owner_process_state", lambda owner: "dead")
+    recovered = journal.recover_dead_capture_lease(
+        receipt_path,
+        journal_path,
+        expected_lease_id=lease_id,
+        reason="owner died after session commit",
+        recovered_at=datetime(2026, 9, 6, 4, 5, 6, tzinfo=UTC),
+    )
+    assert Path(recovered["archive_directory"]).parent.name == journal.RECOVERED_DIR
+
+    index = journal.build_field_covariance_journal_index(receipt_path, journal_path)
+    _validate_schema(index)
+    record = index["records"][0]
+    assert record["lease_archive_kind"] == "recovered"
+    assert Path(record["lease_path"]).is_file()
+    assert Path(record["recovery_path"]).is_file()
+    assert record["recovery_file_sha256"] == _sha(Path(record["recovery_path"]))
+
+    output = tmp_path / "recovered-journal-index.json"
+    journal.write_field_covariance_journal_index(receipt_path, journal_path, output)
+    assert journal.verify_field_covariance_journal_index(output)["gate_passed"] is True
+
+
+def test_journal_index_rejects_ambiguous_released_and_recovered_archives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    lease_id = f"{1:032x}"
+    released = journal_path / journal.RELEASED_DIR / lease_id
+    recovered = journal_path / journal.RECOVERED_DIR / lease_id
+    recovered.parent.mkdir()
+    shutil.copytree(released, recovered)
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="exactly one"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+def test_journal_index_rejects_tampered_recovery_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    lease_id = f"{1:032x}"
+    released = journal_path / journal.RELEASED_DIR / lease_id
+    active = journal._lease_directory(journal_path, "b" * 64)
+    released.rename(active)
+    monkeypatch.setattr(journal, "_owner_process_state", lambda owner: "dead")
+    recovered = journal.recover_dead_capture_lease(
+        receipt_path,
+        journal_path,
+        expected_lease_id=lease_id,
+        reason="owner died after session commit",
+    )
+    recovery_path = Path(recovered["archive_directory"]) / journal.RECOVERY_FILE
+    document = json.loads(recovery_path.read_text(encoding="utf-8"))
+    document["reason"] = "tampered recovery reason"
+    recovery_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="digest mismatch"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("lease_id", "2" * 32),
+        ("lease_file_sha256", "d" * 64),
+        ("receipt_sha256", "c" * 64),
+    ],
+)
+def test_journal_index_rejects_redigested_mismatched_recovery_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    lease_id = f"{1:032x}"
+    released = journal_path / journal.RELEASED_DIR / lease_id
+    active = journal._lease_directory(journal_path, "b" * 64)
+    released.rename(active)
+    monkeypatch.setattr(journal, "_owner_process_state", lambda owner: "dead")
+    recovered = journal.recover_dead_capture_lease(
+        receipt_path,
+        journal_path,
+        expected_lease_id=lease_id,
+        reason="owner died after session commit",
+    )
+    recovery_path = Path(recovered["archive_directory"]) / journal.RECOVERY_FILE
+    document = json.loads(recovery_path.read_text(encoding="utf-8"))
+    if field == "receipt_sha256":
+        document["receipt"][field] = value
+    else:
+        document[field] = value
+    unsigned = dict(document)
+    unsigned.pop("recovery_sha256")
+    document["recovery_sha256"] = journal._canonical_sha256(unsigned)
+    recovery_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="does not match"):
         journal.build_field_covariance_journal_index(receipt_path, journal_path)
 
 

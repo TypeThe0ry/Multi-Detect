@@ -106,7 +106,8 @@
       "additionalProperties": false,
       "required": [
         "leaf_ordinal", "runtime_mode", "vehicle_class", "path", "file_sha256",
-        "record_sha256", "released_lease_path", "released_lease_file_sha256"
+        "record_sha256", "lease_archive_kind", "lease_path", "lease_file_sha256",
+        "recovery_path", "recovery_file_sha256"
       ],
       "properties": {
         "leaf_ordinal": {"type": "integer", "minimum": 1, "maximum": 6},
@@ -115,9 +116,42 @@
         "path": {"type": "string", "minLength": 1},
         "file_sha256": {"$ref": "#/$defs/sha256"},
         "record_sha256": {"$ref": "#/$defs/sha256"},
-        "released_lease_path": {"type": "string", "minLength": 1},
-        "released_lease_file_sha256": {"$ref": "#/$defs/sha256"}
-      }
+        "lease_archive_kind": {"enum": ["released", "recovered"]},
+        "lease_path": {"type": "string", "minLength": 1},
+        "lease_file_sha256": {"$ref": "#/$defs/sha256"},
+        "recovery_path": {
+          "oneOf": [{"type": "null"}, {"type": "string", "minLength": 1}]
+        },
+        "recovery_file_sha256": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"lease_archive_kind": {"const": "released"}},
+            "required": ["lease_archive_kind"]
+          },
+          "then": {
+            "properties": {
+              "recovery_path": {"type": "null"},
+              "recovery_file_sha256": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"lease_archive_kind": {"const": "recovered"}},
+            "required": ["lease_archive_kind"]
+          },
+          "then": {
+            "properties": {
+              "recovery_path": {"type": "string", "minLength": 1},
+              "recovery_file_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      ]
     },
     "index": {
       "type": "object",
