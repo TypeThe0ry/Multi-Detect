@@ -831,13 +831,20 @@ class GazeboSimFrameSource:
             # stderr so a real combined-SIM failure identifies the rejected
             # sensor field instead of degenerating into an opaque pipe error.
             return_code = process.poll()
+            if return_code is None:
+                try:
+                    return_code = process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    return_code = process.poll()
             if return_code is not None:
                 self._helper_exit_code = return_code
-                if self._stderr_thread is not None:
-                    self._stderr_thread.join(timeout=1.0)
+            if self._stderr_thread is not None:
+                self._stderr_thread.join(timeout=1.0)
+            stderr_tail = self.stats.stderr_tail
+            if return_code is not None or stderr_tail:
                 raise RuntimeError(
                     "Gazebo SIM helper closed its framed stream: "
-                    f"exit={return_code}, stderr={self.stats.stderr_tail!r}, "
+                    f"exit={return_code}, stderr={stderr_tail!r}, "
                     f"wire_error={exc}"
                 ) from exc
             raise
