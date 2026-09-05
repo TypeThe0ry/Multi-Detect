@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v83 工作树）
+最后更新：2026-09-06（v84 工作树）
+
+## v84 本轮已收口
+
+- Pixhawk provider 新增默认关闭的有界 firmware identity 请求：绑定 HEARTBEAT 后通过
+  `MAV_CMD_REQUEST_MESSAGE(512)` 请求 `AUTOPILOT_VERSION(148)`，每个机体身份最多 3 次、5 秒退避，
+  合法响应到达后立即停止；
+- heartbeat 五元身份变化会清除旧 firmware，并重置该新身份自己的请求预算；默认 receive-only 模式
+  继续零发送，整个路径不触碰参数、模式、Mission、执行器或 stream rate；
+- covariance observation 要求 identity request 实际发生、response observed、firmware hash 合法，且
+  总发送严格等于 `stream attempts×7 + identity attempts`；三次仍无响应则 fail-closed；
+- 当前源码/当前 parity 的外部 pinned PX4/Gazebo 实采 207 条 ODOMETRY、207 条有效 covariance、保存
+  112 条记录；PX4 第一次请求即返回 firmware，发送计数为 `3×7+1=22`，verifier 通过并清理容器；
+- firmware identity hash 为 `8f527860...fdc81`，raw UID 没有进入报告；`px4_mission_path_hash` 更新为
+  `3f118e57...4069c`。HIL/REAL 实机、硬件、室外 GNSS、人工 QGC 和实飞声明保持未通过。
+- 全量回归 3,373 tests：`3372 passed, 1 skipped, 0 failed, 0 errors`；JUnit 491,817 bytes、
+  SHA-256 `0CBB1A09D4D21F774A174078CAD68AABA686C32BA9AC709F6520F59ABCE4A996`；全仓 Ruff 通过，
+  历史 format 债务仍为 412 个文件，没有混入本轮功能提交。
 
 ## v83 本轮已收口
 
@@ -115,7 +132,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `1b9a5d87ad1c1239c1110b594eef7a0a461e32af`（当前文档提交前领先远端 54 个提交）。
+本地 `main` 提交 `5fb7303722a3ccd6d8b5df1a3de388e72490e4f2`（当前文档提交前领先远端 56 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -470,7 +487,7 @@ v59 矩阵内部摘要为：
 ## 当前共享契约身份
 
 `configs/release-parity.json`：5,715 bytes，文件 SHA-256
-`2F51E6469F649061AA57C295165C655B227338A347AFA960C70F8CDB2C48CFF2`。
+`812FE13F1E59FB01A0D1F378617C2FBF2D7294A7393D06F117CC9EB51A09FA68`。
 
 | 契约组 | 当前哈希 |
 |---|---|
@@ -478,7 +495,7 @@ v59 矩阵内部摘要为：
 | Core algorithm | `ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f` |
 | Task contract | `89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad` |
 | Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
-| PX4 Mission path | `5a4c280f2dfdcb920092defee77dfe0499d6d202b2ccc8b9dd21914ac57aaf93` |
+| PX4 Mission path | `3f118e577fbc2906e203065050e13b58947acca8860fd0953b106204d4c4069c` |
 
 ## 功能成熟度矩阵
 

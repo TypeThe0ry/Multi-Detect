@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v84 bounded PX4 firmware identity request（2026-09-06）
+
+- `PixhawkReadOnlyTelemetryProvider` 新增显式、默认关闭的 `request_autopilot_version`：只在绑定到 autopilot
+  HEARTBEAT 后发送 `MAV_CMD_REQUEST_MESSAGE(512)` / `AUTOPILOT_VERSION(148)`，每个机体身份最多三次、
+  5 秒退避，收到合法响应立即停止；身份变化会清空旧值并重置独立预算；
+- diagnostics 新增请求 enabled/attempts/age/command/message/response 字段；总 transmitted counter 继续
+  覆盖全部外发。默认 receive-only provider 仍为零发送，Mission/参数/模式/执行器路径未启用；
+- covariance observation 强制要求实际请求和 64-hex firmware identity，并重算 `stream attempts×7 +
+  identity attempts`；三次无响应即 fail-closed；
+- 当前源码外部 PX4/Gazebo 实采 207 条 ODOMETRY/covariance、112 条记录；一次请求即收到 firmware
+  identity，发送总数严格为 `3×7+1=22`，独立 verifier 通过且容器清理完成；全量回归 3,373 tests：
+  `3372 passed, 1 skipped`，全仓 Ruff 通过。
+
 ### v0.3.0-pre.8 v83 field covariance identity binding（2026-09-06）
 
 - 将 Pixhawk covariance observation 升级到 schema v2；HIL/REAL 必须绑定可执行 Mission、严格复验的

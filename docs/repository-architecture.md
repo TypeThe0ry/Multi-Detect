@@ -1,5 +1,12 @@
 # 统一仓库架构
 
+## v84 bounded firmware identity acquisition（2026-09-06，`v0.3.0-pre.8`）
+
+`PixhawkReadOnlyTelemetryProvider.snapshot()` 在 receive drain 后依次执行可选 firmware identity request 与
+ranging stream request。前者有独立的 per-heartbeat budget/clock/diagnostics，后者保留既有 cadence；
+两类 `COMMAND_LONG` 都进入统一 `messages_transmitted`，covariance verifier 从两个 attempts 重新计算
+精确发送总数。默认配置仍不发任何消息；只有 covariance field-capture 显式打开两种 telemetry 请求。
+
 ## v83 field covariance evidence binding（2026-09-06，`v0.3.0-pre.8`）
 
 `scripts/capture_pixhawk_odometry_covariance.py` 现在把 HIL/REAL observation 接到既有 Mission/profile/

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v83：HIL/REAL covariance 采集已绑定签名 runtime profile、PX4 Mission feedback、当前 heartbeat/firmware 身份；外部 SIM v2 实证通过，实机采集待完成 |
+| 当前工程迭代 | v84：只读 Pixhawk provider 有界请求 `AUTOPILOT_VERSION`，现场 covariance 身份门不再依赖偶然广播；外部 PX4 SIM 实证一次请求即返回 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,17 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v84 有界 PX4 firmware 身份请求
+
+只读 provider 可显式启用 `MAV_CMD_REQUEST_MESSAGE`，向已经通过 HEARTBEAT 绑定的 PX4 请求一次
+`AUTOPILOT_VERSION` 148。每个机体身份最多尝试 3 次、间隔至少 5 秒，收到完整合法响应后立即停止；
+heartbeat 身份变化会清除旧 firmware 并重新开始独立预算。诊断报告分别记录 command/message ID、
+attempts、响应状态和匿名化 firmware identity hash。该请求不修改参数、模式、Mission、执行器或流速。
+
+covariance evidence 现在要求版本请求实际发生且收到合法响应，并核对总发送数等于有界 stream 配置加
+firmware 读取请求。外部 PX4/Gazebo 正控证明实际 PX4 第一次请求即响应，消除了 v83 现场采集可能因
+`AUTOPILOT_VERSION` 未被周期广播而永久等待的问题。
 
 ### v83 HIL/REAL covariance 身份门
 

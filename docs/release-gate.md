@@ -1,5 +1,19 @@
 # v0.3.0 E7 发布门
 
+## v84 PX4 firmware identity availability 子门（2026-09-06，`v0.3.0-pre.8`）
+
+现场 covariance 门所需的 `AUTOPILOT_VERSION` 不再依赖 PX4 偶然广播。provider 只在已绑定 autopilot
+HEARTBEAT 后有界发送 message-148 读取请求；证据必须证明 1–3 次请求内收到合法、source-bound、匿名化
+firmware identity。请求预算、响应状态与总发送计数均可重建，三次无响应或 hash 非法时不产生任何
+SIM/HIL/REAL covariance claim。
+
+当前外部 PX4/Gazebo source 为
+`artifacts/evaluation/terminal-continuation-v84/px4-sitl-version-covariance-v84-pre8-final.json`：
+81,564 bytes，文件 SHA-256 `E825EADA70107318C1D78A9DF138AFA82D227D7659FEE1B48A0A5A03F9ACB29E`，
+内部 evidence SHA-256 `F2098EC5625EBB4F9E9BC2FAC4E4AC45188C926CCCC6C47022AB1A098C09BD77`。
+207/207 条 ODOMETRY/covariance、112 份记录通过；一次 identity 请求得到响应，三轮七消息 stream 配置
+加一次读取的总发送数为 22。该 SIM 正控不替代真实 HIL/REAL、硬件或实飞门。
+
 ## v83 HIL/REAL covariance identity 子门（2026-09-06，`v0.3.0-pre.8`）
 
 HIL/REAL covariance capture 现在要求可执行 Mission、PX4 Mission feedback v2 和签名 runtime profile
