@@ -9,6 +9,14 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v80 `MDGZSIM3` 姿态 covariance 路径
+
+Gazebo transport 读取 `OdometryWithCovariance.pose_with_covariance.covariance.data` 的 36 项 row-major
+矩阵，提取角度 3×3 block 并在 producer/backend 双端验证 finite、对称和正半定。wire-v3 的固定 header
+为 276 bytes，矩阵与像素/导航状态共同受 record SHA-256 保护。backend 以数值 Jacobian 把 Gazebo
+fixed-axis X/Y/Z 不确定性转换为 NED/FRD Euler `1σ`，变换后再应用配置下限。该 producer/consumer 已
+纳入 core parity；外部 PX4/Gazebo v3 runtime 证据尚待重采，旧 v2 证据不被重命名或冒充新协议通过。
+
 ## v71 干净提交上的 Combined provenance 闭环
 
 在提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f` 且 Git status 为空时，完整重跑 v70 的

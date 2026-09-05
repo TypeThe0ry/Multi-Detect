@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v80 Gazebo attitude-covariance wire（2026-09-06）
+
+- 将 Gazebo sensor transport 升级为 `MDGZSIM3` / wire version 3 / 276-byte fixed header，把
+  `PoseWithCovariance` 的 3×3 angular block 和像素、GPS、pose/twist 一起纳入整帧 SHA-256；
+- producer 与 backend 同时验证 9 项 finite、对称和正半定语义；缺失或 malformed 6×6 covariance、
+  被篡改 header、非 PSD 输入均 fail-closed，manifest/replay 保存 JSON-stable 的原始矩阵；
+- 以数值 Jacobian 将 Gazebo fixed-axis X/Y/Z covariance 转为 NED/FRD Euler `1σ`，应用配置 floor，
+  gimbal lock 退化为保守上界；实际 sigma/source 进入 `VehicleTelemetry` 和共享 ranging；
+- 将 wire producer/backend 加入 `core_algorithm_hash`，避免 SIM 改变姿态语义却保留旧 parity identity。
+  本轮未生成新的外部 Gazebo/PX4 source，不改变 E7 的 32 个 blocker。
+
 ### v0.3.0-pre.8 v79 attitude-uncertainty provenance（2026-09-06）
 
 - `VehicleTelemetry`、schema-v1 replay 与 raw replay 新增可选的三轴姿态 `1σ` 和来源，历史记录在整组

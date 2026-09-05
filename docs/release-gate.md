@@ -1,11 +1,22 @@
 # v0.3.0 E7 发布门
 
+## v80 Gazebo 姿态 covariance 子门（2026-09-06，`v0.3.0-pre.8`）
+
+`MDGZSIM3` 已将 Gazebo `PoseWithCovariance` 的 angular 3×3 block 纳入 276-byte 固定 header、整帧
+SHA-256、逐帧 manifest 和独立重放。双端验证 finite/对称/PSD，backend 把 fixed-axis X/Y/Z covariance
+经数值 Jacobian 转成 NED/FRD roll/pitch/heading `1σ`，再应用显式 floor；奇异姿态使用保守预算。
+producer/backend 同时受 `core_algorithm_hash` 约束。
+
+这关闭的是软件协议与来源绑定缺口。当前主机没有重跑外部 Docker/PX4/Gazebo v3 采集，因此既有 v2
+外部证据只保留历史价值，E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；模型、
+人工 QGC、室外 GNSS、HIL/REAL、真实硬件和实飞门均不变化。
+
 ## v79 姿态不确定性 provenance 子门（2026-09-06，`v0.3.0-pre.8`）
 
 共享测距输出现在绑定实际使用的 roll/pitch/heading `1σ` 与来源；完整 telemetry tuple 优先，整组缺失
 才走带名称的配置 fallback，部分或无来源输入 fail-closed。这关闭了“算法传播 sigma、运行时却无法证明
 sigma 从哪来”的软件证据缺口，但没有关闭现场精度门：MAVLink ATTITUDE 当前不提供 estimator covariance，
-Gazebo wire-v2 也尚未传 `OdometryWithCovariance.covariance`。因此该轮不减少 E7 的 32 个 blocker，
+Gazebo wire-v2 当时也尚未传 `OdometryWithCovariance.covariance`。因此该轮不减少 E7 的 32 个 blocker，
 也不提升模型、人工 QGC、室外 GNSS、HIL/REAL、硬件或实飞声明。
 
 ## v63 PX4 response repeatability/fault campaign（2026-09-05，`v0.3.0-pre.8`）
