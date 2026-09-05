@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v74 现场工作表准备层（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+camera_mount_survey.py template -> blank canonical CSV（no overwrite）
+operator fills physical measurements
+camera_mount_survey.py validate-raw -> read-only preflight JSON
+camera_mount_survey.py create -> reviewed survey evidence
+camera_mount_survey.py verify -> independent re-hash/recompute
+```
+
+预检交换结构由 `camera-mount-measurement-preflight.schema.json` 固定，并随 task parity 变化。
+
 ## v73 mount-survey CSV 单一数据源（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

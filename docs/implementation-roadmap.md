@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## Mount-survey 现场工作表与预检（v74）
+
+- [x] 原子生成固定 v1 CSV 空白模板，默认拒绝覆盖与 symlink；
+- [x] 提供创建正式证据前的只读 raw CSV 预检与严格 JSON Schema；
+- [x] 覆盖空白模板失败、填充后通过、CLI round-trip、样本数和身份边界；
+- [ ] 使用真实测量设备填写模板并执行现场预检、独立复核和正式 evidence 创建。
+
 ## 原始安装测量单一真源（v73）
 
 - [x] 固定 mount-survey CSV v1 列顺序和数值解析边界；

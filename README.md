@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v73：原始 mount-survey CSV 成为唯一统计数据源，消除 hash 文件与手输样本分离；真实测量尚待现场执行 |
+| 当前工程迭代 | v74：新增 mount-survey CSV 模板生成与只读预检 CLI，现场可在生成验收报告前发现格式/样本问题 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,13 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v74 现场测量模板与预检
+
+`camera_mount_survey.py template` 可原子生成 5–1000 行固定 v1 表头的空白工作表且默认拒绝覆盖；
+`validate-raw` 在创建 survey evidence 前检查文件身份、表头、数值、范围、最小样本数和 ID 唯一性，输出
+严格 schema 的只读诊断。预检通过仍保持 `hardware_acceptance=not_claimed` 与
+`release_eligible=false`，不能替代第二人复核或正式 survey verifier。
 
 ### v73 原始测量 CSV 单一真源
 

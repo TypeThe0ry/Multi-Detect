@@ -1,6 +1,14 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v73 工作树）
+最后更新：2026-09-06（v74 工作树）
+
+## v74 本轮已收口
+
+- `template` 原子生成 5–1000 行 canonical raw CSV，默认拒绝覆盖和 symlink；
+- `validate-raw` 在正式 survey 前检查 hash、列、数值、范围、最小样本数和 ID 唯一性，并输出严格
+  `camera-mount-measurement-preflight.v1` 诊断；
+- blank template fail-closed、填充后 preflight pass、源码树 CLI round-trip 和 schema 回归均覆盖；
+- 预检 schema 纳入 task parity，且所有输出继续明确不构成 hardware/release/HIL/REAL 接受。
 
 ## v73 本轮已收口
 
@@ -75,8 +83,8 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v73 全仓回归为 3,323 tests：`3322 passed, 1 skipped, 0 failed, 0 errors`；JUnit 483,105 bytes，
-  SHA-256 `7F76CB5382CD90644593E6E46392A3C5DB5A80411030F78ECDBEF62054523F05`；Ruff 通过。
+- v74 全仓回归为 3,325 tests：`3324 passed, 1 skipped, 0 failed, 0 errors`；JUnit 483,379 bytes，
+  SHA-256 `69756A4E3CBCF24CE981AE268C87E49AC5542C0621303A0E640CCC9F4C68BD64`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
 

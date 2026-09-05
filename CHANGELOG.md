@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v74 mount-survey field worksheet and preflight（2026-09-06）
+
+- 新增 `template` CLI，原子生成固定 CSV v1 表头和 5–1000 个稳定 sample ID，默认拒绝覆盖及 symlink；
+- 新增 `validate-raw` 只读预检和严格 schema，在正式 evidence 创建前检查 hash、结构、数值、范围、
+  最小样本数与 ID 唯一性；预检明确不产生硬件、HIL/REAL 或发布声明；
+- 新增函数/API 导出、CLI round-trip 测试并将预检 schema 纳入 shared task parity。
+
 ### v0.3.0-pre.8 v73 raw mount-survey CSV single source（2026-09-06）
 
 - 将 hash-bound 原始 CSV 设为 camera-mount survey 唯一统计数据源，固定列顺序并严格解析有限数值；
