@@ -139,9 +139,10 @@
     "estimate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["calibration_id", "means", "sample_standard_deviation", "conservative_one_sigma", "boresight_sigma_deg", "camera_offset_sigma_m", "calibration_angle_delta_deg", "calibration_offset_delta_m"],
+      "required": ["calibration_id", "equipment_calibration", "means", "sample_standard_deviation", "conservative_one_sigma", "boresight_sigma_deg", "camera_offset_sigma_m", "calibration_angle_delta_deg", "calibration_offset_delta_m"],
       "properties": {
         "calibration_id": {"type": "string", "minLength": 1},
+        "equipment_calibration": {"$ref": "#/$defs/equipmentCalibrationSummary"},
         "means": {"$ref": "#/$defs/sixAxisValues"},
         "sample_standard_deviation": {"$ref": "#/$defs/sixAxisValues"},
         "conservative_one_sigma": {"$ref": "#/$defs/sixAxisValues"},
@@ -149,6 +150,17 @@
         "camera_offset_sigma_m": {"type": "number", "minimum": 0},
         "calibration_angle_delta_deg": {"$ref": "#/$defs/angleValues"},
         "calibration_offset_delta_m": {"$ref": "#/$defs/offsetValues"}
+      }
+    },
+    "equipmentCalibrationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer", "valid_from_utc", "valid_until_utc", "certificate_sha256"],
+      "properties": {
+        "issuer": {"type": "string", "minLength": 1},
+        "valid_from_utc": {"type": "string", "format": "date-time"},
+        "valid_until_utc": {"type": "string", "format": "date-time"},
+        "certificate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "angleValues": {
@@ -167,6 +179,7 @@
       "required": [
         "sample_ids_unique", "minimum_samples", "surveyor_reviewer_distinct",
         "physical_attestations_complete", "equipment_calibration_valid", "equipment_calibration_hash_bound",
+        "equipment_certificate_hash_bound", "equipment_identity_matches_calibration", "equipment_accuracy_matches_calibration",
         "raw_measurements_hash_bound", "samples_match_raw_measurements", "camera_calibration_hash_bound",
         "camera_calibration_id_matches", "angular_repeatability_within_limit",
         "linear_repeatability_within_limit", "calibration_angles_match_survey",
@@ -176,7 +189,9 @@
       "properties": {
         "sample_ids_unique": {"type": "boolean"}, "minimum_samples": {"type": "boolean"},
         "surveyor_reviewer_distinct": {"type": "boolean"}, "physical_attestations_complete": {"type": "boolean"},
-        "equipment_calibration_valid": {"type": "boolean"}, "equipment_calibration_hash_bound": {"type": "boolean"}, "raw_measurements_hash_bound": {"type": "boolean"},
+        "equipment_calibration_valid": {"type": "boolean"}, "equipment_calibration_hash_bound": {"type": "boolean"},
+        "equipment_certificate_hash_bound": {"type": "boolean"}, "equipment_identity_matches_calibration": {"type": "boolean"},
+        "equipment_accuracy_matches_calibration": {"type": "boolean"}, "raw_measurements_hash_bound": {"type": "boolean"},
         "samples_match_raw_measurements": {"type": "boolean"},
         "camera_calibration_hash_bound": {"type": "boolean"}, "camera_calibration_id_matches": {"type": "boolean"},
         "angular_repeatability_within_limit": {"type": "boolean"}, "linear_repeatability_within_limit": {"type": "boolean"},

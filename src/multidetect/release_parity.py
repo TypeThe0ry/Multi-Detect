@@ -135,6 +135,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # same fail-closed provenance boundary.
         "configs/schemas/camera-mount-survey.schema.json",
         "configs/schemas/camera-mount-measurement-preflight.schema.json",
+        "configs/schemas/camera-mount-equipment-calibration.schema.json",
         "configs/schemas/field-evidence-bundle.schema.json",
         "src/multidetect/camera_mount_survey.py",
         "src/multidetect/field_evidence_bundle.py",

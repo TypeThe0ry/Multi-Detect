@@ -12,8 +12,10 @@ from multidetect.camera_mount_survey import (
     CAMERA_MOUNT_MEASUREMENT_PREFLIGHT_EVIDENCE_TYPE,
     CAMERA_MOUNT_SURVEY_EVIDENCE_TYPE,
     check_camera_mount_measurements,
+    create_camera_mount_equipment_calibration_record,
     create_camera_mount_survey,
     verify_camera_mount_survey,
+    write_camera_mount_equipment_calibration_record,
     write_camera_mount_measurement_template,
     write_camera_mount_survey,
 )
@@ -103,12 +105,25 @@ def _report(
     reviewer: str = "reviewer-b",
     attestations: dict[str, bool] | None = None,
     samples: list[dict[str, object]] | None = None,
+    equipment_record_id: str = "inclinometer-and-caliper-001",
+    equipment_valid_until: str = "2027-01-01T00:00:00Z",
 ) -> dict[str, object]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     raw = tmp_path / "raw-measurements.csv"
     _write_raw_measurements(raw)
-    equipment_calibration = tmp_path / "equipment-calibration.pdf"
-    equipment_calibration.write_bytes(b"equipment calibration certificate fixture")
+    certificate = tmp_path / "equipment-certificate.pdf"
+    certificate.write_bytes(b"equipment calibration certificate fixture")
+    equipment_calibration = tmp_path / "equipment-calibration.json"
+    equipment_record = create_camera_mount_equipment_calibration_record(
+        equipment_id=equipment_record_id,
+        issuer="calibration-lab-a",
+        valid_from_utc="2026-01-01T00:00:00Z",
+        valid_until_utc=equipment_valid_until,
+        angular_accuracy_deg=0.05,
+        linear_accuracy_m=0.002,
+        certificate_path=certificate,
+    )
+    write_camera_mount_equipment_calibration_record(equipment_calibration, equipment_record)
     return create_camera_mount_survey(
         survey_id="mount-survey-001",
         aircraft_id="aircraft-001",
@@ -168,6 +183,20 @@ def test_mount_survey_fails_closed_on_identity_attestation_and_uncertainty(
     assert understated["gate_passed"] is False
     assert "calibration_angular_uncertainty_not_understated" in understated["blocking_reasons"]
 
+    expired = _report(
+        tmp_path / "expired",
+        equipment_valid_until="2026-08-01T00:00:00Z",
+    )
+    assert expired["gate_passed"] is False
+    assert "equipment_calibration_valid" in expired["blocking_reasons"]
+
+    wrong_equipment = _report(
+        tmp_path / "wrong-equipment",
+        equipment_record_id="different-equipment",
+    )
+    assert wrong_equipment["gate_passed"] is False
+    assert "equipment_identity_matches_calibration" in wrong_equipment["blocking_reasons"]
+
 
 def test_independent_verifier_rejects_changed_raw_measurements(tmp_path: Path) -> None:
     report = _report(tmp_path)
@@ -179,6 +208,19 @@ def test_independent_verifier_rejects_changed_raw_measurements(tmp_path: Path) -
     verification = verify_camera_mount_survey(output, require_gate_passed=True)
     assert verification["passed"] is False
     assert any("hash/size/path" in reason for reason in verification["reasons"])
+
+
+def test_independent_verifier_rejects_changed_equipment_certificate(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    output = tmp_path / "mount-survey.json"
+    write_camera_mount_survey(output, report)
+    record_path = Path(report["inputs"]["equipment_calibration"]["path"])
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    Path(record["certificate"]["path"]).write_bytes(b"changed certificate")
+
+    verification = verify_camera_mount_survey(output, require_gate_passed=True)
+    assert verification["passed"] is False
+    assert any("certificate hash/size/path" in reason for reason in verification["reasons"])
 
 
 def test_declared_samples_cannot_diverge_from_hash_bound_raw_csv(tmp_path: Path) -> None:
@@ -238,6 +280,17 @@ def test_mount_survey_matches_strict_json_schema(tmp_path: Path) -> None:
     )
     assert schema["properties"]["hardware_acceptance"]["const"] == "not_claimed"
     assert schema["properties"]["simulated_values_used"]["const"] is False
+    equipment_schema = json.loads(
+        (ROOT / "configs" / "schemas" / "camera-mount-equipment-calibration.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    equipment_record = json.loads(
+        Path(report["inputs"]["equipment_calibration"]["path"]).read_text(encoding="utf-8")
+    )
+    jsonschema.Draft202012Validator(
+        equipment_schema, format_checker=jsonschema.FormatChecker()
+    ).validate(equipment_record)
 
 
 def test_mount_survey_cli_is_available_without_installed_package() -> None:
@@ -254,6 +307,7 @@ def test_mount_survey_cli_is_available_without_installed_package() -> None:
     assert "verify" in completed.stdout
     assert "template" in completed.stdout
     assert "validate-raw" in completed.stdout
+    assert "equipment-record" in completed.stdout
 
 
 def test_measurement_template_and_preflight_cli_round_trip(tmp_path: Path) -> None:
@@ -282,3 +336,43 @@ def test_measurement_template_and_preflight_cli_round_trip(tmp_path: Path) -> No
     result = json.loads(validated.stdout)
     assert result["sample_count"] == 5
     assert result["gate_passed"] is True
+
+
+def test_equipment_calibration_record_cli_binds_certificate(tmp_path: Path) -> None:
+    script = ROOT / "scripts" / "camera_mount_survey.py"
+    certificate = tmp_path / "certificate.pdf"
+    certificate.write_bytes(b"issued calibration certificate")
+    record = tmp_path / "equipment-calibration.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "equipment-record",
+            "--equipment-id",
+            "equipment-001",
+            "--issuer",
+            "calibration-lab-a",
+            "--valid-from-utc",
+            "2026-01-01T00:00:00Z",
+            "--valid-until-utc",
+            "2027-01-01T00:00:00Z",
+            "--angular-accuracy-deg",
+            "0.05",
+            "--linear-accuracy-m",
+            "0.002",
+            "--certificate",
+            str(certificate),
+            "--output",
+            str(record),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    document = json.loads(record.read_text(encoding="utf-8"))
+    assert document["equipment_id"] == "equipment-001"
+    assert document["certificate"]["path"] == str(certificate.resolve())
+    assert len(document["certificate"]["sha256"]) == 64

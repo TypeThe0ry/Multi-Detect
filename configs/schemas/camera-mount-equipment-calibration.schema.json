@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/camera-mount-equipment-calibration.schema.json",
+  "title": "Multi-Detect camera mount measurement equipment calibration record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "equipment_id", "issuer", "valid_from_utc", "valid_until_utc",
+    "angular_accuracy_deg", "linear_accuracy_m", "certificate"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "equipment_id": {"type": "string", "minLength": 1},
+    "issuer": {"type": "string", "minLength": 1},
+    "valid_from_utc": {"type": "string", "format": "date-time"},
+    "valid_until_utc": {"type": "string", "format": "date-time"},
+    "angular_accuracy_deg": {"type": "number", "exclusiveMinimum": 0, "maximum": 5},
+    "linear_accuracy_m": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

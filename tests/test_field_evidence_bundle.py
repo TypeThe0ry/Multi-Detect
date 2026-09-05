@@ -251,8 +251,26 @@ def _camera_mount_fixture(tmp_path: Path) -> Path:
         },
     )
     raw = tmp_path / "camera-mount-raw.csv"
-    equipment_calibration = tmp_path / "equipment-calibration.pdf"
-    equipment_calibration.write_bytes(b"equipment calibration certificate fixture")
+    certificate = tmp_path / "equipment-certificate.pdf"
+    certificate.write_bytes(b"equipment calibration certificate fixture")
+    equipment_calibration = tmp_path / "equipment-calibration.json"
+    _write_json(
+        equipment_calibration,
+        {
+            "schema_version": 1,
+            "equipment_id": "inclinometer-and-caliper-001",
+            "issuer": "calibration-lab-a",
+            "valid_from_utc": "2026-01-01T00:00:00Z",
+            "valid_until_utc": "2027-01-01T00:00:00Z",
+            "angular_accuracy_deg": 0.05,
+            "linear_accuracy_m": 0.002,
+            "certificate": {
+                "path": str(certificate.resolve()),
+                "bytes": certificate.stat().st_size,
+                "sha256": hashlib.sha256(certificate.read_bytes()).hexdigest(),
+            },
+        },
+    )
     perturbations = (-0.01, 0.01, 0.0, -0.005, 0.005)
     samples = [
         {
