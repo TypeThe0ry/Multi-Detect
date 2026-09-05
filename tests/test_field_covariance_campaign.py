@@ -64,6 +64,28 @@ def _verified_record(
     }
 
 
+def _ready_preflight(config: campaign.CampaignConfig) -> dict[str, object]:
+    return {
+        "schema": "multidetect.pixhawk-covariance-field-source-preflight/v1",
+        "schema_version": 1,
+        "release_label": config.release_label,
+        "config_path": str(config.path),
+        "config_sha256": "d" * 64,
+        "records": [
+            {
+                "runtime_mode": leaf.runtime_mode,
+                "vehicle_class": leaf.vehicle_class,
+                "status": "ready",
+                "gate_passed": True,
+            }
+            for leaf in config.leaves
+        ],
+        "ready_count": 6,
+        "blocked_count": 0,
+        "gate_passed": True,
+    }
+
+
 def test_campaign_schema_is_valid_and_closed() -> None:
     schema = json.loads(campaign.CONFIG_SCHEMA_PATH.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
@@ -93,8 +115,11 @@ def test_status_orders_exact_matrix_and_selects_one_next_leaf(tmp_path: Path) ->
     assert status["e7_arguments"] == []
 
 
-def test_capture_next_dry_run_never_opens_transport_or_writes_report(tmp_path: Path) -> None:
+def test_capture_next_dry_run_never_opens_transport_or_writes_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config = campaign.load_campaign_config(_write_config(tmp_path))
+    monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
 
     exit_code, status = campaign.capture_next(
         config,
@@ -161,6 +186,7 @@ def test_zero_capture_process_exit_still_fails_when_report_verification_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = campaign.load_campaign_config(_write_config(tmp_path))
+    monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
     first = config.leaves[0].report_path
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -188,6 +214,228 @@ def test_zero_capture_process_exit_still_fails_when_report_verification_fails(
     assert status["capture_process_exit_code"] == 0
     assert status["capture_verified"] is False
     assert status["failed_count"] == 1
+
+
+def test_preflight_orders_all_six_ready_sources_and_binds_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+
+    class Mission:
+        mission_id = "field-preflight"
+        canonical_hash = "1" * 64
+        airframe_profile_hash = "2" * 64
+
+        def __init__(self, leaf: campaign.CampaignLeaf) -> None:
+            adapter = campaign._ADAPTER_BY_VEHICLE_CLASS[leaf.vehicle_class]
+            self.airframe_adapter_id, self.airframe_adapter_hash = adapter
+
+    missions = {leaf.mission_path: Mission(leaf) for leaf in config.leaves}
+
+    def load_mission(path: Path) -> Mission:
+        return missions[path]
+
+    def load_feedback(
+        path: Path, *, expected_mission: Mission, runtime_profile_path: Path
+    ) -> dict[str, object]:
+        leaf = next(item for item in config.leaves if item.mission_feedback_path == path)
+        assert expected_mission is missions[leaf.mission_path]
+        assert runtime_profile_path == leaf.runtime_profile_path
+        return {
+            "runtime_mode": leaf.runtime_mode,
+            "feedback_gate_passed": True,
+            "transport": {
+                "configured_endpoint": leaf.endpoint,
+                "baud": leaf.baud,
+                "read_only": True,
+                "messages_transmitted": 0,
+            },
+            "runtime_binding": {
+                "runtime_mode": leaf.runtime_mode,
+                "gate_passed": True,
+                "signature_valid": True,
+                "profile_valid": True,
+                "flight_control_enabled": False,
+                "output_locked": True,
+                "profile": {"profile_id": "hil" if leaf.runtime_mode == "hil" else "flight"},
+                "observed_identity": {
+                    "vehicle_identity_hash": "3" * 64,
+                    "firmware_identity_hash": "4" * 64,
+                    "endpoint_binding_hash": "5" * 64,
+                    "signing_identity_hash": None,
+                },
+                "key_id": "field-key",
+                "binding_sha256": "6" * 64,
+            },
+        }
+
+    monkeypatch.setattr(campaign, "load_executable_mission_document", load_mission)
+    monkeypatch.setattr(campaign, "load_px4_mission_feedback_observation", load_feedback)
+
+    result = campaign.campaign_preflight(config)
+
+    assert result["gate_passed"] is True
+    assert result["ready_count"] == 6
+    assert result["blocked_count"] == 0
+    assert [
+        (record["runtime_mode"], record["vehicle_class"]) for record in result["records"]
+    ] == list(campaign.REQUIRED_COMBINATIONS)
+    assert all(record["output_locked"] is True for record in result["records"])
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("adapter", "Mission adapter"),
+        ("mode", "runtime_mode"),
+        ("endpoint", "configured endpoint"),
+        ("baud", "baud"),
+        ("write", "receive-only"),
+        ("signature", "signature was not qualified"),
+        ("flight_control", "enabled flight-control"),
+        ("unlock", "output is not locked"),
+    ],
+)
+def test_preflight_blocks_semantic_source_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    target = config.leaves[0]
+
+    class Mission:
+        mission_id = "field-preflight"
+        canonical_hash = "1" * 64
+        airframe_profile_hash = "2" * 64
+        airframe_adapter_id = campaign.PX4_FIXED_WING_ADAPTER_ID
+        airframe_adapter_hash = campaign.PX4_FIXED_WING_ADAPTER_HASH
+
+    mission = Mission()
+    if mutation == "adapter":
+        mission.airframe_adapter_id = "wrong-adapter"
+
+    feedback: dict[str, object] = {
+        "runtime_mode": "real" if mutation == "mode" else target.runtime_mode,
+        "feedback_gate_passed": True,
+        "transport": {
+            "configured_endpoint": "serial:COM99" if mutation == "endpoint" else target.endpoint,
+            "baud": 115200 if mutation == "baud" else target.baud,
+            "read_only": mutation != "write",
+            "messages_transmitted": 1 if mutation == "write" else 0,
+        },
+        "runtime_binding": {
+            "runtime_mode": target.runtime_mode,
+            "gate_passed": True,
+            "signature_valid": mutation != "signature",
+            "profile_valid": True,
+            "flight_control_enabled": mutation == "flight_control",
+            "output_locked": mutation != "unlock",
+            "profile": {"profile_id": "hil"},
+            "observed_identity": {},
+            "key_id": "field-key",
+            "binding_sha256": "6" * 64,
+        },
+    }
+    monkeypatch.setattr(campaign, "load_executable_mission_document", lambda path: mission)
+    monkeypatch.setattr(
+        campaign,
+        "load_px4_mission_feedback_observation",
+        lambda *args, **kwargs: feedback,
+    )
+
+    result = campaign._source_preflight(target)
+
+    assert result["status"] == "blocked"
+    assert message in result["reason"]
+
+
+def test_capture_next_refuses_blocked_sources_before_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    called = False
+
+    def run(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+
+    with pytest.raises(campaign.FieldCovarianceCampaignError, match="source preflight blocked"):
+        campaign.capture_next(
+            config,
+            samples=30,
+            interval_seconds=0.2,
+            minimum_odometry_messages=10,
+            minimum_accepted_covariances=5,
+            dry_run=False,
+        )
+    assert called is False
+
+
+def test_preflight_reopens_sources_and_detects_postcheck_tamper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    target = config.leaves[0]
+
+    class Mission:
+        mission_id = "field-preflight"
+        canonical_hash = "1" * 64
+        airframe_profile_hash = "2" * 64
+        airframe_adapter_id = campaign.PX4_FIXED_WING_ADAPTER_ID
+        airframe_adapter_hash = campaign.PX4_FIXED_WING_ADAPTER_HASH
+
+    monkeypatch.setattr(campaign, "load_executable_mission_document", lambda path: Mission())
+
+    def load_feedback(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        if target.runtime_profile_path.read_text(encoding="utf-8") != "{}":
+            raise ValueError("runtime profile file SHA-256 does not match observation")
+        return {
+            "runtime_mode": target.runtime_mode,
+            "feedback_gate_passed": True,
+            "transport": {
+                "configured_endpoint": target.endpoint,
+                "baud": target.baud,
+                "read_only": True,
+                "messages_transmitted": 0,
+            },
+            "runtime_binding": {
+                "runtime_mode": target.runtime_mode,
+                "gate_passed": True,
+                "signature_valid": True,
+                "profile_valid": True,
+                "flight_control_enabled": False,
+                "output_locked": True,
+                "profile": {"profile_id": "hil"},
+                "observed_identity": {},
+                "key_id": "field-key",
+                "binding_sha256": "6" * 64,
+            },
+        }
+
+    monkeypatch.setattr(campaign, "load_px4_mission_feedback_observation", load_feedback)
+    assert campaign._source_preflight(target)["status"] == "ready"
+
+    target.runtime_profile_path.write_text('{"tampered":true}', encoding="utf-8")
+    second = campaign._source_preflight(target)
+
+    assert second["status"] == "blocked"
+    assert "SHA-256" in second["reason"]
+
+
+def test_preflight_cli_returns_one_for_blocked_sources(tmp_path: Path, capsys: object) -> None:
+    path = _write_config(tmp_path)
+
+    exit_code = campaign.main(["preflight", "--config", str(path)])
+
+    assert exit_code == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["gate_passed"] is False
+    assert output["blocked_count"] == 6
 
 
 def test_config_rejects_duplicate_leaf_even_with_six_entries(tmp_path: Path) -> None:

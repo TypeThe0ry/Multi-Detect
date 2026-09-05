@@ -24,12 +24,22 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from .mission_planning import load_executable_mission_document
 from .pixhawk_covariance_binding import (
     REQUIRED_COMBINATIONS,
     PixhawkCovarianceBindingError,
     build_pixhawk_covariance_binding,
     verify_pixhawk_covariance_leaf,
 )
+from .px4_mission import (
+    PX4_FIXED_WING_ADAPTER_HASH,
+    PX4_FIXED_WING_ADAPTER_ID,
+    PX4_MULTIROTOR_ADAPTER_HASH,
+    PX4_MULTIROTOR_ADAPTER_ID,
+    PX4_VTOL_ADAPTER_HASH,
+    PX4_VTOL_ADAPTER_ID,
+)
+from .px4_mission_feedback_cli import load_px4_mission_feedback_observation
 
 SCHEMA = "multidetect.pixhawk-covariance-field-campaign/v1"
 SCHEMA_VERSION = 1
@@ -40,6 +50,12 @@ DEFAULT_SAMPLES = 100
 DEFAULT_INTERVAL_S = 0.1
 DEFAULT_MINIMUM_ODOMETRY = 20
 DEFAULT_MINIMUM_COVARIANCES = 10
+
+_ADAPTER_BY_VEHICLE_CLASS = {
+    "fixed-wing": (PX4_FIXED_WING_ADAPTER_ID, PX4_FIXED_WING_ADAPTER_HASH),
+    "multirotor": (PX4_MULTIROTOR_ADAPTER_ID, PX4_MULTIROTOR_ADAPTER_HASH),
+    "vtol": (PX4_VTOL_ADAPTER_ID, PX4_VTOL_ADAPTER_HASH),
+}
 
 
 class FieldCovarianceCampaignError(ValueError):
@@ -241,6 +257,124 @@ def capture_command(
     ]
 
 
+def _source_preflight(leaf: CampaignLeaf) -> dict[str, object]:
+    """Re-open and cross-bind one leaf's static sources without transport I/O."""
+
+    base: dict[str, object] = {
+        "runtime_mode": leaf.runtime_mode,
+        "vehicle_class": leaf.vehicle_class,
+        "endpoint": leaf.endpoint,
+        "baud": leaf.baud,
+        "mission_path": str(leaf.mission_path),
+        "mission_feedback_path": str(leaf.mission_feedback_path),
+        "runtime_profile_path": str(leaf.runtime_profile_path),
+    }
+    try:
+        mission = load_executable_mission_document(leaf.mission_path)
+        expected_adapter_id, expected_adapter_hash = _ADAPTER_BY_VEHICLE_CLASS[leaf.vehicle_class]
+        if mission.airframe_adapter_id != expected_adapter_id:
+            raise FieldCovarianceCampaignError(
+                f"Mission adapter {mission.airframe_adapter_id!r} does not match "
+                f"{leaf.vehicle_class} ({expected_adapter_id!r})"
+            )
+        if mission.airframe_adapter_hash.lower() != expected_adapter_hash.lower():
+            raise FieldCovarianceCampaignError(
+                f"Mission adapter hash is not current for {leaf.vehicle_class}"
+            )
+        feedback = load_px4_mission_feedback_observation(
+            leaf.mission_feedback_path,
+            expected_mission=mission,
+            runtime_profile_path=leaf.runtime_profile_path,
+        )
+        if feedback.get("runtime_mode") != leaf.runtime_mode:
+            raise FieldCovarianceCampaignError(
+                "Mission feedback runtime_mode does not match campaign leaf"
+            )
+        if feedback.get("feedback_gate_passed") is not True:
+            raise FieldCovarianceCampaignError("Mission feedback gate is not qualified")
+        transport = feedback.get("transport")
+        runtime_binding = feedback.get("runtime_binding")
+        if not isinstance(transport, Mapping) or not isinstance(runtime_binding, Mapping):
+            raise FieldCovarianceCampaignError(
+                "Mission feedback has no verified transport/runtime binding"
+            )
+        if transport.get("configured_endpoint") != leaf.endpoint:
+            raise FieldCovarianceCampaignError(
+                "Mission feedback configured endpoint does not match campaign leaf"
+            )
+        if transport.get("baud") != leaf.baud:
+            raise FieldCovarianceCampaignError("Mission feedback baud does not match campaign leaf")
+        if transport.get("read_only") is not True or transport.get("messages_transmitted") != 0:
+            raise FieldCovarianceCampaignError("Mission feedback is not receive-only")
+        if runtime_binding.get("runtime_mode") != leaf.runtime_mode:
+            raise FieldCovarianceCampaignError("runtime binding mode does not match campaign leaf")
+        if runtime_binding.get("gate_passed") is not True:
+            raise FieldCovarianceCampaignError("runtime binding gate is not qualified")
+        if runtime_binding.get("signature_valid") is not True:
+            raise FieldCovarianceCampaignError("runtime profile signature was not qualified")
+        if runtime_binding.get("profile_valid") is not True:
+            raise FieldCovarianceCampaignError("runtime profile is not qualified")
+        if runtime_binding.get("flight_control_enabled") is not False:
+            raise FieldCovarianceCampaignError("Mission feedback enabled flight-control output")
+        if runtime_binding.get("output_locked") is not True:
+            raise FieldCovarianceCampaignError("Mission feedback output is not locked")
+        profile = runtime_binding.get("profile")
+        identity = runtime_binding.get("observed_identity")
+        if not isinstance(profile, Mapping) or not isinstance(identity, Mapping):
+            raise FieldCovarianceCampaignError(
+                "runtime binding has no verified profile/observed identity"
+            )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return {
+            **base,
+            "status": "blocked",
+            "gate_passed": False,
+            "reason": str(exc),
+        }
+    return {
+        **base,
+        "status": "ready",
+        "gate_passed": True,
+        "mission_sha256": _sha256(leaf.mission_path),
+        "mission_feedback_sha256": _sha256(leaf.mission_feedback_path),
+        "runtime_profile_sha256": _sha256(leaf.runtime_profile_path),
+        "mission_id": mission.mission_id,
+        "mission_hash": mission.canonical_hash,
+        "airframe_adapter_id": mission.airframe_adapter_id,
+        "airframe_adapter_hash": mission.airframe_adapter_hash,
+        "airframe_profile_hash": mission.airframe_profile_hash,
+        "runtime_profile_id": profile.get("profile_id"),
+        "runtime_profile_key_id": runtime_binding.get("key_id"),
+        "runtime_binding_sha256": runtime_binding.get("binding_sha256"),
+        "vehicle_identity_hash": identity.get("vehicle_identity_hash"),
+        "firmware_identity_hash": identity.get("firmware_identity_hash"),
+        "endpoint_binding_hash": identity.get("endpoint_binding_hash"),
+        "signing_identity_hash": identity.get("signing_identity_hash"),
+        "read_only": True,
+        "messages_transmitted": 0,
+        "flight_control_enabled": False,
+        "output_locked": True,
+    }
+
+
+def campaign_preflight(config: CampaignConfig) -> dict[str, object]:
+    """Return a deterministic six-leaf READY/BLOCKED source checklist."""
+
+    records = [_source_preflight(leaf) for leaf in config.leaves]
+    blocked = [record for record in records if record["status"] == "blocked"]
+    return {
+        "schema": "multidetect.pixhawk-covariance-field-source-preflight/v1",
+        "schema_version": 1,
+        "release_label": config.release_label,
+        "config_path": str(config.path),
+        "config_sha256": _sha256(config.path),
+        "records": records,
+        "ready_count": len(records) - len(blocked),
+        "blocked_count": len(blocked),
+        "gate_passed": bool(records) and not blocked,
+    }
+
+
 def _leaf_status(leaf: CampaignLeaf, *, manifest_directory: Path) -> dict[str, object]:
     base: dict[str, object] = {
         "runtime_mode": leaf.runtime_mode,
@@ -361,6 +495,16 @@ def capture_next(
         raise FieldCovarianceCampaignError("campaign has no safe next leaf")
     key = (str(next_leaf["runtime_mode"]), str(next_leaf["vehicle_class"]))
     leaf = next(item for item in config.leaves if item.key == key)
+    preflight = campaign_preflight(config)
+    if preflight["gate_passed"] is not True:
+        blocked = [
+            f"{record['runtime_mode']}/{record['vehicle_class']}: {record['reason']}"
+            for record in preflight["records"]
+            if record["status"] == "blocked"
+        ]
+        raise FieldCovarianceCampaignError(
+            "source preflight blocked capture: " + "; ".join(blocked)
+        )
     command = capture_command(
         leaf,
         samples=samples,
@@ -369,7 +513,12 @@ def capture_next(
         minimum_accepted_covariances=minimum_accepted_covariances,
     )
     if dry_run:
-        return 0, {**before, "dry_run": True, "capture_command": command}
+        return 0, {
+            **before,
+            "source_preflight": preflight,
+            "dry_run": True,
+            "capture_command": command,
+        }
     leaf.report_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(command, cwd=ROOT, check=False)
     after = campaign_status(config)
@@ -385,6 +534,7 @@ def capture_next(
     )
     return exit_code, {
         **after,
+        "source_preflight": preflight,
         "capture_process_exit_code": result.returncode,
         "capture_verified": captured["status"] == "passed",
     }
@@ -422,7 +572,7 @@ def verify_complete_campaign(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "capture-next", "verify"))
+    parser.add_argument("command", choices=("status", "preflight", "capture-next", "verify"))
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--status-out", type=Path)
     parser.add_argument("--binding-out", type=Path)
@@ -445,6 +595,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "status":
             result = campaign_status(config)
             exit_code = 0
+        elif args.command == "preflight":
+            if args.binding_out is not None or args.dry_run:
+                raise FieldCovarianceCampaignError(
+                    "preflight does not accept --binding-out or --dry-run"
+                )
+            result = campaign_preflight(config)
+            exit_code = 0 if result["gate_passed"] is True else 1
         elif args.command == "capture-next":
             if args.binding_out is not None:
                 raise FieldCovarianceCampaignError("--binding-out is reserved for verify")
