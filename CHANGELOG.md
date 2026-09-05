@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v69 combined-SIM 独立传感器硬门（2026-09-05）
+
+- 独立 combined verifier 现在强制 CameraInfo 为 `validated_k_p_rectification_plumb_bob_distortion`、
+  sensor expected/received/complete 一致，且每个 expected frame 绑定 full odometry pose/velocity。
+- combined wrapper 在 source 生成前也断言 CameraInfo K/P/R/D 状态；新增三类篡改负测并更新 E7 fixture。
+- 当前源码 `46920e1` 的权威 source
+  `combined-sim-qgc-20260905T152520Z-75420/combined-evidence.json` 为 255,256 bytes，SHA-256
+  `9CAB1BC405571C2F287D1545D77B7EA1F7C4A56CC163AB76E1402CB362DB121B`；900/900 sensor、RTSP、
+  type-23、type-24 和 odometry 全部通过。
+- 增强后的独立报告为 2,139 bytes，SHA-256
+  `1EEFD154DF164F307D62EF1CFFCC7479E343B8E3FC6A7017A9BBE61EB19502D0`，44/44 checks 全绿。
+- 当前 HEAD 全仓 3,309 tests：`3308 passed, 1 skipped, 0 failed, 0 errors`；JUnit 481,013 bytes、
+  SHA-256 `3AF69527D05CCC985502C195D09DDE44793D7280111B04410B8B2DCB3C3661C6`，ruff 全仓通过。
+- 产品仍是 `v0.3.0-pre.8`；本轮未产生人工签字或 HIL/REAL/硬件/室外 GNSS/RTK 证据。
+
 ### v0.3.0-pre.8 v68 CameraInfo 语义标定与 900 帧联合复验（2026-09-05）
 
 - Gazebo `CameraInfo` 不再只检查 topic、时间戳和图像几何；helper 现在逐字段验证 `K[9]`、`P[12]`、

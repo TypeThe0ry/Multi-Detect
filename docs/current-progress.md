@@ -1,9 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v68 工作树）
+最后更新：2026-09-05（v69 工作树）
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `c0a4c3256b9d4db45f01174614a672d87c281281`（当前文档提交前领先远端 25 个提交）。
+本地 `main` 提交 `194bb4b85c7881507bd4c3206405743e165b9c49`（当前文档提交前领先远端 28 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -27,12 +27,30 @@ v66 进一步把机器捕获抽成四模式共用的 schema-v2 契约，绑定�
 rect、遮挡和 PNG；历史 PX4 报告仅保留 HIL 兼容，REPLAY/SIM/REAL 不再伪装成 HIL 格式。v67 修正
 Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定，NavSat/Odometry 仍受 1.5 秒动态门；
 短暂 transport callback 错序只丢弃不安全图像。v68 又把实际 CameraInfo K/P/R/D、PLUMB_BOB 与仓库
-标定逐字段绑定，并将语义状态带入 runtime/frame-set。当前源码已重新完成 900 帧真实联合 SIM，7 张
-不安全动态绑定图被丢弃后恢复，900 个有效帧全部取得 QGC post-adoption type-24 ACK。人工记录仍为 0/4。
+标定逐字段绑定，并将语义状态带入 runtime/frame-set。v69 再由独立 verifier 强制该状态、sensor 完整
+计数与逐帧 odometry。当前权威 900 帧联合 SIM 安全丢弃 6 张不新鲜动态图像，并以增强 verifier 44/44
+通过；900 个有效帧全部取得 QGC post-adoption type-24 ACK。人工记录仍为 0/4。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v69 本轮已收口
+
+- independent combined verifier 新增 `camera_info_intrinsics_semantics_validated`、
+  `sensor_frames_complete`、`odometry_frames_complete` 三个硬检查；旧 pending/missing/tampered 结构均失败。
+- combined runner 在写最终 source 前也强制 exact CameraInfo semantic status，防止 runner 根门掩盖传感器
+  语义缺失；E7 fixture 已升级到同一契约。
+- 当前权威 source `combined-sim-qgc-20260905T152520Z-75420` 来自干净 `46920e1`：900/900 sensor、
+  RTSP、type-23、post-adoption type-24、full odometry；6 张 stale dynamic 图像被拒绝，0 张旧帧发出。
+- source 255,256 bytes / SHA-256
+  `9CAB1BC405571C2F287D1545D77B7EA1F7C4A56CC163AB76E1402CB362DB121B`；增强 verifier 2,139 bytes /
+  SHA-256 `1EEFD154DF164F307D62EF1CFFCC7479E343B8E3FC6A7017A9BBE61EB19502D0`，44/44 checks 通过。
+- Mission 最大水平距离 `130.616 m`、最大相对高度 `23.857 m`；PiP 第 1 次精确命中；容器移除、
+  9 个动态端口释放、14550 不变。
+- 当前 HEAD 全仓 3,309 tests：`3308 passed, 1 skipped, 0 failed, 0 errors`；JUnit 481,013 bytes、
+  SHA-256 `3AF69527D05CCC985502C195D09DDE44793D7280111B04410B8B2DCB3C3661C6`；ruff 全仓通过。
+- 最终版本仍阻断：四模式人工视觉 0/4、HIL/REAL、真实硬件、室外 GNSS/RTK 和实飞均未完成。
 
 ## v68 本轮已收口
 

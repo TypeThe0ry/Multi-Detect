@@ -18,6 +18,23 @@
 exact-PID/HWND 捕获重新链接 QGC；operator protocol 原生 self-test 退出 `0`。旧版本/旧构建
 的大小和 SHA 记录保留在下文历史条目中，不覆盖本段当前指纹。
 
+### v69 combined 独立传感器硬门
+
+当前权威 source：
+
+```text
+artifacts/evaluation/combined-sim-qgc-20260905T152520Z-75420/combined-evidence.json
+git_head=46920e1c80041664ba53813ed3841a5887bd5f20; dirty=false
+gate_passed=true; sensor/RTSP/type23/type24/odometry=900/900
+independent_verifier=44/44
+```
+
+source 为 255,256 bytes / SHA-256
+`9CAB1BC405571C2F287D1545D77B7EA1F7C4A56CC163AB76E1402CB362DB121B`；独立报告为 2,139 bytes /
+SHA-256 `1EEFD154DF164F307D62EF1CFFCC7479E343B8E3FC6A7017A9BBE61EB19502D0`。新增检查会拒绝
+CameraInfo pending/missing、sensor count 漂移和逐帧 odometry 缺失。portable EXE 未重链接；人工视觉、
+HIL/REAL、硬件和室外门保持未通过。
+
 ### v68 CameraInfo 语义与 combined SIM/QGC/Mission 复验
 
 当前权威运行：

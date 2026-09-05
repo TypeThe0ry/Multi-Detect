@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v68：CameraInfo K/P/R/D 语义已绑定仓库标定并通过真实 900 帧联合复验；四模式人工视觉仍为 0/4 |
+| 当前工程迭代 | v69：combined verifier 独立强制 CameraInfo、sensor 900/900 与 odometry 900/900；四模式人工视觉仍为 0/4 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -250,6 +250,14 @@ SHA-256 `E800968AB63BF847CA53BE7798EAD3B2501B731E958D76AB5E8EAC447A999471`。它
 `c0a4c3256b9d4db45f01174614a672d87c281281` 上完成 900/900 sensor、RTSP、type-23、post-adoption
 type-24 和 odometry，CameraInfo 状态为 `validated_k_p_rectification_plumb_bob_distortion`；独立 verifier
 41/41 通过。该结果仍不包含人工签字、HIL/REAL、真实硬件、室外 GNSS/RTK 或实飞批准。
+
+### v69 独立 combined 传感器硬门
+
+combined source 与独立 verifier 现在都强制 CameraInfo K/P/R/D 验证状态；独立 verifier 还会重算
+sensor expected/received/complete 和逐帧 odometry 绑定，不能只信根级 `gate_passed=true`。当前权威
+source 是 `artifacts/evaluation/combined-sim-qgc-20260905T152520Z-75420/combined-evidence.json`，
+SHA-256 `9CAB1BC405571C2F287D1545D77B7EA1F7C4A56CC163AB76E1402CB362DB121B`；增强后的独立 verifier
+44/44 通过。最终 `v0.3.0` 的人工、HIL/REAL、硬件和室外门没有因此提前关闭。
 
 ### MultiDetectGCS
 

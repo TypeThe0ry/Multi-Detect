@@ -2,7 +2,15 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前源码 CameraInfo 语义与 900 帧联合复验（v68）
+## 当前源码 combined 独立传感器硬门（v69）
+
+- [x] combined source-side 强制 CameraInfo K/P/R/D 验证状态；
+- [x] 独立 verifier 强制 CameraInfo status、sensor expected/received/complete 与逐帧 full odometry；
+- [x] 三类字段篡改负测和 E7 combined fixture 完成；
+- [x] 当前源码真实 900 帧 source 通过增强 verifier 44/44，全仓 `3308 passed / 1 skipped`；
+- [ ] 完成四模式人工视觉 0/4、HIL/REAL、真实硬件、室外 GNSS/RTK 与实飞门。
+
+## CameraInfo 语义与 900 帧联合复验（v68）
 
 - [x] 将 Gazebo `CameraInfo` 的 K/P/R、PLUMB_BOB、D 与仓库 camera calibration 逐字段绑定；
 - [x] 将 canonical calibration hash 纳入 backend sensor identity，并把验证状态传播到 runtime/frame-set；

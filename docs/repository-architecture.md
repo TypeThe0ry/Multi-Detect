@@ -1,5 +1,22 @@
 # 统一仓库架构
 
+## v69 combined evidence 双层传感器门（2026-09-05，`v0.3.0-pre.8`）
+
+```text
+combined runner
+  -> assert CameraInfo semantic status before source gate
+  -> combined-evidence.json
+  -> independent verifier reopens source
+       |- exact CameraInfo semantic status
+       |- sensor expected == received and complete
+       `- odometry timestamps == expected + full pose/velocity claim
+  -> E7 combined binding only after every check passes
+```
+
+source 生成器和独立 verifier 不再共享一个宽松的“sensor ready”结论。即使根级 gate 被改成 true，
+CameraInfo 改回 pending、少一帧 image 或少一帧 odometry 都会产生独立 failure reason。当前
+`combined-sim-qgc-20260905T152520Z-75420` 在该架构下为 44/44 checks，仍不提升人工或硬件声明。
+
 ## v68 CameraInfo 标定语义绑定（2026-09-05，`v0.3.0-pre.8`）
 
 ```text
