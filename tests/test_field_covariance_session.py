@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from multidetect import field_covariance_journal as journal
 from multidetect import field_covariance_session as session
 from multidetect.compat import UTC
 from multidetect.field_covariance_campaign import REQUIRED_COMBINATIONS
@@ -71,6 +72,11 @@ def _install_runtime(
     }
     monkeypatch.setattr(
         session,
+        "verify_field_covariance_workspace_receipt",
+        lambda path: dict(receipt),
+    )
+    monkeypatch.setattr(
+        journal,
         "verify_field_covariance_workspace_receipt",
         lambda path: dict(receipt),
     )
@@ -171,6 +177,8 @@ def test_run_next_writes_probe_then_seals_reverifiable_success_record(
     assert result["campaign"]["leaf_ordinal"] == 1
     assert result["campaign"]["runtime_mode"] == "hil"
     assert result["campaign"]["vehicle_class"] == "fixed-wing"
+    assert len(result["capture_lease"]["lease_id"]) == 32
+    assert len(result["capture_lease"]["lease_sha256"]) == 64
     assert result["online_preflight"]["verified_before_capture"] is True
     assert result["capture_result"] == {
         "capture_process_exit_code": 0,
@@ -189,6 +197,7 @@ def test_run_next_writes_probe_then_seals_reverifiable_success_record(
     assert Path(result["record_path"]).is_file()
     assert len(list(journal.glob("*.online-preflight.json"))) == 1
     assert len(list(journal.glob("*.session.json"))) == 1
+    assert not list(journal.glob(".*.capture-lease"))
 
     verified = session.verify_field_covariance_session_record(result["record_path"])
     assert verified["record_sha256"] == result["record_sha256"]
@@ -272,6 +281,42 @@ def test_failed_capture_retains_probe_but_writes_no_success_record(
     assert result["record_written"] is False
     assert len(list((tmp_path / "journal").glob("*.online-preflight.json"))) == 1
     assert not list((tmp_path / "journal").glob("*.session.json"))
+    assert not list((tmp_path / "journal").glob(".*.capture-lease"))
+
+
+def test_capture_callback_runs_under_exclusive_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    receipt, _, config = _install_runtime(tmp_path, monkeypatch)
+    journal_path = tmp_path / "journal"
+    original_capture = session.capture_next
+
+    def capture_under_lease(
+        current: object, **kwargs: object
+    ) -> tuple[int, dict[str, object]]:
+        status = journal.capture_lease_status(receipt, journal_path)
+        assert status["state"] == "held"
+        with pytest.raises(journal.FieldCovarianceJournalError, match="already held"):
+            journal.acquire_capture_lease(
+                receipt,
+                journal_path,
+                leaf_ordinal=1,
+                runtime_mode="hil",
+                vehicle_class="fixed-wing",
+            )
+        return original_capture(current, **kwargs)
+
+    monkeypatch.setattr(session, "capture_next", capture_under_lease)
+    exit_code, result = session.run_next_field_covariance_session(
+        receipt,
+        journal_path,
+        attempt_id="exclusive",
+    )
+
+    assert exit_code == 0
+    assert result["campaign"]["leaf_ordinal"] == 1
+    assert journal.capture_lease_status(receipt, journal_path)["state"] == "absent"
+    assert config.leaves[0].report_path.is_file()
 
 
 def test_session_rejects_journal_inside_workspace_and_unsafe_attempt_id(

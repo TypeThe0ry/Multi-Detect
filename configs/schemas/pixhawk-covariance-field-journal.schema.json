@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/pixhawk-covariance-field-journal.schema.json",
+  "title": "Multi-Detect covariance field journal contracts v1",
+  "oneOf": [
+    {"$ref": "#/$defs/lease"},
+    {"$ref": "#/$defs/recovery"},
+    {"$ref": "#/$defs/index"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "pid"],
+      "properties": {
+        "hostname": {"type": "string", "minLength": 1},
+        "pid": {"type": "integer", "minimum": 1}
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "receipt_sha256", "workspace_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "workspace_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "leaf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaf_ordinal", "runtime_mode", "vehicle_class"],
+      "properties": {
+        "leaf_ordinal": {"type": "integer", "minimum": 1, "maximum": 6},
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]}
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "leaf"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "leaf": {"$ref": "#/$defs/leaf"}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_eligible", "hardware_acceptance", "flight_acceptance"],
+      "properties": {
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "flight_acceptance": {"const": false}
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "schema_version", "lease_id", "acquired_at_utc", "owner",
+        "receipt", "campaign", "claims", "lease_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "multidetect.pixhawk-covariance-field-capture-lease/v1"},
+        "schema_version": {"const": 1},
+        "lease_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "acquired_at_utc": {"type": "string", "format": "date-time"},
+        "owner": {"$ref": "#/$defs/owner"},
+        "receipt": {"$ref": "#/$defs/receipt"},
+        "campaign": {"$ref": "#/$defs/campaign"},
+        "claims": {"$ref": "#/$defs/claims"},
+        "lease_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "schema_version", "recovered_at_utc", "reason", "lease_id",
+        "lease_file_sha256", "lease_sha256", "owner_state", "recovered_by",
+        "receipt", "claims", "recovery_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "multidetect.pixhawk-covariance-field-lease-recovery/v1"},
+        "schema_version": {"const": 1},
+        "recovered_at_utc": {"type": "string", "format": "date-time"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        "lease_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "lease_file_sha256": {"$ref": "#/$defs/sha256"},
+        "lease_sha256": {"$ref": "#/$defs/sha256"},
+        "owner_state": {"const": "dead"},
+        "recovered_by": {"$ref": "#/$defs/owner"},
+        "receipt": {"$ref": "#/$defs/receipt"},
+        "claims": {"$ref": "#/$defs/claims"},
+        "recovery_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "indexRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leaf_ordinal", "runtime_mode", "vehicle_class", "path", "file_sha256",
+        "record_sha256"
+      ],
+      "properties": {
+        "leaf_ordinal": {"type": "integer", "minimum": 1, "maximum": 6},
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "record_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "schema_version", "indexed_at_utc", "journal_directory",
+        "receipt", "campaign", "records", "blocked_probe_count", "passed_count",
+        "pending_count", "complete", "next_leaf", "claims", "index_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "multidetect.pixhawk-covariance-field-journal-index/v1"},
+        "schema_version": {"const": 1},
+        "indexed_at_utc": {"type": "string", "format": "date-time"},
+        "journal_directory": {"type": "string", "minLength": 1},
+        "receipt": {"$ref": "#/$defs/receipt"},
+        "campaign": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "file_sha256"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "file_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/indexRecord"}
+        },
+        "blocked_probe_count": {"type": "integer", "minimum": 0},
+        "passed_count": {"type": "integer", "minimum": 0, "maximum": 6},
+        "pending_count": {"type": "integer", "minimum": 0, "maximum": 6},
+        "complete": {"type": "boolean"},
+        "next_leaf": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/leaf"}]
+        },
+        "claims": {"$ref": "#/$defs/claims"},
+        "index_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

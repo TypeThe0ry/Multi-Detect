@@ -6,7 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "schema_version", "created_at_utc", "receipt", "campaign",
+    "schema", "schema_version", "created_at_utc", "receipt", "capture_lease", "campaign",
     "online_preflight", "covariance_report", "capture_result", "claims", "record_sha256"
   ],
   "properties": {
@@ -23,6 +23,25 @@
         "file_sha256": {"$ref": "#/$defs/sha256"},
         "receipt_sha256": {"$ref": "#/$defs/sha256"},
         "workspace_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "capture_lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "schema_version", "lease_id", "acquired_at_utc", "owner",
+        "receipt", "campaign", "claims", "lease_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "multidetect.pixhawk-covariance-field-capture-lease/v1"},
+        "schema_version": {"const": 1},
+        "lease_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "acquired_at_utc": {"type": "string", "format": "date-time"},
+        "owner": {"$ref": "#/$defs/owner"},
+        "receipt": {"$ref": "#/$defs/leaseReceipt"},
+        "campaign": {"$ref": "#/$defs/leaseCampaign"},
+        "claims": {"$ref": "#/$defs/leaseClaims"},
+        "lease_sha256": {"$ref": "#/$defs/sha256"}
       }
     },
     "campaign": {
@@ -98,6 +117,55 @@
     "record_sha256": {"$ref": "#/$defs/sha256"}
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "pid"],
+      "properties": {
+        "hostname": {"type": "string", "minLength": 1},
+        "pid": {"type": "integer", "minimum": 1}
+      }
+    },
+    "leaseReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "receipt_sha256", "workspace_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "workspace_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "leaseCampaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_sha256", "leaf"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "leaf": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["leaf_ordinal", "runtime_mode", "vehicle_class"],
+          "properties": {
+            "leaf_ordinal": {"type": "integer", "minimum": 1, "maximum": 6},
+            "runtime_mode": {"enum": ["hil", "real"]},
+            "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]}
+          }
+        }
+      }
+    },
+    "leaseClaims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_eligible", "hardware_acceptance", "flight_acceptance"],
+      "properties": {
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "flight_acceptance": {"const": false}
+      }
+    }
   }
 }
