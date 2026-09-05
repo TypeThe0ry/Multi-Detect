@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-09-05T09:31:50Z",
+  "audited_origin": {
+    "remote": "origin",
+    "branch": "main",
+    "commit": "b5c3f10baf4cc9febaa3a10103752f202f3b0611",
+    "commit_subject": "update",
+    "commit_timestamp": "2026-09-05T17:00:21+08:00"
+  },
+  "product_version": {
+    "release_label": "0.3.0-pre.8",
+    "numeric": "0.3.0",
+    "python": "0.3.0rc8",
+    "channel": "prerelease"
+  },
+  "working_iteration": "v57",
+  "release_status": {
+    "final_version_released": false,
+    "gate_passed": false,
+    "release_allowed": false,
+    "blocker_count": 32
+  },
+  "validation": {
+    "full_regression": {
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v57-final.xml",
+      "tests": 3233,
+      "passed": 3232,
+      "skipped": 1,
+      "failed": 0,
+      "errors": 0,
+      "duration_seconds": 182.618,
+      "junit_local_path": "tmp/current-progress-regression-v57-final.xml",
+      "junit_file_bytes": 469702,
+      "junit_file_sha256": "2fd79f5349a56dbdb72eb6ad1a77653707310d141f99cf996a36ffa3a23a9b6f",
+      "distributed_in_git": false
+    },
+    "ruff": {
+      "passed": true,
+      "command": "python -m ruff check .",
+      "scope": "repository"
+    },
+    "ruff_format": {
+      "passed": false,
+      "command": "python -m ruff format --check .",
+      "status": "preexisting_repository_hygiene_debt",
+      "unformatted_files": 410,
+      "breakdown": {
+        "ground-control": 205,
+        "src": 95,
+        "tests": 86,
+        "scripts": 24
+      },
+      "release_parity_bound_python_files_affected": 31,
+      "ci_impact": "manual validation format step remains failing until an isolated baseline migration"
+    }
+  },
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 5146,
+    "file_sha256": "c670b2aae30c392c2b7fbb981edb58719ec66e4112b51f135e69ac662afe152b",
+    "hashes": {
+      "ui_contract_hash": "dd8b40866d3143e5eb85bf18b0028c1824cb0c91b111b7a4cbfff503152c4328",
+      "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
+      "task_contract_hash": "2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af",
+      "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
+      "px4_mission_path_hash": "18023962f68a61fdfb14c44e5f0a6a5bb713c782166386bd2b1f2bf7b567651d"
+    }
+  },
+  "evidence": {
+    "gazebo_target_geolocation_positive": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-geolocation-positive-control-evaluation-v57-pre8-v3.json",
+      "distributed_in_git": false,
+      "file_sha256": "5aa0257d05e5bdb7ebe871748a923420faa46d811475fa4d4c8fa590af54ac08",
+      "evidence_sha256": "a18f2b9951de21a83ce0c7e02dc69b7d626d8997cb45df66a23fd7d351ff9f22",
+      "deterministic_result_sha256": "2ba7ea1cb65fcce5d188a59a4c3269ff3817178f7fb9ce2df8f862584547712e",
+      "gate_passed": true,
+      "frame_count": 5,
+      "geolocated_frame_count": 5,
+      "maximum_horizontal_error_m": 0.6740399562790155,
+      "mean_horizontal_error_m": 0.6514757073115282,
+      "maximum_pairwise_prediction_distance_m": 0.035196957063615746,
+      "one_sigma_coverage": 1.0,
+      "range_ci95_coverage": 1.0
+    },
+    "gazebo_target_geolocation_negative": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/gazebo-car-near-horizon-negative-evaluation-v57-pre8-v1.json",
+      "distributed_in_git": false,
+      "file_sha256": "fd47707305d3608b58b030bd48acec05162b0849a80e0e01175bfa30b50f8054",
+      "evidence_sha256": "9776323e6cef0f5be3a5ca3180989d3bc99ed9f48153cb16d147ea1f5fe8784e",
+      "deterministic_result_sha256": "56a8e9c95781aa17a1952c67cd1e2f4f9b14db6c21daeec38e0fda066d5986d3",
+      "gate_passed": false,
+      "frame_count": 5,
+      "geolocated_frame_count": 0,
+      "fake_coordinate_count": 0,
+      "expected_failure_reason": "target_ray_does_not_intersect_ground_safely"
+    },
+    "external_three_airframe_rebind": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/simulator-external-runtime-ai-join-v57-current-parity-pre8.json",
+      "distributed_in_git": false,
+      "file_sha256": "baf6fc33db0e39c758420b2de3573eab9a2751721476d25cacf5ebc2d2199d3b",
+      "gate_passed": true,
+      "new_external_runtime_claimed": false
+    },
+    "release_gate_report": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v57/release-gate-pre.8-current-20260905T091300Z-v6-bound-report.json",
+      "distributed_in_git": false,
+      "file_sha256": "4a58a02328d57593fa52d6ee8243f1a9211d3e0accf7a543bc0a8f0770940b2d",
+      "gate_passed": false,
+      "release_allowed": false,
+      "blocker_count": 32
+    }
+  },
+  "model_status": {
+    "candidate_model_id": "ultralytics-yolo26n-coco80-v56-candidate",
+    "status": "quarantined",
+    "production_approved": false,
+    "accuracy_validated_for_production": false
+  },
+  "claims": {
+    "software_sim_geolocation_subgate": "passed",
+    "qgc_manual_visual_acceptance": "not_claimed",
+    "hardware_acceptance": "not_claimed",
+    "outdoor_gnss_acceptance": "not_claimed",
+    "hil_acceptance": "not_claimed",
+    "real_acceptance": "not_claimed",
+    "flight_acceptance": "not_claimed"
+  },
+  "next_priorities": [
+    "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
+    "multi_height_multi_slope_gazebo_camera_to_native_qgc_geolocation_acceptance",
+    "fixed_wing_and_vtol_dynamic_response_parity",
+    "deployment_domain_model_and_replay_set_review",
+    "jetson_camera_pixhawk_gr01_real_link_acceptance",
+    "outdoor_gnss_rtk_and_measured_camera_extrinsics_survey",
+    "hil_real_three_airframe_px4_mission_feedback_matrix"
+  ]
+}

@@ -475,7 +475,9 @@ def test_packaging_exposes_profile_provision_command() -> None:
 
 def test_documentation_explains_profile_bootstrap_and_evidence_boundary() -> None:
     documents = {
-        "README.md": (
+        # Detailed historical assertions belong to the archived development log;
+        # the root README is intentionally kept as a bounded current entry point.
+        "docs/history/README-development-log-through-v56.md": (
             "v44 现场 RuntimeProfile 自动签发",
             "增加 `provision` 子命令",
             "multidetect-px4-runtime-profile-provision",

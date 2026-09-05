@@ -52,9 +52,9 @@ from .multimodal_ranging import (
     TargetImageObservation,
     load_camera_calibration,
 )
+from .release_parity import ReleaseParityError, build_release_parity_document
 from .simulation.index import load_scenario_index, load_verified_channel
 from .simulation.truth import ScenarioTruth
-from .release_parity import ReleaseParityError, build_release_parity_document
 from .simulator.stack import SimulatorStackError, resolve_repository_model_asset_bundle
 from .target_geolocation import TargetGeolocation, target_geolocation_from_ned_offset
 from .target_image_anchor import TargetImageAnchor, target_image_anchor
@@ -1544,6 +1544,30 @@ def _repository_display_path(path: Path, repository_root: Path) -> str:
         return str(path.resolve())
 
 
+def _repository_path(root: Path, value: Any, label: str) -> Path:
+    relative = _nonempty_text(value, f"{label} path")
+    portable = PurePosixPath(relative)
+    if portable.is_absolute() or ".." in portable.parts:
+        raise GazeboTargetGeolocationInputError(f"{label} path is not repository-contained")
+    return _contained_regular_file(root, root.joinpath(*portable.parts), label)
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _deterministic_result_sha256(document: Mapping[str, Any]) -> str:
+    deterministic = dict(document)
+    deterministic.pop("evaluated_at_utc", None)
+    deterministic.pop("deterministic_result_sha256", None)
+    deterministic.pop("evidence_sha256", None)
+    return canonical_sha256(deterministic)
+
+
 def _negative_claims() -> dict[str, Any]:
     return {
         "environment": "software_simulation",
@@ -1577,5 +1601,6 @@ __all__ = [
     "build_input_error_document",
     "build_runtime_error_document",
     "evaluate_gazebo_target_geolocation",
+    "verify_gazebo_target_geolocation_evidence",
     "write_evidence_exclusive",
 ]

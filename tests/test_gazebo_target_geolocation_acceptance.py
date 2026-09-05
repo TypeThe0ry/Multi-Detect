@@ -21,6 +21,7 @@ from multidetect.gazebo_target_geolocation_acceptance import (
     GazeboTargetGeolocationConfig,
     GazeboTargetGeolocationInputError,
     evaluate_gazebo_target_geolocation,
+    verify_gazebo_target_geolocation_evidence,
     write_evidence_exclusive,
 )
 from multidetect.model_manifest import sha256_file
@@ -31,6 +32,7 @@ from multidetect.multimodal_ranging import (
     TargetImageObservation,
     load_camera_calibration,
 )
+from multidetect.release_parity import DEFAULT_FILE_LIST
 from multidetect.simulation.index import load_verified_channel
 from multidetect.simulator.stack import resolve_repository_model_asset_bundle
 from multidetect.target_geolocation import target_geolocation_from_ned_offset
@@ -87,6 +89,26 @@ def _build_case(
     root = tmp_path / "repo"
     (root / "pyproject.toml").parent.mkdir(parents=True, exist_ok=True)
     (root / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    version_manifest = root / "configs/product-version.json"
+    version_manifest.parent.mkdir(parents=True, exist_ok=True)
+    version_manifest.write_text(
+        (ROOT / "configs/product-version.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    # The evaluator binds the five canonical release-parity groups.  Fixture
+    # checkouts therefore provide a minimal file for every explicit source
+    # path; their contents are irrelevant, but changing one must invalidate a
+    # previously generated acceptance document.
+    for group, paths in DEFAULT_FILE_LIST.items():
+        for relative_path in paths:
+            parity_source = root / relative_path
+            parity_source.parent.mkdir(parents=True, exist_ok=True)
+            parity_source.write_text(
+                f"fixture parity source: {group}:{relative_path}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
     model_asset = root / "simulation/gazebo/models/fixture/model.sdf"
     model_asset.parent.mkdir(parents=True, exist_ok=True)
     model_asset.write_text("<sdf version='1.10'><model name='fixture'/></sdf>\n", encoding="utf-8")
@@ -534,6 +556,65 @@ def test_two_frame_camera_to_wgs84_gate_is_truth_isolated(tmp_path: Path) -> Non
     assert document["model_identity"]["production_approved"] is False
     evidence_hash = document.pop("evidence_sha256")
     assert canonical_sha256(document) == evidence_hash
+
+
+def test_evidence_verifier_reopens_inputs_and_reproduces_result(tmp_path: Path) -> None:
+    case = _build_case(tmp_path)
+
+    def factory(_config: Any) -> _FakeDetector:
+        return _FakeDetector(case.detection)
+
+    document = evaluate_gazebo_target_geolocation(
+        _config(case), detector_factory=factory
+    )
+    verification = verify_gazebo_target_geolocation_evidence(
+        document,
+        repository_root=case.root,
+        detector_factory=factory,
+    )
+
+    assert verification["passed"] is True
+    assert verification["reproduced"] is True
+    assert verification["reasons"] == []
+    assert verification["evidence_sha256"] == document["evidence_sha256"]
+    assert (
+        verification["reproduced_result_sha256"]
+        == document["deterministic_result_sha256"]
+    )
+
+
+def test_evidence_verifier_fails_closed_after_bound_core_change(tmp_path: Path) -> None:
+    case = _build_case(tmp_path)
+
+    def factory(_config: Any) -> _FakeDetector:
+        return _FakeDetector(case.detection)
+
+    document = evaluate_gazebo_target_geolocation(
+        _config(case), detector_factory=factory
+    )
+    bound_core_source = case.root / DEFAULT_FILE_LIST["core_algorithm"][0]
+    bound_core_source.write_text(
+        bound_core_source.read_text(encoding="utf-8") + "changed\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    verification = verify_gazebo_target_geolocation_evidence(
+        document,
+        repository_root=case.root,
+        detector_factory=factory,
+    )
+
+    assert verification["passed"] is False
+    assert verification["reproduced"] is False
+    assert (
+        "evidence does not reproduce from the current bound inputs and shared contracts"
+        in verification["reasons"]
+    )
+    assert (
+        "release identity or shared parity does not match the current checkout"
+        in verification["reasons"]
+    )
 
 
 def test_near_horizon_ground_anchor_fails_closed_without_fake_coordinate(

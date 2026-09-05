@@ -1,5 +1,10 @@
 # Architecture
 
+> Current source-of-truth snapshot: [current-progress.md](current-progress.md). The v57
+> camera-pixel-to-WGS-84 path is a single parity-bound implementation shared by
+> REPLAY/SIM/HIL/REAL; only its software/SIM subgate is currently proven. QGC manual visual,
+> outdoor GNSS, hardware, HIL, REAL and flight acceptance remain explicitly unclaimed.
+
 Multi-Detect is deliberately split into evidence, decision, authorization and simulated effect
 layers. A component in an earlier layer cannot call a component in a later layer directly.
 

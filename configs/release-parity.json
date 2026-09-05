@@ -1,8 +1,8 @@
 {
   "parity": {
-    "core_algorithm_hash": "81b3779f4d2c4df863e23c1d108131c4323da326fa88247ec82352aff6ad0bbc",
+    "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
     "px4_mission_path_hash": "18023962f68a61fdfb14c44e5f0a6a5bb713c782166386bd2b1f2bf7b567651d",
-    "safety_policy_hash": "8131e780bd60aead395f3860d2137f36c103c047d6bdb739e4aa3f60c4f9489d",
+    "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
     "task_contract_hash": "2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af",
     "ui_contract_hash": "dd8b40866d3143e5eb85bf18b0028c1824cb0c91b111b7a4cbfff503152c4328"
   },
@@ -26,6 +26,7 @@
       "src/multidetect/simulator/perception_bridge.py",
       "src/multidetect/target_event_replay.py",
       "src/multidetect/target_geolocation.py",
+      "src/multidetect/target_image_anchor.py",
       "src/multidetect/terrain_dem.py"
     ],
     "px4_mission_path": [

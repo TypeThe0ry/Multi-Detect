@@ -5,6 +5,37 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v57 可复现的 Gazebo 像素到 WGS-84 定位门与仓库状态重整（2026-09-05）
+
+- 以 GitHub `origin/main` 的 `b5c3f10baf4cc9febaa3a10103752f202f3b0611` 为审计基线，重新盘点
+  当前源码、功能、证据、版本和门禁；原 10,602 行 README 迁入 `docs/history/`，根 README 改为稳定
+  入口，并新增人/机可读 `docs/current-progress.*`、更新规范和 PR 检查表。以后功能更新必须同步
+  CHANGELOG、当前进度、路线图/专题文档和相应测试，聊天记录不再充当唯一状态源。
+- 收口远端已经存在但缺少内部 helper/公开导出的 Gazebo geolocation verifier。它现在会重新打开并
+  严格约束 repository-contained scenario、frame-set、候选模型和 manifest，重新计算五组 release parity，
+  重跑 detector/ranging/WGS-84，再比较去时间戳确定性摘要；新增正向复现和 shared-core 改字节后旧证据
+  失效的回归。
+- `target_image_anchor.py` 正式纳入 `core_algorithm` parity。删除无 `model.config`/`model.sdf`、无引用且
+  会污染正式 model-root 摘要的 v2 孤立重复纹理；该字节仍可从基线提交恢复。新 parity 文件 5,146 bytes，
+  SHA-256 `C670B2AAE30C392C2B7FBB981EDB58719EC66E4112B51F135E69AC662AFE152B`，core/safety hash 为
+  `505E5E8D...F0AD9` / `DAF5AF66...D710A`。
+- 当前 parity 下重跑实际 Gazebo 像素定位：正向 5/5 检测和落图，最大/平均水平误差
+  `0.674040/0.651476 m`，最大帧间漂移 `0.035197 m`，1σ 与 range CI95 覆盖率均为 `1.0`；证据文件
+  SHA-256 `5AA0257D...AC08`，独立 verifier `passed=true/reproduced=true`。近地平线负向 5/5 检测但
+  0/5 坐标，理由为 `target_ray_does_not_intersect_ground_safely`，负向 verifier 也完整复现。
+- 从六份不可变 historical external runtime/AI source 重建当前 parity 三机型 join，join/revalidation
+  均通过且 `source_recomputed=true`；这不是新的外部 Gazebo 运行或硬件声明。E7 report-only 重新生成，
+  `gate_passed=false`、`release_allowed=false`、32 blockers，最终 `v0.3.0` 继续阻断。
+- 全量回归 3,233 tests：`3232 passed, 1 skipped, 0 failed, 0 errors`；唯一 skip 是 Windows symlink
+  权限项。JUnit 469,702 bytes / SHA-256
+  `2FD79F5349A56DBDB72EB6AD1A77653707310D141F99CF996A36FFA3A23A9B6F`；全仓库 Ruff check 通过。
+  候选模型继续 `quarantined`，QGC 人工视觉、真实硬件、室外 GNSS、HIL/REAL、实飞与生产模型批准
+  均未声明；v57 未改 QGC C++/QML，不重复链接 EXE。
+- 全仓库 Ruff format baseline 仍有 410 个历史文件未格式化（`ground-control/src/tests/scripts` 为
+  `205/95/86/24`，其中 31 个是 parity 绑定 Python 源）。本轮不混入数百文件机械改写；该项已登记为
+  独立迁移债务，必须在格式化后重建 parity、相关 evidence 和 E7，现有 manual validation format step
+  在此之前仍会失败。
+
 ### v0.3.0-pre.8 v56 Gazebo 相机像素与候选检测三控（2026-09-05）
 
 - 三个组合机型的 `mono_cam` merge include 显式改为 `pose relative_to="base_link"`，避免相机按组合 model

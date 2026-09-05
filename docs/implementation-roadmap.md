@@ -2,7 +2,7 @@
 
 目标平台是一架通用折叠串联固定翼无人机。固定摄像头、Jetson、Pixhawk 和数传始终安装；灭火载荷是可选任务模块。软件从配置中的载荷清单自动推导能力：空清单只执行巡检告警，有载荷时才允许进入安全检查和人工授权流程。
 
-## 当前 pre.8 户外定位/SIM 资源收口
+## 当前 pre.8 户外定位/SIM 资源收口（v57）
 
 - [x] 将三轴射线不确定性失败映射为 Python/QGC 共用的 `RANGE_STATUS` bit 31，保持内部诊断细粒度并
   让操作端稳定显示 fail-closed 状态。
@@ -26,8 +26,20 @@
 - [x] 对 v55 current-code 执行全仓库回归：2,907 tests 中 `2906 passed, 1 skipped, 0 failed, 0 errors`；
   唯一跳过为 Windows symlink 权限项，JUnit SHA-256 为
   `A2C2595C49D0B663468D09274D22976CC1B4D9128425BB23458445B1C5397F51`。
-- [ ] 使用真实 Gazebo camera detection 经过共享 ranging、target geolocation、evidence card 和原生 QGC
-  Fly View，在多个坡高上完成动态精度与人工视觉验收。
+- [x] 使用 5 帧真实 Gazebo BGR24 camera 像素经过 quarantined candidate、共享 semantic ground-contact
+  anchor、DEM/GNSS ranging 与 WGS-84 target geolocation：5/5 落图，最大水平误差 `0.674040 m`、
+  最大帧间漂移 `0.035197 m`；近地平线负向 5/5 不落假点。两份 evidence 均由当前输入/parity
+  独立重跑复现。该结果只关闭单高度 software/SIM 算法子门。
+- [x] 将 semantic image anchor 纳入 `core_algorithm` parity，重新生成五组共享契约并从六份不可变
+  external source 重建三机型 join/revalidation；当前 E7 report-only 仍为 32 blockers。
+- [x] 对 v57 current-code 执行全仓库回归：3,233 tests 中 `3232 passed, 1 skipped, 0 failed, 0 errors`；
+  唯一跳过仍为 Windows symlink 权限项；JUnit 469,702 bytes / SHA-256
+  `2FD79F5349A56DBDB72EB6AD1A77653707310D141F99CF996A36FFA3A23A9B6F`。
+- [ ] 以独立机械提交清理 410 个历史 Ruff format 文件；31 个 parity 绑定 Python 源会随之改变，
+  因此完成后必须重新生成 parity，并重跑定位、三机型 external join、E7 和全量回归，不能删除 format
+  gate 或复用旧 evidence 冒充完成。
+- [ ] 将上述真实 Gazebo camera → shared ranging → target geolocation 扩展到多个坡高/距离，并经过
+  evidence card 与原生 QGC Fly View 完成动态精度和人工视觉验收。
 - [ ] 生成 fixed-wing 与 VTOL 对等动态 response evidence；只有明确纳入发布门并重跑 E7 wrapper 后，
   才能更新三机型 external source 或 blocker 数。
 - [ ] 使用真实 GNSS、已测相机外参和多距离/多坡度 survey truth 完成室外定位验证，再进入 HIL/REAL。

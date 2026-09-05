@@ -1,5 +1,35 @@
 # 统一仓库架构
 
+## v57 当前事实入口与可复现目标落图（2026-09-05，`v0.3.0-pre.8`）
+
+仓库当前状态不再从超长根 README 或聊天历史推断。稳定入口是根 `README.md`，详细现状与
+机器可读镜像分别是 `docs/current-progress.md` 和 `docs/current-progress.json`，旧 v1-v56
+逐轮开发记录原样保存在 `docs/history/README-development-log-through-v56.md`。以后每次功能、
+证据、版本或门禁变化必须遵循 `docs/development-update-policy.md`，同步更新进度、CHANGELOG、
+路线图/专题文档和测试。
+
+v57 没有新增第二套定位算法。实际 Gazebo camera 像素沿唯一共享链路进入结果与独立复核：
+
+```text
+Gazebo BGR24 frames + NavSat/Odometry + scenario/DEM
+  -> quarantined ONNX candidate detector
+  -> target_image_anchor.py semantic ground-contact point
+  -> MultiModalRangingEngine (camera ray + DEM/GNSS + uncertainty)
+  -> target_geolocation.py WGS-84 projection + 1-sigma uncertainty
+  -> gazebo_target_geolocation_acceptance.py evidence
+  -> verify_gazebo_target_geolocation_acceptance.py
+       reopen scenario/frame-set/model/manifest
+       recompute all five release-parity groups
+       rerun detector/ranging/geolocation
+       compare timestamp-free deterministic result digest
+```
+
+`target_image_anchor.py` 已纳入 `core_algorithm` parity，任何绑定核心源、场景、帧集、模型或
+manifest 字节变化都会让旧证据复核失败。当前正向 5/5 帧落图、最大水平误差 `0.674040 m`；
+近地平线负向 5/5 帧都以 `target_ray_does_not_intersect_ground_safely` 拒绝坐标。两项只关闭
+单高度 software/SIM 子门，不外推为原生 QGC 人工视觉、室外 GNSS、HIL、REAL、实飞或生产
+模型批准。E7 当前仍有 32 条 blocker，最终 `v0.3.0` 保持阻断。
+
 ## v56 camera-frame、候选三控与当前 E7 绑定（2026-09-05，`v0.3.0-pre.8`）
 
 v56 继续使用同一 simulator/backend/perception/QGC 路径，没有增加 simulator-only UI：

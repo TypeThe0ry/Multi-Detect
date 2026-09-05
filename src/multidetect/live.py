@@ -51,7 +51,6 @@ from .multimodal_ranging import (
     MultiModalRangingEngine,
     RangeSolution,
     RangeValidity,
-    TargetImageObservation,
     VerticalMeasurement,
     VerticalSource,
 )
