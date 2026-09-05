@@ -398,6 +398,14 @@ _Ray = tuple[float, float, float]
 
 
 @dataclass(frozen=True, slots=True)
+class _GeometryPerturbation:
+    plus_ray_ned: _Ray
+    minus_ray_ned: _Ray
+    plus_camera_offset_ned: _Ray
+    minus_camera_offset_ned: _Ray
+
+
+@dataclass(frozen=True, slots=True)
 class _RayUncertainty:
     """Nominal NED ray plus one-at-a-time perturbation endpoints.
 
@@ -409,13 +417,7 @@ class _RayUncertainty:
 
     base_body: _Ray
     base_ned: _Ray
-    perturbations: tuple[tuple[_Ray, _Ray], ...]
-    # Pose roll/pitch and all three surveyed mount angles rotate the NED ray as
-    # well as changing its ground-range projection.  Keep their independent
-    # central-difference azimuth terms so the target-geolocation error budget
-    # does not silently omit this coupling in a banked or pitched aircraft.
-    attitude_bearing_sigma_deg: float = 0.0
-    boresight_bearing_sigma_deg: float = 0.0
+    perturbations: tuple[_GeometryPerturbation, ...]
 
 
 class MultiModalRangingEngine:
@@ -592,6 +594,7 @@ class MultiModalRangingEngine:
                 pose=pose,
                 target=target,
                 height_m=camera_height_m,
+                navigation_height_m=vertical_fusion.value_m,
                 height_sigma_m=camera_height_sigma_m,
                 ray_uncertainty=ray_uncertainty,
             )
@@ -674,10 +677,9 @@ class MultiModalRangingEngine:
             math.degrees(math.atan2(east_offset_m, north_offset_m))
         )
         bearing_sigma_deg = _bearing_sigma_from_ray_uncertainty(
-            calibration=calibration,
             pose=pose,
-            target=target,
             ray_uncertainty=ray_uncertainty,
+            slant_range_m=slant_range_m,
         )
         if bearing_sigma_deg is None:
             return self._invalid(base, "target_ray_uncertainty_unavailable")
@@ -839,10 +841,9 @@ class MultiModalRangingEngine:
         if ground_sigma is None:
             return self._invalid(base, "target_ray_uncertainty_crosses_horizon")
         bearing_sigma_deg = _bearing_sigma_from_ray_uncertainty(
-            calibration=calibration,
             pose=pose,
-            target=target,
             ray_uncertainty=ray_uncertainty,
+            slant_range_m=slant_range_m,
         )
         if bearing_sigma_deg is None:
             return self._invalid(base, "target_ray_uncertainty_unavailable")
@@ -895,6 +896,7 @@ class MultiModalRangingEngine:
         pose: AircraftPose,
         target: TargetImageObservation,
         height_m: float,
+        navigation_height_m: float | None,
         height_sigma_m: float,
         ray_uncertainty: _RayUncertainty | None = None,
     ) -> float | None:
@@ -905,13 +907,22 @@ class MultiModalRangingEngine:
         if base_ray[2] <= 0.0:
             return None
         components = [height_sigma_m / base_ray[2]]
-        for plus_ray, minus_ray in uncertainty.perturbations:
+        for perturbation in uncertainty.perturbations:
+            plus_ray = perturbation.plus_ray_ned
+            minus_ray = perturbation.minus_ray_ned
             # A skipped endpoint used to make near-horizon estimates look more
             # certain than they are.  Once a one-sigma ray crosses the horizon
             # the ground intersection is unbounded, so publish no distance.
             if plus_ray[2] <= 0.0 or minus_ray[2] <= 0.0:
                 return None
-            delta = abs(height_m / plus_ray[2] - height_m / minus_ray[2]) / 2.0
+            plus_height_m = height_m
+            minus_height_m = height_m
+            if navigation_height_m is not None:
+                plus_height_m = navigation_height_m - perturbation.plus_camera_offset_ned[2]
+                minus_height_m = navigation_height_m - perturbation.minus_camera_offset_ned[2]
+            if plus_height_m <= 0.0 or minus_height_m <= 0.0:
+                return None
+            delta = abs(plus_height_m / plus_ray[2] - minus_height_m / minus_ray[2]) / 2.0
             components.append(delta)
         sigma = math.sqrt(sum(component * component for component in components))
         return sigma if math.isfinite(sigma) else None
@@ -975,8 +986,17 @@ class MultiModalRangingEngine:
             evaluate(height=height_m - height_sigma_m),
         ):
             return None
-        for plus_ray, minus_ray in ray_uncertainty.perturbations:
-            if not add_pair(evaluate(ray=plus_ray), evaluate(ray=minus_ray)):
+        for perturbation in ray_uncertainty.perturbations:
+            if not add_pair(
+                evaluate(
+                    ray=perturbation.plus_ray_ned,
+                    offset=perturbation.plus_camera_offset_ned,
+                ),
+                evaluate(
+                    ray=perturbation.minus_ray_ned,
+                    offset=perturbation.minus_camera_offset_ned,
+                ),
+            ):
                 return None
         offset_sigma = calibration.camera_offset_sigma_m
         if offset_sigma > 0.0:
@@ -1054,16 +1074,18 @@ class MultiModalRangingEngine:
             # term so an uncertain lever arm can only widen, never shrink,
             # the published confidence interval.
             components.append(camera_offset_sigma_m)
-        for plus_ray, minus_ray in ray_uncertainty.perturbations:
+        for perturbation in ray_uncertainty.perturbations:
+            plus_ray = perturbation.plus_ray_ned
+            minus_ray = perturbation.minus_ray_ned
             if plus_ray[2] <= 0.0 or minus_ray[2] <= 0.0:
                 return None
             plus_ground = math.hypot(
-                camera_offset_ned[0] + slant_range_m * plus_ray[0],
-                camera_offset_ned[1] + slant_range_m * plus_ray[1],
+                perturbation.plus_camera_offset_ned[0] + slant_range_m * plus_ray[0],
+                perturbation.plus_camera_offset_ned[1] + slant_range_m * plus_ray[1],
             )
             minus_ground = math.hypot(
-                camera_offset_ned[0] + slant_range_m * minus_ray[0],
-                camera_offset_ned[1] + slant_range_m * minus_ray[1],
+                perturbation.minus_camera_offset_ned[0] + slant_range_m * minus_ray[0],
+                perturbation.minus_camera_offset_ned[1] + slant_range_m * minus_ray[1],
             )
             components.append(abs(plus_ground - minus_ground) / 2.0)
         sigma = math.sqrt(sum(component * component for component in components))
@@ -1203,104 +1225,121 @@ def _build_ray_uncertainty(
         base_body, base_ned = _target_rays(calibration, pose, target)
     except ValueError:
         return None
-    perturbations: tuple[tuple[object, str, float, str | None], ...] = (
-        (pose, "roll_deg", pose.roll_sigma_deg, "attitude"),
-        (pose, "pitch_deg", pose.pitch_sigma_deg, "attitude"),
+    perturbations: tuple[tuple[object, str, float], ...] = (
+        (pose, "roll_deg", pose.roll_sigma_deg),
+        (pose, "pitch_deg", pose.pitch_sigma_deg),
         (
             calibration,
             "mount_pitch_down_deg",
             calibration.boresight_sigma_deg,
-            "boresight",
         ),
         (
             calibration,
             "mount_yaw_right_deg",
             calibration.boresight_sigma_deg,
-            "boresight",
         ),
         (
             calibration,
             "mount_roll_clockwise_deg",
             calibration.boresight_sigma_deg,
-            "boresight",
         ),
-        (target, "center_x", target.center_sigma_px / calibration.width_px, None),
-        (target, "center_y", target.center_sigma_px / calibration.height_px, None),
+        (target, "center_x", target.center_sigma_px / calibration.width_px),
+        (target, "center_y", target.center_sigma_px / calibration.height_px),
     )
-    endpoints: list[tuple[_Ray, _Ray]] = []
-    attitude_bearing_components: list[float] = []
-    boresight_bearing_components: list[float] = []
-    for instance, field_name, sigma, bearing_group in perturbations:
+    endpoints: list[_GeometryPerturbation] = []
+    for instance, field_name, sigma in perturbations:
         if sigma <= 0.0:
             continue
         try:
             plus = replace(instance, **{field_name: getattr(instance, field_name) + sigma})
             minus = replace(instance, **{field_name: getattr(instance, field_name) - sigma})
+            plus_calibration = plus if isinstance(plus, CameraCalibration) else calibration
+            minus_calibration = minus if isinstance(minus, CameraCalibration) else calibration
+            plus_pose = plus if isinstance(plus, AircraftPose) else pose
+            minus_pose = minus if isinstance(minus, AircraftPose) else pose
+            plus_target = plus if isinstance(plus, TargetImageObservation) else target
+            minus_target = minus if isinstance(minus, TargetImageObservation) else target
             plus_ray = _target_rays(
-                plus if isinstance(plus, CameraCalibration) else calibration,
-                plus if isinstance(plus, AircraftPose) else pose,
-                plus if isinstance(plus, TargetImageObservation) else target,
+                plus_calibration,
+                plus_pose,
+                plus_target,
             )[1]
             minus_ray = _target_rays(
-                minus if isinstance(minus, CameraCalibration) else calibration,
-                minus if isinstance(minus, AircraftPose) else pose,
-                minus if isinstance(minus, TargetImageObservation) else target,
+                minus_calibration,
+                minus_pose,
+                minus_target,
             )[1]
+            plus_offset = _camera_offset_ned(plus_calibration, plus_pose)
+            minus_offset = _camera_offset_ned(minus_calibration, minus_pose)
         except (TypeError, ValueError):
             return None
-        endpoints.append((plus_ray, minus_ray))
-        if bearing_group is not None:
-            component = _bearing_sigma_from_ray_pair(plus_ray, minus_ray)
-            if component is None:
-                return None
-            if bearing_group == "attitude":
-                attitude_bearing_components.append(component)
-            else:
-                boresight_bearing_components.append(component)
+        endpoints.append(
+            _GeometryPerturbation(
+                plus_ray_ned=plus_ray,
+                minus_ray_ned=minus_ray,
+                plus_camera_offset_ned=plus_offset,
+                minus_camera_offset_ned=minus_offset,
+            )
+        )
     return _RayUncertainty(
         base_body,
         base_ned,
         tuple(endpoints),
-        math.hypot(*attitude_bearing_components) if attitude_bearing_components else 0.0,
-        math.hypot(*boresight_bearing_components) if boresight_bearing_components else 0.0,
     )
 
 
 def _bearing_sigma_from_ray_uncertainty(
     *,
-    calibration: CameraCalibration,
     pose: AircraftPose,
-    target: TargetImageObservation,
     ray_uncertainty: _RayUncertainty,
+    slant_range_m: float,
 ) -> float | None:
-    """Return the absolute-bearing one-sigma budget for a calibrated ray.
+    """Return the bearing sigma of the complete navigation-to-target vector.
 
-    Heading and image-centre terms remain independent inputs for wire/backwards
-    compatibility.  Pose roll/pitch and mount pitch/yaw/roll terms come from
-    the same NED endpoint perturbations used by ground-range propagation, so a
-    banked fixed-wing frame cannot publish a deceptively narrow geolocation
-    circle simply because its horizontal bearing changed through attitude or
-    mount-survey uncertainty.
+    Heading remains an independent input. Every other image, attitude and
+    boresight term is derived from the same perturbed ray *and camera-offset*
+    endpoints used by range propagation. This matters at short range, where a
+    surveyed lever arm can materially change the bearing from the GNSS datum.
     """
 
-    pixel_sigma_deg = math.degrees(target.center_sigma_px / max(calibration.fx_px, 1.0))
-    components = (
-        pose.heading_sigma_deg,
-        pixel_sigma_deg,
-        ray_uncertainty.attitude_bearing_sigma_deg,
-        ray_uncertainty.boresight_bearing_sigma_deg,
-    )
-    if not all(math.isfinite(value) and value >= 0.0 for value in components):
+    if (
+        not math.isfinite(pose.heading_sigma_deg)
+        or pose.heading_sigma_deg < 0.0
+        or not math.isfinite(slant_range_m)
+        or slant_range_m <= 0.0
+    ):
         return None
+    components = [pose.heading_sigma_deg]
+    for perturbation in ray_uncertainty.perturbations:
+        component = _bearing_sigma_from_geometry_pair(
+            perturbation,
+            slant_range_m=slant_range_m,
+        )
+        if component is None:
+            return None
+        components.append(component)
     sigma = math.hypot(*components)
     return sigma if math.isfinite(sigma) else None
 
 
-def _bearing_sigma_from_ray_pair(plus_ray: _Ray, minus_ray: _Ray) -> float | None:
-    """Estimate one angular sigma from plus/minus NED ray endpoints."""
+def _bearing_sigma_from_geometry_pair(
+    perturbation: _GeometryPerturbation,
+    *,
+    slant_range_m: float,
+) -> float | None:
+    """Estimate one bearing sigma from perturbed navigation-to-target endpoints."""
 
-    plus_horizontal = math.hypot(plus_ray[0], plus_ray[1])
-    minus_horizontal = math.hypot(minus_ray[0], minus_ray[1])
+    plus_ray = perturbation.plus_ray_ned
+    minus_ray = perturbation.minus_ray_ned
+    plus_offset = perturbation.plus_camera_offset_ned
+    minus_offset = perturbation.minus_camera_offset_ned
+    plus_north = plus_offset[0] + slant_range_m * plus_ray[0]
+    plus_east = plus_offset[1] + slant_range_m * plus_ray[1]
+    minus_north = minus_offset[0] + slant_range_m * minus_ray[0]
+    minus_east = minus_offset[1] + slant_range_m * minus_ray[1]
+
+    plus_horizontal = math.hypot(plus_north, plus_east)
+    minus_horizontal = math.hypot(minus_north, minus_east)
     if (
         not math.isfinite(plus_horizontal)
         or not math.isfinite(minus_horizontal)
@@ -1308,8 +1347,8 @@ def _bearing_sigma_from_ray_pair(plus_ray: _Ray, minus_ray: _Ray) -> float | Non
         or minus_horizontal <= 1.0e-12
     ):
         return None
-    plus_bearing_deg = math.degrees(math.atan2(plus_ray[1], plus_ray[0]))
-    minus_bearing_deg = math.degrees(math.atan2(minus_ray[1], minus_ray[0]))
+    plus_bearing_deg = math.degrees(math.atan2(plus_east, plus_north))
+    minus_bearing_deg = math.degrees(math.atan2(minus_east, minus_north))
     delta_deg = abs(_wrap_signed_degrees(plus_bearing_deg - minus_bearing_deg)) / 2.0
     return delta_deg if math.isfinite(delta_deg) else None
 

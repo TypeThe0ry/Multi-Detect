@@ -281,6 +281,49 @@ def test_camera_offset_survey_uncertainty_widens_ground_and_bearing_budget() -> 
     assert surveyed.bearing_sigma_deg > nominal.bearing_sigma_deg
 
 
+def test_bearing_uncertainty_uses_perturbed_lever_arm_target_endpoints() -> None:
+    calibration = _calibration(mount_pitch_down_deg=45.0, boresight_sigma_deg=1.0)
+    pose = _pose(
+        roll_deg=15.0,
+        pitch_deg=10.0,
+        heading_deg=0.0,
+        roll_sigma_deg=1.0,
+        pitch_sigma_deg=1.0,
+        heading_sigma_deg=0.0,
+    )
+    target = _target(center_x=0.65, center_y=0.55, center_sigma_px=0.001)
+    measurement = (DirectRangeMeasurement(DirectRangeSource.LASER, "fire-1", 10.0, 0.2, 10.0),)
+    datum_at_camera = MultiModalRangingEngine().solve_direct(
+        calibration=calibration,
+        pose=pose,
+        target=target,
+        direct_measurements=measurement,
+        now_s=10.05,
+    )
+    surveyed_lever_arm = MultiModalRangingEngine().solve_direct(
+        calibration=replace(
+            calibration,
+            camera_offset_forward_m=5.0,
+            camera_offset_right_m=3.0,
+            camera_offset_down_m=2.0,
+        ),
+        pose=pose,
+        target=target,
+        direct_measurements=measurement,
+        now_s=10.05,
+    )
+
+    assert datum_at_camera.bearing_sigma_deg is not None
+    assert surveyed_lever_arm.bearing_sigma_deg is not None
+    # The old ray-only derivative returned the same value for both solutions.
+    # At this short range the GNSS-to-camera translation changes the complete
+    # target-vector azimuth derivative and therefore must change its sigma.
+    assert surveyed_lever_arm.bearing_sigma_deg != pytest.approx(
+        datum_at_camera.bearing_sigma_deg,
+        abs=0.05,
+    )
+
+
 def test_calibrated_relative_bearing_is_available_without_metric_depth() -> None:
     bearing = MultiModalRangingEngine.relative_bearing_deg(
         calibration=_calibration(mount_pitch_down_deg=0.0),
