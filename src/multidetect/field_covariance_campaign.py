@@ -17,7 +17,8 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,10 +26,12 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .mission_planning import load_executable_mission_document
+from .pixhawk import PixhawkReadOnlyConfig, PixhawkReadOnlyTelemetryProvider
 from .pixhawk_covariance_binding import (
     REQUIRED_COMBINATIONS,
     PixhawkCovarianceBindingError,
     build_pixhawk_covariance_binding,
+    build_pixhawk_covariance_mode_binding,
     verify_pixhawk_covariance_leaf,
 )
 from .px4_mission import (
@@ -50,6 +53,8 @@ DEFAULT_SAMPLES = 100
 DEFAULT_INTERVAL_S = 0.1
 DEFAULT_MINIMUM_ODOMETRY = 20
 DEFAULT_MINIMUM_COVARIANCES = 10
+DEFAULT_PROBE_SAMPLES = 100
+DEFAULT_PROBE_INTERVAL_S = 0.1
 
 _ADAPTER_BY_VEHICLE_CLASS = {
     "fixed-wing": (PX4_FIXED_WING_ADAPTER_ID, PX4_FIXED_WING_ADAPTER_HASH),
@@ -375,6 +380,199 @@ def campaign_preflight(config: CampaignConfig) -> dict[str, object]:
     }
 
 
+def _finite_clock(value: object, *, name: str) -> float:
+    if isinstance(value, bool):
+        raise FieldCovarianceCampaignError(f"{name} must be finite and non-negative")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise FieldCovarianceCampaignError(f"{name} must be finite and non-negative") from exc
+    if not math.isfinite(result) or result < 0.0:
+        raise FieldCovarianceCampaignError(f"{name} must be finite and non-negative")
+    return result
+
+
+def _online_probe_leaf(
+    leaf: CampaignLeaf,
+    *,
+    samples: int,
+    interval_seconds: float,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> tuple[int, dict[str, object]]:
+    """Probe current Pixhawk identity with bounded telemetry-only requests."""
+
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples <= 0:
+        raise FieldCovarianceCampaignError("probe samples must be a positive integer")
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0.0:
+        raise FieldCovarianceCampaignError("probe interval_seconds must be finite and positive")
+    if not callable(clock) or not callable(sleeper):
+        raise FieldCovarianceCampaignError("probe clock and sleeper must be callable")
+    provider = PixhawkReadOnlyTelemetryProvider(
+        PixhawkReadOnlyConfig(
+            leaf.endpoint,
+            baud=leaf.baud,
+            expected_system_id=1,
+            expected_autopilot_id=12,
+            require_operational_state=True,
+            request_ranging_streams=False,
+            request_autopilot_version=True,
+        )
+    )
+    started = _finite_clock(clock(), name="probe start clock")
+    previous = started
+    receive_errors: list[dict[str, str]] = []
+    diagnostics: Mapping[str, object] = {}
+    mode_binding: dict[str, object] = {}
+    sample_count = 0
+    try:
+        for sample_index in range(samples):
+            now_s = _finite_clock(clock(), name="probe sample clock")
+            if now_s < previous:
+                raise FieldCovarianceCampaignError("probe clock moved backwards")
+            previous = now_s
+            try:
+                provider.snapshot(now_s=now_s)
+            except Exception as exc:
+                if len(receive_errors) < 8:
+                    receive_errors.append(
+                        {
+                            "error_type": type(exc).__name__,
+                            "message": (str(exc).strip() or type(exc).__name__)[:512],
+                        }
+                    )
+            sample_count = sample_index + 1
+            diagnostics = provider.diagnostics(now_s=now_s)
+            mode_binding = build_pixhawk_covariance_mode_binding(
+                runtime_mode=leaf.runtime_mode,
+                endpoint=leaf.endpoint,
+                baud=leaf.baud,
+                diagnostics=diagnostics,
+                mission_path=leaf.mission_path,
+                mission_feedback_path=leaf.mission_feedback_path,
+                runtime_profile_path=leaf.runtime_profile_path,
+            )
+            if mode_binding.get("gate_passed") is True and not receive_errors:
+                break
+            if sample_index + 1 < samples:
+                sleeper(interval_seconds)
+        completed = _finite_clock(clock(), name="probe completion clock")
+        if completed < previous:
+            raise FieldCovarianceCampaignError("probe clock moved backwards")
+    finally:
+        provider.close()
+    requests = diagnostics.get("autopilot_version_requests")
+    if not isinstance(requests, Mapping):
+        requests = {}
+    attempts = requests.get("attempts")
+    transmitted = diagnostics.get("messages_transmitted")
+    bounded_identity_query = (
+        type(attempts) is int
+        and 0 <= attempts <= 3
+        and type(transmitted) is int
+        and transmitted == attempts
+        and diagnostics.get("telemetry_configuration_enabled") is False
+    )
+    checks = mode_binding.get("checks")
+    failed_checks = (
+        sorted(name for name, passed in checks.items() if passed is not True)
+        if isinstance(checks, Mapping)
+        else ["mode_binding_unavailable"]
+    )
+    reasons = [f"mode_binding:{name}" for name in failed_checks]
+    if receive_errors:
+        reasons.append("mavlink_receive_errors")
+    if not bounded_identity_query:
+        reasons.append("identity_query_budget_invalid")
+    gate_passed = (
+        mode_binding.get("gate_passed") is True and not receive_errors and bounded_identity_query
+    )
+    result: dict[str, object] = {
+        "schema": "multidetect.pixhawk-covariance-online-preflight/v1",
+        "schema_version": 1,
+        "runtime_mode": leaf.runtime_mode,
+        "vehicle_class": leaf.vehicle_class,
+        "endpoint": leaf.endpoint,
+        "baud": leaf.baud,
+        "probe": {
+            "samples_requested": samples,
+            "sample_count": sample_count,
+            "interval_seconds": interval_seconds,
+            "started_at_s": started,
+            "completed_at_s": completed,
+            "duration_seconds": completed - started,
+            "receive_errors": receive_errors,
+        },
+        "transport": {
+            "configured_endpoint": diagnostics.get("configured_endpoint"),
+            "resolved_endpoint": diagnostics.get("resolved_endpoint"),
+            "read_only": diagnostics.get("read_only"),
+            "hardware_control_enabled": diagnostics.get("hardware_control_enabled"),
+            "messages_received": diagnostics.get("messages_received"),
+            "messages_transmitted": transmitted,
+            "transport_link_healthy": diagnostics.get("transport_link_healthy"),
+            "qualified_link_healthy": diagnostics.get("qualified_link_healthy"),
+            "qualification": diagnostics.get("qualification"),
+        },
+        "identity_query": {
+            "request_ranging_streams": False,
+            "request_autopilot_version": True,
+            "attempts": attempts,
+            "maximum_attempts": 3,
+            "response_observed": requests.get("response_observed"),
+            "budget_valid": bounded_identity_query,
+        },
+        "heartbeat_identity": diagnostics.get("heartbeat_identity"),
+        "autopilot_version_identity": diagnostics.get("autopilot_version_identity"),
+        "mode_binding": mode_binding,
+        "reasons": reasons,
+        "gate_passed": gate_passed,
+        "claims": {
+            "release_eligible": False,
+            "hardware_acceptance": False,
+            "hil_acceptance": False,
+            "real_acceptance": False,
+            "flight_acceptance": False,
+        },
+    }
+    return (0 if gate_passed else 1), result
+
+
+def probe_next(
+    config: CampaignConfig,
+    *,
+    samples: int = DEFAULT_PROBE_SAMPLES,
+    interval_seconds: float = DEFAULT_PROBE_INTERVAL_S,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> tuple[int, dict[str, object]]:
+    """Static-preflight then probe the one currently pending campaign leaf."""
+
+    status = campaign_status(config)
+    if status["failed_count"]:
+        raise FieldCovarianceCampaignError(
+            "campaign has a failed immutable report; online probe is unsafe"
+        )
+    if status["complete"]:
+        raise FieldCovarianceCampaignError("campaign is complete; no leaf needs probing")
+    preflight = campaign_preflight(config)
+    if preflight["gate_passed"] is not True:
+        raise FieldCovarianceCampaignError("source preflight blocked online probe")
+    next_leaf = status["next_leaf"]
+    if not isinstance(next_leaf, Mapping):
+        raise FieldCovarianceCampaignError("campaign has no safe next leaf")
+    key = (str(next_leaf["runtime_mode"]), str(next_leaf["vehicle_class"]))
+    leaf = next(item for item in config.leaves if item.key == key)
+    exit_code, result = _online_probe_leaf(
+        leaf,
+        samples=samples,
+        interval_seconds=interval_seconds,
+        clock=clock,
+        sleeper=sleeper,
+    )
+    return exit_code, {**result, "source_preflight": preflight}
+
+
 def _leaf_status(leaf: CampaignLeaf, *, manifest_directory: Path) -> dict[str, object]:
     base: dict[str, object] = {
         "runtime_mode": leaf.runtime_mode,
@@ -470,6 +668,8 @@ def capture_next(
     minimum_odometry_messages: int,
     minimum_accepted_covariances: int,
     dry_run: bool,
+    probe_samples: int = DEFAULT_PROBE_SAMPLES,
+    probe_interval_seconds: float = DEFAULT_PROBE_INTERVAL_S,
 ) -> tuple[int, dict[str, object]]:
     """Capture exactly one pending leaf; failed immutable reports stop progress."""
 
@@ -519,6 +719,19 @@ def capture_next(
             "dry_run": True,
             "capture_command": command,
         }
+    probe_exit_code, online_preflight = probe_next(
+        config,
+        samples=probe_samples,
+        interval_seconds=probe_interval_seconds,
+    )
+    if probe_exit_code != 0 or online_preflight.get("gate_passed") is not True:
+        return 1, {
+            **before,
+            "source_preflight": preflight,
+            "online_preflight": online_preflight,
+            "capture_started": False,
+            "capture_verified": False,
+        }
     leaf.report_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(command, cwd=ROOT, check=False)
     after = campaign_status(config)
@@ -535,6 +748,8 @@ def capture_next(
     return exit_code, {
         **after,
         "source_preflight": preflight,
+        "online_preflight": online_preflight,
+        "capture_started": True,
         "capture_process_exit_code": result.returncode,
         "capture_verified": captured["status"] == "passed",
     }
@@ -572,13 +787,22 @@ def verify_complete_campaign(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "preflight", "capture-next", "verify"))
+    parser.add_argument(
+        "command",
+        choices=("status", "preflight", "probe-next", "capture-next", "verify"),
+    )
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--status-out", type=Path)
     parser.add_argument("--binding-out", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
     parser.add_argument("--interval-seconds", type=float, default=DEFAULT_INTERVAL_S)
+    parser.add_argument("--probe-samples", type=int, default=DEFAULT_PROBE_SAMPLES)
+    parser.add_argument(
+        "--probe-interval-seconds",
+        type=float,
+        default=DEFAULT_PROBE_INTERVAL_S,
+    )
     parser.add_argument("--minimum-odometry-messages", type=int, default=DEFAULT_MINIMUM_ODOMETRY)
     parser.add_argument(
         "--minimum-accepted-covariances",
@@ -602,6 +826,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             result = campaign_preflight(config)
             exit_code = 0 if result["gate_passed"] is True else 1
+        elif args.command == "probe-next":
+            if args.binding_out is not None or args.dry_run:
+                raise FieldCovarianceCampaignError(
+                    "probe-next does not accept --binding-out or --dry-run"
+                )
+            exit_code, result = probe_next(
+                config,
+                samples=args.probe_samples,
+                interval_seconds=args.probe_interval_seconds,
+            )
         elif args.command == "capture-next":
             if args.binding_out is not None:
                 raise FieldCovarianceCampaignError("--binding-out is reserved for verify")
@@ -612,6 +846,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 minimum_odometry_messages=args.minimum_odometry_messages,
                 minimum_accepted_covariances=args.minimum_accepted_covariances,
                 dry_run=args.dry_run,
+                probe_samples=args.probe_samples,
+                probe_interval_seconds=args.probe_interval_seconds,
             )
         else:
             if args.dry_run:

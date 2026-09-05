@@ -175,6 +175,35 @@ def _verify_covariance_file(path: Path) -> Mapping[str, object]:
     return result
 
 
+def build_pixhawk_covariance_mode_binding(
+    *,
+    runtime_mode: str,
+    endpoint: str,
+    baud: int,
+    diagnostics: Mapping[str, object],
+    mission_path: str | Path,
+    mission_feedback_path: str | Path,
+    runtime_profile_path: str | Path,
+) -> dict[str, object]:
+    """Reuse the capture verifier's current-link binding without writing evidence."""
+
+    try:
+        result = _capture_module().build_mode_binding(
+            runtime_mode=runtime_mode,
+            endpoint=endpoint,
+            baud=baud,
+            diagnostics=diagnostics,
+            mission_path=Path(mission_path),
+            mission_feedback_path=Path(mission_feedback_path),
+            runtime_profile_path=Path(runtime_profile_path),
+        )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise PixhawkCovarianceBindingError(f"covariance mode binding failed: {exc}") from exc
+    if not isinstance(result, dict):
+        raise PixhawkCovarianceBindingError("covariance mode binding returned no record")
+    return result
+
+
 def _load_report(path: Path) -> Mapping[str, object]:
     try:
         report = json.loads(path.read_text(encoding="utf-8-sig"))

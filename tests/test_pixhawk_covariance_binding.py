@@ -76,6 +76,42 @@ def _record(mode: str, vehicle: str, path: Path, *, manifest_directory: Path):
     }
 
 
+def test_current_mode_binding_reuses_capture_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class CaptureModule:
+        @staticmethod
+        def build_mode_binding(**kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"gate_passed": True, "checks": {"current": True}}
+
+    monkeypatch.setattr(binding, "_capture_module", lambda: CaptureModule())
+    result = binding.build_pixhawk_covariance_mode_binding(
+        runtime_mode="hil",
+        endpoint="COM3",
+        baud=57600,
+        diagnostics={"read_only": True},
+        mission_path=tmp_path / "mission.json",
+        mission_feedback_path=tmp_path / "feedback.json",
+        runtime_profile_path=tmp_path / "profile.json",
+    )
+
+    assert result["gate_passed"] is True
+    assert calls == [
+        {
+            "runtime_mode": "hil",
+            "endpoint": "COM3",
+            "baud": 57600,
+            "diagnostics": {"read_only": True},
+            "mission_path": tmp_path / "mission.json",
+            "mission_feedback_path": tmp_path / "feedback.json",
+            "runtime_profile_path": tmp_path / "profile.json",
+        }
+    ]
+
+
 def test_binding_requires_and_reverifies_exact_six_leaf_matrix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

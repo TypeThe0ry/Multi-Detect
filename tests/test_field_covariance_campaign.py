@@ -86,6 +86,19 @@ def _ready_preflight(config: campaign.CampaignConfig) -> dict[str, object]:
     }
 
 
+def _ready_online_probe(
+    config: campaign.CampaignConfig, **kwargs: object
+) -> tuple[int, dict[str, object]]:
+    del kwargs
+    leaf = config.leaves[0]
+    return 0, {
+        "schema": "multidetect.pixhawk-covariance-online-preflight/v1",
+        "runtime_mode": leaf.runtime_mode,
+        "vehicle_class": leaf.vehicle_class,
+        "gate_passed": True,
+    }
+
+
 def test_campaign_schema_is_valid_and_closed() -> None:
     schema = json.loads(campaign.CONFIG_SCHEMA_PATH.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
@@ -187,6 +200,7 @@ def test_zero_capture_process_exit_still_fails_when_report_verification_fails(
 ) -> None:
     config = campaign.load_campaign_config(_write_config(tmp_path))
     monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
+    monkeypatch.setattr(campaign, "probe_next", _ready_online_probe)
     first = config.leaves[0].report_path
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -436,6 +450,191 @@ def test_preflight_cli_returns_one_for_blocked_sources(tmp_path: Path, capsys: o
     output = json.loads(capsys.readouterr().out)
     assert output["gate_passed"] is False
     assert output["blocked_count"] == 6
+
+
+def test_online_probe_stops_on_current_identity_match_and_closes_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    leaf = config.leaves[0]
+    times = iter((10.0, 10.0, 10.1, 10.1, 10.2))
+
+    class Provider:
+        instance: Provider | None = None
+
+        def __init__(self, provider_config: object) -> None:
+            self.config = provider_config
+            self.samples = 0
+            self.closed = False
+            Provider.instance = self
+
+        def snapshot(self, *, now_s: float) -> object:
+            assert now_s >= 10.0
+            self.samples += 1
+            return object()
+
+        def diagnostics(self, *, now_s: float) -> dict[str, object]:
+            return {
+                "configured_endpoint": leaf.endpoint,
+                "resolved_endpoint": "COM3",
+                "read_only": True,
+                "hardware_control_enabled": False,
+                "telemetry_configuration_enabled": False,
+                "messages_received": self.samples,
+                "messages_transmitted": self.samples,
+                "transport_link_healthy": True,
+                "qualified_link_healthy": True,
+                "qualification": {"required": True, "passed": True, "reasons": []},
+                "autopilot_version_requests": {
+                    "attempts": self.samples,
+                    "response_observed": self.samples >= 2,
+                },
+                "heartbeat_identity": {"source_system_id": 1},
+                "autopilot_version_identity": (
+                    {"identity_hash": "a" * 64} if self.samples >= 2 else None
+                ),
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    def binding(**kwargs: object) -> dict[str, object]:
+        diagnostics = kwargs["diagnostics"]
+        passed = diagnostics["autopilot_version_identity"] is not None
+        return {
+            "checks": {
+                "heartbeat_identity_exact": True,
+                "current_firmware_identity_exact": passed,
+            },
+            "gate_passed": passed,
+            "binding_sha256": "b" * 64,
+        }
+
+    monkeypatch.setattr(campaign, "PixhawkReadOnlyTelemetryProvider", Provider)
+    monkeypatch.setattr(campaign, "build_pixhawk_covariance_mode_binding", binding)
+
+    exit_code, result = campaign._online_probe_leaf(
+        leaf,
+        samples=5,
+        interval_seconds=0.1,
+        clock=lambda: next(times),
+        sleeper=lambda seconds: None,
+    )
+
+    assert exit_code == 0
+    assert result["gate_passed"] is True
+    assert result["probe"]["sample_count"] == 2
+    assert result["identity_query"]["attempts"] == 2
+    assert result["identity_query"]["budget_valid"] is True
+    assert result["claims"]["hardware_acceptance"] is False
+    assert Provider.instance is not None and Provider.instance.closed is True
+    assert Provider.instance.config.request_ranging_streams is False
+    assert Provider.instance.config.request_autopilot_version is True
+
+
+def test_online_probe_fails_closed_after_bounded_identity_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    leaf = config.leaves[0]
+
+    class Provider:
+        def __init__(self, provider_config: object) -> None:
+            self.config = provider_config
+            self.samples = 0
+            self.closed = False
+
+        def snapshot(self, *, now_s: float) -> object:
+            del now_s
+            self.samples += 1
+            return object()
+
+        def diagnostics(self, *, now_s: float) -> dict[str, object]:
+            del now_s
+            attempts = min(self.samples, 3)
+            return {
+                "configured_endpoint": leaf.endpoint,
+                "resolved_endpoint": "COM3",
+                "read_only": True,
+                "hardware_control_enabled": False,
+                "telemetry_configuration_enabled": False,
+                "messages_received": self.samples,
+                "messages_transmitted": attempts,
+                "transport_link_healthy": True,
+                "qualified_link_healthy": False,
+                "qualification": {"required": True, "passed": None, "reasons": []},
+                "autopilot_version_requests": {
+                    "attempts": attempts,
+                    "response_observed": False,
+                },
+                "heartbeat_identity": {},
+                "autopilot_version_identity": None,
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(campaign, "PixhawkReadOnlyTelemetryProvider", Provider)
+    monkeypatch.setattr(
+        campaign,
+        "build_pixhawk_covariance_mode_binding",
+        lambda **kwargs: {
+            "checks": {
+                "heartbeat_identity_exact": False,
+                "current_firmware_identity_exact": False,
+            },
+            "gate_passed": False,
+        },
+    )
+
+    exit_code, result = campaign._online_probe_leaf(
+        leaf,
+        samples=4,
+        interval_seconds=0.1,
+        clock=iter((10.0, 10.0, 10.1, 10.2, 10.3, 10.4)).__next__,
+        sleeper=lambda seconds: None,
+    )
+
+    assert exit_code == 1
+    assert result["gate_passed"] is False
+    assert result["identity_query"]["attempts"] == 3
+    assert result["identity_query"]["budget_valid"] is True
+    assert result["reasons"] == [
+        "mode_binding:current_firmware_identity_exact",
+        "mode_binding:heartbeat_identity_exact",
+    ]
+
+
+def test_capture_next_online_probe_failure_never_starts_capture_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = campaign.load_campaign_config(_write_config(tmp_path))
+    called = False
+    monkeypatch.setattr(campaign, "campaign_preflight", _ready_preflight)
+    monkeypatch.setattr(
+        campaign,
+        "probe_next",
+        lambda config, **kwargs: (1, {"gate_passed": False, "reasons": ["mismatch"]}),
+    )
+
+    def run(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+
+    exit_code, result = campaign.capture_next(
+        config,
+        samples=30,
+        interval_seconds=0.2,
+        minimum_odometry_messages=10,
+        minimum_accepted_covariances=5,
+        dry_run=False,
+    )
+
+    assert exit_code == 1
+    assert result["capture_started"] is False
+    assert called is False
 
 
 def test_config_rejects_duplicate_leaf_even_with_six_entries(tmp_path: Path) -> None:
