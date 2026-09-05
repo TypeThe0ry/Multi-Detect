@@ -1501,9 +1501,14 @@ function Save-QgcWindowCapture {
     [uint32]$previousForegroundOwner = 0
     $foregroundDuring = [IntPtr]::Zero
     $foregroundRestored = $false
-    $cursorPreserved = $false
+    # GDI BitBlt captures the desktop surface without the hardware cursor.
+    # The passive screenshot path therefore never mutates the operator's
+    # pointer; exact restoration is vacuously satisfied and cannot race real
+    # user input. Interactive toolbar/PiP helpers retain their own bounded
+    # cursor save/restore transactions.
+    $cursorPreserved = $true
     $cursorMovedOutside = $false
-    $cursorRestored = $false
+    $cursorRestored = $true
     $placementPreserved = $false
     $placementRestored = $false
     $topmostRestored = $false
@@ -1522,10 +1527,6 @@ function Save-QgcWindowCapture {
         $previousForegroundState = Get-StableForegroundWindowState
         $previousForeground = $previousForegroundState.Handle
         $previousForegroundOwner = [uint32]$previousForegroundState.ProcessId
-        [MultiDetectWindow.Native+POINT]$previousCursor = New-Object MultiDetectWindow.Native+POINT
-        Assert-True ([MultiDetectWindow.Native]::GetCursorPos([ref]$previousCursor)) "Unable to preserve pointer position for exact-client capture."
-        $cursorPreserved = $true
-
         $showCommand = if ($originalPlacement.showCmd -eq 2) { 9 } else { $originalPlacement.showCmd }
         if ($showCommand -notin @(1, 3, 9)) { $showCommand = 1 }
         $null = [MultiDetectWindow.Native]::ShowWindowAsync($window.Handle, $showCommand)
@@ -1567,20 +1568,6 @@ function Save-QgcWindowCapture {
             $clientScreenRect.Right -le $monitorInfo.rcMonitor.Right -and
             $clientScreenRect.Bottom -le $monitorInfo.rcMonitor.Bottom
         ) "Exact QGC client rectangle spans monitors or leaves the selected monitor."
-
-        $cursorCandidates = @(
-            [pscustomobject]@{ X = $clientScreenRect.Left; Y = $clientScreenRect.Top - 1 },
-            [pscustomobject]@{ X = $clientScreenRect.Left; Y = $clientScreenRect.Bottom },
-            [pscustomobject]@{ X = $clientScreenRect.Left - 1; Y = $clientScreenRect.Top },
-            [pscustomobject]@{ X = $clientScreenRect.Right; Y = $clientScreenRect.Top }
-        )
-        $cursorOutside = $cursorCandidates | Where-Object {
-            $_.X -ge $monitorInfo.rcMonitor.Left -and $_.X -lt $monitorInfo.rcMonitor.Right -and
-            $_.Y -ge $monitorInfo.rcMonitor.Top -and $_.Y -lt $monitorInfo.rcMonitor.Bottom
-        } | Select-Object -First 1
-        Assert-True ($null -ne $cursorOutside) "No monitor-owned pointer coordinate exists outside exact QGC client capture."
-        Assert-True ([MultiDetectWindow.Native]::SetCursorPos($cursorOutside.X, $cursorOutside.Y)) "Unable to move pointer outside exact QGC client capture."
-        $cursorMovedOutside = $true
 
         # Desktop composition can briefly expose an Explorer/XAML or other window
         # between the foreground check and WindowFromPoint.  Re-assert the exact
@@ -1716,11 +1703,6 @@ function Save-QgcWindowCapture {
     finally {
         if ($null -ne $graphics) { $graphics.Dispose() }
         if ($null -ne $bitmap) { $bitmap.Dispose() }
-        if ($cursorPreserved) {
-            $null = [MultiDetectWindow.Native]::SetCursorPos($previousCursor.X, $previousCursor.Y)
-            [MultiDetectWindow.Native+POINT]$cursorAfter = New-Object MultiDetectWindow.Native+POINT
-            $cursorRestored = [MultiDetectWindow.Native]::GetCursorPos([ref]$cursorAfter) -and $cursorAfter.X -eq $previousCursor.X -and $cursorAfter.Y -eq $previousCursor.Y
-        }
         if ($placementPreserved -and $null -ne $window) {
             $placementSet = [MultiDetectWindow.Native]::SetWindowPlacement($window.Handle, [ref]$originalPlacement)
             $restoreFlags = [uint32](0x0001 -bor 0x0002 -bor 0x0010) # NOSIZE | NOMOVE | NOACTIVATE
@@ -1789,6 +1771,8 @@ function Save-QgcWindowCapture {
         }
         restoration = [ordered]@{
             cursor_restored = $cursorRestored
+            cursor_restoration_required = $false
+            cursor_position_mutated_by_capture = $false
             window_placement_restored = $placementRestored
             topmost_state_restored = $topmostRestored
             foreground_restored = $foregroundRestored

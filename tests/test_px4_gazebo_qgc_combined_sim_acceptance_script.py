@@ -1011,6 +1011,9 @@ def test_exact_qgc_pid_hwnd_capture_reads_only_the_owned_client_rectangle() -> N
         in text
     )
     assert "cursor_restored = $cursorRestored" in text
+    assert "cursor_restoration_required = $false" in text
+    assert "cursor_position_mutated_by_capture = $false" in text
+    assert "SetCursorPos($cursorOutside.X, $cursorOutside.Y)" not in text
     assert "window_placement_restored = $placementRestored" in text
     assert "topmost_state_restored = $topmostRestored" in text
     assert "foreground_restored = $foregroundRestored" in text
