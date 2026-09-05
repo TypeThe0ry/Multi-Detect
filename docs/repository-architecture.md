@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v79 姿态 uncertainty provenance（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+telemetry roll/pitch/heading + observed_at
+  + optional complete roll/pitch/heading 1σ + source
+  -> shared aircraft_pose_from_telemetry
+       |- complete attributed telemetry tuple: use it
+       |- entirely absent tuple: explicit mode/config fallback
+       `- partial/malformed/unattributed tuple: fail closed
+  -> AircraftPose -> shared ranging geometry
+  -> RangeSolution pose sigma/source -> operator evidence
+```
+
+Replay/raw replay 保留该 tuple，整组缺失时仍兼容历史 schema-v1 identity。`domain.py`/replay 属于
+`task_contract_hash`，ranging resolver/solution 属于 `core_algorithm_hash`。Gazebo 当前固定 MDGZSIM2
+wire-v2 只传 pose/twist，尚未传 protobuf covariance；因此它只能走有名字的 configured fallback，后续
+wire-v3 必须在验证坐标变换、矩阵完整性和 floor 策略后独立升级。
+
 ## v78 共享几何不确定性端点（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

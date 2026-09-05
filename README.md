@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v78：室外测距用统一“射线 + GNSS→相机杆臂”扰动端点传播距离、方位与不确定性 |
+| 当前工程迭代 | v79：姿态 1σ 的数值与来源贯穿 telemetry/replay/live/range evidence；缺失才显式使用配置 fallback |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v79 姿态不确定性来源绑定
+
+`VehicleTelemetry` 可携带完整的 roll/pitch/heading `1σ` 与来源。Live ranging 优先使用该遥测元组，
+只有四项全部缺失时才使用命令行/配置 fallback；部分字段、负值、非有限数或无来源会直接返回
+`attitude_uncertainty_unavailable_or_malformed`，不会混用成假精度。VI、RGB-SLAM 和主测距都通过同一
+resolver 构造姿态，`RangeSolution`/operator status 同时记录实际使用的三个 sigma 与 provenance。
+Gazebo wire-v2 仍未携带 `OdometryWithCovariance` 矩阵，因此当前 SIM 会明确标成配置 fallback；把经
+坐标变换验证的 covariance 纳入新 wire 版本仍是后续任务，不能把订阅消息名误当成已使用协方差。
 
 ### v78 杆臂几何不确定性端点传播
 

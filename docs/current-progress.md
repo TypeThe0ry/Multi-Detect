@@ -1,6 +1,14 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v78 工作树）
+最后更新：2026-09-06（v79 工作树）
+
+## v79 本轮已收口
+
+- `VehicleTelemetry`/Replay/raw replay 可携带完整 roll/pitch/heading `1σ` 与来源，历史全缺失记录不漂移；
+- Live 优先消费遥测 uncertainty，整组缺失时明确标记 `live_configured_fallback`，部分或无来源元组拒绝；
+- VI、RGB-SLAM 与主 ranging 使用同一 pose resolver，避免三条链各自静默吃 dataclass 默认值；
+- `RangeSolution` 和 operator status 记录实际 sigma/source；Gazebo wire-v2 丢弃 covariance 的剩余缺口
+  已明确保留给 wire-v3，不把消息名称误报为已接入实测协方差。
 
 ## v78 本轮已收口
 
@@ -57,7 +65,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `dc52ebb983fd15752e3043c09e851fce1af3aed6`（当前文档提交前领先远端 44 个提交）。
+本地 `main` 提交 `37a1edb09f1d895dbd6ca2c0cf78562118e925da`（当前文档提交前领先远端 46 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -113,7 +121,7 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v78 全仓回归为 3,329 tests：`3328 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
+- v79 全仓回归为 3,332 tests：`3331 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
   SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。

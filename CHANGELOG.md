@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v79 attitude-uncertainty provenance（2026-09-06）
+
+- `VehicleTelemetry`、schema-v1 replay 与 raw replay 新增可选的三轴姿态 `1σ` 和来源，历史记录在整组
+  缺失时保持原 canonical identity；
+- Live ranging 优先采用完整 telemetry uncertainty，只有整组缺失才采用显式配置 fallback；部分、负值、
+  非有限或无来源元组 fail-closed，VI/RGB-SLAM 也改用同一 pose resolver；
+- `RangeSolution` 与 operator ranging details 绑定实际使用的三轴 sigma/source，避免默认值在证据中
+  冒充 estimator covariance；Gazebo wire-v2 尚未承载 covariance，后续协议升级前保持明确 fallback。
+
 ### v0.3.0-pre.8 v78 lever-arm geometry uncertainty propagation（2026-09-06）
 
 - 将 ray uncertainty endpoint 扩展为成对的 NED ray 与 camera-offset 几何端点；姿态扰动会同时旋转

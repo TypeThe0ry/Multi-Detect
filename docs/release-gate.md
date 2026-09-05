@@ -1,5 +1,13 @@
 # v0.3.0 E7 发布门
 
+## v79 姿态不确定性 provenance 子门（2026-09-06，`v0.3.0-pre.8`）
+
+共享测距输出现在绑定实际使用的 roll/pitch/heading `1σ` 与来源；完整 telemetry tuple 优先，整组缺失
+才走带名称的配置 fallback，部分或无来源输入 fail-closed。这关闭了“算法传播 sigma、运行时却无法证明
+sigma 从哪来”的软件证据缺口，但没有关闭现场精度门：MAVLink ATTITUDE 当前不提供 estimator covariance，
+Gazebo wire-v2 也尚未传 `OdometryWithCovariance.covariance`。因此该轮不减少 E7 的 32 个 blocker，
+也不提升模型、人工 QGC、室外 GNSS、HIL/REAL、硬件或实飞声明。
+
 ## v63 PX4 response repeatability/fault campaign（2026-09-05，`v0.3.0-pre.8`）
 
 E7 新增 hash-bound `px4_reported_position_response_campaign`：要求 fixed-wing、multirotor、VTOL 各两次
