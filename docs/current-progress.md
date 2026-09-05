@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v82 工作树）
+最后更新：2026-09-06（v83 工作树）
+
+## v83 本轮已收口
+
+- covariance observation 升级为 schema v2；HIL/REAL 采集必须给出可执行 Mission、PX4 Mission
+  feedback v2 和签名 runtime profile，不能再用孤立 `--runtime-mode` 标签冒充现场证据；
+- 每次现场采集都会重新验证三份来源，并把 configured/resolved endpoint、baud、HEARTBEAT 五元身份、
+  当前 `AUTOPILOT_VERSION` firmware hash、read-only、hardware-control disabled、output locked 与
+  flight-control disabled 绑定到 canonical `mode_binding`；任一漂移 fail-closed；
+- SIM 仍只允许隔离 local `udpin`，且禁止携带 HIL/REAL 身份材料；HIL/REAL 会拒绝 `udp`、`udpin`、
+  `udpout` 等所有受保护 14550 端点；
+- 外部 pinned Docker/PX4/Gazebo v2 实采 110 条 `ODOMETRY`、110 条有效 covariance、保存 83 条记录；
+  最终 `1σ=0.504°/0.501°/6.981°`，独立 verify 通过，容器已清理；
+- `px4_mission_path_hash` 更新为 `5a4c280f...af93`。这里只关闭现场采集的身份/防伪工具缺口；真实
+  HIL/REAL、硬件、室外 GNSS、人工 QGC 和实飞仍未声明，E7 仍为 32 blockers。
+- 全量回归 3,369 tests：`3368 passed, 1 skipped, 0 failed, 0 errors`；JUnit 491,247 bytes、
+  SHA-256 `CE988ADBD106AD029427957C2722C413673D1EA9A986E76351EED278AC187F54`；全仓 Ruff 通过。
+  format 检查仍是 412 个历史文件的独立基线迁移债务，本轮没有把机械格式化混入功能提交。
 
 ## v82 本轮已收口
 
@@ -98,7 +115,7 @@
   HIL/REAL、硬件或最终发布门。
 
 GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
-本地 `main` 提交 `edbe9858e7ac489a59ef3d29aa67752c0cd85630`（当前文档提交前领先远端 50 个提交）。
+本地 `main` 提交 `1b9a5d87ad1c1239c1110b594eef7a0a461e32af`（当前文档提交前领先远端 54 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -452,16 +469,16 @@ v59 矩阵内部摘要为：
 
 ## 当前共享契约身份
 
-`configs/release-parity.json`：5,146 bytes，文件 SHA-256
-`289C1A3DD638C2A503ABEA44EE3F87564BB38D1232FB1428E92EA004180D060B`。
+`configs/release-parity.json`：5,715 bytes，文件 SHA-256
+`2F51E6469F649061AA57C295165C655B227338A347AFA960C70F8CDB2C48CFF2`。
 
 | 契约组 | 当前哈希 |
 |---|---|
-| UI contract | `f20ca6c5fce0de613a38f58080e98ccb1bdf29c3425878c57ff9b9ec62084942` |
-| Core algorithm | `505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9` |
-| Task contract | `2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af` |
+| UI contract | `e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66` |
+| Core algorithm | `ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f` |
+| Task contract | `89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad` |
 | Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
-| PX4 Mission path | `f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a` |
+| PX4 Mission path | `5a4c280f2dfdcb920092defee77dfe0499d6d202b2ccc8b9dd21914ac57aaf93` |
 
 ## 功能成熟度矩阵
 

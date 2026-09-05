@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v82：真实 PX4 `ODOMETRY.pose_covariance` 姿态不确定性进入共享测距，并完成非零 estimator source 的外部 SIM 实采 |
+| 当前工程迭代 | v83：HIL/REAL covariance 采集已绑定签名 runtime profile、PX4 Mission feedback、当前 heartbeat/firmware 身份；外部 SIM v2 实证通过，实机采集待完成 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,29 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v83 HIL/REAL covariance 身份门
+
+`capture_pixhawk_odometry_covariance.py` 的 HIL/REAL 模式不再只是命令行标签。它现在必须同时接收
+可执行 Mission、已通过的 schema-v2 PX4 Mission feedback 和签名 runtime profile，并将当前只读
+Pixhawk 会话的 endpoint/baud、HEARTBEAT 五元身份与 `AUTOPILOT_VERSION` firmware hash 逐项对齐。
+任一材料缺失、模式/链路/飞控锁不一致、firmware 更换或受保护 UDP 14550 被使用，证据门都会
+fail-closed。该工具只声明 covariance observation，不代替 HIL/REAL acceptance、硬件响应或实飞。
+
+HIL 现场采集示例（REAL 时将 `hil` 改为 `real`，并使用对应 flight profile/feedback）：
+
+```powershell
+python .\scripts\capture_pixhawk_odometry_covariance.py `
+  --runtime-mode hil --endpoint COM7 --baud 57600 `
+  --mission .\artifacts\field\hil\executable-mission.json `
+  --mission-feedback-observation .\artifacts\field\hil\px4-mission-feedback.json `
+  --runtime-profile .\artifacts\field\hil\runtime-profile.json `
+  --samples 200 --interval-seconds 0.1 `
+  --out .\artifacts\field\hil\pixhawk-odometry-covariance.json
+
+python .\scripts\capture_pixhawk_odometry_covariance.py `
+  --verify .\artifacts\field\hil\pixhawk-odometry-covariance.json
+```
 
 ### v82 PX4 estimator 姿态协方差闭环
 

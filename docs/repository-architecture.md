@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v83 field covariance evidence binding（2026-09-06，`v0.3.0-pre.8`）
+
+`scripts/capture_pixhawk_odometry_covariance.py` 现在把 HIL/REAL observation 接到既有 Mission/profile/
+feedback 信任链。capture 端读取当前 Pixhawk diagnostics；verifier 端重新打开 Mission、feedback 与
+profile，再重建 endpoint、baud、heartbeat、firmware 和输出锁 binding，最后与保存报告 exact compare。
+因此单独修改 JSON claim、替换 profile/feedback 文件、换飞控 firmware 或跨链路重放都不能通过。
+SIM 分支显式拒绝这些现场材料，保持仿真与现场 provenance 分离。
+
 ## v82 PX4 estimator covariance ingress（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

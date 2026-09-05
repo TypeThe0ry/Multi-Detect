@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T20:30:38Z",
+  "updated_at_utc": "2026-09-05T20:43:21Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "9f8989d053d4e3c0388b29107337a642181f541e",
-    "commit_subject": "feat(telemetry): ingest PX4 attitude covariance",
-    "commits_ahead_of_origin_main": 52
+    "commit": "1b9a5d87ad1c1239c1110b594eef7a0a461e32af",
+    "commit_subject": "feat(telemetry): bind field covariance evidence",
+    "commits_ahead_of_origin_main": 54
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v82",
+  "working_iteration": "v83",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v82-final.xml",
-      "tests": 3358,
-      "passed": 3357,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v83-final.xml",
+      "tests": 3369,
+      "passed": 3368,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 94.158,
-      "junit_local_path": "tmp/current-progress-regression-v82-final.xml",
-      "junit_file_bytes": 489660,
-      "junit_file_sha256": "e9306292dd5f64e79075fae9fcd5ae24b69b17372e6172755009315c2f9f81d9",
+      "duration_seconds": 95.102,
+      "junit_local_path": "tmp/current-progress-regression-v83-final.xml",
+      "junit_file_bytes": 491247,
+      "junit_file_sha256": "ce988adbd106ad029427957c2722c413673d1ea9a986e76351eed278ac187f54",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,43 +64,46 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5715,
-    "file_sha256": "6cdaa41e3db4b0dbf4eee7885d2957d142317c752f2c0fb41b68fd54591595db",
+    "file_sha256": "2f51e6469f649061aa57c295165c655b227338a347afa960c70f8cdb2c48cff2",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "16e8427a312c7b29fe3aa098c5852f52c5876bf8b2fd9d0abee8a375e89e1930"
+      "px4_mission_path_hash": "5a4c280f2dfdcb920092defee77dfe0499d6d202b2ccc8b9dd21914ac57aaf93"
     }
   },
   "evidence": {
     "px4_estimator_attitude_covariance_sim": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v82/px4-sitl-odometry-covariance-v82-pre8-final.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v83/px4-sitl-odometry-covariance-v83-pre8.json",
       "distributed_in_git": false,
-      "file_bytes": 37510,
-      "file_sha256": "35a66193f0cc2a270cbabb0e838a9abdc9bbed2fb344b7354fb9b1910f50fbd5",
-      "evidence_sha256": "14c754031a423fb8bb3fa1b4ec24600c82c9ba846b6892dcac24a2185c5202a2",
+      "schema": "multidetect.pixhawk-odometry-covariance-observation/v2",
+      "file_bytes": 61131,
+      "file_sha256": "b3da32bf0c1a1c0c6244c9f5a9888774aa205c4701b73fcab490bfd4f1ef40be",
+      "evidence_sha256": "306e30b25c93ea4d642ecea0515f79dec2df599c5db8c884b50f35c289c08112",
       "gate_passed": true,
       "runtime_mode": "sim",
-      "odometry_messages_observed": 64,
-      "accepted_covariances_observed": 64,
-      "records_verified": 47,
+      "odometry_messages_observed": 110,
+      "accepted_covariances_observed": 110,
+      "records_verified": 83,
       "child_frame_id": 1,
       "reset_counter": 12,
       "raw_angular_variance_rad2": [
-        0.00006968907837290317,
-        0.00006898331048432738,
-        0.016177203506231308
+        0.00007730382640147582,
+        0.00007632484630448744,
+        0.014845885336399078
       ],
       "attitude_sigma_deg": {
-        "roll": 0.478305079430516,
-        "pitch": 0.475876927054445,
-        "heading": 7.28742934069953
+        "roll": 0.5037593594078132,
+        "pitch": 0.5005593772091795,
+        "heading": 6.981129325107588
       },
       "attitude_uncertainty_source": "mavlink_odometry_pose_covariance_local_ned_with_configured_floor",
       "container_cleanup_passed": true,
       "claims": {
         "sim_acceptance": "passed",
+        "hil_covariance_observation": "not_claimed",
+        "real_covariance_observation": "not_claimed",
         "hil_acceptance": "not_claimed",
         "real_acceptance": "not_claimed",
         "hardware_acceptance": "not_claimed",
@@ -460,6 +463,7 @@
     "px4_reported_position_response_three_airframe_subgate": "passed",
     "px4_reported_position_response_repeatability_fault_subgate": "passed",
     "combined_sim_qgc_current_source_subgate": "passed",
+    "hil_real_covariance_identity_binding": "implemented_pending_field_capture",
     "qgc_manual_visual_acceptance_contract": "implemented_pending_human_review",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
@@ -469,7 +473,7 @@
     "flight_acceptance": "not_claimed"
   },
   "next_priorities": [
-    "hil_real_pixhawk_odometry_covariance_capture_and_source_review",
+    "execute_hil_real_pixhawk_odometry_covariance_capture_with_signed_profile_and_mission_feedback",
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
     "deployment_domain_model_and_replay_set_review",

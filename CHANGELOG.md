@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v83 field covariance identity binding（2026-09-06）
+
+- 将 Pixhawk covariance observation 升级到 schema v2；HIL/REAL 必须绑定可执行 Mission、严格复验的
+  PX4 Mission feedback v2 与签名 runtime profile，不再允许仅靠 `--runtime-mode` 生成现场声明；
+- 当前采集会话必须与既有反馈的 configured/resolved endpoint、baud、HEARTBEAT system/component/
+  autopilot/vehicle/MAVLink 身份和 `AUTOPILOT_VERSION` firmware hash 完全一致，并保持 read-only、
+  hardware-control disabled、output locked 与 flight-control disabled；
+- SIM 继续限制在隔离 local `udpin` 且拒绝携带现场身份材料；HIL/REAL 拒绝所有 UDP 14550 形式。
+  verifier 会重新打开三份来源并重建 mode binding，来源变化或派生 claim 篡改后重算摘要仍会失败；
+- pinned Docker/PX4/Gazebo 外部 SIM v2 实采 110 条 ODOMETRY/110 条有效 covariance、保存 83 条记录并
+  完整复验；全量回归 3,369 tests：`3368 passed, 1 skipped`，全仓 Ruff 通过。HIL/REAL covariance
+  工具门已实现，但真实 Pixhawk/Jetson/相机、室外 GNSS 与实飞仍未声明。
+
 ### v0.3.0-pre.8 v82 PX4 estimator attitude covariance（2026-09-06）
 
 - 只读 Pixhawk provider 新增 MAVLink `ODOMETRY` 331 请求与严格 source/frame/time association，从

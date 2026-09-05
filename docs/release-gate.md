@@ -1,5 +1,18 @@
 # v0.3.0 E7 发布门
 
+## v83 HIL/REAL covariance identity 子门（2026-09-06，`v0.3.0-pre.8`）
+
+HIL/REAL covariance capture 现在要求可执行 Mission、PX4 Mission feedback v2 和签名 runtime profile
+三份来源，并在采集与复验时重开它们。当前 endpoint/baud、HEARTBEAT 五元身份、firmware identity、
+只读 provider、hardware control disabled、runtime output lock 与 flight control disabled 必须同时满足；
+任何缺失或漂移都会拒绝 `hil_covariance_observation` / `real_covariance_observation` claim。此 claim 只表示
+在已绑定现场会话观察到 estimator covariance，不等于完整 HIL/REAL、硬件控制或实飞 acceptance。
+
+当前仅完成外部 PX4/Gazebo SIM v2 正控：110/110 条 ODOMETRY/covariance、83 份记录，报告文件
+61,131 bytes、SHA-256 `B3DA32BF0C1A1C0C6244C9F5A9888774AA205C4701B73FCAB490BFD4F1EF40BE`，
+内部 evidence SHA-256 `306E30B25C93EA4D642ECEA0515F79DEC2DF599C5DB8C884B50F35C289C08112`；
+容器已删除。HIL/REAL 工具门已实现但尚无实机正证据，E7 的现场 blocker 不变。
+
 ## v82 PX4 estimator covariance SIM 子门（2026-09-06，`v0.3.0-pre.8`）
 
 共享只读 Pixhawk ingress 已消费 MAVLink `ODOMETRY.pose_covariance`：source system/component、parent/child
