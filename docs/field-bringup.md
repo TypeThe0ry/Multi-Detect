@@ -1,5 +1,22 @@
 # 现场链路 Bring-up（v0.3.0-pre.8）
 
+## v76 target-event 与 mount survey 标定一致性
+
+现场创建 target-event replay 时必须传入本次实际定位使用的同一份严格 camera calibration：
+
+```powershell
+Set-Location D:\Projects\Multi-Detect
+python .\scripts\create_target_event_replay.py `
+  .\field-data\target-events.capture.json `
+  .\field-data\target-event-bundle `
+  --camera-calibration .\field-data\camera-calibration.json
+```
+
+脚本把标定复制进 bundle 并写入 ID/bytes/SHA-256。后续 field evidence 会将其与
+`--camera-mount-survey` 中的标定引用交叉比较；两边即使 calibration ID 相同，只要文件内容/SHA-256
+不同也会关闭门。capture manifest 也可在顶层写相对于自身目录的 `camera_calibration` 路径；命令行参数
+优先。该链只证明证据身份一致，真实标定质量和安装测量仍需现场验收。
+
 ## v72 相机安装外参与 GNSS lever-arm 现场测量
 
 在相机、GNSS 天线和机体结构处于最终安装状态后，沿 aircraft FRD 轴至少重复测量 5 次

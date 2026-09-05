@@ -1,5 +1,20 @@
 # 统一仓库架构
 
+## v76 target-event 标定跨证据绑定（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+strict camera calibration JSON
+  -> create_target_event_replay.py
+  -> bundle/camera-calibration.json + manifest ID/bytes/SHA-256
+  -> load_target_event_replay_manifest（rehash + full semantic validation）
+  -> field_evidence_bundle.target_event
+  -> compare with camera_mount_survey calibration ID/SHA-256
+```
+
+`target_event_replay.py` 与 `target-event-replay-manifest.schema.json` 同属 shared core algorithm identity；
+`field_evidence_bundle.py` 属于 shared task contract。证据可携带完整标定 provenance，但仍是只读记录路径，
+不会创建 Mission、MAVLink 控制或载荷输出。
+
 ## v75 设备校准嵌套证据（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

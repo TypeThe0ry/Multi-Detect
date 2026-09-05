@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v75：设备校准记录现绑定证书文件、有效期、设备身份与精度；survey 日期必须落在有效窗口内 |
+| 当前工程迭代 | v76：目标事件回放携带实际相机标定副本；现场证据强制与 mount survey 的标定 ID/SHA-256 一致 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,13 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v76 目标事件标定跨证据绑定
+
+`create_target_event_replay.py` 现在可通过 `--camera-calibration`（或 capture manifest 顶层
+`camera_calibration`）读取完整严格标定，把原始字节复制为 bundle 内的 `camera-calibration.json`，并在
+manifest 记录 ID、大小和 SHA-256。加载器每次重新哈希并执行完整内参语义校验；field evidence bundle
+还要求该 ID/SHA-256 与物理 mount survey 引用完全一致。缺失、篡改或同 ID 不同内容都会 fail-closed。
 
 ### v75 测量设备校准证据链
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T02:43:00Z",
+  "updated_at_utc": "2026-09-05T18:49:02Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "8994fec9bf330ec7c2b9042b5b06fe28c2b17776",
-    "commit_subject": "feat(field): bind mount equipment calibration",
-    "commits_ahead_of_origin_main": 38
+    "commit": "539c9c8a89b677b2c59a8f6615edad83fc5fc6e4",
+    "commit_subject": "feat(field): bind event replay camera calibration",
+    "commits_ahead_of_origin_main": 40
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v75",
+  "working_iteration": "v76",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v75-final.xml",
-      "tests": 3327,
-      "passed": 3326,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v76-final.xml",
+      "tests": 3328,
+      "passed": 3327,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 124.759,
-      "junit_local_path": "tmp/current-progress-regression-v75-final.xml",
-      "junit_file_bytes": 483650,
-      "junit_file_sha256": "060111adf2b05d5fafd72704cf375d781f098f6ecbc78555b8af6bb4e1e657ff",
+      "duration_seconds": 96.218,
+      "junit_local_path": "tmp/current-progress-regression-v76-final.xml",
+      "junit_file_bytes": 483790,
+      "junit_file_sha256": "cd3a3ce31d6f68312db391964c80429be9fb6a3c9802081b235253c1ca2778da",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,12 +63,12 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 5504,
-    "file_sha256": "bebac43080708c30f0e110d2f4d4828697d6831ee2a3d7b9f065b4b95b3a3e2e",
+    "bytes": 5570,
+    "file_sha256": "a521c7dbd3a7ec1e3f0fc8ad486c42780356b31f3ef893dd6f1435dca654dc13",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
-      "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
-      "task_contract_hash": "ab8c40f568f0ccbba814bc5c9dae31d8f22218bd14d9d27e6637771a0e272521",
+      "core_algorithm_hash": "bebbf1b559add8479fb4d184ea4ef25891902aa27784ce1b8b51bdce62334738",
+      "task_contract_hash": "e4e2e829961352bfce90dac04e93207a49644a118c863181de850488c448f54b",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
       "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a"
     }

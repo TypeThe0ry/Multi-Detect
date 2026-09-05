@@ -312,7 +312,8 @@ Python 侧的 `multidetect.target_event_replay.TargetEventReplayBuilder` 将一�
 - `UNAVAILABLE` 测距不得携带距离或相对方位，`unavailable` GPS 不得携带坐标/质量测量，不会填入假坐标；
 - manifest 的 claims 固定为 `read_only_evidence=true`、`contains_flight_control=false`、`contains_truth=false`。回放加载器没有任务、执行器、MAVLink 或 simulator truth 输入口。
 
-现场采集器或 Jetson 可以先写一个 JSON capture manifest：顶层包含 `session_id` 和 `events`；
+现场采集器或 Jetson 可以先写一个 JSON capture manifest：顶层包含 `session_id`、`events` 和相对于
+manifest 的 `camera_calibration`（也可改用 CLI 参数）；
 每个事件包含 `event_id/frame_id/target_id/target_label/captured_at_s/gps/ranging`，
 `video`/`depth` 则填相对于该 capture manifest 的本机文件路径、编码和可选宽高。脚本会把源文件复制进一个新的空 bundle，
 写入哈希和严格事件流：
@@ -322,8 +323,13 @@ Set-Location D:\Projects\Multi-Detect
 $env:PYTHONPATH = 'src;.'
 $py = '.\ground-control\MultiDetectGCS\.venv\Scripts\python.exe'
 & $py scripts\create_target_event_replay.py `
-    captures\target-events.json captures\target-event-bundle
+    captures\target-events.json captures\target-event-bundle `
+    --camera-calibration captures\camera-calibration.json
 ```
+
+标定会以原始字节复制为 bundle 根目录的 `camera-calibration.json`，manifest 绑定 ID、bytes 与 SHA-256；
+加载时重新哈希并执行完整相机标定语义校验。用于 field evidence 时，该标定还必须与物理 mount survey
+引用的 calibration ID/SHA-256 完全一致。
 
 随后验证并筛选 bundle（脚本只打印元数据和相对媒体路径，不读取或输出媒体字节；输出中的 `gps_age_s`/`gps_freshness` 是加载时重新计算的结果）：
 

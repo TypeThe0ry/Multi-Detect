@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v76 target-event calibration cross-binding（2026-09-06）
+
+- target-event replay 可复制并 hash-bind 实际相机标定，manifest 记录 contained path、bytes、SHA-256 和
+  calibration ID；加载时重新哈希并执行完整标定语义校验；
+- capture CLI 新增 `--camera-calibration`，同时支持 manifest 相对路径；field evidence 要求 replay 与
+  mount survey 的标定 ID/SHA-256 完全一致，缺失或同 ID 不同文件均 fail-closed；
+- target-event manifest schema 纳入 shared core algorithm parity；测试仅证明软件证据合同，不提升
+  HIL/REAL、硬件、室外 GNSS 或最终发布声明。
+
 ### v0.3.0-pre.8 v75 equipment calibration provenance（2026-09-06）
 
 - 新增严格 equipment-calibration schema 与 `equipment-record` CLI，自动 hash-bind 原始证书文件；

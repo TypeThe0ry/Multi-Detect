@@ -1,6 +1,15 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v75 工作树）
+最后更新：2026-09-06（v76 工作树）
+
+## v76 本轮已收口
+
+- target-event replay bundle 新增 contained `camera-calibration.json`，manifest 绑定 calibration ID、
+  bytes 与 SHA-256，加载时重新哈希并运行完整相机标定语义校验；
+- capture CLI 支持 `--camera-calibration` 与 manifest 相对路径，现场采集无需手工计算哈希；
+- field evidence 的 target-event 层现在必须携带标定，并与 camera-mount survey 的 calibration ID/SHA-256
+  跨证据一致；缺失、篡改或同 ID 不同内参全部 fail-closed；
+- target-event manifest schema 纳入 shared core parity。本轮仍不产生 HIL/REAL、硬件或发布声明。
 
 ## v75 本轮已收口
 
@@ -33,8 +42,8 @@
 - survey 与七层 bundle 已纳入 shared `task_contract_hash`。自动 fixture 仅验证合同，不关闭真实测量、
   HIL/REAL、硬件或最终发布门。
 
-GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
-本地 `main` 提交 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`（当前文档提交前领先远端 30 个提交）。
+GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮功能基线为
+本地 `main` 提交 `539c9c8a89b677b2c59a8f6615edad83fc5fc6e4`（当前文档提交前领先远端 40 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -90,8 +99,8 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
   9 个动态端口与受保护 14550 状态均正确清理。
 - 独立 verifier 44/44：2,139 bytes，SHA-256
   `0C27451F88A0FD3655740523525D97BAE98D8D981EE0A3CC60DB8178B9A1136D`。
-- v75 全仓回归为 3,327 tests：`3326 passed, 1 skipped, 0 failed, 0 errors`；JUnit 483,650 bytes，
-  SHA-256 `060111ADF2B05D5FAFD72704CF375D781F098F6ECBC78555B8AF6BB4E1E657FF`；Ruff 通过。
+- v76 全仓回归为 3,328 tests：`3327 passed, 1 skipped, 0 failed, 0 errors`；最终 JUnit 的大小、
+  SHA-256 与耗时同步记录在 `docs/current-progress.json`；Ruff 通过。
 - 该 run 只把 v70 的 current-parity dirty 机器证据提升为 clean-HEAD software/SIM provenance；人工
   视觉仍为 0/4，真实 Jetson/Pixhawk/相机、室外 GNSS/RTK、HIL/REAL 和实飞继续阻断最终版本。
 

@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Target-event 相机标定跨证据绑定（v76）
+
+- [x] 将严格相机标定复制进 replay bundle，并绑定 ID、bytes、SHA-256；
+- [x] 加载时重新哈希 contained 文件并执行完整内参/外参语义校验；
+- [x] capture CLI 支持显式标定输入，field bundle 强制 replay 与 mount survey 标定一致；
+- [x] 覆盖文件篡改、缺失 provenance 与同 ID 不同内容的 fail-closed 回归；
+- [ ] 用真实最终安装标定生成现场 target-event、mount survey 与 accuracy 三者一致的证据链。
+
 ## 测量设备校准 provenance（v75）
 
 - [x] 定义设备 ID、issuer、有效期、精度与嵌套证书哈希的严格记录；
