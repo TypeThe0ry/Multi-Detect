@@ -5,6 +5,31 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v61 原生 QGC 定位卡片/地图 exact-PID 机器捕获（2026-09-05）
+
+- HIL driver 增加 bounded post-authorization refresh：定位 evidence 在截图窗口内持续以同 target/frame
+  绑定发送 type 10/22；同时强制比较 evidence 内五组 parity 与 canonical `release-parity.json`，旧 UI
+  parity、错误版本、失败门或非 display-only 输入均在传输前 fail-closed。
+- `capture_qgc_native_style.ps1` 可附着已运行的 exact `MultiDetectGCS` PID，不会关闭所附着进程；捕获前
+  将窗口扩到至少 `1600x900`，选择能容纳完整布局的屏幕，保存/恢复 QGC 与外部窗口状态，并记录 exact
+  client rect、PID、标题、遮挡和 PNG SHA。`run_px4_sitl_qgc_operator_acceptance.ps1` 将该路径接入同一
+  pinned PX4 SIH/只读 router acceptance。
+- QGC isolated-HIL 自动退出新增最长 15 秒的验收专用延时；机器捕获使用 8 秒延时，随后仍走 QGC 自身
+  受控退出。普通 acceptance 延时为 0，行为不变。增量构建与 portable 部署完成，Release/portable EXE
+  均为 46,576,640 bytes，SHA-256
+  `62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`。
+- current parity 下重跑 high-slope 定位为 5/5 落图；source 文件 SHA-256
+  `548905E36A076240F3C4DEC6DC09540831456E175AC4A372434827D1A5F7BBE4`。最终 HIL evidence
+  `gate_passed=true`，QGC exit 0、认证 132 包、type 10/22 各 47、PX4 heartbeat 14、写入/物理输出 0、
+  14550 不变且资源全清理；evidence SHA-256
+  `BF9E9856F91244161CDB38E8FE5DDA9BC6972A0BFC17E989A427BDAA296A2861`。
+- 最终 exact-client PNG 为 2,580,889 bytes / SHA-256
+  `86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3`，显示完整定位卡片与地图目标。
+  这关闭的是 machine dynamic-render capture 子门；本线程没有 `@oai/sky`，所以人工视觉、室外 GNSS、
+  硬件 HIL/REAL、实飞和最终 `v0.3.0` 均未声明通过，E7 blocker 仍为 32。
+- 全量回归 3,257 tests：`3256 passed, 1 skipped, 0 failed, 0 errors`；JUnit 473,487 bytes、SHA-256
+  `E5D307C7F4AC57A4198358FBF84CFD034B27C20F415F2D1B7BF8F49850CB0837`。
+
 ### v0.3.0-pre.8 v60 Gazebo 定位证据进入原生 QGC（2026-09-05）
 
 - 扩展既有 `operator_closed_loop_hil.py`，可读取 schema v2 且门禁通过的 Gazebo 定位 evidence，

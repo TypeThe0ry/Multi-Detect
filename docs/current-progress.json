@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T10:41:54Z",
+  "updated_at_utc": "2026-09-05T11:21:55Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -8,13 +8,19 @@
     "commit_subject": "update",
     "commit_timestamp": "2026-09-05T17:00:21+08:00"
   },
+  "working_base": {
+    "branch": "main",
+    "commit": "99ff7b217e20b866396f6062786bdaa89a5bdeb8",
+    "commit_subject": "feat(qgc): bind geolocation evidence into native HIL",
+    "commits_ahead_of_origin_main": 4
+  },
   "product_version": {
     "release_label": "0.3.0-pre.8",
     "numeric": "0.3.0",
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v60",
+  "working_iteration": "v61",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -23,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v60-final-v2.xml",
-      "tests": 3255,
-      "passed": 3254,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v61-final-v2.xml",
+      "tests": 3257,
+      "passed": 3256,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 131.77,
-      "junit_local_path": "tmp/current-progress-regression-v60-final-v2.xml",
-      "junit_file_bytes": 473177,
-      "junit_file_sha256": "0bd69a52c24cc8ec1438988cbb54a2223dfc656fb10d31f6c80d18b0da725be5",
+      "duration_seconds": 161.48,
+      "junit_local_path": "tmp/current-progress-regression-v61-final-v2.xml",
+      "junit_file_bytes": 473487,
+      "junit_file_sha256": "e5d307c7f4ac57a4198358fbf84cfd034b27c20f415f2d1b7bf8f49850cb0837",
       "distributed_in_git": false
     },
     "ruff": {
@@ -58,9 +64,9 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 5146,
-    "file_sha256": "c670b2aae30c392c2b7fbb981edb58719ec66e4112b51f135e69ac662afe152b",
+    "file_sha256": "08807aa127a1f1e61d31ff503e4ec4d3bc6803c7369d671dfd864b4b22646a73",
     "hashes": {
-      "ui_contract_hash": "dd8b40866d3143e5eb85bf18b0028c1824cb0c91b111b7a4cbfff503152c4328",
+      "ui_contract_hash": "f20ca6c5fce0de613a38f58080e98ccb1bdf29c3425878c57ff9b9ec62084942",
       "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
       "task_contract_hash": "2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
@@ -181,21 +187,37 @@
       "slope_regimes": {"actual": 3, "required": 2, "separation_deg": 3.0},
       "reasons": []
     },
-    "qgc_geolocation_operator_transport": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v60/px4-sitl-qgc-geolocation-operator-acceptance-v60-pre8-v2.json",
+    "qgc_geolocation_native_machine_capture": {
+      "local_path": "artifacts/evaluation/terminal-continuation-v61/px4-sitl-qgc-geolocation-native-visual-v61-pre8-v8.json",
       "distributed_in_git": false,
-      "file_sha256": "9e40159eec767cd8f1aef106bcc7e48ed9c00bc0ddfc7c1e4cecc7d2a060d053",
-      "source_geolocation_file_sha256": "cc3b670248bee4f3224927aedae0d5a13d5301e5106dc2ba66c4c1fef90025f6",
+      "file_sha256": "bf9e9856f91244161cdb38e8fe5dda9bc6972a0bfc17e989a427bdaa296a2861",
+      "source_geolocation_local_path": "artifacts/evaluation/terminal-continuation-v61/gazebo-high-slope-geolocation-evaluation-v61-pre8-v2.json",
+      "source_geolocation_file_sha256": "548905e36a076240f3c4dec6dc09540831456e175ac4a372434827d1a5f7bbe4",
+      "source_geolocation_evidence_sha256": "33d1857733d8a86cfd9d0afe772b596b8776f292a4da75a8f822ceffb2b5f6f7",
+      "source_geolocation_deterministic_result_sha256": "832f8720045b29ac193cc570b3b8d27302e1c0e1354493d3a3f8d7c10c6ede38",
       "source_scenario_id": "gazebo_car_geolocation_high_slope_001",
       "gate_passed": true,
-      "authenticated_metadata_packets": 40,
-      "range_status_packets": 1,
-      "target_geolocation_status_packets": 1,
-      "px4_autopilot_heartbeats": 6,
+      "authenticated_metadata_packets": 132,
+      "range_status_packets": 47,
+      "target_geolocation_status_packets": 47,
+      "geolocation_refresh_count": 60,
+      "px4_autopilot_heartbeats": 14,
       "qgc_forbidden_px4_messages": 0,
       "physical_payload_actions": 0,
       "protected_port_unchanged": true,
-      "all_resources_cleaned": true
+      "all_resources_cleaned": true,
+      "native_visual_capture": {
+        "attached_existing_process": true,
+        "exact_qgc_pid": 4900,
+        "single_native_surface_machine_check": true,
+        "external_occluders_after": 0,
+        "capture_local_path": "artifacts/evaluation/terminal-continuation-v61/native-visual-v8/qgc-native-style.png",
+        "capture_bytes": 2580889,
+        "capture_sha256": "86d279aa8260b4ac6aa708203f5dc8499d485b30c72da18f1eea59bf745755d3",
+        "observation_file_sha256": "4becb0aa39ac12aa1d63039f5da84b7a61b5d6efe70a5ed180d3c5c33783ce05",
+        "computer_use_tool_exposed": false,
+        "operator_visual_acceptance": "not_claimed"
+      }
     },
     "external_three_airframe_rebind": {
       "local_path": "artifacts/evaluation/terminal-continuation-v57/simulator-external-runtime-ai-join-v57-current-parity-pre8.json",
@@ -223,6 +245,7 @@
     "software_sim_single_regime_geolocation_subgate": "passed",
     "software_sim_multi_regime_geolocation_subgate": "passed",
     "qgc_geolocation_signed_transport_native_adoption_subgate": "passed",
+    "qgc_geolocation_exact_pid_hwnd_machine_capture_subgate": "passed",
     "qgc_manual_visual_acceptance": "not_claimed",
     "hardware_acceptance": "not_claimed",
     "outdoor_gnss_acceptance": "not_claimed",
@@ -232,7 +255,7 @@
   },
   "next_priorities": [
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
-    "native_qgc_geolocation_evidence_card_manual_acceptance_and_e7_binding",
+    "native_qgc_geolocation_evidence_card_human_visual_signature_and_e7_binding",
     "fixed_wing_and_vtol_dynamic_response_parity",
     "deployment_domain_model_and_replay_set_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",

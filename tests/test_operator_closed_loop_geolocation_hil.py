@@ -168,3 +168,53 @@ def test_wrong_release_or_non_display_range_evidence_is_rejected(tmp_path: Path)
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
     with pytest.raises(module.HilFailure, match="display-only"):
         module._load_target_geolocation_evidence(str(evidence_path), "0.3.0-pre.8")
+
+
+def test_geolocation_evidence_must_match_supplied_canonical_parity(tmp_path: Path) -> None:
+    module = _driver_module()
+    evidence = _evidence()
+    parity = {
+        "ui_contract_hash": "1" * 64,
+        "core_algorithm_hash": "2" * 64,
+        "task_contract_hash": "3" * 64,
+        "safety_policy_hash": "4" * 64,
+        "px4_mission_path_hash": "5" * 64,
+    }
+    release = evidence["release_identity"]
+    assert isinstance(release, dict)
+    release["parity"] = parity
+    evidence_path = tmp_path / "geolocation.json"
+    parity_path = tmp_path / "release-parity.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    parity_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "release_label": "0.3.0-pre.8",
+                "parity": parity,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = module._load_target_geolocation_evidence(
+        str(evidence_path), "0.3.0-pre.8", str(parity_path)
+    )
+    assert loaded is not None
+    assert loaded["expected_release_parity"]["file_path"] == str(parity_path.resolve())
+
+    parity["ui_contract_hash"] = "9" * 64
+    parity_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "release_label": "0.3.0-pre.8",
+                "parity": parity,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(module.HilFailure, match="canonical release parity"):
+        module._load_target_geolocation_evidence(
+            str(evidence_path), "0.3.0-pre.8", str(parity_path)
+        )

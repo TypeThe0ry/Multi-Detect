@@ -1,8 +1,9 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-05（v60 工作树）
+最后更新：2026-09-05（v61 工作树）
 
-审计基线：GitHub `origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`
+GitHub 审计基线：`origin/main`，提交 `b5c3f10baf4cc9febaa3a10103752f202f3b0611`；本轮工作基线为
+本地 `main` 提交 `99ff7b217e20b866396f6062786bdaa89a5bdeb8`（当时领先远端 4 个提交）。
 
 产品版本：`v0.3.0-pre.8`（最终 `v0.3.0` 尚未发布）
 
@@ -15,11 +16,32 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 共享语义地面锚点、DEM/GNSS 测距和 WGS-84 投影；三个场景覆盖约 `6.20/12.17/20.15 m` AGL、
 `8/15/25 m` 目标距离和 `0/4.00/7.97 deg` 坡度，均由独立 verifier 重现。对应近地平线输入 5/5 帧
 都拒绝生成坐标。v60 又把 high-slope evidence 的测距、坐标和 1σ 经签名 operator link 送入现有
-原生 QGC，type 10/22 认证与 native controller 采纳机器子门已通过；人工视觉和现场证据仍未完成。
+原生 QGC。v61 在同一 HIL 进程内持续刷新 type 10/22，按 exact PID/HWND 采集无外部遮挡的目标地图
+与证据卡片机器截图，并把证据与当前五组 release parity 严格绑定；人工视觉签字和现场证据仍未完成。
 
 最终版本仍然阻断。当前 E7 report-only 结果为 `gate_passed=false`、`release_allowed=false`，共
 32 条 blocker，主要来自部署域数据/模型精度、现场链路、四模式人工 QGC/Mission、HIL/REAL、
 三机型硬件控制和 prerelease 版本面。候选 YOLO 模型仍为 `quarantined`，不是生产批准模型。
+
+## v61 本轮已收口
+
+- HIL 驱动现在在授权完成后按 `0.2 s` 周期有界刷新 evidence-derived type 10/22，并在发送前严格
+  校验 canonical `release-parity.json` 的版本和五组 hash；任何旧 UI/core/task/safety/Mission 身份
+  都会 fail-closed。
+- 原生视觉采集支持附着已经运行的精确 `MultiDetectGCS` PID，核对 exact HWND/client rect、单一原生
+  surface、目标尺寸和外部遮挡恢复；QGC 的验收专用延迟退出仅由显式环境变量启用，默认行为不变。
+- 最新 pinned PX4 SIH + 原生 QGC acceptance 通过：132 个认证 metadata、type 10/22 各 47 个、
+  60 次定位刷新、14 个 PX4 heartbeat；禁止写入、物理输出和 14550 端口均保持为 0/不变，所有测试
+  资源清理完成。acceptance SHA-256 为
+  `BF9E9856F91244161CDB38E8FE5DDA9BC6972A0BFC17E989A427BDAA296A2861`。
+- exact PID `4900` 的机器截图为 2,580,889 bytes、SHA-256
+  `86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3`；画面包含目标点、1σ、类别、
+  距离、方位、更新时间、帧摘要和复制/保存/记录入口。该项只声明机器采集通过，
+  `operator_visual_acceptance=not_claimed`。
+- QGC Release/portable 已从当前源码重建且字节一致：46,576,640 bytes、SHA-256
+  `62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`。
+- 全量回归 3,257 tests：`3256 passed, 1 skipped, 0 failed, 0 errors`；JUnit 473,487 bytes、
+  SHA-256 `E5D307C7F4AC57A4198358FBF84CFD034B27C20F415F2D1B7BF8F49850CB0837`。
 
 ## v60 本轮已收口
 
@@ -102,6 +124,9 @@ operator link、安全和证据框架。v59 已让三组各 5 帧的实际 Gazeb
 | `gazebo-high-slope-geolocation-evaluation-v59-pre8-v1.json` | `gate_passed=true` | 5/5 落图；最大/均值误差 `1.855370/1.841585 m`；AGL `20.149371 m`；range `25 m`；坡度 `7.969610 deg` | `CC3B670248BEE4F3224927AEDAE0D5A13D5301E5106DC2BA66C4C1FEF90025F6` |
 | `gazebo-high-slope-geolocation-verification-v59-pre8-v1.json` | `passed=true` / `reproduced=true` | 完整 source 重放；无原因项 | `857A5AA71D938A5B247C212474C53BB32291A2D28308A01E8D920207935CE1A2` |
 | `gazebo-geolocation-regime-matrix-v59-pre8-v1.json` | `gate_passed=true` | 正场景/帧 `3/3`、`15/15`；高度/距离/坡度档 `3/3`、`3/3`、`3/2`；负场景/帧 `1/1`、`5/5` | `A6D33E43B26B805939B6A14BB76C5C13CD8B9AC7EBD41A727BAFA8AB76022F35` |
+| `gazebo-high-slope-geolocation-evaluation-v61-pre8-v2.json` | `gate_passed=true` | 当前五组 parity；5/5 落图；供 v61 HIL 持续刷新 | `548905E36A076240F3C4DEC6DC09540831456E175AC4A372434827D1A5F7BBE4` |
+| `px4-sitl-qgc-geolocation-native-visual-v61-pre8-v8.json` | `gate_passed=true` | 认证 132；type 10/22 各 47；刷新 60；PX4 heartbeat 14；exact PID/HWND capture；写入/物理输出 0 | `BF9E9856F91244161CDB38E8FE5DDA9BC6972A0BFC17E989A427BDAA296A2861` |
+| `native-visual-v8/qgc-native-style.png` | machine capture passed；人工签字未声明 | exact PID 4900；client `1585×862`；单一原生 surface；采集后外部遮挡 0 | `86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3` |
 | `px4-sitl-qgc-geolocation-operator-acceptance-v60-pre8-v2.json` | `gate_passed=true` | QGC 认证 40 包；type 10/22 各 1；PX4 heartbeat 6；写入/物理输出 0；14550 不变 | `9E40159EEC767CD8F1AEF106BCC7E48ED9C00BC0DDFC7C1E4CECC7D2A060D053` |
 | `simulator-external-runtime-ai-join-v57-current-parity-pre8.json` | `gate_passed=true` | 三机型六份历史不可变 source 在当前 parity 下重算 | `BAF6FC33DB0E39C758420B2DE3573EAB9A2751721476D25CACF5EBC2D2199D3B` |
 | `simulator-external-runtime-ai-revalidation-v57-current-parity-pre8.json` | `gate_passed=true` | `source_recomputed=true` | `3706D8BE96F4AB74BB68679C6C2640848908769D03F01A07BE5D8B4701444CCE` |
@@ -128,11 +153,11 @@ v59 矩阵内部摘要为：
 ## 当前共享契约身份
 
 `configs/release-parity.json`：5,146 bytes，文件 SHA-256
-`C670B2AAE30C392C2B7FBB981EDB58719EC66E4112B51F135E69AC662AFE152B`。
+`08807AA127A1F1E61D31FF503E4EC4D3BC6803C7369D671DFD864B4B22646A73`。
 
 | 契约组 | 当前哈希 |
 |---|---|
-| UI contract | `dd8b40866d3143e5eb85bf18b0028c1824cb0c91b111b7a4cbfff503152c4328` |
+| UI contract | `f20ca6c5fce0de613a38f58080e98ccb1bdf29c3425878c57ff9b9ec62084942` |
 | Core algorithm | `505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9` |
 | Task contract | `2079ace640a9e37e4998dfede94fb0f4406d399b709881dd61920a7fceb1d8af` |
 | Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
@@ -146,8 +171,8 @@ v59 矩阵内部摘要为：
 | 感知与模型治理 | ONNX provider、manifest、raw/post-NMS、候选隔离、延迟/精度工具 | v56 COCO car 仅 quarantined SIM candidate | 部署域 fire/smoke/safety 模型、数据集、评审和阈值 |
 | 多目标跟踪 | 多目标池、短时恢复、ReID、遮挡/丢失/重获、TRK/LCK/TGT | 自动化与软件/SITL | 真实复杂场景身份精度与 G20/QGC 触控验收 |
 | 测距 | metric depth、相机地面射线、多源融合、DEM/GNSS、时间/运动/残差不确定性 | v59 实际 Gazebo 像素；三档坡高/距离；advisory-only | 真实外参与 outdoor survey |
-| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、事件/证据存储 | 三正场景 15/15 落图；近地平线 0/5 假点；type 10/22 原生采纳通过 | 原生 QGC 地图/证据卡片人工视觉与真实 GNSS |
-| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | 本机 portable 可运行；v60 签名定位状态传输通过，QML 未改 | v60 定位状态的前台人工验收；四模式视觉对等 |
+| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、事件/证据存储 | 三正场景 15/15 落图；近地平线 0/5 假点；v61 exact PID/HWND 机器截图通过 | 人工视觉签字与真实 GNSS |
+| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | 本机 portable 可运行；v61 签名持续刷新与单一原生 surface 机器采集通过 | 四模式人工视觉对等与 E7 绑定 |
 | 数字孪生 | PX4/Gazebo、三机型、场景/地图/DEM、wire v2、故障、watchdog | external software evidence；x500 position response；三档定位 | fixed-wing/VTOL 对等动态响应 |
 | 任务与控制 | 平台无关 planner、PX4 Mission 编译/反馈、Mode 3 动态权限 | 测试/SIM/HIL 框架；物理输出默认锁定 | 六份 HIL/REAL×三机型 feedback 与真实飞控验收 |
 | Jetson/Pixhawk/链路 | Jetson profile、RTSP bench、只读 MAVLink、V6X 参数备份、G20/GR01 认证协议 | 软件/localhost 与部分只读现场快照 | 实机 Jetson provider、相机、GR01、V6X 同时在线验收 |
@@ -162,9 +187,9 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,576,128` bytes
-- SHA-256：`06E7B1BBEC1B96DC6E5A231B12B88725122476075ED86A24BBEF554CB899E5FE`
-- v60 没有修改 QGC C++/QML，所以没有为了验收驱动/文档重复链接一个内容相同的 EXE。
+- 大小：`46,576,640` bytes
+- SHA-256：`62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`
+- v61 已从当前 C++/QML 源码完成 Release 与 portable 重建，两份主 EXE 字节一致。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类
@@ -187,11 +212,11 @@ D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.
 重跑受影响的定位/三机型/E7 证据和全量测试。该迁移不能与目标落图功能开发混在同一提交里，也不能
 通过删除 CI format gate 假装完成。
 
-### P0：原生 QGC 目标落图与证据卡片人工验收
+### P0：原生 QGC 目标落图与证据卡片人工签字
 
-v60 已将 high-slope evidence 的坐标、1σ、类别、距离和方位经签名协议送入原生 MultiDetectGCS
-controller。下一步保持该驱动存活并采集 exact PID/HWND 的动态地图/证据卡片画面，完成人工视觉签字；
-之后再经 schema/manifest 评审接入 E7。负向样本必须继续 0 假点。
+v61 已将 high-slope evidence 的坐标、1σ、类别、距离和方位经签名协议持续送入原生
+MultiDetectGCS，并完成 exact PID/HWND 动态地图/证据卡片机器采集。下一步由人工检查同一证据画面并
+签字，再经 schema/manifest 评审接入 E7；负向样本必须继续 0 假点。
 
 ### P1：三机型动态对等
 

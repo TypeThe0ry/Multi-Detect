@@ -2,12 +2,16 @@ param(
     [string]$QgcRoot = "",
     [string]$QgcBuildRoot = "",
     [string]$EvidencePath = "",
-    [string]$TargetGeolocationEvidencePath = ""
+    [string]$TargetGeolocationEvidencePath = "",
+    [switch]$CaptureNativeVisualEvidence,
+    [string]$NativeVisualEvidenceDirectory = "",
+    [switch]$ComputerUseOperatorAuthorized
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $ProductVersionPath = Join-Path $Root "configs\product-version.json"
+$ReleaseParityPath = Join-Path $Root "configs\release-parity.json"
 if (-not (Test-Path -LiteralPath $ProductVersionPath -PathType Leaf)) {
     throw "Product version manifest is unavailable: $ProductVersionPath"
 }
@@ -64,6 +68,7 @@ $QgcDriver = Join-Path $QgcRoot "custom\tests\operator_closed_loop_hil.py"
 $QgcCustomOptions = Join-Path $QgcRoot "custom\cmake\CustomOverrides.cmake"
 $QgcControllerSource = Join-Path $QgcRoot "custom\src\MultiDetectOperatorController.cc"
 $QgcApplicationSource = Join-Path $QgcRoot "src\QGCApplication.cc"
+$NativeCaptureScript = Join-Path $Root "scripts\capture_qgc_native_style.ps1"
 $QgcCmakeCache = Join-Path $QgcBuildRoot "CMakeCache.txt"
 $RouterStdoutPath = Join-Path $ArtifactDirectory "px4-qgc-router-$RunId.stdout.jsonl"
 $RouterStderrPath = Join-Path $ArtifactDirectory "px4-qgc-router-$RunId.stderr.log"
@@ -84,6 +89,21 @@ if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
     $TargetGeolocationEvidencePath = [IO.Path]::GetFullPath($TargetGeolocationEvidencePath)
     if (-not (Test-Path -LiteralPath $TargetGeolocationEvidencePath -PathType Leaf)) {
         throw "Target geolocation evidence is unavailable: $TargetGeolocationEvidencePath"
+    }
+}
+if ($CaptureNativeVisualEvidence) {
+    if ([string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
+        throw "Native target-map capture requires passed target geolocation evidence."
+    }
+    if ([string]::IsNullOrWhiteSpace($NativeVisualEvidenceDirectory)) {
+        $NativeVisualEvidenceDirectory = Join-Path $ArtifactDirectory "px4-qgc-native-visual-$RunId"
+    }
+    elseif (-not [IO.Path]::IsPathRooted($NativeVisualEvidenceDirectory)) {
+        $NativeVisualEvidenceDirectory = Join-Path $Root $NativeVisualEvidenceDirectory
+    }
+    $NativeVisualEvidenceDirectory = [IO.Path]::GetFullPath($NativeVisualEvidenceDirectory)
+    if (Test-Path -LiteralPath $NativeVisualEvidenceDirectory) {
+        throw "Native visual evidence directory already exists: $NativeVisualEvidenceDirectory"
     }
 }
 
@@ -299,6 +319,8 @@ foreach ($requiredPath in @(
     $QgcCustomOptions,
     $QgcControllerSource,
     $QgcApplicationSource,
+    $NativeCaptureScript,
+    $ReleaseParityPath,
     $QgcCmakeCache
 )) {
     Assert-True (Test-Path -LiteralPath $requiredPath) "Required PX4/QGC HIL path is missing: $requiredPath"
@@ -367,6 +389,7 @@ $environmentNames = @(
     "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX",
     "MULTIDETECT_HIL_UI_AUTO_EXERCISE",
     "MULTIDETECT_HIL_UI_AUTO_EXIT",
+    "MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS",
     "MULTIDETECT_OPERATOR_GCS_SYSTEM_ID",
     "MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID",
     "MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID",
@@ -406,6 +429,7 @@ $env:MULTIDETECT_OPERATOR_UDP_LOCAL_PORT = "$QgcPort"
 $env:MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $temporarySigningKeyHex
 $env:MULTIDETECT_HIL_UI_AUTO_EXERCISE = "1"
 $env:MULTIDETECT_HIL_UI_AUTO_EXIT = "1"
+$env:MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS = if ($CaptureNativeVisualEvidence) { "8000" } else { "0" }
 $env:MULTIDETECT_OPERATOR_GCS_SYSTEM_ID = "255"
 $env:MULTIDETECT_OPERATOR_JETSON_SYSTEM_ID = "1"
 $env:MULTIDETECT_OPERATOR_JETSON_COMPONENT_ID = "191"
@@ -421,6 +445,7 @@ $qgcProcess = $null
 $containerStarted = $false
 $containerStopped = $false
 $containerId = $null
+$nativeVisualObservation = $null
 
 try {
     $routerArguments = @(
@@ -460,8 +485,12 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($TargetGeolocationEvidencePath)) {
         $driverArguments += @(
             "--target-geolocation-evidence", $TargetGeolocationEvidencePath,
-            "--expected-release-label", $ReleaseLabel
+            "--expected-release-label", $ReleaseLabel,
+            "--expected-release-parity", $ReleaseParityPath
         )
+        if ($CaptureNativeVisualEvidence) {
+            $driverArguments += @("--post-authorization-hold-seconds", "12")
+        }
     }
     $driverStart = @{
         FilePath = $Python
@@ -489,9 +518,11 @@ try {
         ArgumentList = $qgcArguments
         WorkingDirectory = $QgcRoot
         PassThru = $true
-        WindowStyle = "Hidden"
         RedirectStandardOutput = $QgcStdoutPath
         RedirectStandardError = $QgcStderrPath
+    }
+    if (-not $CaptureNativeVisualEvidence) {
+        $qgcStart.WindowStyle = "Hidden"
     }
     $qgcProcess = Start-Process @qgcStart
     $null = $qgcProcess.Handle
@@ -552,6 +583,47 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
     Assert-True (-not [string]::IsNullOrWhiteSpace($containerId)) "Docker returned an empty container ID."
     $containerStarted = $true
     $containerEvidence = Get-OwnedContainerEvidence -Name $ContainerName -ExpectedId $containerId
+
+    if ($CaptureNativeVisualEvidence) {
+        $authorizationUiReached = $false
+        for ($attempt = 1; $attempt -le 100; $attempt++) {
+            Assert-True (-not $qgcProcess.HasExited) "QGC exited before native visual evidence capture."
+            $qgcCaptureLog = (Get-TextIfPresent -Path $QgcStdoutPath) + (Get-TextIfPresent -Path $QgcStderrPath)
+            if ($qgcCaptureLog -match "MultiDetect HIL UI auto exercise stage=3") {
+                $authorizationUiReached = $true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        Assert-True $authorizationUiReached "QGC did not reach HIL UI authorization stage 3 before capture."
+        $captureArguments = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $NativeCaptureScript,
+            "-ExistingProcessId", "$($qgcProcess.Id)",
+            "-OutputDirectory", $NativeVisualEvidenceDirectory,
+            "-SettleMilliseconds", "1500",
+            "-HideStubbornOccluders"
+        )
+        if ($ComputerUseOperatorAuthorized) {
+            $captureArguments += "-ComputerUseOperatorAuthorized"
+        }
+        $capture = Invoke-CapturedCommand -FilePath (Join-Path $PSHOME "powershell.exe") `
+            -ArgumentList $captureArguments
+        Assert-True ($capture.ExitCode -eq 0) "Native QGC visual capture failed: $($capture.Lines -join ' ')"
+        $nativeObservationPath = Join-Path $NativeVisualEvidenceDirectory "process-observation.json"
+        Assert-True (Test-Path -LiteralPath $nativeObservationPath -PathType Leaf) `
+            "Native QGC process observation is missing."
+        $nativeVisualObservation = Get-Content -LiteralPath $nativeObservationPath -Raw | ConvertFrom-Json
+        Assert-True ($nativeVisualObservation.attached_existing_process -eq $true) `
+            "Native capture did not attach to the running QGC process."
+        Assert-True ($nativeVisualObservation.qgc_pid -eq $qgcProcess.Id) `
+            "Native capture observation is not bound to the acceptance QGC PID."
+        Assert-True ($nativeVisualObservation.single_native_surface_machine_check -eq $true) `
+            "Native capture did not isolate one exact QGC client surface."
+        Assert-True ($nativeVisualObservation.operator_visual_acceptance -eq "not_claimed") `
+            "Machine capture must not claim human visual acceptance."
+    }
 
     Wait-ProcessCompleted -Process $driverProcess -TimeoutMilliseconds 45000 -Name "Jetson metadata-only HIL driver" | Out-Null
     Wait-ProcessCompleted -Process $qgcProcess -TimeoutMilliseconds 20000 -Name "Multi-Detect QGC" | Out-Null
@@ -690,6 +762,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
                 MULTIDETECT_PHYSICAL_RELEASE = 0
                 static_assertions_present = $true
             }
+            native_visual_machine_capture = $nativeVisualObservation
         }
         px4_sitl = [ordered]@{
             image_reference = $ImageReference
@@ -713,6 +786,10 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             tracking_metadata_packets_received_by_qgc = $trackingMetadataPackets
             evidence_derived_range_status_received_by_qgc = ($rangeMetadataPackets -ge 1)
             evidence_derived_target_geolocation_received_by_qgc = ($targetGeolocationMetadataPackets -ge 1)
+            native_visual_capture_bound_to_acceptance_pid = (
+                -not $CaptureNativeVisualEvidence -or
+                ($nativeVisualObservation.qgc_pid -eq $qgcProcess.Id)
+            )
             challenge_bound_authorization_completed = $true
             qgc_forbidden_px4_messages = 0
             file_mutating_ftp_opcodes_forwarded = 0
@@ -733,6 +810,9 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             jetson_metadata_stderr_log = $DriverStderrPath
             router_stdout_jsonl = $RouterStdoutPath
             router_stderr_log = $RouterStderrPath
+            native_visual_evidence_directory = if ($CaptureNativeVisualEvidence) {
+                $NativeVisualEvidenceDirectory
+            } else { $null }
         }
         limitations = @(
             "PX4 is the pinned fixed-wing SIH image, not a build matched to the real V6X firmware.",
@@ -740,6 +820,7 @@ sed -i 's|mavlink start -x -u $udp_gcs_port_local|mavlink start -x -u $udp_gcs_p
             "QGC core read-only discovery traffic may reach PX4 SITL through an allowlist; parameter writes, flight commands, mission writes, actuators and payload commands are blocked.",
             "All operator metadata uses strict MAVLink 2 signing on a dedicated localhost link; PX4 SITL telemetry uses a separate read-only UDP link.",
             "Authorization reaches only DEPLOYMENT_READY / RELEASE INHIBITED; no physical release path exists."
+            "Native visual capture is machine evidence bound to an exact PID/HWND; operator visual acceptance remains not claimed."
         )
     }
 

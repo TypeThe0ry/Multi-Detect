@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v60：定位证据进入原生 QGC 的签名 HIL 传输子门通过 |
+| 当前工程迭代 | v61：同一原生 QGC PID/HWND 的定位卡片与地图机器捕获子门通过 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -138,21 +138,26 @@ HIL/REAL、实飞或最终 `v0.3.0` 发布通过。
 轻量证据必须按 [仓库更新规范](docs/development-update-policy.md) 单独评审，原始视频、模型与大型
 帧集应使用外部制品存储或 Git LFS，而不是无意塞入源码历史。
 
-### v60 原生 QGC 定位状态传输验收
+### v61 原生 QGC 定位卡片与地图机器捕获
 
-已有 v59 evidence 时，可将其中最后一帧的融合测距、WGS-84 坐标和 1σ 不确定性通过现有签名
-operator link 送入当前原生 EXE：
+已有当前 parity 的 schema-v2 evidence 时，可将其中最后一帧的融合测距、WGS-84 坐标和 1σ
+不确定性通过现有签名 operator link 送入当前原生 EXE，并选择抓取同一 acceptance PID/HWND：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\run_px4_sitl_qgc_operator_acceptance.ps1 `
   -TargetGeolocationEvidencePath `
-    .\artifacts\evaluation\terminal-continuation-v59\gazebo-high-slope-geolocation-evaluation-v59-pre8-v1.json
+    .\artifacts\evaluation\terminal-continuation-v61\gazebo-high-slope-geolocation-evaluation-v61-pre8-v2.json `
+  -CaptureNativeVisualEvidence `
+  -NativeVisualEvidenceDirectory `
+    .\artifacts\evaluation\terminal-continuation-v61\native-visual-manual-review
 ```
 
-脚本只接受 schema v2 且 `gate_passed=true`、display-only 的定位证据，并要求 QGC 分别认证
-`RANGE_STATUS` type 10 与 `TARGET_GEOLOCATION_STATUS` type 22。该机器门证明协议/原生状态采纳，
-仍不替代操作者对地图点、1σ 圆和证据卡片的人工视觉签字。
+脚本只接受 schema v2、`gate_passed=true`、display-only 且与当前 `release-parity.json` 完全匹配的
+定位证据。截图模式会持续刷新 type 10/22、附着 acceptance 已启动的 exact PID、取得物理 client rect、
+排除外部遮挡并保存 PNG/observation。v61 机器图已显示完整坐标、1σ、类别、距离、方位、更新时间、
+复制/快照/记录按钮和只读边界；它仍是机器证据，`operator_visual_acceptance=not_claimed`，需人工签字后
+才能关闭人工视觉门。
 
 ### MultiDetectGCS
 

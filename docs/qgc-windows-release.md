@@ -2455,3 +2455,16 @@ build/windows-v0.3.0-pre.7-release/portable-v0.3.0-pre.7/bin/MultiDetectReplayRt
 `operator_visual_acceptance=not_claimed`，不把机器截图冒充人工视觉验收。授权捕获位于
 `build/qgc-native-style-cu-authorized-20260826/`，SHA-256 为
 `32C6461104D01200DF89F35B45C7CE87E58814E0E3273BA2B8596AB62CDD1263`。
+
+### v61 定位状态 exact-PID 动态机器捕获
+
+`run_px4_sitl_qgc_operator_acceptance.ps1 -CaptureNativeVisualEvidence` 会先启动唯一原生 QGC，完成签名
+选择/授权，再把 current-parity 定位 evidence 的 type 10/22 按 5 Hz 刷新 12 秒。捕获脚本通过
+`-ExistingProcessId` 附着该 acceptance PID，窗口至少扩展到 `1600x900` 后抓取 exact client rect；
+附着模式不关闭目标进程，QGC 在 8 秒验收延时后自行受控退出。
+
+本机最终 portable EXE 为 46,576,640 bytes，SHA-256
+`62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`。v61 PNG 位于本地忽略目录
+`artifacts/evaluation/terminal-continuation-v61/native-visual-v8/qgc-native-style.png`，SHA-256
+`86D279AA8260B4AC6AA708203F5DC8499D485B30C72DA18F1EEA59BF745755D3`。它证明同一 PID/HWND 上的
+动态机器可见状态，仍保留 `computer_use_tool_exposed=false`、`operator_visual_acceptance=not_claimed`。

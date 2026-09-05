@@ -6,8 +6,14 @@ param(
     [int]$SettleMilliseconds = 3500,
     [ValidateRange(-1, 16)]
     [int]$PreferMonitorIndex = -1,
+    [ValidateRange(1024, 7680)]
+    [int]$CaptureWidth = 1600,
+    [ValidateRange(640, 4320)]
+    [int]$CaptureHeight = 900,
     [switch]$UseSoftwareOpenGL,
     [switch]$KeepProcess,
+    [ValidateRange(0, 2147483647)]
+    [int]$ExistingProcessId = 0,
     # Some system windows (notably Task Manager) ignore SW_MINIMIZE while
     # staying above the capture surface.  This opt-in fallback hides only
     # those stubborn occluders and restores their placement in finally.
@@ -29,7 +35,9 @@ function Resolve-ExistingFile {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $ExecutablePath) {
+$attachedProcess = $ExistingProcessId -gt 0
+$attachedQgcProcess = $null
+if (-not $attachedProcess -and -not $ExecutablePath) {
     $candidate = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'build') -Directory -Filter 'windows-v*-release' |
         Sort-Object LastWriteTime -Descending |
         ForEach-Object {
@@ -43,9 +51,21 @@ if (-not $ExecutablePath) {
         Select-Object -First 1
     $ExecutablePath = $candidate
 }
-$ExecutablePath = Resolve-ExistingFile $ExecutablePath
-if (-not $ExecutablePath) {
-    throw 'MultiDetectGCS.exe was not found. Pass -ExecutablePath <portable>\bin\MultiDetectGCS.exe.'
+if ($attachedProcess) {
+    $attachedQgcProcess = Get-Process -Id $ExistingProcessId -ErrorAction Stop
+    if ($attachedQgcProcess.ProcessName -cne 'MultiDetectGCS') {
+        throw "Existing process $ExistingProcessId is '$($attachedQgcProcess.ProcessName)', not MultiDetectGCS."
+    }
+    $ExecutablePath = Resolve-ExistingFile $attachedQgcProcess.Path
+    if (-not $ExecutablePath) {
+        throw "Unable to resolve the executable path for MultiDetectGCS process $ExistingProcessId."
+    }
+}
+else {
+    $ExecutablePath = Resolve-ExistingFile $ExecutablePath
+    if (-not $ExecutablePath) {
+        throw 'MultiDetectGCS.exe was not found. Pass -ExecutablePath <portable>\bin\MultiDetectGCS.exe.'
+    }
 }
 
 if (-not $OutputDirectory) {
@@ -233,7 +253,7 @@ $observationPath = Join-Path $OutputDirectory 'process-observation.json'
 $arguments = @('--offline', '--allow-multiple', '--log-output')
 if ($UseSoftwareOpenGL) { $arguments += '--swrast' }
 
-$process = $null
+$process = $attachedQgcProcess
 $qgcHandle = [IntPtr]::Zero
 $originalPlacement = $null
 $originalTopmost = $false
@@ -245,12 +265,15 @@ $occludersBefore = @()
 $occludersAfter = @()
 $captureSucceeded = $false
 $qgcTitle = $null
+$monitorPlacement = $null
 $previousForeground = [IntPtr]::Zero
 $startedAt = [DateTime]::UtcNow
 
 try {
-    $process = Start-Process -FilePath $ExecutablePath -ArgumentList $arguments -WorkingDirectory (Split-Path -Parent $ExecutablePath) `
-        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    if (-not $attachedProcess) {
+        $process = Start-Process -FilePath $ExecutablePath -ArgumentList $arguments -WorkingDirectory (Split-Path -Parent $ExecutablePath) `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    }
     $qgcHandle = Wait-QgcWindow -Process $process
     $qgcTitle = Get-WindowTitle $qgcHandle
     Start-Sleep -Milliseconds $SettleMilliseconds
@@ -277,8 +300,10 @@ try {
     if (-not [MultiDetectNativeStyle.Native]::GetWindowRect($qgcHandle, [ref]$windowRect)) {
         throw 'GetWindowRect failed before monitor selection.'
     }
+    $requestedWindowWidth = [Math]::Max(($windowRect.Right - $windowRect.Left), $CaptureWidth)
+    $requestedWindowHeight = [Math]::Max(($windowRect.Bottom - $windowRect.Top), $CaptureHeight)
     $monitorPlacement = Get-MonitorPlacement -QgcHandle $qgcHandle -QgcPid ([uint32]$process.Id) `
-        -WindowWidth ($windowRect.Right - $windowRect.Left) -WindowHeight ($windowRect.Bottom - $windowRect.Top)
+        -WindowWidth $requestedWindowWidth -WindowHeight $requestedWindowHeight
     $null = [MultiDetectNativeStyle.Native]::SetWindowPos(
         $qgcHandle, [IntPtr](-1), $monitorPlacement.Left, $monitorPlacement.Top,
         $monitorPlacement.Width, $monitorPlacement.Height, [uint32](0x0040)
@@ -310,14 +335,15 @@ try {
             $saved = $occluderPlacements | Where-Object { $_.Handle -eq $remaining.Handle } | Select-Object -First 1
             if ($saved) {
                 $null = [MultiDetectNativeStyle.Native]::ShowWindowAsync($remaining.Handle, 0) # SW_HIDE
-                if (-not [MultiDetectNativeStyle.Native]::IsWindowVisible($remaining.Handle)) {
-                    $saved.Hidden = $true
-                    $hiddenOccluders += [pscustomobject]@{
-                        Handle = $remaining.Handle
-                        ProcessId = [uint32]$remaining.ProcessId
-                        Title = $remaining.Title
-                        ClassName = $remaining.ClassName
-                    }
+                # ShowWindowAsync is genuinely asynchronous. Mark the saved
+                # placement for restoration immediately, then verify the
+                # resulting visibility only after the bounded wait below.
+                $saved.Hidden = $true
+                $hiddenOccluders += [pscustomobject]@{
+                    Handle = $remaining.Handle
+                    ProcessId = [uint32]$remaining.ProcessId
+                    Title = $remaining.Title
+                    ClassName = $remaining.ClassName
                 }
             }
         }
@@ -370,7 +396,7 @@ finally {
         $previousForeground -ne $qgcHandle) {
         $null = [MultiDetectNativeStyle.Native]::SetForegroundWindow($previousForeground)
     }
-    if ($process -and -not $KeepProcess -and -not $process.HasExited) {
+    if ($process -and -not $attachedProcess -and -not $KeepProcess -and -not $process.HasExited) {
         $process.CloseMainWindow()
         if (-not $process.WaitForExit(4000)) { $process.Kill() }
     }
@@ -389,6 +415,10 @@ $observation = [ordered]@{
     started_at_utc = $startedAt.ToString('o')
     finished_at_utc = $endedAt.ToString('o')
     executable = $ExecutablePath
+    attached_existing_process = [bool]$attachedProcess
+    requested_existing_process_id = if ($attachedProcess) { $ExistingProcessId } else { $null }
+    requested_capture_width = $CaptureWidth
+    requested_capture_height = $CaptureHeight
     qgc_pid = if ($process) { $process.Id } else { $null }
     qgc_window_title = $qgcTitle
     exact_client_rect_screen = if ($captureRect) { Convert-Rect $captureRect } else { $null }

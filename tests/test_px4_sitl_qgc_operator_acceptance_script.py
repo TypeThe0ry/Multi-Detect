@@ -162,8 +162,31 @@ def test_acceptance_can_bind_passed_geolocation_evidence_into_native_qgc() -> No
     assert "TARGETGEOLOCATIONEVIDENCEPATH" in upper
     assert '"--TARGET-GEOLOCATION-EVIDENCE"' in upper
     assert '"--EXPECTED-RELEASE-LABEL", $RELEASELABEL' in upper
+    assert '"--EXPECTED-RELEASE-PARITY", $RELEASEPARITYPATH' in upper
     assert "RANGE_STATUS_SENT -EQ $TRUE" in upper
     assert "TARGET_GEOLOCATION_STATUS_SENT -EQ $TRUE" in upper
     assert '"AUTHENTICATED METADATA TYPE=10 "' in upper
     assert '"AUTHENTICATED METADATA TYPE=22 "' in upper
     assert "MINIMUMAUTHENTICATEDMETADATAPACKETS = 39" in upper
+
+
+def test_acceptance_can_capture_the_same_native_qgc_pid_without_claiming_human_acceptance() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    upper = text.upper()
+
+    assert "CAPTURENATIVEVISUALEVIDENCE" in upper
+    assert '"--POST-AUTHORIZATION-HOLD-SECONDS", "12"' in upper
+    assert '"-EXISTINGPROCESSID", "$($QGCPROCESS.ID)"' in upper
+    assert '"-SETTLEMILLISECONDS", "1500"' in upper
+    assert "ATTACHED_EXISTING_PROCESS -EQ $TRUE" in upper
+    assert "QGC_PID -EQ $QGCPROCESS.ID" in upper
+    assert "SINGLE_NATIVE_SURFACE_MACHINE_CHECK -EQ $TRUE" in upper
+    assert 'OPERATOR_VISUAL_ACCEPTANCE -EQ "NOT_CLAIMED"' in upper
+    assert "NATIVE_VISUAL_MACHINE_CAPTURE = $NATIVEVISUALOBSERVATION" in upper
+    assert 'IF (-NOT $CAPTURENATIVEVISUALEVIDENCE)' in upper
+    assert '$QGCSTART.WINDOWSTYLE = "HIDDEN"' in upper
+    assert (
+        'MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS = '
+        'IF ($CAPTURENATIVEVISUALEVIDENCE) { "8000" } ELSE { "0" }'
+        in upper
+    )

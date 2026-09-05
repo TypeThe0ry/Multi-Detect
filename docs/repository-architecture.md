@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v61 同一原生 QGC PID/HWND 的定位机器捕获（2026-09-05，`v0.3.0-pre.8`）
+
+```text
+current-parity Gazebo geolocation evidence
+  -> strict release-label + five-group parity comparison
+  -> signed type 10/type 22 refresh during bounded capture hold
+  -> pinned PX4 SIH + read-only router + native MultiDetectGCS
+  -> exact existing QGC PID -> owner HWND -> physical client rect
+  -> >=1600x900 native resize -> external-occluder isolation/restore
+  -> PNG + process observation + HIL acceptance JSON
+```
+
+`operator_closed_loop_hil.py`、`run_px4_sitl_qgc_operator_acceptance.ps1` 和
+`capture_qgc_native_style.ps1` 形成一条机器证据链；截图脚本不再另开一个脱离状态的空白 QGC。
+QML 的 isolated-HIL 自动退出可在 `0..15000 ms` 内延时，截图模式使用 8 秒并最终走同一受控退出。
+该路径只允许 `MultiDetectGCS` 精确进程名，附着模式不拥有进程退出，所有被移动/最小化/临时隐藏的
+窗口都在 `finally` 恢复。机器截图绝不提升 `operator_visual_acceptance`，也不接触 PX4 写入或物理载荷。
+
 ## v60 定位证据到原生 QGC 状态链（2026-09-05，`v0.3.0-pre.8`）
 
 v60 不修改 QML/C++ 或另造 UI，而是在既有 isolated-HIL acceptance 上补齐实际定位消息：

@@ -22,9 +22,15 @@ def test_native_style_capture_script_is_present_and_exact_client_bound() -> None
         "single_native_surface_machine_check",
         "ComputerUseOperatorAuthorized",
         "HideStubbornOccluders",
+        "ExistingProcessId",
+        "CaptureWidth = 1600",
+        "CaptureHeight = 900",
+        "$requestedWindowWidth = [Math]::Max",
+        "attached_existing_process = [bool]$attachedProcess",
+        "ProcessName -cne 'MultiDetectGCS'",
         "hidden_occluder_count",
         "SW_HIDE",
-        "IsWindowVisible($remaining.Handle)",
+        "ShowWindowAsync($remaining.Handle, 0)",
         "computer_use_operator_authorized = [bool]$ComputerUseOperatorAuthorized",
         "operator_visual_acceptance = 'not_claimed'",
         "qml_rendering_proved = $false",
@@ -36,10 +42,12 @@ def test_native_style_capture_script_is_present_and_exact_client_bound() -> None
 def test_native_style_capture_restores_every_window_state_and_owns_process_exit() -> None:
     source = _read()
     assert "finally {" in source
+    assert "$monitorPlacement = $null" in source
     assert "SetWindowPlacement($saved.Handle" in source
     assert "ShowWindowAsync($saved.Handle, $showCommand)" in source
     assert "SetWindowPlacement($qgcHandle" in source
     assert "CloseMainWindow()" in source
     assert "process.Kill()" in source
+    assert "-not $attachedProcess -and -not $KeepProcess" in source
     assert "Remove-Item" not in source
     assert "Stop-Process -Name" not in source

@@ -255,6 +255,17 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     const bool hilUiAutoExit = hilUiAutoExercise &&
                                runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_UI_AUTO_EXIT");
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiAutoExit"), hilUiAutoExit);
+    int hilUiAutoExitDelayMs = 0;
+    if (hilUiAutoExit) {
+        bool delayValid = false;
+        const int configuredDelayMs =
+            runtimeEnvironmentValue("MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS").toInt(&delayValid);
+        if (delayValid && configuredDelayMs >= 0 && configuredDelayMs <= 15000) {
+            hilUiAutoExitDelayMs = configuredDelayMs;
+        }
+    }
+    _qmlEngine->rootContext()->setContextProperty(
+        QStringLiteral("multiDetectHilUiAutoExitDelayMs"), hilUiAutoExitDelayMs);
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectHilUiExitController"),
                                                    qobject_cast<QGCApplication*>(QCoreApplication::instance()));
     // Native toolbar acceptance may export the actual QML scene geometry used

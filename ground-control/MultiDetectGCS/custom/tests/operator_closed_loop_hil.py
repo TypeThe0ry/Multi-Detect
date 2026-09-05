@@ -104,12 +104,27 @@ def _parser() -> argparse.ArgumentParser:
         default="",
         help="required release label when target-geolocation evidence is supplied",
     )
+    parser.add_argument(
+        "--expected-release-parity",
+        default="",
+        help="canonical release-parity JSON that the supplied geolocation evidence must match",
+    )
+    parser.add_argument(
+        "--post-authorization-hold-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "bounded time to refresh evidence-derived range/geolocation after authorization "
+            "for an exact-window machine capture"
+        ),
+    )
     return parser
 
 
 def _load_target_geolocation_evidence(
     path_text: str,
     expected_release_label: str = "",
+    expected_release_parity_path: str = "",
 ) -> dict[str, object] | None:
     if not path_text:
         return None
@@ -182,6 +197,28 @@ def _load_target_geolocation_evidence(
         raise HilFailure("target geolocation evidence identity is incomplete")
     if expected_release_label and release_label != expected_release_label:
         raise HilFailure("target geolocation evidence release label does not match the QGC build")
+    expected_parity_identity: dict[str, object] | None = None
+    if expected_release_parity_path:
+        parity_path = Path(expected_release_parity_path).resolve()
+        parity_raw = parity_path.read_bytes()
+        try:
+            parity_document = json.loads(parity_raw)
+        except json.JSONDecodeError as error:
+            raise HilFailure(f"expected release parity is not valid JSON: {error}") from error
+        expected_parity = parity_document.get("parity")
+        evidence_parity = release.get("parity")
+        if (
+            parity_document.get("schema_version") != 1
+            or parity_document.get("release_label") != release_label
+            or not isinstance(expected_parity, dict)
+            or evidence_parity != expected_parity
+        ):
+            raise HilFailure("target geolocation evidence does not match canonical release parity")
+        expected_parity_identity = {
+            "file_path": str(parity_path),
+            "file_sha256": hashlib.sha256(parity_raw).hexdigest(),
+            "parity": expected_parity,
+        }
     for field in ("evidence_sha256", "deterministic_result_sha256"):
         digest = evidence.get(field)
         if (
@@ -208,6 +245,7 @@ def _load_target_geolocation_evidence(
         "label": str(detections[0].get("label", "target")),
         "predicted": predicted,
         "range_solution": ranging,
+        "expected_release_parity": expected_parity_identity,
     }
 
 
@@ -222,6 +260,75 @@ def _signed_serializer(key: bytes, *, system_id: int, component_id: int) -> mavl
     serializer.signing.timestamp = _signing_timestamp()
     serializer.signing.sign_outgoing = True
     return serializer
+
+
+def _geolocation_status_payloads(
+    codec: OperatorTunnelCodec,
+    evidence: dict[str, object],
+    *,
+    target_id: str,
+    source_frame_id: str,
+    source_captured_at_s: float,
+    range_sequence: int,
+    geolocation_sequence: int,
+) -> tuple[bytes, bytes]:
+    predicted = cast("dict[str, object]", evidence["predicted"])
+    ranging = cast("dict[str, object]", evidence["range_solution"])
+    produced_at_s = source_captured_at_s + 0.01
+    range_status = RangeStatusMessage(
+        status_id="77777777-7777-4777-8777-777777777777",
+        sequence=range_sequence,
+        target_id=target_id,
+        calibration_id="gazebo-geolocation-evidence",
+        source_frame_id=source_frame_id,
+        source_captured_at_s=source_captured_at_s,
+        produced_at_s=produced_at_s,
+        validity=RangeValidity(str(ranging["validity"])),
+        reasons=tuple(str(value) for value in cast("list[object]", ranging["reasons"])),
+        sources=tuple(str(value) for value in cast("list[object]", ranging["sources"])),
+        rejected_sources=tuple(
+            str(value) for value in cast("list[object]", ranging["rejected_sources"])
+        ),
+        slant_range_m=float(ranging["slant_range_m"]),
+        ground_range_m=float(ranging["ground_range_m"]),
+        slant_range_ci95_m=tuple(
+            float(value) for value in cast("list[object]", ranging["slant_range_ci95_m"])
+        ),
+        ground_range_ci95_m=tuple(
+            float(value) for value in cast("list[object]", ranging["ground_range_ci95_m"])
+        ),
+        relative_bearing_deg=float(ranging["relative_bearing_deg"]),
+        absolute_bearing_deg=float(ranging["absolute_bearing_deg"]),
+        bearing_sigma_deg=float(ranging["bearing_sigma_deg"]),
+        north_offset_m=float(ranging["north_offset_m"]),
+        east_offset_m=float(ranging["east_offset_m"]),
+        data_freshness_s=float(ranging["data_freshness_s"]),
+        sensor_consistency=float(ranging["sensor_consistency"]),
+        fusion_profile=str(ranging["fusion_profile"]),
+        vehicle_profile=str(ranging["vehicle_profile"]),
+        navigation_state=str(ranging["navigation_state"]),
+        motion_regime=(
+            "static"
+            if str(ranging["motion_regime"]) == "stationary"
+            else str(ranging["motion_regime"])
+        ),
+    )
+    geolocation_status = TargetGeolocationStatusMessage(
+        sequence=geolocation_sequence,
+        target_id=target_id,
+        source_frame_id=source_frame_id,
+        source_captured_at_s=source_captured_at_s,
+        produced_at_s=produced_at_s,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=float(predicted["latitude_deg"]),
+        longitude_deg=float(predicted["longitude_deg"]),
+        horizontal_sigma_m=float(predicted["horizontal_sigma_m"]),
+    )
+    return (
+        codec.encode_range_status(range_status),
+        codec.encode_target_geolocation_status(geolocation_status),
+    )
 
 
 def _status_payloads(
@@ -472,6 +579,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise HilFailure("HIL UDP port must be in 1024..65535")
     if not 0 <= args.local_port <= 65535:
         raise HilFailure("local operator UDP port must be in 0..65535")
+    if not 0.0 <= args.post_authorization_hold_seconds <= 30.0:
+        raise HilFailure("post-authorization hold must be in 0..30 seconds")
+    if args.post_authorization_hold_seconds and not args.target_geolocation_evidence:
+        raise HilFailure("post-authorization hold requires target geolocation evidence")
     key_text = os.environ.get(args.key_env, "")
     key = key_text.encode("utf-8")
     if len(key) < 32:
@@ -487,6 +598,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     target_geolocation_evidence = _load_target_geolocation_evidence(
         args.target_geolocation_evidence,
         args.expected_release_label,
+        args.expected_release_parity,
     )
     geometry = VideoGeometry(args.stream_id, args.width, args.height, args.rotation)
     codec = OperatorTunnelCodec(hmac_key=key, geometries=(geometry,))
@@ -534,6 +646,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     autopilot_heartbeats_sent = 0
     jetson_component_heartbeats_sent = 0
     udp_connection_resets = 0
+    geolocation_refresh_count = 0
 
     try:
         while time.monotonic() < deadline:
@@ -650,6 +763,24 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     ),
                     destination,
                 )
+                hold_deadline = time.monotonic() + args.post_authorization_hold_seconds
+                while time.monotonic() < hold_deadline:
+                    geolocation_refresh_count += 1
+                    source_captured_at_s = time.time()
+                    for status_payload in _geolocation_status_payloads(
+                        codec,
+                        cast("dict[str, object]", target_geolocation_evidence),
+                        target_id="hil-geolocated-target",
+                        source_frame_id=f"hil-geolocation-hold-{geolocation_refresh_count}",
+                        source_captured_at_s=source_captured_at_s,
+                        range_sequence=210 + geolocation_refresh_count,
+                        geolocation_sequence=211 + geolocation_refresh_count,
+                    ):
+                        channel.sendto(
+                            adapter.wrap_authenticated_operator_payload(status_payload),
+                            destination,
+                        )
+                    time.sleep(0.2)
                 time.sleep(0.5)
                 return {
                     "authorization": "APPROVE",
@@ -672,6 +803,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     "range_status_sent": target_geolocation_evidence is not None,
                     "target_geolocation_status_sent": target_geolocation_evidence is not None,
                     "target_geolocation_evidence": target_geolocation_evidence,
+                    "post_authorization_hold_seconds": args.post_authorization_hold_seconds,
+                    "geolocation_refresh_count": geolocation_refresh_count,
                     "udp_connection_resets": udp_connection_resets,
                     "external_autopilot_required": args.metadata_only,
                     "real_v6x_contacted": False,

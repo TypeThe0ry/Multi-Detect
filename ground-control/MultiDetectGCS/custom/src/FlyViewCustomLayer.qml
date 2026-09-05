@@ -22,6 +22,8 @@ Item {
                                                multiDetectHilUiAutoExercise === true
     readonly property bool _hilUiAutoExit: (typeof multiDetectHilUiAutoExit !== "undefined") &&
                                            multiDetectHilUiAutoExit === true
+    readonly property int _hilUiAutoExitDelayMs:
+        typeof multiDetectHilUiAutoExitDelayMs !== "undefined" ? multiDetectHilUiAutoExitDelayMs : 0
     property int _hilUiAutoExerciseStage: 0
     property var mapControl
     property var parentToolInsets
@@ -501,16 +503,30 @@ Item {
                 if (MultiDetectState.approveAuthorization()) {
                     root._hilUiAutoExerciseStage = 3;
                     console.log("MultiDetect HIL UI auto exercise stage=3");
-                    if (root._hilUiAutoExit)
-                        Qt.callLater(function() {
-                            if (typeof multiDetectHilUiExitController !== "undefined" &&
-                                    multiDetectHilUiExitController !== null) {
-                                multiDetectHilUiExitController.quitForIsolatedHilAcceptance();
-                            }
-                        });
+                    if (root._hilUiAutoExit) {
+                        if (root._hilUiAutoExitDelayMs > 0)
+                            hilUiAutoExitTimer.start();
+                        else
+                            Qt.callLater(root._quitForIsolatedHilAcceptance);
+                    }
                 }
             }
         }
+    }
+
+    function _quitForIsolatedHilAcceptance() {
+        if (typeof multiDetectHilUiExitController !== "undefined" &&
+                multiDetectHilUiExitController !== null) {
+            multiDetectHilUiExitController.quitForIsolatedHilAcceptance();
+        }
+    }
+
+    Timer {
+        id: hilUiAutoExitTimer
+
+        interval: Math.max(1, root._hilUiAutoExitDelayMs)
+        repeat: false
+        onTriggered: root._quitForIsolatedHilAcceptance()
     }
 
     Timer {
