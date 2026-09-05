@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## 原始安装测量单一真源（v73）
+
+- [x] 固定 mount-survey CSV v1 列顺序和数值解析边界；
+- [x] 生成器与 verifier 只从 hash-bound CSV 取得统计样本；
+- [x] API 显式 samples 与 CSV 不一致时 fail-closed，CLI 移除分离输入；
+- [ ] 现场按模板采集真实最终安装状态数据并由第二人复核。
+
 ## 物理相机安装外参与 lever-arm 证据门（v72）
 
 - [x] 定义至少 5 次 FRD 重复测量、设备精度、独立 surveyor/reviewer 和物理声明；

@@ -1,5 +1,16 @@
 # 统一仓库架构
 
+## v73 mount-survey CSV 单一数据源（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+raw-measurements.csv（固定 v1 header，hash-bound）
+  -> strict CSV parser -> canonical samples -> statistics/checks
+  -> serialized report
+  -> independent verifier reopens same CSV -> exact sample comparison + recompute
+```
+
+CLI 不再接受第二套 `--sample` 数字；Python API 兼容显式 samples 仅用于验证一致性，任何差异都会关闭门。
+
 ## v72 物理安装测量合同（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v72：新增物理相机安装外参与 GNSS→相机 lever-arm 测量合同，并作为 field evidence 第七个强制层；真实测量尚待现场执行 |
+| 当前工程迭代 | v73：原始 mount-survey CSV 成为唯一统计数据源，消除 hash 文件与手输样本分离；真实测量尚待现场执行 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,13 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v73 原始测量 CSV 单一真源
+
+camera-mount survey 不再由独立 `--sample` 参数计算。原始 CSV 必须使用固定 v1 表头，生成器与独立
+verifier 都直接从该 hash-bound 文件解析每一行并重算统计；API 调用如同时传入 samples，必须与 CSV
+逐字段完全一致，否则 `samples_match_raw_measurements=false` 并关闭门。由此避免“证据绑定文件 A、实际
+计算使用参数 B”。测试 CSV 仍只验证合同，不代表真实飞机测量。
 
 ### v72 物理相机安装测量证据门
 

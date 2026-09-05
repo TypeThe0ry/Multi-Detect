@@ -14,8 +14,14 @@ python .\scripts\camera_mount_survey.py verify `
   --expected-release-label 0.3.0-pre.8 --require-gate-passed
 ```
 
-`create` 强制提供设备证书、camera calibration、原始测量文件、每一组 `--sample` 以及六个
-`--attest-*` 开关。报告通过只表示测量证据内部一致；仍保持 `hardware_acceptance=not_claimed`、
+原始测量文件是唯一统计数据源，必须使用以下固定 CSV v1 表头并至少填写 5 行：
+
+```csv
+sample_id,pitch_down_deg,yaw_right_deg,roll_clockwise_deg,offset_forward_m,offset_right_m,offset_down_m
+```
+
+`create` 强制提供设备证书、camera calibration、上述原始测量 CSV 以及六个 `--attest-*` 开关；
+不再另行手输 `--sample`。报告通过只表示测量证据内部一致；仍保持 `hardware_acceptance=not_claimed`、
 `release_eligible=false`。随后运行 field bundle 时必须再传入
 `--camera-mount-survey <report.json>`，否则第七层和总门保持关闭。
 

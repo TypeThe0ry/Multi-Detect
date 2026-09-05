@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v73 raw mount-survey CSV single source（2026-09-06）
+
+- 将 hash-bound 原始 CSV 设为 camera-mount survey 唯一统计数据源，固定列顺序并严格解析有限数值；
+  CLI 删除会与原始文件分离的 `--sample` 输入。
+- 独立 verifier 重新解析同一 CSV 并逐字段比较序列化 samples；API 若显式传入不同样本，报告以
+  `samples_match_raw_measurements=false` fail-closed。
+- 更新 shared task parity、现场 runbook 和回归；该改动只增强 provenance，不产生真实硬件声明。
+
 ### v0.3.0-pre.8 v72 physical camera-mount survey gate（2026-09-06）
 
 - 新增 `camera_mount_survey.py`、CLI、严格 JSON Schema 与独立 verifier：重复测量、设备校准证书、
