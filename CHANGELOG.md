@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v162 native localization diagnostics popup（2026-09-07）
+
+- Fly View 新增“查看定位诊断”原生弹窗，在打开时冻结当前 fail-closed JSON，并以中文展示失败原因、
+  原子身份、测距/GNSS 质量、源年龄与接收年龄；
+- 坐标区域只读取 `coordinates_included`，失败诊断明确省略经纬度和 1σ；复制/保存仍使用同一严格
+  schema，功能保持 advisory-only、飞控关闭、物理释放关闭；
+- Release/portable EXE 为 46,704,640 bytes，SHA-256
+  `ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`；offscreen simple boot
+  退出 0 且 stdout/stderr 均为空；
+- parity、外部三机型证据与 E7 已重算。E7 仍为 `false / false / 31 blockers`；现场网卡仍不在机载
+  `192.168.144.0/24` 网段，人工视觉、室外 GNSS、HIL/REAL、硬件和实飞没有升级。
+- 最终全量回归为 `3660 passed, 2 skipped, 0 failed`，耗时 272.67 秒；JUnit SHA-256
+  `0D16ED23B6849934FAF176BD6039BFAACAE94B0D11A3066EA1968F1015C41C56`。
+
 ### v0.3.0-pre.8 v161 fail-closed target-observation diagnostics（2026-09-07）
 
 - 新增 `MultiDetectTargetObservationDiagnostics` 与 Fly View“复制定位诊断 / 保存定位诊断”，统一导出

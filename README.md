@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v161：fail-closed 目标定位诊断快照与原子 JSON 保存 |
+| 当前工程迭代 | v162：原生目标定位诊断弹窗与中文失败原因 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,19 +82,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v161 fail-closed 目标定位诊断快照
+### v162 原生目标定位诊断弹窗
 
-Fly View 的“目标落图”卡片新增“复制定位诊断”和“保存定位诊断”。导出的
-`multidetect.target-observation-diagnostics.v1` 同时记录 range、target geolocation、GNSS、producer
-epoch、原子 envelope 身份与本地接收年龄。只有三路同 epoch/sequence/`sentAtMs`、同目标/源帧、
-GNSS/测距合格且源/本地年龄不超过 1500 ms 时，诊断才标记 `locatable=true` 并写入经纬度与 1σ；
-任何门失败仍允许保存原因，但强制 `coordinates_included=false`，并从 JSON 中删除经纬度与 1σ。
+Fly View 的“目标落图”卡片新增“查看定位诊断”。弹窗在打开瞬间冻结一份
+`multidetect.target-observation-diagnostics.v1`，用中文显示 fail-closed 原因、原子
+epoch/sequence/发送时间、目标/源帧、测距质量与年龄、GNSS fix/卫星/精度与年龄。定位门未全部通过时，
+界面明确显示“不可定位 · 坐标已强制省略”；只有诊断快照声明 `coordinates_included=true` 才显示
+经纬度与 1σ。弹窗仍提供复制/原子保存 JSON，不产生飞控或物理释放权限。
 
-v161 Release/portable EXE 为 46,702,592 bytes，SHA-256
-`729BEDA95DD42E70538D854181113BD09D2414EED4D787AAA11529D1F55C05A0`；六项原生 self-test 和
-portable offscreen simple boot 已通过。该功能固定为 advisory-only，不产生飞控或物理释放权限；现场网卡
-仍为 `192.168.1.13/24`，不在机载 `192.168.144.0/24` 网段，E7 仍为
-`gate_passed=false / release_allowed=false / 31 blockers`。
+v162 Release/portable EXE 为 46,704,640 bytes，SHA-256
+`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`；portable offscreen simple
+boot 退出 0 且 stdout/stderr 均为空。现场网卡仍为 `192.168.1.13/24`，不在机载
+`192.168.144.0/24` 网段，E7 仍为 `gate_passed=false / release_allowed=false / 31 blockers`。
 
 ### v152 独立 GNSS 质量状态
 

@@ -1,5 +1,21 @@
 # 统一仓库架构
 
+## v162 原生目标定位诊断弹窗（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+MultiDetectTargetObservationDiagnostics JSON
+  -> dialog Component.onCompleted: JSON.parse once
+  -> frozen snapshot
+       readiness/reasons -> Chinese field diagnosis
+       atomic identity -> epoch / sequence / sentAt
+       range + GNSS -> quality / source age / receive age
+       coordinates_included=false -> never render coordinates
+  -> copy/save the authoritative JSON
+```
+
+弹窗直接位于原生 `FlyViewCustomLayer.qml`，沿用 QGC palette、controls 和 popup factory；没有独立窗口、
+Web UI 或第二套状态源。坐标显示只依赖 C++ 诊断层输出的 `coordinates_included`，QML 不自行放宽定位门。
+
 ## v161 fail-closed 目标定位诊断链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

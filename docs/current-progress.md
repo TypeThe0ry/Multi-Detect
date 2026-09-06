@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v161 工作树）
+最后更新：2026-09-07（v162 工作树）
+
+## v162 本轮已收口
+
+- Fly View 新增“目标定位诊断 · 只读”原生弹窗；打开时冻结当前诊断 JSON，避免阅读期间由实时状态变化
+  拼出混合快照。机器 reason code 映射为中文现场原因，并显示原子身份、目标/源帧、测距与 GNSS
+  质量、源年龄和本地接收年龄。
+- 坐标显示继续由诊断文档的 `coordinates_included` 单向控制；失败状态明确显示“不可定位 · 坐标已强制
+  省略”，不会从 QML 状态旁路恢复经纬度。弹窗可复制或原子保存同一 schema JSON，保持 advisory-only。
+- Release/portable EXE 字节一致：46,704,640 bytes，SHA-256
+  `ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`；offscreen simple boot
+  退出 0，stdout/stderr 均为 0 bytes，无 QML 初始化错误。
+- v162 parity 为 9,177 bytes、SHA-256
+  `4EEFE598F7BEDCA631A0583DC1AB5AB0494A9C2BB89FCD98043E3C76A52E6D6F`；UI contract 更新为
+  `C230725F927941B102AC3FEE6A24D7A2A6D1E1A00117A8B5B86ECA4AB4AE8829`，其余四组 hash 未变。
+- 外部三机型 join/revalidation、response matrix、6 正例/9 故障 campaign 与 E7 已按 v162 parity 重算。
+  只读现场探测仍为 `192.168.1.13/24`，Jetson/GR01/RTSP 超时，`hardware_link_ready=false`；E7
+  正确保留 `false / false / 31 blockers`，人工视觉、室外 GNSS、HIL/REAL、真实硬件和实飞均未通过。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 272.67 秒；JUnit
+  533,660 bytes、SHA-256 `0D16ED23B6849934FAF176BD6039BFAACAE94B0D11A3066EA1968F1015C41C56`。
 
 ## v161 本轮已收口
 

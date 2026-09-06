@@ -12,6 +12,16 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v162 原生目标定位诊断弹窗（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,704,640` bytes，SHA-256
+`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`。“查看定位诊断”在打开时冻结
+当前 JSON，以中文显示 fail-closed 原因、原子身份、目标/源帧、测距和 GNSS 质量与年龄。坐标区域只在
+`coordinates_included=true` 时显示经纬度与 1σ；失败时明确省略。弹窗可复制/保存 JSON，但不会发送
+飞控指令或启用物理释放。portable offscreen simple boot 退出 0，stdout/stderr 均为 0 bytes。
+最终全量回归为 `3660 passed, 2 skipped, 0 failed`，耗时 272.67 秒；JUnit SHA-256
+`0D16ED23B6849934FAF176BD6039BFAACAE94B0D11A3066EA1968F1015C41C56`。
+
 ### v161 fail-closed 目标定位诊断快照（2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,702,592` bytes，SHA-256
