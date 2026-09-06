@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Imported source-plan pre-network binding（v145）
+
+- [x] 现场 producer 支持 `-SourcePlan`，逐字导入到 session 并核对复制前后 SHA-256；
+- [x] source input 必须是 regular non-reparse file，PlanOnly/import 参数冲突在写 artifact 前拒绝；
+- [x] ready target handoff 与 CLI endpoint/hardware/CIDR/阈值/secret names/configuration digest 在 UDP 前对账；
+- [x] 参数 drift exit 1 且不产生 bench；原参数 positive match exit 0；
+- [ ] 在隔离飞机网段导入由独立开发机生成的同 commit plan，使用真实 target secrets 完成五源 session；
+- [ ] 对真实 session 包执行离线第二机复核并归档人工签字结果。
+
 ## Five-source GR01 final session（v144）
 
 - [x] session schema v3 distinct/hash-bind plan、handoff、bench、E7 manifest 与 E7 report；
@@ -8,7 +17,7 @@
 - [x] producer 在任何 UDP 前创建并严格验证 target handoff，final creator 显式接收 `--handoff`；
 - [x] relocated non-ready origin plan + ready target handoff 正例，以及 handoff tamper/config drift/five-source distinct 回归；
 - [ ] 在隔离飞机网段使用真实 target host ID/secrets 执行完整五源 session，并由独立机器复核；
-- [ ] 增加由开发机预生成 source plan 直接导入现场 producer 的安全入口与 pre-network 参数匹配检查。
+- [x] 增加由开发机预生成 source plan 直接导入现场 producer 的安全入口与 pre-network 参数匹配检查。
 
 ## Portable GR01 plan deployment handoff（v143）
 

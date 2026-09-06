@@ -1,5 +1,20 @@
 # v0.3.0 E7 发布门
 
+## v145 imported source-plan pre-network match（2026-09-06，`v0.3.0-pre.8`）
+
+开发机先用 `-PlanOnly` 生成 source plan，复制到现场机后可直接导入：
+
+```powershell
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 -ExpectedSourceCidr 192.168.144.0/24 `
+  -TargetHostId FIELD-GCS-01 -SourcePlan .\incoming\gr01-source-plan.json
+```
+
+producer 会把输入逐字复制到 session，校验前后 SHA-256，创建并严格复验 target handoff，然后执行 `match`。
+`match` 对账 source plan 与现场 CLI 的 endpoint、hardware ID、CIDR、阈值、secret names 和 configuration digest；成功后
+才允许进入 bench/UDP。当前 clean smoke 已证明端口漂移在无 bench 文件时 exit 1，原参数 match exit 0；未执行真实网络。
+
 ## v144 five-source GR01 session gate（2026-09-06，`v0.3.0-pre.8`）
 
 最终 `gr01-release-session.json` 已升级到 schema v3，必须同时绑定 plan、target handoff、hardware bench、E7 manifest

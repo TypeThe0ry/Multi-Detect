@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v144 工作树）
+最后更新：2026-09-06（v145 工作树）
+
+## v145 本轮已收口
+
+- `run_gr01_release_session.ps1` 新增 `-SourcePlan`，可把开发机预生成 plan 逐字复制到现场 session；输入必须为
+  regular non-reparse file，复制前后 SHA-256 必须一致，`-PlanOnly -SourcePlan` 冲突在创建 artifact 前拒绝；
+- handoff consumer 新增 `match` 门：先按 `--check-environment --require-ready` 严格复验目标 source/secrets，再将
+  source plan 的 endpoint、hardware ID、canonical CIDR、五项阈值、两个 secret 变量名和 configuration digest 与现场
+  CLI 参数逐项对账；该门固定在 GR01 bench/UDP 前，任何 drift 均 exit 1；
+- clean commit `e1a821ee7a7265979d63cfeb1dbce1da743029b4` 无网络导入 smoke：origin plan 3,059 bytes、
+  SHA-256 `02F4A3C4430ECB277B56B6889A12010A8B1E5E37EC1F29DABDE1B8016B5456A2`；target handoff
+  3,109 bytes、SHA-256 `1325C9F19DF0F5A51A2B20D4246A168648BD5B0D4ECFD0C3E6865EFE263ED116`；
+  故意把现场端口从 14580 改为 14581 时 wrapper exit 1，目录只有 plan/handoff、没有 bench；原参数 match exit 0；
+- safety parity 更新为 `64628035...517A6`；external join/revalidation、三机型 matrix、6 正例/9 故障 campaign 均重新
+  绑定并独立通过。E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,637 tests：`3635 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  287.622 秒；JUnit 530,041 bytes、SHA-256 `89F04B8656D485F942AAC9B0260C2712FEE8BB1255E401EC6A09A01957C6A7F8`。
+  smoke 使用临时占位 secret，仅验证软件门，不接触网络/硬件，不构成 GR01 验收。
 
 ## v144 本轮已收口
 

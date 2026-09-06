@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v144：GR01 final session 五源绑定 |
+| 当前工程迭代 | v145：GR01 source plan 安全导入 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,11 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132–v144 认证 ACK 实链源、计划与事务化 E7 绑定
+### v132–v145 认证 ACK 实链源、计划与事务化 E7 绑定
 
 ACK bench 已绑定 route/socket source/topology 与 GR01 选择/ACK；v137–v142 完成 E7、新鲜度、source-bound plan
-及可搬迁 handoff。v144 将 target handoff 加入 final session v3，按 plan→handoff→bench→E7 顺序形成五源绑定，
-目标机交接不一致会在联网前关闭。GR01 实链仍未验收，详见 [E7 发布门](docs/release-gate.md)。
+及可搬迁 handoff。v144–v145 完成五源 final session 与预生成 source plan 导入；目标参数或交接不一致会在联网前
+关闭。GR01 实链仍未验收，详见 [E7 发布门](docs/release-gate.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定
 

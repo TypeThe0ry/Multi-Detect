@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v145 imported GR01 source plan（2026-09-06）
+
+- 现场 producer 新增 `-SourcePlan`：regular non-reparse 输入逐字复制到 session，前后 SHA-256 必须一致；
+- 新 handoff `match` 门在任何 bench/UDP 前严格复验 target ready/environment，并对账 endpoint、hardware、CIDR、阈值、
+  secret names 与 configuration digest；端口 drift smoke exit 1 且未创建 bench，原参数 match exit 0；
+- safety parity 与四份软件证据已重算，E7 仍为 `false / false / 32 blockers`，未产生硬件/网络/飞行通过声明。
+  最终全量回归为 `3635 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v144 five-source GR01 final session（2026-09-06）
 
 - final session schema v3 将 plan、target handoff、bench、E7 manifest/report 作为五份 distinct/hash-bound 来源；consumer

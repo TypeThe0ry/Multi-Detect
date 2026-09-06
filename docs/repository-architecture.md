@@ -1,5 +1,14 @@
 # 统一仓库架构
 
+## v145 imported source plan（2026-09-06，`v0.3.0-pre.8`）
+
+- `run_gr01_release_session.ps1 -SourcePlan`：将外部 source plan 作为不可变输入复制到仓库内 session，拒绝 reparse，
+  并验证复制前后 SHA-256；
+- `gr01_release_handoff.py match`：把 ready target handoff/source plan configuration 与现场执行参数对账；
+- 执行边界：import → handoff create/strict verify → configuration match → bench/UDP，前三步全为本地只读/证据写入。
+
+该入口解决“开发机计划必须在现场重新生成”的证据分叉；它不改变硬件/E7/飞行验收边界。
+
 ## v144 five-source GR01 final session（2026-09-06，`v0.3.0-pre.8`）
 
 - `gr01_release_session.py` / session schema v3：plan、target handoff、bench、E7 manifest/report 五源必须互异；
