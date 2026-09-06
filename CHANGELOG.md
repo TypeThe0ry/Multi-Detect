@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v164 localization diagnostics session verifier（2026-09-07）
+
+- 新增多快照/目录会话 verifier 与闭合报告，逐样本复用 v163 严格校验并绑定路径、bytes、SHA-256；
+- 检查本地时间严格递增、同 epoch sequence/`sentAtMs` 单调、epoch 切换和退休 epoch 不复活；汇总
+  定位率、最长不可定位段、原因、range validity 与 GNSS reason，并提供最小样本/定位率门；
+- 安装式 CLI 对实际 C++ 快照生成的会话报告通过；定向回归 `76 passed, 2 skipped`；
+- parity 与 E7 已重算，仍为 `false / false / 31 blockers`。功能固定 advisory-only，不启用飞控/物理释放。
+- 最终全量回归为 `3689 passed, 4 skipped, 0 failed`，耗时 208.55 秒；JUnit SHA-256
+  `B325B2157890E27BCD71EF2DEAF29DE61DB769918E9C72ECDE9C8AA0B3AA83C8`。
+
 ### v0.3.0-pre.8 v163 target-observation diagnostics offline verifier（2026-09-07）
 
 - 为 QGC 目标定位诊断增加闭合 JSON Schema、仓库 wrapper 和安装式 CLI；离线复核会重算原子身份、

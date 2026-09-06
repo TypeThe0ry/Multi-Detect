@@ -1,6 +1,32 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v163 工作树）
+最后更新：2026-09-07（v164 工作树）
+
+## v164 本轮已收口
+
+- 新增闭合 `multidetect.target-observation-diagnostics-session.v1` 会话报告、严格 verifier、仓库 wrapper
+  和安装式 `multidetect-target-observation-session-verify`。输入可为显式快照或诊断目录；目录只读取标准
+  命名 JSON，拒绝空集合、重复解析路径和符号链接。
+- 每份文件先完整经过 v163 单快照 verifier，再按 `local_now_ms` 确定性排序。会话拒绝时间重复/回退、
+  同 producer epoch 的 sequence/`sentAtMs` 回退以及 retired epoch 重新出现；不同 epoch 的远端时钟不做
+  错误的跨时钟比较。
+- 报告逐样本绑定绝对路径、bytes、SHA-256、生成时间、定位状态、失败原因与原子身份，并汇总定位率、
+  最长连续不可定位区间、epoch 切换、失败原因、range validity 和 GNSS reason。`--minimum-samples` 与
+  `--minimum-locatable-rate` 不满足时 `gate_passed=false`。
+- 安装后 CLI 消费实际 C++ v163 输出形成 1 样本跨语言会话报告：1,371 bytes、SHA-256
+  `787AA4D96CFE89DE03E480E2EC988F59A83F56D750F6AF688E3B81497B98E781`，定位率 1.0、门通过；
+  连续性正/负路径由多样本测试覆盖。
+- 定向回归 `76 passed, 2 skipped`；JUnit 12,991 bytes、SHA-256
+  `D8334CC318D597183C107884622839B7866BC516DD21170B70AC65885141EBE5`。两个 skip 都是 Windows
+  当前权限下的符号链接创建测试。
+- parity 为 9,571 bytes、SHA-256
+  `FCEE7CDC23D14E49017CC5EAF8D046021B785F4526BF6D704D458BACA94F0DEB`；UI contract 为
+  `DB582F452060E8AD33717DA4B4147BBB05168555AB2D182EE61A3327D2D08127`，其余四组未变。
+- 派生证据和 E7 已按 v164 parity 重算。现场仍是 `192.168.1.13/24` 且三端点超时，E7 保持
+  `gate_passed=false / release_allowed=false / 31 blockers`。本轮未重链 EXE，也未提升人工、硬件、
+  室外 GNSS、HIL/REAL 或实飞状态。
+- 最终全量回归 3,693 tests：`3689 passed, 4 skipped, 0 failed, 0 errors`，耗时 208.55 秒；JUnit
+  539,819 bytes、SHA-256 `B325B2157890E27BCD71EF2DEAF29DE61DB769918E9C72ECDE9C8AA0B3AA83C8`。
 
 ## v163 本轮已收口
 

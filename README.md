@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v163：目标定位诊断 JSON Schema、离线 verifier 与跨语言一致性验证 |
+| 当前工程迭代 | v164：外场目标定位诊断会话与连续性审计 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163 目标定位诊断离线验证链
+### v163–v164 目标定位诊断离线验证与会话审计
 
 QGC 保存的 `multidetect.target-observation-diagnostics.v1` 现在有闭合 Draft 2020-12 JSON Schema，
 并可由仓库脚本或安装后的 `multidetect-target-observation-diagnostics-verify` 严格离线复核。verifier 会
@@ -94,6 +94,12 @@ verifier 验证，避免 C++ producer 与 Python schema 各自只测 fixture。v
 portable EXE 继续使用 v162 已验证的 46,704,640 bytes 文件，SHA-256
 `ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`。本轮只增加审计能力，仍固定
 advisory-only、飞控关闭、物理释放关闭。全量回归为 `3676 passed, 3 skipped, 0 failed`。
+
+v164 新增 `multidetect-target-observation-session-verify`：可接收多份快照或诊断目录，按本地观测时间
+排序，拒绝时间重复/回退、同 epoch sequence/`sentAtMs` 回退及退休 epoch 复活，并统计定位率、最长连续
+不可定位段、epoch 切换、失败原因、测距状态与 GNSS 原因。每个样本的路径、bytes 和 SHA-256 均进入闭合
+会话报告；阈值不达标只关闭证据门，不产生任何飞控能力。
+v164 全量回归为 `3689 passed, 4 skipped, 0 failed`。
 
 ### v162 原生目标定位诊断弹窗
 
@@ -118,14 +124,6 @@ Jetson 现在以认证 operator protocol 类型 `25`、默认 `5 Hz` 发布独�
 
 已构建并 simple-boot 验证新的 `0.3.0-pre.8` portable EXE；这是 software/build 证据，不替代人工
 Fly View、室外 GNSS、HIL/REAL、硬件或飞行验收。路径、哈希和测试明细见
-[当前进度](docs/current-progress.md)。
-
-### v151 当前现场链路状态
-
-最新 3 样本只读预检已通过报告结构和哈希复验，但三个目标端点的实际路由源地址都是
-`192.168.1.13`，并未进入要求的 `192.168.144.0/24`；Jetson SSH、GR01 MAVLink、相机 RTSP
-全部超时。因此当前结论仍是 `hardware_link_ready=false`。新鲜失败证据已重绑 E7，阻断项由
-32 降为 31；这只消除了旧报告过期问题，不代表任何硬件或外场门已通过。具体哈希和下一步见
 [当前进度](docs/current-progress.md)。
 
 ### v132–v150 GR01 计划、事务化 E7 与 trust registry 复核

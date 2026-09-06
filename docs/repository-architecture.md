@@ -1,5 +1,21 @@
 # 统一仓库架构
 
+## v164 外场定位诊断会话链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+diagnostics files / diagnostics directory
+  -> v163 strict snapshot verifier for every file
+  -> sort by local_now_ms
+  -> epoch + sequence + sentAt continuity state machine
+  -> quality aggregation + threshold gate
+  -> closed, per-file SHA-256-bound session report
+```
+
+- 会话层不复制单快照 Schema 逻辑，每份输入必须先通过同一个 v163 loader/verifier；
+- producer 时钟只在相同 epoch 内检查单调性，不把 Windows 本地时钟和远端时钟直接相减；
+- `observed_epochs` 保留首次出现顺序，旧 epoch 一旦退休就不能重新出现；
+- 输出只用于外场定位质量审计，固定 advisory-only、飞控关闭、物理释放关闭。
+
 ## v163 目标定位诊断的 producer/consumer 验证链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

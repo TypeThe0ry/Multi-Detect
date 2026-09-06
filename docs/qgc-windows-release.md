@@ -12,6 +12,13 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v164 外场定位诊断会话 verifier（2026-09-07）
+
+安装式命令 `multidetect-target-observation-session-verify` 接收多份诊断文件或目录，验证每个快照后检查
+时间/epoch/sequence 连续性，生成逐文件哈希绑定的会话报告。可用 `--minimum-samples` 和
+`--minimum-locatable-rate` 设置外场证据门。本轮只增加 Python 审计工具，主 EXE 仍沿用 v162 制品；
+工具不会发送 MAVLink 控制或启用载荷。最终全量回归为 `3689 passed, 4 skipped, 0 failed`。
+
 ### v163 目标定位诊断离线 verifier（2026-09-07）
 
 本轮增加的是随 Python 包安装的
