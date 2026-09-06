@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T07:02:09Z",
+  "updated_at_utc": "2026-09-06T07:13:56Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "e0158c31aabc187d0063b4e5ad374e2da5da26c1",
-    "commit_subject": "feat(jetson): finalize RTSP evidence sessions",
-    "commits_ahead_of_origin_main": 136
+    "commit": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
+    "commit_subject": "feat(jetson): package isolated evidence tooling",
+    "commits_ahead_of_origin_main": 138
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v124",
+  "working_iteration": "v125",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v124-final.xml",
-      "tests": 3544,
-      "passed": 3542,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v125-final.xml",
+      "tests": 3545,
+      "passed": 3543,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 275.09,
-      "junit_local_path": "tmp/current-progress-regression-v124-final.xml",
-      "junit_file_bytes": 516859,
-      "junit_file_sha256": "2831eb324a468072dde72170af742b24bf3d7d9b58ef15b04f1482ca6b57ae16",
+      "duration_seconds": 273.15,
+      "junit_local_path": "tmp/current-progress-regression-v125-final.xml",
+      "junit_file_bytes": 517008,
+      "junit_file_sha256": "2c60726d0f2ac2eb14d3a1be7c5889cdb6b300cb386e7cb4855ba0ae67dea096",
       "distributed_in_git": false
     },
     "ruff": {
@@ -74,6 +74,25 @@
     }
   },
   "evidence": {
+    "jetson_evidence_tools_deployment": {
+      "implementation": "scripts/deploy_jetson_evidence_capture.ps1",
+      "source_git_head": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
+      "source_dirty": false,
+      "package_local_path": "build/jetson-evidence-deploy/multidetect-evidence-tools-v125-14b1010.tar",
+      "package_bytes": 6880256,
+      "package_sha256": "6d2d557726ed0ef213cd8411dc83f399c14888c3a5f311be0aacaa7933f2f49e",
+      "package_receipt_sha256": "7e414b96ee39ed6f15dd2b78142e1a074188a776f8f0e849ba431354023bc106",
+      "packaged_file_count": 229,
+      "package_self_verified": true,
+      "remote_install_isolated": true,
+      "sudo_used": false,
+      "service_restart_requested": false,
+      "remote_install_status": "pending_aircraft_network_route",
+      "observed_controller_source_address": "192.168.1.13",
+      "expected_aircraft_cidr": "192.168.144.0/24",
+      "hardware_acceptance": false,
+      "release_ready": false
+    },
     "evidence_bundle_transfer": {
       "implementation": "src/multidetect/evidence_bundle_transfer.py",
       "installed_command": "multidetect-evidence-transfer",

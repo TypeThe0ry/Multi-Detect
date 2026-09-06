@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v125 isolated Jetson evidence tooling deployment（2026-09-06）
+
+- 新增 package-only/SSH 双模式部署器，将证据采集工具以完整源码、Git 状态、逐文件 SHA manifest 和 archive
+  identity 打包；本机解包 229/229 重算后，远端再做 hash/compile/Bash/import 验证并原子落入独立版本目录；
+- 不覆盖既有工具、不 sudo、不重启服务。干净 HEAD 正式包 SHA-256 `6D2D5577...F2F49E`；控制机尚无
+  `192.168.144.0/24` 路由，所以未声称实机安装；全量 3,545 tests：`3543 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v124 one-command Jetson RTSP evidence session（2026-09-06）
 
 - Jetson recorder 现在为每次采集创建不可覆盖的独立目录，并顺序完成 H.265 stream-copy、v3 manifest、

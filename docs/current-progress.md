@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v124 工作树）
+最后更新：2026-09-06（v125 工作树）
+
+## v125 本轮已收口
+
+- 新增 `scripts/deploy_jetson_evidence_capture.ps1`：打包完整 `src/multidetect`、产品版本和 v124 recorder，
+  保存 Git HEAD/dirty、逐文件 source manifest、archive bytes/SHA-256 和不可发布声明；
+- 生成后先列举安全路径、解包到临时目录、229/229 重算 SHA 并检查闭合文件集，只有
+  `package_self_verified=true` 才允许上传；远端再执行相同 manifest 校验、compileall、Bash syntax 与模块 import；
+- 远端落位采用独立 `/home/jetson/Multi-Detect-evidence-tools/<deployment-id>` staging→atomic move，已存在版本
+  拒绝覆盖；无 sudo、无 systemctl、无服务重启，`-PackageOnly` 可在断开飞机网段时生成可审计包；
+- 干净 `14b1010...` 上正式包 6,880,256 bytes、SHA-256
+  `6D2D557726ED0EF213CD8411DC83F399C14888C3A5F311BE0AACAA7933F2F49E`，229/229 自复核；
+  当前控制机源地址仍为 `192.168.1.13`，不在飞机 `192.168.144.0/24`，所以未声称真实 Jetson 安装；
+- 全量回归 3,545 tests：`3543 passed, 2 skipped, 0 failed, 0 errors`，耗时 273.15 秒；JUnit
+  517,008 bytes、SHA-256 `2C60726D0F2AC2EB14D3A1BE7C5889CDB6B300CB386E7CB4855BA0AE67DEA096`；
+  Ruff、compileall、PowerShell parse、Git Bash syntax、diff check 和 parity 重生成通过，QGC portable 未改变。
 
 ## v124 本轮已收口
 

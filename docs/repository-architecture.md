@@ -1,5 +1,12 @@
 # 统一仓库架构
 
+## v125 isolated Jetson evidence deployment（2026-09-06，`v0.3.0-pre.8`）
+
+`scripts/deploy_jetson_evidence_capture.ps1` 把完整 Python package、`configs/product-version.json` 和 recorder
+打成可自复核 tar；package receipt 绑定 source Git/dirty、archive 和 manifest。`-PackageOnly` 不访问远端；联网
+模式经 BatchMode SSH 将通过本地复核的包放入独立 tools root，远端二次校验后 staging→target 原子移动。
+该部署器与生产巡检 service 目录和 lifecycle 分离，不调用 sudo/systemctl，也不产生硬件或 release claim。
+
 ## v124 one-command Jetson evidence session（2026-09-06，`v0.3.0-pre.8`）
 
 `scripts/record_jetson_rtsp_evidence.sh` 是 Jetson 现场编排入口：在新的 session root 内调用既有

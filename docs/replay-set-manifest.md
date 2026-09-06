@@ -667,6 +667,17 @@ detector 的预测，再以 `source_kind=deployment_recording` 重建清单；�
 
 ## 录制视频转换为 raw replay
 
+无飞机网路时可先生成并自复核隔离工具包：
+
+```powershell
+scripts\deploy_jetson_evidence_capture.ps1 -PackageOnly `
+  -DeploymentId v125-field-tools
+```
+
+接入 `192.168.144.0/24` 后去掉 `-PackageOnly` 并传入 `-HostAlias 192.168.144.20`；部署只写独立
+`Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。必须保留输出的 package receipt 和远端
+`JETSON_EVIDENCE_TOOLS_READY`，后者尚未取得时不能声明 Jetson 安装完成。
+
 Jetson 的 `scripts/record_jetson_rtsp_evidence.sh` 现在一条命令创建独立会话目录，顺序生成 RTSP evidence v3、
 raw replay 和 transfer inventory；RTSP URI/凭据不会落盘。现场运行：
 

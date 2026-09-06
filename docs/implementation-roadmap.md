@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## 隔离 Jetson evidence tool deployment（v125）
+
+- [x] 完整 Python source + product version + recorder 的 hash manifest/package/receipt；
+- [x] tar path、解包逐文件 SHA、闭合文件集、PowerShell/Bash/import 自复核；
+- [x] 独立版本目录原子落位，不覆盖、不 sudo、不重启生产服务；支持离线 `-PackageOnly`；
+- [ ] 控制机接入 `192.168.144.0/24` 后上传正式包并保存远端 `JETSON_EVIDENCE_TOOLS_READY` 回执。
+
 ## Jetson 一键 RTSP evidence session（v124）
 
 - [x] 单入口串联 RTSP v3 录像、严格 raw replay 转换与 source transfer inventory；
