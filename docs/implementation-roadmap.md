@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## Five-source GR01 final session（v144）
+
+- [x] session schema v3 distinct/hash-bind plan、handoff、bench、E7 manifest 与 E7 report；
+- [x] consumer 严格复验目标 handoff/environment，并证明 handoff 指向传入的同一 plan；
+- [x] 对账 origin/target Git、release label、safety parity、plan bytes/SHA 与实际 bench/E7 配置；
+- [x] producer 在任何 UDP 前创建并严格验证 target handoff，final creator 显式接收 `--handoff`；
+- [x] relocated non-ready origin plan + ready target handoff 正例，以及 handoff tamper/config drift/five-source distinct 回归；
+- [ ] 在隔离飞机网段使用真实 target host ID/secrets 执行完整五源 session，并由独立机器复核；
+- [ ] 增加由开发机预生成 source plan 直接导入现场 producer 的安全入口与 pre-network 参数匹配检查。
+
 ## Portable GR01 plan deployment handoff（v143）
 
 - [x] source plan 的配置、操作序列、来源身份与 claim 边界可在忽略 origin absolute execution paths 后验证；
@@ -9,7 +19,7 @@
 - [x] source repository/parity/tool identity 深层字段非法时在 receipt 写入前直接拒绝；
 - [x] clean commit 上完成 no-network diagnostic smoke，source equivalent 但缺 secret，因此严格门保持关闭；
 - [ ] 把 source plan 与目标机 receipt 一起交给现场机，注入真实 secret 后生成 ready receipt，再执行真实 session；
-- [ ] 后续将通过的 handoff receipt 纳入 final session 五源绑定，避免现场执行记录与交接记录分叉。
+- [x] 通过的 handoff receipt 已纳入 final session 五源绑定，避免现场执行记录与交接记录分叉。
 
 ## Execution-plan-bound GR01 final session（v142）
 

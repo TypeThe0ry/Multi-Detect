@@ -1,5 +1,16 @@
 # 统一仓库架构
 
+## v144 five-source GR01 final session（2026-09-06，`v0.3.0-pre.8`）
+
+- `gr01_release_session.py` / session schema v3：plan、target handoff、bench、E7 manifest/report 五源必须互异；
+- consumer 以 handoff 的目标机 source/environment 严格复验替代 origin absolute execution paths，随后交叉核对 handoff
+  source plan、target Git/parity 与 bench/E7 configuration；
+- `run_gr01_release_session.ps1`：在 bench 前创建 `gr01-release-session-handoff.json` 并 require-ready，成功 record
+  create 显式传入该文件；默认 host ID 来自目标 Windows machine name，也可用 `-TargetHostId` 明确指定；
+- session record 固定 `handoff_binding_verified=true`，继续保持 no-flight/no-payload/no-physical-release claims。
+
+这一层闭合目标机交接到实际 session 的证据链，但没有生成真实现场成功 record；软件 fixture 只验证逻辑。
+
 ## v143 portable GR01 deployment handoff（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/gr01_release_handoff.py`：读取 plan v2 的 portable 配置/来源身份，忽略 origin 的 repo、Python、
@@ -9,8 +20,8 @@
   source-equivalence 与 no-I/O/no-control claim；
 - handoff 实现、wrapper 与 schema 均进入 `safety_policy` parity，修改交接语义会使旧来源身份失效。
 
-该层解决“开发机和现场机 checkout 绝对路径不同”的部署交接问题；它还没有进入 final session record，且
-diagnostic receipt 不构成 GR01 网络、硬件、E7 或飞行验收。
+该层解决“开发机和现场机 checkout 绝对路径不同”的部署交接问题；v144 已把 ready receipt 接入 final session，
+但 diagnostic receipt 仍不构成 GR01 网络、硬件、E7 或飞行验收。
 
 ## v142 execution-plan-bound GR01 final session（2026-09-06，`v0.3.0-pre.8`）
 

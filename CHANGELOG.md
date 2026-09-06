@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v144 five-source GR01 final session（2026-09-06）
+
+- final session schema v3 将 plan、target handoff、bench、E7 manifest/report 作为五份 distinct/hash-bound 来源；consumer
+  严格复验目标 environment/source，并交叉核对 handoff→plan→bench/E7 的配置和 Git/parity identity；
+- producer 在任何 UDP 前创建并 require-ready target handoff，新增 target host ID，最终 record 显式传入 `--handoff`；
+  relocated non-ready origin plan 只有经 ready target handoff 才能进入 session；handoff tamper/config drift 均 fail-closed；
+- clean no-network smoke 仍因缺现场 secrets 保持 non-ready；软件五源 fixture 通过但不构成硬件 session。新 parity 派生
+  证据通过，E7 继续 `false / false / 32 blockers`、GR01 `present=false`；最终全量回归
+  `3631 passed, 2 skipped`。未改 QGC 或构建 EXE。
+
 ### v0.3.0-pre.8 v143 portable GR01 plan handoff（2026-09-06）
 
 - 新增 handoff producer/verifier、repository wrapper 与 closed schema；目标机允许不同绝对部署路径，但必须重新证明

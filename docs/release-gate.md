@@ -1,5 +1,32 @@
 # v0.3.0 E7 发布门
 
+## v144 five-source GR01 session gate（2026-09-06，`v0.3.0-pre.8`）
+
+最终 `gr01-release-session.json` 已升级到 schema v3，必须同时绑定 plan、target handoff、hardware bench、E7 manifest
+和 E7 report。现场 producer 的顺序固定为：
+
+```text
+plan create/verify
+  → target handoff create/verify --check-environment --require-ready
+  → hardware GR01 bench + independent verify
+  → freshness-bound E7
+  → five-source final record create/verify
+```
+
+正常现场入口增加了可审计的目标机身份：
+
+```powershell
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 `
+  -ExpectedSourceCidr 192.168.144.0/24 `
+  -TargetHostId FIELD-GCS-01
+```
+
+两个 secret 仍只从环境读取且不落盘。consumer 允许 origin plan 保存不同绝对路径甚至 origin secret presence 为 false，
+但目标 handoff 必须在当前 target checkout/source/parity/tools/environment 上 ready；随后还会核对同一 plan 与 bench/E7
+配置。当前仅完成无网络 handoff smoke 和软件 relocated-origin 五源 fixture；没有真实 GR01 session 或硬件通过声明。
+
 ## v143 portable GR01 plan handoff（2026-09-06，`v0.3.0-pre.8`）
 
 source plan 可以随部署包复制到另一台 Windows 现场机；目标机 checkout、Python 和 output 的绝对路径允许变化，
@@ -20,8 +47,8 @@ python .\scripts\verify_gr01_release_session_handoff.py verify `
 
 `create` 总能保存可诊断回执；只有来源完全等价且两个现场 secret 当前存在时 `ready_to_execute=true`。
 第二条严格命令才是执行前门，non-ready 时 exit 1；结构/来源非法时 exit 2。回执只记录 secret 名称和 presence，
-不保存值。当前 clean smoke 是 source-equivalent 但 non-ready/no-network；handoff 尚未纳入 final session 五源绑定，
-更不构成 GR01、E7、硬件或飞行通过。
+不保存值。当前 clean smoke 是 source-equivalent 但 non-ready/no-network；v144 已要求 final session 绑定 ready handoff，
+但当前仍没有 GR01、E7、硬件或飞行通过。
 
 ## v142 execution-plan-bound GR01 session（2026-09-06，`v0.3.0-pre.8`）
 

@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v143 工作树）
+最后更新：2026-09-06（v144 工作树）
+
+## v144 本轮已收口
+
+- GR01 final session 升级为 schema v3，将 source plan、target handoff、hardware bench、E7 manifest 与 E7 report
+  作为五份 distinct/hash-bound source；最终 record 新增 target host/repo/Python/output、configuration digest、Git HEAD、
+  source-equivalent、ready、environment-reverified 与 plan/bench/E7 configuration-match 投影；
+- consumer 不再把 origin absolute paths 当目标机执行条件，而是严格运行 handoff verifier 的
+  `--check-environment --require-ready` 等价语义，重开 handoff 指向的同一 plan，并对账 plan SHA/bytes、Git、release
+  label、safety hash 与现场配置；origin plan 可以 non-ready，只有目标 handoff ready 才可授权执行；
+- `run_gr01_release_session.ps1` 在任何 bench/UDP 前按 plan → handoff create → handoff strict verify 顺序执行，新增
+  `TargetHostId`，最后显式把 `--handoff` 传给 session creator；handoff 或五源任一漂移均不能生成成功 record；
+- clean commit `a4d43234fec86f1d587e3e0e62ef6de9b76c44a0` 的无网络 smoke 为 source-equivalent/structurally valid，
+  两个现场 secret 缺失使 handoff non-ready；专门 relocated-origin 五源测试通过，但它使用软件 fixture，不是硬件 session；
+- 新 parity 下 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 独立通过；E7
+  保持 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
+  最终全量回归 3,633 tests：`3631 passed, 2 skipped, 0 failed, 0 errors`，耗时 249.884 秒；JUnit
+  529,356 bytes、SHA-256 `7CA6FF563DD7F2993CC364972BCF026CBC71CBF55AB588FB91778494E52B9C7C`。
+  本轮不改 C++/QML，不重建 EXE，不产生网络、硬件、射频、HIL/REAL、飞行或最终发布声明。
 
 ## v143 本轮已收口
 
