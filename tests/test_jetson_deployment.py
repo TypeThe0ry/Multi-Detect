@@ -355,6 +355,13 @@ def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart(
     assert "service_restart_requested = $false" in deployer
     assert "sudo_used = $false" in deployer
     assert "release_ready = $false" in deployer
+    assert "failed-remote-output.txt" in deployer
+    assert "JETSON_EVIDENCE_TOOLS_READY=$expectedTarget" in deployer
+    assert 'event = "jetson_evidence_tools_installed"' in deployer
+    assert "remote_install_verified = $true" in deployer
+    assert "JETSON_EVIDENCE_INSTALL_RECEIPT=" in deployer
+    assert "remote_output = [ordered]@{" in deployer
+    assert "package_manifest_verified = $true" in deployer
     assert 'export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"' in (
         ROOT / "scripts/record_jetson_rtsp_evidence.sh"
     ).read_text(encoding="utf-8")

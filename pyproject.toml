@@ -70,6 +70,7 @@ multidetect-deployment-recording-attestation = "multidetect.deployment_recording
 multidetect-rtsp-to-replay = "multidetect.rtsp_evidence_replay:main"
 multidetect-evidence-transfer = "multidetect.evidence_bundle_transfer:main"
 multidetect-jetson-evidence-package-verify = "multidetect.jetson_evidence_package:main"
+multidetect-jetson-evidence-install-verify = "multidetect.jetson_evidence_install:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

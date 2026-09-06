@@ -36,8 +36,14 @@ New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 $archiveName = "multidetect-evidence-tools-$DeploymentId.tar"
 $archivePath = Join-Path $outputRoot $archiveName
 $receiptPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.package.json"
+$installReceiptPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.install.json"
+$remoteOutputPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.remote-output.txt"
 if ((Test-Path -LiteralPath $archivePath) -or (Test-Path -LiteralPath $receiptPath)) {
     throw "Deployment package output already exists for DeploymentId '$DeploymentId'."
+}
+if ((Test-Path -LiteralPath $installReceiptPath) -or
+    (Test-Path -LiteralPath $remoteOutputPath)) {
+    throw "Deployment installation output already exists for DeploymentId '$DeploymentId'."
 }
 
 $temporaryRoot = Join-Path (
@@ -235,12 +241,90 @@ trap - EXIT
 printf 'JETSON_EVIDENCE_TOOLS_READY=%s\n' "`$target"
 printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/scripts/record_jetson_rtsp_evidence.sh\n' "`$target" "`$runtime_python" "`$target"
 "@
-    & $ssh.Source -o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=1 `
-        $HostAlias $remoteScript
-    if ($LASTEXITCODE -ne 0) {
-        throw "Installing isolated Jetson evidence tools failed: $LASTEXITCODE"
+    $remoteOutput = @(
+        & $ssh.Source -o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=1 `
+            $HostAlias $remoteScript 2>&1 |
+            ForEach-Object { $_.ToString() }
+    )
+    $remoteExitCode = $LASTEXITCODE
+    $remoteOutputText = if ($remoteOutput.Count -eq 0) {
+        ""
+    } else {
+        ($remoteOutput -join "`n") + "`n"
     }
+    [System.IO.File]::WriteAllText(
+        $remoteOutputPath,
+        $remoteOutputText,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    foreach ($line in $remoteOutput) {
+        Write-Output $line
+    }
+    if ($remoteExitCode -ne 0) {
+        $failedOutputPath = $remoteOutputPath.Replace(
+            ".remote-output.txt",
+            ".failed-remote-output.txt"
+        )
+        Move-Item -LiteralPath $remoteOutputPath -Destination $failedOutputPath
+        throw "Installing isolated Jetson evidence tools failed: $remoteExitCode"
+    }
+    $expectedTarget = "$RemoteToolsRoot/$DeploymentId"
+    $readyLines = @($remoteOutput | Where-Object { $_ -like 'JETSON_EVIDENCE_TOOLS_READY=*' })
+    $runLines = @($remoteOutput | Where-Object { $_ -like 'JETSON_EVIDENCE_RUN=*' })
+    if ($readyLines.Count -ne 1 -or
+        $readyLines[0] -ne "JETSON_EVIDENCE_TOOLS_READY=$expectedTarget" -or
+        $runLines.Count -ne 1) {
+        throw "Jetson evidence deployment returned an invalid completion marker."
+    }
+    $remoteOutputItem = Get-Item -LiteralPath $remoteOutputPath
+    $packageReceiptItem = Get-Item -LiteralPath $receiptPath
+    $installReceipt = [ordered]@{
+        schema_version = 1
+        event = "jetson_evidence_tools_installed"
+        installed_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+        deployment_id = $DeploymentId
+        host_alias = $HostAlias
+        remote_target = $expectedTarget
+        runtime_python = $RuntimePython
+        source_git_head = $sourceHead
+        package_receipt = [ordered]@{
+            file_name = $packageReceiptItem.Name
+            file_bytes = $packageReceiptItem.Length
+            file_sha256 = (
+                Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256
+            ).Hash.ToLowerInvariant()
+        }
+        archive_sha256 = $archiveHash
+        remote_output = [ordered]@{
+            file_name = $remoteOutputItem.Name
+            file_bytes = $remoteOutputItem.Length
+            file_sha256 = (
+                Get-FileHash -LiteralPath $remoteOutputPath -Algorithm SHA256
+            ).Hash.ToLowerInvariant()
+            ready_marker = $readyLines[0]
+            run_marker_present = $true
+        }
+        remote_checks = [ordered]@{
+            package_manifest_verified = $true
+            python_compileall_passed = $true
+            bash_syntax_passed = $true
+            module_imports_passed = $true
+            recorder_executable = $true
+            atomic_install_completed = $true
+        }
+        service_restart_requested = $false
+        sudo_used = $false
+        remote_install_verified = $true
+        hardware_acceptance = $false
+        release_ready = $false
+    }
+    [System.IO.File]::WriteAllText(
+        $installReceiptPath,
+        (($installReceipt | ConvertTo-Json -Depth 8) + "`n"),
+        [System.Text.UTF8Encoding]::new($false)
+    )
     Write-Output "JETSON_EVIDENCE_PACKAGE_RECEIPT=$receiptPath"
+    Write-Output "JETSON_EVIDENCE_INSTALL_RECEIPT=$installReceiptPath"
 } finally {
     $tempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
     $resolvedTemporary = [System.IO.Path]::GetFullPath($temporaryRoot)

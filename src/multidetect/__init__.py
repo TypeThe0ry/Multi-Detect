@@ -148,6 +148,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".jetson_evidence_package",
         "verify_jetson_evidence_package",
     ),
+    "verify_jetson_evidence_installation": (
+        ".jetson_evidence_install",
+        "verify_jetson_evidence_installation",
+    ),
     "join_raw_replay_telemetry": (
         ".replay_telemetry_join",
         "join_raw_replay_telemetry",

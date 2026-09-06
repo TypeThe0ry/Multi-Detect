@@ -143,6 +143,8 @@ def verify_jetson_evidence_package(receipt: str | Path) -> dict[str, Any]:
         "source_git_head": source_head,
         "source_dirty": source_dirty,
         "package_only": package_only,
+        "remote_tools_root": require_text(document["remote_tools_root"], "remote_tools_root"),
+        "runtime_python": require_text(document["runtime_python"], "runtime_python"),
         "tar_member_count": len(members),
         "verified_source_file_count": file_count,
         "verified_source_bytes": total_source_bytes,

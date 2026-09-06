@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/jetson-evidence-tools-installation.schema.json",
+  "title": "Multi-Detect Jetson Evidence Tools Installation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event", "installed_at_utc", "deployment_id", "host_alias",
+    "remote_target", "runtime_python", "source_git_head", "package_receipt",
+    "archive_sha256", "remote_output", "remote_checks", "service_restart_requested",
+    "sudo_used", "remote_install_verified", "hardware_acceptance", "release_ready"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "const": "jetson_evidence_tools_installed" },
+    "installed_at_utc": { "type": "string", "format": "date-time" },
+    "deployment_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$" },
+    "host_alias": { "type": "string", "pattern": "^[A-Za-z0-9._:-]+$" },
+    "remote_target": { "$ref": "#/$defs/absolutePosixPath" },
+    "runtime_python": { "$ref": "#/$defs/absolutePosixPath" },
+    "source_git_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "package_receipt": { "$ref": "#/$defs/artifactReference" },
+    "archive_sha256": { "$ref": "#/$defs/sha256" },
+    "remote_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_name", "file_bytes", "file_sha256", "ready_marker", "run_marker_present"
+      ],
+      "properties": {
+        "file_name": { "$ref": "#/$defs/siblingFileName" },
+        "file_bytes": { "type": "integer", "minimum": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "ready_marker": {
+          "type": "string",
+          "pattern": "^JETSON_EVIDENCE_TOOLS_READY=/[A-Za-z0-9._/-]+$"
+        },
+        "run_marker_present": { "const": true }
+      }
+    },
+    "remote_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_manifest_verified", "python_compileall_passed", "bash_syntax_passed",
+        "module_imports_passed", "recorder_executable", "atomic_install_completed"
+      ],
+      "properties": {
+        "package_manifest_verified": { "const": true },
+        "python_compileall_passed": { "const": true },
+        "bash_syntax_passed": { "const": true },
+        "module_imports_passed": { "const": true },
+        "recorder_executable": { "const": true },
+        "atomic_install_completed": { "const": true }
+      }
+    },
+    "service_restart_requested": { "const": false },
+    "sudo_used": { "const": false },
+    "remote_install_verified": { "const": true },
+    "hardware_acceptance": { "const": false },
+    "release_ready": { "const": false }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "siblingFileName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "absolutePosixPath": {
+      "type": "string",
+      "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_name", "file_bytes", "file_sha256"],
+      "properties": {
+        "file_name": { "$ref": "#/$defs/siblingFileName" },
+        "file_bytes": { "type": "integer", "minimum": 1 },
+        "file_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
