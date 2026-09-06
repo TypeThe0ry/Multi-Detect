@@ -1,5 +1,12 @@
 # 统一仓库架构
 
+## v124 one-command Jetson evidence session（2026-09-06，`v0.3.0-pre.8`）
+
+`scripts/record_jetson_rtsp_evidence.sh` 是 Jetson 现场编排入口：在新的 session root 内调用既有
+`record-rtsp-evidence`、`multidetect.rtsp_evidence_replay` 与 `multidetect.evidence_bundle_transfer snapshot`。
+它只组合三个已经独立验证的证据边界，不另建 frame/manifest 合同，也不加载 detector、QGC、Pixhawk 或载荷路径。
+失败目录保留供检查，成功目录可直接交给 v123 Windows transfer verifier。
+
 ## v123 byte-exact evidence transfer（2026-09-06，`v0.3.0-pre.8`）
 
 `src/multidetect/evidence_bundle_transfer.py` 提供 source inventory、destination verification receipt 及各自的

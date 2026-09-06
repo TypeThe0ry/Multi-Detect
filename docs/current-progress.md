@@ -1,6 +1,17 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v123 工作树）
+最后更新：2026-09-06（v124 工作树）
+
+## v124 本轮已收口
+
+- `scripts/record_jetson_rtsp_evidence.sh` 从单独录像升级为完整现场证据会话：每次创建独立 timestamp/session root，
+  依次执行 H.265 RTSP stream-copy、v3 严格 manifest、camera-only raw replay 转换和 v123 transfer inventory；
+- source URI 仍只从环境变量读取；会话根已存在时拒绝覆盖，任何阶段失败都保留部分原始证据并打印恢复位置；
+  成功只输出 session root 与 inventory 路径，不启动 detector、QGC、飞控或载荷控制；
+- 支持 `SESSION_ROOT`、`FRAME_STRIDE`、可选 `FRAME_LIMIT`；真实 Git Bash `bash -n` 与组合专项测试通过；
+- 全量回归 3,544 tests：`3542 passed, 2 skipped, 0 failed, 0 errors`，耗时 275.09 秒；JUnit
+  516,859 bytes、SHA-256 `2831EB324A468072DDE72170AF742B24BF3D7D9B58EF15B04F1482CA6B57AE16`；
+  全仓 Ruff、compileall、diff check 和 parity 重生成通过，parity/QGC portable 均未改变。
 
 ## v123 本轮已收口
 

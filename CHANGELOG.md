@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v124 one-command Jetson RTSP evidence session（2026-09-06）
+
+- Jetson recorder 现在为每次采集创建不可覆盖的独立目录，并顺序完成 H.265 stream-copy、v3 manifest、
+  camera-only raw replay 和 transfer inventory；支持 frame stride/limit，失败保留部分证据并报告路径；
+- RTSP URI 继续只从环境变量读取，脚本不启动 detector/QGC/飞控/载荷；全量 3,544 tests：
+  `3542 passed, 2 skipped`，Git Bash syntax、Ruff、compileall、diff check 与 parity 重生成通过。
+
 ### v0.3.0-pre.8 v123 byte-exact evidence transfer receipt（2026-09-06）
 
 - 新增 `multidetect-evidence-transfer snapshot|verify|verify-receipt` 与 clean-checkout wrapper；Jetson 源端 inventory

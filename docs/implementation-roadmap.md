@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## Jetson 一键 RTSP evidence session（v124）
+
+- [x] 单入口串联 RTSP v3 录像、严格 raw replay 转换与 source transfer inventory；
+- [x] 独立会话目录、不可覆盖、失败保留部分证据、环境变量凭据隔离与 Bash 语法回归；
+- [x] 帧抽样/上限可配置，成功输出机器可解析的 session/inventory 路径；
+- [ ] 在真实 Jetson/相机运行默认 300 秒会话，复制到 Windows 并完成 v123 目的端验证。
+
 ## Jetson→Windows 证据包传输回执（v123）
 
 - [x] 源端闭合 inventory 绑定逐文件 portable path、bytes、SHA-256 与 canonical bundle hash；

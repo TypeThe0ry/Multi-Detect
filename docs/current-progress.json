@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T06:52:06Z",
+  "updated_at_utc": "2026-09-06T07:02:09Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "32950f1a063f00b52d84650f608520aa498b26f7",
-    "commit_subject": "feat(evidence): verify portable bundle transfers",
-    "commits_ahead_of_origin_main": 134
+    "commit": "e0158c31aabc187d0063b4e5ad374e2da5da26c1",
+    "commit_subject": "feat(jetson): finalize RTSP evidence sessions",
+    "commits_ahead_of_origin_main": 136
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v123",
+  "working_iteration": "v124",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v123-final.xml",
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v124-final.xml",
       "tests": 3544,
       "passed": 3542,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 260.53,
-      "junit_local_path": "tmp/current-progress-regression-v123-final.xml",
+      "duration_seconds": 275.09,
+      "junit_local_path": "tmp/current-progress-regression-v124-final.xml",
       "junit_file_bytes": 516859,
-      "junit_file_sha256": "5593142e374b2a05f90a2ea1ec3dd17efbac15bac39355c84514537b740c3281",
+      "junit_file_sha256": "2831eb324a468072dde72170af742b24bf3d7d9b58ef15b04f1482ca6b57ae16",
       "distributed_in_git": false
     },
     "ruff": {
@@ -91,6 +91,10 @@
       "real_jetson_transfer_receipt": "pending_physical_capture"
     },
     "rtsp_evidence_replay_conversion": {
+      "jetson_one_command_session": "scripts/record_jetson_rtsp_evidence.sh",
+      "jetson_session_steps": ["rtsp_v3_capture", "raw_replay_conversion", "transfer_inventory"],
+      "jetson_session_non_overwriting": true,
+      "partial_evidence_retained_on_failure": true,
       "recording_implementation": "src/multidetect/rtsp_evidence_recording.py",
       "conversion_implementation": "src/multidetect/rtsp_evidence_replay.py",
       "installed_command": "multidetect-rtsp-to-replay",

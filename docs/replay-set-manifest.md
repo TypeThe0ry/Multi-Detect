@@ -667,9 +667,18 @@ detector 的预测，再以 `source_kind=deployment_recording` 重建清单；�
 
 ## 录制视频转换为 raw replay
 
-Jetson 的 `scripts/record_jetson_rtsp_evidence.sh` 现在生成 RTSP evidence schema v3：清单同时绑定包围
-stream-copy 的系统 UTC 起止、单调时间窗、原 Matroska 容器 bytes/SHA-256、完整解码 probe 与 canonical hash，
-且不会保存 RTSP URI/凭据。优先使用一条命令从清单转换，避免再次手抄视频路径、hash 或开始时间：
+Jetson 的 `scripts/record_jetson_rtsp_evidence.sh` 现在一条命令创建独立会话目录，顺序生成 RTSP evidence v3、
+raw replay 和 transfer inventory；RTSP URI/凭据不会落盘。现场运行：
+
+```bash
+export CAMERA_SOURCE='rtsp://...'
+export TRACKING_EVIDENCE_SESSION_ID='12345678-1234-5678-9234-567812345678'
+EVIDENCE_DIR=/data/multidetect/evidence DURATION_SECONDS=300 \
+  bash scripts/record_jetson_rtsp_evidence.sh
+```
+
+脚本成功输出 `RTSP_EVIDENCE_SESSION_READY` 和 `RTSP_EVIDENCE_TRANSFER_INVENTORY`；失败会保留部分目录，旧目录
+不会被覆盖。分步恢复或 Windows 单独转换时仍可直接使用清单，避免手抄视频路径、hash 或开始时间：
 
 ```powershell
 cd D:\Projects\Multi-Detect
