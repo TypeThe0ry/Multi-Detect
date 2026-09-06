@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v152：独立 GNSS 质量状态与原生 QGC 诊断 |
+| 当前工程迭代 | v153：目标证据快照绑定独立 GNSS 质量来源 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v153 目标证据快照绑定 GNSS 质量来源
+
+原生 QGC 的“保存快照”现在同时要求目标坐标合格和独立 `GNSS_STATUS` 质量证据合格、新鲜；
+新记录使用 `multidetect.target-evidence.v2`，保存认证消息的 sequence/发送时刻、fix、卫星数、
+水平/垂直精度、position health、canonical reason 与来源年龄。任一字段缺失、类型错误、超过质量门或
+年龄超过 `1.5 s` 都会 fail-closed，不写入伪证据；旧 v1 JSONL 仍可读取，并在历史卡片中明确标为
+“无独立质量证据”。这些字段是与目标快照同时保存的原始诊断来源，不声称坐标包与 GNSS 包是原子采样。
+
+新增 native evidence-store self-test 覆盖 v1 兼容、弱 GNSS/错误布尔类型拒绝、v2 保存与混合重载；
+Release/portable 已重新构建并通过 hidden simple boot。该功能只改本地证据保存和显示，不增加飞控、
+载荷或物理输出权限；室外 GNSS、人工 Fly View、硬件、HIL/REAL 与实飞仍未验收。
 
 ### v152 独立 GNSS 质量状态
 
@@ -151,7 +163,7 @@ revalidation、`GLOBAL_POSITION_INT` response matrix/campaign，以及按当前 
 三机型 deterministic 3-D control records。无参数运行（可只指定新输出目录与时间戳）现在可以完整生成
 E7 manifest/report，不会因旧 release-parity 或 model SHA 中断。
 
-当前 v151 report-only 复算为 `gate_passed=false`、`release_allowed=false` 和 31 个阻断项；这些阻断来自
+当前 v153 report-only 复算为 `gate_passed=false`、`release_allowed=false` 和 31 个阻断项；这些阻断来自
 replay-set 部署域/精度评审、未 ready 的真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件、引用失败
 证据以及最终版本通道，而不是 SIM 证据漂移。
 

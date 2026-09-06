@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v153 GNSS-bound target evidence snapshots（2026-09-07）
+
+- QGC controller 在认证、重放与 sequence 门后将 `GNSS_STATUS` envelope sequence/发送时刻交给 QML；
+  “保存快照”同时要求合格目标坐标与新鲜独立 GNSS 质量证据，弱 fix、低卫星数、超限 H/V accuracy、
+  stale age、错误 reason/position health、缺失或错误类型字段均 fail-closed；
+- 新快照升级为 `multidetect.target-evidence.v2`，保存 GNSS sequence、发送时刻、质量门原始字段与来源年龄；
+  v1 JSONL 保持只读兼容，历史卡片明确显示旧记录没有独立 GNSS 质量证据。该来源是同时保存的诊断 provenance，
+  不声称目标坐标与 GNSS 状态是单一原子观测；
+- 新增 native evidence-store self-test，覆盖 v1 读取、弱/错误类型 GNSS 零写入拒绝、v2 保存与混合重载；
+  native operator protocol、target evidence store、replay RTSP wire self-test 均退出 0；QGC hidden simple boot 退出 0；
+- Release/portable EXE 为 46,600,192 bytes，SHA-256
+  `8225BF9F41426E473F23BC74BF038E576A88EA3556E1A7DD883F1B6C036909BB`。UI parity 与当前派生证据已重算，
+  E7 仍为 `false / false / 31 blockers`；现场链路仍路由错误且三个端点超时，人工视觉、室外 GNSS、硬件、
+  HIL/REAL 与实飞没有被软件构建结果提升；最终全量回归为 `3656 passed, 2 skipped, 0 failed`。
+
 ### v0.3.0-pre.8 v152 independent GNSS quality status（2026-09-07）
 
 - 新增认证 operator protocol 类型 `25` `GNSS_STATUS`，以独立 5 Hz 心跳发布 position health、fix、卫星数、
