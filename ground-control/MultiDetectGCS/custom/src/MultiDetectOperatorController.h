@@ -9,6 +9,7 @@
 
 #include "LinkConfiguration.h"
 #include "MultiDetectDepthGridProtocol.h"
+#include "MultiDetectObservationEpoch.h"
 #include "MultiDetectOperatorProtocol.h"
 #include "QGCMAVLink.h"
 
@@ -266,6 +267,7 @@ private:
     void _setLastError(const QString& error);
     void _setLinkState(const QString& state);
     bool _isNewStatus(MultiDetectOperatorProtocol::MessageType type, quint32 sequence, quint64 receivedAtMs);
+    bool _acceptTargetObservationEpoch(const QVariantMap& fields);
     bool _acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs, quint64 receivedAtMs);
     void _clearTargetGeolocationSourceState();
     quint64 _operatorWireNowMs(quint64 localNowMs) const;
@@ -321,6 +323,7 @@ private:
     quint64 _nextDirectHeartbeatAtMs = 0;
     QHash<int, quint32> _lastStatusSequence;
     QHash<int, quint64> _lastStatusAcceptedAtMs;
+    MultiDetectObservationEpoch _targetObservationEpoch;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

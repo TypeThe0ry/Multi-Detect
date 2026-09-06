@@ -33,6 +33,7 @@ QVariantMap validV4Snapshot()
         {QStringLiteral("range_validity"), QStringLiteral("VALID")},
         {QStringLiteral("source_age_ms"), 180.0},
         {QStringLiteral("atomic_observation"), true},
+        {QStringLiteral("producer_epoch"), 2712847316.0},
         {QStringLiteral("range_status_sequence"), 912.0},
         {QStringLiteral("range_sent_at_ms"), 1774468800123.0},
         {QStringLiteral("target_geolocation_sequence"), 912.0},
@@ -91,6 +92,16 @@ QJsonObject legacyV3Record()
     return record;
 }
 
+QJsonObject legacyV4Record()
+{
+    QJsonObject record = QJsonObject::fromVariantMap(validV4Snapshot());
+    record.remove(QStringLiteral("producer_epoch"));
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v4"));
+    record.insert(QStringLiteral("saved_at_utc"), QStringLiteral("2026-07-24T10:03:00.000Z"));
+    record.insert(QStringLiteral("target_id"), QStringLiteral("legacy-v4-target"));
+    return record;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[])
@@ -113,35 +124,42 @@ int main(int argc, char* argv[])
             seed.write("\n");
             seed.write(QJsonDocument(legacyV3Record()).toJson(QJsonDocument::Compact));
             seed.write("\n");
+            seed.write(QJsonDocument(legacyV4Record()).toJson(QJsonDocument::Compact));
+            seed.write("\n");
         }
     }
 
     MultiDetectTargetEvidenceStore store(storagePath);
-    failures += check(store.snapshotCount() == 3, "legacy v1, v2, and v3 records must remain readable");
+    failures += check(store.snapshotCount() == 4, "legacy v1, v2, v3, and v4 records must remain readable");
 
     QVariantMap weakGnss = validV4Snapshot();
     weakGnss.insert(QStringLiteral("gnss_horizontal_accuracy_m"), 6.1);
     failures += check(!store.saveSnapshot(weakGnss), "weak GNSS evidence must be rejected");
-    failures += check(store.snapshotCount() == 3, "rejected evidence must not change count");
+    failures += check(store.snapshotCount() == 4, "rejected evidence must not change count");
 
     QVariantMap mistypedGnss = validV4Snapshot();
     mistypedGnss.insert(QStringLiteral("gnss_qualified"), QStringLiteral("true"));
     failures += check(!store.saveSnapshot(mistypedGnss), "GNSS booleans must remain typed");
-    failures += check(store.snapshotCount() == 3, "mistyped evidence must not change count");
+    failures += check(store.snapshotCount() == 4, "mistyped evidence must not change count");
 
     QVariantMap mismatchedFrame = validV4Snapshot();
     mismatchedFrame.insert(QStringLiteral("target_geolocation_sent_at_ms"), 1774468800122.0);
     failures += check(!store.saveSnapshot(mismatchedFrame),
                       "mismatched target and GNSS producer frames must be rejected");
-    failures += check(store.snapshotCount() == 3, "frame mismatch must not change count");
+    failures += check(store.snapshotCount() == 4, "frame mismatch must not change count");
 
     QVariantMap nonAtomic = validV4Snapshot();
     nonAtomic.insert(QStringLiteral("atomic_observation"), false);
     failures += check(!store.saveSnapshot(nonAtomic), "non-atomic evidence must be rejected");
-    failures += check(store.snapshotCount() == 3, "non-atomic evidence must not change count");
+    failures += check(store.snapshotCount() == 4, "non-atomic evidence must not change count");
 
-    failures += check(store.saveSnapshot(validV4Snapshot()), "qualified atomic v4 snapshot must save");
-    failures += check(store.snapshotCount() == 4, "qualified evidence must increment count");
+    QVariantMap missingEpoch = validV4Snapshot();
+    missingEpoch.remove(QStringLiteral("producer_epoch"));
+    failures += check(!store.saveSnapshot(missingEpoch), "missing producer epoch must be rejected");
+    failures += check(store.snapshotCount() == 4, "missing epoch must not change count");
+
+    failures += check(store.saveSnapshot(validV4Snapshot()), "qualified epoch-bound atomic v5 snapshot must save");
+    failures += check(store.snapshotCount() == 5, "qualified evidence must increment count");
     failures += check(store.lastError().isEmpty(), "successful save must clear error");
 
     QFile persisted(storagePath);
@@ -155,23 +173,25 @@ int main(int argc, char* argv[])
     }
     const QJsonObject savedRecord = QJsonDocument::fromJson(lastLine).object();
     failures += check(savedRecord.value(QStringLiteral("schema")).toString() ==
-                          QStringLiteral("multidetect.target-evidence.v4"),
-                      "new snapshots must use v4 schema");
+                          QStringLiteral("multidetect.target-evidence.v5"),
+                      "new snapshots must use v5 schema");
     failures += check(savedRecord.value(QStringLiteral("gnss_status_sequence")).toInt() == 912,
-                      "v4 snapshot must persist GNSS sequence provenance");
+                      "v5 snapshot must persist GNSS sequence provenance");
     failures += check(savedRecord.value(QStringLiteral("gnss_qualified")).toBool(),
-                      "v4 snapshot must persist qualified state");
+                      "v5 snapshot must persist qualified state");
     failures += check(savedRecord.value(QStringLiteral("atomic_observation")).toBool() &&
                           savedRecord.value(QStringLiteral("range_status_sequence")).toInt() == 912 &&
                           savedRecord.value(QStringLiteral("target_geolocation_sequence")).toInt() == 912,
-                      "v4 snapshot must persist one atomic observation identity");
+                      "v5 snapshot must persist one atomic observation identity");
+    failures += check(savedRecord.value(QStringLiteral("producer_epoch")).toDouble() == 2712847316.0,
+                      "v5 snapshot must persist the producer epoch");
     failures += check(savedRecord.value(QStringLiteral("target_geolocation_sent_at_ms")).toDouble() ==
                           savedRecord.value(QStringLiteral("gnss_sent_at_ms")).toDouble(),
-                      "v4 snapshot must persist the exact producer-frame binding");
+                      "v5 snapshot must persist the exact producer-frame binding");
 
     MultiDetectTargetEvidenceStore reloaded(storagePath);
-    failures += check(reloaded.snapshotCount() == 4, "v1, v2, v3, and v4 records must reload together");
-    failures += check(reloaded.recentSnapshots().size() == 4, "valid records must populate history");
+    failures += check(reloaded.snapshotCount() == 5, "v1 through v5 records must reload together");
+    failures += check(reloaded.recentSnapshots().size() == 5, "valid records must populate history");
 
     if (failures == 0) {
         std::puts("MultiDetectTargetEvidenceStoreSelfTest: PASS");

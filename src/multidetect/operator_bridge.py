@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from math import isfinite
@@ -289,6 +290,7 @@ class LiveOperatorBridge:
         payload_target_status_heartbeat_s: float = 1.0 / 15.0,
         target_pool_status_heartbeat_s: float = 0.2,
         scene_context_status_heartbeat_s: float = 0.5,
+        producer_epoch: int | None = None,
         manual_tracker_factory: Callable[[VideoGeometry], Any] | None = None,
     ) -> None:
         if maximum_commands_per_frame <= 0 or maximum_errors_per_frame <= 0:
@@ -322,6 +324,8 @@ class LiveOperatorBridge:
             or scene_context_status_heartbeat_s <= 0.0
         ):
             raise ValueError("scene-context status heartbeat must be finite and positive")
+        if producer_epoch is not None and not 1 <= producer_epoch <= 0xFFFFFFFF:
+            raise ValueError("producer epoch must be a nonzero unsigned 32-bit integer")
         self.transport = transport
         self.target_lock = target_lock
         self.maximum_commands_per_frame = maximum_commands_per_frame
@@ -336,6 +340,7 @@ class LiveOperatorBridge:
         self.payload_target_status_heartbeat_s = payload_target_status_heartbeat_s
         self.target_pool_status_heartbeat_s = target_pool_status_heartbeat_s
         self.scene_context_status_heartbeat_s = scene_context_status_heartbeat_s
+        self.producer_epoch = producer_epoch or (secrets.randbelow(0xFFFFFFFF) + 1)
         self._manual_tracker_factory = manual_tracker_factory or OpenCVManualTargetTracker
         self._manual_tracker: Any | None = None
         self._manual_tracker_unavailable = False
@@ -723,6 +728,7 @@ class LiveOperatorBridge:
             observation = TargetObservationStatusMessage(
                 sequence=target_geolocation_status.sequence,
                 produced_at_s=target_geolocation_status.produced_at_s,
+                producer_epoch=self.producer_epoch,
                 range_status=range_status,
                 target_geolocation_status=target_geolocation_status,
                 gnss_status=gnss_status,

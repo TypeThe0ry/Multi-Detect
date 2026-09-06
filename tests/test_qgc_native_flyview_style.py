@@ -394,6 +394,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'qsTr("不可保存：当前 GNSS 质量证据不合格或已过期")' in layer
     for field in (
         "atomic_observation",
+        "producer_epoch",
         "range_status_sequence",
         "range_sent_at_ms",
         "target_geolocation_sequence",
@@ -410,8 +411,9 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
         "gnss_source_age_ms",
     ):
         assert f'"{field}"' in layer
+    assert "multidetect.target-evidence.v5" in card
     assert "multidetect.target-evidence.v4" in card
-    assert 'qsTr("GNSS：单包原子观测' in card
+    assert 'qsTr("GNSS：代际绑定原子观测' in card
     assert 'qsTr("GNSS：旧版 v3 同生产帧三消息绑定")' in card
     assert 'qsTr("GNSS：旧版 v2 同期质量记录，无原子 envelope 绑定")' in card
     assert 'qsTr("GNSS：旧版 v1 记录，无独立质量证据")' in card
@@ -420,6 +422,8 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'QStringLiteral("multidetect.target-evidence.v2")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v3")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v4")' in evidence_store
+    assert 'QStringLiteral("multidetect.target-evidence.v5")' in evidence_store
+    assert 'QStringLiteral("producer_epoch")' in evidence_store
     assert "rangeSequence != targetGeolocationSequence" in evidence_store
     assert "rangeSentAtMs != targetGeolocationSentAtMs" in evidence_store
     assert "gnssHorizontalAccuracyM > 6.0" in evidence_store
@@ -744,6 +748,8 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "targetGeolocationSequence === gnssSequence" in state
     assert "rangeSentAtMs === targetGeolocationSentAtMs" in state
     assert "targetGeolocationSentAtMs === gnssSentAtMs" in state
+    assert "rangeProducerEpoch === targetGeolocationProducerEpoch" in state
+    assert "targetGeolocationProducerEpoch === gnssProducerEpoch" in state
     assert "MultiDetectState.targetGeolocationGnssBindingValid" in layer
     atomic_start = controller.index(
         "packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus"
@@ -756,6 +762,9 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert 'fields.value(QStringLiteral("targetGeolocationStatus")).toMap()' in atomic
     assert 'fields.value(QStringLiteral("gnssStatus")).toMap()' in atomic
     assert atomic.count('insert(QStringLiteral("atomicObservation"), true)') == 3
+    assert atomic.count('insert(QStringLiteral("producerEpoch")') == 3
+    assert "_acceptTargetObservationEpoch(fields)" in controller
+    assert "_targetObservationEpoch.observe(incomingEpoch)" in controller
     gps_start = indicator.index("function _gpsQualityValue()")
     gps_end = indicator.index("function _gnssDetailValue()", gps_start)
     gps = indicator[gps_start:gps_end]

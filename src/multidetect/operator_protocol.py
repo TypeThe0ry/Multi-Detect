@@ -105,7 +105,7 @@ _GNSS_STATUS = struct.Struct(">BBBBBHHH")
 # Compact range + target coordinate + GNSS quality.  The authenticated frame
 # is 124 bytes total (20-byte header + 88-byte body + 16-byte HMAC), staying
 # below MAVLink TUNNEL's fixed 128-byte payload ceiling.
-_TARGET_OBSERVATION_STATUS = struct.Struct(">QQQBIHH6HhHHiiHBBBBiiHHBBBBBHHH")
+_TARGET_OBSERVATION_STATUS = struct.Struct(">QQQBIHH6HhHHiiHBBBBiiHHBBBBBHHHI")
 
 
 class OperatorProtocolError(ValueError):
@@ -799,6 +799,7 @@ class OperatorTunnelCodec:
             _encode_distance(gnss.horizontal_accuracy_m),
             _encode_distance(gnss.vertical_accuracy_m),
             _encode_duration(gnss.source_age_s),
+            status.producer_epoch,
         )
         return self._encode_frame(
             WireMessageType.TARGET_OBSERVATION_STATUS,
@@ -2231,6 +2232,7 @@ class OperatorTunnelCodec:
             horizontal_accuracy,
             vertical_accuracy,
             gnss_source_age,
+            producer_epoch,
         ) = _TARGET_OBSERVATION_STATUS.unpack(body)
         if target_hash == 0 or frame_hash == 0 or calibration_hash == 0:
             raise OperatorProtocolError("target-observation-status identifiers are invalid")
@@ -2302,6 +2304,7 @@ class OperatorTunnelCodec:
             return TargetObservationStatusMessage(
                 sequence=sequence,
                 produced_at_s=sent_at_s,
+                producer_epoch=producer_epoch,
                 range_status=range_status,
                 target_geolocation_status=geolocation,
                 gnss_status=gnss,

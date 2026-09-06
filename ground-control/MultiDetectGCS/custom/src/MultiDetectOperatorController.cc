@@ -805,6 +805,10 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         emit payloadTargetAcknowledged(fields);
         return;
     }
+    if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus &&
+        !_acceptTargetObservationEpoch(fields)) {
+        return;
+    }
     if (packet.type == MultiDetectOperatorProtocol::MessageType::TrackStatus) {
         // A correlated tracking update proves that Jetson accepted and applied
         // the selection, even if the one-shot SelectionAck datagram was lost.
@@ -927,12 +931,15 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         rangeFields.insert(QStringLiteral("sequence"), packet.sequence);
         rangeFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
         rangeFields.insert(QStringLiteral("atomicObservation"), true);
+        rangeFields.insert(QStringLiteral("producerEpoch"), fields.value(QStringLiteral("producerEpoch")));
         geolocationFields.insert(QStringLiteral("sequence"), packet.sequence);
         geolocationFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
         geolocationFields.insert(QStringLiteral("atomicObservation"), true);
+        geolocationFields.insert(QStringLiteral("producerEpoch"), fields.value(QStringLiteral("producerEpoch")));
         gnssFields.insert(QStringLiteral("sequence"), packet.sequence);
         gnssFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
         gnssFields.insert(QStringLiteral("atomicObservation"), true);
+        gnssFields.insert(QStringLiteral("producerEpoch"), fields.value(QStringLiteral("producerEpoch")));
         _rangeStatus = rangeFields;
         _targetGeolocationStatus = geolocationFields;
         _gnssStatus = gnssFields;
@@ -1658,6 +1665,63 @@ bool MultiDetectOperatorController::_isNewStatus(MultiDetectOperatorProtocol::Me
     }
     _lastStatusSequence.insert(key, sequence);
     _lastStatusAcceptedAtMs.insert(key, receivedAtMs);
+    return true;
+}
+
+bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariantMap& fields)
+{
+    bool epochOk = false;
+    const quint32 incomingEpoch = fields.value(QStringLiteral("producerEpoch")).toUInt(&epochOk);
+    if (!epochOk || incomingEpoch == 0) {
+        _reject(QStringLiteral("atomic target observation producer epoch is invalid"));
+        return false;
+    }
+    const MultiDetectObservationEpoch::Result result = _targetObservationEpoch.observe(incomingEpoch);
+    if (result == MultiDetectObservationEpoch::Result::Current) {
+        return true;
+    }
+    if (result == MultiDetectObservationEpoch::Result::Retired) {
+        _reject(QStringLiteral("atomic target observation belongs to a retired producer epoch"));
+        return false;
+    }
+    if (result == MultiDetectObservationEpoch::Result::Invalid) {
+        _reject(QStringLiteral("atomic target observation producer epoch is invalid"));
+        return false;
+    }
+
+    // A producer restart resets its wire sequence and all camera-frame replay
+    // state. Retire the previous epoch before clearing the visible triple so
+    // a delayed old datagram can never resurrect the old target afterwards.
+    for (const auto type : {MultiDetectOperatorProtocol::MessageType::RangeStatus,
+                            MultiDetectOperatorProtocol::MessageType::TargetGeolocationStatus,
+                            MultiDetectOperatorProtocol::MessageType::GnssStatus,
+                            MultiDetectOperatorProtocol::MessageType::TargetObservationStatus}) {
+        const int key = static_cast<int>(type);
+        _lastStatusSequence.remove(key);
+        _lastStatusAcceptedAtMs.remove(key);
+    }
+    _clearTargetGeolocationSourceState();
+    const bool hadRange = !_rangeStatus.isEmpty();
+    const bool hadGeolocation = !_targetGeolocationStatus.isEmpty();
+    const bool hadGnss = !_gnssStatus.isEmpty();
+    _rangeStatus.clear();
+    _targetGeolocationStatus.clear();
+    _gnssStatus.clear();
+    _lastRangeStatusAtMs = 0;
+    _lastTargetGeolocationStatusAtMs = 0;
+    _lastGnssStatusAtMs = 0;
+    if (hadRange) {
+        emit rangeStatusChanged();
+    }
+    if (hadGeolocation) {
+        emit targetGeolocationStatusChanged();
+    }
+    if (hadGnss) {
+        emit gnssStatusChanged();
+    }
+    qCInfo(MultiDetectOperatorLog).nospace()
+        << "adopting target observation producer epoch=" << incomingEpoch
+        << " retired_count=" << _targetObservationEpoch.retiredCount();
     return true;
 }
 

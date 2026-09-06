@@ -616,6 +616,7 @@ def test_target_observation_status_round_trip_is_one_authenticated_tunnel_payloa
     observation = TargetObservationStatusMessage(
         sequence=115,
         produced_at_s=produced_at_s,
+        producer_epoch=0xA1B2C3D4,
         range_status=range_status,
         target_geolocation_status=geolocation,
         gnss_status=gnss,
@@ -624,12 +625,13 @@ def test_target_observation_status_round_trip_is_one_authenticated_tunnel_payloa
     encoded = _codec().encode_target_observation_status(observation)
     decoded = _codec().decode(encoded)
 
-    assert len(encoded) == 124
+    assert len(encoded) == 128
     assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
     assert decoded.message_type is WireMessageType.TARGET_OBSERVATION_STATUS
     message = decoded.message
     assert isinstance(message, TargetObservationStatusMessage)
     assert message.sequence == 115
+    assert message.producer_epoch == 0xA1B2C3D4
     assert message.range_status.ground_range_m == pytest.approx(105.2)
     assert message.range_status.source_contributions == ()
     assert message.target_geolocation_status.latitude_deg == pytest.approx(1.3008983)
@@ -647,6 +649,8 @@ def test_target_observation_status_round_trip_is_one_authenticated_tunnel_payloa
 
     with pytest.raises(ValueError, match="share one producer timestamp"):
         replace(observation, gnss_status=replace(gnss, produced_at_s=produced_at_s + 0.1))
+    with pytest.raises(ValueError, match="producer epoch"):
+        replace(observation, producer_epoch=0)
     with pytest.raises(ValueError, match="requires qualified GNSS"):
         replace(
             observation,

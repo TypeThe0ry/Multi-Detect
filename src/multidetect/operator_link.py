@@ -1478,6 +1478,7 @@ class TargetObservationStatusMessage:
 
     sequence: int
     produced_at_s: float
+    producer_epoch: int
     range_status: RangeStatusMessage
     target_geolocation_status: TargetGeolocationStatusMessage
     gnss_status: GnssStatusMessage
@@ -1491,6 +1492,10 @@ class TargetObservationStatusMessage:
             raise ValueError("unsupported operator-link protocol version")
         if not 0 <= self.sequence <= 0xFFFFFFFF:
             raise ValueError("sequence must fit in an unsigned 32-bit integer")
+        if not 1 <= self.producer_epoch <= 0xFFFFFFFF:
+            raise ValueError(
+                "target observation producer epoch must be a nonzero unsigned 32-bit integer"
+            )
         if not isfinite(self.produced_at_s) or self.produced_at_s < 0.0:
             raise ValueError("target observation timestamp must be finite and non-negative")
         if not isinstance(self.range_status, RangeStatusMessage):

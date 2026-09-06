@@ -277,6 +277,7 @@ def test_atomic_target_observation_fits_one_signed_mavlink_tunnel() -> None:
     observation = TargetObservationStatusMessage(
         sequence=23,
         produced_at_s=produced_at_s,
+        producer_epoch=0xA1B2C3D4,
         range_status=range_status,
         target_geolocation_status=geolocation,
         gnss_status=gnss,

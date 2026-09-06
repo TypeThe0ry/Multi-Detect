@@ -924,6 +924,7 @@ def test_background_server_delivers_selection_and_returns_tracking_status() -> N
                 TargetObservationStatusMessage(
                     sequence=6,
                     produced_at_s=range_status.produced_at_s,
+                    producer_epoch=0xA1B2C3D4,
                     range_status=replace(range_status, sequence=6),
                     target_geolocation_status=atomic_geolocation,
                     gnss_status=atomic_gnss,

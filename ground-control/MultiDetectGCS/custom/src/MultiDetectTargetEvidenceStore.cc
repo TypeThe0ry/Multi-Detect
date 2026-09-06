@@ -95,7 +95,8 @@ bool validSnapshotRecord(const QJsonObject& record)
     const bool gnssV2 = schema == QStringLiteral("multidetect.target-evidence.v2");
     const bool boundV3 = schema == QStringLiteral("multidetect.target-evidence.v3");
     const bool atomicV4 = schema == QStringLiteral("multidetect.target-evidence.v4");
-    if (!legacyV1 && !gnssV2 && !boundV3 && !atomicV4) {
+    const bool epochBoundV5 = schema == QStringLiteral("multidetect.target-evidence.v5");
+    if (!legacyV1 && !gnssV2 && !boundV3 && !atomicV4 && !epochBoundV5) {
         return false;
     }
     if (!validJsonText(record, QStringLiteral("target_id"), kMaximumTargetIdLength, true) ||
@@ -148,7 +149,7 @@ bool validSnapshotRecord(const QJsonObject& record)
         return false;
     }
 
-    if (gnssV2 || boundV3 || atomicV4) {
+    if (gnssV2 || boundV3 || atomicV4 || epochBoundV5) {
         bool gnssPresent = false;
         double gnssValue = 0.0;
         const auto validInteger = [&record, &gnssPresent, &gnssValue](
@@ -177,7 +178,7 @@ bool validSnapshotRecord(const QJsonObject& record)
             record.value(QStringLiteral("gnss_reason")).toString() != QStringLiteral("gps_qualified")) {
             return false;
         }
-        if (boundV3 || atomicV4) {
+        if (boundV3 || atomicV4 || epochBoundV5) {
             double targetSequence = 0.0;
             double targetSentAtMs = 0.0;
             double gnssSentAtMs = 0.0;
@@ -193,7 +194,7 @@ bool validSnapshotRecord(const QJsonObject& record)
                 return false;
             }
         }
-        if (atomicV4) {
+        if (atomicV4 || epochBoundV5) {
             double rangeSequence = 0.0;
             double rangeSentAtMs = 0.0;
             double targetSequence = 0.0;
@@ -218,6 +219,14 @@ bool validSnapshotRecord(const QJsonObject& record)
                                   kMaximumExactJsonInteger, true, &gnssPresent, &gnssSentAtMs) ||
                 rangeSequence != targetSequence || targetSequence != gnssSequence ||
                 rangeSentAtMs != targetSentAtMs || targetSentAtMs != gnssSentAtMs) {
+                return false;
+            }
+        }
+        if (epochBoundV5) {
+            double producerEpoch = 0.0;
+            if (!finiteJsonNumber(record, QStringLiteral("producer_epoch"), 1.0,
+                                  kMaximumGnssSequence, true, &gnssPresent, &producerEpoch) ||
+                std::floor(producerEpoch) != producerEpoch) {
                 return false;
             }
         }
@@ -350,6 +359,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     double gnssHorizontalAccuracyM = 0.0;
     double gnssVerticalAccuracyM = 0.0;
     double gnssSourceAgeMs = 0.0;
+    double producerEpoch = 0.0;
     const QString gnssReason = boundedText(snapshot, "gnss_reason", 64);
     if (!requiredBoolean("atomic_observation", &atomicObservation) || !atomicObservation ||
         !requiredBoolean("gnss_qualified", &gnssQualified) || !gnssQualified ||
@@ -363,6 +373,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
                          &targetGeolocationSentAtMs) ||
         !requiredInteger("gnss_status_sequence", 0.0, kMaximumGnssSequence, &gnssSequence) ||
         !requiredInteger("gnss_sent_at_ms", 0.0, kMaximumExactJsonInteger, &gnssSentAtMs) ||
+        !requiredInteger("producer_epoch", 1.0, kMaximumGnssSequence, &producerEpoch) ||
         !requiredInteger("gnss_fix_type", 3.0, 8.0, &gnssFixType) ||
         !requiredInteger("gnss_satellites_visible", 6.0, 255.0, &gnssSatellitesVisible) ||
         !finiteNumber(snapshot.value(QStringLiteral("gnss_horizontal_accuracy_m")),
@@ -373,7 +384,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         gnssVerticalAccuracyM > 10.0 ||
         !finiteNumber(snapshot.value(QStringLiteral("gnss_source_age_ms")), &gnssSourceAgeMs) ||
         gnssSourceAgeMs < 0.0 || gnssSourceAgeMs > 1500.0) {
-        _setLastError(tr("One authenticated atomic range, geolocation, and GNSS observation is required for a v4 snapshot."));
+        _setLastError(tr("One producer-epoch-bound atomic range, geolocation, and GNSS observation is required for a v5 snapshot."));
         return false;
     }
     if (rangeSequence != targetGeolocationSequence || targetGeolocationSequence != gnssSequence ||
@@ -389,7 +400,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
 
     QJsonObject record;
-    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v4"));
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v5"));
     record.insert(QStringLiteral("saved_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     record.insert(QStringLiteral("target_id"), targetId);
     record.insert(QStringLiteral("target_label"), boundedText(snapshot, "target_label", kMaximumTargetLabelLength));
@@ -408,6 +419,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         record.insert(QStringLiteral("source_age_ms"), sourceAgeMs);
     }
     record.insert(QStringLiteral("atomic_observation"), atomicObservation);
+    record.insert(QStringLiteral("producer_epoch"), producerEpoch);
     record.insert(QStringLiteral("range_status_sequence"), rangeSequence);
     record.insert(QStringLiteral("range_sent_at_ms"), rangeSentAtMs);
     record.insert(QStringLiteral("target_geolocation_sequence"), targetGeolocationSequence);

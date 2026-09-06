@@ -226,6 +226,7 @@ def _bridge(transport: _Transport) -> LiveOperatorBridge:
             GEOMETRY,
             TargetLockConfig(frozenset({"flame", "smoke"})),
         ),
+        producer_epoch=0xA1B2C3D4,
     )
 
 
@@ -1444,6 +1445,9 @@ def test_bridge_republishes_atomic_observation_when_only_gnss_quality_changes() 
     assert changed.published_range_statuses == (changed_range,)
     assert changed.published_target_geolocation_statuses == (changed_geo,)
     assert len(transport.target_observation_published) == 2
+    assert {status.producer_epoch for status, _peer in transport.target_observation_published} == {
+        0xA1B2C3D4
+    }
 
 
 def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> None:

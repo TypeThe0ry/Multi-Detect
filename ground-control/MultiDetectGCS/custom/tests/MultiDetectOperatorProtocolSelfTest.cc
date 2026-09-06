@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "MultiDetectOperatorProtocol.h"
+#include "MultiDetectObservationEpoch.h"
 #include "MultiDetectPagedStatusSequence.h"
 
 namespace {
@@ -48,6 +49,21 @@ int main(int argc, char* argv[])
     MultiDetectOperatorProtocol protocol(key, QStringLiteral("camera-main"));
     int failures = 0;
     failures += check(protocol.configured(), "protocol must accept the shared 32-byte test key");
+
+    MultiDetectObservationEpoch observationEpoch;
+    failures += check(observationEpoch.observe(0) == MultiDetectObservationEpoch::Result::Invalid,
+                      "zero observation epoch must be invalid");
+    failures += check(observationEpoch.observe(0x11111111U) == MultiDetectObservationEpoch::Result::Advanced &&
+                          observationEpoch.activeEpoch() == 0x11111111U,
+                      "first observation epoch must become active");
+    failures += check(observationEpoch.observe(0x11111111U) == MultiDetectObservationEpoch::Result::Current,
+                      "current observation epoch must remain current");
+    failures += check(observationEpoch.observe(0x22222222U) == MultiDetectObservationEpoch::Result::Advanced &&
+                          observationEpoch.activeEpoch() == 0x22222222U,
+                      "new observation epoch must atomically advance");
+    failures += check(observationEpoch.observe(0x11111111U) == MultiDetectObservationEpoch::Result::Retired &&
+                          observationEpoch.activeEpoch() == 0x22222222U,
+                      "delayed old observation epoch must never reactivate");
 
     QHash<int, quint32> pagedStatusSequence;
     failures += check(MultiDetectPagedStatusSequence::acceptPageSequence(&pagedStatusSequence, 1, 20),
@@ -406,16 +422,17 @@ int main(int argc, char* argv[])
                       "GNSS status must remain display-only");
 
     const QByteArray targetObservation = vector(
-        "4d44011a00000000007300000000000f433a0058e65c7f305ba849ec9b383ba6daf97c12"
+        "4d44011a00000000007300000000000f433a005ce65c7f305ba849ec9b383ba6daf97c12"
         "5a736508010f597402001000000009000004d2041c04ae04f703fd043bfb2e87ce007d0000"
-        "0400ffffff1d00017f69010100c680573ddeb10d00430032010c02030e000c001a00036bbf"
-        "ffa1cbac47ee42ba2af321ffd263");
-    failures += check(targetObservation.size() == 124,
+        "0400ffffff1d00017f69010100c680573ddeb10d00430032010c02030e000c001a0003a1b2"
+        "c3d4b7124ac2383d3a627f1b8d0913a86de4");
+    failures += check(targetObservation.size() == 128,
                       "atomic target observation vector must fit one MAVLink TUNNEL payload");
     failures += check(protocol.decode(targetObservation, &packet, &error),
                       "atomic target observation golden vector must decode");
     failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus &&
                           packet.sequence == 115 &&
+                          packet.fields.value(QStringLiteral("producerEpoch")).toUInt() == 0xA1B2C3D4U &&
                           packet.fields.value(QStringLiteral("atomicObservation")).toBool(),
                       "atomic target observation envelope mismatch");
     const QVariantMap observationRange = packet.fields.value(QStringLiteral("rangeStatus")).toMap();
@@ -441,13 +458,20 @@ int main(int argc, char* argv[])
                       "atomic target observation GNSS fields mismatch");
 
     const QByteArray forgedAtomicObservation = vector(
-        "4d44011a00000000007300000000000f433a0058e65c7f305ba849ec9b383ba6daf97c12"
+        "4d44011a00000000007300000000000f433a005ce65c7f305ba849ec9b383ba6daf97c12"
         "5a736508010f597402001000000009000004d2041c04ae04f703fd043bfb2e87ce007d0000"
-        "0400ffffff1d00017f69010100c680573ddeb10d00430032000c02030e000c001a0003d9c5"
-        "4cabc722f71455c1c9f434080c01");
+        "0400ffffff1d00017f69010100c680573ddeb10d00430032000c02030e000c001a0003a1b2"
+        "c3d4e946207ab5b11a924e9dc7865b5339ec");
     failures += check(!protocol.decode(forgedAtomicObservation, &packet, &error) &&
                           error == QStringLiteral("target-observation GNSS content is inconsistent"),
                       "atomic observation must reject qualified coordinates bound to weak GNSS");
+
+    QByteArray zeroEpochObservation = targetObservation;
+    zeroEpochObservation.replace(108, 4, QByteArray(4, '\0'));
+    zeroEpochObservation = resign(zeroEpochObservation, key);
+    failures += check(!protocol.decode(zeroEpochObservation, &packet, &error) &&
+                          error == QStringLiteral("target-observation range content is invalid"),
+                      "atomic observation must reject a zero producer epoch");
 
     QByteArray forgedQualifiedGnss = gnssStatus;
     forgedQualifiedGnss[24] = static_cast<char>(0x04);  // only four satellites

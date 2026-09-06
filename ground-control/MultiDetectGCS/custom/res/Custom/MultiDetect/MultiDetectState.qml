@@ -653,6 +653,7 @@ QtObject {
             root.gnssSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
             root.gnssSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
             root.gnssAtomicObservation = status.atomicObservation === true;
+            root.gnssProducerEpoch = Number.isFinite(status.producerEpoch) ? status.producerEpoch : -1;
             root.gnssQualified = status.qualified === true;
             root.gnssReason = String(status.reason || "");
             root.gnssPositionHealthyAvailable = status.positionHealthyAvailable === true;
@@ -668,6 +669,7 @@ QtObject {
             root.rangeSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
             root.rangeSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
             root.rangeAtomicObservation = status.atomicObservation === true;
+            root.rangeProducerEpoch = Number.isFinite(status.producerEpoch) ? status.producerEpoch : -1;
             root.rangeTargetId = status.targetId;
             root.rangeCalibrationId = status.calibrationId;
             root.rangeSourceFrameId = String(status.sourceFrameId || "");
@@ -724,6 +726,7 @@ QtObject {
             root.targetGeolocationSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
             root.targetGeolocationSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
             root.targetGeolocationAtomicObservation = status.atomicObservation === true;
+            root.targetGeolocationProducerEpoch = Number.isFinite(status.producerEpoch) ? status.producerEpoch : -1;
             root.targetGeolocationTargetId = String(status.targetId || "");
             root.targetGeolocationSourceFrameId = String(status.sourceFrameId || "");
             root.targetGeolocationAvailable = status.available === true;
@@ -1138,6 +1141,7 @@ QtObject {
     property real rangeSequence: -1
     property real rangeSentAtMs: NaN
     property bool rangeAtomicObservation: false
+    property real rangeProducerEpoch: -1
     property real rangeSourceAgeMs: NaN
     // A fresh transport envelope must not make an old metric range look
     // current.  This is the QML counterpart of the operator-link decoder
@@ -1160,6 +1164,7 @@ QtObject {
     property real gnssSequence: -1
     property real gnssSentAtMs: NaN
     property bool gnssAtomicObservation: false
+    property real gnssProducerEpoch: -1
     property bool gnssQualified: false
     property string gnssReason: ""
     property bool gnssPositionHealthyAvailable: false
@@ -1173,6 +1178,7 @@ QtObject {
     property real targetGeolocationSequence: -1
     property real targetGeolocationSentAtMs: NaN
     property bool targetGeolocationAtomicObservation: false
+    property real targetGeolocationProducerEpoch: -1
     property real targetHorizontalSigmaM: -1.0
     property real targetLatitudeDeg: NaN
     property real targetLongitudeDeg: NaN
@@ -1204,6 +1210,10 @@ QtObject {
                                                                targetGeolocationSequence === gnssSequence &&
                                                                rangeSentAtMs === targetGeolocationSentAtMs &&
                                                                targetGeolocationSentAtMs === gnssSentAtMs
+                                                               && Number.isFinite(rangeProducerEpoch)
+                                                               && rangeProducerEpoch > 0
+                                                               && rangeProducerEpoch === targetGeolocationProducerEpoch
+                                                               && targetGeolocationProducerEpoch === gnssProducerEpoch
     readonly property bool targetGeolocationSourceFresh: Number.isFinite(targetGeolocationSourceAgeMs) &&
                                                          targetGeolocationSourceAgeMs >= 0.0 &&
                                                          targetGeolocationSourceAgeMs <= maximumTargetGeolocationSourceAgeMs &&
@@ -2061,6 +2071,7 @@ QtObject {
         rangeSequence = -1;
         rangeSentAtMs = NaN;
         rangeAtomicObservation = false;
+        rangeProducerEpoch = -1;
         rangeTargetId = "";
         rangeCalibrationId = "";
         rangeValidity = "UNAVAILABLE";
@@ -2088,6 +2099,7 @@ QtObject {
         targetGeolocationSequence = -1;
         targetGeolocationSentAtMs = NaN;
         targetGeolocationAtomicObservation = false;
+        targetGeolocationProducerEpoch = -1;
         targetHorizontalSigmaM = -1.0;
         targetLatitudeDeg = NaN;
         targetLongitudeDeg = NaN;
@@ -2102,6 +2114,7 @@ QtObject {
         gnssSequence = -1;
         gnssSentAtMs = NaN;
         gnssAtomicObservation = false;
+        gnssProducerEpoch = -1;
         gnssQualified = false;
         gnssReason = "";
         gnssPositionHealthyAvailable = false;

@@ -1032,6 +1032,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         quint8 qualifiedValue = 0, gnssReasonValue = 0, positionHealthValue = 0;
         quint8 fixTypeValue = 0, satellitesValue = 0;
         quint16 horizontalAccuracy = 0, verticalAccuracy = 0, gnssSourceAge = 0;
+        quint32 producerEpoch = 0;
         if (!reader.readU64(&targetId) || !reader.readU64(&frameId) || !reader.readU64(&calibrationId) ||
             !reader.readU8(&validityValue) || !reader.readU32(&reasonMask) || !reader.readU16(&sourceMask) ||
             !reader.readU16(&rejectedSourceMask) || !reader.readU16(&slantRange) ||
@@ -1046,7 +1047,8 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             !reader.readU8(&qualifiedValue) || !reader.readU8(&gnssReasonValue) ||
             !reader.readU8(&positionHealthValue) || !reader.readU8(&fixTypeValue) ||
             !reader.readU8(&satellitesValue) || !reader.readU16(&horizontalAccuracy) ||
-            !reader.readU16(&verticalAccuracy) || !reader.readU16(&gnssSourceAge) || !reader.atEnd()) {
+            !reader.readU16(&verticalAccuracy) || !reader.readU16(&gnssSourceAge) ||
+            !reader.readU32(&producerEpoch) || !reader.atEnd()) {
             return fail(error, QStringLiteral("target-observation-status body has an invalid size"));
         }
 
@@ -1135,7 +1137,8 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         const bool slantIntervalAvailable = slantLow != kUnavailableU16 || slantHigh != kUnavailableU16;
         const bool groundIntervalAvailable = groundLow != kUnavailableU16 || groundHigh != kUnavailableU16;
         const double dataFreshnessS = decodeDistance(dataFreshness);
-        if (targetId == 0 || frameId == 0 || calibrationId == 0 || validity.isEmpty() || reasonMask == 0 ||
+        if (targetId == 0 || frameId == 0 || calibrationId == 0 || producerEpoch == 0 ||
+            validity.isEmpty() || reasonMask == 0 ||
             vehicleCode >= vehicleProfiles.size() || navigationCode >= navigationStates.size() ||
             motionCode >= motionRegimes.size() || (sourceMask & ~kSourceMask) ||
             (rejectedSourceMask & ~kSourceMask) || (sourceMask & rejectedSourceMask) || consistency == 255 ||
@@ -1271,6 +1274,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         fields.insert(QStringLiteral("rangeStatus"), rangeFields);
         fields.insert(QStringLiteral("targetGeolocationStatus"), geolocationFields);
         fields.insert(QStringLiteral("gnssStatus"), gnssFields);
+        fields.insert(QStringLiteral("producerEpoch"), producerEpoch);
         fields.insert(QStringLiteral("atomicObservation"), true);
         fields.insert(QStringLiteral("advisoryOnly"), true);
         fields.insert(QStringLiteral("flightControlEnabled"), false);

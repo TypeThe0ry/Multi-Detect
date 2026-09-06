@@ -70,6 +70,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/FlyViewCustomLayer.qml",
         "ground-control/MultiDetectGCS/custom/src/FlyViewVideo.qml",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectConfigure.qml",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectObservationEpoch.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorController.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorProtocol.cc",
