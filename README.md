@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v155：测距、目标坐标与 GNSS 质量单包原子观测 |
+| 当前工程迭代 | v156：目标观测 producer epoch 与重启后原子重同步 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,10 +82,23 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v156 producer epoch 与重启后原子重同步
+
+operator protocol 类型 `26` 现在在恰好 128-byte 的 MAVLink `TUNNEL` application payload 中携带
+非零 `producer_epoch`。同一个 Jetson/operator bridge 进程产生的 range、target geolocation 与 GNSS
+共享 epoch；生产者重启后，新 epoch 会让 QGC 在采纳新原子三元组前一次性清空旧定位、测距、GNSS、
+source replay guard 与相关 sequence gate，并把旧 epoch 记为 retired。随后迟到的旧进程数据会被永久
+拒绝，不能重新激活过期目标状态。
+
+QML 的地图落点与保存门同时要求三个状态的 epoch、sequence 和 `sentAtMs` 一致。新证据使用
+`multidetect.target-evidence.v5` 并持久化 `producer_epoch`；v1/v2/v3/v4 继续只读兼容，不能伪装成
+epoch-bound 新记录。该链仍为 advisory/display-only，不增加飞控、载荷或物理输出权限；新的 parity
+产生后，v155 的 E7 派生报告只保留为历史证据，必须按当前 parity 重新生成才能用于后续发布判定。
+
 ### v155 单包原子目标观测
 
 Jetson operator bridge 现在把 range、target geolocation 与 `GNSS_STATUS` 编码为一个认证的
-operator protocol 类型 `26`。紧凑载荷为 124 bytes，可完整装入单个 MAVLink `TUNNEL`；三个状态共享
+operator protocol 类型 `26`。当时的紧凑载荷为 124 bytes，可完整装入单个 MAVLink `TUNNEL`；三个状态共享
 同一 envelope sequence、发送时刻和生产帧，任一对象缺失、错帧、身份不一致、坐标质量矛盾或发送失败都
 整包 fail-closed，不会让 QGC 看到半组状态。无目标时的独立 GNSS 诊断和仅测距兼容路径仍保留。
 
@@ -93,20 +106,6 @@ QGC 仅在 HMAC、重放、sequence、来源时效和类型 26 内部不变量�
 新证据使用 `multidetect.target-evidence.v4`，要求三者 sequence/`sentAtMs` 相同且来自原子观测；
 v1/v2/v3 只读兼容，不能伪装成 v4。该链仍为 advisory-only，不增加飞控、
 载荷或物理输出权限，也不替代室外 GNSS、人工 Fly View、真实硬件、HIL/REAL 或实飞验收。
-
-### v154 目标坐标与 GNSS 质量同帧绑定
-
-Jetson operator bridge 在需要发布目标定位时，先要求 `GNSS_STATUS`、range 与 target geolocation
-来自完全相同的 `produced_at_s`，并按 GNSS → range → target geolocation 顺序发送；缺失、时间不等或
-目标声称可定位但 GNSS 不合格时整组 fail-closed，且只有三条消息全部发送成功才推进指纹，失败会重试。
-这保证生产侧三条消息引用同一帧，但 UDP/MAVLink 三消息传输本身仍不是原子事务。
-
-QGC 在认证、重放与 sequence 门之后，把 target geolocation 自身的 envelope sequence/`sentAtMs`
-写入状态；保存按钮要求目标定位与 GNSS 的 `sentAtMs` 精确相等。新记录使用
-`multidetect.target-evidence.v3` 并持久化两侧 provenance；v1/v2 保持只读兼容，历史卡片明确区分
-“同生产帧绑定”和旧版仅同时间质量证据。Release/portable 与 native self-test 已通过；该变化仍是
-advisory-only 证据链，不增加飞控、载荷或物理输出权限，也不替代室外 GNSS、人工 Fly View、硬件、
-HIL/REAL 或实飞验收。最终全量回归为 `3657 passed, 2 skipped, 0 failed`。
 
 ### v152 独立 GNSS 质量状态
 

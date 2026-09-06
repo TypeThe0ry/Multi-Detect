@@ -5,6 +5,22 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v156 producer-epoch observation resynchronization（2026-09-07）
+
+- operator protocol 类型 `26` 新增必填非零 `producer_epoch`，application payload 从 124 bytes 扩展到
+  MAVLink `TUNNEL` 上限 128 bytes；每个 `LiveOperatorBridge` 默认生成随机非零 epoch，并允许测试/受控
+  启动显式注入，同一 bridge 的所有原子目标观测共享该值；
+- QGC 新增原生 producer-epoch 状态机：首次或全新 epoch 原子推进，旧 current epoch 被退休；切换前清空
+  range/geolocation/GNSS、source replay guards 与类型 10/22/25/26 sequence gates。任何迟到 retired epoch
+  都被拒绝，不能让重启前目标状态复活；原生自测覆盖 `A -> B -> delayed A`；
+- QML 地图与保存门要求 range/geolocation/GNSS 的 epoch、sequence、`sentAtMs` 全部一致；新写证据升级为
+  `multidetect.target-evidence.v5` 并保存 `producer_epoch`，v1/v2/v3/v4 继续只读兼容；
+- Release/portable EXE 为 46,639,616 bytes，SHA-256
+  `8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5`。共享 parity 已更新；v155 的
+  E7 派生文件因此降为历史证据，当前 parity 的 E7 派生链仍需重跑；portable simple boot 退出 0 且无 QML
+  初始化错误；最终全量回归为 `3660 passed, 2 skipped, 0 failed`。最终 `v0.3.0`、人工视觉、室外 GNSS、
+  真实硬件、HIL/REAL 与实飞均未声明通过。
+
 ### v0.3.0-pre.8 v155 atomic target observation envelope（2026-09-07）
 
 - 新增认证 operator protocol 类型 `26`，在单个 124-byte application payload / MAVLink `TUNNEL` 中

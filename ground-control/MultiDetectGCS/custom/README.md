@@ -44,6 +44,13 @@ standard Survey editor, and normal Plan save/upload handling is unchanged.
 
 ## Target GPS map evidence
 
+Current type-26 target observations carry a required nonzero 32-bit `producer_epoch` and exactly fill
+one 128-byte MAVLink `TUNNEL` application payload. A newly observed epoch retires the previous producer
+session and atomically clears its visible range/geolocation/GNSS values plus replay/sequence guards
+before the new triple is adopted. Packets from a retired epoch remain rejected, so delayed traffic from
+a restarted Jetson process cannot revive an old target. New snapshots use
+`multidetect.target-evidence.v5` and persist the epoch; v1-v4 records remain read-only compatible.
+
 When Jetson reports a qualified target WGS84 coordinate, **Fly** projects the current matching target
 onto the main map as a red marker with a yellow horizontal `1σ` uncertainty circle. The accompanying
 "目标落图 · 只读" card shows the coordinate, target class, fused distance, relative bearing,

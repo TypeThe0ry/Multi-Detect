@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T19:24:00Z",
+  "updated_at_utc": "2026-09-06T20:02:38Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "dc801caca24ff56b7eeb22c330c465e955562e34",
-    "commit_subject": "feat(operator): publish atomic target observations",
-    "commits_ahead_of_origin_main": 202
+    "commit": "cc0e3f0412b64c6b4450f1496bb1a4f71654f30d",
+    "commit_subject": "feat(operator): bind observations to producer epochs",
+    "commits_ahead_of_origin_main": 204
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v155",
+  "working_iteration": "v156",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 280.19,
+      "duration_seconds": 310.24,
       "local_artifacts_present": true,
-      "junit_local_path": "tmp/current-progress-regression-v155-py312-final.xml",
-      "junit_file_bytes": 533634,
-      "junit_file_sha256": "45e3b03a225840ed747520006b7b458f7f533a7aa0489941540c28fdb085ecf0",
+      "junit_local_path": "tmp/current-progress-regression-v156-py312-final.xml",
+      "junit_file_bytes": 533660,
+      "junit_file_sha256": "79a05cf85681a6964998a77b04f7aee0b6b0e193d18ffa5a595ff8286ade9445",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -136,26 +136,47 @@
       "ruff_format": "passed",
       "compileall": "passed",
       "git_diff_check": "passed"
+    },
+    "v156_producer_epoch_selected_regression": {
+      "passed": true,
+      "tests": 133,
+      "failed": 0,
+      "scope": "operator_protocol_bridge_qgc_producer_epoch_restart_resynchronization_and_evidence_v5",
+      "wire_message_type": 26,
+      "application_payload_bytes": 128,
+      "producer_epoch_required_nonzero": true,
+      "retired_epoch_reactivation_rejected": true,
+      "native_observation_epoch_state_machine_self_test": "passed_a_to_b_delayed_a",
+      "native_target_evidence_store_self_test": "passed",
+      "native_operator_protocol_self_test": "passed",
+      "portable_exe_deployed": true,
+      "portable_simple_boot": "passed",
+      "portable_simple_boot_stderr_bytes": 1009,
+      "portable_simple_boot_stderr_sha256": "a51779c621aedd42b2d38fa63c07b6f4d7a77240784dcfaecf3ad1dba71f9873",
+      "portable_simple_boot_qml_initialization_errors": 0,
+      "ruff": "passed",
+      "git_diff_check": "passed"
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 8735,
-    "file_sha256": "289fd7bd12e12b3931d5aedd3b5c94a34ef5559480f338b6aa139c9d07184cff",
+    "bytes": 8815,
+    "file_sha256": "ceb14c70d5fb37085534b62c703dd76c305f4a9c866bd855250932056ff44bb1",
     "hashes": {
-      "ui_contract_hash": "3ba8008a73ed19bd9c5b774a322989a841263b947a395c977a660c55176bebd7",
+      "ui_contract_hash": "431e8279302c88283718c7722fcc71bafc9500af0a5730b290efbdef55f62d54",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
-      "task_contract_hash": "2cdb5814c09dfad6609b60c71ae9affe1ad5ffcee63f5e4964590799f34c254b",
+      "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
       "px4_mission_path_hash": "df1cab8dd37c203cd8a86c6cee714cdc8650c3cd626376b2584d322ef2b6f4bf"
     }
   },
   "evidence": {
     "gnss_bound_target_evidence_snapshots": {
-      "schema": "multidetect.target-evidence.v4",
+      "schema": "multidetect.target-evidence.v5",
       "legacy_v1_read_compatible": true,
       "legacy_v2_read_compatible": true,
       "legacy_v3_read_compatible": true,
+      "legacy_v4_read_compatible": true,
       "qualified_target_geolocation_required": true,
       "independent_gnss_status_required": true,
       "authenticated_envelope_sequence_and_sent_at_persisted": true,
@@ -164,14 +185,19 @@
       "weak_stale_missing_or_mistyped_gnss_zero_write": true,
       "same_producer_frame_sent_at_binding_required": true,
       "wire_message_type": 26,
-      "application_payload_bytes": 124,
+      "application_payload_bytes": 128,
+      "producer_epoch_required_nonzero": true,
+      "producer_epoch_persisted": true,
+      "range_geolocation_gnss_producer_epoch_equal_required": true,
+      "new_epoch_clears_old_observation_and_replay_state": true,
+      "retired_epoch_reactivation_rejected": true,
       "single_authenticated_message_atomicity_required": true,
       "range_geolocation_gnss_sequence_and_sent_at_equal_required": true,
       "three_message_transport_atomicity_claimed": false,
       "native_store_self_test": "passed",
       "portable_simple_boot": "passed",
-      "exe_bytes": 46633984,
-      "exe_sha256": "788E82B4BF8198EFC8ECD720E2E1A883899D7ADD65DE1276A0221FD61D35AC8F",
+      "exe_bytes": 46639616,
+      "exe_sha256": "8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5",
       "flight_control_enabled": false,
       "physical_release_enabled": false,
       "hardware_claimed": false,
@@ -1427,7 +1453,9 @@
       "file_sha256": "996f595de8e07eb41f63a1edb887637dc8abb0b5acd6a5197d597c549e93ccef",
       "gate_passed": false,
       "release_allowed": false,
-      "blocker_count": 31
+      "blocker_count": 31,
+      "current_release_parity_bound": false,
+      "status": "historical_v155_requires_v156_regeneration"
     }
   },
   "model_status": {

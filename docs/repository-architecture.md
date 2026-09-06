@@ -1,12 +1,30 @@
 # 统一仓库架构
 
+## v156 producer epoch 原子重同步链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+LiveOperatorBridge 启动 -> 随机非零 producer_epoch
+  -> type 26: epoch + range + geolocation + GNSS / HMAC / 128 bytes
+  -> QGC MultiDetectObservationEpoch
+       新 epoch: retire old -> 清空旧状态/replay/sequence -> 原子采纳
+       retired epoch: 永久拒绝
+  -> QML 同 epoch + sequence + sentAtMs 门
+  -> target-evidence.v5（只读兼容 v1/v2/v3/v4）
+```
+
+- `MultiDetectObservationEpoch.h` 是无 UI 依赖的原生状态机，并由 operator protocol self-test 覆盖
+  `A -> B -> delayed A`；controller 负责在 epoch 推进时清空三类可见状态与旧 source/sequence 防重放状态；
+- 类型 `26` application payload 恰好使用 MAVLink `TUNNEL` 的 128-byte 上限；epoch 为必填非零 `uint32`；
+- `MultiDetectState.qml`、`FlyViewCustomLayer.qml` 与 evidence store 共同要求三类状态 epoch 相同，v5 新记录
+  持久化 epoch。链路仍只进入态势感知/证据，不进入飞控或物理释放。
+
 ## v155 原子目标观测链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
 LiveMissionRunner
   -> OperatorBridge：同一 produced_at_s 的 range + geolocation + GNSS
   -> TargetObservationStatusMessage
-  -> operator protocol type 26 / HMAC / 124-byte application payload
+  -> operator protocol type 26 / HMAC / 124-byte application payload（历史格式）
   -> MAVLink TUNNEL 或 authenticated UDP session
   -> QGC C++ decoder/controller：一次性采纳三个嵌套状态
   -> MultiDetectState：同 sequence + sentAtMs + atomic 标志

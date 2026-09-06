@@ -1,6 +1,30 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v155 工作树）
+最后更新：2026-09-07（v156 工作树）
+
+## v156 本轮已收口
+
+- 类型 `26` 新增必填非零 `producer_epoch`，紧凑 body 扩展后整个 application payload 恰好 128 bytes，仍为
+  单个 MAVLink `TUNNEL`。`LiveOperatorBridge` 每次启动默认生成新的随机非零 epoch，同一进程发布的 range、
+  target geolocation 与 GNSS 原子三元组共享它。
+- QGC 新增 `MultiDetectObservationEpoch` 状态机。新 epoch 到达时先原子清空旧三类可见状态、时间戳、source
+  replay guards 与类型 10/22/25/26 sequence gates，再采纳新三元组；旧 epoch 被记为 retired，迟到包永久拒绝。
+  原生回归覆盖 producer A、切换 producer B、迟到 A 被拒且 B 仍保持 active。
+- QML 要求 range/geolocation/GNSS 同时具有相同的正 epoch、sequence 与 `sentAtMs` 才允许落图/保存；新证据为
+  `multidetect.target-evidence.v5` 并保存 `producer_epoch`，v1/v2/v3/v4 只读兼容。变化仍是 display/advisory-only。
+- focused Python/QGC static 回归 133 项通过，Ruff 通过；operator protocol 与 target evidence store 原生自测通过。
+  Windows Release 与 portable 主 EXE 均为 46,639,616 bytes，SHA-256
+  `8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5`；功能提交为
+  `cc0e3f0412b64c6b4450f1496bb1a4f71654f30d`。portable hidden/offscreen simple boot 退出 0；stderr
+  1,009 bytes、SHA-256 `A51779C621AEDD42B2D38FA63C07B6F4D7A77240784DCFAECF3AD1DBA71F9873`，无 QML 初始化错误。
+- `release-parity.json` 为 8,815 bytes，SHA-256
+  `CEB14C70D5FB37085534B62C703DD76C305F4A9C866BD855250932056FF44BB1`；UI/task contract 更新为
+  `431E8279302C88283718C7722FCC71BAFC9500AF0A5730B290EFBDEF55F62D54` /
+  `7F8721C1561F5CBEB7A3CC41A7CDE2FACE1B58F1EEE8B33976A5F35AEF8BCD5C`，core/safety/PX4 identity 未变。
+- parity 已变化，所以 v155 external join、response matrix、fault campaign 与 E7 report 只保留为历史证据；它们不能
+  冒充当前 parity 的发布证据。当前发布状态仍阻断；人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞均未通过。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 310.24 秒；JUnit
+  533,660 bytes、SHA-256 `79A05CF85681A6964998A77B04F7AEE0B6B0E193D18FFA5A595FF8286ADE9445`。
 
 ## v155 本轮已收口
 

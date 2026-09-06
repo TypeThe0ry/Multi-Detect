@@ -12,7 +12,21 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-### v155 当前 portable 与单包原子目标观测（2026-09-07）
+### v156 当前 portable 与 producer epoch 重同步（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,639,616` bytes，SHA-256
+`8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5`。operator protocol type 26
+现在为恰好 128-byte application payload，并携带必填非零 `producer_epoch`。QGC 对全新 epoch 先清除
+旧 range/geolocation/GNSS、source replay 与 sequence 状态，再原子采纳新三元组；迟到的 retired epoch
+永久拒绝。证据新写入为 `multidetect.target-evidence.v5`，v1-v4 只读兼容。
+
+推荐入口仍为
+`D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
+hidden/offscreen simple boot 退出 0，stderr 1,009 bytes、SHA-256
+`A51779C621AEDD42B2D38FA63C07B6F4D7A77240784DCFAECF3AD1DBA71F9873`，无 QML 初始化错误。
+这是软件构建；人工 Fly View、室外 GNSS、HIL/REAL、硬件和实飞验收状态不变。
+
+### v155 portable 与单包原子目标观测（历史，2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,633,984` bytes，SHA-256
 `788E82B4BF8198EFC8ECD720E2E1A883899D7ADD65DE1276A0221FD61D35AC8F`。它已包含 operator protocol

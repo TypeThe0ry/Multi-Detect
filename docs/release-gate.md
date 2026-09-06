@@ -1,6 +1,14 @@
 # v0.3.0 E7 发布门
 
-## v155 当前原子观测重绑定（2026-09-07，`v0.3.0-pre.8`）
+## v156 producer epoch 变更后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
+
+type 26 新增 producer epoch 后，共享 UI/task parity 已变化。v155 的 external join/revalidation、三机型
+response matrix、故障 campaign 与 E7 manifest/report 继续保留为历史记录，但不再绑定当前 parity，不能作为
+当前发布判定。必须重新派生这些证据后才能恢复 current-parity E7 结论。最终 `v0.3.0` 仍为阻断状态；既有
+31 个未关闭门不会因本次软件协议增强而减少，人工视觉、室外 GNSS、field link、HIL/REAL、真实硬件与实飞
+仍未验收。
+
+## v155 当前原子观测重绑定（历史，2026-09-07，`v0.3.0-pre.8`）
 
 type 26 原子目标观测与 evidence v4 更新后，`release-parity.json`、external join/revalidation、三机型
 `GLOBAL_POSITION_INT` response matrix 和 6 正例/9 故障 campaign 均按当前源重新派生。当前 E7 report 为
