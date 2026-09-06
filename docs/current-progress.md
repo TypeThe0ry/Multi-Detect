@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v117 工作树）
+最后更新：2026-09-06（v118 工作树）
+
+## v118 本轮已收口
+
+- `multidetect-field-replay-campaign` / `scripts/run_field_replay_campaign.py` 新增 `annotation-ui`：启动前
+  fresh 重开不可变 plan、模型哈希、intake receipt 和 annotation workspace，只有 authoritative stage
+  为 `annotation_required` 才把当前固定路径交给 v117 工作台；
+- campaign status 新增 `annotation_workbench_argv`，可以直接复制运行；尚未完成 intake/workspace、已完成
+  review、证据漂移或其他 stage 都不能借该入口修改标注；
+- stdout 先输出 `field_replay_annotation_workbench_authorized`，绑定 campaign ID、dataset ID/version、
+  plan canonical hash 和 stage，再由工作台输出随机 loopback URL、`loopback_only=true` 与 `hardware_io=false`；
+- 回归覆盖参数解析、默认 UI 命令、intake-ready 与 annotation-finalize-ready 拒绝，以及真实子进程随机端口
+  启动、HTTP 页面读取和终止；这仍不代替真实人员视觉/交互、标注或复核；
+- 全量回归 3,521 tests：`3520 passed, 1 skipped, 0 failed, 0 errors`，耗时 220.230 秒；JUnit
+  513,503 bytes、SHA-256 `FCA8182DF1650B2FB2CAB2D4F076DF52903155369542116B06BCA019B6DA848A`；
+  全仓 Ruff 通过。共享 parity、QGC C++/QML、portable EXE 与 E7 32 blockers 均未改变。
 
 ## v117 本轮已收口
 

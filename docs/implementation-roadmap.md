@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## campaign 绑定标注工作台（v118）
+
+- [x] `annotation-ui` 只接受 fresh `annotation_required` campaign；
+- [x] status 输出当前 plan 解析出的可执行 UI argv；
+- [x] 启动日志绑定 campaign、dataset、plan canonical hash 与 stage；
+- [x] intake-ready、reviewed/finalize-ready 和证据漂移 fail-closed；
+- [x] 真实子进程随机 loopback HTTP 生命周期和全量回归；
+- [ ] 在真实六分层 campaign 使用该入口完成人工标注与独立复核。
+
 ## 本机可视化回放标注工作台（v117）
 
 - [x] hash-verified 图像读取与精确 frame ID API；

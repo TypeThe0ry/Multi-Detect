@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v118 campaign-bound annotation UI（2026-09-06）
+
+- `multidetect-field-replay-campaign` 新增 `annotation-ui`，只在 fresh status 为 `annotation_required`
+  时解析当前 campaign 的固定 intake/workspace 并在同进程启动 v117 loopback 工作台；
+- campaign status 新增可直接执行的 `annotation_workbench_argv`；启动前再次复验 plan/model/intake/
+  annotation，完成 review、尚未建 workspace 或证据漂移时 fail-closed；
+- stdout 先记录 campaign/dataset/plan canonical hash 授权事件，再记录 loopback/hardware-IO 启动事件；
+  真实子进程 HTTP 生命周期已覆盖。全量 3,521 tests：`3520 passed, 1 skipped`；E7 仍有 32 blockers。
+
 ### v0.3.0-pre.8 v117 local visual annotation workbench（2026-09-06）
 
 - 新增 `multidetect-replay-annotation-ui` 与 clean-checkout wrapper：浏览已通过 intake/hash 复验的帧，

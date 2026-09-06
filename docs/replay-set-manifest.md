@@ -372,7 +372,16 @@ python scripts/run_field_replay_campaign.py advance artifacts\field-campaigns\fi
 ```
 
 首次 `advance` 自动完成 intake 和标注工作区创建，然后停在 `annotation_required`。按照其
-`next_argv` 逐帧执行下文的 `annotate`，全部完成后用独立身份执行 `review`；状态返回
+`annotation_workbench_argv` 可直接启动与当前 plan 绑定的可视化工作台：
+
+```powershell
+python scripts/run_field_replay_campaign.py annotation-ui `
+  artifacts\field-campaigns\fire-smoke-v1 --open-browser
+```
+
+该入口会 fresh 重开 plan/model/intake/annotation，只有当前 stage 仍为 `annotation_required` 才启动；
+stdout 的授权事件包含 campaign、dataset 和 plan canonical hash，随后才输出随机 loopback URL。也可按照
+`next_argv` 逐帧执行下文的 CLI `annotate`。全部完成后用独立身份执行 `review`；状态返回
 `review_content_bound=true` 后再继续：
 
 ```powershell

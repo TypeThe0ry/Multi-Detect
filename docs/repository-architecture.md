@@ -2074,7 +2074,9 @@ Perception Core            Flight Integration
 - `field_replay_campaign.py`、`scripts/run_field_replay_campaign.py` 与
   `configs/schemas/field-replay-campaign-plan.schema.json` 是上述现场证据链的可恢复编排层：计划
   固定六个来源、模型和质量门参数，`advance` 只执行可确定的机器 stage，遇到采集或四人独立审核
-  就停住；每次 `status` 都从磁盘重开模型、receipt、accuracy 和 calibration，不保存可伪造的动态通过位。
+  就停住；每次 `status` 都从磁盘重开模型、receipt、accuracy 和 calibration，不保存可伪造的动态通过位；
+  `annotation-ui` 仅在 fresh `annotation_required` stage 启动当前 plan 固定的 loopback 工作台，并先记录
+  campaign/dataset/plan hash 授权事件。
 - `replay_annotation_workspace.py` schema v2 与 `replay_annotation_cli.py annotate/review` 把人工动作限制在
   原子、逐帧 mutation：`review_content_hash` 固定 assignment、所有 bbox/disposition、两个人员身份和 UTC
   时间。v1 只用于历史读取，新 campaign 在 finalize 前要求 v2 内容绑定，避免复核后裸改 JSON 或降级绕过。

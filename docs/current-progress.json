@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T05:05:23Z",
+  "updated_at_utc": "2026-09-06T05:16:52Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "57fe105a53d6a8723ad6cc9d836ed77b6d2f2d37",
-    "commit_subject": "feat(replay): add visual annotation workbench",
-    "commits_ahead_of_origin_main": 122
+    "commit": "46059f4198fa9a3b397bec5c95a22ce0efd2c32a",
+    "commit_subject": "feat(replay): launch annotation UI from campaign",
+    "commits_ahead_of_origin_main": 124
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v117",
+  "working_iteration": "v118",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v117-final.xml",
-      "tests": 3519,
-      "passed": 3518,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v118-final.xml",
+      "tests": 3521,
+      "passed": 3520,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 265.846,
-      "junit_local_path": "tmp/current-progress-regression-v117-final.xml",
-      "junit_file_bytes": 513238,
-      "junit_file_sha256": "22ab545fb5beb86fbb54766acee1cb806ceb8361ece57ef59d59227a42e811fa",
+      "duration_seconds": 220.23,
+      "junit_local_path": "tmp/current-progress-regression-v118-final.xml",
+      "junit_file_bytes": 513503,
+      "junit_file_sha256": "fca8182df1650b2fb2cab2d4f076df52903155369542116b06bca019b6da848a",
       "distributed_in_git": false
     },
     "ruff": {
@@ -79,10 +79,14 @@
       "schema_path": "configs/schemas/field-replay-campaign-plan.schema.json",
       "runner_module": "multidetect.field_replay_campaign",
       "wrapper": "scripts/run_field_replay_campaign.py",
-      "commands": ["create", "status", "advance"],
+      "commands": ["create", "status", "advance", "annotation-ui"],
       "canonical_strata": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"],
       "review_roles_must_be_distinct": true,
       "machine_stages_resumable": true,
+      "annotation_ui_requires_fresh_annotation_stage": true,
+      "annotation_ui_plan_identity_logged": true,
+      "annotation_ui_hardware_io": false,
+      "annotation_ui_subprocess_http_lifecycle": "passed",
       "field_campaign_executed": false,
       "release_ready": false,
       "next_action": "collect six real deployment recordings, then create and advance the campaign"
