@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v139：GR01 bench → E7 的事务化现场会话与独立复核 |
+| 当前工程迭代 | v140：GR01 现场会话 `-PlanOnly` 无网络预演回执 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,10 +82,10 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132–v139 认证 ACK 实链源、拓扑、新鲜度与事务化 E7 绑定
+### v132–v140 认证 ACK 实链源、拓扑、新鲜度与事务化 E7 绑定
 
 ACK bench 已绑定 route、sender、socket source、topology 和 GR01 选择/ACK；v137 将后者独立接入 E7，v138
-绑定 UTC/epoch 与 900 秒有效期；v139 用单命令采集、复核并绑定 E7，全部通过后才写 session record。
+绑定 UTC/epoch 与 900 秒有效期；v139 用单命令采集、复核并绑定 E7，v140 可先用 `-PlanOnly` 无网络预演。
 GR01 实链仍未验收，详见 [E7 发布门](docs/release-gate.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定

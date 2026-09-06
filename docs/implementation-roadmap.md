@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## GR01 field-session no-network rehearsal（v140）
+
+- [x] `-PlanOnly` 在任何 bench/network 操作前验证 endpoint、CIDR、身份、阈值、路径和 Python CLI；
+- [x] secret 只记录环境变量名与 present 布尔值，不读取或持久化内容；
+- [x] closed plan receipt 固定执行顺序与 no-network/no-hardware/no-control claims；
+- [x] 缺 secret 时输出可审计的 `ready_to_execute=false` 回执，不创建伪 session；
+- [x] repository-source CLI shim 消除 editable-install 前置条件并进入 safety parity；
+- [ ] 在现场机器先保存 plan receipt，补齐 secret 后执行真实 session，并在独立机器对比 deployment identity。
+
 ## Transactional GR01 bench-to-E7 session（v139）
 
 - [x] 用单个 PowerShell producer 串联 hardware bench、strict bench verify、E7 manifest/report 与独立 session verify；

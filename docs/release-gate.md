@@ -1,5 +1,22 @@
 # v0.3.0 E7 发布门
 
+## v140 no-network GR01 session rehearsal（2026-09-06，`v0.3.0-pre.8`）
+
+到现场前可先运行同一 producer 的预演模式：
+
+```powershell
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 `
+  -ExpectedSourceCidr 192.168.144.0/24 `
+  -PlanOnly `
+  -PlanOutput artifacts\evaluation\gr01-session-plan.json
+```
+
+它只验证配置与工具链，不运行 bench，不打开 UDP，不观察硬件。回执只保存 secret 环境变量名和 `present`，
+从不保存值；缺失时 `ready_to_execute=false` 并列出原因。closed schema 固定 `network_contacted=false`、
+`hardware_observed=false` 及全部 no-control claim，所以 plan 不能作为 GR01/E7/hardware pass 使用。
+
 ## v139 transactional GR01 bench-to-E7 session（2026-09-06，`v0.3.0-pre.8`）
 
 现场不再需要手工拼接“bench 文件 → E7 参数 → report”三步。新 wrapper 在唯一 write-new 目录中完成：

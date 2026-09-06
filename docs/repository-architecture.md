@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v140 GR01 session plan boundary（2026-09-06，`v0.3.0-pre.8`）
+
+- `run_gr01_release_session.ps1 -PlanOnly`：不接触网络的现场配置预演，write-new 输出 ready/reasons；
+- `configs/schemas/gr01-release-session-plan.schema.json`：封闭 endpoint、threshold、secret presence、操作顺序及
+  no-network/no-hardware/no-control 断言；
+- `scripts/run_multidetect_cli.py`：installed-tree-independent CLI shim，使 producer 可直接从 canonical repo 运行；
+- 三者进入 safety parity。plan receipt 是操作前配置证据，不可绑定为 `real_gr01_operator_link`。
+
 ## v139 transactional GR01 release session（2026-09-06，`v0.3.0-pre.8`）
 
 - `scripts/run_gr01_release_session.ps1`：现场 producer；创建唯一目录并依次运行 bench、bench verifier、E7 与

@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v140 GR01 field-session plan receipt（2026-09-06）
+
+- transactional wrapper 新增 `-PlanOnly/-PlanOutput`：验证 literal IPv4、CIDR、路径、解释器、阈值与两个 secret
+  环境变量是否存在，但不读取/序列化值，不接触网络或硬件，也不创建 bench/session 成功记录；
+- 新 closed plan schema 固定四步执行顺序及 `network_contacted=false`、`hardware_observed=false` 和全部 no-control
+  claims；producer 改用 repository-source CLI shim，因此干净源码树无需预先 editable-install；
+- 新 safety parity 的四份派生证据独立通过；E7 继续 `false / false / 32 blockers`、GR01 `present=false`。
+  最终全量回归 `3614 passed, 2 skipped`；本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v139 transactional GR01 release session（2026-09-06）
 
 - 新增 `run_gr01_release_session.ps1`，用一个 write-new 会话目录依次执行真实 GR01 selection/ACK bench、独立

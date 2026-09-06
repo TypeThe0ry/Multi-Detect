@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v139 工作树）
+最后更新：2026-09-06（v140 工作树）
+
+## v140 本轮已收口
+
+- `run_gr01_release_session.ps1` 新增 `-PlanOnly/-PlanOutput`。预演验证 non-loopback literal IPv4、source CIDR、
+  hardware ID、阈值、repo-contained 输出路径、Python/CLI 可用性和两个 secret 环境变量的“名称+是否存在”；
+  secret 值不进入命令参数、输出或日志；
+- plan 使用 write-new JSON；closed schema 固定四步后续操作、`network_contacted=false`、
+  `hardware_observed=false`、`hardware_flight_acceptance=not_claimed` 和全部 no-control/no-release 位。缺 secret 时
+  正常生成 `ready_to_execute=false` 的诊断回执，不启动 bench、不创建 session 目录；
+- 新增 repository-source CLI shim，现场 producer 不再依赖 editable-install；shim、producer 与 plan schema 均进入
+  `safety_policy` parity。canonical parity 为 7,758 bytes、SHA-256
+  `4FB09C34E7925D43B3A55926FF543D8A42716320C613E71948D2A2BE8AA70402`，safety hash 为
+  `C3F6D82749779D8AD1E7484AC237DC2E92078C396F75288BAB476C7969AFD059`，其余四组不变；
+- 新 parity 下 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 均独立通过；
+  E7 继续 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
+  最终全量回归 3,616 tests：`3614 passed, 2 skipped, 0 failed, 0 errors`，耗时 204.33 秒；JUnit
+  527,019 bytes、SHA-256 `9E65D248BA8167721784769AF91BA3417D3CF106A0EEDF5CA78C47EF0A46EB8E`。
+  全仓 Ruff、82 份 schema、源码 compileall 和 diff check 通过。本轮没有接触硬件，没有修改 C++/QML，
+  不重建 portable EXE。
 
 ## v139 本轮已收口
 
