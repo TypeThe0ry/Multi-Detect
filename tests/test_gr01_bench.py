@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from types import SimpleNamespace
 
 from multidetect.compat import UTC
-from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from multidetect.gr01_bench import (
+    Gr01BenchConfig,
+    run_gr01_link_bench,
+    verify_gr01_link_bench_report,
+)
 from multidetect.operator_link import VideoGeometry
 from multidetect.operator_protocol import SelectionAck, SelectionAckReason
 
@@ -28,8 +33,11 @@ def _receipt(*, accepted: bool = True, attempts: int = 1, elapsed_s: float = 0.0
 class _Session:
     maximum_attempts = 3
 
-    def __init__(self, host: str, receipts: list) -> None:
+    def __init__(self, host: str, receipts: list, *, source_host: str | None = None) -> None:
         self.remote = (host, 14580)
+        self.local_source_address = source_host or (
+            "127.0.0.1" if host == "127.0.0.1" else "192.168.10.10"
+        )
         self.receipts = receipts
 
     def deliver(self, _command):
@@ -44,6 +52,7 @@ def test_gr01_hardware_bench_passes_non_loopback_signed_round_trips() -> None:
             minimum_round_trips=3,
             hardware_mode=True,
             hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
         ),
         wall_clock=lambda: 1000.0,
         observed_at=lambda: NOW,
@@ -68,6 +77,7 @@ def test_gr01_hardware_mode_rejects_loopback_even_when_protocol_passes() -> None
             minimum_round_trips=1,
             hardware_mode=True,
             hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
         ),
         wall_clock=lambda: 1000.0,
         observed_at=lambda: NOW,
@@ -106,6 +116,7 @@ def test_gr01_bench_fails_packet_loss_and_latency_limits() -> None:
             minimum_round_trips=3,
             hardware_mode=True,
             hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
             maximum_packet_loss_rate=0.01,
             maximum_ack_latency_p95_ms=500,
         ),
@@ -118,3 +129,81 @@ def test_gr01_bench_fails_packet_loss_and_latency_limits() -> None:
     assert result["ack_latency_p95_ms"] == 700
     assert "packet-loss rate" in " ".join(result["reasons"])
     assert "P95 latency" in " ".join(result["reasons"])
+
+
+def test_gr01_hardware_bench_blocks_transmission_on_wrong_source_route() -> None:
+    session = _Session(
+        "192.168.10.20",
+        [_receipt()],
+        source_host="10.20.30.40",
+    )
+    result = run_gr01_link_bench(
+        session,
+        GEOMETRY,
+        Gr01BenchConfig(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
+        ),
+        wall_clock=lambda: 1000.0,
+        observed_at=lambda: NOW,
+    )
+
+    assert result["passed"] is False
+    assert result["source_route_verified"] is False
+    assert result["transmission_attempts"] == 0
+    assert session.receipts
+
+
+def _passing_hardware_report() -> dict:
+    return run_gr01_link_bench(
+        _Session("192.168.10.20", [_receipt()]),
+        GEOMETRY,
+        Gr01BenchConfig(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
+        ),
+        wall_clock=lambda: 1000.0,
+        observed_at=lambda: NOW,
+    )
+
+
+def test_gr01_bench_verifier_accepts_consistent_passing_report() -> None:
+    result = verify_gr01_link_bench_report(_passing_hardware_report(), require_passed=True)
+
+    assert result["gate_passed"] is True
+    assert result["recomputed_passed"] is True
+    assert all(result["checks"].values())
+
+
+def test_gr01_bench_verifier_rejects_forged_source_route_flag() -> None:
+    forged = deepcopy(_passing_hardware_report())
+    forged["source_route_verified"] = False
+
+    result = verify_gr01_link_bench_report(forged, require_passed=True)
+
+    assert result["gate_passed"] is False
+    assert result["checks"]["source_route_flag"] is False
+
+
+def test_gr01_bench_verifier_accepts_consistent_failed_report_without_pass_gate() -> None:
+    report = run_gr01_link_bench(
+        _Session("192.168.10.20", [_receipt()], source_host="10.20.30.40"),
+        GEOMETRY,
+        Gr01BenchConfig(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-BENCH-001",
+            expected_source_cidr="192.168.10.0/24",
+        ),
+        wall_clock=lambda: 1000.0,
+        observed_at=lambda: NOW,
+    )
+
+    result = verify_gr01_link_bench_report(report)
+
+    assert result["gate_passed"] is True
+    assert result["recomputed_passed"] is False

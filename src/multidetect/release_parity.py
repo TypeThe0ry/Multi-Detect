@@ -195,6 +195,14 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/alert_link_bench.py",
         "configs/schemas/alert-link-topology.schema.json",
         "configs/schemas/alert-link-bench.schema.json",
+        # The GR01 operator-selection bench uses the same physical-route
+        # boundary: bind its connected UDP sender, strict report verifier and
+        # schema so stale or loopback evidence cannot survive a parity change.
+        "src/multidetect/operator_udp.py",
+        "src/multidetect/gr01_bench.py",
+        "src/multidetect/cli.py",
+        "scripts/verify_gr01_link_bench.py",
+        "configs/schemas/gr01-link-bench.schema.json",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",
         "src/multidetect/simulator/control_gateway.py",

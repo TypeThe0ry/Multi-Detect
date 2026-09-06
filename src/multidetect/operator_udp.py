@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import socket
 import time
 from collections import deque
@@ -966,11 +967,13 @@ class UdpOperatorSelectionClient:
         mavlink: OperatorMavlinkTunnelAdapter,
         retry_interval_s: float = 0.25,
         maximum_attempts: int = 3,
+        source_host: str | None = None,
     ) -> None:
         self.remote = _remote_address(host, port)
         self.mavlink = mavlink
         self.retry_interval_s = retry_interval_s
         self.maximum_attempts = maximum_attempts
+        self.source_host = source_host
 
     def deliver(self, command: TargetSelectionCommand) -> UdpSelectionReceipt:
         with UdpOperatorSessionClient(
@@ -979,6 +982,7 @@ class UdpOperatorSelectionClient:
             mavlink=self.mavlink,
             retry_interval_s=self.retry_interval_s,
             maximum_attempts=self.maximum_attempts,
+            source_host=self.source_host,
         ) as session:
             return session.deliver(command)
 
@@ -994,6 +998,7 @@ class UdpOperatorSessionClient:
         mavlink: OperatorMavlinkTunnelAdapter,
         retry_interval_s: float = 0.25,
         maximum_attempts: int = 3,
+        source_host: str | None = None,
     ) -> None:
         self.remote = _remote_address(host, port)
         if retry_interval_s <= 0.0:
@@ -1004,7 +1009,24 @@ class UdpOperatorSessionClient:
         self.retry_interval_s = retry_interval_s
         self.maximum_attempts = maximum_attempts
         self._channel = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if source_host is not None:
+            try:
+                parsed_source = ipaddress.ip_address(source_host.strip())
+            except (AttributeError, ValueError) as exc:
+                self._channel.close()
+                raise ValueError(
+                    "operator UDP source_host must be a concrete IPv4 address"
+                ) from exc
+            if parsed_source.version != 4:
+                self._channel.close()
+                raise ValueError("operator UDP source_host must be an IPv4 address")
+            source_host = str(parsed_source)
+            self._channel.bind((source_host, 0))
         self._channel.connect(self.remote)
+        self.local_source_address = str(ipaddress.ip_address(self._channel.getsockname()[0]))
+        if source_host is not None and self.local_source_address != source_host:
+            self._channel.close()
+            raise OSError("operator UDP sender source differs from configured binding")
         self._active_command_id: str | None = None
         self._last_status_sequence: int | None = None
         self._last_mission_status_sequence: int | None = None

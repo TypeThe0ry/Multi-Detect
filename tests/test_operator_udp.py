@@ -1240,3 +1240,28 @@ def test_background_server_round_trips_bound_payload_target_slide_and_status() -
             assert received_status.eligibility is PayloadTargetEligibility.ELIGIBLE_BURNING_CONTEXT
             assert received_status.confirmation_accepted is True
             assert received_status.physical_release_enabled is False
+
+
+def test_session_client_binds_and_reports_explicit_ipv4_source() -> None:
+    adapter = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with UdpOperatorSessionClient(
+        host="127.0.0.1",
+        port=14580,
+        mavlink=adapter,
+        source_host="127.0.0.1",
+    ) as client:
+        assert client.local_source_address == "127.0.0.1"
+
+
+@pytest.mark.parametrize("source_host", ["localhost", "::1"])
+def test_session_client_rejects_non_ipv4_source(source_host: str) -> None:
+    adapter = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
+
+    with pytest.raises(ValueError, match="IPv4"):
+        UdpOperatorSessionClient(
+            host="127.0.0.1",
+            port=14580,
+            mavlink=adapter,
+            source_host=source_host,
+        )

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-link-bench.schema.json",
+  "title": "Multi-Detect GR01 Link Bench Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event", "observed_at_utc", "hardware_observed",
+    "simulation_only", "passed", "reasons", "hardware_model", "hardware_id",
+    "remote_host", "remote_port", "remote_is_loopback", "expected_source_cidr",
+    "local_source_address", "source_route_verified", "requested_round_trips",
+    "round_trip_samples", "rejected_round_trips", "timed_out_round_trips",
+    "transmission_attempts", "missing_ack_attempts", "packet_loss_rate",
+    "ack_latency_p50_ms", "ack_latency_p95_ms", "bidirectional_ip_verified",
+    "signed_operator_round_trip", "application_hmac_verified",
+    "mavlink2_signature_verified", "checks", "thresholds",
+    "payload_release_requested", "flight_control_enabled", "physical_release_enabled",
+    "hardware_control_enabled"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": {
+      "enum": [
+        "gr01_bench_passed", "gr01_bench_failed",
+        "gr01_software_baseline_bench_passed", "gr01_software_baseline_bench_failed"
+      ]
+    },
+    "observed_at_utc": { "type": "string", "format": "date-time" },
+    "hardware_observed": { "type": "boolean" },
+    "simulation_only": { "type": "boolean" },
+    "passed": { "type": "boolean" },
+    "reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "hardware_model": { "enum": ["GR01", "software_loopback"] },
+    "hardware_id": { "type": ["string", "null"] },
+    "remote_host": { "type": "string", "minLength": 1 },
+    "remote_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "remote_is_loopback": { "type": "boolean" },
+    "expected_source_cidr": { "type": ["string", "null"] },
+    "local_source_address": { "type": ["string", "null"] },
+    "source_route_verified": { "type": "boolean" },
+    "requested_round_trips": { "type": "integer", "minimum": 1 },
+    "round_trip_samples": { "type": "integer", "minimum": 0 },
+    "rejected_round_trips": { "type": "integer", "minimum": 0 },
+    "timed_out_round_trips": { "type": "integer", "minimum": 0 },
+    "transmission_attempts": { "type": "integer", "minimum": 0 },
+    "missing_ack_attempts": { "type": "integer", "minimum": 0 },
+    "packet_loss_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "ack_latency_p50_ms": { "type": ["number", "null"], "minimum": 0 },
+    "ack_latency_p95_ms": { "type": ["number", "null"], "minimum": 0 },
+    "bidirectional_ip_verified": { "type": "boolean" },
+    "signed_operator_round_trip": { "type": "boolean" },
+    "application_hmac_verified": { "type": "boolean" },
+    "mavlink2_signature_verified": { "type": "boolean" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_round_trips", "packet_loss_limit", "ack_latency_limit",
+        "mode_boundary", "source_route", "bidirectional_ack",
+        "signed_operator_round_trip"
+      ],
+      "properties": {
+        "required_round_trips": { "type": "boolean" },
+        "packet_loss_limit": { "type": "boolean" },
+        "ack_latency_limit": { "type": "boolean" },
+        "mode_boundary": { "type": "boolean" },
+        "source_route": { "type": "boolean" },
+        "bidirectional_ack": { "type": "boolean" },
+        "signed_operator_round_trip": { "type": "boolean" }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_packet_loss_rate", "maximum_ack_latency_p95_ms", "maximum_attempts"
+      ],
+      "properties": {
+        "maximum_packet_loss_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maximum_ack_latency_p95_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "maximum_attempts": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "payload_release_requested": { "const": false },
+    "flight_control_enabled": { "const": false },
+    "physical_release_enabled": { "const": false },
+    "hardware_control_enabled": { "const": false }
+  }
+}

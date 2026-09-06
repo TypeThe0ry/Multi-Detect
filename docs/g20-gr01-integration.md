@@ -213,6 +213,11 @@ multi-detect operator-udp-select --host <JETSON_IP> --port 14580 `
 验收输出必须同时满足：客户端 `accepted=true`，服务端 `accepted=true`，命令 ID
 一致，正常链路 `attempts=1`。随后至少循环 100 次，统计 ACK 延迟、重试次数、超时、
 错误签名和序号拒绝；同时用抓包确认只有 UDP/14580 元数据，没有任何飞控命令。
+
+正式 GR01 bench 必须额外给出飞机网段的 `--expected-source-cidr`。工具先读取 OS route
+选择的本机 IPv4，再把同一地址显式 bind 到持续 UDP session；不在目标网段时零发送失败。
+报告写入后用 `scripts/verify_gr01_link_bench.py <report> --require-passed` 离线重算计数、
+丢包、阈值、双向签名标志和 fail-closed 源路由，不能只看报告里的 `passed` 字段。
 防火墙只允许指定 G20/Jetson 地址访问该端口，测试结束后关闭诊断服务。
 
 框选回环通过后，再测试独立授权元数据。服务端的 `--authorization-hil` 只生成一个合成

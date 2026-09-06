@@ -462,10 +462,19 @@ python3 -m multidetect gr01-link-bench \
   --maximum-ack-latency-p95-ms 500 \
   --hardware-mode \
   --hardware-id REPLACE_WITH_GR01_SERIAL_OR_ASSET_ID \
+  --expected-source-cidr REPLACE_WITH_AIRCRAFT_NETWORK_CIDR \
   --out artifacts/evaluation/gr01-bench.json
 ```
 
-`--hardware-mode` 会拒绝 localhost/回环地址。通过结果必须包含100次已接受往返、双向 IP、
+完成后在任意离线环境独立复核结构、计数、路由和阈值：
+
+```bash
+python3 scripts/verify_gr01_link_bench.py \
+  artifacts/evaluation/gr01-bench.json --require-passed
+```
+
+`--hardware-mode` 会拒绝 localhost/回环地址，并要求 OS 实际选出的本机 UDP 源地址属于
+`--expected-source-cidr`；源路由不匹配时在发送前失败，报告中 transmission 为 0。通过结果必须包含100次已接受往返、双向 IP、
 应用 HMAC、MAVLink2 签名、丢包率不超过1%和 ACK P95不超过500 ms。本机直连不加
 `--hardware-mode` 时只会生成 `gr01_software_baseline_bench_passed`，不能满足
 `airframe_bench`。

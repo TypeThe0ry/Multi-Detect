@@ -67,7 +67,7 @@ from .fixed_wing_aim_control import (
     PixhawkFlightControlConfig,
     PixhawkFlightControlProvider,
 )
-from .gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from .gr01_bench import Gr01BenchConfig, resolve_local_source_address, run_gr01_link_bench
 from .inference_provider import provider_selection_document
 from .integrated_replay import IntegratedReplayIdentity, build_integrated_replay_session
 from .integrated_sim import IntegratedSimIdentity, build_integrated_sim_session
@@ -1156,6 +1156,13 @@ def build_parser() -> argparse.ArgumentParser:
     gr01_bench.add_argument("--maximum-ack-latency-p95-ms", type=float, default=500.0)
     gr01_bench.add_argument("--hardware-mode", action="store_true")
     gr01_bench.add_argument("--hardware-id")
+    gr01_bench.add_argument(
+        "--expected-source-cidr",
+        help=(
+            "required in hardware mode; the OS-selected local UDP source address "
+            "must belong to this network"
+        ),
+    )
     gr01_bench.add_argument("--local-system-id", type=int, default=255)
     gr01_bench.add_argument("--local-component-id", type=int, default=190)
     gr01_bench.add_argument("--remote-system-id", type=int, default=1)
@@ -2766,17 +2773,30 @@ def _run_gr01_link_bench(args: argparse.Namespace) -> int:
         maximum_ack_latency_p95_ms=args.maximum_ack_latency_p95_ms,
         hardware_mode=args.hardware_mode,
         hardware_id=args.hardware_id,
+        expected_source_cidr=args.expected_source_cidr,
     )
+    source_host: str | None = None
+    if config.hardware_mode:
+        try:
+            source_host = resolve_local_source_address(args.host, args.port)
+        except (OSError, TypeError, ValueError):
+            # The bench performs the same fail-closed route check and writes a
+            # zero-transmission report, so preserve evidence instead of exiting.
+            source_host = None
     with UdpOperatorSessionClient(
         host=args.host,
         port=args.port,
         mavlink=adapter,
         retry_interval_s=args.retry_interval_seconds,
         maximum_attempts=args.maximum_attempts,
+        source_host=source_host,
     ) as session:
         document = run_gr01_link_bench(session, geometry, config)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    encoded = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    temporary = args.out.with_name(f".{args.out.name}.{os.getpid()}.tmp")
+    temporary.write_text(encoded, encoding="utf-8", newline="\n")
+    os.replace(temporary, args.out)
     _emit(document)
     return 0 if document["passed"] else 1
 
