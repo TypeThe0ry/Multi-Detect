@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v118：campaign 绑定标注工作台 |
+| 当前工程迭代 | v119：现场录像来源证明全链绑定 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,24 +82,25 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v119 现场录像来源证明全链绑定
+
+`multidetect-deployment-recording-attestation` / `scripts/attest_deployment_recording.py` 为每个
+现场 raw recording 生成不可覆盖的 `deployment-recording-source.json`，记录分层、人员、设备、地点、来源和
+UTC 时间窗，并绑定 recording manifest/hash。
+
+intake、campaign 和最终 manifest 都会重开证明，最终清单还将其作为 artifact reference 纳入哈希；仅自报
+deployment、遗漏/换层/换录像/移动/篡改均 fail-closed。lab/synthetic 历史清单继续可读。
+
+该文件是 hash-bound 的人员/来源声明，不是硬件签名、可信时间戳或独立外场验收；当前仓库仍没有真实六分层
+现场录像，因此 E7 继续阻断，QGC portable EXE 和共享 parity 均未改变。完整命令见
+[分层回放集清单](docs/replay-set-manifest.md)。
+
 ### v109–v118 field replay campaign 与 provenance 闭环
 
-`multidetect-field-replay-campaign` 把六分层真实记录 intake、双人标注、固定模型推理、独立 accuracy
-复核、独立 threshold 复核和 fresh verification 串成可恢复状态机。机器步骤可重复 `advance`；缺记录或人工
-身份时明确停住，四个角色必须互不相同，任何 pending 状态都不会产生发布通过声明。
-
-`multidetect-replay-predictions` 对已复核六分层 replay bundle 复用正式 decoder、ONNX/TensorRT detector、
-letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、
-provider、文件哈希和延迟的 `prediction-run.receipt.json`；独立 verifier 会重开整条来源链。
-
-evaluator（wrapper 与 `multidetect evaluate-replay-set`）的 `--prediction-run-receipt` 会再次验证 receipt，
-从中派生模型身份并写入 accuracy report；readiness
-新鲜重算也会复验同一 receipt，拒绝混入另一预测运行或模型。真实 runtime、production approval、synthetic HIL、
-accuracy 与 release 仍是彼此独立的事实；软件闭环不代表现场数据或发布门通过。
-
-calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，独立 verifier 会再次重算全链；E7
-显式投影 report/recomputed provenance 与 promotion readiness。旧证据在预发布仍可读；最终 `v0.3.0`
-要求 provenance 完整且 report/recomputed calibration 都已独立批准。
+`multidetect-field-replay-campaign` 将六分层 intake、双人标注、固定模型正式推理、独立 accuracy/threshold
+复核与 fresh verification 串成可恢复状态机。四个人员角色必须互异；每层 receipt 都会重开上一层原始输入、
+模型、运行参数和文件哈希，pending 或混入另一轮证据时 fail-closed。完整状态机、命令与 provenance 字段见
+[当前进度](docs/current-progress.md) 和 [分层回放集清单](docs/replay-set-manifest.md)。
 
 ### v108–v118 独立人工标注闭环
 
@@ -107,13 +108,9 @@ calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，
 工作区；`annotate/review` CLI 原子写入逐帧 positive/negative 与独立复核。v2 `review_content_hash`
 绑定全部标注和人员/时间，复核后修改会撤销复核，直接篡改会失败；v1 仅保留历史读取兼容。
 
-campaign 的 `annotation-ui` 绑定 plan 后启动本机画框、正/负例与复核；loopback、随机 token/CSP
-和严格 JSON 保护写入。
-
-finalize 要求 annotator/reviewer 非空且大小写不敏感地互不相同、UTC review timestamp、全帧完成，并从已
-验证 intake 重新推导 frame/image assignment。通过后才在 sibling temporary 中一次生成六份
-`ground-truth.jsonl`、reviewed workspace、closed review receipt 和正式 replay manifest；独立 verify 会逐字节
-对账 workspace → truth → manifest，仍固定 predictions/accuracy/release 为 false。
+campaign 的 `annotation-ui` 仅在 fresh `annotation_required` stage 启动本机 loopback 画框工作台；随机
+token/CSP、严格 JSON 与逐图 SHA 保护写入。finalize 仅在全帧完成、独立 reviewer 和内容绑定有效时原子生成
+truth/review receipt/manifest，仍固定 predictions、accuracy 与 release 为 false。
 
 v107 的六分层不可变 intake 命令、拒绝条件和 receipt 契约见
 [分层回放集清单](docs/replay-set-manifest.md) 与 [当前进度](docs/current-progress.md)。

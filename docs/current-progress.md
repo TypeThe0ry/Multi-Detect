@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v118 工作树）
+最后更新：2026-09-06（v119 工作树）
+
+## v119 本轮已收口
+
+- 新增 `multidetect-deployment-recording-attestation` 和 clean-checkout wrapper；每个物理现场 raw recording
+  必须写入不可覆盖的 `deployment-recording-source.json`，记录 canonical stratum、采集人、设备、地点、
+  local/RTSP 来源与 UTC 起止，并绑定 recording manifest 的 bytes/SHA-256/recording hash；
+- verifier 要求起点与 recording 一致、终点覆盖最后 frame/telemetry，重开 event/image 全链；closed schema、
+  strict JSON、canonical hash、非 symlink 和 write-new 语义拒绝模糊或事后覆盖；
+- deployment intake 把证明加入逐文件 inventory 与 receipt 摘要，field campaign 缺任一证明会停在
+  `awaiting_source_attestations`，不会进入标注；
+- `ReplaySetManifest` 新增 `source_attestation` artifact reference；builder/loader 强制 deployment 条目绑定
+  同目录、同 stratum、同 recording 的证明并重新哈希，直接自报 source kind、旧无证明清单、移动或篡改均失败；
+- lab/synthetic 历史清单继续兼容。证明是完整性绑定的人为来源声明，不是硬件签名、可信时间戳或独立外场
+  验收；真实六分层采集、标注、模型评审和 E7 32 blockers 均未改变，共享 parity/QGC EXE 不重建。
+- 全量回归 3,527 tests：`3526 passed, 1 skipped, 0 failed, 0 errors`，耗时 269.24 秒；JUnit
+  514,344 bytes、SHA-256 `FF3FF9F0F0A8944A4EF6DA883D7F50393206C3C325A30716655590C9303B3883`；
+  全仓 Ruff、compileall、schema parse、release parity 重生成与文档门通过，parity 文件逐字节未变化。
 
 ## v118 本轮已收口
 

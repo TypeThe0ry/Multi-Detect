@@ -17,6 +17,7 @@ day / night / haze / reflection / smoke_only / no_fire
 <replay-root>/
 ├── day/
 │   ├── recording.manifest.json
+│   ├── deployment-recording-source.json # 仅 deployment；现场来源与 manifest 绑定
 │   ├── events.jsonl                 # recording manifest 引用的 raw 事件流
 │   ├── frame-*.png                  # events.jsonl 引用的图像
 │   ├── ground-truth.jsonl
@@ -35,7 +36,34 @@ day / night / haze / reflection / smoke_only / no_fire
 
 ## 创建与检查
 
-先在现场采集六份不同的 raw recording，再使用不可覆盖 intake 把来源固定到待标注目录：
+先在现场采集六份不同的 raw recording。每份录像完成且 `recording.manifest.json` 已落盘后，由实际采集人
+写入来源证明；`--started-at-utc` 必须等于 recording manifest 的起点，`--ended-at-utc` 必须是 UTC 且覆盖
+最后一条 frame/telemetry 的相对时间：
+
+```powershell
+cd D:\Projects\Multi-Detect
+python scripts\attest_deployment_recording.py D:\captures\day `
+  --stratum day `
+  --captured-by operator-a `
+  --capture-device-id jetson-csi-main `
+  --capture-site field-site-01 `
+  --source-type local_camera `
+  --started-at-utc 2026-09-06T01:00:00Z `
+  --ended-at-utc 2026-09-06T01:15:00Z
+
+python scripts\attest_deployment_recording.py D:\captures\day `
+  --verify --stratum day
+```
+
+安装包中的等价命令是 `multidetect-deployment-recording-attestation`。对其余五个目录重复执行，并把
+`--stratum` 改成对应 canonical 名称；RTSP 采集将 `--source-type` 改成 `rtsp_camera`。文件采用 write-new，
+已经存在时不会覆盖；需要纠正时应保留旧采集目录/证据并为重新确认的录像建立新目录，而不是静默改写。
+
+证明采用 closed schema，固定 `capture_origin=physical_field`、`synthetic=false`、`simulation=false`、
+`screen_replay=false`，并绑定 manifest bytes/SHA-256/recording hash。它保证“声明内容与这份录像没有被静默
+换掉”，但无法单独证明声明人、设备或地点真实，也不是硬件签名、可信时间戳、人工标注审核或发布批准。
+
+六份证明均通过后，再使用不可覆盖 intake 把来源固定到待标注目录：
 
 ```powershell
 cd D:\Projects\Multi-Detect
@@ -53,10 +81,11 @@ python scripts/prepare_deployment_replay_set.py `
   --verify artifacts\replay-sets\fire-smoke-field-v1
 ```
 
-intake 要求六个显式且不同的源目录/recording hash，不使用 mtime 或 glob 自动挑选。它只复制
-`recording.manifest.json`、event stream 和被引用图像；已有的 `ground-truth.jsonl` 与
+intake 要求六个显式且不同的源目录/recording hash，以及六份分层匹配且重新验证的来源证明，不使用 mtime
+或 glob 自动挑选。它只复制 `recording.manifest.json`、`deployment-recording-source.json`、event stream
+和被引用图像；已有的 `ground-truth.jsonl` 与
 `predictions.jsonl` 不会被带入。输出 `intake.receipt.json` 对逐文件 SHA-256、字节数、recording hash、
-帧数及 inventory 做 canonical 绑定，并固定标注/预测为 pending、全部 review/accuracy/release claims 为
+来源证明摘要、帧数及 inventory 做 canonical 绑定，并固定标注/预测为 pending、全部 review/accuracy/release claims 为
 false。输出目录已存在、任一 symlink/路径逃逸/hash 变化/重复录像/receipt 篡改都会失败，临时目录会清理。
 
 随后生成逐帧人工标注工作区：
@@ -141,7 +170,7 @@ python scripts/replay_annotation_workspace.py verify `
 ```
 
 finalize 会从 intake 重推 assignment，不信任编辑文件自报的 frame/image hash；任何 unannotated 帧、同一人
-同时标注与复核、非法类别/bbox 或输入漂移都会失败。输出包含六份 `ground-truth.jsonl`、
+同时标注与复核、非法类别/bbox 或输入漂移都会失败。输出保留六份来源证明，并包含六份 `ground-truth.jsonl`、
 `annotation-workspace.reviewed.json`、`annotation-review.receipt.json` 和 `replay-set.manifest.json`，但仍明确
 `predictions_complete=false`、`accuracy_validated=false`、`release_ready=false`。
 
@@ -238,8 +267,11 @@ python -m multidetect validate-replay-set `
   --require-complete
 ```
 
-`validate-replay-set` 的默认返回码只表示结构和引用完整；`--require-complete` 还要求六
-类标签全部出现、每个条目都标记为 `deployment_recording`、人工标注已复核。即使这些
+`validate-replay-set` 的默认返回码只表示结构和引用完整；deployment 条目即使不加
+`--require-complete`，也必须携带 `source_attestation` artifact reference，loader 会重开文件、要求它与 recording
+manifest 同目录并复核分层、时间窗与 recording hash。旧的无证明 deployment manifest 会 fail-closed；
+lab/synthetic 历史 manifest 保持可读。`--require-complete` 还要求六类标签全部出现、每个条目都标记为
+`deployment_recording`、人工标注已复核。即使这些
 条件满足，`accuracy_validated` 仍固定为 `false`，必须再运行逐帧 IoU evaluator 并复核
 其结果后才能关闭实现路线中的部署域精度和阈值门。
 

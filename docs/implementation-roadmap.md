@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## deployment recording 来源证明门（v119）
+
+- [x] 每个物理现场 raw recording 使用 closed schema 记录采集人、设备、地点、local/RTSP 来源与 UTC 时间窗；
+- [x] 证明绑定 recording manifest 的 bytes/SHA-256/recording hash，并要求时间窗覆盖最后事件；
+- [x] intake 与 campaign 在标注前重开六份证明，错分层、缺失、篡改或来源漂移 fail-closed；
+- [x] final replay manifest 将证明作为 artifact reference 纳入 canonical identity，旧无证明 deployment 清单拒绝；
+- [x] installed CLI、clean-checkout wrapper、schema、正负向/篡改/全链回归完成；
+- [ ] 现场人员使用真实设备生成六份证明并完成 intake；人为证明仍需配合独立审核，不能替代硬件签名。
+
 ## campaign 绑定标注工作台（v118）
 
 - [x] `annotation-ui` 只接受 fresh `annotation_required` campaign；

@@ -1,5 +1,27 @@
 # 统一仓库架构
 
+## v119 deployment recording 来源证明边界（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+physical local/RTSP capture
+  -> recording.manifest.json + events/images
+  -> deployment-recording-source.json
+       stratum + operator/device/site/source + UTC window
+       manifest bytes/SHA-256 + recording_hash + canonical_hash
+  -> replay_set_intake: copy and receipt-bind exact attestation bytes
+  -> field_replay_campaign: require all six verified attestations
+  -> annotation/prediction copies preserve attestation
+  -> ReplaySetManifest.source_attestation artifact reference
+  -> loader reopens artifact, sibling location, stratum, time and recording binding
+```
+
+核心实现位于 `src/multidetect/deployment_recording_attestation.py`，CLI 位于
+`src/multidetect/deployment_recording_attestation_cli.py`，clean-checkout wrapper 为
+`scripts/attest_deployment_recording.py`，closed contract 为
+`configs/schemas/deployment-recording-source-attestation.schema.json`。intake receipt schema 和 replay-set manifest
+schema 同步携带来源证明绑定。这个边界消除“只把字符串写成 deployment 就升级来源”的旁路；它保留人员声明
+的完整性，但不把声明提升为可信硬件签名、独立审核、HIL/REAL 或最终发布证据。
+
 ## v94 receipt-bound field session（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

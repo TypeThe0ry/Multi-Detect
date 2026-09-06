@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T05:16:52Z",
+  "updated_at_utc": "2026-09-06T05:52:23Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "46059f4198fa9a3b397bec5c95a22ce0efd2c32a",
-    "commit_subject": "feat(replay): launch annotation UI from campaign",
-    "commits_ahead_of_origin_main": 124
+    "commit": "2aec64c644cc88be97384a1387d6787533092880",
+    "commit_subject": "feat(replay): bind physical source attestations",
+    "commits_ahead_of_origin_main": 126
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v118",
+  "working_iteration": "v119",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v118-final.xml",
-      "tests": 3521,
-      "passed": 3520,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v119-final.xml",
+      "tests": 3527,
+      "passed": 3526,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 220.23,
-      "junit_local_path": "tmp/current-progress-regression-v118-final.xml",
-      "junit_file_bytes": 513503,
-      "junit_file_sha256": "fca8182df1650b2fb2cab2d4f076df52903155369542116b06bca019b6da848a",
+      "duration_seconds": 269.24,
+      "junit_local_path": "tmp/current-progress-regression-v119-final.xml",
+      "junit_file_bytes": 514344,
+      "junit_file_sha256": "ff3ff9f0f0a8944a4ef6da883d7f50393206c3c325a30716655590c9303b3883",
       "distributed_in_git": false
     },
     "ruff": {
@@ -87,6 +87,8 @@
       "annotation_ui_plan_identity_logged": true,
       "annotation_ui_hardware_io": false,
       "annotation_ui_subprocess_http_lifecycle": "passed",
+      "physical_source_attestations_required": true,
+      "missing_attestation_stage": "awaiting_source_attestations",
       "field_campaign_executed": false,
       "release_ready": false,
       "next_action": "collect six real deployment recordings, then create and advance the campaign"
@@ -736,10 +738,24 @@
       "installed_command": "multidetect-replay-set-intake",
       "repository_wrapper": "scripts/prepare_deployment_replay_set.py",
       "schema": "configs/schemas/replay-set-intake-receipt.schema.json",
+      "source_attestation": {
+        "implementation": "src/multidetect/deployment_recording_attestation.py",
+        "installed_command": "multidetect-deployment-recording-attestation",
+        "repository_wrapper": "scripts/attest_deployment_recording.py",
+        "schema": "configs/schemas/deployment-recording-source-attestation.schema.json",
+        "write_semantics": "atomic_non_overwriting",
+        "recording_manifest_hash_bound": true,
+        "recording_hash_bound": true,
+        "event_time_window_checked": true,
+        "human_attestation_not_hardware_signature": true,
+        "field_attestations_created": false
+      },
       "canonical_strata_count": 6,
       "explicit_source_binding": true,
       "atomic_non_overwriting_staging": true,
       "raw_artifact_hash_reverification": true,
+      "source_attestation_copied_and_reverified": true,
+      "final_manifest_source_attestation_hash_bound": true,
       "annotations_copied_from_source": false,
       "predictions_copied_from_source": false,
       "release_claim": "not_claimed",

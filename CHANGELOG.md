@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v119 deployment recording source attestation（2026-09-06）
+
+- 新增 installed CLI 与 clean-checkout wrapper，为六分层物理现场录像写入不可覆盖、closed-schema、
+  canonical-hash 的来源证明，绑定采集人/设备/地点/来源、UTC 时间窗和 recording manifest/hash；
+- intake/campaign/final replay manifest 三层都会重开证明；最终 manifest 额外绑定证明文件 bytes/SHA-256，
+  仅自报 `source_kind=deployment_recording`、缺失/错层/换录像/移动/篡改证明均 fail-closed；
+- 证明只保存可审计的人为来源声明，不等于硬件签名或真实外场验收。真实六分层采集和 E7 仍待完成，
+  共享 parity 与 QGC EXE 未改变；全量 3,527 tests：`3526 passed, 1 skipped`。
+
 ### v0.3.0-pre.8 v118 campaign-bound annotation UI（2026-09-06）
 
 - `multidetect-field-replay-campaign` 新增 `annotation-ui`，只在 fresh status 为 `annotation_required`
