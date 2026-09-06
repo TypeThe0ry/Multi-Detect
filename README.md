@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v103：成功地址 apply 回执与 field-link 预检进行 SHA/身份/时效绑定 |
+| 当前工程迭代 | v104：E7 显式投影并重验 REAL field-link 地址来源状态 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,14 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v104 E7 地址来源投影
+
+release-gate manifest 的 `real_field_link.address_state_bound` 由 writer 从 canonical field-link verifier
+结果生成。E7 evaluator 会重开父预检及其地址回执，再把实际绑定状态与 manifest 投影对账；删除或篡改
+投影字段、替换嵌套地址回执都会阻断。历史 prerelease manifest 仍可读取，但最终 `0.3.0` 必须显式携带
+该投影。字段为 `false` 表示网卡可能由其他受控方式配置，并不自动失败；它只负责把 provenance 状态
+准确暴露给最终审核者，不能伪造为 `true`。
 
 ### v103 地址 apply 回执绑定到外场预检
 

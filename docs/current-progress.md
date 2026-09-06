@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v103 工作树）
+最后更新：2026-09-06（v104 工作树）
+
+## v104 本轮已收口
+
+- release manifest writer 从 canonical field-link verifier 生成 `real_field_link.address_state_bound`，E7
+  无需下钻源 JSON 即可看见 REAL 链路是否携带地址 apply provenance；
+- evaluator 每次重开 field-link 报告及其嵌套地址回执，将实际 binding presence 与 manifest 投影对账；
+  顶层布尔篡改、嵌套地址源漂移均 fail-closed；
+- prerelease 保留旧 manifest 可读性；最终 `0.3.0` 必须显式携带该投影，但允许值为 false，以兼容由
+  DHCP、预置静态地址或其他受控机制配置的现场网络，避免把特定 helper 错当唯一部署方式；
+- release-gate schema/writer/evaluator 纳入 PX4 Mission parity，hash 更新为 `7CD5CD2B...B32402F`；
+  本轮没有生成硬件、HIL、REAL 或实飞接受声明；全量回归 3,497 tests：
+  `3496 passed, 1 skipped, 0 failed, 0 errors`，耗时 172.340 秒；JUnit 510,223 bytes、SHA-256
+  `6EB9E2180B44649CB0F7C23ACF5C1ABE9C490B27AC349694463F829FBCB6F90D`；全仓 Ruff 与
+  compileall 通过。
 
 ## v103 本轮已收口
 

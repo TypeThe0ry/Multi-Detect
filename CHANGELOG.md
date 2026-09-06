@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v104 E7 field-address provenance projection（2026-09-06）
+
+- release manifest writer 从 field-link canonical verifier 生成 `address_state_bound`，不接受调用方自报；
+- E7 evaluator 重开父预检和嵌套地址回执，对账实际 binding presence，拒绝顶层字段篡改和嵌套源漂移；
+- 最终 `0.3.0` 要求显式携带该投影，历史 prerelease 仍可读；false 仍合法，以支持 DHCP/预置静态地址等
+  受控部署方式；PX4 Mission parity 更新为 `7cd5cd2b...b32402f`，不提升任何现场或实飞声明；全量
+  回归 3,497 tests：`3496 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v103 bound field address receipts（2026-09-06）
 
 - field-link preflight CLI/PowerShell wrapper 可接收成功 apply 地址回执，并要求接口、地址/prefix、父级

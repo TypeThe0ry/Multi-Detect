@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## E7 REAL field-link 地址来源投影（v104）
+
+- [x] writer 从 canonical verifier 结果投影 `address_state_bound`，禁止调用方自报；
+- [x] evaluator 重开父预检和嵌套回执，并对账实际 binding presence；
+- [x] manifest 字段篡改或嵌套地址源漂移均使 E7 fail-closed；
+- [x] 最终 release 要求显式投影，历史 prerelease 保持可读；
+- [x] false 保留为合法可审计状态，不把本仓库 helper 强制为唯一现场配置机制；
+- [ ] 现场 bound ready preflight 进入 E7 后确认投影为 true，并保存最终审核截图/报告。
+
 ## 地址 apply 回执与外场预检绑定（v103）
 
 - [x] 预检 CLI/PowerShell wrapper 接受成功 apply 地址回执并独立复验；

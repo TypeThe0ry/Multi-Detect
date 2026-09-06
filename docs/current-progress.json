@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T01:03:04Z",
+  "updated_at_utc": "2026-09-06T01:13:20Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "42ed1a4f694a995f64f7559157e8f287847244e6",
-    "commit_subject": "feat(field): bind address receipts to preflight",
-    "commits_ahead_of_origin_main": 94
+    "commit": "5353bd4639d53f3dfee35316eb591f7a14ed66d8",
+    "commit_subject": "feat(release): project field address provenance",
+    "commits_ahead_of_origin_main": 96
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v103",
+  "working_iteration": "v104",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v103-final.xml",
-      "tests": 3496,
-      "passed": 3495,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v104-final.xml",
+      "tests": 3497,
+      "passed": 3496,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 112.331,
-      "junit_local_path": "tmp/current-progress-regression-v103-final.xml",
-      "junit_file_bytes": 510081,
-      "junit_file_sha256": "d6665848313861046a7c2fd496d68178c28f87a66758d81c80fbf155094c007f",
+      "duration_seconds": 172.34,
+      "junit_local_path": "tmp/current-progress-regression-v104-final.xml",
+      "junit_file_bytes": 510223,
+      "junit_file_sha256": "6eb9e2180b44649cb0f7c23acf5c1abe9c490b27ac349694463f829fbcb6f90d",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 7007,
-    "file_sha256": "ec4ef5709054d3f1208dd9106e7f9ac250a59b1bf1dce87cd1c726f66be80dc5",
+    "file_sha256": "4824da3149980a24cf4a14d785e6708e65aaae27e55cee2079dc3c67b96a1e57",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "d5b15bf45f8f55b484b6f43f6c624a2f9c6494245ef1a1cae55e0b1a4dfbc87e",
-      "px4_mission_path_hash": "4bdefec05c4b42c045b3b8678acf196b62960ed248489f3904c3ab4170bbcc1a"
+      "px4_mission_path_hash": "7cd5cd2b0599c81d14fa9fd6fba6c978645cde4ec38ce4f8bbd20e4c6b32402f"
     }
   },
   "evidence": {
@@ -257,6 +257,9 @@
       "address_state_preflight_binding_maximum_age_seconds": 300.0,
       "address_state_preflight_binding_uses_parent_observation_time": true,
       "address_state_preflight_binding_cannot_upgrade_endpoint_readiness": true,
+      "release_manifest_projects_address_state_binding": true,
+      "release_evaluator_reopens_address_state_binding": true,
+      "final_release_requires_explicit_address_state_projection": true,
       "successful_address_apply_receipt_collected": false,
       "bound_ready_preflight_collected": false,
       "address_plan_local_path": "tmp/field-link-address-plan-v102-final.json",
