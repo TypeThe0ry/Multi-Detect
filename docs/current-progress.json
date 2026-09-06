@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T03:54:45Z",
+  "updated_at_utc": "2026-09-06T04:05:07Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "1c514832b45e020c45226d7c1387f86df0961059",
-    "commit_subject": "feat(release): require calibration provenance",
-    "commits_ahead_of_origin_main": 114
+    "commit": "24fb1d5b43f1ee0de0d37dfc3a05dc205eb99854",
+    "commit_subject": "fix(release): require calibration promotion readiness",
+    "commits_ahead_of_origin_main": 116
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v113",
+  "working_iteration": "v114",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v113-final.xml",
-      "tests": 3511,
-      "passed": 3510,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v114-final.xml",
+      "tests": 3512,
+      "passed": 3511,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 192.488,
-      "junit_local_path": "tmp/current-progress-regression-v113-final.xml",
-      "junit_file_bytes": 512114,
-      "junit_file_sha256": "20660335e255d76787b9797e2ebf6219392fe6c161f76c61284b53066df4dc83",
+      "duration_seconds": 197.33,
+      "junit_local_path": "tmp/current-progress-regression-v114-final.xml",
+      "junit_file_bytes": 512248,
+      "junit_file_sha256": "c4b5020705a7501b433eabe7dba80db9dacbe696dd5da3d0a6bd4da159460795",
       "distributed_in_git": false
     },
     "ruff": {
@@ -800,13 +800,16 @@
       "verification_report_and_recomputed_provenance_fields": true,
       "release_gate_provenance_projection": true,
       "final_release_requires_provenance_complete": true,
+      "release_gate_promotion_ready_projection": true,
+      "final_release_requires_promotion_ready": true,
+      "field_calibration_promotion_ready": false,
       "field_calibration_provenance_complete": false,
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "local_path": "tmp/terminal-continuation-v113/release-gate-pre.8-current-20260906T035900Z-v6-bound-report.json",
+      "local_path": "tmp/terminal-continuation-v114/release-gate-pre.8-current-20260906T040600Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "b591f718c3c7c4d1d6ab634528f97a979a443fc388ab32555aec79a0bc25e995",
+      "file_sha256": "ef5869d31429da80c2221452c299e700e487f97c05c8c88440d62fa78659f93e",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32

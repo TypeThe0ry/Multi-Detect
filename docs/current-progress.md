@@ -1,6 +1,18 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v113 工作树）
+最后更新：2026-09-06（v114 工作树）
+
+## v114 本轮已收口
+
+- E7 calibration verification 结果新增聚合 `promotion_ready`：只有 report 与当前输入重新计算都明确为 true
+  才成立；历史缺失、任一 pending 或不一致都不能获得该状态；
+- prerelease 仍允许读取和绑定 `promotion_ready=false` 的确定性诊断，不破坏阈值探索和历史证据；
+- final release 在 v113 provenance 门之外进一步要求 promotion-ready，封死“完整性通过但阈值未独立批准”仍能
+  进入最终版的缺口；专项测试实际构造未 reviewed calibration，证明 prerelease 可读而 release 明确阻断；
+- 当前 parity 未变化；E7 重算新增诊断字段后仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，
+  calibration 的 `promotion_ready=false`、`provenance_complete=false` 与现有 SIM fixture 一致；
+- 全量回归 3,512 tests：`3511 passed, 1 skipped, 0 failed, 0 errors`，耗时 197.330 秒；JUnit
+  512,248 bytes、SHA-256 `C4B5020705A7501B433EABE7DBA80DB9DACBE696DD5DA3D0A6BD4DA159460795`。
 
 ## v113 本轮已收口
 

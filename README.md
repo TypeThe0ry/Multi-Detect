@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v113：calibration provenance 进入 E7 正式发布门 |
+| 当前工程迭代 | v114：最终发布要求 calibration promotion-ready |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v109–v113 prediction、accuracy、calibration 与 E7 provenance 闭环
+### v109–v114 prediction、accuracy、calibration 与 E7 provenance 闭环
 
 `multidetect-replay-predictions` 对已复核六分层 replay bundle 复用正式 decoder、ONNX/TensorRT detector、
 letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、
@@ -94,7 +94,8 @@ evaluator（wrapper 与 `multidetect evaluate-replay-set`）的 `--prediction-ru
 accuracy 与 release 仍是彼此独立的事实；软件闭环不代表现场数据或发布门通过。
 
 calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，独立 verifier 会再次重算全链；E7
-显式投影 report/recomputed provenance。旧证据在预发布仍可读但为 false，最终 `v0.3.0` 必须为 true。
+显式投影 report/recomputed provenance 与 promotion readiness。旧证据在预发布仍可读；最终 `v0.3.0`
+要求 provenance 完整且 report/recomputed calibration 都已独立批准。
 
 ### v108 独立人工标注闭环
 

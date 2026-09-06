@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v114 final calibration promotion gate（2026-09-06）
+
+- E7 calibration 诊断新增聚合 `promotion_ready`，必须同时来自报告声明和当前输入确定性重算；
+- prerelease 继续接受 `promotion_ready=false` 的完整性/调参诊断，最终 `v0.3.0` 则明确要求 calibration
+  verification 通过、provenance 完整且 promotion-ready，防止未批准阈值进入正式版；
+- 当前 E7 仍为 32 blockers；全量 3,512 tests：`3511 passed, 1 skipped`，共享 parity 与 QGC EXE 未变。
+
 ### v0.3.0-pre.8 v113 E7 calibration provenance gate（2026-09-06）
 
 - calibration verifier 新增 report/recomputed provenance 投影；E7 manifest writer 和 evaluator 将两项事实

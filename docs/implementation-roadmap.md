@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## 最终 calibration promotion gate（v114）
+
+- [x] E7 汇总 report/recomputed promotion readiness；
+- [x] prerelease 保持 pending calibration 诊断兼容；
+- [x] final release 同时要求 verification、provenance 与 promotion-ready；
+- [x] 覆盖未 reviewed calibration 的 prerelease/readiness/final-channel 分层回归；
+- [ ] 现场数据完成独立 accuracy 与 threshold review，生成两项都为 true 的正式证据。
+
 ## calibration provenance 进入 E7（v113）
 
 - [x] verifier 分别投影 report 与 recomputed provenance completeness；
