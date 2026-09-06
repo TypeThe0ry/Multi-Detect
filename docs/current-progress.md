@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v128 工作树）
+最后更新：2026-09-06（v129 工作树）
+
+## v129 本轮已收口
+
+- 部署器先用 `ssh -G` 解析显式 user/host/port，再从 `KnownHostsFile` 通过 `ssh-keygen -F` 只提取该目标的
+  可信 key，写成不可覆盖的每次部署 `.ssh-host-keys` snapshot；scp/ssh 同时指定该 snapshot 并排除 global
+  known_hosts，整个远端操作前后再次比较 snapshot SHA，发生变化会删除刚写的 install receipt 并失败；
+- installation receipt/Schema 升级 v3，绑定 resolved host、snapshot artifact reference 和排序唯一的 SHA256
+  fingerprints。独立 Python verifier 不依赖 ssh-keygen，自行解析 base64 key、重算 fingerprint，并复核明文或
+  OpenSSH `|1|salt|HMAC-SHA1` hashed-host token；错主机、snapshot 篡改、重复/伪造 fingerprint、revoked marker、
+  未知 key type、注释/空行均 fail-closed；
+- 当前真实 `C:\Users\admin\.ssh\known_hosts` 没有 `192.168.144.20`：实际非 package-only 负测在 scp 前以
+  `No trusted host key exists` 停止，且 host snapshot、remote output、install receipt 均不存在。负测目录只保留
+  dirty-source package/tar 供诊断，不构成远端安装证据；
+- 全量回归 3,572 tests：`3570 passed, 2 skipped, 0 failed, 0 errors`，耗时 258.54 秒；JUnit
+  520,970 bytes、SHA-256 `FB3D32C97F9A1D7E95DD0FC7B02C85F610042AA063D0C19221E89F2EBA955C0E`；
+  Ruff、compileall、PowerShell parse、Git Bash syntax、Windows OpenSSH option smoke、diff/parity 通过；共享
+  哈希/QGC EXE 未改变，真实 Jetson/hardware/HIL/REAL/release 未通过，E7 仍有 32 blockers。
 
 ## v128 本轮已收口
 

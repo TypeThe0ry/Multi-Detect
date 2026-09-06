@@ -687,14 +687,16 @@ python scripts\verify_jetson_evidence_capture_package.py `
 ```powershell
 scripts\deploy_jetson_evidence_capture.ps1 `
   -HostAlias 192.168.144.20 -RemoteUser jetson -SshPort 22 `
+  -KnownHostsFile "$env:USERPROFILE\.ssh\known_hosts" `
   -DeploymentId <unique-deployment-id>
 ```
 
-部署器固定 BatchMode、`StrictHostKeyChecking=yes` 和 `UpdateHostKeys=no`；不会提示或保存密码，也不会自动接受/
-替换 host key。部署只写独立
+部署器会先从该文件提取 resolved host 的匹配条目，保存为同一 deployment 的 `.ssh-host-keys`；scp/ssh 排除
+global known_hosts 并只信任该 snapshot，安装回执 v3 绑定其 bytes/SHA 与 fingerprint。固定 BatchMode、
+`StrictHostKeyChecking=yes` 和 `UpdateHostKeys=no`；不会提示或保存密码，也不会自动接受/替换 host key。部署只写独立
 `Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。成功时必须一起保留 `.package.json`、
-`.remote-output.txt` 和 `.install.json`；SSH 失败只产生 `.failed-remote-output.txt`，`-PackageOnly` 不产生
-`.install.json`。用独立消费方重开三件套：
+`.ssh-host-keys`、`.remote-output.txt` 和 `.install.json`；SSH 失败只产生 `.failed-remote-output.txt`，`-PackageOnly` 不产生
+`.install.json`。用独立消费方重开四件套：
 
 ```powershell
 python scripts\verify_jetson_evidence_installation.py `

@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Deployment-bound SSH host key（v129）
+
+- [x] `ssh -G` 解析目标，`ssh-keygen -F` 从显式 known_hosts 提取匹配 key；
+- [x] scp/ssh 只使用每次部署专用 host-key snapshot，排除 global known_hosts，并做前后 hash 检查；
+- [x] installation receipt v3 绑定 resolved host、snapshot bytes/SHA 与 canonical fingerprints；
+- [x] 独立 verifier 支持明文/hashed host，拒绝篡改、错主机、重复 fingerprint、revoked/未知 key；
+- [ ] 通过 Jetson 本机可信控制台核对 fingerprint、写入 known_hosts 后执行真实远端安装并归档四件套。
+
 ## Jetson explicit SSH identity（v128）
 
 - [x] 显式 remote user/SSH port，scp 与 ssh 共用相同 destination；

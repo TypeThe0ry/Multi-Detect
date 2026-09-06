@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v129 deployment-bound SSH host key（2026-09-06，`v0.3.0-pre.8`）
+
+producer 不再让 scp/ssh 直接读取可变的整份用户/global known_hosts：它先解析 user/host/port，从显式输入文件
+提取匹配条目，生成与 deployment ID 同名的 `.ssh-host-keys`，然后让两次 OpenSSH 调用只信任该 snapshot。
+installation v3 将 snapshot artifact、resolved host 和 SHA256 fingerprints 纳入回执。Python verifier 可独立重算
+明文及 OpenSSH hashed-host HMAC 匹配和 key blob fingerprint；任何身份/文件漂移均在 remote-install claim 前关闭。
+这仍只证明工具安装端点身份，不证明相机、GNSS、Pixhawk、HIL/REAL 或 release。
+
 ## v128 explicit SSH login identity（2026-09-06，`v0.3.0-pre.8`）
 
 Jetson deploy producer 将远端登录身份拆成 `HostAlias`、`RemoteUser` 和 `SshPort`，scp/ssh 始终复用同一个

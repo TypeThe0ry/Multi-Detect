@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v129 deployment-bound SSH host key（2026-09-06）
+
+- 部署器从指定 `known_hosts` 提取解析后目标的可信条目，生成每次部署专用 snapshot；scp/ssh 排除 global
+  known_hosts 并只使用该文件，前后 SHA 不一致时删除安装回执并失败；
+- installation receipt v3 绑定 resolved host、snapshot bytes/SHA 和 canonical SHA256 fingerprints；独立 verifier
+  重算明文/hashed host 匹配与 key fingerprint，拒绝错主机、篡改、重复、revoked/未知 key type。当前真实
+  known_hosts 缺目标的负测在 scp 前停止且无成功回执；全量 3,572 tests：`3570 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v128 explicit Jetson SSH identity（2026-09-06）
 
 - Jetson 部署新增显式 `RemoteUser`/`SshPort`，scp/ssh 共用精确 `user@host:port`，并强制

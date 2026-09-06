@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T07:51:23Z",
+  "updated_at_utc": "2026-09-06T08:04:47Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "09e4b152991e07012efe76347f9977318a5f4240",
-    "commit_subject": "feat(jetson): pin remote SSH login inputs",
-    "commits_ahead_of_origin_main": 144
+    "commit": "f51c4317ee476feb5186351c3a4b10a72e6372b3",
+    "commit_subject": "feat(jetson): bind trusted SSH host keys",
+    "commits_ahead_of_origin_main": 146
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v128",
+  "working_iteration": "v129",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v128-final.xml",
-      "tests": 3566,
-      "passed": 3564,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v129-final.xml",
+      "tests": 3572,
+      "passed": 3570,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 271.65,
-      "junit_local_path": "tmp/current-progress-regression-v128-final.xml",
-      "junit_file_bytes": 520094,
-      "junit_file_sha256": "8b5b93ef1f70641aa16100e35b81bd7484cc968aea9278f401ea891563b8a905",
+      "duration_seconds": 258.54,
+      "junit_local_path": "tmp/current-progress-regression-v129-final.xml",
+      "junit_file_bytes": 520970,
+      "junit_file_sha256": "fb3d32c97f9a1d7e95dd0fc7b02c85f610042aa063d0c19221e89f2eba955c0e",
       "distributed_in_git": false
     },
     "ruff": {
@@ -84,9 +84,9 @@
       "installation_verifier_command": "multidetect-jetson-evidence-install-verify",
       "installation_verifier_wrapper": "scripts/verify_jetson_evidence_installation.py",
       "installation_receipt_schema": "configs/schemas/jetson-evidence-tools-installation.schema.json",
-      "installation_receipt_schema_version": 2,
-      "installation_receipt_schema_bytes": 3622,
-      "installation_receipt_schema_sha256": "8ef907926707b35616188a430522c896a9aef44ac378203d66e256000c7ba857",
+      "installation_receipt_schema_version": 3,
+      "installation_receipt_schema_bytes": 4017,
+      "installation_receipt_schema_sha256": "94ddba6f05bd98ad2fe06c97eab14c32e9540c5b36e27d05a0d030791b01ccd0",
       "installation_receipt_requires_ssh_exit_zero": true,
       "installation_receipt_requires_unique_exact_ready_and_run_markers": true,
       "installation_receipt_binds_package_and_remote_output": true,
@@ -98,7 +98,24 @@
       "ssh_batch_mode": true,
       "ssh_strict_host_key_checking": true,
       "ssh_update_host_keys": false,
+      "ssh_resolved_host_bound": true,
+      "ssh_per_deployment_host_key_snapshot": true,
+      "ssh_global_known_hosts_excluded": true,
+      "ssh_host_key_snapshot_hash_checked_before_and_after": true,
+      "ssh_host_key_fingerprints_recomputed": true,
+      "ssh_hashed_known_host_supported": true,
       "credentials_serialized": false,
+      "host_key_missing_negative_smoke": {
+        "local_path": "tmp/v129-hostkey-negative-c614ac48712e4984b5a5f72a386e6592",
+        "distributed_in_git": false,
+        "source_dirty": true,
+        "expected_error": "No trusted host key exists for '192.168.144.20' in KnownHostsFile.",
+        "failed_before_scp": true,
+        "host_key_snapshot_created": false,
+        "remote_output_created": false,
+        "installation_receipt_created": false,
+        "formal_deployment_evidence": false
+      },
       "package_only_development_smoke": {
         "local_path": "tmp/v128-package-smoke-708e791458da40d0ba01e00678eedc9a",
         "distributed_in_git": false,
