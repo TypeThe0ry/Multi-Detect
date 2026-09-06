@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v120 video→attestation 时间交接（2026-09-06，`v0.3.0-pre.8`）
+
+`video_replay_recording.py` 在写出 raw manifest 后重新加载它，并将 start、最后事件相对时间和 minimum end 写进
+`recording-summary.json.source_attestation_handoff`；状态固定为 `operator_confirmation_required`，不创建证明。
+attestation CLI 的 `--derive-times-from-recording` 消费同一权威 manifest，但仍要求人工 provenance 五元组。
+camera-only 默认的 1970 时间锚会标记为 ineligible，writer/verifier 也独立拒绝，防止确定性测试时间被包装成
+真实采集时间。该交接不改变 raw replay、GNSS join、感知、QGC 或 PX4 Mission 数据路径。
+
 ## v119 deployment recording 来源证明边界（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

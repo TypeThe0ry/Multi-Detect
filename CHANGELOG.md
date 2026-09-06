@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v120 field attestation timestamp handoff（2026-09-06）
+
+- video→raw replay 摘要新增结构化 `source_attestation_handoff`，从已验证 recording 自动给出 UTC 起点、
+  最小有效终点、最后事件时间和仍需现场人员确认的字段，不自动创建 deployment claim；
+- attestation CLI 新增 `--derive-times-from-recording`，仍强制分层、人员、设备、地点和 local/RTSP 来源；
+  显式时间与自动推导不能混用，默认 `1970-01-01` 占位锚在 writer/verifier 两端均 fail-closed；
+- 真实采集、HIL/REAL、E7 和 QGC EXE 不因此获得新通过声明；全量 3,530 tests：
+  `3529 passed, 1 skipped`。
+
 ### v0.3.0-pre.8 v119 deployment recording source attestation（2026-09-06）
 
 - 新增 installed CLI 与 clean-checkout wrapper，为六分层物理现场录像写入不可覆盖、closed-schema、

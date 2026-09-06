@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## 现场证明时间自动交接（v120）
+
+- [x] video→raw replay summary 输出结构化证明时间窗与待确认 provenance 字段；
+- [x] CLI 从已验证 recording 自动派生 start/minimum end，避免人工复制时间；
+- [x] 自动推导不自动创建证明，人员、设备、地点、来源和分层仍显式必填；
+- [x] `1970-01-01` camera-only 占位锚不可进入 deployment attestation；
+- [ ] 用真实 RTSP 容器与现场 UTC 执行转换、证明、intake 的人工验收。
+
 ## deployment recording 来源证明门（v119）
 
 - [x] 每个物理现场 raw recording 使用 closed schema 记录采集人、设备、地点、local/RTSP 来源与 UTC 时间窗；

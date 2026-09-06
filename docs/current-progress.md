@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v119 工作树）
+最后更新：2026-09-06（v120 工作树）
+
+## v120 本轮已收口
+
+- `create_video_replay_recording` 的 summary/`recording-summary.json` 新增 `source_attestation_handoff`：从重新
+  打开的 raw manifest 派生准确 start、minimum end、latest event，列出仍须操作员确认的五项 provenance；
+- `multidetect-deployment-recording-attestation` / wrapper 新增 `--derive-times-from-recording`，避免手抄 UTC；
+  该开关不推断现场真实性，stratum、captured-by、device、site、local/RTSP 仍全部必填；
+- 自动时间和显式时间互斥；video converter 的 `1970-01-01T00:00:00Z` camera-only 默认锚会被标记
+  `attestation_time_eligible=false`，attestation writer/verifier 均拒绝把它升级为物理现场来源；
+- 专项回归覆盖纯派生不落证明、显式人员字段要求、RTSP 证明、占位时间拒绝和 video→GNSS join 不回退。
+  真实现场采集、人员审核、HIL/REAL、E7 32 blockers 与 QGC portable 均未改变。
+- 全量回归 3,530 tests：`3529 passed, 1 skipped, 0 failed, 0 errors`，耗时 271.99 秒；JUnit
+  514,802 bytes、SHA-256 `79EBC8B57C6471AFC2EFE3458258A34489F8E1BAEDD2EE2D4726A6964B8B82C0`；
+  全仓 Ruff、compileall 和 diff check 通过。
 
 ## v119 本轮已收口
 

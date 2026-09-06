@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v119：现场录像来源证明全链绑定 |
+| 当前工程迭代 | v120：现场录像证明时间自动交接 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,11 +82,10 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v119 现场录像来源证明全链绑定
+### v119–v120 现场录像来源证明全链绑定
 
-`multidetect-deployment-recording-attestation` / `scripts/attest_deployment_recording.py` 为每个
-现场 raw recording 生成不可覆盖的 `deployment-recording-source.json`，记录分层、人员、设备、地点、来源和
-UTC 时间窗，并绑定 recording manifest/hash。
+现场 raw recording 通过 `deployment-recording-source.json` 绑定分层、人员、设备、地点、来源、UTC 时间窗和
+recording hash。视频转换摘要可派生起止时间供 CLI 复用；人员 provenance 仍须填写，1970 占位锚被拒绝。
 
 intake、campaign 和最终 manifest 都会重开证明，最终清单还将其作为 artifact reference 纳入哈希；仅自报
 deployment、遗漏/换层/换录像/移动/篡改均 fail-closed。lab/synthetic 历史清单继续可读。

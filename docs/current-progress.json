@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T05:52:23Z",
+  "updated_at_utc": "2026-09-06T06:03:44Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "2aec64c644cc88be97384a1387d6787533092880",
-    "commit_subject": "feat(replay): bind physical source attestations",
-    "commits_ahead_of_origin_main": 126
+    "commit": "cbf3d22ed0dafb2784836bfbebbf211e6173983c",
+    "commit_subject": "feat(replay): derive field attestation timestamps",
+    "commits_ahead_of_origin_main": 128
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v119",
+  "working_iteration": "v120",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v119-final.xml",
-      "tests": 3527,
-      "passed": 3526,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v120-final.xml",
+      "tests": 3530,
+      "passed": 3529,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 269.24,
-      "junit_local_path": "tmp/current-progress-regression-v119-final.xml",
-      "junit_file_bytes": 514344,
-      "junit_file_sha256": "ff3ff9f0f0a8944a4ef6da883d7f50393206c3c325a30716655590c9303b3883",
+      "duration_seconds": 271.99,
+      "junit_local_path": "tmp/current-progress-regression-v120-final.xml",
+      "junit_file_bytes": 514802,
+      "junit_file_sha256": "79ebc8b57c6471afc2efe3458258a34489f8e1baedd2ee2d4726a6964b8b82c0",
       "distributed_in_git": false
     },
     "ruff": {
@@ -747,6 +747,10 @@
         "recording_manifest_hash_bound": true,
         "recording_hash_bound": true,
         "event_time_window_checked": true,
+        "time_derivation_from_verified_recording": true,
+        "explicit_operator_metadata_still_required": true,
+        "placeholder_1970_start_rejected": true,
+        "video_summary_handoff": "operator_confirmation_required",
         "human_attestation_not_hardware_signature": true,
         "field_attestations_created": false
       },

@@ -48,8 +48,7 @@ python scripts\attest_deployment_recording.py D:\captures\day `
   --capture-device-id jetson-csi-main `
   --capture-site field-site-01 `
   --source-type local_camera `
-  --started-at-utc 2026-09-06T01:00:00Z `
-  --ended-at-utc 2026-09-06T01:15:00Z
+  --derive-times-from-recording
 
 python scripts\attest_deployment_recording.py D:\captures\day `
   --verify --stratum day
@@ -58,6 +57,12 @@ python scripts\attest_deployment_recording.py D:\captures\day `
 安装包中的等价命令是 `multidetect-deployment-recording-attestation`。对其余五个目录重复执行，并把
 `--stratum` 改成对应 canonical 名称；RTSP 采集将 `--source-type` 改成 `rtsp_camera`。文件采用 write-new，
 已经存在时不会覆盖；需要纠正时应保留旧采集目录/证据并为重新确认的录像建立新目录，而不是静默改写。
+
+`--derive-times-from-recording` 只从已验证 manifest 读取 start，并用最后 frame/telemetry 相对时间计算 minimum
+end；它不会推断人员、设备、地点、来源或“是否真的在现场”。需要保存更晚的真实停止时间时，可以不使用该
+开关，改为显式提供 `--started-at-utc ... --ended-at-utc ...`，两种模式不能混用。由视频转换器默认生成的
+`1970-01-01T00:00:00Z` 是 deterministic camera-only 占位锚，证明 writer/verifier 会拒绝；现场转换必须在
+创建 raw recording 时通过 `--started-at-utc` 写入实际 UTC。
 
 证明采用 closed schema，固定 `capture_origin=physical_field`、`synthetic=false`、`simulation=false`、
 `screen_replay=false`，并绑定 manifest bytes/SHA-256/recording hash。它保证“声明内容与这份录像没有被静默
@@ -682,6 +687,12 @@ $py = '.\ground-control\MultiDetectGCS\.venv\Scripts\python.exe'
 `recording-summary.json`，可以直接交给 `RawSensorReplayRecording.from_manifest()` 或作为
 上面六层回放集某一层的 raw recording。`--frame-stride` 按源帧抽样，`--frame-limit` 限制
 输出帧数；容器没有可靠 FPS 时必须显式传入 `--fps`，避免时间轴被猜测。
+
+summary 的 `source_attestation_handoff` 会列出 manifest 派生的 `started_at_utc`、
+`minimum_ended_at_utc`、`latest_event_at_s`、`attestation_time_eligible` 和仍需操作员确认的五个字段。
+它固定 `attestation_created=false/status=operator_confirmation_required`，因此仅运行转换器不会把普通视频
+升级为 deployment。实际 UTC 合格时，可直接按本页前面的 `--derive-times-from-recording` 命令完成人工确认；
+若 summary 报 `time_anchor_is_placeholder=true`，必须以真实开始时间重新创建 recording。
 
 视频转换器写入的是明确的 `camera_only_unknown_navigation` 记录：每条 telemetry 的
 `position_healthy=false`，GPS 字段保持未知，`ground_truth_present=false`、
