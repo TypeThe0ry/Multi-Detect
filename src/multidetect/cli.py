@@ -488,6 +488,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_set_evaluation.add_argument("--model-id")
     replay_set_evaluation.add_argument("--model-version")
+    replay_set_evaluation.add_argument(
+        "--prediction-run-receipt",
+        type=Path,
+        help="verified prediction-run.receipt.json beside the replay manifest",
+    )
     replay_set_evaluation.add_argument("--out", type=Path)
     replay_set_evaluation.add_argument(
         "--report-only",
@@ -3441,6 +3446,7 @@ def _evaluate_replay_set(args: argparse.Namespace) -> int:
         model_artifact_sha256=model_artifact_sha256,
         model_id=args.model_id,
         model_version=args.model_version,
+        prediction_run_receipt=args.prediction_run_receipt,
     )
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)

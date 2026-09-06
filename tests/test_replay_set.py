@@ -593,7 +593,10 @@ def test_replay_predictions_reject_model_format_mismatch_without_partial_output(
     assert not output.exists()
 
 
-def test_replay_predictions_execute_shared_onnx_runtime_pipeline(tmp_path: Path) -> None:
+def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     pytest.importorskip("cv2")
     pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")
@@ -681,6 +684,24 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(tmp_path: Path)
     assert evaluated.returncode == 0, evaluated.stderr
     assert (
         json.loads(evaluated.stdout)["prediction_run_binding"]["receipt_canonical_hash"]
+        == report["canonical_hash"]
+    )
+
+    assert (
+        cli_main(
+            [
+                "evaluate-replay-set",
+                str(predicted_root / "replay-set.manifest.json"),
+                "--prediction-run-receipt",
+                str(predicted_root / "prediction-run.receipt.json"),
+                "--report-only",
+            ]
+        )
+        == 0
+    )
+    installed_cli_report = json.loads(capsys.readouterr().out)
+    assert (
+        installed_cli_report["prediction_run_binding"]["receipt_canonical_hash"]
         == report["canonical_hash"]
     )
 
