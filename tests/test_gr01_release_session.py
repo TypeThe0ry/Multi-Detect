@@ -40,6 +40,17 @@ SESSION_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session.schema.jso
 REVIEW_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-review.schema.json"
 MODES = ("replay", "sim", "hil", "real")
 PARITY = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
+REVIEW_SIGNING_KEY_ENV = "MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX_TEST"
+REVIEW_SIGNING_KEY_HEX = "11" * 32
+
+
+def _review_signing(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    monkeypatch.setenv(REVIEW_SIGNING_KEY_ENV, REVIEW_SIGNING_KEY_HEX)
+    return {
+        "reviewer": "reviewer-b",
+        "reviewer_key_id": "field-reviewer-b-2026",
+        "reviewer_signing_key_environment": REVIEW_SIGNING_KEY_ENV,
+    }
 
 
 class _PassingSession:
@@ -453,6 +464,7 @@ def test_field_snapshot_and_second_machine_portable_review(
         transfer_receipt,
         review_receipt,
         expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest().upper(),
+        **_review_signing(monkeypatch),
     )
 
     schema = json.loads(REVIEW_SCHEMA.read_text(encoding="utf-8"))
@@ -471,8 +483,13 @@ def test_field_snapshot_and_second_machine_portable_review(
     assert review["session"]["source_count"] == 5
     assert review["session"]["five_source_hashes_verified"] is True
     assert review["session"]["bench_recomputed"] is True
+    assert review["reviewer"]["identity"] == "reviewer-b"
+    assert review["signature"]["algorithm"] == "Ed25519"
     assert review["claims"] == {
         "portable_session_integrity_verified": True,
+        "review_signature_verified": True,
+        "reviewer_key_possession_verified": True,
+        "reviewer_human_identity_verified": False,
         "target_environment_reverified": False,
         "canonical_e7_sources_recomputed": False,
         "hardware_flight_acceptance": "not_claimed",
@@ -480,12 +497,36 @@ def test_field_snapshot_and_second_machine_portable_review(
         "flight_control_enabled": False,
         "payload_release_requested": False,
     }
-    assert verify_gr01_release_session_review_receipt(review_receipt) == review
+    expected_public_key = review["reviewer"]["public_key_ed25519_hex"]
+    assert (
+        verify_gr01_release_session_review_receipt(
+            review_receipt,
+            expected_reviewer_public_key_hex=expected_public_key,
+        )
+        == review
+    )
+    with pytest.raises(ValueError, match="public key is not trusted"):
+        verify_gr01_release_session_review_receipt(
+            review_receipt,
+            expected_reviewer_public_key_hex="00" * 32,
+        )
+    changed = json.loads(review_receipt.read_text(encoding="utf-8"))
+    changed["signature"]["signature_ed25519_hex"] = "00" * 64
+    review_receipt.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Ed25519 signature is invalid"):
+        verify_gr01_release_session_review_receipt(
+            review_receipt,
+            expected_reviewer_public_key_hex=expected_public_key,
+        )
+    review_receipt.write_text(json.dumps(review) + "\n", encoding="utf-8")
     changed = json.loads(review_receipt.read_text(encoding="utf-8"))
     changed["claims"]["target_environment_reverified"] = True
     review_receipt.write_text(json.dumps(changed) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="claim boundary"):
-        verify_gr01_release_session_review_receipt(review_receipt)
+        verify_gr01_release_session_review_receipt(
+            review_receipt,
+            expected_reviewer_public_key_hex=expected_public_key,
+        )
 
 
 def test_portable_review_rejects_changed_copy(
@@ -521,6 +562,7 @@ def test_portable_review_rejects_changed_copy(
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
+            **_review_signing(monkeypatch),
         )
     assert not (tmp_path / "changed-review.json").exists()
 
@@ -557,6 +599,7 @@ def test_portable_semantic_review_rejects_reinventoried_record_tampering(
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
+            **_review_signing(monkeypatch),
         )
 
 
@@ -592,6 +635,58 @@ def test_portable_review_requires_matching_out_of_band_inventory_hash(
             transfer_receipt,
             review_receipt,
             expected_inventory_sha256="0" * 64,
+            **_review_signing(monkeypatch),
+        )
+    assert not transfer_receipt.exists()
+    assert not review_receipt.exists()
+
+
+@pytest.mark.parametrize(
+    ("signing_key_value", "message"),
+    [(None, "environment variable is missing"), ("not-a-key", "64 hexadecimal characters")],
+)
+def test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    signing_key_value: str | None,
+    message: str,
+) -> None:
+    plan, handoff, bench, manifest, report = _sources(tmp_path, monkeypatch)
+    source_root = tmp_path / "session"
+    create_gr01_release_session_record(
+        source_root / "gr01-release-session.json",
+        release_plan=plan,
+        release_handoff=handoff,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    inventory = source_root / INVENTORY_NAME
+    snapshot_gr01_release_session_bundle(
+        source_root,
+        inventory,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    destination = tmp_path / "unsigned-copy"
+    shutil.copytree(source_root, destination)
+    key_environment = "MULTIDETECT_MISSING_OR_INVALID_REVIEW_KEY_TEST"
+    monkeypatch.delenv(key_environment, raising=False)
+    if signing_key_value is not None:
+        monkeypatch.setenv(key_environment, signing_key_value)
+    transfer_receipt = tmp_path / "unsigned-transfer.json"
+    review_receipt = tmp_path / "unsigned-review.json"
+
+    with pytest.raises(ValueError, match=message):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            destination,
+            transfer_receipt,
+            review_receipt,
+            expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
+            reviewer="reviewer-b",
+            reviewer_key_id="field-reviewer-b-2026",
+            reviewer_signing_key_environment=key_environment,
         )
     assert not transfer_receipt.exists()
     assert not review_receipt.exists()
@@ -625,3 +720,21 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
     )
     assert review_help.returncode == 0, review_help.stderr
     assert "--expected-inventory-sha256" in review_help.stdout
+    assert "--reviewer" in review_help.stdout
+    assert "--reviewer-key-id" in review_help.stdout
+    assert "--reviewer-signing-key-env" in review_help.stdout
+    verify_help = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/verify_gr01_release_session_review.py"),
+            "verify",
+            "--help",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert verify_help.returncode == 0, verify_help.stderr
+    assert "--expected-reviewer-public-key-hex" in verify_help.stdout

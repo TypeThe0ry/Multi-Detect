@@ -15,6 +15,7 @@ from uuid import UUID
 
 from .autonomy.serialization import (
     AutonomyContractError,
+    canonical_json,
     canonical_sha256,
     require_bool,
     require_int,
@@ -40,10 +41,11 @@ from .gr01_release_session import (
     verify_gr01_release_session_record,
 )
 
-REVIEW_SCHEMA_VERSION = 2
+REVIEW_SCHEMA_VERSION = 3
 REVIEW_EVENT = "multidetect_gr01_release_session_portable_reviewed"
 INVENTORY_NAME = "gr01-release-session-transfer-inventory.json"
 RECORD_NAME = "gr01-release-session.json"
+SIGNATURE_ALGORITHM = "Ed25519"
 
 
 class Gr01ReleaseReviewError(ValueError):
@@ -77,6 +79,44 @@ def _sha256(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_hex_32(value: object, name: str) -> str:
+    text = require_text(value, name).lower()
+    try:
+        decoded = bytes.fromhex(text)
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError(f"{name} must be 64 hexadecimal characters") from exc
+    if len(text) != 64 or len(decoded) != 32:
+        raise Gr01ReleaseReviewError(f"{name} must be 64 hexadecimal characters")
+    return text
+
+
+def _signing_types() -> tuple[Any, Any, type[Exception]]:
+    try:
+        from nacl.exceptions import BadSignatureError
+        from nacl.signing import SigningKey, VerifyKey
+    except ImportError as exc:
+        raise Gr01ReleaseReviewError(
+            "PyNaCl is required for signed GR01 review receipts; install .[security]"
+        ) from exc
+    return SigningKey, VerifyKey, BadSignatureError
+
+
+def _signing_key_from_environment(variable_name: str) -> Any:
+    name = require_text(variable_name, "reviewer_signing_key_environment")
+    value = os.environ.get(name)
+    if value is None:
+        raise Gr01ReleaseReviewError(
+            f"reviewer signing key environment variable is missing: {name}"
+        )
+    seed_hex = _require_hex_32(value, f"environment variable {name}")
+    signing_key_type, _, _ = _signing_types()
+    return signing_key_type(bytes.fromhex(seed_hex))
+
+
+def _signed_payload_bytes(document: Mapping[str, Any]) -> bytes:
+    return canonical_json(document).encode("utf-8")
 
 
 def _inside(path: Path, *, root: Path, name: str) -> Path:
@@ -358,6 +398,9 @@ def review_gr01_release_session_bundle(
     review_out: str | Path,
     *,
     expected_inventory_sha256: str,
+    reviewer: str,
+    reviewer_key_id: str,
+    reviewer_signing_key_environment: str,
 ) -> dict[str, Any]:
     """Verify a hash-anchored copy and save a portable semantic review receipt."""
 
@@ -380,6 +423,10 @@ def review_gr01_release_session_bundle(
     verified_inventory = verify_evidence_transfer_inventory(inventory)
     if verified_inventory["file_sha256"] != expected_inventory_hash:
         raise Gr01ReleaseReviewError("transfer inventory SHA-256 does not match trusted value")
+    reviewer_name = require_text(reviewer, "reviewer")
+    key_id = require_text(reviewer_key_id, "reviewer_key_id")
+    signing_key = _signing_key_from_environment(reviewer_signing_key_environment)
+    public_key_hex = bytes(signing_key.verify_key).hex()
     transfer = verify_evidence_bundle_transfer(inventory, root, transfer_path)
     verify_evidence_bundle_transfer_receipt(transfer_path)
     semantic = _portable_session_review(root)
@@ -390,6 +437,11 @@ def review_gr01_release_session_bundle(
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z"),
         "bundle_id": transfer["bundle_id"],
+        "reviewer": {
+            "identity": reviewer_name,
+            "key_id": key_id,
+            "public_key_ed25519_hex": public_key_hex,
+        },
         "transfer": {
             "expected_inventory_file_sha256": expected_inventory_hash,
             "inventory_file_bytes": verified_inventory["file_bytes"],
@@ -405,6 +457,9 @@ def review_gr01_release_session_bundle(
         "session": semantic,
         "claims": {
             "portable_session_integrity_verified": True,
+            "review_signature_verified": True,
+            "reviewer_key_possession_verified": True,
+            "reviewer_human_identity_verified": False,
             "target_environment_reverified": False,
             "canonical_e7_sources_recomputed": False,
             "hardware_flight_acceptance": "not_claimed",
@@ -415,13 +470,26 @@ def review_gr01_release_session_bundle(
         "gate_passed": True,
         "reasons": [],
     }
+    signed_payload = _signed_payload_bytes(document)
+    document["signature"] = {
+        "algorithm": SIGNATURE_ALGORITHM,
+        "signed_payload_sha256": hashlib.sha256(signed_payload).hexdigest(),
+        "signature_ed25519_hex": signing_key.sign(signed_payload).signature.hex(),
+    }
     document["canonical_hash"] = canonical_sha256(document)
     _atomic_write(review_path, document)
-    verify_gr01_release_session_review_receipt(review_path)
+    verify_gr01_release_session_review_receipt(
+        review_path,
+        expected_reviewer_public_key_hex=public_key_hex,
+    )
     return document
 
 
-def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str, Any]:
+def verify_gr01_release_session_review_receipt(
+    receipt: str | Path,
+    *,
+    expected_reviewer_public_key_hex: str,
+) -> dict[str, Any]:
     path = _regular_file(receipt, name="GR01 portable review receipt")
     document = strict_object(
         strict_json_loads(path.read_bytes(), name="GR01 portable review receipt"),
@@ -432,11 +500,13 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
                 "schema_version",
                 "reviewed_at_utc",
                 "bundle_id",
+                "reviewer",
                 "transfer",
                 "session",
                 "claims",
                 "gate_passed",
                 "reasons",
+                "signature",
                 "canonical_hash",
             }
         ),
@@ -456,6 +526,23 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
             raise ValueError
     except ValueError as exc:
         raise Gr01ReleaseReviewError("bundle_id must be a canonical UUID") from exc
+    reviewer = strict_object(
+        document["reviewer"],
+        name="reviewer",
+        required=frozenset({"identity", "key_id", "public_key_ed25519_hex"}),
+    )
+    require_text(reviewer["identity"], "reviewer.identity")
+    require_text(reviewer["key_id"], "reviewer.key_id")
+    public_key_hex = _require_hex_32(
+        reviewer["public_key_ed25519_hex"],
+        "reviewer.public_key_ed25519_hex",
+    )
+    expected_public_key_hex = _require_hex_32(
+        expected_reviewer_public_key_hex,
+        "expected_reviewer_public_key_hex",
+    )
+    if public_key_hex != expected_public_key_hex:
+        raise Gr01ReleaseReviewError("portable review reviewer public key is not trusted")
     transfer = strict_object(
         document["transfer"],
         name="transfer",
@@ -547,6 +634,9 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
         required=frozenset(
             {
                 "portable_session_integrity_verified",
+                "review_signature_verified",
+                "reviewer_key_possession_verified",
+                "reviewer_human_identity_verified",
                 "target_environment_reverified",
                 "canonical_e7_sources_recomputed",
                 "hardware_flight_acceptance",
@@ -558,6 +648,9 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
     )
     if (
         claims["portable_session_integrity_verified"] is not True
+        or claims["review_signature_verified"] is not True
+        or claims["reviewer_key_possession_verified"] is not True
+        or claims["reviewer_human_identity_verified"] is not False
         or claims["target_environment_reverified"] is not False
         or claims["canonical_e7_sources_recomputed"] is not False
         or claims["hardware_flight_acceptance"] != "not_claimed"
@@ -573,6 +666,41 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
         raise Gr01ReleaseReviewError("portable review claim boundary is invalid")
     if document["gate_passed"] is not True or document["reasons"] != []:
         raise Gr01ReleaseReviewError("portable review stored gate is not a clean pass")
+    signature = strict_object(
+        document["signature"],
+        name="signature",
+        required=frozenset({"algorithm", "signed_payload_sha256", "signature_ed25519_hex"}),
+    )
+    if signature["algorithm"] != SIGNATURE_ALGORITHM:
+        raise Gr01ReleaseReviewError("portable review signature algorithm is invalid")
+    signed_payload_sha256 = require_sha256(
+        signature["signed_payload_sha256"],
+        "signature.signed_payload_sha256",
+    )
+    signature_hex = require_text(
+        signature["signature_ed25519_hex"],
+        "signature.signature_ed25519_hex",
+    ).lower()
+    try:
+        signature_bytes = bytes.fromhex(signature_hex)
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("portable review signature is not hexadecimal") from exc
+    if len(signature_hex) != 128 or len(signature_bytes) != 64:
+        raise Gr01ReleaseReviewError("portable review signature must contain 64 bytes")
+    signed_document = dict(document)
+    signed_document.pop("signature")
+    signed_document.pop("canonical_hash")
+    signed_payload = _signed_payload_bytes(signed_document)
+    if signed_payload_sha256 != hashlib.sha256(signed_payload).hexdigest():
+        raise Gr01ReleaseReviewError("portable review signed payload hash does not match")
+    _, verify_key_type, bad_signature_error = _signing_types()
+    try:
+        verify_key_type(bytes.fromhex(expected_public_key_hex)).verify(
+            signed_payload,
+            signature_bytes,
+        )
+    except bad_signature_error as exc:
+        raise Gr01ReleaseReviewError("portable review Ed25519 signature is invalid") from exc
     claimed_hash = require_sha256(document["canonical_hash"], "canonical_hash")
     unhashed = dict(document)
     unhashed.pop("canonical_hash")
@@ -611,11 +739,15 @@ def build_parser() -> argparse.ArgumentParser:
     review = subparsers.add_parser("review", help="review a copied session on another machine")
     review.add_argument("--inventory", required=True, type=Path)
     review.add_argument("--expected-inventory-sha256", required=True)
+    review.add_argument("--reviewer", required=True)
+    review.add_argument("--reviewer-key-id", required=True)
+    review.add_argument("--reviewer-signing-key-env", required=True)
     review.add_argument("--destination-root", required=True, type=Path)
     review.add_argument("--transfer-receipt-out", required=True, type=Path)
     review.add_argument("--out", required=True, type=Path)
     verify = subparsers.add_parser("verify", help="verify a saved portable review receipt")
     verify.add_argument("receipt", type=Path)
+    verify.add_argument("--expected-reviewer-public-key-hex", required=True)
     return parser
 
 
@@ -636,9 +768,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.transfer_receipt_out,
                 args.out,
                 expected_inventory_sha256=args.expected_inventory_sha256,
+                reviewer=args.reviewer,
+                reviewer_key_id=args.reviewer_key_id,
+                reviewer_signing_key_environment=args.reviewer_signing_key_env,
             )
         else:
-            document = verify_gr01_release_session_review_receipt(args.receipt)
+            document = verify_gr01_release_session_review_receipt(
+                args.receipt,
+                expected_reviewer_public_key_hex=args.expected_reviewer_public_key_hex,
+            )
     except (AutonomyContractError, Gr01ReleaseReviewError, OSError, TypeError, ValueError) as exc:
         print(f"GR01 release-session review: {exc}")
         return 2

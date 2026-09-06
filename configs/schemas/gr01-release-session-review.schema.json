@@ -1,18 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session-review.schema.json",
-  "title": "Multi-Detect portable GR01 release-session review v2",
+  "title": "Multi-Detect portable GR01 release-session review v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "event", "schema_version", "reviewed_at_utc", "bundle_id", "transfer",
-    "session", "claims", "gate_passed", "reasons", "canonical_hash"
+    "event", "schema_version", "reviewed_at_utc", "bundle_id", "reviewer",
+    "transfer", "session", "claims", "gate_passed", "reasons", "signature",
+    "canonical_hash"
   ],
   "properties": {
     "event": {"const": "multidetect_gr01_release_session_portable_reviewed"},
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "reviewed_at_utc": {"type": "string", "format": "date-time"},
     "bundle_id": {"type": "string", "format": "uuid"},
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "key_id", "public_key_ed25519_hex"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "key_id": {"type": "string", "minLength": 1},
+        "public_key_ed25519_hex": {"$ref": "#/$defs/hex32"}
+      }
+    },
     "transfer": {
       "type": "object",
       "additionalProperties": false,
@@ -67,12 +78,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "portable_session_integrity_verified", "target_environment_reverified",
-        "canonical_e7_sources_recomputed", "hardware_flight_acceptance",
+        "portable_session_integrity_verified", "review_signature_verified",
+        "reviewer_key_possession_verified", "reviewer_human_identity_verified",
+        "target_environment_reverified", "canonical_e7_sources_recomputed", "hardware_flight_acceptance",
         "physical_release_enabled", "flight_control_enabled", "payload_release_requested"
       ],
       "properties": {
         "portable_session_integrity_verified": {"const": true},
+        "review_signature_verified": {"const": true},
+        "reviewer_key_possession_verified": {"const": true},
+        "reviewer_human_identity_verified": {"const": false},
         "target_environment_reverified": {"const": false},
         "canonical_e7_sources_recomputed": {"const": false},
         "hardware_flight_acceptance": {"const": "not_claimed"},
@@ -83,9 +98,23 @@
     },
     "gate_passed": {"const": true},
     "reasons": {"type": "array", "maxItems": 0},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "signed_payload_sha256", "signature_ed25519_hex"],
+      "properties": {
+        "algorithm": {"const": "Ed25519"},
+        "signed_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_ed25519_hex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{128}$"
+        }
+      }
+    },
     "canonical_hash": {"$ref": "#/$defs/sha256"}
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "hex32": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
 }
