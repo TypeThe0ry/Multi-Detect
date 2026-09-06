@@ -16,6 +16,7 @@ class MultiDetectTargetEvidenceStore final : public QObject
 
 public:
     explicit MultiDetectTargetEvidenceStore(QObject* parent = nullptr);
+    explicit MultiDetectTargetEvidenceStore(const QString& storagePath, QObject* parent = nullptr);
 
     int snapshotCount() const { return _snapshotCount; }
     QVariantList recentSnapshots() const { return _recentSnapshots; }

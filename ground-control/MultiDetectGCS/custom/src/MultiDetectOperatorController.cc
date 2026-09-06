@@ -896,6 +896,11 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         emit targetGeolocationStatusChanged();
         emit targetGeolocationStatusReceived(fields);
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::GnssStatus) {
+        // Preserve authenticated envelope provenance for local evidence
+        // snapshots. These fields remain diagnostic-only and are populated
+        // only after the common authentication, replay, and sequence gates.
+        fields.insert(QStringLiteral("sequence"), packet.sequence);
+        fields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
         _gnssStatus = fields;
         _lastGnssStatusAtMs = _lastAuthenticatedAtMs;
         emit gnssStatusChanged();

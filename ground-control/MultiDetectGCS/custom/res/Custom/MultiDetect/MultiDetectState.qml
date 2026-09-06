@@ -650,6 +650,8 @@ QtObject {
 
         function onGnssStatusReceived(status) {
             root.gnssStatusAvailable = true;
+            root.gnssSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
+            root.gnssSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
             root.gnssQualified = status.qualified === true;
             root.gnssReason = String(status.reason || "");
             root.gnssPositionHealthyAvailable = status.positionHealthyAvailable === true;
@@ -1145,6 +1147,8 @@ QtObject {
     property string rangeTargetId: ""
     property string rangeValidity: "UNAVAILABLE"
     property bool gnssStatusAvailable: false
+    property real gnssSequence: -1
+    property real gnssSentAtMs: NaN
     property bool gnssQualified: false
     property string gnssReason: ""
     property bool gnssPositionHealthyAvailable: false
@@ -2053,6 +2057,8 @@ QtObject {
 
     function _resetGnssStatus() {
         gnssStatusAvailable = false;
+        gnssSequence = -1;
+        gnssSentAtMs = NaN;
         gnssQualified = false;
         gnssReason = "";
         gnssPositionHealthyAvailable = false;

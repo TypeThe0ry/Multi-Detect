@@ -53,6 +53,26 @@ Item {
                                                        MultiDetectState.targetLongitudeDeg <= 180.0 &&
                                                        Number.isFinite(MultiDetectState.targetHorizontalSigmaM) &&
                                                        MultiDetectState.targetHorizontalSigmaM >= 0.0
+    readonly property bool _gnssEvidenceQualified: MultiDetectState.gnssStatusAvailable &&
+                                                  MultiDetectState.gnssQualified &&
+                                                  MultiDetectState.gnssReason === "gps_qualified" &&
+                                                  MultiDetectState.gnssPositionHealthyAvailable &&
+                                                  MultiDetectState.gnssPositionHealthy &&
+                                                  Number.isFinite(MultiDetectState.gnssSequence) &&
+                                                  MultiDetectState.gnssSequence >= 0 &&
+                                                  Math.floor(MultiDetectState.gnssSequence) ===
+                                                      MultiDetectState.gnssSequence &&
+                                                  Number.isFinite(MultiDetectState.gnssSentAtMs) &&
+                                                  MultiDetectState.gnssSentAtMs >= 0 &&
+                                                  MultiDetectState.gnssFixType >= 3 &&
+                                                  MultiDetectState.gnssSatellitesVisible >= 6 &&
+                                                  MultiDetectState.gnssHorizontalAccuracyM >= 0.0 &&
+                                                  MultiDetectState.gnssHorizontalAccuracyM <= 6.0 &&
+                                                  MultiDetectState.gnssVerticalAccuracyM >= 0.0 &&
+                                                  MultiDetectState.gnssVerticalAccuracyM <= 10.0 &&
+                                                  Number.isFinite(MultiDetectState.gnssSourceAgeMs) &&
+                                                  MultiDetectState.gnssSourceAgeMs >= 0.0 &&
+                                                  MultiDetectState.gnssSourceAgeMs <= 1500.0
     // QGC creates this layer before the map assigns its control object.  An
     // uninitialised QML var is `undefined` (not `null`), so checking only
     // `mapControl !== null` would dereference `pipState` during the first
@@ -186,6 +206,10 @@ Item {
             _setTargetEvidenceFeedback(qsTr("不可定位：没有可保存的合格坐标"), true);
             return;
         }
+        if (!_gnssEvidenceQualified) {
+            _setTargetEvidenceFeedback(qsTr("不可保存：当前 GNSS 质量证据不合格或已过期"), true);
+            return;
+        }
         if (typeof multiDetectTargetEvidenceStore === "undefined" ||
                 multiDetectTargetEvidenceStore === null) {
             _setTargetEvidenceFeedback(qsTr("本地证据存储不可用"), true);
@@ -201,7 +225,17 @@ Item {
             "range_m": _snapshotRangeM(),
             "relative_bearing_deg": _snapshotBearingDeg(),
             "range_validity": _snapshotRangeValidity(),
-            "source_age_ms": MultiDetectState.targetGeolocationSourceAgeMs
+            "source_age_ms": MultiDetectState.targetGeolocationSourceAgeMs,
+            "gnss_status_sequence": MultiDetectState.gnssSequence,
+            "gnss_sent_at_ms": MultiDetectState.gnssSentAtMs,
+            "gnss_qualified": MultiDetectState.gnssQualified,
+            "gnss_reason": MultiDetectState.gnssReason,
+            "gnss_position_healthy": MultiDetectState.gnssPositionHealthy,
+            "gnss_fix_type": MultiDetectState.gnssFixType,
+            "gnss_satellites_visible": MultiDetectState.gnssSatellitesVisible,
+            "gnss_horizontal_accuracy_m": MultiDetectState.gnssHorizontalAccuracyM,
+            "gnss_vertical_accuracy_m": MultiDetectState.gnssVerticalAccuracyM,
+            "gnss_source_age_ms": MultiDetectState.gnssSourceAgeMs
         });
         if (saved) {
             _setTargetEvidenceFeedback(
@@ -780,6 +814,7 @@ Item {
                 QGCButton {
                     Layout.fillWidth: true
                     enabled: root._targetGeolocationQualified &&
+                             root._gnssEvidenceQualified &&
                              typeof multiDetectTargetEvidenceStore !== "undefined" &&
                              multiDetectTargetEvidenceStore !== null
                     text: qsTr("保存快照")
@@ -897,6 +932,20 @@ Item {
                                           root._optionalNumberText(parent.parent.entry.range_m, 1, " m"),
                                           root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, "°"),
                                           String(parent.parent.entry.range_validity || "--"))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: parent.parent.entry.schema === "multidetect.target-evidence.v2" ?
+                                          qsTr("GNSS：fix %1 · 星 %2 · H/V %3/%4 m · age %5 ms · seq %6").arg(
+                                              root._optionalNumberText(parent.parent.entry.gnss_fix_type, 0, ""),
+                                              root._optionalNumberText(parent.parent.entry.gnss_satellites_visible, 0, ""),
+                                              root._optionalNumberText(parent.parent.entry.gnss_horizontal_accuracy_m, 1, ""),
+                                              root._optionalNumberText(parent.parent.entry.gnss_vertical_accuracy_m, 1, ""),
+                                              root._optionalNumberText(parent.parent.entry.gnss_source_age_ms, 0, ""),
+                                              root._optionalNumberText(parent.parent.entry.gnss_status_sequence, 0, "")) :
+                                          qsTr("GNSS：旧版 v1 记录，无独立质量证据")
                                 wrapMode: Text.WordWrap
                             }
 

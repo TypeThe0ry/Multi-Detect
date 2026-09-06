@@ -47,6 +47,15 @@ add_executable(MultiDetectOperatorProtocolSelfTest EXCLUDE_FROM_ALL tests/MultiD
 target_link_libraries(MultiDetectOperatorProtocolSelfTest PRIVATE MultiDetectOperatorProtocol Qt6::Core)
 
 add_executable(
+    MultiDetectTargetEvidenceStoreSelfTest EXCLUDE_FROM_ALL
+    tests/MultiDetectTargetEvidenceStoreSelfTest.cc
+    src/MultiDetectTargetEvidenceStore.cc
+    src/MultiDetectTargetEvidenceStore.h
+)
+target_include_directories(MultiDetectTargetEvidenceStoreSelfTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(MultiDetectTargetEvidenceStoreSelfTest PRIVATE Qt6::Core)
+
+add_executable(
     MultiDetectDepthGridProtocolSelfTest EXCLUDE_FROM_ALL
     tests/MultiDetectDepthGridProtocolSelfTest.cc
 )

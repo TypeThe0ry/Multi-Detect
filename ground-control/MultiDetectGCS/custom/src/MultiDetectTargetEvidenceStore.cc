@@ -8,6 +8,7 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QJsonParseError>
 #include <QtCore/QJsonValue>
+#include <QtCore/QMetaType>
 #include <QtCore/QStandardPaths>
 #include <cmath>
 
@@ -19,6 +20,8 @@ constexpr int kMaximumTargetIdLength = 128;
 constexpr int kMaximumTargetLabelLength = 128;
 constexpr int kMaximumSourceFrameIdLength = 256;
 constexpr int kMaximumSavedAtLength = 64;
+constexpr double kMaximumExactJsonInteger = 9007199254740991.0;
+constexpr double kMaximumGnssSequence = 4294967295.0;
 
 bool finiteNumber(const QVariant& value, double* result)
 {
@@ -87,8 +90,10 @@ bool finiteJsonNumber(
 
 bool validSnapshotRecord(const QJsonObject& record)
 {
-    if (record.value(QStringLiteral("schema")).toString() !=
-        QStringLiteral("multidetect.target-evidence.v1")) {
+    const QString schema = record.value(QStringLiteral("schema")).toString();
+    const bool legacyV1 = schema == QStringLiteral("multidetect.target-evidence.v1");
+    const bool gnssV2 = schema == QStringLiteral("multidetect.target-evidence.v2");
+    if (!legacyV1 && !gnssV2) {
         return false;
     }
     if (!validJsonText(record, QStringLiteral("target_id"), kMaximumTargetIdLength, true) ||
@@ -140,6 +145,37 @@ bool validSnapshotRecord(const QJsonObject& record)
     if (validity == QStringLiteral("UNAVAILABLE") && (rangePresent || bearingPresent)) {
         return false;
     }
+
+    if (gnssV2) {
+        bool gnssPresent = false;
+        double gnssValue = 0.0;
+        const auto validInteger = [&record, &gnssPresent, &gnssValue](
+                                      const QString& key, double minimum, double maximum) {
+            if (!finiteJsonNumber(record, key, minimum, maximum, true, &gnssPresent, &gnssValue)) {
+                return false;
+            }
+            return std::floor(gnssValue) == gnssValue;
+        };
+        if (!validInteger(QStringLiteral("gnss_status_sequence"), 0.0, kMaximumGnssSequence) ||
+            !validInteger(QStringLiteral("gnss_sent_at_ms"), 0.0, kMaximumExactJsonInteger) ||
+            !validInteger(QStringLiteral("gnss_fix_type"), 3.0, 8.0) ||
+            !validInteger(QStringLiteral("gnss_satellites_visible"), 6.0, 255.0) ||
+            !finiteJsonNumber(record, QStringLiteral("gnss_horizontal_accuracy_m"), 0.0, 6.0,
+                              true, &gnssPresent, &gnssValue) ||
+            !finiteJsonNumber(record, QStringLiteral("gnss_vertical_accuracy_m"), 0.0, 10.0,
+                              true, &gnssPresent, &gnssValue) ||
+            !finiteJsonNumber(record, QStringLiteral("gnss_source_age_ms"), 0.0, 1500.0,
+                              true, &gnssPresent, &gnssValue)) {
+            return false;
+        }
+        if (!record.value(QStringLiteral("gnss_qualified")).isBool() ||
+            !record.value(QStringLiteral("gnss_qualified")).toBool() ||
+            !record.value(QStringLiteral("gnss_position_healthy")).isBool() ||
+            !record.value(QStringLiteral("gnss_position_healthy")).toBool() ||
+            record.value(QStringLiteral("gnss_reason")).toString() != QStringLiteral("gps_qualified")) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -167,6 +203,15 @@ MultiDetectTargetEvidenceStore::MultiDetectTargetEvidenceStore(QObject* parent)
 {
     const QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     _storagePath = QDir(appDataPath).filePath(QStringLiteral("snapshots/target-snapshots.jsonl"));
+    _loadSnapshotCount();
+}
+
+MultiDetectTargetEvidenceStore::MultiDetectTargetEvidenceStore(
+    const QString& storagePath,
+    QObject* parent)
+    : QObject(parent)
+    , _storagePath(storagePath)
+{
     _loadSnapshotCount();
 }
 
@@ -229,6 +274,51 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         return false;
     }
 
+    const auto requiredBoolean = [&snapshot](const char* key, bool* result) {
+        const QVariant value = snapshot.value(QString::fromLatin1(key));
+        if (!value.isValid() || value.isNull() || value.metaType().id() != QMetaType::Bool) {
+            return false;
+        }
+        *result = value.toBool();
+        return true;
+    };
+    const auto requiredInteger = [&snapshot](const char* key, double minimum, double maximum,
+                                              double* result) {
+        if (!finiteNumber(snapshot.value(QString::fromLatin1(key)), result) ||
+            *result < minimum || *result > maximum) {
+            return false;
+        }
+        return std::floor(*result) == *result;
+    };
+    bool gnssQualified = false;
+    bool gnssPositionHealthy = false;
+    double gnssSequence = 0.0;
+    double gnssSentAtMs = 0.0;
+    double gnssFixType = 0.0;
+    double gnssSatellitesVisible = 0.0;
+    double gnssHorizontalAccuracyM = 0.0;
+    double gnssVerticalAccuracyM = 0.0;
+    double gnssSourceAgeMs = 0.0;
+    const QString gnssReason = boundedText(snapshot, "gnss_reason", 64);
+    if (!requiredBoolean("gnss_qualified", &gnssQualified) || !gnssQualified ||
+        !requiredBoolean("gnss_position_healthy", &gnssPositionHealthy) || !gnssPositionHealthy ||
+        gnssReason != QStringLiteral("gps_qualified") ||
+        !requiredInteger("gnss_status_sequence", 0.0, kMaximumGnssSequence, &gnssSequence) ||
+        !requiredInteger("gnss_sent_at_ms", 0.0, kMaximumExactJsonInteger, &gnssSentAtMs) ||
+        !requiredInteger("gnss_fix_type", 3.0, 8.0, &gnssFixType) ||
+        !requiredInteger("gnss_satellites_visible", 6.0, 255.0, &gnssSatellitesVisible) ||
+        !finiteNumber(snapshot.value(QStringLiteral("gnss_horizontal_accuracy_m")),
+                      &gnssHorizontalAccuracyM) || gnssHorizontalAccuracyM < 0.0 ||
+        gnssHorizontalAccuracyM > 6.0 ||
+        !finiteNumber(snapshot.value(QStringLiteral("gnss_vertical_accuracy_m")),
+                      &gnssVerticalAccuracyM) || gnssVerticalAccuracyM < 0.0 ||
+        gnssVerticalAccuracyM > 10.0 ||
+        !finiteNumber(snapshot.value(QStringLiteral("gnss_source_age_ms")), &gnssSourceAgeMs) ||
+        gnssSourceAgeMs < 0.0 || gnssSourceAgeMs > 1500.0) {
+        _setLastError(tr("Qualified, fresh GNSS quality evidence is required for a v2 snapshot."));
+        return false;
+    }
+
     const QFileInfo fileInfo(_storagePath);
     if (!QDir().mkpath(fileInfo.absolutePath())) {
         _setLastError(tr("Unable to create the local snapshot directory."));
@@ -236,7 +326,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
 
     QJsonObject record;
-    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v1"));
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v2"));
     record.insert(QStringLiteral("saved_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     record.insert(QStringLiteral("target_id"), targetId);
     record.insert(QStringLiteral("target_label"), boundedText(snapshot, "target_label", kMaximumTargetLabelLength));
@@ -254,6 +344,16 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     if (sourceAgePresent) {
         record.insert(QStringLiteral("source_age_ms"), sourceAgeMs);
     }
+    record.insert(QStringLiteral("gnss_status_sequence"), gnssSequence);
+    record.insert(QStringLiteral("gnss_sent_at_ms"), gnssSentAtMs);
+    record.insert(QStringLiteral("gnss_qualified"), gnssQualified);
+    record.insert(QStringLiteral("gnss_reason"), gnssReason);
+    record.insert(QStringLiteral("gnss_position_healthy"), gnssPositionHealthy);
+    record.insert(QStringLiteral("gnss_fix_type"), gnssFixType);
+    record.insert(QStringLiteral("gnss_satellites_visible"), gnssSatellitesVisible);
+    record.insert(QStringLiteral("gnss_horizontal_accuracy_m"), gnssHorizontalAccuracyM);
+    record.insert(QStringLiteral("gnss_vertical_accuracy_m"), gnssVerticalAccuracyM);
+    record.insert(QStringLiteral("gnss_source_age_ms"), gnssSourceAgeMs);
 
     QFile output(_storagePath);
     if (!output.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
