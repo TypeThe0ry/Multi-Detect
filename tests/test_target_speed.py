@@ -99,16 +99,19 @@ def test_world_speed_reports_sustained_target_motion_after_window() -> None:
 def test_world_speed_waits_for_a_complete_time_window() -> None:
     estimator = TargetWorldSpeedEstimator()
     telemetry = _telemetry(captured_at_s=30.0, north_m=0.0, east_m=0.0)
-    assert estimator.update(
-        target_id="short-window",
-        solution=_solution(
+    assert (
+        estimator.update(
             target_id="short-window",
+            solution=_solution(
+                target_id="short-window",
+                captured_at_s=30.0,
+                north_m=6.8,
+                east_m=0.0,
+            ),
+            telemetry=telemetry,
             captured_at_s=30.0,
-            north_m=6.8,
-            east_m=0.0,
-        ),
-        telemetry=telemetry,
-        captured_at_s=30.0,
-    ) is None
+        )
+        is None
+    )
     # Ensure an unrelated telemetry update does not mutate the original fixture.
     assert replace(telemetry, local_north_m=1.0).local_north_m == 1.0

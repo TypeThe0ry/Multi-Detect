@@ -174,11 +174,14 @@ def test_hash_bound_spawn_pose_is_forwarded_to_px4_gazebo_environment() -> None:
     assert plan.environment_mapping["PX4_GZ_MODEL_POSE"] == (
         "1.25,-2.5,6,0,0.125,1.5707963267948966"
     )
-    assert "PX4_GZ_MODEL_POSE" not in build_stack_plan(
-        runtime,
-        repository_root=ROOT,
-        tool_capabilities={"gazebo": False, "px4": False},
-    ).environment_mapping
+    assert (
+        "PX4_GZ_MODEL_POSE"
+        not in build_stack_plan(
+            runtime,
+            repository_root=ROOT,
+            tool_capabilities={"gazebo": False, "px4": False},
+        ).environment_mapping
+    )
 
 
 def test_px4_sitl_command_alias_is_accepted() -> None:

@@ -51,15 +51,9 @@ class DepthCalibrationCurve:
             for value in (*self.raw_breakpoints_m, *self.actual_breakpoints_m)
         ):
             raise DepthCalibrationError("calibration curve values must be finite and positive")
-        if any(
-            right <= left
-            for left, right in pairwise(self.raw_breakpoints_m)
-        ):
+        if any(right <= left for left, right in pairwise(self.raw_breakpoints_m)):
             raise DepthCalibrationError("calibration curve raw breakpoints must increase")
-        if any(
-            right <= left
-            for left, right in pairwise(self.actual_breakpoints_m)
-        ):
+        if any(right <= left for left, right in pairwise(self.actual_breakpoints_m)):
             raise DepthCalibrationError("calibration curve actual distances must increase")
 
     @property
@@ -219,13 +213,10 @@ def fit_outdoor_depth_calibration(
     if not math.isfinite(initial_scale) or initial_scale <= 0.0:
         raise DepthCalibrationError("field calibration did not produce a positive scale")
     initial_offset = float(
-        statistics.median(
-            y - initial_scale * x for x, y in zip(raw, actual, strict=True)
-        )
+        statistics.median(y - initial_scale * x for x, y in zip(raw, actual, strict=True))
     )
     initial_residuals = tuple(
-        y - (initial_scale * x + initial_offset)
-        for x, y in zip(raw, actual, strict=True)
+        y - (initial_scale * x + initial_offset) for x, y in zip(raw, actual, strict=True)
     )
     median_residual = float(statistics.median(initial_residuals))
     residual_mad = float(
@@ -247,10 +238,13 @@ def fit_outdoor_depth_calibration(
     denominator = sum((value - mean_raw) ** 2 for value in inlier_raw)
     if denominator <= 1e-12:
         raise DepthCalibrationError("field calibration inlier raw-depth span is too small")
-    scale = sum(
-        (x - mean_raw) * (y - mean_actual)
-        for x, y in zip(inlier_raw, inlier_actual, strict=True)
-    ) / denominator
+    scale = (
+        sum(
+            (x - mean_raw) * (y - mean_actual)
+            for x, y in zip(inlier_raw, inlier_actual, strict=True)
+        )
+        / denominator
+    )
     offset_m = mean_actual - scale * mean_raw
     if not math.isfinite(scale) or scale <= 0.0 or not math.isfinite(offset_m):
         raise DepthCalibrationError("field calibration fit is invalid")
@@ -304,8 +298,7 @@ def fit_outdoor_depth_piecewise_calibration(
     if not math.isfinite(minimum_residual_gate_m) or minimum_residual_gate_m <= 0.0:
         raise ValueError("minimum_residual_gate_m must be finite and positive")
     ordered = sorted(
-        (sample.raw_depth_m, sample.actual_distance_m, index)
-        for index, sample in enumerate(values)
+        (sample.raw_depth_m, sample.actual_distance_m, index) for index, sample in enumerate(values)
     )
     if ordered[-1][0] - ordered[0][0] < minimum_raw_span_m:
         raise DepthCalibrationError("field calibration raw-depth span is too small")
@@ -341,8 +334,7 @@ def fit_outdoor_depth_piecewise_calibration(
         for candidate in candidates:
             trial = active[:candidate] + active[candidate + 1 :]
             score = sum(
-                max(0.0, trial[index][1] - trial[index + 1][1])
-                for index in range(len(trial) - 1)
+                max(0.0, trial[index][1] - trial[index + 1][1]) for index in range(len(trial) - 1)
             )
             scores.append((score, candidate))
         active.pop(min(scores)[1])
@@ -399,10 +391,13 @@ def fit_outdoor_depth_piecewise_calibration(
     denominator = sum((value - mean_raw) ** 2 for value in inlier_raw)
     if denominator <= 1e-12:
         raise DepthCalibrationError("field calibration inlier raw-depth span is too small")
-    scale = sum(
-        (x - mean_raw) * (y - mean_actual)
-        for x, y in zip(inlier_raw, inlier_actual, strict=True)
-    ) / denominator
+    scale = (
+        sum(
+            (x - mean_raw) * (y - mean_actual)
+            for x, y in zip(inlier_raw, inlier_actual, strict=True)
+        )
+        / denominator
+    )
     offset_m = mean_actual - scale * mean_raw
     if not math.isfinite(scale) or scale <= 0.0 or not math.isfinite(offset_m):
         raise DepthCalibrationError("field calibration fit is invalid")
@@ -417,14 +412,13 @@ def fit_outdoor_depth_piecewise_calibration(
         sample_count=len(values),
         inlier_indices=inlier_indices,
         mean_absolute_error_m=statistics.fmean(absolute),
-        root_mean_square_error_m=math.sqrt(
-            statistics.fmean(value * value for value in residuals)
-        ),
+        root_mean_square_error_m=math.sqrt(statistics.fmean(value * value for value in residuals)),
         maximum_absolute_error_m=max(absolute),
         median_absolute_error_m=float(statistics.median(absolute)),
-        residual_gate_m=max(minimum_residual_gate_m, 0.05 * max(
-            curve.actual_breakpoints_m[-1] - curve.actual_breakpoints_m[0], 1.0
-        )),
+        residual_gate_m=max(
+            minimum_residual_gate_m,
+            0.05 * max(curve.actual_breakpoints_m[-1] - curve.actual_breakpoints_m[0], 1.0),
+        ),
         model="piecewise_linear",
         raw_breakpoints_m=curve.raw_breakpoints_m,
         actual_breakpoints_m=curve.actual_breakpoints_m,
@@ -452,9 +446,7 @@ def _isotonic_non_decreasing(values: Iterable[float]) -> tuple[float, ...]:
                 ]
             ]
     return tuple(
-        mean
-        for block in blocks
-        for mean in [float(block[0]) / int(block[1])] * int(block[1])
+        mean for block in blocks for mean in [float(block[0]) / int(block[1])] * int(block[1])
     )
 
 
@@ -519,8 +511,7 @@ def calibration_document(
     }
 
 
-def write_calibration_document(
-    path: Path, document: Mapping[str, object]) -> None:
+def write_calibration_document(path: Path, document: Mapping[str, object]) -> None:
     """Atomically write a calibration document after validating it in memory."""
 
     path = Path(path)

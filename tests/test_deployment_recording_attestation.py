@@ -21,8 +21,7 @@ from multidetect.deployment_recording_attestation import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PNG = b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1Pe"
-    "AAAACklEQVQIHWMAAgAABAABDTukuQAAAABJRU5ErkJggg=="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACklEQVQIHWMAAgAABAABDTukuQAAAABJRU5ErkJggg=="
 )
 
 
@@ -129,9 +128,7 @@ def test_attestation_binds_recording_and_validates_schema(tmp_path: Path) -> Non
     )
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(document)
-    assert verify_deployment_recording_attestation(
-        recording, expected_stratum="day"
-    ) == report
+    assert verify_deployment_recording_attestation(recording, expected_stratum="day") == report
 
 
 def test_recording_time_window_is_derived_without_attesting_provenance(

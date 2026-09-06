@@ -122,9 +122,7 @@ def test_plan_is_byte_identical_across_airframe_classes() -> None:
 
 def test_estimate_uses_wgs84_polyline_and_adverse_wind() -> None:
     calm = estimate_task(_task(), _context(), "fixed-wing")
-    windy = estimate_task(
-        _task(), _context(wind_north_mps=2.0, wind_east_mps=2.0), "fixed-wing"
-    )
+    windy = estimate_task(_task(), _context(wind_north_mps=2.0, wind_east_mps=2.0), "fixed-wing")
 
     assert calm.task_distance_m >= 2_000.0
     assert calm.total_distance_m == pytest.approx(

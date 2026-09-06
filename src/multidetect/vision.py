@@ -1706,9 +1706,7 @@ class BrightNeutralLightVetoFilter:
                 bright_neutral_fraction >= self.minimum_bright_neutral_fraction
                 and colorful_fraction <= self.maximum_colorful_fraction
             )
-            has_bright_warm_evidence = (
-                bright_warm_fraction >= self.minimum_bright_warm_fraction
-            )
+            has_bright_warm_evidence = bright_warm_fraction >= self.minimum_bright_warm_fraction
             if not is_neutral_light and has_bright_warm_evidence:
                 # These scalar diagnostics are intentionally attached only to
                 # candidates that survive the neutral-light veto.  Prediction
@@ -1995,8 +1993,7 @@ class TemporalDetectionFilter:
         self.detector = detector
         raw_aliases = label_aliases or {}
         self.label_aliases = {
-            source.strip().lower(): target.strip().lower()
-            for source, target in raw_aliases.items()
+            source.strip().lower(): target.strip().lower() for source, target in raw_aliases.items()
         }
         if any(not source or not target for source, target in self.label_aliases.items()):
             raise ValueError("temporal label aliases must contain non-empty labels")

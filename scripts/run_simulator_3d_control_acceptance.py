@@ -131,9 +131,7 @@ def _validate_3d_assets(
     model_text = profile.model.read_text(encoding="utf-8")
     if any(token not in model_text for token in profile.required_model_tokens):
         raise ValueError(f"{profile.mode} camera model is incomplete")
-    vehicle_haystack = (
-        f"{runtime.vehicle.model} {runtime.vehicle.airframe_profile_id}".lower()
-    )
+    vehicle_haystack = f"{runtime.vehicle.model} {runtime.vehicle.airframe_profile_id}".lower()
     if any(token not in vehicle_haystack for token in profile.expected_vehicle_tokens):
         raise ValueError(
             f"runtime vehicle does not match {profile.mode} asset profile: {vehicle_haystack}"
@@ -272,8 +270,7 @@ def _build_stack_plan_evidence(
             and world_record.get("name") == "default"
         ),
         "truth_free": (
-            document.get("truth_free") is True
-            and repository_record.get("truth_loaded") is False
+            document.get("truth_free") is True and repository_record.get("truth_loaded") is False
         ),
         "loopback_only": (
             ports_record.get("loopback_only") is True
@@ -325,9 +322,7 @@ def _default_launch_job_dir(stack_plan: SimulatorStackPlan) -> Path:
 
     # The plan hash is part of the directory name so a changed scenario or
     # asset set cannot silently reuse another run's generated rc.mavlink.
-    return DEFAULT_LAUNCH_JOB_ROOT / (
-        f"{stack_plan.scenario_id}-{stack_plan.evidence_hash[:16]}"
-    )
+    return DEFAULT_LAUNCH_JOB_ROOT / (f"{stack_plan.scenario_id}-{stack_plan.evidence_hash[:16]}")
 
 
 def _as_nonnegative_count(value: object) -> int:
@@ -399,9 +394,7 @@ def _build_px4_launch_evidence(
                     "asset_validation_gate_passed": bool(
                         stack_plan_binding.get("asset_validation_gate_passed")
                     ),
-                    "external_tools_ready": bool(
-                        stack_plan_binding.get("external_tools_ready")
-                    ),
+                    "external_tools_ready": bool(stack_plan_binding.get("external_tools_ready")),
                     "tool_capabilities": stack_plan_document.get("tool_capabilities", {}),
                     "sha256": stack_plan.evidence_hash,
                 },
@@ -429,17 +422,14 @@ def _build_px4_launch_evidence(
     runtime = runtime if isinstance(runtime, dict) else {}
     artifacts = launch_document.get("artifacts")
     artifacts = artifacts if isinstance(artifacts, dict) else {}
-    failed_checks = sorted(
-        str(name) for name, value in readiness_checks.items() if not bool(value)
-    )
+    failed_checks = sorted(str(name) for name, value in readiness_checks.items() if not bool(value))
     artifacts_verified = bool(launch_plan.verify())
     launch_hash = launch_document.get("sha256")
     hash_bound = (
         isinstance(launch_hash, str)
         and launch_hash == launch_plan.evidence_hash
         and launch_document.get("source_stack_plan_sha256") == stack_plan.evidence_hash
-        and launch_document.get("scenario_manifest_sha256")
-        == stack_plan.scenario_manifest_hash
+        and launch_document.get("scenario_manifest_sha256") == stack_plan.scenario_manifest_hash
     )
     tool_capabilities = stack_plan_document.get("tool_capabilities")
     if not isinstance(tool_capabilities, dict):
@@ -621,8 +611,7 @@ def _build_control_contract(
         "loopback_only": bool(router.get("literal_loopback_only")),
     }
     checks = {
-        "manual_qgc_frame_accepted": manual["qgc_frame_accepted"] is True
-        and manual_count == 1,
+        "manual_qgc_frame_accepted": manual["qgc_frame_accepted"] is True and manual_count == 1,
         "manual_forwarded_once": manual_forwarded_count == manual_count == 1,
         "manual_authority_takeover": manual["authority_takeover"] is True,
         "manual_vehicle_advanced": manual["vehicle_advanced"] is True,
@@ -632,8 +621,7 @@ def _build_control_contract(
         and ai_suppressed_count >= 1,
         "ai_resumed_after_release": ai["resumed_after_release"] is True,
         "watchdog_failsafe": watchdog["failsafe"] is True,
-        "watchdog_neutral_frame": watchdog["neutral_frame"] is True
-        and watchdog_neutral_count == 1,
+        "watchdog_neutral_frame": watchdog["neutral_frame"] is True and watchdog_neutral_count == 1,
         "authority_transitions_cover_manual_ai_failsafe": all(
             state in authority_states for state in ("manual", "ai", "failsafe")
         ),
@@ -663,8 +651,7 @@ def _build_control_contract(
         )
     )
     watchdog["gate_passed"] = all(
-        bool(checks[name])
-        for name in ("watchdog_failsafe", "watchdog_neutral_frame")
+        bool(checks[name]) for name in ("watchdog_failsafe", "watchdog_neutral_frame")
     )
     qgc_only["gate_passed"] = all(
         bool(checks[name])
@@ -744,12 +731,9 @@ def run_acceptance(
             "stack_plan_ready": bool(stack_plan_binding.get("ready_to_launch")),
             "px4_launch_ready": bool(px4_launch.get("ready_to_launch")),
             "ready_to_launch": bool(
-                stack_plan_binding.get("ready_to_launch")
-                and px4_launch.get("ready_to_launch")
+                stack_plan_binding.get("ready_to_launch") and px4_launch.get("ready_to_launch")
             ),
-            "dry_run": bool(
-                stack_plan_binding.get("dry_run") or px4_launch.get("dry_run")
-            ),
+            "dry_run": bool(stack_plan_binding.get("dry_run") or px4_launch.get("dry_run")),
             "process_started": bool(px4_launch.get("external_process_started")),
             "io_opened": bool(px4_launch.get("external_io_opened")),
             "telemetry_observed": bool(px4_launch.get("telemetry_observed")),

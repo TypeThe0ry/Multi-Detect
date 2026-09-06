@@ -169,9 +169,7 @@ def _load_lease(path: Path) -> dict[str, object]:
     lease_path = path / LEASE_FILE
     if lease_path.is_symlink() or not lease_path.is_file():
         raise FieldCovarianceJournalError("capture lease has no regular lease document")
-    return verify_capture_lease_document(
-        _json_object(lease_path, name="capture lease")
-    )
+    return verify_capture_lease_document(_json_object(lease_path, name="capture lease"))
 
 
 def verify_capture_lease_document(document: dict[str, object]) -> dict[str, object]:
@@ -311,8 +309,7 @@ def acquire_capture_lease(
     if lease_dir.exists() or lease_dir.is_symlink():
         existing = _load_lease(lease_dir)
         raise FieldCovarianceJournalError(
-            "capture lease already held: "
-            f"lease_id={existing['lease_id']} owner={existing['owner']}"
+            f"capture lease already held: lease_id={existing['lease_id']} owner={existing['owner']}"
         )
     lease = _with_digest(
         {
@@ -433,9 +430,7 @@ def recover_dead_capture_lease(
         raise FieldCovarianceJournalError("expected lease ID does not match active lease")
     owner_state = _owner_process_state(lease["owner"])
     if owner_state != "dead":
-        raise FieldCovarianceJournalError(
-            f"capture lease owner is not proven dead: {owner_state}"
-        )
+        raise FieldCovarianceJournalError(f"capture lease owner is not proven dead: {owner_state}")
     lease_path = lease_dir / LEASE_FILE
     recovery_path = lease_dir / RECOVERY_FILE
     if recovery_path.exists() or recovery_path.is_symlink():
@@ -489,9 +484,7 @@ def recover_dead_capture_lease(
     }
 
 
-def _session_lease_archive(
-    journal: Path, embedded_lease: dict[str, object]
-) -> dict[str, object]:
+def _session_lease_archive(journal: Path, embedded_lease: dict[str, object]) -> dict[str, object]:
     lease_id = str(embedded_lease["lease_id"])
     released_directory = journal / RELEASED_DIR / lease_id
     recovered_directory = journal / RECOVERED_DIR / lease_id
@@ -505,9 +498,7 @@ def _session_lease_archive(
     directory = released_directory if released_exists else recovered_directory
     archived_lease = _load_lease(directory)
     if archived_lease != embedded_lease:
-        raise FieldCovarianceJournalError(
-            "archived capture lease does not match journal session"
-        )
+        raise FieldCovarianceJournalError("archived capture lease does not match journal session")
     lease_path = directory / LEASE_FILE
     recovery_path = directory / RECOVERY_FILE
     recovery: dict[str, object] | None = None
@@ -535,18 +526,14 @@ def _session_lease_archive(
         "recovery_path": (
             str(recovery_path.resolve(strict=True)) if recovery is not None else None
         ),
-        "recovery_file_sha256": (
-            _sha256(recovery_path) if recovery is not None else None
-        ),
+        "recovery_file_sha256": (_sha256(recovery_path) if recovery is not None else None),
     }
 
 
 def _assert_capture_quiescent(journal: Path, workspace_sha256: object) -> None:
     lease_directory = _lease_directory(journal, workspace_sha256)
     if lease_directory.exists() or lease_directory.is_symlink():
-        raise FieldCovarianceJournalError(
-            "journal index requires a quiescent capture lease state"
-        )
+        raise FieldCovarianceJournalError("journal index requires a quiescent capture lease state")
 
 
 def _artifact_snapshot(journal: Path, pattern: str) -> tuple[tuple[str, str], ...]:
@@ -605,9 +592,9 @@ def build_field_covariance_journal_index(
     receipt = verify_field_covariance_workspace_receipt(receipt_path)
     journal = _journal_path(journal_directory)
     _, indexed_text = _timestamp(indexed_at)
-    campaign_path = (
-        Path(str(receipt["destination_workspace_root"])) / CAMPAIGN_NAME
-    ).resolve(strict=True)
+    campaign_path = (Path(str(receipt["destination_workspace_root"])) / CAMPAIGN_NAME).resolve(
+        strict=True
+    )
     config = load_campaign_config(campaign_path)
     status = campaign_status(config)
     _assert_capture_quiescent(journal, receipt["workspace_sha256"])
@@ -640,9 +627,7 @@ def build_field_covariance_journal_index(
         )
         referenced_probe = Path(verified["online_preflight"]["path"]).resolve(strict=True)
         if referenced_probe.parent != journal:
-            raise FieldCovarianceJournalError(
-                "session online preflight escaped journal directory"
-            )
+            raise FieldCovarianceJournalError("session online preflight escaped journal directory")
         referenced_probes.add(referenced_probe)
     records.sort(key=lambda item: int(item["leaf_ordinal"]))
     ordinals = [int(item["leaf_ordinal"]) for item in records]
@@ -811,10 +796,8 @@ def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]
             raise FieldCovarianceJournalError("indexed lease archive identity changed")
         if (
             verified["record_sha256"] != record["record_sha256"]
-            or verified["receipt"]["receipt_sha256"]
-            != receipt["receipt_sha256"]
-            or verified["receipt"]["workspace_sha256"]
-            != receipt["workspace_sha256"]
+            or verified["receipt"]["receipt_sha256"] != receipt["receipt_sha256"]
+            or verified["receipt"]["workspace_sha256"] != receipt["workspace_sha256"]
             or record["leaf_ordinal"] != ordinal
             or (record["runtime_mode"], record["vehicle_class"])
             != REQUIRED_COMBINATIONS[ordinal - 1]

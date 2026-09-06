@@ -236,9 +236,7 @@ class SimulatorMavlinkControlAdapter:
     ) -> SimulatorControlReceipt:
         """Forward one bounded AI action after authority arbitration."""
         with self._lock:
-            self.config.ai_envelope.validate(
-                roll=roll, pitch=pitch, yaw=yaw, throttle=throttle
-            )
+            self.config.ai_envelope.validate(roll=roll, pitch=pitch, yaw=yaw, throttle=throttle)
             stamp = _timestamp_or_monotonic(timestamp_s, name="timestamp_s")
             setpoint = self.authority.submit_ai(
                 roll=roll,
@@ -384,9 +382,7 @@ class SimulatorMavlinkControlAdapter:
     def _send(self, setpoint: ControlSetpoint) -> SimulatorControlReceipt:
         if setpoint.source not in {"manual", "ai"}:
             raise SimulatorMavlinkControlError("unsupported control setpoint source")
-        x, y, z, r = _manual_control_axes_for_mode(
-            setpoint, mode=self.config.throttle_wire_mode
-        )
+        x, y, z, r = _manual_control_axes_for_mode(setpoint, mode=self.config.throttle_wire_mode)
         return self._emit(
             source=setpoint.source,
             x=x,
@@ -433,9 +429,7 @@ class SimulatorMavlinkControlAdapter:
 def _validate_normalized_command(*, roll: float, pitch: float, yaw: float, throttle: float) -> None:
     values = {"roll": roll, "pitch": pitch, "yaw": yaw, "throttle": throttle}
     if any(
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or not math.isfinite(value)
+        not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value)
         for value in values.values()
     ):
         raise SimulatorMavlinkControlError("SIM control values must be finite numbers")

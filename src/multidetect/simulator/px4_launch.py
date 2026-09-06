@@ -248,8 +248,7 @@ def patch_rc_mavlink(
     # Keep the original indentation and all non-endpoint arguments (`-r`,
     # `-f`, interface mode, etc.) exactly as supplied by PX4.
     lines[gcs_index] = (
-        f"{match.group('indent')}mavlink start -x -t {host} -u {control} "
-        f"-o {telemetry}{rest}"
+        f"{match.group('indent')}mavlink start -x -t {host} -u {control} -o {telemetry}{rest}"
     ).rstrip()
 
     marker = [
@@ -462,7 +461,7 @@ def _wrapper_text(
             f"MD_SIM_PX4_RC_MAVLINK={patched}",
             'cd "$MD_SIM_PX4_WORKDIR"',
             'export PATH="$MD_SIM_PX4_OVERLAY:$PATH"',
-            'export MD_SIM_PX4_RC_MAVLINK',
+            "export MD_SIM_PX4_RC_MAVLINK",
             # Explicitly prove the same file that the generated rcS sources is
             # first on PATH.  The check catches a stale overlay before PX4 can
             # start with its stock 18570/14580 endpoints.
@@ -479,7 +478,7 @@ def _wrapper_text(
             f"export PX4_MAVLINK_TELEMETRY_PORT={telemetry}",
             f"export PX4_MAVLINK_TARGET_HOST={host}",
             "# Legacy relative startup reference (not executed): -i 0 -s etc/init.d-posix/rcS",
-            f"exec {executable} -i 0 -s \"$MD_SIM_PX4_RCS\" \"$@\"",
+            f'exec {executable} -i 0 -s "$MD_SIM_PX4_RCS" "$@"',
             "",
         )
     )
@@ -674,9 +673,7 @@ class Px4LaunchPlan:
                 "workdir": str(self.px4_workdir),
                 "workdir_resolved": self.px4_workdir_resolved,
                 "rcS": None if self.rcS_path is None else str(self.rcS_path),
-                "generated_rcS": None
-                if self.generated_rcS is None
-                else str(self.generated_rcS),
+                "generated_rcS": None if self.generated_rcS is None else str(self.generated_rcS),
                 "rc_mavlink_source": None
                 if self.source_rc_mavlink is None
                 else str(self.source_rc_mavlink),
@@ -768,8 +765,8 @@ class Px4LaunchPlan:
             and explicit_marker in rcS
             and expected_source in rcS
             and "MD_SIM_PX4_RCS=" in wrapper
-            and "-s \"$MD_SIM_PX4_RCS\"" in wrapper
-            and 'command -v px4-rc.mavlink' in wrapper
+            and '-s "$MD_SIM_PX4_RCS"' in wrapper
+            and "command -v px4-rc.mavlink" in wrapper
         )
 
     def write_evidence(self, path: str | Path | None = None, *, overwrite: bool = True) -> Path:
@@ -851,8 +848,13 @@ def build_px4_launch_plan(
         )
 
     if job_dir is None:
-        job = stack_plan.repository_root / "artifacts" / "evaluation" / (
-            f"{DEFAULT_JOB_DIRECTORY_NAME}-{stack_plan.scenario_id}-{stack_plan.evidence_hash[:12]}"
+        job = (
+            stack_plan.repository_root
+            / "artifacts"
+            / "evaluation"
+            / (
+                f"{DEFAULT_JOB_DIRECTORY_NAME}-{stack_plan.scenario_id}-{stack_plan.evidence_hash[:12]}"
+            )
         )
     else:
         job = _absolute_path(job_dir, label="job_dir")

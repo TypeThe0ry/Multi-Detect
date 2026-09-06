@@ -115,8 +115,7 @@ def test_capture_strict_target_state_evidence_is_recomputed_by_verifier(
     output = tmp_path / "field-session.jsonl"
     report_path = tmp_path / "field-session.capture.json"
     records = [
-        _audit_record(state, index * 0.1)
-        for index, state in enumerate(("DET", "TRK", "LCK"))
+        _audit_record(state, index * 0.1) for index, state in enumerate(("DET", "TRK", "LCK"))
     ]
     stale_target = _audit_record("TGT", 0.3)
     stale_target["details"]["gps"]["observed_at_s"] = -2.0  # type: ignore[index]
@@ -269,8 +268,8 @@ def test_capture_accepts_source_bom_but_rejects_ambiguous_json_values(
     source.write_bytes(
         b"\xef\xbb\xbf"
         + valid
-        + b"\n{\"state\":\"TRK\",\"state\":\"LCK\"}\n"
-        + b"{\"state\":\"TGT\",\"timestamp_s\":Infinity}\n"
+        + b'\n{"state":"TRK","state":"LCK"}\n'
+        + b'{"state":"TGT","timestamp_s":Infinity}\n'
     )
 
     report = capture_field_session(source, output)

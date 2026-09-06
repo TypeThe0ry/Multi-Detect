@@ -69,10 +69,7 @@ class _CV2:
 def _camera_recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     source = tmp_path / "input.video"
     source.write_bytes(b"camera-container")
-    frames = [
-        SimpleNamespace(index=index, ndim=3, shape=(4, 6, 3))
-        for index in range(3)
-    ]
+    frames = [SimpleNamespace(index=index, ndim=3, shape=(4, 6, 3)) for index in range(3)]
     capture = _Capture(frames, fps=5.0)
     monkeypatch.setitem(sys.modules, "cv2", _CV2(capture))
     output = tmp_path / "camera-recording"
@@ -192,9 +189,10 @@ def test_join_binds_latest_telemetry_to_frames_and_recomputes_gps_quality(
 
     manifest_path = output / "recording.manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert hashlib.sha256(manifest_path.read_bytes()).hexdigest() == summary[
-        "recording_manifest_sha256"
-    ]
+    assert (
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        == summary["recording_manifest_sha256"]
+    )
     recording = RawSensorReplayRecording.from_manifest(manifest_path)
     assert manifest["recording_hash"] == recording.recording_hash
     assert len(recording.frames) == 3
@@ -291,7 +289,7 @@ def test_join_rejects_duplicate_or_malformed_sidecar_samples(
         join_raw_replay_telemetry(manifest, duplicate, tmp_path / "duplicate-joined")
 
     malformed = tmp_path / "malformed.jsonl"
-    malformed.write_text("{\"kind\":\"telemetry\"}\n", encoding="utf-8")
+    malformed.write_text('{"kind":"telemetry"}\n', encoding="utf-8")
     with pytest.raises(AutonomyContractError):
         join_raw_replay_telemetry(manifest, malformed, tmp_path / "malformed-joined")
 

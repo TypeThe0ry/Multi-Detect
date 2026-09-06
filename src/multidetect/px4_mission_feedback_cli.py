@@ -247,9 +247,7 @@ def provision_px4_mission_feedback_runtime_profile(
             "REAL runtime profile requires a signing identity hash"
         )
     if not isinstance(hmac_key, bytes) or len(hmac_key) < 32:
-        raise Px4MissionFeedbackObservationError(
-            "hmac_key must contain at least 32 bytes"
-        )
+        raise Px4MissionFeedbackObservationError("hmac_key must contain at least 32 bytes")
     clean_key_id = require_text(key_id, "key_id")
     duration = _bounded_real(
         duration_s,
@@ -613,9 +611,7 @@ def observe_px4_mission_feedback(
         maximum=5.0,
     )
     if not callable(clock) or not callable(sleeper) or not callable(observed_at):
-        raise Px4MissionFeedbackObservationError(
-            "clock, sleeper and observed_at must be callable"
-        )
+        raise Px4MissionFeedbackObservationError("clock, sleeper and observed_at must be callable")
 
     started_at_s = _clock_value(clock(), "clock start")
     deadline_s = started_at_s + duration
@@ -675,8 +671,7 @@ def observe_px4_mission_feedback(
     )
     message_type_counts = _message_type_counts(provider.message_type_counts)
     relevant_count = sum(
-        message_type_counts.get(name, 0)
-        for name in ("MISSION_CURRENT", "MISSION_ITEM_REACHED")
+        message_type_counts.get(name, 0) for name in ("MISSION_CURRENT", "MISSION_ITEM_REACHED")
     )
     if relevant_count < feedback.accepted_event_count + feedback.rejected_event_count:
         raise Px4MissionFeedbackObservationError(
@@ -737,10 +732,7 @@ def observe_px4_mission_feedback(
     runtime_reasons = (
         ()
         if runtime_binding is None
-        else tuple(
-            f"runtime_binding:{reason}"
-            for reason in runtime_binding["reasons"]
-        )
+        else tuple(f"runtime_binding:{reason}" for reason in runtime_binding["reasons"])
     )
     reasons = (*feedback_reasons, *runtime_reasons)
     timestamp = observed_at()
@@ -1051,10 +1043,7 @@ def verify_px4_mission_feedback_observation(
             )
             expected_reasons = (
                 *expected_reasons,
-                *(
-                    f"runtime_binding:{reason}"
-                    for reason in runtime_binding["reasons"]
-                ),
+                *(f"runtime_binding:{reason}" for reason in runtime_binding["reasons"]),
             )
         elif runtime_profile_path is not None:
             raise Px4MissionFeedbackObservationError(
@@ -1208,9 +1197,7 @@ def _message_type_counts(raw: object) -> dict[str, int]:
 def _runtime_mode(value: object) -> str:
     mode = require_text(value, "runtime_mode").lower()
     if mode not in _RUNTIME_MODES:
-        raise Px4MissionFeedbackObservationError(
-            "runtime_mode must be one of: sim, hil, real"
-        )
+        raise Px4MissionFeedbackObservationError("runtime_mode must be one of: sim, hil, real")
     return mode
 
 
@@ -1365,9 +1352,7 @@ def _observer_parser() -> argparse.ArgumentParser:
 
 
 def _verifier_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="verify a PX4 Mission feedback observation report"
-    )
+    parser = argparse.ArgumentParser(description="verify a PX4 Mission feedback observation report")
     parser.add_argument("report", type=Path)
     parser.add_argument("--mission", type=Path)
     parser.add_argument(
@@ -1386,8 +1371,7 @@ def _verifier_parser() -> argparse.ArgumentParser:
 def _provision_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "derive and sign one HIL/REAL runtime profile from a fresh, "
-            "receive-only PX4 heartbeat"
+            "derive and sign one HIL/REAL runtime profile from a fresh, receive-only PX4 heartbeat"
         )
     )
     parser.add_argument("--mission", type=Path, required=True)
@@ -1581,11 +1565,7 @@ def main(argv: list[str] | None = None) -> int:
 def verify_main(argv: list[str] | None = None) -> int:
     args = _verifier_parser().parse_args(argv)
     try:
-        mission = (
-            None
-            if args.mission is None
-            else load_executable_mission_document(args.mission)
-        )
+        mission = None if args.mission is None else load_executable_mission_document(args.mission)
         document = load_px4_mission_feedback_observation(
             args.report,
             expected_mission=mission,

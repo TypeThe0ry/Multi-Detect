@@ -17,12 +17,8 @@ from pathlib import Path
 from typing import Any
 
 _NUMERIC_PATTERN = re.compile(r"^(?P<numeric>\d+\.\d+\.\d+)$")
-_PRERELEASE_LABEL_PATTERN = re.compile(
-    r"^(?P<numeric>\d+\.\d+\.\d+)-pre\.(?P<sequence>[1-9]\d*)$"
-)
-_PYTHON_PRERELEASE_PATTERN = re.compile(
-    r"^(?P<numeric>\d+\.\d+\.\d+)rc(?P<sequence>[1-9]\d*)$"
-)
+_PRERELEASE_LABEL_PATTERN = re.compile(r"^(?P<numeric>\d+\.\d+\.\d+)-pre\.(?P<sequence>[1-9]\d*)$")
+_PYTHON_PRERELEASE_PATTERN = re.compile(r"^(?P<numeric>\d+\.\d+\.\d+)rc(?P<sequence>[1-9]\d*)$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,9 +45,7 @@ class ProductVersion:
         missing = sorted(required.difference(raw))
         extra = sorted(set(raw).difference(required))
         if missing or extra:
-            raise ValueError(
-                f"invalid product version keys: missing={missing!r}, extra={extra!r}"
-            )
+            raise ValueError(f"invalid product version keys: missing={missing!r}, extra={extra!r}")
         if type(raw["schema_version"]) is not int:
             raise ValueError("product version schema_version must be an integer")
         for field_name in ("product", "release_label", "numeric", "python", "channel"):

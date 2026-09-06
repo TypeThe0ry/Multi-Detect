@@ -289,8 +289,7 @@ def verify_field_link_address_state(
         )
         rollback_command = execution.get("rollback_command")
         rollback_remove = (
-            isinstance(rollback_command, str)
-            and " -Remove " in f" {rollback_command} "
+            isinstance(rollback_command, str) and " -Remove " in f" {rollback_command} "
         )
         rollback_valid = (
             isinstance(rollback_command, str)

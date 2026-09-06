@@ -171,11 +171,7 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
     if ports_valid:
         for service in expected_services:
             port = ports.get(service)
-            if (
-                isinstance(port, bool)
-                or not isinstance(port, int)
-                or not 1 <= port <= 65535
-            ):
+            if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
                 ports_valid = False
                 reasons.append(
                     f"field-link discovery ports.{service} must be an integer in [1, 65535]"
@@ -265,15 +261,9 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
         # the verifier must remain cheap even when an attacker edits the CIDR
         # and count fields before a report is rechecked.
         expected_host_count = (
-            network.num_addresses
-            if network.prefixlen >= 31
-            else network.num_addresses - 2
+            network.num_addresses if network.prefixlen >= 31 else network.num_addresses - 2
         )
-    if (
-        counts_valid
-        and expected_host_count is not None
-        and scanned_hosts != expected_host_count
-    ):
+    if counts_valid and expected_host_count is not None and scanned_hosts != expected_host_count:
         reasons.append(
             "field-link discovery scanned_hosts does not match the explicit CIDR host count"
         )
@@ -299,8 +289,7 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
     actual_service_hits = {service: 0 for service in expected_services}
     actual_service_candidates = {service: [] for service in expected_services}
     expected_transport = {
-        service: service if protocol_checks is True else "tcp"
-        for service in expected_services
+        service: service if protocol_checks is True else "tcp" for service in expected_services
     }
     for index, host_record in enumerate(hosts):
         record_valid = isinstance(host_record, Mapping)
@@ -318,9 +307,7 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
             reasons.append(f"field-link discovery hosts[{index}].host must be an IPv4 address")
             record_valid = False
         elif network is not None and host_ip not in network:
-            reasons.append(
-                f"field-link discovery host {host_value} is outside the explicit CIDR"
-            )
+            reasons.append(f"field-link discovery host {host_value} is outside the explicit CIDR")
             record_valid = False
         if isinstance(host_value, str):
             host_addresses.append(host_value)
@@ -363,16 +350,12 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
 
         expected_responsive = any(service_outcomes.values())
         if not record_valid or type(host_record.get("responsive")) is not bool:
-            reasons.append(
-                f"field-link discovery hosts[{index}].responsive must be a boolean"
-            )
+            reasons.append(f"field-link discovery hosts[{index}].responsive must be a boolean")
         elif host_record["responsive"] is not True:
             # ``hosts`` is intentionally filtered to responsive candidates by
             # the producer.  A record with all services down must therefore be
             # rejected rather than silently counted as a discovered host.
-            reasons.append(
-                f"field-link discovery host {host_value} responsive must be true"
-            )
+            reasons.append(f"field-link discovery host {host_value} responsive must be true")
         elif not expected_responsive:
             reasons.append(
                 f"field-link discovery host {host_value} responsive flag does not match services"
@@ -389,9 +372,7 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
     unique_hosts = len(host_addresses) == len(set(host_addresses))
     ordered_hosts = host_addresses == sorted(
         host_addresses,
-        key=lambda value: int(ipaddress.ip_address(value))
-        if _is_ipv4_address(value)
-        else -1,
+        key=lambda value: int(ipaddress.ip_address(value)) if _is_ipv4_address(value) else -1,
     )
     checks["host_order"] = unique_hosts and ordered_hosts
     if not unique_hosts:
@@ -436,14 +417,9 @@ def verify_field_link_discovery(discovery: object) -> dict[str, Any]:
         reasons.append("field-link discovery elapsed_ms must be finite and non-negative")
 
     notes = discovery.get("notes")
-    checks["notes"] = (
-        isinstance(notes, list)
-        and all(isinstance(note, str) for note in notes)
-    )
+    checks["notes"] = isinstance(notes, list) and all(isinstance(note, str) for note in notes)
     if not checks["notes"]:
-        reasons.append(
-            "field-link discovery notes must be a list of strings"
-        )
+        reasons.append("field-link discovery notes must be a list of strings")
 
     checks["no_readiness_claim"] = "hardware_link_ready" not in discovery
     if not checks["no_readiness_claim"]:
@@ -684,11 +660,9 @@ def verify_field_link_interface_diagnostic(
                 and isinstance(candidate_aliases, list)
                 and alias not in candidate_aliases
             ):
-                reasons.append(
-                    "expected_interface_alias is not one of the diagnostic candidates"
-                )
-        checks["interface_alias"] = (
-            expected_interface_alias is None or bool(expected_interface_alias.strip())
+                reasons.append("expected_interface_alias is not one of the diagnostic candidates")
+        checks["interface_alias"] = expected_interface_alias is None or bool(
+            expected_interface_alias.strip()
         )
     adapters = raw.get("adapters")
     checks["adapters"] = isinstance(adapters, list)
@@ -891,10 +865,7 @@ def verify_field_link_report(
         discovery_result = verify_field_link_discovery(raw.get("discovery"))
         checks["discovery"] = discovery_result
         if not discovery_result["gate_passed"]:
-            reasons.extend(
-                f"discovery: {reason}"
-                for reason in discovery_result["reasons"]
-            )
+            reasons.extend(f"discovery: {reason}" for reason in discovery_result["reasons"])
 
     # The optional Windows interface snapshot is a separate read-only
     # diagnostic.  When a producer binds it, reopen the exact file and
@@ -910,9 +881,7 @@ def verify_field_link_report(
         else:
             binding_path_value = binding.get("report_path")
             if not isinstance(binding_path_value, str) or not binding_path_value.strip():
-                reasons.append(
-                    "field-link interface_diagnostic.report_path is missing or empty"
-                )
+                reasons.append("field-link interface_diagnostic.report_path is missing or empty")
             else:
                 binding_path = Path(binding_path_value).expanduser()
                 if not binding_path.is_absolute():
@@ -978,9 +947,7 @@ def verify_field_link_report(
                         reasons.append(
                             "field-link interface_diagnostic.selection_status does not match source"
                         )
-                    if binding.get("selection_candidate_count") != selection.get(
-                        "candidate_count"
-                    ):
+                    if binding.get("selection_candidate_count") != selection.get("candidate_count"):
                         reasons.append(
                             "field-link interface_diagnostic.selection_candidate_count does not "
                             "match source"
@@ -1050,9 +1017,7 @@ def verify_field_link_report(
                     binding_path = report_path.parent / binding_path
                 if binding_path.resolve(strict=False) == report_path.resolve(strict=False):
                     reasons.append("field-link address_state must not reference its parent report")
-                timestamp_key = (
-                    "finished_at_epoch_s" if mode == "watch" else "generated_at_epoch_s"
-                )
+                timestamp_key = "finished_at_epoch_s" if mode == "watch" else "generated_at_epoch_s"
                 parent_timestamp = raw.get(timestamp_key)
                 reference_time: datetime | None = None
                 if _is_finite_number(parent_timestamp):
@@ -1084,8 +1049,7 @@ def verify_field_link_report(
                 checks["address_state"] = address_result
                 if not address_result.get("gate_passed"):
                     reasons.extend(
-                        f"address_state: {reason}"
-                        for reason in address_result.get("reasons", [])
+                        f"address_state: {reason}" for reason in address_result.get("reasons", [])
                     )
                 if binding.get("required") is not True:
                     reasons.append("field-link address_state.required must be true")
@@ -1094,9 +1058,7 @@ def verify_field_link_report(
                 if binding.get("mode") != "apply":
                     reasons.append("field-link address_state.mode must be apply")
                 if binding.get("application_succeeded") is not True:
-                    reasons.append(
-                        "field-link address_state.application_succeeded must be true"
-                    )
+                    reasons.append("field-link address_state.application_succeeded must be true")
                 for binding_key, result_key in (
                     ("report_sha256", "report_sha256"),
                     ("report_bytes", "report_bytes"),
@@ -1114,9 +1076,7 @@ def verify_field_link_report(
                         )
                 target = raw.get("target")
                 expected_cidr = (
-                    target.get("expected_source_cidr")
-                    if isinstance(target, Mapping)
-                    else None
+                    target.get("expected_source_cidr") if isinstance(target, Mapping) else None
                 )
                 if isinstance(expected_cidr, str):
                     try:
@@ -1169,8 +1129,10 @@ def verify_field_link_report(
         reasons.append("field-link route_checks_requested must be a boolean")
         route_requested = False
     route_passed = summary.get("route_checks_passed")
-    if route_requested and type(route_passed) is not bool and not (
-        partial_watch and route_passed is None
+    if (
+        route_requested
+        and type(route_passed) is not bool
+        and not (partial_watch and route_passed is None)
     ):
         reasons.append("field-link route_checks_passed must be a boolean when requested")
     elif not route_requested and route_passed not in (None, False):
@@ -1190,21 +1152,26 @@ def verify_field_link_report(
                 reasons.append(str(exc))
 
     def valid_probe_list(value: object) -> bool:
-        return isinstance(value, list) and bool(value) and all(
-            isinstance(probe, Mapping) and type(probe.get("ok")) is bool
-            for probe in value
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(probe, Mapping) and type(probe.get("ok")) is bool for probe in value)
         )
 
     def valid_route_probe_list(value: object) -> bool:
-        return isinstance(value, list) and bool(value) and all(
-            isinstance(probe, Mapping)
-            and type(probe.get("ok")) is bool
-            and probe.get("transport") == "route"
-            and (
-                probe.get("source_address") is None
-                or isinstance(probe.get("source_address"), str)
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(probe, Mapping)
+                and type(probe.get("ok")) is bool
+                and probe.get("transport") == "route"
+                and (
+                    probe.get("source_address") is None
+                    or isinstance(probe.get("source_address"), str)
+                )
+                for probe in value
             )
-            for probe in value
         )
 
     def summary_matches_probe_list(
@@ -1356,10 +1323,7 @@ def verify_field_link_report(
         if not watch_shape_valid:
             reasons.append("watch preflight sample summary is malformed")
         elif type(hardware_ready) is bool:
-            sample_ready = [
-                bool(sample["summary"]["hardware_link_ready"])
-                for sample in samples
-            ]
+            sample_ready = [bool(sample["summary"]["hardware_link_ready"]) for sample in samples]
             expected_ready = collected == requested and all(sample_ready)
             if hardware_ready != expected_ready:
                 reasons.append("watch hardware_link_ready does not match collected samples")
@@ -1373,12 +1337,9 @@ def verify_field_link_report(
                 reasons.append("watch all_passed does not match collected samples")
             if route_requested:
                 sample_route_passes = [
-                    bool(sample["summary"].get("route_checks_passed"))
-                    for sample in samples
+                    bool(sample["summary"].get("route_checks_passed")) for sample in samples
                 ]
-                expected_route_passed = (
-                    all(sample_route_passes) if collected == requested else None
-                )
+                expected_route_passed = all(sample_route_passes) if collected == requested else None
                 if route_passed != expected_route_passed:
                     reasons.append("watch route_checks_passed does not match collected samples")
             if (
@@ -1554,20 +1515,14 @@ def probe_mavlink_tcp(name: str, host: str, port: int, timeout_s: float) -> Endp
     )
 
 
-_RTSP_STATUS_RE = re.compile(
-    r"^RTSP/(?P<version>\d+\.\d+)\s+(?P<status>\d{3})(?:\s|$)"
-)
+_RTSP_STATUS_RE = re.compile(r"^RTSP/(?P<version>\d+\.\d+)\s+(?P<status>\d{3})(?:\s|$)")
 
 
 def probe_rtsp_options(name: str, host: str, port: int, timeout_s: float) -> EndpointProbe:
     """Send a read-only RTSP OPTIONS request and validate the status line."""
 
     started = time.perf_counter()
-    request = (
-        b"OPTIONS * RTSP/1.0\r\n"
-        b"CSeq: 1\r\n"
-        b"User-Agent: MultiDetect-FieldPreflight/1\r\n\r\n"
-    )
+    request = b"OPTIONS * RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: MultiDetect-FieldPreflight/1\r\n\r\n"
     try:
         with socket.create_connection((host, port), timeout=timeout_s) as channel:
             channel.sendall(request)
@@ -1713,16 +1668,12 @@ def discover_field_link_hosts(
             results.append(future.result())
     responsive = [item for item in results if item["responsive"]]
     service_hits = {
-        service: sum(
-            bool(item["services"].get(service, {}).get("ok")) for item in results
-        )
+        service: sum(bool(item["services"].get(service, {}).get("ok")) for item in results)
         for service in ("ssh", "mavlink", "rtsp")
     }
     service_candidates = {
         service: [
-            item["host"]
-            for item in responsive
-            if bool(item["services"].get(service, {}).get("ok"))
+            item["host"] for item in responsive if bool(item["services"].get(service, {}).get("ok"))
         ]
         for service in ("ssh", "mavlink", "rtsp")
     }
@@ -1921,15 +1872,11 @@ def build_field_link_report(
     if expected_source_cidr is not None and (
         not isinstance(expected_source_cidr, str) or not expected_source_cidr.strip()
     ):
-        configuration_errors.append(
-            "expected_source_cidr must be a non-empty IPv4 CIDR or null"
-        )
+        configuration_errors.append("expected_source_cidr must be a non-empty IPv4 CIDR or null")
         expected_source_cidr = None
     elif expected_source_cidr is not None:
         try:
-            parsed_source_network = ipaddress.ip_network(
-                expected_source_cidr.strip(), strict=False
-            )
+            parsed_source_network = ipaddress.ip_network(expected_source_cidr.strip(), strict=False)
             if parsed_source_network.version != 4:
                 raise ValueError("expected_source_cidr must be an IPv4 CIDR")
             expected_source_cidr = str(parsed_source_network)
@@ -1955,34 +1902,34 @@ def build_field_link_report(
                 probe_rtsp_options("camera-rtsp-protocol", camera_host, rtsp_port, timeout_s),
             )
         )
-    route_probes = [
-        probe_local_route(
-            "jetson-ssh-route",
-            jetson_host,
-            jetson_port,
-            expected_source_cidr=expected_source_cidr,
-        ),
-        probe_local_route(
-            "gr01-mavlink-route",
-            gr01_host,
-            gr01_port,
-            expected_source_cidr=expected_source_cidr,
-        ),
-        probe_local_route(
-            "camera-rtsp-route",
-            camera_host,
-            rtsp_port,
-            expected_source_cidr=expected_source_cidr,
-        ),
-    ] if route_checks_requested else []
+    route_probes = (
+        [
+            probe_local_route(
+                "jetson-ssh-route",
+                jetson_host,
+                jetson_port,
+                expected_source_cidr=expected_source_cidr,
+            ),
+            probe_local_route(
+                "gr01-mavlink-route",
+                gr01_host,
+                gr01_port,
+                expected_source_cidr=expected_source_cidr,
+            ),
+            probe_local_route(
+                "camera-rtsp-route",
+                camera_host,
+                rtsp_port,
+                expected_source_cidr=expected_source_cidr,
+            ),
+        ]
+        if route_checks_requested
+        else []
+    )
     tcp_probes = [probe for probe in probes if probe.transport == "tcp"]
     local_probes = [probe for probe in probes if probe.transport == "udp-bind"]
-    protocol_probes = [
-        probe for probe in probes if probe.transport in {"ssh", "mavlink", "rtsp"}
-    ]
-    protocol_checks_passed = (
-        all(probe.ok for probe in protocol_probes) if protocol_checks else None
-    )
+    protocol_probes = [probe for probe in probes if probe.transport in {"ssh", "mavlink", "rtsp"}]
+    protocol_checks_passed = all(probe.ok for probe in protocol_probes) if protocol_checks else None
     route_checks_passed = (
         all(probe.ok for probe in route_probes) if route_checks_requested else None
     )
@@ -2012,8 +1959,7 @@ def build_field_link_report(
         "route_source_cidr": expected_source_cidr,
         "configuration_valid": not configuration_errors,
         "configuration_errors": configuration_errors,
-        "all_passed": probes_passed
-        and (not route_checks_requested or bool(route_checks_passed)),
+        "all_passed": probes_passed and (not route_checks_requested or bool(route_checks_passed)),
         "hardware_link_ready": hardware_link_ready,
     }
     if route_checks_requested:
@@ -2145,24 +2091,16 @@ def watch_field_link(
         if sample_index < samples:
             sleep(interval_s)
 
-    sample_passes = [
-        bool(report.get("summary", {}).get("all_passed")) for report in sample_reports
-    ]
+    sample_passes = [bool(report.get("summary", {}).get("all_passed")) for report in sample_reports]
     hardware_passes = [
-        bool(report.get("summary", {}).get("hardware_link_ready"))
-        for report in sample_reports
+        bool(report.get("summary", {}).get("hardware_link_ready")) for report in sample_reports
     ]
     route_checks_requested = require_route or expected_source_cidr is not None
     route_passes = [
-        bool(report.get("summary", {}).get("route_checks_passed"))
-        for report in sample_reports
+        bool(report.get("summary", {}).get("route_checks_passed")) for report in sample_reports
     ]
     first_failure_index = next(
-        (
-            index
-            for index, passed in enumerate(hardware_passes, start=1)
-            if not passed
-        ),
+        (index for index, passed in enumerate(hardware_passes, start=1) if not passed),
         None,
     )
     max_consecutive_failures = 0
@@ -2214,9 +2152,7 @@ def watch_field_link(
             "first_failure_index": first_failure_index,
             "passed_samples": sum(sample_passes),
             "failed_samples": collected - sum(sample_passes),
-            "stability_ratio": round(sum(hardware_passes) / collected, 6)
-            if collected
-            else 0.0,
+            "stability_ratio": round(sum(hardware_passes) / collected, 6) if collected else 0.0,
             "max_consecutive_failures": max_consecutive_failures,
             "protocol_checks_requested": protocol_checks,
             "route_checks_requested": route_checks_requested,
@@ -2246,8 +2182,7 @@ def watch_field_link(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Probe the Multi-Detect Jetson, GR01, RTSP and local metadata link "
-            "before field work."
+            "Probe the Multi-Detect Jetson, GR01, RTSP and local metadata link before field work."
         )
     )
     parser.add_argument("--jetson-host", default="192.168.144.20")
@@ -2314,18 +2249,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=DEFAULT_DISCOVERY_MAX_HOSTS,
         help=(
-            "maximum hosts to scan for --discover-cidr "
-            f"(default: {DEFAULT_DISCOVERY_MAX_HOSTS})"
+            f"maximum hosts to scan for --discover-cidr (default: {DEFAULT_DISCOVERY_MAX_HOSTS})"
         ),
     )
     parser.add_argument(
         "--discover-workers",
         type=int,
         default=DEFAULT_DISCOVERY_WORKERS,
-        help=(
-            "maximum concurrent discovery workers "
-            f"(default: {DEFAULT_DISCOVERY_WORKERS})"
-        ),
+        help=(f"maximum concurrent discovery workers (default: {DEFAULT_DISCOVERY_WORKERS})"),
     )
     parser.add_argument(
         "--discover-timeout-s",
@@ -2392,13 +2323,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--address-state requires --interface-alias")
     if args.address_state is not None and args.expected_source_cidr is None:
         parser.error("--address-state requires --expected-source-cidr")
-    if (
-        not math.isfinite(args.address_state_max_age_s)
-        or not (
-            0.0
-            <= args.address_state_max_age_s
-            <= MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S
-        )
+    if not math.isfinite(args.address_state_max_age_s) or not (
+        0.0 <= args.address_state_max_age_s <= MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S
     ):
         parser.error(
             "--address-state-max-age-s must be finite and in "
@@ -2468,9 +2394,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_interface_alias=args.interface_alias,
         )
         if not interface_result.get("gate_passed"):
-            reasons = "; ".join(
-                str(reason) for reason in interface_result.get("reasons", [])
-            )
+            reasons = "; ".join(str(reason) for reason in interface_result.get("reasons", []))
             parser.error(f"interface diagnostic verification failed: {reasons}")
         selection = interface_result.get("selection")
         if not isinstance(selection, Mapping):
@@ -2500,18 +2424,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.out is not None and address_path == args.out.expanduser().resolve(strict=False):
             parser.error("--address-state and --out must refer to different files")
         report_mode = report.get("mode")
-        timestamp_key = (
-            "finished_at_epoch_s" if report_mode == "watch" else "generated_at_epoch_s"
-        )
+        timestamp_key = "finished_at_epoch_s" if report_mode == "watch" else "generated_at_epoch_s"
         report_timestamp = report.get(timestamp_key)
         if not _is_finite_number(report_timestamp):
-            parser.error(
-                "field-link report has no valid observation timestamp for --address-state"
-            )
+            parser.error("field-link report has no valid observation timestamp for --address-state")
         try:
-            reference_time = datetime.fromtimestamp(
-                float(report_timestamp), tz=timezone.utc
-            )
+            reference_time = datetime.fromtimestamp(float(report_timestamp), tz=timezone.utc)
         except (OverflowError, OSError, ValueError):
             parser.error("field-link report observation timestamp is out of range")
         try:
@@ -2527,18 +2445,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
         if not address_result.get("gate_passed"):
-            detail = "; ".join(
-                str(reason) for reason in address_result.get("reasons", [])
-            )
+            detail = "; ".join(str(reason) for reason in address_result.get("reasons", []))
             parser.error(f"field-link address state verification failed: {detail}")
         if args.expected_source_cidr is not None:
             try:
                 if ipaddress.ip_address(args.expected_field_address) not in ipaddress.ip_network(
                     args.expected_source_cidr, strict=False
                 ):
-                    parser.error(
-                        "--expected-field-address is outside --expected-source-cidr"
-                    )
+                    parser.error("--expected-field-address is outside --expected-source-cidr")
             except ValueError as exc:
                 parser.error(f"invalid field address/source CIDR binding: {exc}")
         report["address_state"] = {

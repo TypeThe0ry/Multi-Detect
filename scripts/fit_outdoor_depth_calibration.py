@@ -63,9 +63,7 @@ def load_samples(path: Path) -> tuple[FieldDepthSample, ...]:
                 name="outdoor depth calibration samples",
             )
         except (OSError, AutonomyContractError, TypeError) as exc:
-            raise ValueError(
-                f"JSON samples are not valid strict JSON: {exc}"
-            ) from exc
+            raise ValueError(f"JSON samples are not valid strict JSON: {exc}") from exc
         if not isinstance(decoded, list) or not all(isinstance(row, Mapping) for row in decoded):
             raise ValueError("JSON samples must be a list of objects")
         rows = decoded

@@ -142,10 +142,20 @@ def verify_evidence_bundle_transfer_receipt(receipt: str | Path) -> dict[str, An
     raw = strict_json_loads(path.read_bytes(), name="transfer verification receipt")
     required = frozenset(
         {
-            "event", "schema_version", "bundle_id", "verified_at_utc", "source_inventory",
-            "destination_root_name", "file_count", "total_bytes", "destination_files",
-            "source_bundle_content_hash", "destination_bundle_content_hash", "byte_exact_copy",
-            "claims", "canonical_hash",
+            "event",
+            "schema_version",
+            "bundle_id",
+            "verified_at_utc",
+            "source_inventory",
+            "destination_root_name",
+            "file_count",
+            "total_bytes",
+            "destination_files",
+            "source_bundle_content_hash",
+            "destination_bundle_content_hash",
+            "byte_exact_copy",
+            "claims",
+            "canonical_hash",
         }
     )
     document = strict_object(raw, name="EvidenceBundleTransferVerification", required=required)
@@ -188,9 +198,18 @@ def _load_inventory(inventory: str | Path) -> tuple[Path, bytes, dict[str, Any]]
     raw = strict_json_loads(payload, name="transfer inventory")
     required = frozenset(
         {
-            "event", "schema_version", "bundle_id", "created_at_utc", "source_root_name",
-            "inventory_path", "file_count", "total_bytes", "files", "bundle_content_hash",
-            "claims", "canonical_hash",
+            "event",
+            "schema_version",
+            "bundle_id",
+            "created_at_utc",
+            "source_root_name",
+            "inventory_path",
+            "file_count",
+            "total_bytes",
+            "files",
+            "bundle_content_hash",
+            "claims",
+            "canonical_hash",
         }
     )
     document = strict_object(raw, name="EvidenceBundleTransferInventory", required=required)
@@ -205,9 +224,9 @@ def _load_inventory(inventory: str | Path) -> tuple[Path, bytes, dict[str, Any]]
         _validate_relative_path(require_text(inventory_path, "inventory_path"))
     files = _validate_file_entries(document["files"])
     _validate_totals(document, files)
-    if require_sha256(
-        document["bundle_content_hash"], "bundle_content_hash"
-    ) != canonical_sha256(files):
+    if require_sha256(document["bundle_content_hash"], "bundle_content_hash") != canonical_sha256(
+        files
+    ):
         raise AutonomyContractError("transfer inventory bundle content hash mismatch")
     _validate_claims(document["claims"])
     _verify_canonical_hash(document)

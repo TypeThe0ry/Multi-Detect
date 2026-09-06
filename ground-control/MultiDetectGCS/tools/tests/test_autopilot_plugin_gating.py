@@ -34,9 +34,9 @@ def test_common_vehicle_code_does_not_require_apm_headers_when_disabled() -> Non
 
 
 def test_px4_sensors_setup_receives_a_nonzero_setup_page_viewport() -> None:
-    sensor_component = (
-        REPO_ROOT / "src/AutoPilotPlugins/PX4/SensorsComponent.qml"
-    ).read_text(encoding="utf-8")
+    sensor_component = (REPO_ROOT / "src/AutoPilotPlugins/PX4/SensorsComponent.qml").read_text(
+        encoding="utf-8"
+    )
     assert "id: sensorsPage" in sensor_component
     assert "property string sectionNameFilter" in sensor_component
     assert "return sensorsSetup.sectionVisible(name)" in sensor_component

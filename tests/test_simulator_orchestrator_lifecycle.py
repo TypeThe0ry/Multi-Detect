@@ -103,9 +103,7 @@ def test_orchestrator_serializes_process_without_pid_or_poll(tmp_path: Path) -> 
     assert stopped.processes[0]["name"] == "minimal"
     assert stopped.processes[0]["pid"] is None
     assert stopped.processes[0]["returncode"] == 0
-    result_document = json.loads(
-        (stopped.job_dir / "result.json").read_text(encoding="utf-8")
-    )
+    result_document = json.loads((stopped.job_dir / "result.json").read_text(encoding="utf-8"))
     assert result_document["processes"] == list(stopped.processes)
     assert process.returncode == 0
 

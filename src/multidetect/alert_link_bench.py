@@ -213,8 +213,7 @@ def run_alert_link_bench(
         "required_round_trips": accepted_round_trips == config.minimum_round_trips,
         "packet_loss_limit": packet_loss_rate <= config.maximum_packet_loss_rate,
         "ack_latency_limit": (
-            latency_p95_ms is not None
-            and latency_p95_ms <= config.maximum_ack_latency_p95_ms
+            latency_p95_ms is not None and latency_p95_ms <= config.maximum_ack_latency_p95_ms
         ),
         "mode_boundary": mode_boundary_verified,
         "correlated_ack": correlated_ack_verified,
@@ -237,9 +236,7 @@ def run_alert_link_bench(
     hardware_observed = config.hardware_mode and not remote_is_loopback
     return {
         "schema_version": ALERT_LINK_BENCH_SCHEMA_VERSION,
-        "event": (
-            "alert_link_bench_passed" if passed else "alert_link_bench_failed"
-        )
+        "event": ("alert_link_bench_passed" if passed else "alert_link_bench_failed")
         if config.hardware_mode
         else (
             "alert_link_software_baseline_bench_passed"
@@ -371,9 +368,7 @@ def verify_alert_link_bench_report(
         reasons.append("transport_protocol must be a non-empty string")
         protocol = ""
     remote_host = document.get("remote_host")
-    if remote_host is not None and (
-        not isinstance(remote_host, str) or not remote_host.strip()
-    ):
+    if remote_host is not None and (not isinstance(remote_host, str) or not remote_host.strip()):
         reasons.append("remote_host must be a non-empty string or null")
     endpoint_is_concrete_ip = False
     endpoint_loopback = True
@@ -459,10 +454,7 @@ def verify_alert_link_bench_report(
     else:
         maximum_loss = maximum_loss_value
     maximum_p95_value = _finite_float(maximum_p95)
-    if (
-        maximum_p95_value is None
-        or maximum_p95_value <= 0
-    ):
+    if maximum_p95_value is None or maximum_p95_value <= 0:
         reasons.append("thresholds.maximum_ack_latency_p95_ms is invalid")
         maximum_p95 = float("inf")
     else:

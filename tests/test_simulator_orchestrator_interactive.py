@@ -380,13 +380,16 @@ def test_live_ai_bridge_consumes_px4_telemetry_through_router(tmp_path: Path) ->
     # PX4 HEARTBEAT wire payload: custom_mode, type, autopilot, base mode
     # (armed), system status and MAVLink version.  The router/bridge sees
     # this as observed telemetry; no simulator truth is injected.
-    heartbeat = bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack(
-        "<IBBBBB", 0, 2, 12, 128, 4, 3
-    ) + b"\x00\x00"
+    heartbeat = (
+        bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack("<IBBBBB", 0, 2, 12, 128, 4, 3) + b"\x00\x00"
+    )
     assert orchestrator.interactive_router is not None
-    assert orchestrator.interactive_router.process_px4_datagram(
-        heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0
-    ) == 1
+    assert (
+        orchestrator.interactive_router.process_px4_datagram(
+            heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0
+        )
+        == 1
+    )
     orchestrator.stop()
     evidence = json.loads((orchestrator.job_dir / "ai.json").read_text(encoding="utf-8"))
     bridge = evidence["live_bridge"]
@@ -427,12 +430,12 @@ def test_live_ai_watchdog_sink_drives_bridge_freshness_and_persists_evidence(
     # One armed PX4 heartbeat releases the bridge's startup gate.  Calling
     # the router watchdog later than the bridge's default two-second lease
     # must take the same stale/failsafe path as a live router event loop.
-    heartbeat = bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack(
-        "<IBBBBB", 0, 2, 12, 128, 4, 3
-    ) + b"\x00\x00"
-    assert router.process_px4_datagram(
-        heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0
-    ) == 1
+    heartbeat = (
+        bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack("<IBBBBB", 0, 2, 12, 128, 4, 3) + b"\x00\x00"
+    )
+    assert (
+        router.process_px4_datagram(heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0) == 1
+    )
     decision = router.poll_watchdog(now_s=13.0)
     assert decision is not None
     assert decision.mode.value == "failsafe"
@@ -477,12 +480,12 @@ def test_watchdog_evidence_write_failure_does_not_duplicate_neutral_output(
     router = orchestrator.interactive_router
     assert router is not None
 
-    heartbeat = bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack(
-        "<IBBBBB", 0, 2, 12, 128, 4, 3
-    ) + b"\x00\x00"
-    assert router.process_px4_datagram(
-        heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0
-    ) == 1
+    heartbeat = (
+        bytes([0xFE, 9, 0, 1, 1, 0]) + struct.pack("<IBBBBB", 0, 2, 12, 128, 4, 3) + b"\x00\x00"
+    )
+    assert (
+        router.process_px4_datagram(heartbeat, source=("127.0.0.1", 14540), timestamp_s=10.0) == 1
+    )
 
     original_write_json = orchestrator._write_json
     failed = False
@@ -613,4 +616,3 @@ def test_initial_ai_state_syncs_executor(tmp_path: Path) -> None:
     )
     assert orchestrator.authority.state is ControlAuthorityState.AI
     assert orchestrator.ai_executor.enabled is True
-

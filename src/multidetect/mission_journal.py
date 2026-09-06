@@ -87,9 +87,7 @@ _TRANSITION_EVENTS = {
     MissionTransactionState.START_PERMITTED: "start_permitted",
     MissionTransactionState.DENIED: "transaction_denied",
 }
-_SAME_STATE_EVENTS = frozenset(
-    {"mission_item_requested", "journal_recovery_acknowledged"}
-)
+_SAME_STATE_EVENTS = frozenset({"mission_item_requested", "journal_recovery_acknowledged"})
 
 
 class MissionJournalError(AutonomyContractError):
@@ -516,9 +514,7 @@ class MissionJournalRecord:
                 identity_hash=require_sha256(raw["identity_hash"], "identity_hash"),
                 event_type=require_text(raw["event_type"], "event_type"),
                 from_state=(
-                    None
-                    if raw["from_state"] is None
-                    else _state(raw["from_state"], "from_state")
+                    None if raw["from_state"] is None else _state(raw["from_state"], "from_state")
                 ),
                 to_state=_state(raw["to_state"], "to_state"),
                 occurred_at=require_aware_timestamp(raw["occurred_at"], "occurred_at"),
@@ -534,9 +530,7 @@ class MissionJournalRecord:
             ) from exc
         expected_hash = canonical_sha256(record._hash_input())
         if expected_hash != record.record_hash:
-            raise MissionJournalCorruptionError(
-                f"journal line {line_number} record hash mismatch"
-            )
+            raise MissionJournalCorruptionError(f"journal line {line_number} record hash mismatch")
         return record
 
     @property
@@ -673,12 +667,15 @@ def _identity_from_value(
 
 
 def _encode_record(record: MissionJournalRecord) -> bytes:
-    encoded = json.dumps(
-        record.to_mapping(),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ) + "\n"
+    encoded = (
+        json.dumps(
+            record.to_mapping(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
     return encoded.encode("utf-8")
 
 
@@ -1023,9 +1020,7 @@ class DurableMissionJournal:
                     name="upload_started payload",
                     required=frozenset({"protocol_hash", "item_count"}),
                 )
-                protocol_hash = require_sha256(
-                    raw["protocol_hash"], "upload_started.protocol_hash"
-                )
+                protocol_hash = require_sha256(raw["protocol_hash"], "upload_started.protocol_hash")
                 item_count = require_int(
                     raw["item_count"],
                     "upload_started.item_count",
@@ -1053,9 +1048,7 @@ class DurableMissionJournal:
                     ),
                 )
                 ack_type = require_int(raw["ack_type"], "upload_acknowledged.ack_type")
-                mission_type = require_int(
-                    raw["mission_type"], "upload_acknowledged.mission_type"
-                )
+                mission_type = require_int(raw["mission_type"], "upload_acknowledged.mission_type")
                 source_system = require_int(
                     raw["source_system"], "upload_acknowledged.source_system"
                 )
@@ -1175,9 +1168,7 @@ class DurableMissionJournal:
             raw = strict_object(
                 payload,
                 name="journal_recovery_acknowledged payload",
-                required=frozenset(
-                    {"operator_note", "quarantined_bytes", "quarantined_sha256"}
-                ),
+                required=frozenset({"operator_note", "quarantined_bytes", "quarantined_sha256"}),
                 optional=frozenset({"quarantine_path"}),
             )
             require_text(
@@ -1269,9 +1260,7 @@ class DurableMissionJournal:
                         f"transaction_denied payload is invalid: {exc}"
                     ) from exc
         occurred_at = _timestamp(now_utc)
-        previous_timestamp = _parse_timestamp(
-            self._records[-1].occurred_at, "previous occurred_at"
-        )
+        previous_timestamp = _parse_timestamp(self._records[-1].occurred_at, "previous occurred_at")
         if _parse_timestamp(occurred_at) < previous_timestamp:
             if now_utc is None:
                 # A caller that omits a clock (for example a deterministic
@@ -1327,11 +1316,7 @@ class DurableMissionJournal:
 
         with self._lock:
             current = self.state
-            expected = (
-                None
-                if expected_state is None
-                else _state(expected_state, "expected_state")
-            )
+            expected = None if expected_state is None else _state(expected_state, "expected_state")
             if expected is not None and current is not expected:
                 raise MissionJournalError(
                     f"journal state {current.value} does not match expected {expected.value}"
@@ -1342,10 +1327,7 @@ class DurableMissionJournal:
                     f"journal state {current.value} does not permit {target.value}"
                 )
             canonical_event = _TRANSITION_EVENTS[target]
-            if (
-                event_type is not None
-                and require_text(event_type, "event_type") != canonical_event
-            ):
+            if event_type is not None and require_text(event_type, "event_type") != canonical_event:
                 raise MissionJournalError(
                     "event_type does not match the canonical state transition"
                 )

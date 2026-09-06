@@ -51,10 +51,7 @@ def find_repo_root(start_path: Path | None = None) -> Path:
     current = start_path if start_path.is_dir() else start_path.parent
 
     for parent in [current, *current.parents]:
-        if (
-            (parent / ".multidetect-gcs-root").exists()
-            or (parent / ".git").exists()
-        ):
+        if (parent / ".multidetect-gcs-root").exists() or (parent / ".git").exists():
             return parent
 
     return start_path

@@ -73,9 +73,11 @@ class TargetWorldSpeedEstimator:
             telemetry.local_east_m,
             telemetry.local_position_observed_at_s,
         )
-        if all(math.isfinite(value) for value in local_values) and abs(
-            captured_at_s - telemetry.local_position_observed_at_s
-        ) <= self.config.maximum_sample_gap_s:
+        if (
+            all(math.isfinite(value) for value in local_values)
+            and abs(captured_at_s - telemetry.local_position_observed_at_s)
+            <= self.config.maximum_sample_gap_s
+        ):
             north_m += telemetry.local_north_m
             east_m += telemetry.local_east_m
         history = self._samples[target_id]
@@ -98,10 +100,7 @@ class TargetWorldSpeedEstimator:
             self.config.stationary_displacement_m,
             3.0 * residual_m,
         )
-        if (
-            speed_mps <= self.config.stationary_speed_mps
-            or displacement_m <= stationary_gate_m
-        ):
+        if speed_mps <= self.config.stationary_speed_mps or displacement_m <= stationary_gate_m:
             return 0.0
         return speed_mps if math.isfinite(speed_mps) else None
 
@@ -124,17 +123,16 @@ def _linear_slope(samples: deque[_PositionSample], field_name: str) -> tuple[flo
     denominator = sum((value - mean_t) ** 2 for value in times)
     if denominator <= 1e-9:
         return 0.0, 0.0
-    slope = sum(
-        (captured_at_s - mean_t) * (value - mean_value)
-        for captured_at_s, value in zip(times, values, strict=True)
-    ) / denominator
+    slope = (
+        sum(
+            (captured_at_s - mean_t) * (value - mean_value)
+            for captured_at_s, value in zip(times, values, strict=True)
+        )
+        / denominator
+    )
     residual = math.sqrt(
         sum(
-            (
-                value
-                - (mean_value + slope * (captured_at_s - mean_t))
-            )
-            ** 2
+            (value - (mean_value + slope * (captured_at_s - mean_t))) ** 2
             for captured_at_s, value in zip(times, values, strict=True)
         )
         / len(times)

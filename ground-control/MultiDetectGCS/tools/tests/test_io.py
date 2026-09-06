@@ -56,7 +56,9 @@ def test_atomic_write_overwrites(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "new"
 
 
-def test_atomic_write_cleans_up_tmp_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_atomic_write_cleans_up_tmp_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     target = tmp_path / "z.txt"
 
     def boom(*args: object, **kwargs: object) -> None:

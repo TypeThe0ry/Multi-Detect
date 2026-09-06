@@ -321,6 +321,4 @@ def test_target_accuracy_report_schema_declares_offline_contract() -> None:
     assert "major_95_m" in schema["$defs"]["errorEllipse"]["required"]
     selection = schema["$defs"]["selection"]
     assert selection["additionalProperties"] is False
-    assert selection["properties"]["source_manifest_sha256"]["pattern"] == (
-        "^[0-9a-fA-F]{64}$"
-    )
+    assert selection["properties"]["source_manifest_sha256"]["pattern"] == ("^[0-9a-fA-F]{64}$")

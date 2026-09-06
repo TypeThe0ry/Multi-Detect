@@ -92,8 +92,7 @@ def test_combined_gate_owns_one_hardened_container_and_three_readonly_mounts() -
         for mount in mounts
     )
     assert any(
-        "source=$WorldAsset,target=/opt/px4-gazebo/share/gz/worlds/default.sdf,readonly"
-        in mount
+        "source=$WorldAsset,target=/opt/px4-gazebo/share/gz/worlds/default.sdf,readonly" in mount
         for mount in mounts
     )
     assert any("target=/workspace/scripts,readonly" in mount for mount in mounts)
@@ -137,13 +136,12 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
     assert "/odometry_with_covariance" in required_topics
 
     assert (
-        '$requiredOdometryTopic = '
-        '"/model/standard_vtol_mono_cam_0/odometry_with_covariance"'
+        '$requiredOdometryTopic = "/model/standard_vtol_mono_cam_0/odometry_with_covariance"'
     ) in text
     assert '"gz", "topic", "-i", "-t", $requiredOdometryTopic' in text
-    assert 'required_for_readiness = $true' in text
-    assert 'publisher_status = $odometryPublisherStatus' in text
-    assert 'publisher_present = $odometryPublisherPresent' in text
+    assert "required_for_readiness = $true" in text
+    assert "publisher_status = $odometryPublisherStatus" in text
+    assert "publisher_present = $odometryPublisherPresent" in text
     assert "$integratedEvidence.sensor_transport.odometry_required -eq $true" in text
     assert (
         "$integratedEvidence.sensor_transport."
@@ -151,16 +149,15 @@ def test_river_world_model_and_required_sensor_topics_are_bound_to_default_names
         '"validated_k_p_rectification_plumb_bob_distortion"'
     ) in text
     assert (
-        "$integratedEvidence.sensor_transport."
-        "full_odometry_pose_velocity_fusion_claimed -eq $true"
+        "$integratedEvidence.sensor_transport.full_odometry_pose_velocity_fusion_claimed -eq $true"
     ) in text
     assert "Required Gazebo full-odometry publisher is absent" in text
     assert "$integratedEvidence.sensor_transport.odometry_timestamp_frame_count -eq $Frames" in text
     assert "$integratedEvidence.terrain_dem_sha256 -eq $terrainDemHash" in text
     assert "$integratedEvidence.odometry_local_up_used_as_agl -eq $false" in text
     assert "observed_timestamp_frame_count" in text
-    assert 'No publishers on topic' in text
-    assert 'Gazebo camera image/CameraInfo/NavSat/full-odometry topics were not ready' in text
+    assert "No publishers on topic" in text
+    assert "Gazebo camera image/CameraInfo/NavSat/full-odometry topics were not ready" in text
 
 
 def test_combined_sensor_readiness_requires_stable_gazebo_publishers_before_stream_start() -> None:
@@ -237,23 +234,19 @@ def test_portable_qgc_runs_visible_on_the_native_fly_view_surface() -> None:
 
     assert '$ProductVersionManifest = Join-Path $Root "configs\\product-version.json"' in text
     assert '$ReleaseParityPath = Join-Path $Root "configs\\release-parity.json"' in text
-    assert '$QgcExecutable, $RtspHelper, $ReleaseParityPath, $ScenarioManifest' in text
+    assert "$QgcExecutable, $RtspHelper, $ReleaseParityPath, $ScenarioManifest" in text
     assert "release_parity = [ordered]@{" in text
     assert "bytes = (Get-Item $ReleaseParityPath).Length" in text
     assert "sha256 = Get-Sha256OrNull $ReleaseParityPath" in text
     assert (
-        "parity = (Get-Content -LiteralPath $ReleaseParityPath -Raw | "
-        "ConvertFrom-Json).parity"
+        "parity = (Get-Content -LiteralPath $ReleaseParityPath -Raw | ConvertFrom-Json).parity"
     ) in text
     assert '"build\\windows-v{0}-release\\portable-v{0}\\bin" -f $ReleaseLabel' in text
     assert '"build\\qgc-replay-fixture-v{0}" -f $ReleaseLabel' in text
-    assert 'release_status = $ReleaseStatus' in text
+    assert "release_status = $ReleaseStatus" in text
     assert "0.3.0-pre.3" not in text
     assert '$QgcExecutable = Join-Path $QgcPortableBin "MultiDetectGCS.exe"' in text
-    assert (
-        '$RtspHelper = Join-Path $QgcPortableBin "MultiDetectReplayRtspPublisher.exe"'
-        in text
-    )
+    assert '$RtspHelper = Join-Path $QgcPortableBin "MultiDetectReplayRtspPublisher.exe"' in text
     assert "-FilePath $QgcExecutable" in text
     assert "-WorkingDirectory $QgcPortableBin" in text
     assert "-WindowStyle Normal" in text
@@ -262,27 +255,26 @@ def test_portable_qgc_runs_visible_on_the_native_fly_view_surface() -> None:
     assert '"--isolated-hil-px4-target-port"' in text
     assert (
         'Remove-Item -LiteralPath "Env:MULTIDETECT_DISABLE_VEHICLE_LINK" '
-        '-ErrorAction SilentlyContinue'
+        "-ErrorAction SilentlyContinue"
     ) in text
     assert (
         'Remove-Item -LiteralPath "Env:MULTIDETECT_HIL_UI_AUTO_EXERCISE" '
-        '-ErrorAction SilentlyContinue'
+        "-ErrorAction SilentlyContinue"
     ) in text
     assert (
-        'Remove-Item -LiteralPath "Env:MULTIDETECT_HIL_UI_AUTO_EXIT" '
-        '-ErrorAction SilentlyContinue'
+        'Remove-Item -LiteralPath "Env:MULTIDETECT_HIL_UI_AUTO_EXIT" -ErrorAction SilentlyContinue'
     ) in text
     assert 'SetEnvironmentVariable("MULTIDETECT_DISABLE_VEHICLE_LINK", $null' not in text
     assert 'SetEnvironmentVariable("MULTIDETECT_HIL_UI_AUTO_EXERCISE", $null' not in text
     assert 'SetEnvironmentVariable("MULTIDETECT_HIL_UI_AUTO_EXIT", $null' not in text
-    assert 'if ($null -eq $savedEnvironment[$name])' in text
+    assert "if ($null -eq $savedEnvironment[$name])" in text
     assert 'if (Test-Path -LiteralPath "Env:$name")' in text
     assert 'Remove-Item -LiteralPath "Env:$name" -ErrorAction Stop' in text
     assert "$acceptanceOnlyEnvironmentAbsentBeforeLaunch" in text
     assert "MultiDetect HIL UI auto exercise" in text
     assert "hil_ui_auto_exercise_log_count = $hilUiAutoExerciseLogMatches.Count" in text
     assert "hil_ui_auto_exercise_disabled = $hilUiAutoExerciseDisabled" in text
-    assert 'qEnvironmentVariableIsSet for their special auto-exit teardown path' in text
+    assert "qEnvironmentVariableIsSet for their special auto-exit teardown path" in text
     assert '$env:MULTIDETECT_HIL_UI_AUTO_EXERCISE = "0"' not in text
     assert '$env:MULTIDETECT_HIL_UI_AUTO_EXIT = "0"' not in text
     assert '"MULTIDETECT_HIL_UI_GEOMETRY_EXPORT"' in text
@@ -294,8 +286,7 @@ def test_portable_qgc_runs_visible_on_the_native_fly_view_surface() -> None:
     assert "Save-QgcWindowCapture -Process $qgcProcess" in text
     assert "Invoke-QgcNativePipSwap -Process $qgcProcess" in text
     assert (
-        'native_surface = "QGroundControl FlyView/FlyViewVideo/PipView/FlyViewCustomLayer"'
-        in text
+        'native_surface = "QGroundControl FlyView/FlyViewVideo/PipView/FlyViewCustomLayer"' in text
     )
     assert "independent_simulator_window_created = $false" in text
     assert "ApplicationWindow" not in text
@@ -312,7 +303,7 @@ def test_native_multidetect_toolbar_uses_qgc_scene_geometry_and_exact_hwnd_input
     assert 'Role "drawer_open"' in text
     assert 'Role "drawer_closed"' in text
     assert 'geometry_source = "qgc_qml_scene_geometry_export"' in text
-    assert 'geometry_schema = [string]$indicator.schema' in text
+    assert "geometry_schema = [string]$indicator.schema" in text
     assert "Get-QgcPointProvenanceSample" in text
     assert "[MultiDetectWindow.Native]::GetAncestor($hitHwnd, 2)" in text
     assert "GetWindowThreadProcessId($rootHwnd" in text
@@ -341,13 +332,11 @@ def test_native_multidetect_toolbar_uses_qgc_scene_geometry_and_exact_hwnd_input
     assert "root_hwnd_matches_qgc = ($hitRootWindow -eq $window.Handle)" in text
     assert 'dpi_awareness = "per_monitor_v2"' in text
     assert "cursor_position_verified" in text
-    assert (
-        text.index("$previousForeground = Set-QgcWindowCaptureForeground -Window $window")
-        < text.index("$hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($clickPoint)")
-    )
-    assert (
-        text.index("[MultiDetectWindow.Native]::SetCursorPos($clickX, $clickY)")
-        < text.index("$hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($clickPoint)")
+    assert text.index(
+        "$previousForeground = Set-QgcWindowCaptureForeground -Window $window"
+    ) < text.index("$hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($clickPoint)")
+    assert text.index("[MultiDetectWindow.Native]::SetCursorPos($clickX, $clickY)") < text.index(
+        "$hitWindow = [MultiDetectWindow.Native]::WindowFromPoint($clickPoint)"
     )
     assert (
         'method = "qml_scene_geometry_export_plus_exact_hwnd_client_to_screen_plus_sendinput"'
@@ -369,22 +358,21 @@ def test_native_target_selection_drives_the_real_qgc_overlay_and_geolocation_gat
     assert "Convert-QgcHilUiGeometryToPhysicalScreenRect -Record $fresh" in text
     assert '"Unable to enter per-monitor-v2 DPI context for exact target input."' in text
     assert '"Target input thread DPI-awareness context was not restored."' in text
-    assert "Get-QgcPointProvenanceSample -Name \"target_center\"" in text
+    assert 'Get-QgcPointProvenanceSample -Name "target_center"' in text
     assert "[MultiDetectWindow.Native]::SendLeftClick()" in text
     assert "function Wait-QgcHilUiSelectionRecord" in text
     assert '"multidetect.qgc-hil-ui-selection"' in text
     assert '-Phase "selection_acknowledged"' in text
-    assert '$selectionAck.correlated -eq $true' in text
-    assert '$selectionAck.accepted -eq $true' in text
+    assert "$selectionAck.correlated -eq $true" in text
+    assert "$selectionAck.accepted -eq $true" in text
     rejection_message = (
-        '"Jetson rejected the native QGC SELECT_TRK command '
-        '(reason=$($selectionAck.reason))."'
+        '"Jetson rejected the native QGC SELECT_TRK command (reason=$($selectionAck.reason))."'
     )
     assert rejection_message in text
     assert '-Phase "track_status_received"' in text
     assert '-Phase "track_status_adopted"' in text
-    assert 'clicked_candidate_target_id = [string]$fresh.target_id' in text
-    assert 'adopted_target_id = [string]$adopted.target_id' in text
+    assert "clicked_candidate_target_id = [string]$fresh.target_id" in text
+    assert "adopted_target_id = [string]$adopted.target_id" in text
     assert "correlated_track_status_proved = $true" in text
     assert '[string]$adopted.state -eq "TRACKING"' in text
     assert '[string]$adopted.interaction_state -eq "TRK"' in text
@@ -432,8 +420,8 @@ def test_integrated_operator_and_rtsp_bind_before_qgc_starts() -> None:
     assert integrated_start < qgc_start
     assert "ICMP port-unreachable" in text
     assert 'Pattern "runtime status adopted and acknowledged sequence="' in text
-    assert 'Pattern \'Video "videoContent" streaming changed, active: yes\'' in text
-    assert 'Pattern \'Video "videoContent" decoding changed, active: yes\'' in text
+    assert "Pattern 'Video \"videoContent\" streaming changed, active: yes'" in text
+    assert "Pattern 'Video \"videoContent\" decoding changed, active: yes'" in text
     assert "New resolution: 1280 x 960" in text
     assert "Wait-QgcMainFlyWindowIsMapSetting" in text
     assert "QGCQml/MainFlyWindowIsMap true(default)->false" in text
@@ -444,8 +432,7 @@ def test_combined_acceptance_runs_runtime_preflight_before_docker_info() -> None
     text = _read_script()
 
     assert (
-        '$RuntimePreflightEvidencePath = Join-Path $RunDirectory "runtime-preflight.json"'
-        in text
+        '$RuntimePreflightEvidencePath = Join-Path $RunDirectory "runtime-preflight.json"' in text
     )
     preflight_index = text.index(
         '"-m", "multidetect.simulator", "runtime-preflight", "--out", $RuntimePreflightEvidencePath'
@@ -454,10 +441,10 @@ def test_combined_acceptance_runs_runtime_preflight_before_docker_info() -> None
         '$dockerInfo = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @("info"'
     )
     assert preflight_index < docker_info_index
-    assert '$runtimePreflightReadiness.ready_to_attempt -eq $true' in text
+    assert "$runtimePreflightReadiness.ready_to_attempt -eq $true" in text
     assert '"External SIM runtime is not ready:' in text
-    assert 'runtime_preflight = [ordered]@{' in text
-    assert 'runtime_preflight = $RuntimePreflightEvidencePath' in text
+    assert "runtime_preflight = [ordered]@{" in text
+    assert "runtime_preflight = $RuntimePreflightEvidencePath" in text
     # The parsed document must survive the later process-variable setup so the
     # final evidence retains readiness and bounded Docker diagnostics.
     assert "$runtimePreflightDocument = $null" not in text
@@ -493,14 +480,12 @@ def test_container_log_capture_is_streamed_to_bounded_files() -> None:
     text = _read_script()
 
     helper = text.index("function Save-CommandOutputToFile")
-    finally_capture = text.index(
-        "$containerLogExitCode = Save-CommandOutputToFile"
-    )
+    finally_capture = text.index("$containerLogExitCode = Save-CommandOutputToFile")
     assert helper < finally_capture
     assert "RedirectStandardOutput $OutputPath" in text[helper:]
     assert "RedirectStandardError $ErrorPath" in text[helper:]
     assert '"logs", "--tail", "256", $ContainerName' in text[finally_capture:]
-    assert "$ContainerLogStderr = Join-Path $RunDirectory \"container.log.stderr\"" in text
+    assert '$ContainerLogStderr = Join-Path $RunDirectory "container.log.stderr"' in text
     assert "container_log_stderr = $ContainerLogStderr" in text
     # Regression guard: the old implementation materialised the complete
     # Docker stream in an object array and could consume multiple gigabytes
@@ -574,7 +559,7 @@ def test_native_qgc_video_diagnostics_reuse_logging_without_claiming_visible_pix
     assert "runtime_snapshot_timestamp_bound_to_qgc_process" in text
     assert "force_cpu_video_path_proved = $qgcCpuVideoAbProved" in text
     assert "force_video_decoder_override_present" in text
-    assert 'native_ui_modified = $false' in text
+    assert "native_ui_modified = $false" in text
     assert "this artifact does not prove visible pixels" in text
 
     evidence_start = text.index("$evidence = [ordered]@{")
@@ -601,20 +586,20 @@ def test_sensor_stream_deadline_scales_with_the_frame_budget() -> None:
 def test_perception_dimensions_are_derived_from_model_manifest() -> None:
     text = _read_script()
 
-    required_block = text[text.index("foreach ($required in @("):text.index(
-        "Assert-True (-not (Test-Path -LiteralPath $RunDirectory))"
-    )]
+    required_block = text[
+        text.index("foreach ($required in @(") : text.index(
+            "Assert-True (-not (Test-Path -LiteralPath $RunDirectory))"
+        )
+    ]
     assert (
-        "$ModelManifestDocument = Get-Content -LiteralPath $ModelManifest -Raw | "
-        "ConvertFrom-Json"
+        "$ModelManifestDocument = Get-Content -LiteralPath $ModelManifest -Raw | ConvertFrom-Json"
     ) in required_block
     assert "$ModelInputShape = @($ModelManifestDocument.input.shape)" in required_block
     assert "Assert-True ($ModelInputShape.Count -eq 4)" in required_block
     assert "$PerceptionInputHeight = [int]$ModelInputShape[2]" in required_block
     assert "$PerceptionInputWidth = [int]$ModelInputShape[3]" in required_block
     assert (
-        '"--input-width", "$PerceptionInputWidth", '
-        '"--input-height", "$PerceptionInputHeight"'
+        '"--input-width", "$PerceptionInputWidth", "--input-height", "$PerceptionInputHeight"'
     ) in text
     assert '"--input-width", "64", "--input-height", "64"' not in text
 
@@ -678,7 +663,7 @@ def test_finite_integrated_producer_exit_does_not_abort_later_vtol_or_mission_ba
     assert "$vtolProcess" not in fixed_wing_capture_block
     assert "-Processes @($qgcProcess, $routerProcess)" in fixed_wing_capture_block
     assert (
-        "-Pattern 'MULTIDETECT_HIL_VIDEO_GRAB .*\"role\":\"fixed-wing\"'"
+        '-Pattern \'MULTIDETECT_HIL_VIDEO_GRAB .*"role":"fixed-wing"\''
         " -TimeoutSeconds 5 -Processes @($qgcProcess)"
     ) in fixed_wing_capture_block
     producer_comment = text.index("# The integrated sensor/AI producer")
@@ -711,8 +696,7 @@ def test_multi_endpoint_router_attached_vtol_and_integrated_sim_share_one_contai
     ):
         assert f'"{argument}"' in text
     assert (
-        r'$AttachedVtolScript = Join-Path $Root "scripts\vtol_sitl_attached_acceptance.py"'
-        in text
+        r'$AttachedVtolScript = Join-Path $Root "scripts\vtol_sitl_attached_acceptance.py"' in text
     )
     assert '"--container-name", $ContainerName' in text
     assert '"--fixed-wing-ready-file", $FixedWingReady' in text
@@ -732,10 +716,7 @@ def test_multi_endpoint_router_attached_vtol_and_integrated_sim_share_one_contai
     assert '"--metadata-acceptance-ack-timeout-seconds", "3"' in text
     assert '"--maximum-ack-to-metadata-skew-ms", "1000"' in text
     assert '"--operator-hmac-key-env", "MULTIDETECT_OPERATOR_KEY"' in text
-    assert (
-        '"--mavlink-signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"'
-        in text
-    )
+    assert '"--mavlink-signing-key-hex-env", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"' in text
     assert "$integratedEvidence.synchronization.video_frame_count -eq $Frames" in text
     assert "$integratedEvidence.synchronization.metadata_send_count -eq $Frames" in text
     assert "$integratedEvidence.synchronization.metadata_acceptance_ack_count -eq $Frames" in text
@@ -794,8 +775,7 @@ def test_temporary_operator_keys_are_process_only_zeroed_and_never_serialized() 
     assert "$env:MULTIDETECT_OPERATOR_KEY = $temporaryHmac" in text
     assert "$env:MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $temporarySigningHex" in text
     assert (
-        '[Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")'
-        in text
+        '[Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")' in text
     )
     assert "[Array]::Clear($hmacBytes, 0, $hmacBytes.Length)" in text
     assert "[Array]::Clear($signingBytes, 0, $signingBytes.Length)" in text
@@ -831,7 +811,7 @@ def test_aggregate_evidence_uses_bounded_json_safe_projection() -> None:
     assert "[IO.File]::WriteAllText($Path, [string]$Text, $encoding)" in text
     assert "function ConvertTo-JsonSafeEvidenceValue" in text
     assert "RuntimeHelpers]::GetHashCode($Value)" in text
-    assert "return \"<cycle>\"" in text
+    assert 'return "<cycle>"' in text
     assert "MaximumCollectionItems = 4096" in text
     assert "<dictionary-truncated:$MaximumCollectionItems>" in text
     assert "<unsupported-type:$($type.FullName)>" in text
@@ -853,13 +833,10 @@ def test_aggregate_evidence_uses_bounded_json_safe_projection() -> None:
     assert "Write-Output $evidenceJson" in text
 
 
-
 def test_sensitive_environment_and_secret_buffers_have_one_outer_cleanup_guard() -> None:
     text = _read_script()
 
-    guard_comment = text.index(
-        "# This outer guard begins before the first secret allocation"
-    )
+    guard_comment = text.index("# This outer guard begins before the first secret allocation")
     outer_try = text.index("try {", guard_comment)
     snapshot = text.index(
         "foreach ($name in $environmentNames) { $savedEnvironment[$name] = "
@@ -868,9 +845,7 @@ def test_sensitive_environment_and_secret_buffers_have_one_outer_cleanup_guard()
     )
     snapshot_complete = text.index("$environmentSnapshotComplete = $true", snapshot)
     hmac_allocation = text.index("$hmacBytes = New-Object byte[] 32", snapshot_complete)
-    signing_allocation = text.index(
-        "$signingBytes = New-Object byte[] 32", hmac_allocation
-    )
+    signing_allocation = text.index("$signingBytes = New-Object byte[] 32", hmac_allocation)
     first_environment_mutation = text.index(
         '$env:MULTIDETECT_EXPECTED_RUNTIME_MODE = "SIM"', signing_allocation
     )
@@ -897,14 +872,11 @@ def test_sensitive_environment_and_secret_buffers_have_one_outer_cleanup_guard()
     )
     assert 'Remove-Item -LiteralPath "Env:$name"' in cleanup
     assert (
-        "if ($null -ne $hmacBytes) { "
-        "[Array]::Clear($hmacBytes, 0, $hmacBytes.Length) }"
-        in cleanup
+        "if ($null -ne $hmacBytes) { [Array]::Clear($hmacBytes, 0, $hmacBytes.Length) }" in cleanup
     )
     assert (
         "if ($null -ne $signingBytes) { "
-        "[Array]::Clear($signingBytes, 0, $signingBytes.Length) }"
-        in cleanup
+        "[Array]::Clear($signingBytes, 0, $signingBytes.Length) }" in cleanup
     )
     assert cleanup.index("[Array]::Clear($hmacBytes") < cleanup.index(
         "[Array]::Clear($signingBytes"
@@ -947,26 +919,22 @@ def test_recommended_long_run_parameters_flow_to_unclipped_wait_budgets() -> Non
     assert "[Math]::Ceiling($FixedWingHoldSeconds + 43.0)" in text
     assert "[Math]::Ceiling(($FixedWingHoldSeconds + 58.0) * 1000.0)" in text
     assert (
-        "$MissionReadyTimeoutSeconds = "
-        "$MissionSetupAllowanceSeconds + $MissionTimeoutSeconds"
+        "$MissionReadyTimeoutSeconds = $MissionSetupAllowanceSeconds + $MissionTimeoutSeconds"
     ) in text
     assert "$MissionSetupAllowanceSeconds + $MissionTimeoutSeconds + 30" in text
     assert '"--mission-timeout-seconds", "$MissionTimeoutSeconds"' in text
     assert (
         "Wait-FileCreated -Path $FixedWingReady "
-        "-TimeoutSeconds $FixedWingReadyTimeoutSeconds"
-        in text
+        "-TimeoutSeconds $FixedWingReadyTimeoutSeconds" in text
     )
     assert (
         "Wait-ProcessCompleted -Process $vtolProcess "
-        "-TimeoutMilliseconds $VtolProcessWaitTimeoutMilliseconds"
-        in text
+        "-TimeoutMilliseconds $VtolProcessWaitTimeoutMilliseconds" in text
     )
     assert "-Path $FixedWingReady -TimeoutSeconds 55" not in text
     assert "-Process $vtolProcess -TimeoutMilliseconds 70000" not in text
     assert (
-        "Wait-FileCreated -Path $MissionActiveReady "
-        "-TimeoutSeconds $MissionReadyTimeoutSeconds"
+        "Wait-FileCreated -Path $MissionActiveReady -TimeoutSeconds $MissionReadyTimeoutSeconds"
     ) in text
     assert (
         "Wait-ProcessCompleted -Process $missionProcess "
@@ -974,6 +942,7 @@ def test_recommended_long_run_parameters_flow_to_unclipped_wait_budgets() -> Non
     ) in text
     assert "-Path $MissionActiveReady -TimeoutSeconds 150" not in text
     assert "-Process $missionProcess -TimeoutMilliseconds 270000" not in text
+
 
 def test_linux_container_startup_payload_is_normalized_to_lf() -> None:
     text = _read_script()
@@ -988,7 +957,7 @@ def test_linux_container_startup_payload_is_normalized_to_lf() -> None:
         lf_normalization,
     )
     docker_run = text.index(
-        '$run = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(',
+        "$run = Invoke-CapturedCommand -FilePath $Docker -ArgumentList @(",
         telemetry_substitution,
     )
 
@@ -1017,7 +986,7 @@ def test_exact_qgc_pid_hwnd_capture_reads_only_the_owned_client_rectangle() -> N
     assert "const uint CAPTUREBLT = 0x40000000" in text
     assert "SRCCOPY | CAPTUREBLT" in text
     assert "BitBlt(destination, 0, 0, width, height" in text
-    assert 'qgc_pid = $Process.Id' in text
+    assert "qgc_pid = $Process.Id" in text
     assert 'qgc_hwnd = ("0x{0:X}" -f $window.Handle.ToInt64())' in text
     assert "qgc_window_title = $title.ToString()" in text
     assert (
@@ -1048,13 +1017,11 @@ def test_exact_qgc_pid_hwnd_capture_reads_only_the_owned_client_rectangle() -> N
     assert "may legally retain a different foreground HWND" not in text
     assert (
         "Set-ExactForegroundWindow -Handle $window.Handle -ExpectedProcessId "
-        "([uint32]$Process.Id)"
-        in text
+        "([uint32]$Process.Id)" in text
     )
     assert (
         "Set-ExactForegroundWindow -Handle $previousForeground "
-        "-ExpectedProcessId $previousForegroundOwner"
-        in text
+        "-ExpectedProcessId $previousForegroundOwner" in text
     )
     assert "cursor_restored = $cursorRestored" in text
     assert "cursor_restoration_required = $false" in text
@@ -1111,13 +1078,11 @@ def test_native_videooutput_grab_binds_qquickitem_pixels_to_type24_advancement()
     assert '"--qgc-started-at-utc", "$($qgcStartTimeUtc.ToString(\'o\'))"' in text
     assert (
         "$nativeVideoGrabEvidence."
-        "transport_bound_native_qquickitem_video_surface_proved -eq $true"
-        in text
+        "transport_bound_native_qquickitem_video_surface_proved -eq $true" in text
     )
     assert (
         "$nativeVideoGrabEvidence.native_qgc_ui_contract."
-        "second_video_output_created -eq $false"
-        in text
+        "second_video_output_created -eq $false" in text
     )
     assert 'operator_visual_acceptance -eq "not_claimed"' in text
 
@@ -1134,8 +1099,7 @@ def test_native_videooutput_grab_binds_qquickitem_pixels_to_type24_advancement()
     assert "if (Test-Path -LiteralPath $LiveVideoEvidencePath -PathType Leaf)" in text
     assert (
         "$liveVideoSurfaceEvidence."
-        "transport_bound_visible_video_surface_proved -eq $true"
-        not in text
+        "transport_bound_visible_video_surface_proved -eq $true" not in text
     )
     assert "transport_bound_visible_video_surface_proved" in text
     assert "temporal_source_motion_proved" in text
@@ -1149,7 +1113,7 @@ def test_complete_vtol_mission_reuses_same_router_container_and_native_qgc_surfa
     text = _read_script()
 
     assert (
-        r'$MissionAcceptanceScript = Join-Path $Root '
+        r"$MissionAcceptanceScript = Join-Path $Root "
         r'"scripts\vtol_sitl_mission_acceptance.py"'
     ) in text
     assert '"--expected-container-id", $containerId' in text
@@ -1157,39 +1121,30 @@ def test_complete_vtol_mission_reuses_same_router_container_and_native_qgc_surfa
     assert '"--evaluator-port", "$EvaluatorPort"' in text
     assert '"--airframe-profile-sha256", $airframeProfileHash' in text
     assert (
-        '"--runtime-descriptor-sha256", '
-        '([string]$integratedStartEvidence.runtime_descriptor_hash)'
+        '"--runtime-descriptor-sha256", ([string]$integratedStartEvidence.runtime_descriptor_hash)'
     ) in text
     assert (
-        '"--runtime-provenance-sha256", '
-        '([string]$integratedStartEvidence.run_identity_hash)'
+        '"--runtime-provenance-sha256", ([string]$integratedStartEvidence.run_identity_hash)'
     ) in text
     assert '"--mission-active-ready-file", $MissionActiveReady' in text
     assert '$MissionJournal = Join-Path $RunDirectory "vtol-mission.transaction.jsonl"' in text
     assert '"--mission-journal", $MissionJournal' in text
     assert '"--acknowledge-owned-disposable-sitl"' in text
     assert (
-        'Get-JsonEventFromFile -Path $IntegratedStdout '
-        '-Event "integrated_sim_qgc_started"'
+        'Get-JsonEventFromFile -Path $IntegratedStdout -Event "integrated_sim_qgc_started"'
     ) in text
-    assert 'Wait-FileCreated -Path $MissionActiveReady' in text
-    assert 'Save-QgcWindowCapture -Process $qgcProcess -Path $MissionActiveScreenshot' in text
-    assert '$missionActiveReadyEvidence.auto_mission_active -eq $true' in text
-    assert '$missionActiveReadyEvidence.in_air_observed -eq $true' in text
-    assert '$missionActiveReadyEvidence.in_air_at_ready -eq $true' in text
-    assert '$missionActiveReadyEvidence.mission_progress.observed -eq $true' in text
-    assert (
-        "$missionReadyQgcSequenceBaseline = "
-        "Get-LatestQgcRuntimeStatusSequence"
-    ) in text
+    assert "Wait-FileCreated -Path $MissionActiveReady" in text
+    assert "Save-QgcWindowCapture -Process $qgcProcess -Path $MissionActiveScreenshot" in text
+    assert "$missionActiveReadyEvidence.auto_mission_active -eq $true" in text
+    assert "$missionActiveReadyEvidence.in_air_observed -eq $true" in text
+    assert "$missionActiveReadyEvidence.in_air_at_ready -eq $true" in text
+    assert "$missionActiveReadyEvidence.mission_progress.observed -eq $true" in text
+    assert ("$missionReadyQgcSequenceBaseline = Get-LatestQgcRuntimeStatusSequence") in text
     assert (
         "$missionCaptureQgcSequenceTarget = "
         "$missionReadyQgcSequenceBaseline + $MissionCaptureSequenceAdvance"
     ) in text
-    assert (
-        "$missionActiveSequenceAfterCapture -ge "
-        "$missionCaptureQgcSequenceTarget"
-    ) in text
+    assert ("$missionActiveSequenceAfterCapture -ge $missionCaptureQgcSequenceTarget") in text
     mission_ready_index = text.index(
         "$missionActiveReadyEvidence = Get-Content -LiteralPath $MissionActiveReady"
     )
@@ -1202,43 +1157,43 @@ def test_complete_vtol_mission_reuses_same_router_container_and_native_qgc_surfa
     assert mission_ready_index < mission_baseline_index < mission_capture_index
     mission_phase = text[mission_ready_index:mission_capture_index]
     assert "$fixedWingSequenceAfterCapture + 5" not in mission_phase
-    assert '$missionEvidence.gate_passed -eq $true' in text
+    assert "$missionEvidence.gate_passed -eq $true" in text
     assert '$missionEvidence.transaction.final_state -eq "start_permitted"' in text
     assert '"authorized,uploading,uploaded,readback_verified,committed,start_permitted"' in text
-    assert '$missionEvidence.protocol.upload_acknowledged -eq $true' in text
-    assert '$missionEvidence.protocol.readback_hash_match -eq $true' in text
-    assert '$missionEvidence.protocol.int_only -eq $true' in text
-    assert 'uploaded_protocol_sha256 -eq $missionEvidence.protocol.readback_protocol_sha256' in text
-    assert 'Compare-Object -ReferenceObject $expectedMissionSequences' in text
-    assert '$missionEvidence.mission_journal' in text
-    assert '$missionJournalEvidence.recovery_required -eq $false' in text
+    assert "$missionEvidence.protocol.upload_acknowledged -eq $true" in text
+    assert "$missionEvidence.protocol.readback_hash_match -eq $true" in text
+    assert "$missionEvidence.protocol.int_only -eq $true" in text
+    assert "uploaded_protocol_sha256 -eq $missionEvidence.protocol.readback_protocol_sha256" in text
+    assert "Compare-Object -ReferenceObject $expectedMissionSequences" in text
+    assert "$missionEvidence.mission_journal" in text
+    assert "$missionJournalEvidence.recovery_required -eq $false" in text
     assert '$missionJournalEvidence.state -eq "start_permitted"' in text
-    assert '$missionJournalEvidence.record_count -ge ($missionItemCount + 6)' in text
-    assert '$missionEvidence.flight.fixed_wing_observed -eq $true' in text
-    assert '$missionEvidence.flight.multicopter_observed -eq $true' in text
-    assert '$missionEvidence.flight.landed_observed -eq $true' in text
-    assert '$missionEvidence.flight.terminal_disarmed -eq $true' in text
-    assert 'maximum_distance_from_home_m -ge 35.0' in text
-    assert 'maximum_relative_altitude_m -ge 10.0' in text
-    assert '$routerEvidence.evaluator_mission_frames_forwarded -ge' in text
-    assert '$routerEvidence.evaluator_mission_items_forwarded -ge $missionItemCount' in text
-    assert '$routerEvidence.evaluator_auto_mission_mode_changes_forwarded -eq 1' in text
-    assert '$routerEvidence.evaluator_mission_clear_all_allowed -eq $false' in text
-    assert '$routerEvidence.qgc_mission_writes_allowed -eq $false' in text
-    assert 'vtol_mission = $missionEvidence' in text
-    assert 'vtol_mission_journal = $missionJournalEvidence' in text
-    assert 'mission_journal = [ordered]@{' in text
-    assert 'auto_mission_capture = $missionActiveCapture' in text
+    assert "$missionJournalEvidence.record_count -ge ($missionItemCount + 6)" in text
+    assert "$missionEvidence.flight.fixed_wing_observed -eq $true" in text
+    assert "$missionEvidence.flight.multicopter_observed -eq $true" in text
+    assert "$missionEvidence.flight.landed_observed -eq $true" in text
+    assert "$missionEvidence.flight.terminal_disarmed -eq $true" in text
+    assert "maximum_distance_from_home_m -ge 35.0" in text
+    assert "maximum_relative_altitude_m -ge 10.0" in text
+    assert "$routerEvidence.evaluator_mission_frames_forwarded -ge" in text
+    assert "$routerEvidence.evaluator_mission_items_forwarded -ge $missionItemCount" in text
+    assert "$routerEvidence.evaluator_auto_mission_mode_changes_forwarded -eq 1" in text
+    assert "$routerEvidence.evaluator_mission_clear_all_allowed -eq $false" in text
+    assert "$routerEvidence.qgc_mission_writes_allowed -eq $false" in text
+    assert "vtol_mission = $missionEvidence" in text
+    assert "vtol_mission_journal = $missionJournalEvidence" in text
+    assert "mission_journal = [ordered]@{" in text
+    assert "auto_mission_capture = $missionActiveCapture" in text
     assert 'operator_visual_acceptance -eq "not_claimed"' in text
 
     # The Mission helper is headless and attaches only after the first evaluator
     # process has exited; it never launches a second UI or a second container.
-    assert text.index('$vtolExit = Wait-ProcessCompleted') < text.index(
-        '$missionProcess = Start-Process'
+    assert text.index("$vtolExit = Wait-ProcessCompleted") < text.index(
+        "$missionProcess = Start-Process"
     )
     assert text.count('"run", "-d", "--name", $ContainerName') == 1
-    assert text.count('$qgcProcess = Start-Process -FilePath $QgcExecutable') == 1
-    assert 'independent_simulator_window_created = $false' in text
+    assert text.count("$qgcProcess = Start-Process -FilePath $QgcExecutable") == 1
+    assert "independent_simulator_window_created = $false" in text
 
 
 def test_mission_failure_artifacts_are_ingested_before_stage_failure_propagates() -> None:

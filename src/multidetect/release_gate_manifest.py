@@ -592,9 +592,7 @@ def _replay_set_calibration_verification_record(
         "report_promotion_ready": verification["report_promotion_ready"],
         "recomputed_promotion_ready": verification["recomputed_promotion_ready"],
         "report_provenance_complete": verification["report_provenance_complete"],
-        "recomputed_provenance_complete": verification[
-            "recomputed_provenance_complete"
-        ],
+        "recomputed_provenance_complete": verification["recomputed_provenance_complete"],
         "gate_passed": True,
     }
 

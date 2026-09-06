@@ -135,10 +135,7 @@ def test_strict_qgc_qml_geometry_export_passes_despite_uia_diagnostic(
     assert evidence["geometry_error"]
     assert evidence["checks"]["geometry_source_is_qgc_qml_scene_export"] is True
     assert evidence["checks"]["geometry_schema_is_qgc_hil_ui_geometry"] is True
-    assert (
-        evidence["checks"]["indicator_geometry_bound_to_exact_qgc_pid_hwnd"]
-        is True
-    )
+    assert evidence["checks"]["indicator_geometry_bound_to_exact_qgc_pid_hwnd"] is True
     assert evidence["checks"]["drawer_geometry_bound_to_exact_qgc_pid_hwnd"] is True
     assert evidence["complete_qml_rendering_semantics_proved"] is False
     assert evidence["operator_visual_acceptance"] == "not_claimed"

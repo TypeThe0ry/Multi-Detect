@@ -125,11 +125,7 @@ def _write_entry(
         started_at_utc="2026-08-25T00:00:00Z",
         ended_at_utc="2026-08-25T00:00:01Z",
     )
-    objects = (
-        []
-        if stratum == "no_fire"
-        else [{"label": "flame", "bbox": [0.1, 0.1, 0.8, 0.8]}]
-    )
+    objects = [] if stratum == "no_fire" else [{"label": "flame", "bbox": [0.1, 0.1, 0.8, 0.8]}]
     (directory / "ground-truth.jsonl").write_text(
         json.dumps({"frame_id": frame_id, "objects": objects}, separators=(",", ":")) + "\n",
         encoding="utf-8",
@@ -266,20 +262,23 @@ def test_main_cli_exposes_replay_set_calibration_command(tmp_path: Path, capsys)
         ]
     )
     assert parsed.command == "calibrate-replay-set"
-    assert cli_main(
-        [
-            "calibrate-replay-set",
-            str(manifest),
-            "--thresholds",
-            "0.3,0.6,0.9",
-            "--current-thresholds",
-            "none",
-            "--reviewed",
-            "--reviewer",
-            "qa-team",
-            "--report-only",
-        ]
-    ) == 0
+    assert (
+        cli_main(
+            [
+                "calibrate-replay-set",
+                str(manifest),
+                "--thresholds",
+                "0.3,0.6,0.9",
+                "--current-thresholds",
+                "none",
+                "--reviewed",
+                "--reviewer",
+                "qa-team",
+                "--report-only",
+            ]
+        )
+        == 0
+    )
     emitted = json.loads(capsys.readouterr().out)
     assert emitted["event"] == "replay_set_threshold_calibration_completed"
     assert emitted["promotion_ready"] is True
@@ -369,8 +368,7 @@ def test_replay_set_calibration_verifier_rejects_tampered_stability(tmp_path: Pa
             "duplicate JSON key",
         ),
         (
-            '{"event":"replay_set_threshold_calibration_completed",'
-            '"schema_version":NaN}',
+            '{"event":"replay_set_threshold_calibration_completed","schema_version":NaN}',
             "non-finite JSON number NaN",
         ),
     ),
@@ -405,9 +403,12 @@ def test_main_cli_exposes_replay_set_calibration_verifier(tmp_path: Path, capsys
         ["verify-replay-set-calibration", str(report_path), "--out", str(verification_path)]
     )
     assert parsed.command == "verify-replay-set-calibration"
-    assert cli_main(
-        ["verify-replay-set-calibration", str(report_path), "--out", str(verification_path)]
-    ) == 0
+    assert (
+        cli_main(
+            ["verify-replay-set-calibration", str(report_path), "--out", str(verification_path)]
+        )
+        == 0
+    )
     emitted = json.loads(capsys.readouterr().out)
     assert emitted["gate_passed"] is True
     assert json.loads(verification_path.read_text(encoding="utf-8"))["gate_passed"] is True
@@ -449,9 +450,7 @@ def test_release_gate_binds_independent_calibration_verification(tmp_path: Path)
             "operator_visual_acceptance": "passed",
             "mission_path_acceptance": "passed",
             "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
-            "real_control_acceptance": "not_required"
-            if mode in {"replay", "sim"}
-            else "passed",
+            "real_control_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
         }
 
     parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
@@ -494,8 +493,7 @@ def test_release_gate_binds_independent_calibration_verification(tmp_path: Path)
     historical_report = evaluate_release_gate(output)
     assert historical_report["replay_set"]["calibration_verification"]["passed"] is True
     assert (
-        historical_report["replay_set"]["calibration_verification"]["provenance_complete"]
-        is False
+        historical_report["replay_set"]["calibration_verification"]["provenance_complete"] is False
     )
     assert historical_report["replay_set"]["calibration_verification"]["promotion_ready"] is True
 
@@ -557,9 +555,7 @@ def test_release_gate_rejects_calibration_verification_bound_to_other_manifest(
             "operator_visual_acceptance": "passed",
             "mission_path_acceptance": "passed",
             "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
-            "real_control_acceptance": "not_required"
-            if mode in {"replay", "sim"}
-            else "passed",
+            "real_control_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
         }
 
     parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
@@ -615,9 +611,7 @@ def test_final_release_requires_promotion_ready_calibration(tmp_path: Path) -> N
             "operator_visual_acceptance": "passed",
             "mission_path_acceptance": "passed",
             "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
-            "real_control_acceptance": "not_required"
-            if mode in {"replay", "sim"}
-            else "passed",
+            "real_control_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
         }
 
     parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
@@ -640,9 +634,9 @@ def test_final_release_requires_promotion_ready_calibration(tmp_path: Path) -> N
     output.write_text(json.dumps(final_manifest, indent=2) + "\n", encoding="utf-8")
     version_path = tmp_path / "product-version-release.json"
     version = json.loads(
-        (
-            Path(__file__).resolve().parents[1] / "configs" / "product-version.json"
-        ).read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[1] / "configs" / "product-version.json").read_text(
+            encoding="utf-8"
+        )
     )
     version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
     version_path.write_text(json.dumps(version, indent=2) + "\n", encoding="utf-8")
@@ -678,9 +672,7 @@ def test_replay_set_calibration_keeps_review_and_prediction_gates_separate(
         thresholds=(0.3, 0.6, 0.9),
     )
     assert unreviewed["promotion_ready"] is False
-    assert "independent threshold review is not acknowledged" in unreviewed[
-        "failure_reasons"
-    ]
+    assert "independent threshold review is not acknowledged" in unreviewed["failure_reasons"]
 
 
 @pytest.mark.parametrize(

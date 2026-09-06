@@ -129,9 +129,7 @@ def test_alert_link_bench_counts_retry_loss_and_fails_threshold() -> None:
 
 
 def test_alert_link_hardware_mode_rejects_loopback_and_non_authenticated_transport() -> None:
-    transport = _ScriptedTransport(
-        [AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)]
-    )
+    transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
     result = run_alert_link_bench(
         transport,
         _config(minimum_round_trips=1, hardware_mode=True, hardware_id="GR01-ALERT-001"),

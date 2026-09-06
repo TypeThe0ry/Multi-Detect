@@ -74,9 +74,7 @@ def cmd_build(args: argparse.Namespace) -> None:
     if args.parallel:
         if args.parallel_jobs:
             if not re.match(r"^[1-9]\d*$", args.parallel_jobs):
-                gh_error(
-                    f"parallel-jobs must be a positive integer, got '{args.parallel_jobs}'"
-                )
+                gh_error(f"parallel-jobs must be a positive integer, got '{args.parallel_jobs}'")
                 sys.exit(1)
             cmd += ["--parallel", args.parallel_jobs]
         else:

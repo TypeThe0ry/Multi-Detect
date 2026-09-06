@@ -1006,9 +1006,11 @@ def _replay_set_calibration_verification_result(
             ),
             ("gate_passed", expected_gate),
         ):
-            observed = artifact_document.get(field, False) if field.endswith(
-                "provenance_complete"
-            ) else artifact_document.get(field)
+            observed = (
+                artifact_document.get(field, False)
+                if field.endswith("provenance_complete")
+                else artifact_document.get(field)
+            )
             if observed != expected:
                 reasons.append(
                     f"replay_set calibration verification {field} does not match the bound record"
@@ -1159,9 +1161,7 @@ def _replay_set_calibration_verification_result(
                 "canonical_sha256": actual_canonical_sha or expected_canonical_record_sha,
                 "report_promotion_ready": raw_record.get("report_promotion_ready"),
                 "recomputed_promotion_ready": raw_record.get("recomputed_promotion_ready"),
-                "report_provenance_complete": raw_record.get(
-                    "report_provenance_complete", False
-                ),
+                "report_provenance_complete": raw_record.get("report_provenance_complete", False),
                 "recomputed_provenance_complete": raw_record.get(
                     "recomputed_provenance_complete", False
                 ),
@@ -1415,9 +1415,7 @@ def _replay_set_result(
             readiness = check_replay_set_readiness(
                 manifest_path,
                 accuracy_report_path=(
-                    accuracy_path
-                    if accuracy_path is not None and accuracy_path.is_file()
-                    else None
+                    accuracy_path if accuracy_path is not None and accuracy_path.is_file() else None
                 ),
             )
         except (OSError, ValueError, RuntimeError) as exc:
@@ -1623,9 +1621,7 @@ def _real_field_link_result(
                     expected_address_state_bound is not None
                     and expected_address_state_bound is not address_state_bound
                 ):
-                    reasons.append(
-                        "real_field_link address_state_bound does not match report"
-                    )
+                    reasons.append("real_field_link address_state_bound does not match report")
                 if freshness_bound:
                     verified_max_age = verification.get("max_age_s")
                     if (
@@ -4283,10 +4279,7 @@ def _qgc_operator_visual_acceptance_result(
             or not entry["reviewed_at_utc"].strip()
         ):
             entry_reasons.append("reviewed_at_utc is missing or empty")
-        if (
-            not isinstance(entry.get("machine_run_id"), str)
-            or not entry["machine_run_id"].strip()
-        ):
+        if not isinstance(entry.get("machine_run_id"), str) or not entry["machine_run_id"].strip():
             entry_reasons.append("machine_run_id is missing or empty")
         for identity_field in (
             "machine_report_sha256",
@@ -4340,11 +4333,7 @@ def _qgc_operator_visual_acceptance_result(
                     }
                     for field, (section_name, value_name) in bound_fields.items():
                         section = positive.get(section_name)
-                        actual = (
-                            section.get(value_name)
-                            if isinstance(section, Mapping)
-                            else None
-                        )
+                        actual = section.get(value_name) if isinstance(section, Mapping) else None
                         if actual != entry.get(field):
                             entry_reasons.append(f"{field} does not match evidence")
                 review = artifact.get("review")
@@ -5194,8 +5183,7 @@ def evaluate_release_gate(
     )
     if raw_pixhawk_covariance is not None and not pixhawk_covariance_result["passed"]:
         top_reasons.extend(
-            f"pixhawk_covariance: {reason}"
-            for reason in pixhawk_covariance_result["reasons"]
+            f"pixhawk_covariance: {reason}" for reason in pixhawk_covariance_result["reasons"]
         )
 
     raw_model_review = manifest.get("model_review")
@@ -5357,8 +5345,7 @@ def evaluate_release_gate(
                     )
                 if not calibration_verification.get("promotion_ready"):
                     release_reasons.append(
-                        "final release requires promotion-ready replay_set "
-                        "calibration verification"
+                        "final release requires promotion-ready replay_set calibration verification"
                     )
             if not real_field_link_result["present"]:
                 release_reasons.append(

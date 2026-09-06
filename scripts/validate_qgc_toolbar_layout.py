@@ -110,25 +110,20 @@ def _geometry_provenance_checks(
     """Return the accepted discovery path and its fail-closed provenance checks."""
 
     qml_path_requested = any(
-        item.get("geometry_source") == QML_GEOMETRY_SOURCE
-        for item in (indicator, drawer)
+        item.get("geometry_source") == QML_GEOMETRY_SOURCE for item in (indicator, drawer)
     )
     if qml_path_requested:
         checks = {
             "geometry_source_is_qgc_qml_scene_export": all(
-                item.get("geometry_source") == QML_GEOMETRY_SOURCE
-                for item in (indicator, drawer)
+                item.get("geometry_source") == QML_GEOMETRY_SOURCE for item in (indicator, drawer)
             ),
             "geometry_schema_is_qgc_hil_ui_geometry": all(
-                item.get("geometry_schema") == QML_GEOMETRY_SCHEMA
-                for item in (indicator, drawer)
+                item.get("geometry_schema") == QML_GEOMETRY_SCHEMA for item in (indicator, drawer)
             ),
-            "indicator_geometry_role_is_ready": indicator.get("role")
-            == "indicator_ready",
+            "indicator_geometry_role_is_ready": indicator.get("role") == "indicator_ready",
             "drawer_geometry_role_is_open": drawer.get("role") == "drawer_open",
             "indicator_geometry_bound_to_exact_qgc_pid_hwnd": bool(
-                indicator.get("qgc_pid_matches")
-                and indicator.get("qgc_hwnd_matches")
+                indicator.get("qgc_pid_matches") and indicator.get("qgc_hwnd_matches")
             ),
             "drawer_geometry_bound_to_exact_qgc_pid_hwnd": bool(
                 drawer.get("qgc_pid_matches") and drawer.get("qgc_hwnd_matches")
@@ -161,9 +156,7 @@ def build_evidence(
     same_geometry = (closed_width, closed_height) == (open_width, open_height)
 
     client = _rect(observation.get("client_screen_rect"), "client")
-    indicator = _rect(
-        (observation.get("indicator") or {}).get("bounding_rect"), "indicator"
-    )
+    indicator = _rect((observation.get("indicator") or {}).get("bounding_rect"), "indicator")
     drawer = _rect((observation.get("drawer") or {}).get("bounding_rect"), "drawer")
     client_width = client[2] - client[0]
     client_height = client[3] - client[1]
@@ -225,9 +218,7 @@ def build_evidence(
     geometry_evidence_path, provenance_checks = _geometry_provenance_checks(
         indicator_observation, drawer_observation
     )
-    using_qml_geometry_export = (
-        geometry_evidence_path == "qgc_qml_scene_geometry_export"
-    )
+    using_qml_geometry_export = geometry_evidence_path == "qgc_qml_scene_geometry_export"
     closed_windows = sorted(
         str(value) for value in observation.get("visible_top_level_hwnds_closed", [])
     )
@@ -257,14 +248,9 @@ def build_evidence(
             )
         ),
         "drawer_accessible_pane_found": (
-            drawer_observation.get("accessible_name")
-            == "MultiDetect AI Status Drawer"
+            drawer_observation.get("accessible_name") == "MultiDetect AI Status Drawer"
             and drawer_observation.get("control_type")
-            == (
-                QML_DRAWER_CONTROL_TYPE
-                if using_qml_geometry_export
-                else UIA_DRAWER_CONTROL_TYPE
-            )
+            == (QML_DRAWER_CONTROL_TYPE if using_qml_geometry_export else UIA_DRAWER_CONTROL_TYPE)
         ),
         **provenance_checks,
         "indicator_inside_exact_client": indicator_inside_client,
@@ -281,12 +267,10 @@ def build_evidence(
         # A platform UIA-provider diagnostic is expected when the strict QGC
         # QML scene export supplies the exact bound geometry instead.
         "geometry_discovery_error_absent_or_qml_export_used": (
-            using_qml_geometry_export
-            or not bool(observation.get("geometry_error"))
+            using_qml_geometry_export or not bool(observation.get("geometry_error"))
         ),
         "automation_error_absent_or_qml_export_used": (
-            using_qml_geometry_export
-            or not bool(observation.get("automation_error"))
+            using_qml_geometry_export or not bool(observation.get("automation_error"))
         ),
     }
     failures = [name for name, passed in checks.items() if not passed]

@@ -208,9 +208,7 @@ def _fault_coverage_summary(fault_events: Iterable[Mapping[str, Any]]) -> dict[s
             if value.get("fired") is True:
                 fired_ids.append(event_id)
     duplicate_ids = sorted(
-        event_id
-        for event_id in set(declared_ids)
-        if declared_ids.count(event_id) > 1
+        event_id for event_id in set(declared_ids) if declared_ids.count(event_id) > 1
     )
     declared_unique = list(dict.fromkeys(declared_ids))
     fired_unique = list(dict.fromkeys(fired_ids))
@@ -229,9 +227,7 @@ def _fault_coverage_summary(fault_events: Iterable[Mapping[str, Any]]) -> dict[s
         "invalid_event_count": invalid_events,
         "coverage_ratio": 1.0 if declared_count == 0 else fired_count / declared_count,
         "all_declared_faults_exercised": (
-            invalid_events == 0
-            and not duplicate_ids
-            and len(uncovered) == 0
+            invalid_events == 0 and not duplicate_ids and len(uncovered) == 0
         ),
     }
 
@@ -253,9 +249,10 @@ def _summary_gate(
         reasons.append("truth_loaded must be false")
     if summary["truth_free"] is not True:
         reasons.append("truth_free must be true")
-    if not isinstance(summary["scenario_manifest_hash"], str) or len(
-        summary["scenario_manifest_hash"]
-    ) != 64:
+    if (
+        not isinstance(summary["scenario_manifest_hash"], str)
+        or len(summary["scenario_manifest_hash"]) != 64
+    ):
         reasons.append("scenario_manifest_hash is not a SHA-256")
     if not isinstance(summary["evidence_hash"], str) or len(summary["evidence_hash"]) != 64:
         reasons.append("evidence_hash is not a SHA-256")
@@ -346,10 +343,7 @@ def verify_scenario_matrix_document(
         "release_label",
         isinstance(release_label, str)
         and bool(release_label.strip())
-        and (
-            expected_release_label is None
-            or release_label == expected_release_label
-        ),
+        and (expected_release_label is None or release_label == expected_release_label),
         "release_label is missing or does not match the product manifest",
     )
 

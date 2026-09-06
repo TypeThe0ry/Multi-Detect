@@ -73,8 +73,20 @@ def test_get_workflow_runs_keeps_latest_successful_run_per_workflow() -> None:
 
 def test_get_workflow_runs_filters_by_event() -> None:
     all_runs = [
-        {"id": 10, "name": "Linux", "status": "completed", "conclusion": "success", "event": "push"},
-        {"id": 11, "name": "Linux", "status": "completed", "conclusion": "success", "event": "pull_request"},
+        {
+            "id": 10,
+            "name": "Linux",
+            "status": "completed",
+            "conclusion": "success",
+            "event": "push",
+        },
+        {
+            "id": 11,
+            "name": "Linux",
+            "status": "completed",
+            "conclusion": "success",
+            "event": "pull_request",
+        },
     ]
 
     with patch.object(mod, "list_workflow_runs_for_sha", return_value=all_runs):
@@ -134,8 +146,13 @@ def test_list_downloaded_artifacts_filters_extensions(tmp_path: Path) -> None:
 
 
 def test_main_returns_zero_when_no_runs_found() -> None:
-    with patch.object(mod, "list_workflow_runs_for_sha", return_value=[]), patch.object(
-        mod, "select_latest_successful_runs", return_value=[],
+    with (
+        patch.object(mod, "list_workflow_runs_for_sha", return_value=[]),
+        patch.object(
+            mod,
+            "select_latest_successful_runs",
+            return_value=[],
+        ),
     ):
         rc = mod.main(["--repo", "owner/repo", "--head-sha", "abc123"])
     assert rc == 0
@@ -143,17 +160,30 @@ def test_main_returns_zero_when_no_runs_found() -> None:
 
 def test_main_returns_one_when_downloads_fail_and_no_files(tmp_path: Path) -> None:
     runs = [{"id": 42, "name": "Linux", "status": "completed", "conclusion": "success"}]
-    with patch.object(mod, "list_workflow_runs_for_sha", return_value=runs), patch.object(
-        mod, "select_latest_successful_runs", return_value=runs,
-    ), patch.object(
-        mod, "download_run_artifacts", return_value=False,
-    ), patch.object(mod, "list_downloaded_artifacts", return_value=[]):
+    with (
+        patch.object(mod, "list_workflow_runs_for_sha", return_value=runs),
+        patch.object(
+            mod,
+            "select_latest_successful_runs",
+            return_value=runs,
+        ),
+        patch.object(
+            mod,
+            "download_run_artifacts",
+            return_value=False,
+        ),
+        patch.object(mod, "list_downloaded_artifacts", return_value=[]),
+    ):
         rc = mod.main(
             [
-                "--repo", "owner/repo",
-                "--head-sha", "abc123",
-                "--output-dir", str(tmp_path),
-                "--workflows", "Linux",
+                "--repo",
+                "owner/repo",
+                "--head-sha",
+                "abc123",
+                "--output-dir",
+                str(tmp_path),
+                "--workflows",
+                "Linux",
             ],
         )
     assert rc == 1
@@ -161,22 +191,41 @@ def test_main_returns_one_when_downloads_fail_and_no_files(tmp_path: Path) -> No
 
 def test_main_returns_two_when_no_artifacts_match_prefixes(tmp_path: Path) -> None:
     runs = [{"id": 42, "name": "Linux", "status": "completed", "conclusion": "success"}]
-    with patch.object(mod, "list_workflow_runs_for_sha", return_value=runs), patch.object(
-        mod, "select_latest_successful_runs", return_value=runs,
-    ), patch.object(
-        mod, "list_run_artifacts", return_value=[{"name": "unrelated-artifact", "size_in_bytes": 1}],
-    ), patch.object(
-        mod, "download_run_artifacts", return_value=True,
-    ), patch.object(
-        mod, "list_downloaded_files", return_value=[],
+    with (
+        patch.object(mod, "list_workflow_runs_for_sha", return_value=runs),
+        patch.object(
+            mod,
+            "select_latest_successful_runs",
+            return_value=runs,
+        ),
+        patch.object(
+            mod,
+            "list_run_artifacts",
+            return_value=[{"name": "unrelated-artifact", "size_in_bytes": 1}],
+        ),
+        patch.object(
+            mod,
+            "download_run_artifacts",
+            return_value=True,
+        ),
+        patch.object(
+            mod,
+            "list_downloaded_files",
+            return_value=[],
+        ),
     ):
         rc = mod.main(
             [
-                "--repo", "owner/repo",
-                "--head-sha", "abc123",
-                "--output-dir", str(tmp_path),
-                "--workflows", "Linux",
-                "--artifact-prefixes", "coverage-report",
+                "--repo",
+                "owner/repo",
+                "--head-sha",
+                "abc123",
+                "--output-dir",
+                str(tmp_path),
+                "--workflows",
+                "Linux",
+                "--artifact-prefixes",
+                "coverage-report",
             ],
         )
     assert rc == 2
@@ -188,9 +237,12 @@ def test_main_returns_one_on_invalid_runs_file(tmp_path: Path) -> None:
 
     rc = mod.main(
         [
-            "--repo", "owner/repo",
-            "--head-sha", "abc123",
-            "--runs-file", str(runs_file),
+            "--repo",
+            "owner/repo",
+            "--head-sha",
+            "abc123",
+            "--runs-file",
+            str(runs_file),
         ],
     )
     assert rc == 1
@@ -202,9 +254,12 @@ def test_main_returns_one_on_non_list_runs_file(tmp_path: Path) -> None:
 
     rc = mod.main(
         [
-            "--repo", "owner/repo",
-            "--head-sha", "abc123",
-            "--runs-file", str(runs_file),
+            "--repo",
+            "owner/repo",
+            "--head-sha",
+            "abc123",
+            "--runs-file",
+            str(runs_file),
         ],
     )
     assert rc == 1
@@ -238,20 +293,36 @@ def test_main_falls_back_to_older_successful_run_with_matching_artifacts(tmp_pat
     downloaded = tmp_path / "coverage.xml"
     downloaded.write_text("<xml/>", encoding="utf-8")
 
-    with patch.object(mod, "list_workflow_runs_for_sha", return_value=runs), patch.object(
-        mod, "list_run_artifacts", side_effect=_artifacts_for_run,
-    ), patch.object(
-        mod, "download_run_artifacts", return_value=True,
-    ) as download_mock, patch.object(
-        mod, "list_downloaded_files", return_value=[downloaded],
+    with (
+        patch.object(mod, "list_workflow_runs_for_sha", return_value=runs),
+        patch.object(
+            mod,
+            "list_run_artifacts",
+            side_effect=_artifacts_for_run,
+        ),
+        patch.object(
+            mod,
+            "download_run_artifacts",
+            return_value=True,
+        ) as download_mock,
+        patch.object(
+            mod,
+            "list_downloaded_files",
+            return_value=[downloaded],
+        ),
     ):
         rc = mod.main(
             [
-                "--repo", "owner/repo",
-                "--head-sha", "abc123",
-                "--output-dir", str(tmp_path),
-                "--workflows", "Linux",
-                "--artifact-prefixes", "coverage-report",
+                "--repo",
+                "owner/repo",
+                "--head-sha",
+                "abc123",
+                "--output-dir",
+                str(tmp_path),
+                "--workflows",
+                "Linux",
+                "--artifact-prefixes",
+                "coverage-report",
             ],
         )
 
@@ -269,23 +340,43 @@ def test_main_writes_artifact_metadata_file(tmp_path: Path) -> None:
     downloaded = tmp_path / "dummy.txt"
     downloaded.write_text("x", encoding="utf-8")
 
-    with patch.object(mod, "list_workflow_runs_for_sha", return_value=runs), patch.object(
-        mod, "select_latest_successful_runs", return_value=runs,
-    ), patch.object(
-        mod, "list_run_artifacts", return_value=artifacts,
-    ), patch.object(
-        mod, "download_run_artifacts", return_value=True,
-    ), patch.object(
-        mod, "list_downloaded_files", return_value=[downloaded],
+    with (
+        patch.object(mod, "list_workflow_runs_for_sha", return_value=runs),
+        patch.object(
+            mod,
+            "select_latest_successful_runs",
+            return_value=runs,
+        ),
+        patch.object(
+            mod,
+            "list_run_artifacts",
+            return_value=artifacts,
+        ),
+        patch.object(
+            mod,
+            "download_run_artifacts",
+            return_value=True,
+        ),
+        patch.object(
+            mod,
+            "list_downloaded_files",
+            return_value=[downloaded],
+        ),
     ):
         rc = mod.main(
             [
-                "--repo", "owner/repo",
-                "--head-sha", "abc123",
-                "--output-dir", str(tmp_path),
-                "--workflows", "Linux",
-                "--artifact-prefixes", "coverage-report",
-                "--artifact-metadata-out", str(metadata_path),
+                "--repo",
+                "owner/repo",
+                "--head-sha",
+                "abc123",
+                "--output-dir",
+                str(tmp_path),
+                "--workflows",
+                "Linux",
+                "--artifact-prefixes",
+                "coverage-report",
+                "--artifact-metadata-out",
+                str(metadata_path),
             ],
         )
 

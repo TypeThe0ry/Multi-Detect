@@ -225,9 +225,7 @@ def test_obj_mtl_bundle_is_exact_two_sided_three_to_two_uv_mesh() -> None:
     assert ":" not in texture_relative and not texture_relative.startswith(("/", "\\"))
     assert (MODEL_MATERIAL.parent / texture_relative).resolve() == MODEL_TEXTURE.resolve()
     assert MODEL_TEXTURE.is_relative_to(MODEL_ROOT)
-    serialized = MODEL_MESH.read_text(encoding="utf-8") + MODEL_MATERIAL.read_text(
-        encoding="utf-8"
-    )
+    serialized = MODEL_MESH.read_text(encoding="utf-8") + MODEL_MATERIAL.read_text(encoding="utf-8")
     assert "http://" not in serialized.lower()
     assert "https://" not in serialized.lower()
     assert "truth" not in serialized.lower()
@@ -420,10 +418,12 @@ def test_stack_plan_resolves_all_assets_without_expanding_release_matrix() -> No
     assert model_root_files["multidetect_coco_car_billboard_v1/meshes/car_billboard.mtl"] == (
         MATERIAL_SHA256
     )
-    assert model_root_files[
-        "multidetect_coco_car_billboard_v1/materials/textures/"
-        "coco-car-positive-control-v1.png"
-    ] == TEXTURE_SHA256
+    assert (
+        model_root_files[
+            "multidetect_coco_car_billboard_v1/materials/textures/coco-car-positive-control-v1.png"
+        ]
+        == TEXTURE_SHA256
+    )
     assert SCENARIO_ID not in AIRFRAME_SCENARIOS
     assert SCENARIO_ID not in SCENARIO_MODES
     assert set(AIRFRAME_SCENARIOS) == {

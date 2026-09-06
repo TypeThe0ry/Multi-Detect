@@ -269,10 +269,7 @@ def test_combined_sim_runtime_report_is_accepted_and_reproducible(tmp_path: Path
     assert document["gate_passed"] is True
     machine_binding = document["positive_visual_evidence"]["machine_report"]
     assert machine_binding["runtime_mode"] == "sim"
-    assert (
-        machine_binding["event"]
-        == "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
-    )
+    assert machine_binding["event"] == "multidetect.px4-gazebo-qgc-combined-sim-acceptance"
     evidence = tmp_path / "artifacts" / "sim" / "combined-visual-review.json"
     _write_json(evidence, document)
     verification = verify_record(evidence, repository_root=tmp_path)
@@ -295,16 +292,11 @@ def test_combined_sim_report_requires_qgc_post_adoption_ack(tmp_path: Path) -> N
     files = _fixture(tmp_path, "sim")
     _rewrite_as_combined_sim_report(files)
     machine = json.loads(files["machine"].read_text(encoding="utf-8"))
-    machine["integrated_sim_qgc"]["synchronization"][
-        "metadata_acceptance_ack_count"
-    ] = 0
+    machine["integrated_sim_qgc"]["synchronization"]["metadata_acceptance_ack_count"] = 0
     _write_json(files["machine"], machine)
     document = _accepted(files)
     assert document["gate_passed"] is False
-    assert (
-        document["positive_visual_evidence"]["machine_checks"]["capture_bound_to_pid"]
-        is False
-    )
+    assert document["positive_visual_evidence"]["machine_checks"]["capture_bound_to_pid"] is False
 
 
 def test_combined_sim_report_with_stale_release_parity_remains_closed(tmp_path: Path) -> None:

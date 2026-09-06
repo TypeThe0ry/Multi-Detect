@@ -125,9 +125,7 @@ def build_release_mode_evidence(
 
     normalized_mode = str(mode).strip().lower()
     if normalized_mode not in REQUIRED_MODES:
-        raise ReleaseModeEvidenceError(
-            f"mode must be one of {', '.join(REQUIRED_MODES)}"
-        )
+        raise ReleaseModeEvidenceError(f"mode must be one of {', '.join(REQUIRED_MODES)}")
     source = _resolve_file(source_path, name="source evidence")
     output = Path(output_path).expanduser().resolve()
     if source == output:
@@ -151,9 +149,7 @@ def build_release_mode_evidence(
         )
 
     source_event = document.get("event")
-    if source_event is not None and (
-        not isinstance(source_event, str) or not source_event.strip()
-    ):
+    if source_event is not None and (not isinstance(source_event, str) or not source_event.strip()):
         raise ReleaseModeEvidenceError(
             "source evidence event must be a non-empty string when present"
         )

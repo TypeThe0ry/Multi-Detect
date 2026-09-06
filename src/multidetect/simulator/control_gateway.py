@@ -188,10 +188,7 @@ class SimulatorControlGateway:
         self.summary.datagrams_received += 1
         if not self._accepting_input or (
             self._stop_requested
-            and (
-                not self._draining
-                or threading.get_ident() != self._drain_thread_id
-            )
+            and (not self._draining or threading.get_ident() != self._drain_thread_id)
         ):
             self._reject("gateway_not_accepting")
             return ()
@@ -331,9 +328,7 @@ class SimulatorControlGateway:
         try:
             while True:
                 try:
-                    datagram, source = channel.recvfrom(
-                        self.config.maximum_datagram_bytes + 1
-                    )
+                    datagram, source = channel.recvfrom(self.config.maximum_datagram_bytes + 1)
                 except (BlockingIOError, ConnectionResetError):
                     return
                 self.process_datagram(
@@ -387,9 +382,7 @@ class SimulatorControlGateway:
 
 def _is_loopback_source(source: tuple[str, int]) -> bool:
     return (
-        isinstance(source, tuple)
-        and len(source) >= 1
-        and source[0] in {QGC_LOOPBACK_HOST, "::1"}
+        isinstance(source, tuple) and len(source) >= 1 and source[0] in {QGC_LOOPBACK_HOST, "::1"}
     )
 
 

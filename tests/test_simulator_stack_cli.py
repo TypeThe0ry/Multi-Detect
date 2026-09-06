@@ -116,4 +116,3 @@ def test_stack_plan_cli_reports_invalid_repository(capsys: pytest.CaptureFixture
     assert exit_code == 2
     assert captured.out == ""
     assert captured.err.startswith("simulator stack-plan:")
-

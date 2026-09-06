@@ -502,9 +502,7 @@ def _build_case(
             "attitude_covariance_record_count": len(frame_rows),
             "nonzero_attitude_covariance_record_count": 0,
             "derived_attitude_sigmas_persisted": True,
-            "attitude_uncertainty_source": (
-                "gazebo_odometry_covariance_with_configured_floor"
-            ),
+            "attitude_uncertainty_source": ("gazebo_odometry_covariance_with_configured_floor"),
             "attitude_uncertainty_floor_deg": {
                 "roll": 0.3,
                 "pitch": 0.3,

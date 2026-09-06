@@ -98,9 +98,7 @@ def prepare_model_review_bundle(
     manifest_payload = manifest.read_bytes()
     artifact_sha256 = _sha256_file(artifact)
     decisions = _normalize_review_decisions(review_decisions)
-    passed_reviews = [
-        name for name, status in decisions.items() if status == "passed"
-    ]
+    passed_reviews = [name for name, status in decisions.items() if status == "passed"]
     normalized_reviewer = _normalize_reviewer(reviewer, required=bool(passed_reviews))
     normalized_reviewed_at = _normalize_review_timestamp(
         reviewed_at_utc,
@@ -123,9 +121,7 @@ def prepare_model_review_bundle(
 
     failure_reasons: list[str] = []
     if verified.status != "quarantined":
-        failure_reasons.append(
-            f"candidate manifest status {verified.status!r} is not quarantined"
-        )
+        failure_reasons.append(f"candidate manifest status {verified.status!r} is not quarantined")
     if verified.synthetic_hil_only:
         failure_reasons.append("synthetic HIL artifacts can never be production approved")
     if verified.production_approved:
@@ -138,9 +134,7 @@ def prepare_model_review_bundle(
     failure_reasons.extend(
         f"model-check evidence: {reason}" for reason in model_check["failure_reasons"]
     )
-    failure_reasons.extend(
-        f"accuracy evidence: {reason}" for reason in accuracy["failure_reasons"]
-    )
+    failure_reasons.extend(f"accuracy evidence: {reason}" for reason in accuracy["failure_reasons"])
     failure_reasons = _unique(failure_reasons)
     eligible = not failure_reasons
     review_status = (
@@ -398,9 +392,7 @@ def verify_model_review_bundle(
     failure_reasons.extend(
         f"model-check evidence: {reason}" for reason in model_check["failure_reasons"]
     )
-    failure_reasons.extend(
-        f"accuracy evidence: {reason}" for reason in accuracy["failure_reasons"]
-    )
+    failure_reasons.extend(f"accuracy evidence: {reason}" for reason in accuracy["failure_reasons"])
     failure_reasons = _unique(failure_reasons)
     expected_eligible = not failure_reasons
     expected_review_status = (

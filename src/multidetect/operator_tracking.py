@@ -98,7 +98,9 @@ class OperatorTargetLock:
             cancelled_target_id = (
                 candidate.track_id
                 if candidate is not None
-                else self._active_track_id if cancels_active else None
+                else self._active_track_id
+                if cancels_active
+                else None
             )
             status = self._status(
                 state=TrackingState.CANCELLED,

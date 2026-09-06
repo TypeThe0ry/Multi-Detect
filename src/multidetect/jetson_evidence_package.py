@@ -79,14 +79,10 @@ def verify_jetson_evidence_package(receipt: str | Path) -> dict[str, Any]:
     if require_sha256(document["archive_sha256"], "archive_sha256") != archive_hash:
         raise AutonomyContractError("Jetson evidence package archive SHA-256 changed")
     file_count = require_int(document["file_count"], "file_count", minimum=1)
-    manifest_hash = require_sha256(
-        document["source_manifest_sha256"], "source_manifest_sha256"
-    )
+    manifest_hash = require_sha256(document["source_manifest_sha256"], "source_manifest_sha256")
     if require_bool(document["package_self_verified"], "package_self_verified") is not True:
         raise AutonomyContractError("Jetson evidence package must be generator-self-verified")
-    if require_int(
-        document["verified_file_count"], "verified_file_count", minimum=1
-    ) != file_count:
+    if require_int(document["verified_file_count"], "verified_file_count", minimum=1) != file_count:
         raise AutonomyContractError("Jetson evidence package verified file count mismatch")
     _require_posix_absolute(document["remote_tools_root"], "remote_tools_root")
     _require_posix_absolute(document["runtime_python"], "runtime_python")

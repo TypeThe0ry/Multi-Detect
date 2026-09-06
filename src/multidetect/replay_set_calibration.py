@@ -105,9 +105,7 @@ def calibrate_replay_set_thresholds(
             accuracy_report_path=accuracy_source,
         )
         if readiness.get("gate_passed") is not True:
-            details = "; ".join(
-                str(reason) for reason in readiness.get("blocking_reasons", [])
-            )
+            details = "; ".join(str(reason) for reason in readiness.get("blocking_reasons", []))
             raise ReplaySetCalibrationError(
                 "accuracy report did not pass fresh readiness recomputation"
                 + (f": {details}" if details else "")
@@ -183,8 +181,7 @@ def calibrate_replay_set_thresholds(
         )
         predictions = load_prediction_jsonl(predictions_path)
         prefixed_truth = tuple(
-            GroundTruthFrame(f"{entry.entry_id}:{frame.frame_id}", frame.objects)
-            for frame in truth
+            GroundTruthFrame(f"{entry.entry_id}:{frame.frame_id}", frame.objects) for frame in truth
         )
         prefixed_predictions = tuple(
             PredictionFrame(
@@ -434,9 +431,7 @@ def verify_replay_set_calibration_report(
             checks["manifest_available"] = True
             observed_manifest_sha256 = hashlib.sha256(raw_manifest).hexdigest()
             expected_manifest_sha256 = document.get("manifest_sha256")
-            checks["manifest_sha256_matches"] = (
-                expected_manifest_sha256 == observed_manifest_sha256
-            )
+            checks["manifest_sha256_matches"] = expected_manifest_sha256 == observed_manifest_sha256
             if not checks["manifest_sha256_matches"]:
                 reasons.append(
                     "calibration report manifest_sha256 does not match the bound manifest"
@@ -455,9 +450,7 @@ def verify_replay_set_calibration_report(
                 accuracy_binding = document.get("accuracy_report_binding")
                 bound_prediction_receipt: str | Path | None = prediction_run_receipt
                 bound_accuracy_report: str | Path | None = accuracy_report_path
-                if bound_prediction_receipt is None and isinstance(
-                    prediction_binding, Mapping
-                ):
+                if bound_prediction_receipt is None and isinstance(prediction_binding, Mapping):
                     bound_prediction_receipt = prediction_binding.get("receipt_path")
                 if bound_accuracy_report is None and isinstance(accuracy_binding, Mapping):
                     bound_accuracy_report = accuracy_binding.get("path")
@@ -533,14 +526,10 @@ def _calibration_verification_document(
         recomputed.get("promotion_ready") if isinstance(recomputed, Mapping) else None
     )
     report_provenance_complete = (
-        document.get("provenance_complete") is True
-        if isinstance(document, Mapping)
-        else None
+        document.get("provenance_complete") is True if isinstance(document, Mapping) else None
     )
     recomputed_provenance_complete = (
-        recomputed.get("provenance_complete") is True
-        if isinstance(recomputed, Mapping)
-        else None
+        recomputed.get("provenance_complete") is True if isinstance(recomputed, Mapping) else None
     )
     unique_reasons = _unique_reasons(list(reasons))
     return {
@@ -718,8 +707,7 @@ def _build_stability_summary(
     available_strata = [
         stratum
         for stratum in REPLAY_SET_STRATA
-        if isinstance(strata.get(stratum), Mapping)
-        and strata[stratum].get("available") is True
+        if isinstance(strata.get(stratum), Mapping) and strata[stratum].get("available") is True
     ]
     for stratum in available_strata:
         calibration = strata[stratum].get("calibration")
@@ -760,9 +748,7 @@ def _build_stability_summary(
             "recommendation_count": len(values),
             "available_strata_count": len(available_strata),
             "coverage_ratio": len(values) / len(REPLAY_SET_STRATA),
-            "thresholds_by_stratum": {
-                stratum: threshold for stratum, threshold in values
-            },
+            "thresholds_by_stratum": {stratum: threshold for stratum, threshold in values},
             "threshold_min": threshold_min,
             "threshold_max": threshold_max,
             "threshold_range": threshold_max - threshold_min,

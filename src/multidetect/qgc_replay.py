@@ -644,9 +644,7 @@ class SubprocessReplayRtspPublisher:
             try:
                 item = self._event_queue.get(timeout=remaining_s)
             except queue.Empty as exc:
-                raise TimeoutError(
-                    f"timed out waiting for Replay RTSP {expected_event}"
-                ) from exc
+                raise TimeoutError(f"timed out waiting for Replay RTSP {expected_event}") from exc
             if item is None:
                 return_code = self._process.poll() if self._process is not None else None
                 raise RuntimeError(
@@ -773,10 +771,7 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
             or maximum_ack_to_metadata_skew_ms <= 0.0
         ):
             raise ValueError("ACK-to-metadata skew limit must be finite and positive")
-        if (
-            not math.isfinite(metadata_acceptance_timeout_s)
-            or metadata_acceptance_timeout_s <= 0.0
-        ):
+        if not math.isfinite(metadata_acceptance_timeout_s) or metadata_acceptance_timeout_s <= 0.0:
             raise ValueError("metadata acceptance timeout must be finite and positive")
         if not callable(getattr(pacer, "pace", None)) or not hasattr(pacer, "stats"):
             raise TypeError("pacer must implement FramePacer")
@@ -843,9 +838,7 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
             )
         captured_at_s = frame.get("captured_at_s")
         if isinstance(captured_at_s, bool) or not isinstance(captured_at_s, (int, float)):
-            raise ValueError(
-                f"synchronized {self._diagnostic_mode} captured_at_s must be numeric"
-            )
+            raise ValueError(f"synchronized {self._diagnostic_mode} captured_at_s must be numeric")
         runtime_status = frame.get("runtime_status")
         if runtime_status is None:
             raise ValueError(
@@ -870,9 +863,7 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
             self._last_runtime_sequence is not None
             and runtime_sequence <= self._last_runtime_sequence
         ):
-            raise RuntimeError(
-                "synchronized runtime status sequence is duplicate or out of order"
-            )
+            raise RuntimeError("synchronized runtime status sequence is duplicate or out of order")
         if self._runtime_run_hash64 is not None and runtime_run_hash64 != self._runtime_run_hash64:
             raise RuntimeError("synchronized runtime status run hash changed during the session")
         peer = self._require_active_qgc_peer()
@@ -885,8 +876,7 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
         peer_after_pacing = self._require_active_qgc_peer()
         if peer_after_pacing != self._ready_peer:
             raise RuntimeError(
-                "authenticated QGC peer changed while pacing synchronized "
-                f"{self._diagnostic_mode}"
+                f"authenticated QGC peer changed while pacing synchronized {self._diagnostic_mode}"
             )
         acknowledgement = self.frame_publisher.publish_frame(
             image_bgr,
@@ -1021,9 +1011,7 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
 
         skew_ns = sent_at_ns - video_acknowledged_at_ns
         ack_latency_ns = acknowledged_at_ns - sent_at_ns
-        frame_to_acceptance_ns = (
-            acknowledged_at_ns - video_acknowledged_at_ns
-        )
+        frame_to_acceptance_ns = acknowledged_at_ns - video_acknowledged_at_ns
         skew_ms = skew_ns / 1_000_000.0
         ack_latency_ms = ack_latency_ns / 1_000_000.0
         frame_to_acceptance_ms = frame_to_acceptance_ns / 1_000_000.0
@@ -1145,21 +1133,15 @@ class SynchronizedQgcOperatorBridge(LiveOperatorBridge):
             maximum_metadata_acceptance_ack_latency_ms=(
                 self._maximum_metadata_acceptance_ack_latency_ms
             ),
-            maximum_frame_to_acceptance_latency_ms=(
-                self._maximum_frame_to_acceptance_latency_ms
-            ),
+            maximum_frame_to_acceptance_latency_ms=(self._maximum_frame_to_acceptance_latency_ms),
             allowed_metadata_acceptance_ack_latency_ms=(
                 self.metadata_acceptance_timeout_s * 1000.0
             ),
             acceptance_ack_peer_host=(
-                self._acceptance_ack_peer[0]
-                if self._acceptance_ack_peer is not None
-                else None
+                self._acceptance_ack_peer[0] if self._acceptance_ack_peer is not None else None
             ),
             acceptance_ack_peer_port=(
-                self._acceptance_ack_peer[1]
-                if self._acceptance_ack_peer is not None
-                else None
+                self._acceptance_ack_peer[1] if self._acceptance_ack_peer is not None else None
             ),
             first_acknowledged_runtime_sequence=(
                 self._acknowledged_runtime_sequences[0]
@@ -1381,8 +1363,7 @@ def _sequences_are_contiguous(sequences: Sequence[int]) -> bool:
     """Return true only for a non-empty, gap-free increasing sequence."""
 
     return bool(sequences) and all(
-        current == previous + 1
-        for previous, current in zip(sequences, sequences[1:], strict=False)
+        current == previous + 1 for previous, current in zip(sequences, sequences[1:], strict=False)
     )
 
 

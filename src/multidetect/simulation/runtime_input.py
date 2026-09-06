@@ -49,9 +49,7 @@ class WorldRuntimeInput:
             "wind_east_mps",
             require_real(self.wind_east_mps, "wind_east_mps"),
         )
-        object.__setattr__(
-            self, "gust_mps", require_real(self.gust_mps, "gust_mps", minimum=0.0)
-        )
+        object.__setattr__(self, "gust_mps", require_real(self.gust_mps, "gust_mps", minimum=0.0))
 
     @classmethod
     def from_mapping(cls, raw: object) -> WorldRuntimeInput:
@@ -203,9 +201,7 @@ class VehicleRuntimeInput:
         )
         return cls(
             model=require_text(value["model"], "model"),
-            airframe_profile_id=require_text(
-                value["airframe_profile_id"], "airframe_profile_id"
-            ),
+            airframe_profile_id=require_text(value["airframe_profile_id"], "airframe_profile_id"),
             spawn_id=require_text(value["spawn_id"], "spawn_id"),
             spawn_pose=(
                 VehicleSpawnPose.from_mapping(value["spawn_pose"])
@@ -281,9 +277,7 @@ class ScenarioRuntimeInput:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
-        object.__setattr__(
-            self, "scenario_id", require_text(self.scenario_id, "scenario_id")
-        )
+        object.__setattr__(self, "scenario_id", require_text(self.scenario_id, "scenario_id"))
         object.__setattr__(
             self,
             "scenario_version",
@@ -348,9 +342,7 @@ class ScenarioRuntimeInput:
         )
         return cls(
             scenario_id=require_text(value["scenario_id"], "scenario_id"),
-            scenario_version=require_int(
-                value["scenario_version"], "scenario_version", minimum=1
-            ),
+            scenario_version=require_int(value["scenario_version"], "scenario_version", minimum=1),
             scenario_manifest_hash=scenario_manifest_hash,
             seed=require_int(value["seed"], "seed", minimum=0),
             world=WorldRuntimeInput.from_mapping(value["world"]),
@@ -360,8 +352,7 @@ class ScenarioRuntimeInput:
                 for item in require_array(value["sensors"], "sensors")
             ),
             faults=tuple(
-                FaultEvent.from_mapping(item)
-                for item in require_array(value["faults"], "faults")
+                FaultEvent.from_mapping(item) for item in require_array(value["faults"], "faults")
             ),
             schema_version=require_schema_version(value["schema_version"]),
         )

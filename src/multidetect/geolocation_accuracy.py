@@ -80,8 +80,7 @@ def wgs84_distance_m(
     _validate_coordinate(latitude2_deg, longitude2_deg, name="coordinate2")
     if (
         abs(latitude1_deg - latitude2_deg) <= _COORDINATE_EPSILON
-        and abs(_wrap_longitude_delta(longitude2_deg - longitude1_deg))
-        <= _COORDINATE_EPSILON
+        and abs(_wrap_longitude_delta(longitude2_deg - longitude1_deg)) <= _COORDINATE_EPSILON
     ):
         return 0.0
 
@@ -92,9 +91,7 @@ def wgs84_distance_m(
     reduced_latitude2 = math.atan((1.0 - flattening) * math.tan(math.radians(latitude2_deg)))
     sin_u1, cos_u1 = math.sin(reduced_latitude1), math.cos(reduced_latitude1)
     sin_u2, cos_u2 = math.sin(reduced_latitude2), math.cos(reduced_latitude2)
-    longitude_delta = math.radians(
-        _wrap_longitude_delta(longitude2_deg - longitude1_deg)
-    )
+    longitude_delta = math.radians(_wrap_longitude_delta(longitude2_deg - longitude1_deg))
     lam = longitude_delta
 
     for _ in range(_MAX_ITERATIONS):
@@ -124,9 +121,7 @@ def wgs84_distance_m(
             * sin_sigma
             * (
                 cos_two_sigma_m
-                + coefficient_c
-                * cos_sigma
-                * (-1.0 + 2.0 * cos_two_sigma_m * cos_two_sigma_m)
+                + coefficient_c * cos_sigma * (-1.0 + 2.0 * cos_two_sigma_m * cos_two_sigma_m)
             )
         )
         if abs(next_lam - lam) <= _CONVERGENCE_TOLERANCE:
@@ -159,17 +154,21 @@ def wgs84_distance_m(
     coefficient_b = (u_squared / 1024.0) * (
         256.0 + u_squared * (-128.0 + u_squared * (74.0 - 47.0 * u_squared))
     )
-    delta_sigma = coefficient_b * sin_sigma * (
-        cos_two_sigma_m
-        + coefficient_b
-        / 4.0
+    delta_sigma = (
+        coefficient_b
+        * sin_sigma
         * (
-            cos_sigma * (-1.0 + 2.0 * cos_two_sigma_m * cos_two_sigma_m)
-            - coefficient_b
-            / 6.0
-            * cos_two_sigma_m
-            * (-3.0 + 4.0 * sin_sigma * sin_sigma)
-            * (-3.0 + 4.0 * cos_two_sigma_m * cos_two_sigma_m)
+            cos_two_sigma_m
+            + coefficient_b
+            / 4.0
+            * (
+                cos_sigma * (-1.0 + 2.0 * cos_two_sigma_m * cos_two_sigma_m)
+                - coefficient_b
+                / 6.0
+                * cos_two_sigma_m
+                * (-3.0 + 4.0 * sin_sigma * sin_sigma)
+                * (-3.0 + 4.0 * cos_two_sigma_m * cos_two_sigma_m)
+            )
         )
     )
     distance_m = semi_minor_m * coefficient_a * (sigma - delta_sigma)
@@ -219,17 +218,20 @@ def evaluate_geolocation_accuracy(
             latitude2_deg=sample.ground_truth_latitude_deg,
             longitude2_deg=sample.ground_truth_longitude_deg,
         )
-        meridional_m, prime_vertical_m = wgs84_radii_of_curvature(
-            sample.ground_truth_latitude_deg
+        meridional_m, prime_vertical_m = wgs84_radii_of_curvature(sample.ground_truth_latitude_deg)
+        north_m = (
+            math.radians(sample.estimated_latitude_deg - sample.ground_truth_latitude_deg)
+            * meridional_m
         )
-        north_m = math.radians(
-            sample.estimated_latitude_deg - sample.ground_truth_latitude_deg
-        ) * meridional_m
-        east_m = math.radians(
-            _wrap_longitude_delta(
-                sample.estimated_longitude_deg - sample.ground_truth_longitude_deg
+        east_m = (
+            math.radians(
+                _wrap_longitude_delta(
+                    sample.estimated_longitude_deg - sample.ground_truth_longitude_deg
+                )
             )
-        ) * prime_vertical_m * math.cos(math.radians(sample.ground_truth_latitude_deg))
+            * prime_vertical_m
+            * math.cos(math.radians(sample.ground_truth_latitude_deg))
+        )
         distance_errors.append(error_m)
         north_errors.append(north_m)
         east_errors.append(east_m)
@@ -265,9 +267,7 @@ def evaluate_geolocation_accuracy(
     two_sigma_coverage = two_sigma_hits / sigma_count if sigma_count else None
     reasons: list[str] = []
     if len(values) < minimum_samples:
-        reasons.append(
-            f"sample_count<{minimum_samples} (got {len(values)})"
-        )
+        reasons.append(f"sample_count<{minimum_samples} (got {len(values)})")
     p95_m = float(distance_metrics["p95_m"])
     if maximum_p95_m is not None and p95_m > maximum_p95_m:
         reasons.append(f"p95_error>{maximum_p95_m:g}m (got {p95_m:.6g}m)")
@@ -276,16 +276,14 @@ def evaluate_geolocation_accuracy(
             reasons.append("one_sigma_coverage_unavailable")
         elif one_sigma_coverage < minimum_one_sigma_coverage:
             reasons.append(
-                f"one_sigma_coverage<{minimum_one_sigma_coverage:g} "
-                f"(got {one_sigma_coverage:.6g})"
+                f"one_sigma_coverage<{minimum_one_sigma_coverage:g} (got {one_sigma_coverage:.6g})"
             )
     if minimum_two_sigma_coverage is not None:
         if two_sigma_coverage is None:
             reasons.append("two_sigma_coverage_unavailable")
         elif two_sigma_coverage < minimum_two_sigma_coverage:
             reasons.append(
-                f"two_sigma_coverage<{minimum_two_sigma_coverage:g} "
-                f"(got {two_sigma_coverage:.6g})"
+                f"two_sigma_coverage<{minimum_two_sigma_coverage:g} (got {two_sigma_coverage:.6g})"
             )
     return {
         "schema_version": 1,
@@ -470,9 +468,7 @@ def _equivalent(left: object, right: object) -> bool:
                 return math.isclose(float(left), float(right), rel_tol=1.0e-12, abs_tol=1.0e-9)
         return False
     if isinstance(left, Mapping) and isinstance(right, Mapping):
-        return set(left) == set(right) and all(
-            _equivalent(left[key], right[key]) for key in left
-        )
+        return set(left) == set(right) and all(_equivalent(left[key], right[key]) for key in left)
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(
             _equivalent(left_item, right_item)
@@ -647,16 +643,17 @@ def _error_ellipse(
     bias_north = math.fsum(north) / sample_count
     bias_east = math.fsum(east) / sample_count
     denominator = sample_count - 1 if sample_count > 1 else 1
-    covariance_north = math.fsum(
-        (north_value - bias_north) ** 2 for north_value in north
-    ) / denominator
-    covariance_east = math.fsum(
-        (east_value - bias_east) ** 2 for east_value in east
-    ) / denominator
-    covariance_cross = math.fsum(
-        (north_value - bias_north) * (east_value - bias_east)
-        for north_value, east_value in zip(north, east, strict=True)
-    ) / denominator
+    covariance_north = (
+        math.fsum((north_value - bias_north) ** 2 for north_value in north) / denominator
+    )
+    covariance_east = math.fsum((east_value - bias_east) ** 2 for east_value in east) / denominator
+    covariance_cross = (
+        math.fsum(
+            (north_value - bias_north) * (east_value - bias_east)
+            for north_value, east_value in zip(north, east, strict=True)
+        )
+        / denominator
+    )
 
     # Eigenvalues of the symmetric 2x2 covariance matrix.  The covariance is
     # theoretically positive semidefinite; max(0, ...) only absorbs floating
@@ -665,8 +662,7 @@ def _error_ellipse(
     discriminant = math.sqrt(
         max(
             0.0,
-            (covariance_north - covariance_east) ** 2
-            + 4.0 * covariance_cross * covariance_cross,
+            (covariance_north - covariance_east) ** 2 + 4.0 * covariance_cross * covariance_cross,
         )
     )
     major_variance = max(

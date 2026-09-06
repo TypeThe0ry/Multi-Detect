@@ -98,9 +98,7 @@ def test_runtime_max_frames_does_not_prefetch_or_advance_an_extra_frame() -> Non
 
 
 def test_replay_backend_is_single_pass_and_fail_closed_after_close() -> None:
-    backend = ReplayBackend(
-        ReplayRecording("single", (_frame("f0", 0.0),), AIRFRAME_HASH)
-    )
+    backend = ReplayBackend(ReplayRecording("single", (_frame("f0", 0.0),), AIRFRAME_HASH))
 
     tuple(backend.observations())
     backend.close()
@@ -126,9 +124,7 @@ def test_replay_backend_close_stops_an_active_observation_iterator() -> None:
 
 
 def test_runtime_report_binds_descriptor_and_recording_hash() -> None:
-    backend = ReplayBackend(
-        ReplayRecording("report", [_frame("f0", 1.0)], AIRFRAME_HASH)
-    )
+    backend = ReplayBackend(ReplayRecording("report", [_frame("f0", 1.0)], AIRFRAME_HASH))
 
     results, report = AutonomyRuntime(backend=backend, processor=_Processor()).run_with_report()
 
@@ -163,9 +159,7 @@ def test_runtime_rejects_backend_provenance_swap_during_processing() -> None:
 
 
 def test_runtime_rejects_backend_input_hash_swap_during_processing() -> None:
-    backend = ReplayBackend(
-        ReplayRecording("mutable-input", [_frame("f0", 1.0)], AIRFRAME_HASH)
-    )
+    backend = ReplayBackend(ReplayRecording("mutable-input", [_frame("f0", 1.0)], AIRFRAME_HASH))
 
     class _MutatingProcessor:
         def process_observation(self, frame: FrameObservation, *, now_s: float) -> str:
@@ -203,9 +197,7 @@ def test_runtime_closes_backend_when_observation_iterator_creation_fails(
 
 @pytest.mark.parametrize("invalid", [True, 1.5, "1"])
 def test_runtime_rejects_non_integer_max_frames(invalid: object) -> None:
-    backend = ReplayBackend(
-        ReplayRecording("invalid-max", [_frame("f0", 1.0)], AIRFRAME_HASH)
-    )
+    backend = ReplayBackend(ReplayRecording("invalid-max", [_frame("f0", 1.0)], AIRFRAME_HASH))
     with pytest.raises(TypeError, match="integer"):
         AutonomyRuntime(backend=backend, processor=_Processor()).run(
             max_frames=invalid  # type: ignore[arg-type]

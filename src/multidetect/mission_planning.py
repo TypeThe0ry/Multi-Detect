@@ -207,9 +207,7 @@ def parse_mission_compile_runtime(
         ),
         optional=frozenset({"vehicle_class"}),
     )
-    require_schema_version(
-        value["schema_version"], expected=MISSION_COMPILE_RUNTIME_SCHEMA_VERSION
-    )
+    require_schema_version(value["schema_version"], expected=MISSION_COMPILE_RUNTIME_SCHEMA_VERSION)
     normalized = normalize_vehicle_class(vehicle_class)
     if "vehicle_class" in value and normalize_vehicle_class(value["vehicle_class"]) != normalized:
         raise ValueError("runtime vehicle_class does not match requested vehicle_class")

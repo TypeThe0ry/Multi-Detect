@@ -282,9 +282,7 @@ def test_verify_field_link_discovery_keeps_legacy_v1_snapshot_readable(
             "service_hits/service_candidates do not match host services",
         ),
         (
-            lambda discovery: discovery["service_candidates"].update(
-                {"ssh": ["10.0.0.5"]}
-            ),
+            lambda discovery: discovery["service_candidates"].update({"ssh": ["10.0.0.5"]}),
             "service_hits/service_candidates do not match host services",
         ),
         (
@@ -418,15 +416,18 @@ def test_field_link_cli_forwards_route_gate_options(
 
     monkeypatch.setattr(field_link_preflight, "build_field_link_report", fake_report)
     output = tmp_path / "route-cli.json"
-    assert field_link_preflight.main(
-        [
-            "--expected-source-cidr",
-            "192.168.144.0/24",
-            "--require-route",
-            "--out",
-            str(output),
-        ]
-    ) == 0
+    assert (
+        field_link_preflight.main(
+            [
+                "--expected-source-cidr",
+                "192.168.144.0/24",
+                "--require-route",
+                "--out",
+                str(output),
+            ]
+        )
+        == 0
+    )
     assert captured["expected_source_cidr"] == "192.168.144.0/24"
     assert captured["require_route"] is True
     assert output.is_file()
@@ -645,9 +646,9 @@ def test_field_link_report_rejects_invalid_port_range() -> None:
         timeout_s=0.01,
     )
     assert report["summary"]["configuration_valid"] is False
-    assert "jetson_port must be an integer in [0, 65535]" in report["summary"][
-        "configuration_errors"
-    ]
+    assert (
+        "jetson_port must be an integer in [0, 65535]" in report["summary"]["configuration_errors"]
+    )
 
 
 def test_interface_diagnostic_verifier_accepts_missing_selection_and_binds_hash(tmp_path) -> None:
@@ -692,8 +693,7 @@ def test_interface_diagnostic_verifier_rejects_duplicate_keys_and_readiness_clai
 ) -> None:
     path = tmp_path / "interface-diagnostic-tampered.json"
     path.write_text(
-        '{"schema_version":1,"read_only":true,"read_only":false,'
-        '"hardware_link_ready":true}\n',
+        '{"schema_version":1,"read_only":true,"read_only":false,"hardware_link_ready":true}\n',
         encoding="utf-8",
     )
 
@@ -979,9 +979,7 @@ def test_verify_field_link_report_rejects_watch_all_passed_drift(tmp_path) -> No
     result = verify_field_link_report(path, require_ready=False)
 
     assert result["gate_passed"] is False
-    assert "watch all_passed does not match collected samples" in " ".join(
-        result["reasons"]
-    )
+    assert "watch all_passed does not match collected samples" in " ".join(result["reasons"])
 
 
 def test_verify_field_link_report_allows_structural_diagnostic_when_not_required(tmp_path) -> None:
@@ -1161,12 +1159,12 @@ def test_watch_field_link_requires_every_sample_and_reports_flapping(
         "passed_samples": 2,
         "failed_samples": 1,
         "stability_ratio": round(2 / 3, 6),
-            "max_consecutive_failures": 1,
-            "protocol_checks_requested": True,
-            "route_checks_requested": False,
-            "route_checks_passed": None,
-            "route_source_cidr": None,
-            "all_samples_passed": False,
+        "max_consecutive_failures": 1,
+        "protocol_checks_requested": True,
+        "route_checks_requested": False,
+        "route_checks_passed": None,
+        "route_source_cidr": None,
+        "all_samples_passed": False,
         "hardware_link_ready": False,
         "all_passed": False,
     }

@@ -21,7 +21,9 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_SOURCE_URL = "https://ssd.mathworks.com/supportfiles/vision/data/PedestrianTrackingDataset.zip"
+DEFAULT_SOURCE_URL = (
+    "https://ssd.mathworks.com/supportfiles/vision/data/PedestrianTrackingDataset.zip"
+)
 _EOCD_SIGNATURE = b"PK\x05\x06"
 _CENTRAL_SIGNATURE = b"PK\x01\x02"
 _LOCAL_SIGNATURE = b"PK\x03\x04"

@@ -47,9 +47,7 @@ from .online_covariance_preflight import (
 SCHEMA = "multidetect.pixhawk-covariance-field-session-record/v1"
 SCHEMA_VERSION = 1
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = (
-    ROOT / "configs" / "schemas" / "pixhawk-covariance-field-session-record.schema.json"
-)
+SCHEMA_PATH = ROOT / "configs" / "schemas" / "pixhawk-covariance-field-session-record.schema.json"
 _ATTEMPT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
@@ -92,9 +90,7 @@ def _validate_schema(document: Mapping[str, object]) -> None:
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)
     except Exception as exc:
-        raise FieldCovarianceSessionError(
-            f"field session schema validation failed: {exc}"
-        ) from exc
+        raise FieldCovarianceSessionError(f"field session schema validation failed: {exc}") from exc
 
 
 def _regular_file(value: object, *, name: str) -> Path:
@@ -188,14 +184,10 @@ def _capture_and_seal(
     )
     after = campaign_status(config)
     report = next(
-        item
-        for item in after["records"]
-        if (item["runtime_mode"], item["vehicle_class"]) == key
+        item for item in after["records"] if (item["runtime_mode"], item["vehicle_class"]) == key
     )
     if report["status"] != "passed" or int(after["passed_count"]) != leaf_ordinal:
-        raise FieldCovarianceSessionError(
-            "captured leaf did not become the next verified report"
-        )
+        raise FieldCovarianceSessionError("captured leaf did not become the next verified report")
     leaf = config.leaves[leaf_ordinal - 1]
     if leaf.key != key:
         raise FieldCovarianceSessionError("campaign leaf order changed during capture")
@@ -223,9 +215,7 @@ def _capture_and_seal(
             "bytes": probe_path.stat().st_size,
             "file_sha256": _sha256(probe_path),
             "evidence_sha256": archived_probe["evidence_sha256"],
-            "verified_before_capture": capture[
-                "online_preflight_verified_before_capture"
-            ],
+            "verified_before_capture": capture["online_preflight_verified_before_capture"],
         },
         "covariance_report": {
             "path": str(leaf.report_path),

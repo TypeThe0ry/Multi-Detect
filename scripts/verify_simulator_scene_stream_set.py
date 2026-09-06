@@ -10,6 +10,7 @@ SOURCE = ROOT / "src"
 if SOURCE.is_dir() and str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
+
 def _run() -> int:
     from multidetect.simulator.scene_stream_set import main
 

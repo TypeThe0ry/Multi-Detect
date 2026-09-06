@@ -148,9 +148,7 @@ def _probe_with_fakes(
     exercise_target: bool = False,
     exercise_flight_duration_s: float = 0.0,
     inject_flight_fault: str = "none",
-    minimum_flight_displacement_m: float = (
-        module.DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M
-    ),
+    minimum_flight_displacement_m: float = (module.DEFAULT_MINIMUM_FLIGHT_DISPLACEMENT_M),
     clock: Callable[[], float] | None = None,
     px4_component_ids: set[int] | frozenset[int] | None = None,
     minimum_gps_fix_type: int = 3,
@@ -212,22 +210,24 @@ def test_probe_rejects_non_literal_loopback_telemetry_endpoints(endpoint: str) -
 
 
 def test_probe_accepts_literal_ipv4_and_ipv6_loopback_for_both_legs() -> None:
-    assert module.parse_literal_loopback_udp_endpoint(
-        "udpin:127.0.0.1:24541", scheme="udpin"
-    ) == ("127.0.0.1", 24541)
-    assert module.parse_literal_loopback_udp_endpoint(
-        "udpin:::1:24541", scheme="udpin"
-    ) == ("::1", 24541)
-    assert module.parse_literal_loopback_udp_endpoint(
-        "udpin:[::1]:24541", scheme="udpin"
-    ) == ("::1", 24541)
-    assert module.parse_literal_loopback_udp_endpoint(
-        "udpout:[::1]:24540", scheme="udpout"
-    ) == ("::1", 24540)
+    assert module.parse_literal_loopback_udp_endpoint("udpin:127.0.0.1:24541", scheme="udpin") == (
+        "127.0.0.1",
+        24541,
+    )
+    assert module.parse_literal_loopback_udp_endpoint("udpin:::1:24541", scheme="udpin") == (
+        "::1",
+        24541,
+    )
+    assert module.parse_literal_loopback_udp_endpoint("udpin:[::1]:24541", scheme="udpin") == (
+        "::1",
+        24541,
+    )
+    assert module.parse_literal_loopback_udp_endpoint("udpout:[::1]:24540", scheme="udpout") == (
+        "::1",
+        24540,
+    )
     with pytest.raises(module.DockerAiAcceptanceError, match="udpout"):
-        module.parse_literal_loopback_udp_endpoint(
-            "udpin:127.0.0.1:24541", scheme="udpout"
-        )
+        module.parse_literal_loopback_udp_endpoint("udpin:127.0.0.1:24541", scheme="udpout")
 
 
 def test_dry_run_validates_generated_loopback_ports_without_opening_io(tmp_path: Path) -> None:
@@ -359,12 +359,8 @@ def test_disarmed_live_run_reports_not_exercised_not_failed() -> None:
     assert result["gate_passed"] is False
     assert result["ai_policy_gate_passed"] is False
     assert result["ai_policy_steps"] == 0
-    assert result["ai_policy_gate_status"] == (
-        "not_exercised_waiting_for_armed_heartbeat"
-    )
-    assert result["claims"]["sim_ai_policy"] == (
-        "not_exercised_waiting_for_armed_heartbeat"
-    )
+    assert result["ai_policy_gate_status"] == ("not_exercised_waiting_for_armed_heartbeat")
+    assert result["claims"]["sim_ai_policy"] == ("not_exercised_waiting_for_armed_heartbeat")
     assert result["claims"]["sim_ai_control_output"] == "none"
     assert result["claims"]["real_control_acceptance"] == "not_claimed"
 
@@ -395,9 +391,7 @@ def test_disarmed_failsafe_step_is_not_an_ai_policy_pass() -> None:
     assert result["ai_steps"] == 1
     assert result["ai_policy_steps"] == 0
     assert result["ai_policy_gate_passed"] is False
-    assert result["ai_policy_gate_status"] == (
-        "not_exercised_waiting_for_armed_heartbeat"
-    )
+    assert result["ai_policy_gate_status"] == ("not_exercised_waiting_for_armed_heartbeat")
     assert result["gate_passed"] is False
 
 
@@ -922,16 +916,16 @@ def test_flight_response_is_independent_from_ai_policy_gate() -> None:
             "truth_free": True,
             "rejections": [],
             "exercise_flight": True,
-                "flight_exercise": {
-                    "requested": True,
-                    "gate_passed": False,
-                    "completed": True,
-                    "target_updates_accepted": 10,
-                    "target_updates_rejected": 0,
-                    "target_refresh_gate_passed": True,
-                    "flight_mode_gate_passed": True,
-                    "heartbeat_continuity_gate_passed": True,
-                    "gazebo_pose_injection_used": False,
+            "flight_exercise": {
+                "requested": True,
+                "gate_passed": False,
+                "completed": True,
+                "target_updates_accepted": 10,
+                "target_updates_rejected": 0,
+                "target_refresh_gate_passed": True,
+                "flight_mode_gate_passed": True,
+                "heartbeat_continuity_gate_passed": True,
+                "gazebo_pose_injection_used": False,
                 "gazebo_truth_consumed": False,
                 "position_source": "MAVLink GLOBAL_POSITION_INT",
             },
@@ -1179,9 +1173,7 @@ def test_first_rejected_target_does_not_capture_the_flight_position_baseline() -
         ("target_updates_rejected", 1),
     ),
 )
-def test_flight_acceptance_rejects_any_recorded_safety_fault(
-    override: str, value: int
-) -> None:
+def test_flight_acceptance_rejects_any_recorded_safety_fault(override: str, value: int) -> None:
     flight = {
         "requested": True,
         "gate_passed": True,
@@ -1277,9 +1269,7 @@ def test_command_ack_identity_gate_rejects_spoofed_or_unrelated_ack(
 
 
 def test_bridge_waits_for_first_armed_heartbeat_before_ai_failsafe() -> None:
-    probe = _probe_with_fakes(
-        "udpin:127.0.0.1:24541", wait_for_armed_heartbeat=True
-    )
+    probe = _probe_with_fakes("udpin:127.0.0.1:24541", wait_for_armed_heartbeat=True)
     probe.bridge.enable_ai()
     # PX4 startup commonly emits one or more disarmed heartbeats.  They must
     # not poison the terminal authority state before the first arm event.

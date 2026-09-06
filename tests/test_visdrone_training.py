@@ -12,9 +12,7 @@ def test_visdrone_candidate_is_pinned_and_exports_traditional_raw_onnx() -> None
             encoding="utf-8"
         )
     )
-    trainer = (ROOT / "scripts/train_visdrone_priority_candidate.py").read_text(
-        encoding="utf-8"
-    )
+    trainer = (ROOT / "scripts/train_visdrone_priority_candidate.py").read_text(encoding="utf-8")
 
     assert len(descriptor["source_checkpoint_sha256"]) == 64
     assert descriptor["dataset"]["name"] == "VisDrone2019-DET"
@@ -28,12 +26,10 @@ def test_visdrone_candidate_is_pinned_and_exports_traditional_raw_onnx() -> None
 
 def test_visdrone_converter_preserves_train_val_and_runtime_label_map() -> None:
     converter = (ROOT / "scripts/prepare_visdrone_dataset.py").read_text(encoding="utf-8")
-    trainer = (ROOT / "scripts/train_visdrone_priority_candidate.py").read_text(
-        encoding="utf-8"
-    )
+    trainer = (ROOT / "scripts/train_visdrone_priority_candidate.py").read_text(encoding="utf-8")
 
     assert '(("train", "train"), ("val", "val"))' in converter
-    assert "row[4] == \"0\"" in converter
+    assert 'row[4] == "0"' in converter
     assert "os.link(image_path, destination)" in converter
     assert '"person",\n    "person",' in trainer
     assert '"car",\n    "car",' in trainer

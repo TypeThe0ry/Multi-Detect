@@ -34,14 +34,18 @@ SCENARIO_FILES = (
 
 
 def _write_stream(scenario: Path, output: Path, *, frames: int = 3) -> Path:
-    stream = SimulatorScenarioRunner(
-        scenario,
-        config=SimulatorScenarioRunnerConfig(
-            frames=frames,
-            dt_s=0.1,
-            record_scene_stream=True,
-        ),
-    ).run().scene_stream
+    stream = (
+        SimulatorScenarioRunner(
+            scenario,
+            config=SimulatorScenarioRunnerConfig(
+                frames=frames,
+                dt_s=0.1,
+                record_scene_stream=True,
+            ),
+        )
+        .run()
+        .scene_stream
+    )
     assert stream is not None
     stream.write_json(output)
     return output
@@ -214,8 +218,7 @@ def test_scene_stream_set_rejects_release_mismatch_and_unknown_scenario(tmp_path
     )
     assert release_report["gate_passed"] is False
     assert any(
-        "release_label does not match source" in reason
-        for reason in release_report["reasons"]
+        "release_label does not match source" in reason for reason in release_report["reasons"]
     )
 
     path_tampered = json.loads(json.dumps(binding))

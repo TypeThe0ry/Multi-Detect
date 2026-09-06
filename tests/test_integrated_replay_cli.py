@@ -255,9 +255,7 @@ def test_integrated_replay_cli_reuses_live_perception_namespace_and_writes_ident
     assert document["ground_truth_isolated"] is True
     assert document["hardware_outputs_present"] is False
     assert "qgc_synchronized_visual_gate" not in document
-    assert document["qgc_transport_acceptance_gate"] == (
-        "not_run_headless_integrated_replay"
-    )
+    assert document["qgc_transport_acceptance_gate"] == ("not_run_headless_integrated_replay")
     assert document["operator_visual_acceptance"] == "not_claimed"
     assert document["result"]["processed_frames"] == 2
     assert '"integrated_replay_started"' in capsys.readouterr().out

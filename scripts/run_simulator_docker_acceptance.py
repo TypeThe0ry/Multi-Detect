@@ -183,9 +183,7 @@ def _camera_calibration_provenance(
 ) -> dict[str, object]:
     """Load and hash-bind the scenario camera calibration used for ranging."""
 
-    rgb_sensors = tuple(
-        sensor for sensor in scenario_input.sensors if sensor.kind == "rgb_camera"
-    )
+    rgb_sensors = tuple(sensor for sensor in scenario_input.sensors if sensor.kind == "rgb_camera")
     if len(rgb_sensors) != 1 or rgb_sensors[0].calibration_id is None:
         raise DockerSimulatorAcceptanceError(
             "Gazebo frame persistence requires exactly one calibration-bound RGB camera"
@@ -226,9 +224,7 @@ def _camera_calibration_provenance(
         "file_sha256": _sha256(calibration_path),
         "calibration": asdict(calibration),
         "source": "repository_calibration_hash_bound",
-        "camera_info_intrinsics_semantic_validation": (
-            "pending_k_p_distortion_validation"
-        ),
+        "camera_info_intrinsics_semantic_validation": ("pending_k_p_distortion_validation"),
     }
 
 
@@ -517,12 +513,9 @@ def _verify_persisted_gazebo_frame(
     width = provenance.get("width")
     height = provenance.get("height")
     if any(
-        isinstance(value, bool) or not isinstance(value, int)
-        for value in (sequence, width, height)
+        isinstance(value, bool) or not isinstance(value, int) for value in (sequence, width, height)
     ):
-        raise DockerSimulatorAcceptanceError(
-            "persisted Gazebo per-frame wire geometry is invalid"
-        )
+        raise DockerSimulatorAcceptanceError("persisted Gazebo per-frame wire geometry is invalid")
     try:
         wire = reconstruct_gazebo_sim_wire_frame(
             unsigned_header_hex=str(provenance["wire_unsigned_header_hex"]),
@@ -546,9 +539,7 @@ def _verify_persisted_gazebo_frame(
         )
     frame_telemetry = provenance.get("frame_telemetry")
     if not isinstance(frame_telemetry, dict):
-        raise DockerSimulatorAcceptanceError(
-            "persisted Gazebo derived frame telemetry is invalid"
-        )
+        raise DockerSimulatorAcceptanceError("persisted Gazebo derived frame telemetry is invalid")
     for key, expected in (
         ("latitude_deg", wire.latitude_deg),
         ("longitude_deg", wire.longitude_deg),
@@ -698,9 +689,7 @@ def _write_frame_set_manifest(
         nonzero_covariance_records = sum(
             any(
                 abs(float(value)) > 0.0
-                for value in record["provenance"]["wire_telemetry"][
-                    "attitude_covariance_enu_rad2"
-                ]
+                for value in record["provenance"]["wire_telemetry"]["attitude_covariance_enu_rad2"]
             )
             for record in records
         )

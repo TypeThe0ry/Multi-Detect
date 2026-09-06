@@ -170,9 +170,7 @@ class GeoPoint(_CanonicalDocument):
         object.__setattr__(
             self,
             "longitude_deg",
-            require_real(
-                self.longitude_deg, "longitude_deg", minimum=-180.0, maximum=180.0
-            ),
+            require_real(self.longitude_deg, "longitude_deg", minimum=-180.0, maximum=180.0),
         )
         object.__setattr__(self, "altitude_m", optional_real(self.altitude_m, "altitude_m"))
         if (self.altitude_m is None) != (self.altitude_reference is None):
@@ -202,9 +200,7 @@ class GeoPoint(_CanonicalDocument):
                 value["longitude_deg"], "longitude_deg", minimum=-180.0, maximum=180.0
             ),
             altitude_m=optional_real(value.get("altitude_m"), "altitude_m"),
-            altitude_reference=optional_text(
-                value.get("altitude_reference"), "altitude_reference"
-            ),
+            altitude_reference=optional_text(value.get("altitude_reference"), "altitude_reference"),
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -236,9 +232,7 @@ class PromptEnvelope(_CanonicalDocument):
                 field_name,
                 require_text(getattr(self, field_name), field_name),
             )
-        object.__setattr__(
-            self, "issued_at", require_aware_timestamp(self.issued_at, "issued_at")
-        )
+        object.__setattr__(self, "issued_at", require_aware_timestamp(self.issued_at, "issued_at"))
 
     @classmethod
     def from_mapping(cls, raw: object) -> PromptEnvelope:
@@ -337,18 +331,14 @@ class ContextSnapshot(_CanonicalDocument):
         object.__setattr__(
             self,
             "estimated_flight_time_s",
-            require_real(
-                self.estimated_flight_time_s, "estimated_flight_time_s", minimum=0.0
-            ),
+            require_real(self.estimated_flight_time_s, "estimated_flight_time_s", minimum=0.0),
         )
         for name in (
             "ground_speed_mps",
             "airspeed_mps",
             "gps_horizontal_accuracy_m",
         ):
-            object.__setattr__(
-                self, name, require_real(getattr(self, name), name, minimum=0.0)
-            )
+            object.__setattr__(self, name, require_real(getattr(self, name), name, minimum=0.0))
         for name in ("wind_north_mps", "wind_east_mps"):
             object.__setattr__(self, name, require_real(getattr(self, name), name))
         object.__setattr__(
@@ -398,14 +388,10 @@ class ContextSnapshot(_CanonicalDocument):
         return cls(
             snapshot_id=require_text(value["snapshot_id"], "snapshot_id"),
             captured_at_s=require_real(value["captured_at_s"], "captured_at_s", minimum=0.0),
-            captured_at_utc=require_aware_timestamp(
-                value["captured_at_utc"], "captured_at_utc"
-            ),
+            captured_at_utc=require_aware_timestamp(value["captured_at_utc"], "captured_at_utc"),
             aircraft_position=GeoPoint.from_mapping(value["aircraft_position"]),
             home_position=GeoPoint.from_mapping(value["home_position"]),
-            airframe_profile_id=require_text(
-                value["airframe_profile_id"], "airframe_profile_id"
-            ),
+            airframe_profile_id=require_text(value["airframe_profile_id"], "airframe_profile_id"),
             battery_remaining_pct=require_real(
                 value["battery_remaining_pct"],
                 "battery_remaining_pct",
@@ -437,9 +423,7 @@ class ContextSnapshot(_CanonicalDocument):
             perception_available=require_bool(
                 value["perception_available"], "perception_available"
             ),
-            map_cache_available=require_bool(
-                value["map_cache_available"], "map_cache_available"
-            ),
+            map_cache_available=require_bool(value["map_cache_available"], "map_cache_available"),
             dem_available=require_bool(value["dem_available"], "dem_available"),
             schema_version=require_schema_version(value["schema_version"]),
         )
@@ -482,12 +466,8 @@ class TaskGeometry(_CanonicalDocument):
     def __post_init__(self) -> None:
         for name in ("kind", "resolved_feature_id", "direction"):
             object.__setattr__(self, name, require_text(getattr(self, name), name))
-        object.__setattr__(
-            self, "length_m", require_real(self.length_m, "length_m", minimum=0.001)
-        )
-        object.__setattr__(
-            self, "buffer_m", require_real(self.buffer_m, "buffer_m", minimum=0.0)
-        )
+        object.__setattr__(self, "length_m", require_real(self.length_m, "length_m", minimum=0.001))
+        object.__setattr__(self, "buffer_m", require_real(self.buffer_m, "buffer_m", minimum=0.0))
         object.__setattr__(
             self,
             "resolution_confidence",
@@ -524,9 +504,7 @@ class TaskGeometry(_CanonicalDocument):
         points = require_array(value["centerline"], "centerline")
         return cls(
             kind=require_text(value["kind"], "kind"),
-            resolved_feature_id=require_text(
-                value["resolved_feature_id"], "resolved_feature_id"
-            ),
+            resolved_feature_id=require_text(value["resolved_feature_id"], "resolved_feature_id"),
             direction=require_text(value["direction"], "direction"),
             length_m=require_real(value["length_m"], "length_m", minimum=0.001),
             centerline=tuple(GeoPoint.from_mapping(point) for point in points),
@@ -672,12 +650,9 @@ class ResolvedTaskSpec(_CanonicalDocument):
         try:
             task_type = TaskType(require_text(value["task_type"], "task_type"))
             actions = tuple(
-                PlanAction(require_text(item, "on_detection item"))
-                for item in action_values
+                PlanAction(require_text(item, "on_detection item")) for item in action_values
             )
-            completion = PlanAction(
-                require_text(value["completion_action"], "completion_action")
-            )
+            completion = PlanAction(require_text(value["completion_action"], "completion_action"))
         except ValueError as exc:
             raise AutonomyContractError(f"unsupported task/action value: {exc}") from exc
         return cls(
@@ -720,17 +695,11 @@ class PlanStep(_CanonicalDocument):
     quantity: float | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "sequence", require_int(self.sequence, "sequence", minimum=0)
-        )
+        object.__setattr__(self, "sequence", require_int(self.sequence, "sequence", minimum=0))
         if not isinstance(self.action, PlanAction):
             raise AutonomyContractError("action must be a PlanAction")
-        object.__setattr__(
-            self, "reference_id", optional_text(self.reference_id, "reference_id")
-        )
-        object.__setattr__(
-            self, "quantity", optional_real(self.quantity, "quantity", minimum=0.0)
-        )
+        object.__setattr__(self, "reference_id", optional_text(self.reference_id, "reference_id"))
+        object.__setattr__(self, "quantity", optional_real(self.quantity, "quantity", minimum=0.0))
 
     @classmethod
     def from_mapping(cls, raw: object) -> PlanStep:
@@ -797,8 +766,7 @@ class PlatformNeutralPlan(_CanonicalDocument):
             ),
         )
         steps = tuple(
-            PlanStep.from_mapping(item)
-            for item in require_array(value["steps"], "steps")
+            PlanStep.from_mapping(item) for item in require_array(value["steps"], "steps")
         )
         return cls(
             plan_id=require_text(value["plan_id"], "plan_id"),
@@ -837,9 +805,7 @@ class MissionItem(_CanonicalDocument):
     mission_type: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "sequence", require_int(self.sequence, "sequence", minimum=0)
-        )
+        object.__setattr__(self, "sequence", require_int(self.sequence, "sequence", minimum=0))
         if not isinstance(self.command, MissionCommand):
             raise AutonomyContractError("command must be an allowed MissionCommand")
         if not isinstance(self.frame, MissionFrame):
@@ -847,16 +813,12 @@ class MissionItem(_CanonicalDocument):
         object.__setattr__(
             self,
             "latitude_deg",
-            optional_real(
-                self.latitude_deg, "latitude_deg", minimum=-90.0, maximum=90.0
-            ),
+            optional_real(self.latitude_deg, "latitude_deg", minimum=-90.0, maximum=90.0),
         )
         object.__setattr__(
             self,
             "longitude_deg",
-            optional_real(
-                self.longitude_deg, "longitude_deg", minimum=-180.0, maximum=180.0
-            ),
+            optional_real(self.longitude_deg, "longitude_deg", minimum=-180.0, maximum=180.0),
         )
         object.__setattr__(self, "altitude_m", optional_real(self.altitude_m, "altitude_m"))
         for name in ("param1", "param2", "param3", "param4"):
@@ -898,30 +860,22 @@ class MissionItem(_CanonicalDocument):
                     "MAV_CMD_NAV_RETURN_TO_LAUNCH requires MAV_FRAME_MISSION"
                 )
             if has_coordinates:
-                raise AutonomyContractError(
-                    "MAV_CMD_NAV_RETURN_TO_LAUNCH cannot carry coordinates"
-                )
+                raise AutonomyContractError("MAV_CMD_NAV_RETURN_TO_LAUNCH cannot carry coordinates")
             if any(value != 0.0 for value in (self.param1, self.param2, self.param3, self.param4)):
                 raise AutonomyContractError(
                     "MAV_CMD_NAV_RETURN_TO_LAUNCH cannot carry non-zero parameters"
                 )
         elif self.command is MissionCommand.VTOL_TRANSITION:
             if self.frame is not MissionFrame.MISSION:
-                raise AutonomyContractError(
-                    "MAV_CMD_DO_VTOL_TRANSITION requires MAV_FRAME_MISSION"
-                )
+                raise AutonomyContractError("MAV_CMD_DO_VTOL_TRANSITION requires MAV_FRAME_MISSION")
             if has_coordinates:
-                raise AutonomyContractError(
-                    "MAV_CMD_DO_VTOL_TRANSITION cannot carry coordinates"
-                )
+                raise AutonomyContractError("MAV_CMD_DO_VTOL_TRANSITION cannot carry coordinates")
             if self.param1 not in {3.0, 4.0}:
                 raise AutonomyContractError(
                     "MAV_CMD_DO_VTOL_TRANSITION param1 must request MC (3) or FW (4)"
                 )
             if any(value != 0.0 for value in (self.param2, self.param3, self.param4)):
-                raise AutonomyContractError(
-                    "MAV_CMD_DO_VTOL_TRANSITION only permits param1"
-                )
+                raise AutonomyContractError("MAV_CMD_DO_VTOL_TRANSITION only permits param1")
 
     @classmethod
     def from_mapping(cls, raw: object) -> MissionItem:
@@ -969,9 +923,7 @@ class MissionItem(_CanonicalDocument):
             param4=require_real(value["param4"], "param4"),
             current=require_int(value["current"], "current", minimum=0, maximum=1),
             autocontinue=require_bool(value["autocontinue"], "autocontinue"),
-            mission_type=require_int(
-                value["mission_type"], "mission_type", minimum=0, maximum=0
-            ),
+            mission_type=require_int(value["mission_type"], "mission_type", minimum=0, maximum=0),
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -1064,21 +1016,16 @@ class ExecutableMission(_CanonicalDocument):
         )
         return cls(
             mission_id=require_text(value["mission_id"], "mission_id"),
-            platform_plan_hash=_require_sha256(
-                value["platform_plan_hash"], "platform_plan_hash"
-            ),
+            platform_plan_hash=_require_sha256(value["platform_plan_hash"], "platform_plan_hash"),
             airframe_profile_hash=_require_sha256(
                 value["airframe_profile_hash"], "airframe_profile_hash"
             ),
-            airframe_adapter_id=require_text(
-                value["airframe_adapter_id"], "airframe_adapter_id"
-            ),
+            airframe_adapter_id=require_text(value["airframe_adapter_id"], "airframe_adapter_id"),
             airframe_adapter_hash=_require_sha256(
                 value["airframe_adapter_hash"], "airframe_adapter_hash"
             ),
             items=tuple(
-                MissionItem.from_mapping(item)
-                for item in require_array(value["items"], "items")
+                MissionItem.from_mapping(item) for item in require_array(value["items"], "items")
             ),
             schema_version=require_schema_version(value["schema_version"]),
         )
@@ -1147,9 +1094,7 @@ class ValidationReport(_CanonicalDocument):
         object.__setattr__(
             self,
             "findings",
-            _typed_tuple(
-                self.findings, "findings", ValidationFinding, minimum_items=1
-            ),
+            _typed_tuple(self.findings, "findings", ValidationFinding, minimum_items=1),
         )
         if not isinstance(self.verdict, ValidationVerdict):
             raise AutonomyContractError("verdict must be a ValidationVerdict")
@@ -1383,9 +1328,7 @@ class EpisodeBundle(_CanonicalDocument):
         object.__setattr__(
             self,
             "artifacts",
-            _typed_tuple(
-                self.artifacts, "artifacts", EpisodeArtifact, minimum_items=1
-            ),
+            _typed_tuple(self.artifacts, "artifacts", EpisodeArtifact, minimum_items=1),
         )
 
     @classmethod

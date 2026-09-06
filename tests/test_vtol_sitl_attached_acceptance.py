@@ -77,8 +77,7 @@ class _FakeCollector:
         assert timeout_s > 0.0
         current = bool(
             self.last_heartbeat
-            and self.last_heartbeat["base_mode"]
-            & 128  # MAV_MODE_FLAG_SAFETY_ARMED
+            and self.last_heartbeat["base_mode"] & 128  # MAV_MODE_FLAG_SAFETY_ARMED
         )
         assert current is armed
 

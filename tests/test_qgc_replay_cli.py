@@ -142,9 +142,7 @@ class _FakeSynchronizedBridge:
             video_frame_count=self.expected_frame_count,
             metadata_barrier_count=self.expected_frame_count,
             maximum_ack_to_metadata_skew_ms=4.0,
-            allowed_ack_to_metadata_skew_ms=self.kwargs[
-                "maximum_ack_to_metadata_skew_ms"
-            ],
+            allowed_ack_to_metadata_skew_ms=self.kwargs["maximum_ack_to_metadata_skew_ms"],
             qgc_peer_host="127.0.0.1",
             qgc_peer_port=14580,
             complete=True,
@@ -285,10 +283,7 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
     assert _FakeBackend.instance is not None and _FakeBackend.instance.closed is True
     assert _FakeTransport.instance is not None and _FakeTransport.instance.closed is True
     assert _FakeSynchronizedBridge.instance is not None
-    assert (
-        _FakeSynchronizedBridge.instance.kwargs["metadata_acceptance_timeout_s"]
-        == 1.75
-    )
+    assert _FakeSynchronizedBridge.instance.kwargs["metadata_acceptance_timeout_s"] == 1.75
 
     document = json.loads(result_path.read_text(encoding="utf-8"))
     assert document["schema_version"] == 2
@@ -313,12 +308,10 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
     assert document["synchronization"]["first_sent_runtime_sequence"] == 1
     assert document["synchronization"]["last_sent_runtime_sequence"] == 2
     assert document["synchronization"]["sent_runtime_sequences_contiguous"] is True
+    assert document["synchronization"]["acknowledged_runtime_sequences_contiguous"] is True
     assert (
-        document["synchronization"]["acknowledged_runtime_sequences_contiguous"]
-        is True
-    )
-    assert document["synchronization"]["acknowledged_runtime_run_hash64_hex"] == (
-        document["run_identity_hash"][:16]
+        document["synchronization"]["acknowledged_runtime_run_hash64_hex"]
+        == (document["run_identity_hash"][:16])
     )
     assert document["hardware_outputs_present"] is False
     assert document["pixhawk_attached"] is False

@@ -64,12 +64,10 @@ def test_isolated_hil_cpu_video_ab_is_explicit_single_variable_and_fail_closed()
 
     assert "bool isolatedHilForceCpuVideo = false" in parser_header
     assert (
-        'kOptIsolatedHilForceCpuVideo = '
-        'QLatin1StringView("isolated-hil-force-cpu-video")'
+        'kOptIsolatedHilForceCpuVideo = QLatin1StringView("isolated-hil-force-cpu-video")'
     ) in parser_source
     assert (
-        "out.isolatedHilForceCpuVideo = "
-        "parser.isSet(isolatedHilForceCpuVideoOpt)"
+        "out.isolatedHilForceCpuVideo = parser.isSet(isolatedHilForceCpuVideoOpt)"
     ) in parser_source
     assert "out.isolatedHilForceCpuVideo && !out.isolatedHilMode" in parser_source
     assert "--isolated-hil-force-cpu-video requires --isolated-hil" in parser_source
@@ -96,9 +94,7 @@ def test_runtime_toolbar_indicator_does_not_create_an_offline_or_unsigned_hil_sh
     controller = _read("custom/src/MultiDetectOperatorController.cc")
     state = _read("custom/res/Custom/MultiDetect/MultiDetectState.qml")
     layer = _read("custom/src/FlyViewCustomLayer.qml")
-    indicator = _read(
-        "custom/res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml"
-    )
+    indicator = _read("custom/res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
     assert "MessageType::RuntimeStatus" in controller
     assert "MAVLINK_IFLAG_SIGNED" in controller
@@ -115,9 +111,7 @@ def test_replay_runtime_is_a_separate_fail_closed_vehicle_and_action_boundary() 
     plugin = _read("custom/src/CustomPlugin.cc")
     state = _read("custom/res/Custom/MultiDetect/MultiDetectState.qml")
     layer = _read("custom/src/FlyViewCustomLayer.qml")
-    indicator = _read(
-        "custom/res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml"
-    )
+    indicator = _read("custom/res/Custom/MultiDetect/MultiDetectToolbarIndicator.qml")
 
     assert 'runtimeEnvironmentFlagEnabled("MULTIDETECT_DISABLE_VEHICLE_LINK")' in plugin
     assert 'expectedRuntimeMode == QStringLiteral("REPLAY")' in plugin

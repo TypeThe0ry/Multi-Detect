@@ -66,9 +66,7 @@ def test_external_plan_cli_writes_hash_bound_json_without_starting_processes(
     assert (job / "logs").is_dir()
 
 
-def test_external_plan_cli_rejects_bound_environment_override(
-    tmp_path: Path, capsys
-) -> None:
+def test_external_plan_cli_rejects_bound_environment_override(tmp_path: Path, capsys) -> None:
     code = main(
         [
             "external-plan",
@@ -127,9 +125,7 @@ def test_external_plan_cli_supports_fixed_wing_and_gui_flags(tmp_path: Path, cap
     assert document["source_stack_plan"]["runtime"]["realtime"] is False
 
 
-def test_external_plan_cli_includes_optional_px4_launch_wrapper(
-    tmp_path: Path, capsys
-) -> None:
+def test_external_plan_cli_includes_optional_px4_launch_wrapper(tmp_path: Path, capsys) -> None:
     job = tmp_path / "px4-wrapper-job"
     code = main(
         [

@@ -319,11 +319,7 @@ class VisualInertialRangeEstimator:
         slant_range_m = axial_range_m * math.sqrt(
             1.0 + normalized_x * normalized_x + normalized_y * normalized_y
         )
-        if not (
-            self.config.minimum_range_m
-            <= slant_range_m
-            <= self.config.maximum_range_m
-        ):
+        if not (self.config.minimum_range_m <= slant_range_m <= self.config.maximum_range_m):
             return None
         return DirectRangeMeasurement(
             source=DirectRangeSource.MONOCULAR_SIZE,

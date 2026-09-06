@@ -112,13 +112,16 @@ def _write_inputs(tmp_path: Path) -> tuple[dict[str, Path], dict[str, Path], Pat
                 "schema_version": 1,
                 "product": "Multi-Detect",
                 "release_label": "0.3.0-pre.8",
-                "parity": {field: _sha(field) for field in (
-                    "ui_contract_hash",
-                    "core_algorithm_hash",
-                    "task_contract_hash",
-                    "safety_policy_hash",
-                    "px4_mission_path_hash",
-                )},
+                "parity": {
+                    field: _sha(field)
+                    for field in (
+                        "ui_contract_hash",
+                        "core_algorithm_hash",
+                        "task_contract_hash",
+                        "safety_policy_hash",
+                        "px4_mission_path_hash",
+                    )
+                },
             }
         ),
         encoding="utf-8",
@@ -175,8 +178,7 @@ def test_external_evidence_rejects_cross_vehicle_source_reuse(tmp_path: Path) ->
     assert result["gate_passed"] is False
     assert (
         "fixed-wing AI: source file is reused by vtol runtime; six runtime/AI "
-        "evidence files must be distinct"
-        in result["reasons"]
+        "evidence files must be distinct" in result["reasons"]
     )
 
 
@@ -233,9 +235,7 @@ def test_external_evidence_rejects_invalid_source_manifest_hash(tmp_path: Path) 
     result = build_simulator_external_evidence(runtime, ai, parity_path=parity)
 
     assert result["gate_passed"] is False
-    assert (
-        "multirotor runtime: scenario.manifest_sha256 must be SHA-256" in result["reasons"]
-    )
+    assert "multirotor runtime: scenario.manifest_sha256 must be SHA-256" in result["reasons"]
 
 
 def test_external_evidence_rejects_unexercised_target(tmp_path: Path) -> None:
@@ -285,9 +285,7 @@ def test_external_evidence_revalidation_recomputes_all_sources(tmp_path: Path) -
     join = tmp_path / "join.json"
     write_simulator_external_evidence(join, document)
 
-    result = revalidate_simulator_external_evidence(
-        join, expected_release_label="0.3.0-pre.8"
-    )
+    result = revalidate_simulator_external_evidence(join, expected_release_label="0.3.0-pre.8")
 
     assert result["event"] == "simulator_external_runtime_ai_evidence_revalidated"
     assert result["source_recomputed"] is True

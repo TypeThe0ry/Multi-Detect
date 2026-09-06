@@ -229,9 +229,7 @@ def _source_binding(
     verified: VerifiedRtspEvidenceRecording,
     recording_root: Path,
 ) -> dict[str, Any]:
-    manifest_path, manifest_base = _portable_path_binding(
-        verified.manifest_path, recording_root
-    )
+    manifest_path, manifest_base = _portable_path_binding(verified.manifest_path, recording_root)
     video_path, video_base = _portable_path_binding(verified.output_video, recording_root)
     return {
         "type": "rtsp_evidence_recording_v3",

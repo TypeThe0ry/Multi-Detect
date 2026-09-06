@@ -103,9 +103,7 @@ def _surface_metrics(
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     values = gray.reshape(-1).astype(np.float32)
     p01, p99 = np.percentile(values, (1.0, 99.0))
-    black_pixel_ratio = float(
-        np.mean(values <= float(thresholds.black_luminance_ceiling))
-    )
+    black_pixel_ratio = float(np.mean(values <= float(thresholds.black_luminance_ceiling)))
     mean_luminance = float(np.mean(values))
     luminance_stddev = float(np.std(values))
     luminance_range = float(p99 - p01)
@@ -225,9 +223,9 @@ def _marker_checks(
     except ValueError:
         recorded_at = datetime.min.replace(tzinfo=timezone.utc)
     try:
-        marker_path_matches = _canonical_path(
-            Path(str(marker.get("path", "")))
-        ) == _canonical_path(capture_path)
+        marker_path_matches = _canonical_path(Path(str(marker.get("path", "")))) == _canonical_path(
+            capture_path
+        )
     except (OSError, ValueError):
         marker_path_matches = False
     try:
@@ -255,9 +253,7 @@ def _marker_checks(
     except (TypeError, ValueError):
         marker_sequence = match_count = -1
 
-    fixed_wing_state_ok = (
-        bool(marker.get("vtol_in_fwd_flight")) if role == ROLE_B else True
-    )
+    fixed_wing_state_ok = bool(marker.get("vtol_in_fwd_flight")) if role == ROLE_B else True
     output_geometry_positive = (
         math.isfinite(output_width)
         and math.isfinite(output_height)
@@ -298,8 +294,7 @@ def _marker_checks(
             capture_geometry_matches_logical_output_and_dpr
         ),
         "decoded_geometry_matches": (
-            decoded_width == expected_decoded_width
-            and decoded_height == expected_decoded_height
+            decoded_width == expected_decoded_width and decoded_height == expected_decoded_height
         ),
     }
 
@@ -395,8 +390,7 @@ def build_evidence(
     except (KeyError, TypeError, ValueError):
         marker_ordered = False
     file_timestamps_bound = (
-        datetime.fromtimestamp(capture_a_path.stat().st_mtime, tz=timezone.utc)
-        >= qgc_started_at
+        datetime.fromtimestamp(capture_a_path.stat().st_mtime, tz=timezone.utc) >= qgc_started_at
         and datetime.fromtimestamp(capture_b_path.stat().st_mtime, tz=timezone.utc)
         >= qgc_started_at
     )
@@ -414,9 +408,7 @@ def build_evidence(
         "same_native_item_capture_geometry": (width_a, height_a) == (width_b, height_b),
         "capture_a_native_video_pixels_present": bool(metrics_a["native_video_pixels_present"]),
         "capture_b_native_video_pixels_present": bool(metrics_b["native_video_pixels_present"]),
-        "post_adoption_type24_sequence_advanced": (
-            sequence_advance >= minimum_sequence_advance
-        ),
+        "post_adoption_type24_sequence_advanced": (sequence_advance >= minimum_sequence_advance),
     }
     failure_reasons = [name for name, passed in checks.items() if not passed]
     gate_passed = not failure_reasons

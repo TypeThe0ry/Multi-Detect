@@ -33,9 +33,7 @@ def test_positive_fixture_exercises_iou_and_keeps_deployment_gate_closed(tmp_pat
 
     manifest = load_replay_set_manifest(output / "replay-set.manifest.json")
     accuracy = json.loads((output / "accuracy-report.json").read_text(encoding="utf-8"))
-    fixture_summary = json.loads(
-        (output / "fixture-summary.json").read_text(encoding="utf-8")
-    )
+    fixture_summary = json.loads((output / "fixture-summary.json").read_text(encoding="utf-8"))
 
     assert manifest.claims["contains_ground_truth"] is True
     assert manifest.claims["contains_predictions"] is True
@@ -52,8 +50,7 @@ def test_positive_fixture_exercises_iou_and_keeps_deployment_gate_closed(tmp_pat
     assert accuracy["metrics"]["missed_detection_frame_count"] == 0
     assert set(accuracy["positive_stratum_coverage"]) == set(REPLAY_SET_POSITIVE_STRATA)
     assert all(
-        value["positive_truth_object_count"] > 0
-        and value["positive_prediction_count"] > 0
+        value["positive_truth_object_count"] > 0 and value["positive_prediction_count"] > 0
         for value in accuracy["positive_stratum_coverage"].values()
     )
     assert summary == fixture_summary
@@ -77,9 +74,7 @@ def test_positive_fixture_exercises_iou_and_keeps_deployment_gate_closed(tmp_pat
         .splitlines()
     ]
     assert no_fire_truth and all(item["objects"] == [] for item in no_fire_truth)
-    assert no_fire_predictions and all(
-        item["detections"] == [] for item in no_fire_predictions
-    )
+    assert no_fire_predictions and all(item["detections"] == [] for item in no_fire_predictions)
 
     smoke_only_truth = [
         json.loads(line)
@@ -94,8 +89,7 @@ def test_positive_fixture_exercises_iou_and_keeps_deployment_gate_closed(tmp_pat
         .splitlines()
     ]
     assert smoke_only_truth and all(
-        [item["label"] for item in frame["objects"]] == ["smoke"]
-        for frame in smoke_only_truth
+        [item["label"] for item in frame["objects"]] == ["smoke"] for frame in smoke_only_truth
     )
     assert smoke_only_predictions and all(
         [item["label"] for item in frame["detections"]] == ["smoke"]

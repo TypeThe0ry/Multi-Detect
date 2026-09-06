@@ -193,8 +193,8 @@ def annotate_replay_frame(
 ) -> dict[str, object]:
     """Atomically record one human frame disposition in the editable workspace."""
 
-    source, original_payload, document, intake_report, expected_frames = (
-        _load_mutable_workspace(intake_root, workspace)
+    source, original_payload, document, intake_report, expected_frames = _load_mutable_workspace(
+        intake_root, workspace
     )
     identity = require_text(annotator, "annotator")
     existing_identity = _optional_text(document["annotator"], "annotator")
@@ -244,8 +244,8 @@ def review_replay_annotation_workspace(
 ) -> dict[str, object]:
     """Atomically acknowledge a complete workspace as an independent reviewer."""
 
-    source, original_payload, document, intake_report, expected_frames = (
-        _load_mutable_workspace(intake_root, workspace)
+    source, original_payload, document, intake_report, expected_frames = _load_mutable_workspace(
+        intake_root, workspace
     )
     parsed = _validate_workspace(
         document,
@@ -262,13 +262,10 @@ def review_replay_annotation_workspace(
     existing_reviewer = _optional_text(document["reviewer"], "reviewer")
     if existing_reviewer is not None:
         if existing_reviewer.casefold() != identity.casefold():
-            raise AutonomyContractError(
-                "annotation workspace is already bound to another reviewer"
-            )
+            raise AutonomyContractError("annotation workspace is already bound to another reviewer")
         return inspect_replay_annotation_workspace(intake_root, source)
     timestamp = _reviewed_at(
-        reviewed_at_utc
-        or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        reviewed_at_utc or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     )
     document["reviewer"] = identity
     document["reviewed_at_utc"] = timestamp

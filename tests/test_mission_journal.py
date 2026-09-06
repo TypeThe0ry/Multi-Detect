@@ -219,10 +219,7 @@ def test_persistent_adapter_records_the_existing_px4_transaction(tmp_path: Path)
     persistent = PersistentPx4MissionTransaction(transaction, journal)
     upload = persistent.begin_upload(now_utc=now)
     for sequence in range(upload.item_count):
-        assert (
-            persistent.mission_item_for_request(sequence, now_utc=now)
-            == upload.items[sequence]
-        )
+        assert persistent.mission_item_for_request(sequence, now_utc=now) == upload.items[sequence]
     persistent.accept_upload_ack(now_utc=now)
     assert persistent.verify_readback(compiled.wire_items, now_utc=now) == compiled.wire_hash
     assert persistent.commit(now_utc=now) == compiled.wire_hash

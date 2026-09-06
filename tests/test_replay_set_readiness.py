@@ -155,9 +155,7 @@ def _build_complete_fixture(
 ) -> Path:
     for stratum in REPLAY_SET_STRATA:
         positive = (
-            stratum in positive_strata
-            if positive_strata is not None
-            else stratum != "no_fire"
+            stratum in positive_strata if positive_strata is not None else stratum != "no_fire"
         )
         _write_stratum(root, stratum, positive=positive)
     manifest_path = root / "replay-set.manifest.json"

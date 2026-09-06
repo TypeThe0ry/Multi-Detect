@@ -258,9 +258,7 @@ class TensorRtDepthSession:
             raise TensorRtEngineError("TensorRT depth engine must expose one input and one output")
         inputs = [index for index in range(engine.num_bindings) if engine.binding_is_input(index)]
         outputs = [
-            index
-            for index in range(engine.num_bindings)
-            if not engine.binding_is_input(index)
+            index for index in range(engine.num_bindings) if not engine.binding_is_input(index)
         ]
         if len(inputs) != 1 or len(outputs) != 1:
             raise TensorRtEngineError("TensorRT depth engine must expose one input and one output")

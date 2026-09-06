@@ -17,9 +17,7 @@ VTOL_MANIFEST = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
 FIXED_WING_MANIFEST = ROOT / "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json"
 MULTIROTOR_MANIFEST = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
 V56_EVIDENCE_DIR = ROOT / "artifacts/evaluation/terminal-continuation-v56"
-V56_VTOL_EVIDENCE = (
-    V56_EVIDENCE_DIR / "simulator-3d-control-v56-camera-frame-vtol-pre8.json"
-)
+V56_VTOL_EVIDENCE = V56_EVIDENCE_DIR / "simulator-3d-control-v56-camera-frame-vtol-pre8.json"
 V56_FIXED_WING_EVIDENCE = (
     V56_EVIDENCE_DIR / "simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json"
 )

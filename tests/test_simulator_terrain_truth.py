@@ -27,13 +27,7 @@ SCENARIO_ID = "terrain_ranging_validation_001"
 WORLD = ROOT / "simulation" / "gazebo" / "worlds" / f"{SCENARIO_ID}.sdf"
 DEM = ROOT / "simulation" / "terrain" / f"{SCENARIO_ID}.dem.json"
 MAP = ROOT / "simulation" / "maps" / f"{SCENARIO_ID}.geojson"
-SCENARIO = (
-    ROOT
-    / "configs"
-    / "scenarios"
-    / "validation"
-    / f"{SCENARIO_ID}.scenario.json"
-)
+SCENARIO = ROOT / "configs" / "scenarios" / "validation" / f"{SCENARIO_ID}.scenario.json"
 SCHEMA = ROOT / "configs" / "schemas" / "simulator-terrain-ranging-evidence.schema.json"
 SCRIPT = ROOT / "scripts" / "run_simulator_terrain_ranging_acceptance.py"
 
@@ -114,18 +108,10 @@ def test_non_flat_assets_are_bound_into_an_isolated_runtime_scenario() -> None:
         north_offset_m=-60.0,
         east_offset_m=-100.0,
     )
-    assert targets["north-slope-target"].position.latitude_deg == pytest.approx(
-        north_latitude
-    )
-    assert targets["north-slope-target"].position.longitude_deg == pytest.approx(
-        north_longitude
-    )
-    assert targets["south-slope-target"].position.latitude_deg == pytest.approx(
-        south_latitude
-    )
-    assert targets["south-slope-target"].position.longitude_deg == pytest.approx(
-        south_longitude
-    )
+    assert targets["north-slope-target"].position.latitude_deg == pytest.approx(north_latitude)
+    assert targets["north-slope-target"].position.longitude_deg == pytest.approx(north_longitude)
+    assert targets["south-slope-target"].position.latitude_deg == pytest.approx(south_latitude)
+    assert targets["south-slope-target"].position.longitude_deg == pytest.approx(south_longitude)
 
 
 def test_hash_bound_evidence_validates_and_keeps_external_claims_closed() -> None:

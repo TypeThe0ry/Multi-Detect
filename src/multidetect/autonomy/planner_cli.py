@@ -69,13 +69,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _json_payload(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        indent=2,
-    ) + "\n"
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def _write_payload(path: Path, payload: str) -> None:

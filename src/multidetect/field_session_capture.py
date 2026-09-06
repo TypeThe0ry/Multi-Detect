@@ -539,9 +539,7 @@ def capture_field_session(
         report["link_preflight"] = link_binding
     link_gate_passed = link_binding is None or bool(link_binding.get("verified"))
     report["gate_passed"] = (
-        not capture_errors
-        and bool(validation["gate_passed"])
-        and link_gate_passed
+        not capture_errors and bool(validation["gate_passed"]) and link_gate_passed
     )
     return report
 
@@ -575,11 +573,7 @@ def _legacy_validation_view(validation: Mapping[str, object]) -> dict[str, objec
         results = source_view.get("results")
         if isinstance(results, list):
             source_view["results"] = [
-                {
-                    key: value
-                    for key, value in item.items()
-                    if key != "state_context"
-                }
+                {key: value for key, value in item.items() if key != "state_context"}
                 if isinstance(item, Mapping)
                 else item
                 for item in results
@@ -760,9 +754,9 @@ def verify_field_session_capture(report: str | Path) -> dict[str, Any]:
                 # Reports produced before pre.8 strict TGT evidence remain
                 # readable and verifiable under their legacy session-wide
                 # sensor semantics.
-                checks["validation_match"] = _legacy_validation_view(
-                    fresh_validation
-                ) == dict(validation)
+                checks["validation_match"] = _legacy_validation_view(fresh_validation) == dict(
+                    validation
+                )
             else:
                 checks["validation_match"] = dict(fresh_validation) == dict(validation)
             if not checks["validation_match"]:
@@ -814,9 +808,7 @@ def verify_field_session_capture(report: str | Path) -> dict[str, Any]:
                 "expected_bytes": expected_link_bytes,
                 "bytes": current_link_bytes,
                 "verified": bool(link_result and link_result.get("gate_passed")),
-                "hardware_link_ready": bool(
-                    link_result and link_result.get("hardware_link_ready")
-                ),
+                "hardware_link_ready": bool(link_result and link_result.get("hardware_link_ready")),
             }
             if not isinstance(expected_link_sha, str) or not _is_sha256(expected_link_sha):
                 reasons.append("link_preflight report_sha256 is missing or invalid")

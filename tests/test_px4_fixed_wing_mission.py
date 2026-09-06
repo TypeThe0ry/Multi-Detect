@@ -175,9 +175,7 @@ def test_fixed_wing_rejects_crosswind_and_tailwind_on_approach() -> None:
 
 def test_fixed_wing_rejects_short_approach_and_bad_glide_slope() -> None:
     context = _context()
-    short = _geometry(
-        landing_approach=GeoPoint(1.3000, 103.8010, 40.0, "relative_home")
-    )
+    short = _geometry(landing_approach=GeoPoint(1.3000, 103.8010, 40.0, "relative_home"))
     with pytest.raises(Px4MissionError, match="approach distance"):
         compile_fixed_wing_executable_mission(
             platform_plan=_plan(context),
@@ -187,9 +185,7 @@ def test_fixed_wing_rejects_short_approach_and_bad_glide_slope() -> None:
             airframe_profile_hash=PROFILE_HASH,
         )
 
-    steep = _geometry(
-        landing_approach=GeoPoint(1.3000, 103.8015, 120.0, "relative_home")
-    )
+    steep = _geometry(landing_approach=GeoPoint(1.3000, 103.8015, 120.0, "relative_home"))
     with pytest.raises(Px4MissionError, match="glide slope"):
         compile_fixed_wing_executable_mission(
             platform_plan=_plan(context),

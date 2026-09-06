@@ -39,10 +39,7 @@ RECEIPT_SCHEMA_VERSION = 1
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "configs" / "schemas" / "pixhawk-covariance-field-workspace.schema.json"
 RECEIPT_SCHEMA_PATH = (
-    ROOT
-    / "configs"
-    / "schemas"
-    / "pixhawk-covariance-field-workspace-receipt.schema.json"
+    ROOT / "configs" / "schemas" / "pixhawk-covariance-field-workspace-receipt.schema.json"
 )
 PARITY_PATH = ROOT / "configs" / "release-parity.json"
 MANIFEST_NAME = "workspace.manifest.json"
@@ -84,9 +81,7 @@ def _json_object(path: Path, *, name: str) -> dict[str, Any]:
     return value
 
 
-def _validate_document(
-    document: Mapping[str, object], *, schema_path: Path, name: str
-) -> None:
+def _validate_document(document: Mapping[str, object], *, schema_path: Path, name: str) -> None:
     schema = _json_object(schema_path, name=f"{name} JSON Schema")
     try:
         Draft202012Validator.check_schema(schema)

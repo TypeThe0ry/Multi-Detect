@@ -143,9 +143,7 @@ def build_geolocation_survey_template(
     bundle = load_target_event_replay_manifest(manifest_path)
     source_payload = manifest_path.read_bytes()
     source_sha256 = hashlib.sha256(source_payload).hexdigest()
-    events = tuple(
-        bundle.iter_events(target_id=normalized_target, start_s=start, end_s=end)
-    )
+    events = tuple(bundle.iter_events(target_id=normalized_target, start_s=start, end_s=end))
 
     rows: list[dict[str, object]] = []
     skipped_ids: list[str] = []

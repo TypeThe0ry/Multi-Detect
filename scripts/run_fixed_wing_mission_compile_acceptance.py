@@ -146,9 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = json.dumps(run(), ensure_ascii=False, indent=2) + "\n"
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(
-            json.dumps(
-                {"event": "fixed_wing_mission_compile_acceptance_failed", "error": str(exc)}
-            )
+            json.dumps({"event": "fixed_wing_mission_compile_acceptance_failed", "error": str(exc)})
         )
         return 2
     if args.out is not None:

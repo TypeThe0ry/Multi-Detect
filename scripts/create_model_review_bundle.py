@@ -52,9 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    decisions = {
-        name: getattr(args, f"{name}_review") for name in MODEL_REVIEW_REQUIRED_REVIEWS
-    }
+    decisions = {name: getattr(args, f"{name}_review") for name in MODEL_REVIEW_REQUIRED_REVIEWS}
     bundle = prepare_model_review_bundle(
         args.manifest,
         args.model_artifact,

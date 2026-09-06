@@ -78,9 +78,12 @@ def test_multidetect_overlay_reuses_native_qgc_surface_and_palette() -> None:
     # The only fixed colours left in the video surface are the depth false-
     # colour legend, which is data encoding rather than control styling.
     assert not re.search(r"#[0-9a-fA-F]{6,8}", layer)
-    overlay_controls = overlay[:overlay.index("// Fixed depth false-colour ramp")]
+    overlay_controls = overlay[: overlay.index("// Fixed depth false-colour ramp")]
     assert not re.search(r"#[0-9a-fA-F]{6,8}", overlay_controls)
-    assert "Qt.rgba(qgcPal.warningText.r, qgcPal.warningText.g, qgcPal.warningText.b, 0.10)" in overlay_controls
+    assert (
+        "Qt.rgba(qgcPal.warningText.r, qgcPal.warningText.g, qgcPal.warningText.b, 0.10)"
+        in overlay_controls
+    )
     assert "Qt.rgba(1.0, 0.83, 0.23, 0.10)" not in overlay_controls
     assert "readonly property color _lockActionTextColor: qgcPal.colorRed" in overlay
     assert "return qgcPal.warningText" in overlay
@@ -97,17 +100,11 @@ def test_isolated_hil_grabs_only_the_unique_native_qgc_video_output() -> None:
     export_start = plugin.index("const QString configuredVideoGrabPrefix")
     export_end = plugin.index("_selector = new CustomOverrideInterceptor", export_start)
     export_block = plugin[export_start:export_end]
-    assert '#include <QtCore/QFileInfo>' in plugin
+    assert "#include <QtCore/QFileInfo>" in plugin
     assert 'contains(QStringLiteral("--isolated-hil"))' in export_block
-    assert (
-        'runtimeEnvironmentExplicitlyTrue("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")'
-        in export_block
-    )
+    assert 'runtimeEnvironmentExplicitlyTrue("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")' in export_block
     assert "QFileInfo(configuredVideoGrabPrefix).isAbsolute()" in export_block
-    assert (
-        'runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")'
-        not in plugin
-    )
+    assert 'runtimeEnvironmentFlagEnabled("MULTIDETECT_HIL_VIDEO_GRAB_EXPORT")' not in plugin
     guarded_properties = export_block[export_block.index("if (hilVideoGrabExport) {") :]
     assert 'QStringLiteral("multiDetectHilVideoGrabExport")' in guarded_properties
     assert 'QStringLiteral("multiDetectHilVideoGrabPrefix")' in guarded_properties
@@ -199,22 +196,26 @@ def test_fly_view_actions_use_qgc_native_dialog_and_slider_controls() -> None:
         assert f"id: {dialog}Component" in layer
 
 
-def test_isolated_hil_acceptance_keeps_native_close_path_and_avoids_windows_qml_teardown_race() -> None:
+def test_isolated_hil_acceptance_keeps_native_close_path_and_avoids_windows_qml_teardown_race() -> (
+    None
+):
     application = (REPO_ROOT / "src" / "QGCApplication.cc").read_text(encoding="utf-8")
     main = (REPO_ROOT / "src" / "main.cc").read_text(encoding="utf-8")
-    main_window = (REPO_ROOT / "src" / "MainWindow" / "MainWindow.qml").read_text(
-        encoding="utf-8"
-    )
+    main_window = (REPO_ROOT / "src" / "MainWindow" / "MainWindow.qml").read_text(encoding="utf-8")
 
     # The acceptance driver must still invoke QGC's production close function,
     # not invent a second shutdown path.  Windows QML/global-singleton
     # destruction is intentionally skipped only for this short-lived process;
     # otherwise a post-Exit SEH can make a passed UI gate look failed.
-    assert 'QMetaObject::invokeMethod(root, "finishCloseProcess", Qt::DirectConnection)' in application
+    assert (
+        'QMetaObject::invokeMethod(root, "finishCloseProcess", Qt::DirectConnection)' in application
+    )
     assert 'qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")' in application
     assert "_qmlAppEngine->setParent(nullptr);" in application
     assert "std::_Exit(exitCode);" in main
-    assert 'args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")' in main
+    assert (
+        'args.isolatedHilMode && qEnvironmentVariableIsSet("MULTIDETECT_HIL_UI_AUTO_EXIT")' in main
+    )
     assert "function finishCloseProcess()" in main_window
     assert "QGroundControl.linkManager.shutdown()" in main_window
     assert "QGroundControl.videoManager.stopVideo()" in main_window
@@ -230,7 +231,10 @@ def test_closed_loop_driver_can_require_a_real_external_sitl_vehicle() -> None:
     # assertion tied to the helper contract rather than a single call-site
     # formatting detail.
     assert "def _signed_serializer(key: bytes, *, system_id: int, component_id: int)" in driver
-    assert "heartbeat_serializer = _signed_serializer(signing_key, system_id=1, component_id=191)" in driver
+    assert (
+        "heartbeat_serializer = _signed_serializer(signing_key, system_id=1, component_id=191)"
+        in driver
+    )
     assert "if args.metadata_only:" in driver
     assert '"autopilot_heartbeats_sent": autopilot_heartbeats_sent' in driver
     assert '"external_autopilot_required": args.metadata_only' in driver
@@ -251,15 +255,13 @@ def test_custom_app_uses_a_valid_cmake_target_name() -> None:
 
 def test_native_telemetry_grid_uses_display_only_airspeed_noise_gate() -> None:
     core_plugin = (REPO_ROOT / "src/API/QGCCorePlugin.cc").read_text(encoding="utf-8")
-    fact_header = (
-        REPO_ROOT / "src/Vehicle/FactGroups/VehicleFactGroup.h"
-    ).read_text(encoding="utf-8")
-    fact_source = (
-        REPO_ROOT / "src/Vehicle/FactGroups/VehicleFactGroup.cc"
-    ).read_text(encoding="utf-8")
-    grid_source = (REPO_ROOT / "src/QmlControls/FactValueGrid.cc").read_text(
+    fact_header = (REPO_ROOT / "src/Vehicle/FactGroups/VehicleFactGroup.h").read_text(
         encoding="utf-8"
     )
+    fact_source = (REPO_ROOT / "src/Vehicle/FactGroups/VehicleFactGroup.cc").read_text(
+        encoding="utf-8"
+    )
+    grid_source = (REPO_ROOT / "src/QmlControls/FactValueGrid.cc").read_text(encoding="utf-8")
     assert core_plugin.count('QStringLiteral("AirSpeedDisplay")') == 1
     assert 'setFact("Vehicle", "AirSpeedDisplay")' in core_plugin
     assert "Fact *airSpeedDisplay()" in fact_header
@@ -304,12 +306,12 @@ def test_custom_app_has_numeric_and_human_facing_product_versions() -> None:
 def test_custom_app_has_a_unique_cross_platform_package_identifier() -> None:
     overrides = _read("cmake/CustomOverrides.cmake")
     gradle = (REPO_ROOT / "android/build.gradle").read_text(encoding="utf-8")
-    logger = (
-        REPO_ROOT / "android/src/org/mavlink/qgroundcontrol/QGCLogger.java"
-    ).read_text(encoding="utf-8")
-    activity = (
-        REPO_ROOT / "android/src/org/mavlink/qgroundcontrol/QGCActivity.java"
-    ).read_text(encoding="utf-8")
+    logger = (REPO_ROOT / "android/src/org/mavlink/qgroundcontrol/QGCLogger.java").read_text(
+        encoding="utf-8"
+    )
+    activity = (REPO_ROOT / "android/src/org/mavlink/qgroundcontrol/QGCActivity.java").read_text(
+        encoding="utf-8"
+    )
 
     assert _cmake_string_value(overrides, "QGC_PACKAGE_NAME") == "com.multidetect.gcs"
     assert _cmake_string_value(overrides, "QGC_ANDROID_PACKAGE_NAME") == "com.multidetect.gcs"
@@ -325,12 +327,12 @@ def test_android_receivers_and_api_specific_sdl_code_are_lint_hardened() -> None
     qgc_usb = (
         REPO_ROOT / "android/src/org/mavlink/qgroundcontrol/QGCUsbSerialManager.java"
     ).read_text(encoding="utf-8")
-    sdl_hid = (
-        REPO_ROOT / "android/src/org/libsdl/app/HIDDeviceManager.java"
-    ).read_text(encoding="utf-8")
-    sdl_controller = (
-        REPO_ROOT / "android/src/org/libsdl/app/SDLControllerManager.java"
-    ).read_text(encoding="utf-8")
+    sdl_hid = (REPO_ROOT / "android/src/org/libsdl/app/HIDDeviceManager.java").read_text(
+        encoding="utf-8"
+    )
+    sdl_controller = (REPO_ROOT / "android/src/org/libsdl/app/SDLControllerManager.java").read_text(
+        encoding="utf-8"
+    )
 
     assert "ContextCompat.RECEIVER_NOT_EXPORTED" in qgc_usb
     assert "ContextCompat.RECEIVER_EXPORTED" in sdl_hid
@@ -448,9 +450,9 @@ def test_signed_runtime_status_uses_one_shared_fly_view_badge_and_fails_closed()
     assert 'QStringLiteral("airframeProfileHash64")' in protocol_source
     assert 'QStringLiteral("runHash64")' in protocol_source
     assert 'QStringLiteral("directPixhawkWrites"), false' in protocol_source
-    assert 'Q_PROPERTY(QVariantMap runtimeStatus' in controller_header
-    assert 'Q_PROPERTY(QString expectedRuntimeMode' in controller_header
-    assert 'Q_PROPERTY(QString runtimeDisplayMode' in controller_header
+    assert "Q_PROPERTY(QVariantMap runtimeStatus" in controller_header
+    assert "Q_PROPERTY(QString expectedRuntimeMode" in controller_header
+    assert "Q_PROPERTY(QString runtimeDisplayMode" in controller_header
     assert 'environmentValue("MULTIDETECT_EXPECTED_RUNTIME_MODE")' in controller_source
     assert 'return QStringLiteral("UNKNOWN")' in controller_source
     assert 'return QStringLiteral("MISMATCH")' in controller_source
@@ -500,9 +502,7 @@ def test_runtime_badge_keeps_runtime_identity_separate_from_vehicle_link_isolati
         )
     ]
     replay_branch = badge_text.index("if (MultiDetectState.replayRuntimeIdentity)")
-    vehicle_isolation_branch = badge_text.index(
-        "if (MultiDetectState.vehicleLinkIsolationActive)"
-    )
+    vehicle_isolation_branch = badge_text.index("if (MultiDetectState.vehicleLinkIsolationActive)")
     assert badge_text.index('if (mode === "MISMATCH")') < replay_branch
     assert badge_text.index('if (mode === "UNKNOWN")') < replay_branch
     assert replay_branch < vehicle_isolation_branch
@@ -643,12 +643,15 @@ def test_touch_selection_owns_the_pointer_only_in_explicit_selection_mode() -> N
     assert "root._dragCurrentY / root.height" in overlay
     assert "if ((right - left) < 0.02 || (bottom - top) < 0.02)" in state
     assert 'trackingState = "INITIALIZING"' in state
-    assert 'function onTrackStatusReceived(status)' in state
+    assert "function onTrackStatusReceived(status)" in state
     assert "function _selectCandidateAt(pixelX, pixelY)" in overlay
     assert "function _handleStablePointerAt(pixelX, pixelY)" in overlay
     assert "function _handleTrackedActionAt(pixelX, pixelY)" in overlay
     assert "function _handleSelectedActionAt(pixelX, pixelY)" in overlay
-    assert "onClicked: mouse => mouse.accepted = root._handleStablePointerAt(mouse.x, mouse.y)" in overlay
+    assert (
+        "onClicked: mouse => mouse.accepted = root._handleStablePointerAt(mouse.x, mouse.y)"
+        in overlay
+    )
     assert "z: 115" in overlay
     assert "enabled: root.interactionEnabled && !MultiDetectState.selectionMode" in overlay
     assert "MultiDetectState.selectableTargetPoolEntries" in overlay
@@ -711,7 +714,9 @@ def test_pending_selection_survives_stale_patrol_and_tracking_snapshots() -> Non
     assert 'status.state === "INITIALIZING" && !status.bboxValid' in track_handler
     assert "selectionAwaitingTrackStatus = true" in selection_handler
     assert "selectionTrackStatusTimer.restart()" in selection_handler
-    assert "selectionTrackStatusTimer.stop()" in state[state.index("function _clearTargetLocally()") :]
+    assert (
+        "selectionTrackStatusTimer.stop()" in state[state.index("function _clearTargetLocally()") :]
+    )
 
 
 def test_trk_is_local_session_scoped_cancellable_and_multi_target() -> None:
@@ -730,9 +735,7 @@ def test_trk_is_local_session_scoped_cancellable_and_multi_target() -> None:
         )
     ]
     cancel_handler = state[
-        state.index("function cancelTarget()") : state.index(
-            "function denyAuthorization()"
-        )
+        state.index("function cancelTarget()") : state.index("function denyAuthorization()")
     ]
 
     assert "property bool hasLocalSelectionSession: false" in state
@@ -778,7 +781,7 @@ def test_trk_is_local_session_scoped_cancellable_and_multi_target() -> None:
     assert promote_handler.index('interactionState = "LCK"') < promote_handler.index(
         '_operator.sendTargetSelection("PROMOTE_LCK"'
     )
-    assert promote_handler.index('exclusiveLockPendingTargetId = optimisticTargetId') < (
+    assert promote_handler.index("exclusiveLockPendingTargetId = optimisticTargetId") < (
         promote_handler.index('_operator.sendTargetSelection("PROMOTE_LCK"')
     )
     assert 'parent.primaryLocked ? "LCK" : "TRK"' in overlay
@@ -789,9 +792,9 @@ def test_trk_is_local_session_scoped_cancellable_and_multi_target() -> None:
     assert 'QStringLiteral("CANCEL_TRK")' in protocol
     controller = _read("src/MultiDetectOperatorController.cc")
     pending_selection_guard = controller[
-        controller.index('const bool isTrackSelection = normalizedAction == QStringLiteral("SELECT_TRK");') : controller.index(
-            "if (normalizedAction != QStringLiteral(\"CANCEL\")"
-        )
+        controller.index(
+            'const bool isTrackSelection = normalizedAction == QStringLiteral("SELECT_TRK");'
+        ) : controller.index('if (normalizedAction != QStringLiteral("CANCEL")')
     ]
     assert "if (isTrackSelection)" in pending_selection_guard
     assert "if (_pendingSelection.active())" in pending_selection_guard
@@ -831,7 +834,7 @@ def test_qualified_target_geolocation_renders_read_only_map_evidence() -> None:
     assert "validSnapshotRecord" in store_source
     assert "Valid or degraded range evidence requires a distance." in store_source
     assert "Unavailable range evidence cannot contain distance or bearing." in store_source
-    assert "rangeValidity = boundedText(snapshot, \"range_validity\", 48).toUpper()" in store_source
+    assert 'rangeValidity = boundedText(snapshot, "range_validity", 48).toUpper()' in store_source
 
 
 def test_target_evidence_coordinate_domain_matches_qualified_map_contract() -> None:
@@ -879,7 +882,10 @@ def test_target_geolocation_source_age_is_fail_closed_before_map_refresh() -> No
     assert "kMaximumTargetGeolocationFrameHoldMs = 3000" in protocol_header
     assert "frameAgeMs > kMaximumTargetGeolocationSourceAgeMs" in protocol
     assert "target-geolocation-status source frame is stale" in protocol
-    assert "_acceptTargetGeolocationSource(fields, packet.sentAtMs, _lastAuthenticatedAtMs)" in controller
+    assert (
+        "_acceptTargetGeolocationSource(fields, packet.sentAtMs, _lastAuthenticatedAtMs)"
+        in controller
+    )
     assert "target-geolocation source frame is stale or regressed" in controller
     assert "TargetGeolocationSourceState" in controller_header
     assert "_targetGeolocationSourceStates" in controller_header
@@ -968,10 +974,7 @@ def test_mode3_active_aim_has_prominent_cancel_and_pilot_override_status() -> No
     assert "scale: 1.0" in layer
     assert "NumberAnimation { duration: 360; from: 1.0; to: 1.025" not in layer
     assert 'fields.insert(QStringLiteral("aimControlActive"), aimControlActive)' in protocol
-    assert (
-        'fields.insert(QStringLiteral("pilotInputCancelled"), pilotInputCancelled)'
-        in protocol
-    )
+    assert 'fields.insert(QStringLiteral("pilotInputCancelled"), pilotInputCancelled)' in protocol
 
 
 def test_authoritative_non_manual_lock_enables_execution_after_identity_rebind() -> None:
@@ -989,7 +992,7 @@ def test_authoritative_non_manual_lock_enables_execution_after_identity_rebind()
     ]
 
     assert "entry.operatorTracked === true" in observe
-    assert "exclusiveLockPendingTargetId = \"\"" in observe
+    assert 'exclusiveLockPendingTargetId = ""' in observe
     assert "_adoptTargetPoolEntry(entry)" in observe
     assert "confirmedExclusiveEntry" in reconcile
     assert "confirmedPrimaryLockTargetId = confirmedExclusiveEntry.targetId" in reconcile
@@ -1042,29 +1045,39 @@ def test_mode3_execution_banner_is_latched_until_an_explicit_exit() -> None:
     assert 'root.interactionState = root.mode3ExecutionLatched ? "TGT" : "LCK"' in abort_handler
     assert "root.mode3ExecutionLatched = false" not in abort_handler
     assert "mode3ExecutionLatched = false" in set_mode
-    assert "MultiDetectState.mode3AimUiActive || MultiDetectState.approachPilotInputCancelled" in layer
-    assert 'visible: MultiDetectState.mode3AimUiActive' in layer
+    assert (
+        "MultiDetectState.mode3AimUiActive || MultiDetectState.approachPilotInputCancelled" in layer
+    )
+    assert "visible: MultiDetectState.mode3AimUiActive" in layer
 
 
 def test_mode3_challenge_expiry_and_visual_recovery_have_bounded_popup_state() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     layer = _read("src/FlyViewCustomLayer.qml")
 
-    timer = state[state.index("property Timer approachChallengeTimer") : state.index(
-        "property real approachYawErrorDeg"
-    )]
-    prompt = state[state.index("function approachChallengePromptText(") : state.index(
-        "function confirmApproachSlide("
-    )]
-    challenge_handler = state[state.index("function onApproachChallengeChanged()") : state.index(
-        "function onApproachStatusChanged()"
-    )]
+    timer = state[
+        state.index("property Timer approachChallengeTimer") : state.index(
+            "property real approachYawErrorDeg"
+        )
+    ]
+    prompt = state[
+        state.index("function approachChallengePromptText(") : state.index(
+            "function confirmApproachSlide("
+        )
+    ]
+    challenge_handler = state[
+        state.index("function onApproachChallengeChanged()") : state.index(
+            "function onApproachStatusChanged()"
+        )
+    ]
 
     assert 'root.statusMessage = qsTr("模式 3 执行挑战已过期")' in timer
     assert "root._refreshApproachChallenge();" in challenge_handler
-    refresh_handler = state[state.index("function _refreshApproachChallenge()") : state.index(
-        "function _refreshPayloadTargetChallenge()"
-    )]
+    refresh_handler = state[
+        state.index("function _refreshApproachChallenge()") : state.index(
+            "function _refreshPayloadTargetChallenge()"
+        )
+    ]
     assert "approachChallengeTimer.restart();" in refresh_handler
     assert "!vehicleArmed" in refresh_handler
     assert "approachChallengeTimer.stop();" in refresh_handler
@@ -1085,7 +1098,10 @@ def test_execution_requires_arm_and_rebinds_selection_after_operator_reconnect()
     ) in state
     assert 'statusMessage = qsTr("请先 ARM，再确认模式 3 执行")' in state  # noqa: RUF001
     assert 'statusMessage = qsTr("请先 ARM，再确认模式 2 执行")' in state  # noqa: RUF001
-    assert "enabled: MultiDetectState.operatorConfigured && MultiDetectState.executionActionable" in layer
+    assert (
+        "enabled: MultiDetectState.operatorConfigured && MultiDetectState.executionActionable"
+        in layer
+    )
     assert "property bool reconnectSelectionPending" in state
     assert "function _resumeSelectionAfterReconnect()" in state
     assert '_operator.sendTargetSelection("SELECT_TRK"' in state
@@ -1116,8 +1132,13 @@ def test_target_boxes_show_authenticated_range_bearing_and_speed_metadata() -> N
     assert "MultiDetectState.relativeBearingAvailable" in overlay
     assert "property bool relativeBearingAvailable: false" in state
     assert "root.rangeTargetId === root.targetId" in state
-    assert "relativeBearingDeg = relativeBearingAvailable ? entry.relativeBearingDeg : 0.0;" in state
-    assert "estimatedRangeM = Number.isFinite(entry.estimatedRangeM) ? entry.estimatedRangeM : 0.0;" in state
+    assert (
+        "relativeBearingDeg = relativeBearingAvailable ? entry.relativeBearingDeg : 0.0;" in state
+    )
+    assert (
+        "estimatedRangeM = Number.isFinite(entry.estimatedRangeM) ? entry.estimatedRangeM : 0.0;"
+        in state
+    )
 
 
 def test_depth_display_mode_persists_independently_of_lck() -> None:
@@ -1125,11 +1146,20 @@ def test_depth_display_mode_persists_independently_of_lck() -> None:
     overlay = _read("res/Custom/MultiDetect/MultiDetectVideoOverlay.qml")
 
     assert "property int depthDisplayMode: 1" in state
-    assert "readonly property int depthDisplayMode: MultiDetectState.persistedSettings.depthDisplayMode" in overlay
+    assert (
+        "readonly property int depthDisplayMode: MultiDetectState.persistedSettings.depthDisplayMode"
+        in overlay
+    )
     assert "MultiDetectState.persistedSettings.depthDisplayMode =" in overlay
     assert "root.depthDisplayMode === 1 ? 2 : root.depthDisplayMode === 2 ? 0 : 1" in overlay
-    full_map = overlay[overlay.index("id: fullDepthMap") : overlay.index("Rectangle {", overlay.index("id: fullDepthMap"))]
-    pip = overlay[overlay.index("id: depthPip") : overlay.index("MouseArea {", overlay.index("id: depthPip"))]
+    full_map = overlay[
+        overlay.index("id: fullDepthMap") : overlay.index(
+            "Rectangle {", overlay.index("id: fullDepthMap")
+        )
+    ]
+    pip = overlay[
+        overlay.index("id: depthPip") : overlay.index("MouseArea {", overlay.index("id: depthPip"))
+    ]
     assert "interactionState" not in full_map
     assert "interactionState" not in pip
     assert "id: compactStatusPanel" in overlay
@@ -1148,7 +1178,7 @@ def test_mission_status_cannot_replace_an_active_local_target() -> None:
 
     assert 'const missionTargetId = String(status.targetId || "");' in mission_handler
     assert "const canAdoptMissionTarget" in mission_handler
-    assert "root.targetId === \"\" && !root.targetBoxValid" in mission_handler
+    assert 'root.targetId === "" && !root.targetBoxValid' in mission_handler
     assert "!root.hasPendingTargetSelection" in mission_handler
     assert "!root.hasLocalSelectionSession" in mission_handler
     assert "!root.hasOperatorTrackedTargets" in mission_handler
@@ -1160,7 +1190,9 @@ def test_mission_status_cannot_replace_an_active_local_target() -> None:
 def test_correlated_second_trk_target_keeps_focus_until_target_pool_catches_up() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     track_handler = state[
-        state.index("function onTrackStatusReceived(status)") : state.index("enabled: target !== null")
+        state.index("function onTrackStatusReceived(status)") : state.index(
+            "enabled: target !== null"
+        )
     ]
     reconcile = state[
         state.index("function _reconcileCurrentTargetFromPool()") : state.index(
@@ -1174,7 +1206,7 @@ def test_correlated_second_trk_target_keeps_focus_until_target_pool_catches_up()
     assert "if (statusTargetsCurrent)" in track_handler
     assert "root.targetX1 = status.x1;" in track_handler
     assert 'pendingSelectionAction === "SELECT_TRK"' in reconcile
-    assert "if (best === null && hasLocalSelectionSession && targetId !== \"\" &&" in reconcile
+    assert 'if (best === null && hasLocalSelectionSession && targetId !== "" &&' in reconcile
     assert "targetBoxValid) {\n            return;" in reconcile
 
 
@@ -1187,7 +1219,10 @@ def test_parallel_manual_trk_keeps_independent_delivery_and_latest_focus() -> No
     assert "Q_PROPERTY(int pendingTrackSelectionCount" in header
     assert "QHash<QString, PendingDelivery> _pendingTrackSelections;" in header
     assert "bool _hasPendingTargetSelection() const;" in header
-    assert 'const bool isTrackSelection = normalizedAction == QStringLiteral("SELECT_TRK");' in controller
+    assert (
+        'const bool isTrackSelection = normalizedAction == QStringLiteral("SELECT_TRK");'
+        in controller
+    )
     assert "_pendingTrackSelections.insert(commandId, delivery);" in controller
     assert "pendingTrackSelectionCountChanged" in controller
     assert "_pendingTrackSelections.constFind(commandId)" in controller
@@ -1216,7 +1251,9 @@ def test_manual_fallback_box_is_hidden_when_the_same_pool_track_arrives_under_a_
 def test_lost_selected_target_clears_only_its_visual_without_cancelling_other_trk() -> None:
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
     track_handler = state[
-        state.index("function onTrackStatusReceived(status)") : state.index("enabled: target !== null")
+        state.index("function onTrackStatusReceived(status)") : state.index(
+            "enabled: target !== null"
+        )
     ]
     loss_reset = state[
         state.index("function _clearCurrentTargetAfterLoss()") : state.index(
@@ -1235,14 +1272,20 @@ def test_lost_selected_target_clears_only_its_visual_without_cancelling_other_tr
     assert "function _rawTargetPoolEntry(candidateTargetId)" in state
     assert "function _currentTargetIsExplicitlyLost()" in state
     assert 'String(entry.state || "").toUpperCase() === "LOST"' in state
-    assert "const statusReferencesCurrent = status.targetId !== \"\"" in track_handler
-    assert "if (statusReferencesCurrent)\n                    root._clearCurrentTargetAfterLoss();" in track_handler
+    assert 'const statusReferencesCurrent = status.targetId !== ""' in track_handler
+    assert (
+        "if (statusReferencesCurrent)\n                    root._clearCurrentTargetAfterLoss();"
+        in track_handler
+    )
     assert 'targetId = "";' in loss_reset
     assert "targetBoxValid = false;" in loss_reset
     assert 'trackingState = "LOST";' in loss_reset
-    assert "confirmedPrimaryLockTargetId = \"\";" in loss_reset
+    assert 'confirmedPrimaryLockTargetId = "";' in loss_reset
     assert "_resetApproachStatus();" in loss_reset
-    assert "if (_currentTargetIsExplicitlyLost())\n            _clearCurrentTargetAfterLoss();" in reconcile
+    assert (
+        "if (_currentTargetIsExplicitlyLost())\n            _clearCurrentTargetAfterLoss();"
+        in reconcile
+    )
     assert "entries.length === 1" not in cancel_handler
     assert '_operator.sendTargetSelection("CANCEL", 0.0, 0.0, 0.0, 0.0)' not in cancel_handler
     assert "未取消其它 TRK" in cancel_handler
@@ -1253,7 +1296,9 @@ def test_operator_commands_use_authenticated_jetson_clock_but_local_retry_deadli
     controller = _read("src/MultiDetectOperatorController.cc")
 
     assert "quint64 _operatorWireNowMs(quint64 localNowMs) const;" in header
-    assert "void _observeRemoteWireTime(quint64 remoteSentAtMs, quint64 localReceivedAtMs);" in header
+    assert (
+        "void _observeRemoteWireTime(quint64 remoteSentAtMs, quint64 localReceivedAtMs);" in header
+    )
     assert "_observeRemoteWireTime(packet.sentAtMs, _lastAuthenticatedAtMs);" in controller
     assert "wireNowMs, ttlMs, &error" in controller
     assert "delivery.expiresAtMs = localNowMs + ttlMs;" in controller
@@ -1307,9 +1352,7 @@ def test_status_uses_compact_native_toolbar_and_detailed_qgc_drawer() -> None:
     assert "_debugStatusRows" not in indicator
     assert "ScreenTools.fixedFontFamily" not in indicator
     assert 'text: "AI " + MultiDetectState.runtimeDisplayMode' in indicator
-    indicator_row = indicator[
-        indicator.index("id: indicatorRow") : indicator.index("MouseArea {")
-    ]
+    indicator_row = indicator[indicator.index("id: indicatorRow") : indicator.index("MouseArea {")]
     assert 'text: "JETSON "' not in indicator_row
     assert "_activeAlgorithmCount()" not in indicator_row
     compact = indicator[
@@ -1419,7 +1462,7 @@ def test_qml_module_and_plugin_interceptor_are_wired_into_the_custom_build() -> 
     assert "const QVariantList& toolBarIndicators() final;" in plugin_header
     assert "_toolBarIndicatorList = QGCCorePlugin::toolBarIndicators();" in plugin
     assert "_toolBarIndicatorList.append" in plugin
-    assert 'qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml' in plugin
+    assert "qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml" in plugin
     assert "QT_RESOURCE_ALIAS MultiDetectToolbarIndicator.qml" in cmake
 
 
@@ -1474,7 +1517,7 @@ def test_scene_context_is_authenticated_atomic_and_advisory_only() -> None:
     assert "kSceneContextStatusStaleMs = 2000" in controller
     assert "function onSceneContextChanged()" in state
     assert 'MultiDetectState.sceneContextState === "VALID"' in overlay
-    assert "modelData.label === \"road\"" in overlay
+    assert 'modelData.label === "road"' in overlay
     assert "sendMavCommand" not in protocol + controller + state + overlay
 
 
@@ -1502,7 +1545,10 @@ def test_configure_owns_preflight_module_and_rc_release_configuration() -> None:
     assert "manualReleaseRequestLatched" in state
     assert layer.count('text: qsTr("执行")') >= 2
     assert "ScreenTools.isMobile" in layer
-    assert layer.count("buttons: ScreenTools.isMobile ? Dialog.Cancel : (Dialog.Ok | Dialog.Cancel)") == 2
+    assert (
+        layer.count("buttons: ScreenTools.isMobile ? Dialog.Cancel : (Dialog.Ok | Dialog.Cancel)")
+        == 2
+    )
     assert "root._openPayloadActionDialog()" in layer
     assert "root._openApproachActionDialog()" in layer
     assert 'qsTr("等待 Jetson 执行挑战")' in state
@@ -1520,7 +1566,7 @@ def test_mode_setting_is_a_first_class_menu_and_airframe_is_hidden() -> None:
     assert 'text: qsTr("Mode Setting")' in menu
     assert '"qrc:/qml/QGroundControl/AppSettings/MultiDetectConfigure.qml"' in menu
     assert 'alias="QGroundControl/Toolbar/SelectViewDropdown.qml"' in resources
-    assert '/PX4/AirframeComponent.qml' in vehicle_config
+    assert "/PX4/AirframeComponent.qml" in vehicle_config
 
 
 def test_plan_area_route_drag_creates_a_native_gps_survey_without_replacing_the_plan() -> None:
@@ -1551,7 +1597,7 @@ def test_mode_three_video_has_fixed_reticle_and_dynamic_target_lock_box() -> Non
     assert 'MultiDetectState.interactionState === "LCK"' in overlay
     assert 'MultiDetectState.interactionState === "TGT"' in overlay
     assert overlay.index('visible: MultiDetectState.missionMode === "OBSERVE"') < overlay.index(
-        'property color reticleColor: qgcPal.text'
+        "property color reticleColor: qgcPal.text"
     )
     assert 'text: "+"' in overlay
     assert "MultiDetectState.selectCandidate" in overlay
@@ -1568,7 +1614,10 @@ def test_trk_cancel_preempts_pending_manual_selection_and_flyview_insets_cover_o
     layer = _read("src/FlyViewCustomLayer.qml")
 
     assert "function _cancelCurrentTrackByBox()" in state
-    assert '_operator.sendTargetSelection("CANCEL_TRK", targetX1, targetY1, targetX2, targetY2)' in state
+    assert (
+        '_operator.sendTargetSelection("CANCEL_TRK", targetX1, targetY1, targetX2, targetY2)'
+        in state
+    )
     assert 'pendingSelectionAction = "CANCEL_TRK";' in state
     assert "if (targetBoxValid)\n            return _cancelCurrentTrackByBox();" in state
     cancel_candidate = state.split("function cancelTrackedCandidate(entry)", 1)[1].split(
@@ -1603,10 +1652,15 @@ def test_lck_cancel_demotes_once_and_trk_cancel_hides_the_exact_box_immediately(
         state.index("function cancelTarget()") : state.index("function denyAuthorization()")
     ]
     fallback_cancel = state[
-        state.index("function _cancelCurrentTrackByBox()") : state.index("function approveAuthorization()")
+        state.index("function _cancelCurrentTrackByBox()") : state.index(
+            "function approveAuthorization()"
+        )
     ]
 
-    assert 'if ((interactionState === "LCK" || interactionState === "TGT") && targetBoxValid)' in cancel_handler
+    assert (
+        'if ((interactionState === "LCK" || interactionState === "TGT") && targetBoxValid)'
+        in cancel_handler
+    )
     assert "return demoteTrack();" in cancel_handler
     demote_handler = state[
         state.index("function demoteTrack()") : state.index("function cancelMode3Aim()")
@@ -1616,7 +1670,10 @@ def test_lck_cancel_demotes_once_and_trk_cancel_hides_the_exact_box_immediately(
     assert "pendingCancelledTargetIds = hidden;" in fallback_cancel
     assert "_removePendingCancelledTarget(cancelledTargetId);" not in fallback_cancel
     assert "function onPendingCancelledTargetIdsChanged()" in overlay
-    assert "readonly property bool cancellationPending: MultiDetectState.isCancellationPendingTarget(entry)" in overlay
+    assert (
+        "readonly property bool cancellationPending: MultiDetectState.isCancellationPendingTarget(entry)"
+        in overlay
+    )
     assert "entry.bboxValid && !cancellationPending" in overlay
     assert 'text: parent.parent.primaryLocked ? qsTr("返回 TRK") : qsTr("取消")' in overlay
     assert "MultiDetectState.demoteTrack();" in overlay
@@ -1631,7 +1688,7 @@ def test_mode_three_uses_production_observe_state_and_minimal_ui_copy() -> None:
     assert 'mode !== "OBSERVE"' in state
     assert 'storedMode === "APPROACH_HIL" ? "OBSERVE"' in state
     assert 'persistedSettings.selectedMissionMode = "OBSERVE"' in state
-    assert 'text: MultiDetectState.approachPhase' not in layer
+    assert "text: MultiDetectState.approachPhase" not in layer
     assert 'selectionHintText: qsTr("框选目标")' in _read(
         "res/Custom/MultiDetect/MultiDetectVideoOverlay.qml"
     )
@@ -1685,7 +1742,7 @@ def test_direct_jetson_metadata_plane_is_signed_ephemeral_and_separate_from_vehi
     assert 'runtimeEnvironmentValue("MULTIDETECT_VIDEO_RTSP_URL")' in plugin
     assert 'QStringLiteral("HKEY_CURRENT_USER\\\\Environment")' in plugin
     assert 'qputenv("PX_FORCE_CONFIG", "config-env")' in plugin
-    assert 'QUrl(rtspUrl).host().toUtf8()' in plugin
+    assert "QUrl(rtspUrl).host().toUtf8()" in plugin
     assert 'qputenv("NO_PROXY", noProxy)' in plugin
     assert 'qputenv("QGC_RTSP_FORCE_TCP", "1")' in plugin
     assert 'qputenv("QGC_RTSP_TCP_TIMEOUT_US", "20000000")' in plugin
@@ -1704,7 +1761,9 @@ def test_direct_jetson_metadata_plane_is_signed_ephemeral_and_separate_from_vehi
     assert "_isNewStatus(packet.type, packet.sequence, _lastAuthenticatedAtMs)" in controller
 
 
-def test_tracking_status_is_an_implicit_selection_ack_and_video_restarts_on_pip_transition() -> None:
+def test_tracking_status_is_an_implicit_selection_ack_and_video_restarts_on_pip_transition() -> (
+    None
+):
     controller = _read("src/MultiDetectOperatorController.cc")
     fly_video = _read("src/FlyViewVideo.qml")
     state = _read("res/Custom/MultiDetect/MultiDetectState.qml")
@@ -1773,7 +1832,10 @@ def test_target_evidence_history_exposes_recent_read_only_records() -> None:
     store_source = _read("src/MultiDetectTargetEvidenceStore.cc")
     layer = _read("src/FlyViewCustomLayer.qml")
 
-    assert "Q_PROPERTY(QVariantList recentSnapshots READ recentSnapshots NOTIFY recentSnapshotsChanged)" in store_header
+    assert (
+        "Q_PROPERTY(QVariantList recentSnapshots READ recentSnapshots NOTIFY recentSnapshotsChanged)"
+        in store_header
+    )
     assert "static constexpr int kRecentSnapshotLimit = 24" in store_header
     assert "void _appendRecentSnapshot(const QVariantMap& snapshot);" in store_header
     assert "_recentSnapshots.prepend(snapshot);" in store_source
@@ -1821,10 +1883,10 @@ def test_armed_execution_refreshes_the_lck_command_before_waiting_for_challenge(
     assert "id: executionChallengeWaitTimer" in layer
     assert "MultiDetectState.payloadTargetChallengeActive" in layer
     assert "MultiDetectState.approachChallengeActive" in layer
-    assert "if (_pendingExecutionPopup !== \"\")" in layer
+    assert 'if (_pendingExecutionPopup !== "")' in layer
     assert "root._openPayloadActionDialog();" in layer
     assert "root._openApproachActionDialog();" in layer
-    assert "root._pendingExecutionPopup === \"\"" in layer
+    assert 'root._pendingExecutionPopup === ""' in layer
 
 
 def test_fly_view_video_preserves_qgc_camera_and_pip_interactions() -> None:

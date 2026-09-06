@@ -118,8 +118,8 @@ _GSTREAMER_VERSION_ENV_NAMES: dict[str, str] = {
     "gstreamer.version.default": "GSTREAMER_VERSION",
     "gstreamer.version.minimum": "GSTREAMER_MINIMUM_VERSION",
     "gstreamer.version.android": "GSTREAMER_ANDROID_VERSION",
-    "gstreamer.version.ios":     "GSTREAMER_IOS_VERSION",
-    "gstreamer.version.macos":   "GSTREAMER_MACOS_VERSION",
+    "gstreamer.version.ios": "GSTREAMER_IOS_VERSION",
+    "gstreamer.version.macos": "GSTREAMER_MACOS_VERSION",
     "gstreamer.version.windows": "GSTREAMER_WINDOWS_VERSION",
 }
 

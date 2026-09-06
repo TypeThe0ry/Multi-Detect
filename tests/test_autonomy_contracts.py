@@ -56,9 +56,7 @@ def test_plan_mission_validation_grant_and_episode_round_trip() -> None:
                 103.8,
                 50.0,
             ),
-            MissionItem(
-                1, MissionCommand.RETURN_TO_LAUNCH, MissionFrame.MISSION
-            ),
+            MissionItem(1, MissionCommand.RETURN_TO_LAUNCH, MissionFrame.MISSION),
         ),
         airframe_adapter_id="px4-vtol-adapter-v1",
         airframe_adapter_hash=HASH_D,
@@ -118,12 +116,9 @@ def test_plan_mission_validation_grant_and_episode_round_trip() -> None:
         "runtime_provenance_hash",
     }.issubset(grant.to_mapping())
     grant_schema = json.loads(
-        (
-            REPO_ROOT
-            / "configs"
-            / "schemas"
-            / "autonomy-operator-grant.schema.json"
-        ).read_text(encoding="utf-8")
+        (REPO_ROOT / "configs" / "schemas" / "autonomy-operator-grant.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert set(grant_schema["required"]) == set(grant.to_mapping())
     assert EpisodeBundle.from_mapping(episode.to_mapping()) == episode
@@ -156,9 +151,7 @@ def test_validation_report_cannot_hide_a_denied_finding() -> None:
             report_id="invalid",
             executable_mission_hash=HASH_A,
             verdict=ValidationVerdict.PASS,
-            findings=(
-                ValidationFinding("energy", ValidationVerdict.DENY, "reserve violated"),
-            ),
+            findings=(ValidationFinding("energy", ValidationVerdict.DENY, "reserve violated"),),
         )
 
 
@@ -175,9 +168,7 @@ def test_direct_construction_normalizes_sequences_text_numbers_and_hashes() -> N
     assert plan.plan_id == "plan"
     assert plan.task_spec_hash == HASH_A
     assert plan.steps == (PlanStep(0, PlanAction.RETURN),)
-    assert plan.canonical_hash == PlatformNeutralPlan.from_mapping(
-        plan.to_mapping()
-    ).canonical_hash
+    assert plan.canonical_hash == PlatformNeutralPlan.from_mapping(plan.to_mapping()).canonical_hash
 
 
 def test_mission_item_allowlist_and_coordinate_rules_fail_closed() -> None:

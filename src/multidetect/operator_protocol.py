@@ -1896,18 +1896,12 @@ class OperatorTunnelCodec:
             raise OperatorProtocolError("range-status validity is invalid")
         if validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
             if frame_age_ms > MAX_RANGE_STATUS_SOURCE_AGE_MS:
-                raise OperatorProtocolError(
-                    "range-status source frame is stale"
-                )
+                raise OperatorProtocolError("range-status source frame is stale")
             decoded_freshness = _decode_duration(data_freshness)
             if decoded_freshness is None:
-                raise OperatorProtocolError(
-                    "range-status data freshness is unavailable"
-                )
+                raise OperatorProtocolError("range-status data freshness is unavailable")
             if decoded_freshness > MAX_RANGE_STATUS_SOURCE_AGE_S:
-                raise OperatorProtocolError(
-                    "range-status data freshness is stale"
-                )
+                raise OperatorProtocolError("range-status data freshness is stale")
         decoded_consistency = _decode_ratio(consistency)
         if decoded_consistency is None:
             raise OperatorProtocolError("range-status consistency is unavailable")
@@ -1985,9 +1979,7 @@ class OperatorTunnelCodec:
         coordinates = (_decode_coordinate_e7(latitude_e7), _decode_coordinate_e7(longitude_e7))
         sigma_m = _decode_distance(horizontal_sigma)
         if available and frame_age_ms > MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS:
-            raise OperatorProtocolError(
-                "target-geolocation-status source frame is stale"
-            )
+            raise OperatorProtocolError("target-geolocation-status source frame is stale")
         if available:
             if (
                 reason != "gps_qualified"
@@ -2800,9 +2792,7 @@ def _encode_range_contribution(
     except ValueError as exc:
         raise ValueError("range contribution source is not registered") from exc
     weight = (
-        max(1, _encode_ratio(contribution.weight))
-        if encoded_weight is None
-        else encoded_weight
+        max(1, _encode_ratio(contribution.weight)) if encoded_weight is None else encoded_weight
     )
     return struct.pack(
         ">BBHH",

@@ -83,9 +83,7 @@ def join_raw_replay_telemetry(
         frame_ages.append(age)
 
     normalized_recording_id = (
-        f"{recording.recording_id}-telemetry-joined"
-        if recording_id is None
-        else recording_id
+        f"{recording.recording_id}-telemetry-joined" if recording_id is None else recording_id
     )
     normalized_recording_id = require_text(normalized_recording_id, "recording_id").strip()
     if not normalized_recording_id:

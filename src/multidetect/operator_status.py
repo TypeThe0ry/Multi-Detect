@@ -180,6 +180,7 @@ def _range_reasons_for_wire(reasons: tuple[str, ...]) -> tuple[str, ...]:
             normalized.append(wire_reason)
     return tuple(normalized)
 
+
 _AUTHORIZED_PHASES = frozenset(
     {
         MissionPhase.DEPLOYMENT_READY,
@@ -438,9 +439,7 @@ def build_range_status_message(
 
     if source_binding is not None:
         if source_captured_at_s is not None or source_frame_id is not None:
-            raise ValueError(
-                "source_binding cannot be combined with loose range source fields"
-            )
+            raise ValueError("source_binding cannot be combined with loose range source fields")
         source_binding.validate_solution(solution)
         binding = source_binding
     else:
@@ -557,9 +556,7 @@ def build_target_geolocation_status_message(
             reason="geolocation_input_invalid",
         )
     if binding is not None:
-        effective_freshness_s = binding.effective_data_freshness(
-            produced_at_s=publish_time
-        )
+        effective_freshness_s = binding.effective_data_freshness(produced_at_s=publish_time)
         if (
             effective_freshness_s is None
             or effective_freshness_s > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
@@ -687,10 +684,7 @@ def _geolocation_motion_kwargs(
     # ``nan`` means that the telemetry producer has no calibrated kinematic
     # envelope.  Forward every other value so the shared projector validates
     # it and rejects a malformed/negative uncertainty rather than dropping it.
-    if not (
-        isinstance(acceleration_uncertainty, float)
-        and isnan(acceleration_uncertainty)
-    ):
+    if not (isinstance(acceleration_uncertainty, float) and isnan(acceleration_uncertainty)):
         motion_kwargs["acceleration_uncertainty_mps2"] = acceleration_uncertainty
     return motion_kwargs
 

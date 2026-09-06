@@ -47,8 +47,7 @@ def _write_capture(root: Path, *, frame_count: int = 3) -> Path:
         "latest_telemetry": {},
         "image_topic": "/world/default/model/x500_mono_cam_0/link/camera_link/sensor/camera/image",
         "navsat_topic": (
-            "/world/default/model/x500_mono_cam_0/link/base_link/"
-            "sensor/navsat_sensor/navsat"
+            "/world/default/model/x500_mono_cam_0/link/base_link/sensor/navsat_sensor/navsat"
         ),
         "model_instance": "x500_mono_cam_0",
     }
@@ -72,9 +71,10 @@ def test_gazebo_capture_binds_to_verified_raw_replay_without_truth(tmp_path: Pat
     assert result["ground_truth_present"] is False
     manifest_path = Path(result["recording_manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert hashlib.sha256(manifest_path.read_bytes()).hexdigest() == result[
-        "recording_manifest_sha256"
-    ]
+    assert (
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        == result["recording_manifest_sha256"]
+    )
     recording = RawSensorReplayRecording.from_manifest(manifest_path)
     assert len(recording.frames) == 3
     assert len(recording.telemetry_samples) == 3

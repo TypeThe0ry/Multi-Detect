@@ -159,26 +159,79 @@ def _parse_enum_value_entry(entry: object, ctrl_name: str) -> tuple[int | float 
     return (value, label)
 
 
-_ALLOWED_ROOT_KEYS = frozenset({
-    "fileType", "version", "comment", "constants", "params", "bindings",
-    "imports", "sections", "controllerType",
-})
+_ALLOWED_ROOT_KEYS = frozenset(
+    {
+        "fileType",
+        "version",
+        "comment",
+        "constants",
+        "params",
+        "bindings",
+        "imports",
+        "sections",
+        "controllerType",
+    }
+)
 _ALLOWED_PARAM_KEYS = frozenset({"comment", "name", "required", "existsOnly"})
-_ALLOWED_SECTION_KEYS = frozenset({
-    "comment", "title", "image", "controls", "component", "showWhen", "repeat", "keywords",
-})
-_ALLOWED_CONTROL_KEYS = frozenset({
-    "comment", "param", "setting", "label", "control", "showWhen", "enableWhen",
-    "optional", "sliderMin", "sliderMax", "enableCheckbox", "button", "options",
-    "enumValues", "dialogButton", "actionButton", "warning", "raw", "bitMask",
-    "firstEntryIsAll", "toggleCheckbox", "indent", "smallFont", "description",
-    "sliderFrom", "sliderTo", "majorTickStepSize", "decimalPlaces", "linkedParams",
-    "component",
-})
-_ALLOWED_REPEAT_KEYS = frozenset({
-    "comment", "paramPrefix", "probePostfix", "startIndex", "firstIndexOmitsNumber",
-    "indexing", "enableParam", "disabledParamValue", "disabledSection",
-})
+_ALLOWED_SECTION_KEYS = frozenset(
+    {
+        "comment",
+        "title",
+        "image",
+        "controls",
+        "component",
+        "showWhen",
+        "repeat",
+        "keywords",
+    }
+)
+_ALLOWED_CONTROL_KEYS = frozenset(
+    {
+        "comment",
+        "param",
+        "setting",
+        "label",
+        "control",
+        "showWhen",
+        "enableWhen",
+        "optional",
+        "sliderMin",
+        "sliderMax",
+        "enableCheckbox",
+        "button",
+        "options",
+        "enumValues",
+        "dialogButton",
+        "actionButton",
+        "warning",
+        "raw",
+        "bitMask",
+        "firstEntryIsAll",
+        "toggleCheckbox",
+        "indent",
+        "smallFont",
+        "description",
+        "sliderFrom",
+        "sliderTo",
+        "majorTickStepSize",
+        "decimalPlaces",
+        "linkedParams",
+        "component",
+    }
+)
+_ALLOWED_REPEAT_KEYS = frozenset(
+    {
+        "comment",
+        "paramPrefix",
+        "probePostfix",
+        "startIndex",
+        "firstIndexOmitsNumber",
+        "indexing",
+        "enableParam",
+        "disabledParamValue",
+        "disabledSection",
+    }
+)
 _ALLOWED_DISABLED_SECTION_KEYS = frozenset({"comment", "heading", "enabledParamValue"})
 
 
@@ -263,7 +316,9 @@ def _build_page_def(data: dict, json_filename: str) -> PageDef:
             ds_data = repeat_data.get("disabledSection")
             ds_def = None
             if ds_data:
-                reject_unknown_keys(ds_data, _ALLOWED_DISABLED_SECTION_KEYS, "disabledSection", json_filename)
+                reject_unknown_keys(
+                    ds_data, _ALLOWED_DISABLED_SECTION_KEYS, "disabledSection", json_filename
+                )
                 ds_def = DisabledSectionDef(
                     heading=ds_data.get("heading", ""),
                     enabledParamValue=str(ds_data.get("enabledParamValue", "")),

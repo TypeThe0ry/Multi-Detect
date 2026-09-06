@@ -131,9 +131,7 @@ def _freeze_frame(frame: object) -> FrameObservation:
         raise ValueError("replay frames must contain FrameObservation values")
     if not isinstance(frame.frame_id, str) or not frame.frame_id.strip():
         raise ValueError("replay frame_id must be non-empty text")
-    if isinstance(frame.captured_at_s, bool) or not isinstance(
-        frame.captured_at_s, int | float
-    ):
+    if isinstance(frame.captured_at_s, bool) or not isinstance(frame.captured_at_s, int | float):
         raise ValueError("replay captured_at_s must be numeric")
     if not isinstance(frame.detections, Sequence) or isinstance(
         frame.detections, (str, bytes, bytearray)
@@ -155,9 +153,7 @@ def _freeze_detection(value: object) -> Detection:
         raise ValueError("detection bbox must be BoundingBox")
     if not isinstance(value.label, str):
         raise ValueError("detection label must be text")
-    if isinstance(value.confidence, bool) or not isinstance(
-        value.confidence, int | float
-    ):
+    if isinstance(value.confidence, bool) or not isinstance(value.confidence, int | float):
         raise ValueError("detection confidence must be numeric")
     for coordinate in (value.bbox.x1, value.bbox.y1, value.bbox.x2, value.bbox.y2):
         if isinstance(coordinate, bool) or not isinstance(coordinate, int | float):
@@ -239,10 +235,7 @@ def _freeze_json(value: object, path: str) -> object:
             frozen[key] = _freeze_json(nested, f"{path}.{key}")
         return MappingProxyType(frozen)
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(
-            _freeze_json(nested, f"{path}[{index}]")
-            for index, nested in enumerate(value)
-        )
+        return tuple(_freeze_json(nested, f"{path}[{index}]") for index, nested in enumerate(value))
     raise ValueError(f"{path} contains a non-JSON value")
 
 
@@ -258,17 +251,14 @@ def _frame_to_mapping(frame: FrameObservation) -> dict[str, Any]:
     telemetry: dict[str, Any] = {}
     for item in fields(VehicleTelemetry):
         value = getattr(frame.telemetry, item.name)
-        telemetry[item.name] = (
-            None if isinstance(value, float) and isnan(value) else value
-        )
+        telemetry[item.name] = None if isinstance(value, float) and isnan(value) else value
     # Preserve schema-v1 recording identities created before PX4 Mission wire
     # timestamps existed.  New observations remain explicit, including a null
     # sequence paired with a timestamp after a malformed frame was rejected.
     if not isfinite(frame.telemetry.mission_sequence_observed_at_s):
         telemetry.pop("mission_sequence_observed_at_s")
-    if (
-        frame.telemetry.mission_item_reached_sequence is None
-        and not isfinite(frame.telemetry.mission_item_reached_observed_at_s)
+    if frame.telemetry.mission_item_reached_sequence is None and not isfinite(
+        frame.telemetry.mission_item_reached_observed_at_s
     ):
         telemetry.pop("mission_item_reached_sequence")
         telemetry.pop("mission_item_reached_observed_at_s")
@@ -325,12 +315,8 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
             _optional_int(telemetry_raw.get("satellites_visible"))
         ),
         gps_fix_type=normalize_gps_fix_type(_optional_int(telemetry_raw.get("gps_fix_type"))),
-        gps_horizontal_accuracy_m=_optional_float(
-            telemetry_raw.get("gps_horizontal_accuracy_m")
-        ),
-        gps_vertical_accuracy_m=_optional_float(
-            telemetry_raw.get("gps_vertical_accuracy_m")
-        ),
+        gps_horizontal_accuracy_m=_optional_float(telemetry_raw.get("gps_horizontal_accuracy_m")),
+        gps_vertical_accuracy_m=_optional_float(telemetry_raw.get("gps_vertical_accuracy_m")),
         gps_observed_at_s=_optional_float(telemetry_raw.get("gps_observed_at_s")),
         armed=_optional_bool(telemetry_raw.get("armed")),
         flight_mode=_optional_string(telemetry_raw.get("flight_mode")),
@@ -344,24 +330,14 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         mission_item_reached_observed_at_s=_optional_float(
             telemetry_raw.get("mission_item_reached_observed_at_s")
         ),
-        attitude_observed_at_s=_optional_float(
-            telemetry_raw.get("attitude_observed_at_s")
-        ),
-        attitude_roll_sigma_deg=_optional_float(
-            telemetry_raw.get("attitude_roll_sigma_deg")
-        ),
-        attitude_pitch_sigma_deg=_optional_float(
-            telemetry_raw.get("attitude_pitch_sigma_deg")
-        ),
-        attitude_heading_sigma_deg=_optional_float(
-            telemetry_raw.get("attitude_heading_sigma_deg")
-        ),
+        attitude_observed_at_s=_optional_float(telemetry_raw.get("attitude_observed_at_s")),
+        attitude_roll_sigma_deg=_optional_float(telemetry_raw.get("attitude_roll_sigma_deg")),
+        attitude_pitch_sigma_deg=_optional_float(telemetry_raw.get("attitude_pitch_sigma_deg")),
+        attitude_heading_sigma_deg=_optional_float(telemetry_raw.get("attitude_heading_sigma_deg")),
         attitude_uncertainty_source=_optional_string(
             telemetry_raw.get("attitude_uncertainty_source")
         ),
-        position_observed_at_s=_optional_float(
-            telemetry_raw.get("position_observed_at_s")
-        ),
+        position_observed_at_s=_optional_float(telemetry_raw.get("position_observed_at_s")),
         velocity_north_mps=_optional_float(telemetry_raw.get("velocity_north_mps")),
         velocity_east_mps=_optional_float(telemetry_raw.get("velocity_east_mps")),
         acceleration_uncertainty_mps2=_optional_float(
@@ -373,9 +349,7 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         velocity_observed_at_s=_optional_float(telemetry_raw.get("velocity_observed_at_s")),
         airspeed_observed_at_s=_optional_float(telemetry_raw.get("airspeed_observed_at_s")),
         wind_observed_at_s=_optional_float(telemetry_raw.get("wind_observed_at_s")),
-        altitude_observed_at_s=_optional_float(
-            telemetry_raw.get("altitude_observed_at_s")
-        ),
+        altitude_observed_at_s=_optional_float(telemetry_raw.get("altitude_observed_at_s")),
         altitude_reference=_optional_string(telemetry_raw.get("altitude_reference")),
         local_north_m=_optional_float(telemetry_raw.get("local_north_m")),
         local_east_m=_optional_float(telemetry_raw.get("local_east_m")),
@@ -383,9 +357,7 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
         local_position_observed_at_s=_optional_float(
             telemetry_raw.get("local_position_observed_at_s")
         ),
-        gps_absolute_altitude_m=_optional_float(
-            telemetry_raw.get("gps_absolute_altitude_m")
-        ),
+        gps_absolute_altitude_m=_optional_float(telemetry_raw.get("gps_absolute_altitude_m")),
     )
     detections: list[Detection] = []
     for detection_raw in raw.get("detections", []):

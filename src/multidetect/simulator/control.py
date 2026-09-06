@@ -101,9 +101,7 @@ class SimulatorControlAuthority:
             self._manual_override = False
             self._last_setpoint = None
             self._state = (
-                ControlAuthorityState.AI
-                if self._ai_enabled
-                else ControlAuthorityState.PAUSED
+                ControlAuthorityState.AI if self._ai_enabled else ControlAuthorityState.PAUSED
             )
             self._record("manual_released", state=self._state.value)
 
@@ -205,15 +203,9 @@ class SimulatorControlAuthority:
         timestamp_s: float | None,
     ) -> None:
         values = (roll, pitch, yaw, throttle)
-        if any(
-            not isinstance(value, (int, float)) or isinstance(value, bool)
-            for value in values
-        ):
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) for value in values):
             raise ControlAuthorityError("setpoint values must be numeric")
-        if any(
-            not math.isfinite(float(value)) or abs(float(value)) > 1.0
-            for value in values[:3]
-        ):
+        if any(not math.isfinite(float(value)) or abs(float(value)) > 1.0 for value in values[:3]):
             raise ControlAuthorityError("setpoint values must be within [-1, 1]")
         if not 0.0 <= float(throttle) <= 1.0:
             raise ControlAuthorityError("throttle must be within [0, 1]")

@@ -322,8 +322,7 @@ def build_evidence(
         "video_roi": {
             "strategy": "normalized_multi_region_excluding_native_qgc_ui_chrome",
             "normalized_regions": [
-                {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
-                for x0, y0, x1, y1 in normalized
+                {"x0": x0, "y0": y0, "x1": x1, "y1": y1} for x0, y0, x1, y1 in normalized
             ],
             "capture_a_resolved_regions": resolved_a,
             "capture_b_resolved_regions": resolved_b,

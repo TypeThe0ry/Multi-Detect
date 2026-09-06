@@ -156,9 +156,7 @@ def _canonical_mission_items(items: Sequence[MissionItem]) -> bytes:
         # Hash those protocol-canonical values so upload/readback proves the
         # mission PX4 actually stores rather than float sentinel spelling.
         serialized["param1"] = (
-            0.0
-            if item.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
-            else item.param1
+            0.0 if item.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF else item.param1
         )
         serialized["param4"] = 0.0 if math.isnan(item.param4) else item.param4
         payload.append(serialized)
@@ -216,15 +214,9 @@ def _mission_item_matches(expected: MissionItem, actual: MissionItem) -> bool:
 
 def _mission_item_mismatch_fields(expected: MissionItem, actual: MissionItem) -> tuple[str, ...]:
     expected_param1 = (
-        0.0
-        if expected.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
-        else expected.param1
+        0.0 if expected.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF else expected.param1
     )
-    actual_param1 = (
-        0.0
-        if actual.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
-        else actual.param1
-    )
+    actual_param1 = 0.0 if actual.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF else actual.param1
     expected_param4 = 0.0 if math.isnan(expected.param4) else expected.param4
     actual_param4 = 0.0 if math.isnan(actual.param4) else actual.param4
     checks = {
@@ -240,9 +232,7 @@ def _mission_item_mismatch_fields(expected: MissionItem, actual: MissionItem) ->
             expected.relative_altitude_m, actual.relative_altitude_m, tolerance=0.05
         ),
     }
-    return tuple(
-        f"{expected.sequence}:{field}" for field, passed in checks.items() if not passed
-    )
+    return tuple(f"{expected.sequence}:{field}" for field, passed in checks.items() if not passed)
 
 
 def inspect_owned_disposable_container(

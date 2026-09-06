@@ -338,9 +338,7 @@ def _record_from_sources(
         )
     runtime_profile = runtime_binding.get("profile")
     observed_identity = runtime_binding.get("observed_identity")
-    if not isinstance(runtime_profile, Mapping) or not isinstance(
-        observed_identity, Mapping
-    ):
+    if not isinstance(runtime_profile, Mapping) or not isinstance(observed_identity, Mapping):
         raise Px4MissionFeedbackBindingError(
             f"{runtime_mode}/{vehicle_class} report has no verified runtime identity"
         )
@@ -482,8 +480,7 @@ def build_px4_mission_feedback_binding(
         missing = sorted(set(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS).difference(normalized))
         unknown = sorted(set(normalized).difference(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS))
         raise Px4MissionFeedbackBindingError(
-            f"PX4 Mission feedback coverage is incomplete; missing={missing!r}, "
-            f"unknown={unknown!r}"
+            f"PX4 Mission feedback coverage is incomplete; missing={missing!r}, unknown={unknown!r}"
         )
 
     observations = [
@@ -569,9 +566,7 @@ def verify_px4_mission_feedback_binding(
     if raw_record.get("required_vehicle_classes") != list(
         PX4_MISSION_FEEDBACK_REQUIRED_VEHICLE_CLASSES
     ):
-        reasons.append(
-            "required_vehicle_classes must be exactly fixed-wing, multirotor and vtol"
-        )
+        reasons.append("required_vehicle_classes must be exactly fixed-wing, multirotor and vtol")
     declared_px4_hash = raw_record.get("px4_mission_path_hash")
     normalized_px4_hash = (
         str(declared_px4_hash).strip().lower() if _is_sha256(declared_px4_hash) else None
@@ -587,9 +582,8 @@ def verify_px4_mission_feedback_binding(
             )
         except Px4MissionFeedbackBindingError as exc:
             reasons.append(str(exc))
-    px4_path_bound = (
-        normalized_px4_hash is not None
-        and (expected_px4_hash is None or normalized_px4_hash == expected_px4_hash)
+    px4_path_bound = normalized_px4_hash is not None and (
+        expected_px4_hash is None or normalized_px4_hash == expected_px4_hash
     )
     if not px4_path_bound and expected_px4_hash is not None:
         reasons.append("px4_mission_path_hash does not match the four-mode E7 parity")
@@ -662,9 +656,7 @@ def verify_px4_mission_feedback_binding(
             entry_reasons.append(str(exc))
             all_runtime_modes_match = False
         try:
-            vehicle_class = normalize_px4_vehicle_class(
-                raw_observation.get("vehicle_class")
-            )
+            vehicle_class = normalize_px4_vehicle_class(raw_observation.get("vehicle_class"))
         except (TypeError, ValueError) as exc:
             vehicle_class = ""
             entry_reasons.append(f"{prefix}.vehicle_class is invalid: {exc}")
@@ -784,9 +776,7 @@ def verify_px4_mission_feedback_binding(
                     all_missions_identity_bound = False
                     continue
                 comparable = (
-                    declared.lower()
-                    if isinstance(declared, str) and "hash" in field
-                    else declared
+                    declared.lower() if isinstance(declared, str) and "hash" in field else declared
                 )
                 if comparable != actual:
                     entry_reasons.append(f"{field} does not match the Mission")
@@ -832,8 +822,7 @@ def verify_px4_mission_feedback_binding(
             feedback = report.get("feedback")
             runtime_binding = report.get("runtime_binding")
             if not isinstance(transport, Mapping) or (
-                transport.get("read_only") is not True
-                or transport.get("messages_transmitted") != 0
+                transport.get("read_only") is not True or transport.get("messages_transmitted") != 0
             ):
                 entry_reasons.append("feedback report is not receive-only")
                 all_receive_only = False
@@ -868,9 +857,7 @@ def verify_px4_mission_feedback_binding(
                 profile = runtime_binding.get("profile")
                 identity = runtime_binding.get("observed_identity")
                 if not isinstance(profile, Mapping) or not isinstance(identity, Mapping):
-                    entry_reasons.append(
-                        "feedback report runtime binding has no profile/identity"
-                    )
+                    entry_reasons.append("feedback report runtime binding has no profile/identity")
                     all_runtime_profiles_bound = False
                     all_vehicle_identities_bound = False
                     all_firmware_identities_bound = False
@@ -926,9 +913,7 @@ def verify_px4_mission_feedback_binding(
                     )
                     for field, report_value, expected_value in comparisons:
                         if report_value != expected_value:
-                            entry_reasons.append(
-                                f"{field} does not match the runtime binding"
-                            )
+                            entry_reasons.append(f"{field} does not match the runtime binding")
                             if field == "vehicle_identity_hash":
                                 all_vehicle_identities_bound = False
                             elif field == "firmware_identity_hash":
@@ -938,9 +923,7 @@ def verify_px4_mission_feedback_binding(
                             else:
                                 all_runtime_profiles_bound = False
                     if profile.get("profile_id") != expected_profile_id:
-                        entry_reasons.append(
-                            "runtime profile kind does not match HIL/REAL mode"
-                        )
+                        entry_reasons.append("runtime profile kind does not match HIL/REAL mode")
                         all_runtime_profiles_bound = False
                     if raw_observation.get("runtime_profile_id") != expected_profile_id:
                         entry_reasons.append(
@@ -948,16 +931,12 @@ def verify_px4_mission_feedback_binding(
                         )
                         all_runtime_profiles_bound = False
                     if identity.get("airframe_profile_hash") != mission.airframe_profile_hash:
-                        entry_reasons.append(
-                            "runtime airframe identity does not match the Mission"
-                        )
+                        entry_reasons.append("runtime airframe identity does not match the Mission")
                         all_airframes_match = False
                     if raw_observation.get("airframe_profile_hash") != (
                         mission.airframe_profile_hash
                     ):
-                        entry_reasons.append(
-                            "airframe_profile_hash does not match the Mission"
-                        )
+                        entry_reasons.append("airframe_profile_hash does not match the Mission")
                         all_airframes_match = False
                     vehicle_identity_hash = raw_observation.get("vehicle_identity_hash")
                     if not _is_sha256(vehicle_identity_hash):
@@ -973,14 +952,10 @@ def verify_px4_mission_feedback_binding(
                         all_endpoints_bound = False
                     signing_identity_hash = raw_observation.get("signing_identity_hash")
                     if mode == "real" and not _is_sha256(signing_identity_hash):
-                        entry_reasons.append(
-                            "REAL signing_identity_hash is missing or invalid"
-                        )
+                        entry_reasons.append("REAL signing_identity_hash is missing or invalid")
                         all_runtime_profiles_bound = False
                     if mode == "hil" and signing_identity_hash is not None:
-                        entry_reasons.append(
-                            "HIL signing_identity_hash must remain null"
-                        )
+                        entry_reasons.append("HIL signing_identity_hash must remain null")
                         all_runtime_profiles_bound = False
                 if runtime_binding.get("gate_passed") is not True or (
                     raw_observation.get("runtime_binding_gate_passed") is not True
@@ -1017,20 +992,15 @@ def verify_px4_mission_feedback_binding(
         source_summary["passed"] = not entry_reasons
         observations_result.append(source_summary)
 
-    coverage_complete = (
-        len(observed_combinations) == len(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS)
-        and set(observed_combinations) == set(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS)
-    )
-    report_paths_distinct = (
-        len(resolved_report_paths) == len(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS)
-        and len(set(resolved_report_paths)) == len(resolved_report_paths)
-    )
-    runtime_profile_paths_distinct = (
-        len(resolved_runtime_profile_paths)
-        == len(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS)
-        and len(set(resolved_runtime_profile_paths))
-        == len(resolved_runtime_profile_paths)
-    )
+    coverage_complete = len(observed_combinations) == len(
+        PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS
+    ) and set(observed_combinations) == set(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS)
+    report_paths_distinct = len(resolved_report_paths) == len(
+        PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS
+    ) and len(set(resolved_report_paths)) == len(resolved_report_paths)
+    runtime_profile_paths_distinct = len(resolved_runtime_profile_paths) == len(
+        PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS
+    ) and len(set(resolved_runtime_profile_paths)) == len(resolved_runtime_profile_paths)
     if not coverage_complete:
         reasons.append("HIL/REAL x fixed-wing/multirotor/VTOL coverage is incomplete")
     if not report_paths_distinct:
@@ -1065,8 +1035,7 @@ def verify_px4_mission_feedback_binding(
         missing_checks = sorted(_CHECK_KEYS.difference(declared_checks))
         if unknown_checks or missing_checks:
             reasons.append(
-                f"checks fields are invalid; missing={missing_checks!r}, "
-                f"unknown={unknown_checks!r}"
+                f"checks fields are invalid; missing={missing_checks!r}, unknown={unknown_checks!r}"
             )
         if any(value is not True for value in declared_checks.values()):
             reasons.append("declared checks must all be true")

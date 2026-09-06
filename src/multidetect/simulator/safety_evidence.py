@@ -818,17 +818,11 @@ def _check_control(control: Mapping[str, Any], reasons: list[str]) -> bool:
         if (counters["qgc_manual_frames_accepted"] or 0) < 1:
             reasons.append(f"{mode_path} must accept at least one QGC manual frame")
         if (counters["qgc_non_loopback_datagrams_blocked"] or 0) < 1:
-            reasons.append(
-                f"{mode_path} must block a non-loopback QGC datagram"
-            )
+            reasons.append(f"{mode_path} must block a non-loopback QGC datagram")
         if (counters["qgc_unexpected_source_datagrams_blocked"] or 0) < 1:
-            reasons.append(
-                f"{mode_path} must block an unexpected QGC source"
-            )
+            reasons.append(f"{mode_path} must block an unexpected QGC source")
         if (counters["px4_non_loopback_datagrams_blocked"] or 0) < 1:
-            reasons.append(
-                f"{mode_path} must block a non-loopback PX4 datagram"
-            )
+            reasons.append(f"{mode_path} must block a non-loopback PX4 datagram")
         rejected = _mapping(
             item.get("qgc_rejected_reasons"),
             f"control.interactive_modes[{index}].qgc_rejected_reasons",
@@ -847,9 +841,7 @@ def _check_control(control: Mapping[str, Any], reasons: list[str]) -> bool:
                 path=f"control.interactive_modes[{index}].qgc_rejected_reasons",
             )
             if value is not None and value < 1:
-                reasons.append(
-                    f"{mode_path}.qgc_rejected_reasons.{key} must be positive"
-                )
+                reasons.append(f"{mode_path}.qgc_rejected_reasons.{key} must be positive")
     if set(names) != {"vtol", "fixed-wing", "multirotor"} or len(names) != len(set(names)):
         reasons.append(
             "control.interactive_modes must contain each supported airframe exactly once"
@@ -981,9 +973,7 @@ def _check_geolocation(geolocation: Mapping[str, Any], reasons: list[str]) -> bo
             if item.get("accepted") is not False:
                 reasons.append(f"geolocation.geolocation_denials[{index}] must be rejected")
             if not isinstance(item.get("error"), str) or not item.get("error"):
-                reasons.append(
-                    f"geolocation.geolocation_denials[{index}].error must be non-empty"
-                )
+                reasons.append(f"geolocation.geolocation_denials[{index}].error must be non-empty")
         if not {"pole_coordinate", "invalid_longitude"}.issubset(ids):
             reasons.append(
                 "geolocation.geolocation_denials must include pole and longitude rejection"

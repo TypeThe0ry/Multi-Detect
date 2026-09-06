@@ -314,13 +314,9 @@ class RuntimeStatusMessage:
                 raise ValueError("REAL runtime status cannot bind a scenario")
         else:
             if not self.ground_truth_isolated:
-                raise ValueError(
-                    "REPLAY, SIM, and HIL runtime status must isolate ground truth"
-                )
+                raise ValueError("REPLAY, SIM, and HIL runtime status must isolate ground truth")
             if self.hardware_outputs_present:
-                raise ValueError(
-                    "hardware outputs may only be present for REAL runtime status"
-                )
+                raise ValueError("hardware outputs may only be present for REAL runtime status")
         if not self.metadata_only or self.direct_pixhawk_writes or self.physical_release_enabled:
             raise ValueError("runtime status transport must remain display-only")
 
@@ -1333,8 +1329,7 @@ class TargetGeolocationStatusMessage:
             raise ValueError("target geolocation cannot predate its source frame")
         if (
             self.available
-            and self.produced_at_s - self.source_captured_at_s
-            > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
+            and self.produced_at_s - self.source_captured_at_s > MAX_TARGET_GEOLOCATION_SOURCE_AGE_S
         ):
             raise ValueError("target geolocation source frame is stale")
         if self.reason not in TARGET_GEOLOCATION_REASON_IDS:

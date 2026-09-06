@@ -152,9 +152,7 @@ def create_fixture(
             "bytes": len(event_payload),
         },
     }
-    manifest_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    manifest_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
     manifest_path = recording_dir / "recording.manifest.json"
     manifest_path.write_bytes(manifest_payload)
     manifest_sha256 = _sha256(manifest_payload)

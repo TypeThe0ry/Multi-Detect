@@ -54,8 +54,7 @@ def test_restart_is_hidden_and_only_available_after_apply() -> None:
     text = _read_script()
 
     assert (
-        "if (-not $Apply -and ($RemoveStaleEntry -or $RotateRunDirectory -or "
-        "$RestartDocker))"
+        "if (-not $Apply -and ($RemoveStaleEntry -or $RotateRunDirectory -or $RestartDocker))"
     ) in text
     assert "if ($RestartDocker)" in text
     assert "Start-Process -FilePath $dockerDesktop -WindowStyle Hidden" in text

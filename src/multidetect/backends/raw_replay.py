@@ -1200,9 +1200,8 @@ def _vehicle_telemetry_to_mapping(telemetry: VehicleTelemetry) -> dict[str, obje
     # so a rejected/stale Mission frame cannot be disguised as legacy input.
     if not math.isfinite(telemetry.mission_sequence_observed_at_s):
         result.pop("mission_sequence_observed_at_s")
-    if (
-        telemetry.mission_item_reached_sequence is None
-        and not math.isfinite(telemetry.mission_item_reached_observed_at_s)
+    if telemetry.mission_item_reached_sequence is None and not math.isfinite(
+        telemetry.mission_item_reached_observed_at_s
     ):
         result.pop("mission_item_reached_sequence")
         result.pop("mission_item_reached_observed_at_s")

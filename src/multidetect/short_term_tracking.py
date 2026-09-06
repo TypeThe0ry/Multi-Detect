@@ -154,8 +154,11 @@ class ShortTermTrackingConfig:
                 "camera_motion_minimum_projective cannot exceed camera_motion_maximum_projective"
             )
         if not (
-            0.5 <= self.camera_motion_minimum_scale <= 1.0
-            <= self.camera_motion_maximum_scale <= 2.0
+            0.5
+            <= self.camera_motion_minimum_scale
+            <= 1.0
+            <= self.camera_motion_maximum_scale
+            <= 2.0
         ):
             raise ValueError(
                 "camera motion scales must satisfy 0.5 <= minimum <= 1 <= maximum <= 2"
@@ -350,9 +353,8 @@ class OpenCVShortTermTargetTracker:
             camera_motion=effective_camera_motion,
         )
         camera_warped_previous_gray = None
-        if (
-            effective_camera_motion is not None
-            and any(track.track_id not in flow_hints for track in eligible_tracks)
+        if effective_camera_motion is not None and any(
+            track.track_id not in flow_hints for track in eligible_tracks
         ):
             camera_warped_previous_gray = self._camera_warped_previous_frame(
                 cv2,
@@ -707,9 +709,7 @@ class OpenCVShortTermTargetTracker:
                     denominator = homography_projected[:, 2]
                     valid_denominator = np.isfinite(denominator) & (np.abs(denominator) > 1e-9)
                     if np.all(valid_denominator):
-                        homography_projected = (
-                            homography_projected[:, :2] / denominator[:, None]
-                        )
+                        homography_projected = homography_projected[:, :2] / denominator[:, None]
                         homography_error = np.linalg.norm(
                             homography_projected - current_array, axis=1
                         )
@@ -720,9 +720,7 @@ class OpenCVShortTermTargetTracker:
                             np.median(homography_error[homography_mask])
                         )
                         gain = homography_ratio - affine_ratio
-                        error_ratio = homography_inlier_error / max(
-                            affine_inlier_error, 1e-6
-                        )
+                        error_ratio = homography_inlier_error / max(affine_inlier_error, 1e-6)
                         material_consensus_gain = (
                             gain >= self.config.camera_motion_homography_minimum_inlier_gain
                         )
@@ -993,9 +991,7 @@ class OpenCVShortTermTargetTracker:
                 image=template.image,
                 captured_at_s=template.captured_at_s,
                 pixel_box=template.pixel_box,
-                capture_to_current_homography=tuple(
-                    float(value) for value in combined.reshape(-1)
-                ),
+                capture_to_current_homography=tuple(float(value) for value in combined.reshape(-1)),
                 camera_warp_valid=True,
             )
         self._retained_templates = advanced
@@ -1132,9 +1128,7 @@ class OpenCVShortTermTargetTracker:
         normalized[:, 0] = normalized[:, 0] / width + track.velocity_x_s * frame_interval_s
         normalized[:, 1] = normalized[:, 1] / height + track.velocity_y_s * frame_interval_s
         homography = np.asarray(camera_motion.homography_matrix, dtype=np.float64).reshape(3, 3)
-        homogeneous = np.column_stack(
-            (normalized, np.ones(len(normalized), dtype=np.float64))
-        )
+        homogeneous = np.column_stack((normalized, np.ones(len(normalized), dtype=np.float64)))
         transformed = homogeneous @ homography.T
         denominator = transformed[:, 2]
         valid = np.isfinite(denominator) & (np.abs(denominator) >= 1e-8)
@@ -1461,11 +1455,7 @@ class OpenCVShortTermTargetTracker:
                 (bbox.x1, bbox.y2),
             )
         )
-        if not all(
-            math.isfinite(value)
-            for point in projected_corners
-            for value in point
-        ):
+        if not all(math.isfinite(value) for point in projected_corners for value in point):
             return None
         minimum_x = min(point[0] for point in projected_corners)
         minimum_y = min(point[1] for point in projected_corners)

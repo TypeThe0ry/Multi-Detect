@@ -96,11 +96,11 @@ def write_github_output(outputs: dict[str, str]) -> None:
     """
     import hashlib
 
-    github_output = os.environ.get('GITHUB_OUTPUT')
+    github_output = os.environ.get("GITHUB_OUTPUT")
     if not github_output:
         return
 
-    with open(github_output, 'a', encoding="utf-8") as f:
+    with open(github_output, "a", encoding="utf-8") as f:
         for key, value in outputs.items():
             if "\n" in value:
                 value_hash = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]

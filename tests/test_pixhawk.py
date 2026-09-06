@@ -1022,9 +1022,7 @@ def test_pixhawk_uses_source_bound_odometry_attitude_covariance() -> None:
 
 
 def test_pixhawk_body_frd_odometry_velocity_is_not_mislabeled_as_ned() -> None:
-    provider = PixhawkReadOnlyTelemetryProvider(
-        PixhawkReadOnlyConfig("udp:127.0.0.1:14550")
-    )
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     _ingest_px4_heartbeat(provider, received_at_s=10.0)
     provider.ingest_message(
         _Message("LOCAL_POSITION_NED", x=1.0, y=2.0, z=-3.0, vx=4.0, vy=5.0),
@@ -1042,9 +1040,7 @@ def test_pixhawk_body_frd_odometry_velocity_is_not_mislabeled_as_ned() -> None:
     assert snapshot.velocity_north_mps == pytest.approx(4.0)
     assert snapshot.velocity_east_mps == pytest.approx(5.0)
     assert snapshot.attitude_uncertainty_source is not None
-    assert provider.diagnostics(now_s=10.2)["attitude_uncertainty"][
-        "child_frame_id"
-    ] == 12
+    assert provider.diagnostics(now_s=10.2)["attitude_uncertainty"]["child_frame_id"] == 12
 
 
 @pytest.mark.parametrize(
@@ -1066,9 +1062,7 @@ def test_pixhawk_rejects_invalid_odometry_attitude_covariance_without_reusing_ol
     pose_covariance: list[float],
     reason: str,
 ) -> None:
-    provider = PixhawkReadOnlyTelemetryProvider(
-        PixhawkReadOnlyConfig("udp:127.0.0.1:14550")
-    )
+    provider = PixhawkReadOnlyTelemetryProvider(PixhawkReadOnlyConfig("udp:127.0.0.1:14550"))
     _ingest_px4_heartbeat(provider, received_at_s=10.0)
     provider.ingest_message(_odometry_message(), received_at_s=10.1)
     assert provider.cached_snapshot(now_s=10.1).attitude_uncertainty_source is not None

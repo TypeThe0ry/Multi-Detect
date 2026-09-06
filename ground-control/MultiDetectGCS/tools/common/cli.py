@@ -30,10 +30,13 @@ __all__ = [
 ]
 
 
-def add_dry_run(parser: argparse.ArgumentParser, *, help: str | None = None) -> argparse.ArgumentParser:
+def add_dry_run(
+    parser: argparse.ArgumentParser, *, help: str | None = None
+) -> argparse.ArgumentParser:
     """Add ``-n`` / ``--dry-run`` to *parser*."""
     parser.add_argument(
-        "-n", "--dry-run",
+        "-n",
+        "--dry-run",
         action="store_true",
         help=help or "Show what would happen without making changes",
     )
@@ -59,7 +62,8 @@ def add_build_dir(
 ) -> argparse.ArgumentParser:
     """Add ``-B`` / ``--build-dir`` with a default of ``build``."""
     parser.add_argument(
-        flag, long_flag,
+        flag,
+        long_flag,
         default=default,
         help=f"Build directory (default: {default})",
     )
@@ -74,7 +78,8 @@ def add_jobs(
 ) -> argparse.ArgumentParser:
     """Add ``-j`` / ``--jobs``. ``0`` means "auto" (cpu_count)."""
     parser.add_argument(
-        "-j", "--jobs",
+        "-j",
+        "--jobs",
         type=int,
         default=default,
         metavar="N",

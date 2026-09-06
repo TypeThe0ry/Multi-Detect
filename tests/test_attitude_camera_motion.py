@@ -53,9 +53,7 @@ def test_attitude_homography_projects_a_yaw_change_into_the_expected_image_pan()
     estimator = AttitudeCameraMotionEstimator(_calibration())
 
     assert estimator.update(_telemetry(observed_at_s=10.0), captured_at_s=10.0) is None
-    motion = estimator.update(
-        _telemetry(observed_at_s=10.05, heading_deg=5.0), captured_at_s=10.05
-    )
+    motion = estimator.update(_telemetry(observed_at_s=10.05, heading_deg=5.0), captured_at_s=10.05)
 
     assert motion is not None
     # The airframe turns right, so an inertial scene feature moves left in the
@@ -98,9 +96,7 @@ def test_attitude_motion_rejects_image_and_attitude_skew(
     estimator = AttitudeCameraMotionEstimator(_calibration())
 
     assert (
-        estimator.update(
-            _telemetry(observed_at_s=telemetry_time), captured_at_s=captured_at_s
-        )
+        estimator.update(_telemetry(observed_at_s=telemetry_time), captured_at_s=captured_at_s)
         is None
     )
 
@@ -113,14 +109,10 @@ def test_attitude_motion_rejects_a_large_or_nonmonotonic_pose_step() -> None:
     assert estimator.update(_telemetry(observed_at_s=30.0), captured_at_s=30.0) is None
 
     assert (
-        estimator.update(
-            _telemetry(observed_at_s=30.05, heading_deg=30.0), captured_at_s=30.05
-        )
+        estimator.update(_telemetry(observed_at_s=30.05, heading_deg=30.0), captured_at_s=30.05)
         is None
     )
     assert (
-        estimator.update(
-            _telemetry(observed_at_s=30.04, heading_deg=1.0), captured_at_s=30.04
-        )
+        estimator.update(_telemetry(observed_at_s=30.04, heading_deg=1.0), captured_at_s=30.04)
         is None
     )

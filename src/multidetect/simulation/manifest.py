@@ -42,9 +42,7 @@ class ScenarioManifest:
             ("expectations", self.expectations),
         ):
             if (channel.scenario_id, channel.scenario_version) != identity:
-                raise AutonomyContractError(
-                    f"{name} scenario identity does not match manifest"
-                )
+                raise AutonomyContractError(f"{name} scenario identity does not match manifest")
         if self.runtime_input.scenario_manifest_hash != self.index.canonical_hash:
             raise AutonomyContractError(
                 "runtime_input scenario_manifest_hash does not match manifest"
@@ -87,13 +85,9 @@ class ScenarioManifest:
 
 def load_scenario_manifest(path: str | Path) -> ScenarioManifest:
     source, index = load_scenario_index(path)
-    runtime_raw = load_verified_channel(
-        source, index.runtime_input, name="runtime_input"
-    )
+    runtime_raw = load_verified_channel(source, index.runtime_input, name="runtime_input")
     truth_raw = load_verified_channel(source, index.truth, name="truth")
-    expectations_raw = load_verified_channel(
-        source, index.expectations, name="expectations"
-    )
+    expectations_raw = load_verified_channel(source, index.expectations, name="expectations")
     return ScenarioManifest(
         index=index,
         runtime_input=ScenarioRuntimeInput.from_mapping(

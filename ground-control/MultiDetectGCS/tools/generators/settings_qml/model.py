@@ -25,6 +25,7 @@ _SETTING_RE = re.compile(r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+")
 @dataclass
 class ControlDef(BaseControlDef):
     """A single control referencing a setting."""
+
     placeholder: str = ""
     value: str = ""
 
@@ -40,6 +41,7 @@ class ControlDef(BaseControlDef):
 @dataclass
 class GroupDef:
     """A group of controls with an optional heading."""
+
     heading: str = ""
     showWhen: str = ""
     enableWhen: str = ""
@@ -58,6 +60,7 @@ class GroupDef:
 @dataclass
 class PageDef:
     """A complete settings page definition."""
+
     imports: list[str] = field(default_factory=list)
     bindings: dict[str, str] = field(default_factory=dict)
     groups: list[GroupDef] = field(default_factory=list)
@@ -77,18 +80,45 @@ def parse_keywords(raw: list[str] | str) -> list[str]:
     return []
 
 
-_ALLOWED_ROOT_KEYS = frozenset({
-    "fileType", "version", "comment", "imports", "bindings", "groups",
-})
-_ALLOWED_GROUP_KEYS = frozenset({
-    "comment", "heading", "showWhen", "enableWhen", "headingDescription",
-    "component", "sectionName", "keywords", "missing", "controls",
-})
-_ALLOWED_CONTROL_KEYS = frozenset({
-    "comment", "setting", "label", "control", "showWhen", "enableWhen",
-    "placeholder", "value", "component",
-    "enableCheckbox", "button",
-})
+_ALLOWED_ROOT_KEYS = frozenset(
+    {
+        "fileType",
+        "version",
+        "comment",
+        "imports",
+        "bindings",
+        "groups",
+    }
+)
+_ALLOWED_GROUP_KEYS = frozenset(
+    {
+        "comment",
+        "heading",
+        "showWhen",
+        "enableWhen",
+        "headingDescription",
+        "component",
+        "sectionName",
+        "keywords",
+        "missing",
+        "controls",
+    }
+)
+_ALLOWED_CONTROL_KEYS = frozenset(
+    {
+        "comment",
+        "setting",
+        "label",
+        "control",
+        "showWhen",
+        "enableWhen",
+        "placeholder",
+        "value",
+        "component",
+        "enableCheckbox",
+        "button",
+    }
+)
 
 
 def load_page_def(json_path: Path) -> PageDef:
@@ -131,7 +161,9 @@ def load_page_def(json_path: Path) -> PageDef:
             # component/info controls have no fact; every other kind derives its fact
             # reference and objectName from setting, so a bad one must fail here with
             # context, not deep inside the emitter with an IndexError
-            if ctrl.control not in ("component", "info") and not _SETTING_RE.fullmatch(ctrl.setting):
+            if ctrl.control not in ("component", "info") and not _SETTING_RE.fullmatch(
+                ctrl.setting
+            ):
                 raise ValueError(
                     f"{json_path}: control setting must be 'settingsGroupAccessor.factName', "
                     f"got: {ctrl.setting!r} (control: {clamped_repr(ctrl_data)})"

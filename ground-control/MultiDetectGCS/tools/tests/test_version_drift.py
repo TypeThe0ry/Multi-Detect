@@ -49,7 +49,9 @@ def _lock_version(package: str) -> str:
     """Independently parse *package*'s pin from uv.lock (not via the helper under test)."""
     text = UV_LOCK.read_text(encoding="utf-8")
     match = re.search(
-        r'\[\[package\]\]\s*\nname\s*=\s*"' + re.escape(package) + r'"\s*\nversion\s*=\s*"([\d.]+)"',
+        r'\[\[package\]\]\s*\nname\s*=\s*"'
+        + re.escape(package)
+        + r'"\s*\nversion\s*=\s*"([\d.]+)"',
         text,
     )
     assert match, f"{package} package not found in tools/uv.lock"

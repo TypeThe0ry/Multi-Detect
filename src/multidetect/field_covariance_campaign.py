@@ -759,9 +759,7 @@ def capture_next(
     )
     if dry_run:
         if probe_report_out is not None:
-            raise FieldCovarianceCampaignError(
-                "--probe-report-out cannot be used with --dry-run"
-            )
+            raise FieldCovarianceCampaignError("--probe-report-out cannot be used with --dry-run")
         return 0, {
             **before,
             "source_preflight": preflight,
@@ -916,9 +914,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command != "verify-probe" and args.probe_report is not None:
             raise FieldCovarianceCampaignError("--probe-report is reserved for verify-probe")
         if args.command != "capture-next" and args.probe_report_out is not None:
-            raise FieldCovarianceCampaignError(
-                "--probe-report-out is reserved for capture-next"
-            )
+            raise FieldCovarianceCampaignError("--probe-report-out is reserved for capture-next")
         if args.command != "verify-probe" and args.maximum_age_seconds is not None:
             raise FieldCovarianceCampaignError("--maximum-age-seconds is reserved for verify-probe")
         if args.command == "status":

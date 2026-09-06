@@ -324,11 +324,14 @@ def calibrate_charuco_directory(
         raise ValueError("boresight uncertainty must be in (0, 10] degrees")
     if camera_offset_sigma_m < 0.0:
         raise ValueError("camera offset uncertainty cannot be negative")
-    if any(abs(value) > 100.0 for value in (
-        camera_offset_forward_m,
-        camera_offset_right_m,
-        camera_offset_down_m,
-    )):
+    if any(
+        abs(value) > 100.0
+        for value in (
+            camera_offset_forward_m,
+            camera_offset_right_m,
+            camera_offset_down_m,
+        )
+    ):
         raise ValueError("camera offset is outside the supported 100 m domain")
     if camera_offset_sigma_m > 100.0:
         raise ValueError("camera offset uncertainty is outside the supported 100 m domain")

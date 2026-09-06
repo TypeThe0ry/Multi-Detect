@@ -874,9 +874,7 @@ def test_person_reid_gate_override_does_not_relax_vehicle_association() -> None:
     person_update = person_pool.update(
         frame_id="person-override-2",
         captured_at_s=1.1,
-        observations=(
-            _observation(0.31, 0.40, label="person", appearance=pose_changed_embedding),
-        ),
+        observations=(_observation(0.31, 0.40, label="person", appearance=pose_changed_embedding),),
     )
 
     vehicle_pool.update(
@@ -887,9 +885,7 @@ def test_person_reid_gate_override_does_not_relax_vehicle_association() -> None:
     vehicle_update = vehicle_pool.update(
         frame_id="vehicle-override-2",
         captured_at_s=1.1,
-        observations=(
-            _observation(0.31, 0.40, label="car", appearance=pose_changed_embedding),
-        ),
+        observations=(_observation(0.31, 0.40, label="car", appearance=pose_changed_embedding),),
     )
 
     assert person_update.created_track_ids == ()

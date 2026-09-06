@@ -1250,9 +1250,7 @@ def test_model_check_supports_raw_ultralytics_contract(tmp_path, monkeypatch, ca
     assert _RawDetector.received_config.maximum_detections == 17
 
 
-def test_model_check_rejects_normalized_coordinates_for_raw_contract(
-    tmp_path, capsys
-) -> None:
+def test_model_check_rejects_normalized_coordinates_for_raw_contract(tmp_path, capsys) -> None:
     model = tmp_path / "raw.onnx"
     model.write_bytes(b"deterministic-raw-test-model")
 

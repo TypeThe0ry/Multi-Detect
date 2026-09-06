@@ -17,7 +17,9 @@ def clamped_repr(value: object) -> str:
     return _repr.repr(value)
 
 
-def reject_unknown_keys(data: object, allowed: frozenset[str], context: str, source: object) -> None:
+def reject_unknown_keys(
+    data: object, allowed: frozenset[str], context: str, source: object
+) -> None:
     """Fail the build loudly on unknown keys so typos can't silently drop generated UI.
 
     `source` identifies the offending JSON file in the error (path or filename).

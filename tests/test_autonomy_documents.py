@@ -87,9 +87,12 @@ def test_context_and_task_documents_round_trip() -> None:
     assert ContextSnapshot.from_mapping(context.to_mapping()) == context
     assert ResolvedTaskSpec.from_mapping(task.to_mapping()) == task
     assert task.ready_for_planning is True
-    assert context.canonical_hash == ContextSnapshot.from_mapping(
-        dict(reversed(tuple(context.to_mapping().items())))
-    ).canonical_hash
+    assert (
+        context.canonical_hash
+        == ContextSnapshot.from_mapping(
+            dict(reversed(tuple(context.to_mapping().items())))
+        ).canonical_hash
+    )
 
 
 def test_unresolved_assumptions_fail_the_planning_readiness_gate() -> None:
@@ -113,6 +116,4 @@ def test_strict_json_loader_rejects_ambiguous_evidence_values(
     with pytest.raises(AutonomyContractError, match=message):
         strict_json_loads(("\ufeff" + payload).encode("utf-8"), name="evidence")
 
-    assert strict_json_loads(b'{"gate_passed":true}', name="evidence") == {
-        "gate_passed": True
-    }
+    assert strict_json_loads(b'{"gate_passed":true}', name="evidence") == {"gate_passed": True}

@@ -49,11 +49,7 @@ class DepthGridDatagramCodec:
 
     @property
     def maximum_fragment_payload_bytes(self) -> int:
-        return (
-            self.maximum_datagram_bytes
-            - DEPTH_GRID_HEADER.size
-            - DEPTH_GRID_AUTH_TAG_BYTES
-        )
+        return self.maximum_datagram_bytes - DEPTH_GRID_HEADER.size - DEPTH_GRID_AUTH_TAG_BYTES
 
     def encode(
         self,

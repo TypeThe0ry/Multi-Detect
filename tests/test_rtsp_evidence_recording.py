@@ -93,9 +93,7 @@ def test_rtsp_evidence_recording_is_hash_bound_redacted_stream_copy(tmp_path: Pa
     assert "SECRET_USER" not in manifest.read_text(encoding="utf-8")
     assert "SECRET_PASSWORD" not in manifest.read_text(encoding="utf-8")
     schema = json.loads(
-        (ROOT / "configs/schemas/rtsp-evidence-recording.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "configs/schemas/rtsp-evidence-recording.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)

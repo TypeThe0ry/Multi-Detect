@@ -35,9 +35,7 @@ def main() -> int:
     source_root = args.source_root.resolve()
     output_root = args.out.resolve()
     counts = {
-        split: _convert_split(
-            source_root / f"VisDrone2019-DET-{source_name}", output_root, split
-        )
+        split: _convert_split(source_root / f"VisDrone2019-DET-{source_name}", output_root, split)
         for split, source_name in (("train", "train"), ("val", "val"))
     }
     yaml_path = output_root / "visdrone-local.yaml"
@@ -110,9 +108,7 @@ def _convert_split(source: Path, output_root: Path, split: str) -> dict[str, int
                     f"{class_id} {center_x:.6f} {center_y:.6f} "
                     f"{box_width / width:.6f} {box_height / height:.6f}\n"
                 )
-        (output_labels / f"{image_path.stem}.txt").write_text(
-            "".join(lines), encoding="utf-8"
-        )
+        (output_labels / f"{image_path.stem}.txt").write_text("".join(lines), encoding="utf-8")
         image_count += 1
         object_count += len(lines)
     return {"images": image_count, "objects": object_count}

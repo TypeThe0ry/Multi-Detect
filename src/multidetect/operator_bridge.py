@@ -1178,9 +1178,7 @@ class LiveOperatorBridge:
             if error is None:
                 break
             detail = str(error).strip()
-            errors.append(
-                f"{type(error).__name__}: {detail}" if detail else type(error).__name__
-            )
+            errors.append(f"{type(error).__name__}: {detail}" if detail else type(error).__name__)
         return errors
 
     def _mission_status_due(self, status: MissionStatusMessage) -> bool:

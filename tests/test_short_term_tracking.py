@@ -507,12 +507,8 @@ def test_background_homography_compensates_material_perspective_for_detector_gap
     )
     first = background.copy()
     first[32:74, 38:86] = patch
-    source_corners = np.float32(
-        ((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1))
-    )
-    destination_corners = np.float32(
-        ((4, 5), (316, 1), (310, 177), (12, 174))
-    )
+    source_corners = np.float32(((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1)))
+    destination_corners = np.float32(((4, 5), (316, 1), (310, 177), (12, 174)))
     transform = cv2.getPerspectiveTransform(source_corners, destination_corners)
     second = cv2.warpPerspective(
         first,
@@ -743,9 +739,7 @@ def test_camera_warped_retained_template_recovers_after_occlusion_and_two_attitu
         pixel_homography = np.vstack((affine, (0.0, 0.0, 1.0))).astype(np.float64)
         pixel_to_normalized = np.diag((1.0 / width, 1.0 / height, 1.0))
         normalized_to_pixel = np.diag((float(width), float(height), 1.0))
-        normalized_homography = (
-            pixel_to_normalized @ pixel_homography @ normalized_to_pixel
-        )
+        normalized_homography = pixel_to_normalized @ pixel_homography @ normalized_to_pixel
         normalized_homography /= normalized_homography[2, 2]
         transformed_center = normalized_homography @ np.asarray((0.5, 0.5, 1.0))
         transformed_center /= transformed_center[2]

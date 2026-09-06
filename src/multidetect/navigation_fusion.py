@@ -172,9 +172,7 @@ class NavigationFusionConfig:
         if (
             isinstance(self.minimum_gps_satellites, bool)
             or not isinstance(self.minimum_gps_satellites, int)
-            or not MAVLINK_QUALIFIED_SATELLITES_MIN
-            <= self.minimum_gps_satellites
-            <= 64
+            or not MAVLINK_QUALIFIED_SATELLITES_MIN <= self.minimum_gps_satellites <= 64
         ):
             raise ValueError(
                 "minimum GPS satellite count must be an integer in "
@@ -573,14 +571,10 @@ class NavigationVelocityFusionEngine:
         east_mps = airspeed.airspeed_mps * math.sin(heading_rad) + wind.east_mps
         if math.hypot(north_mps, east_mps) > self.config.maximum_ground_speed_mps:
             return None, "velocity_out_of_range"
-        heading_sigma_mps = airspeed.airspeed_mps * math.radians(
-            airspeed.heading_sigma_deg
-        )
+        heading_sigma_mps = airspeed.airspeed_mps * math.radians(airspeed.heading_sigma_deg)
         sigma_mps = max(
             self.config.minimum_velocity_sigma_mps,
-            math.sqrt(
-                airspeed.sigma_mps**2 + wind.sigma_mps**2 + heading_sigma_mps**2
-            ),
+            math.sqrt(airspeed.sigma_mps**2 + wind.sigma_mps**2 + heading_sigma_mps**2),
         )
         return (
             _VelocityCandidate(
@@ -605,14 +599,20 @@ class NavigationVelocityFusionEngine:
     ) -> NavigationVelocitySolution:
         weights = tuple(1.0 / candidate.sigma_mps**2 for candidate in accepted)
         weight_sum = sum(weights)
-        north_mps = sum(
-            weight * candidate.north_mps
-            for weight, candidate in zip(weights, accepted, strict=True)
-        ) / weight_sum
-        east_mps = sum(
-            weight * candidate.east_mps
-            for weight, candidate in zip(weights, accepted, strict=True)
-        ) / weight_sum
+        north_mps = (
+            sum(
+                weight * candidate.north_mps
+                for weight, candidate in zip(weights, accepted, strict=True)
+            )
+            / weight_sum
+        )
+        east_mps = (
+            sum(
+                weight * candidate.east_mps
+                for weight, candidate in zip(weights, accepted, strict=True)
+            )
+            / weight_sum
+        )
         ground_speed_mps = math.hypot(north_mps, east_mps)
         track_deg = None
         if ground_speed_mps > 1e-9:
@@ -627,10 +627,7 @@ class NavigationVelocityFusionEngine:
         # ratio, matching the multimodal ranging path, and keep the result
         # advisory-only/degraded.
         residual_chi2 = math.fsum(
-            (
-                (candidate.north_mps - north_mps) ** 2
-                + (candidate.east_mps - east_mps) ** 2
-            )
+            ((candidate.north_mps - north_mps) ** 2 + (candidate.east_mps - east_mps) ** 2)
             / max(candidate.sigma_mps**2, self.config.minimum_velocity_sigma_mps**2)
             for candidate in accepted
         )

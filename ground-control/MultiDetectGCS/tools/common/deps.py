@@ -44,5 +44,6 @@ def check_and_report(tools: list[str], *, exit_on_missing: bool = True) -> bool:
         log_error(f"Missing: {tool}")
     if exit_on_missing:
         import sys
+
         sys.exit(1)
     return False

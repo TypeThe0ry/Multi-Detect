@@ -446,9 +446,7 @@ def main() -> int:
             vetoed_counts.update(item.label for item in vetoed_detections)
             stable_counts.update(item.label for item in stable_detections)
             if expected_presence is not None:
-                expected_presence["raw"].append(
-                    _has_expected_label(raw_detections, expected_label)
-                )
+                expected_presence["raw"].append(_has_expected_label(raw_detections, expected_label))
                 expected_presence["thresholded"].append(
                     _has_expected_label(thresholded_detections, expected_label)
                 )

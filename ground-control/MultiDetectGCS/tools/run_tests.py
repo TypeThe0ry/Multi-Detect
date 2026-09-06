@@ -205,7 +205,9 @@ class QtTestRunner:
 
         return result
 
-    def _build_command(self, binary: Path, test_args: list[str]) -> tuple[list[str], dict[str, str]]:
+    def _build_command(
+        self, binary: Path, test_args: list[str]
+    ) -> tuple[list[str], dict[str, str]]:
         """Build the command to run tests, handling virtual display if needed.
 
         Returns (command, extra_env) tuple.

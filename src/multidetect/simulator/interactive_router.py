@@ -203,9 +203,7 @@ class SimulatorInteractiveRouterConfig:
         ):
             _validate_port(value, name)
             if int(value) == PROTECTED_GROUND_STATION_PORT:
-                raise SimulationIsolationError(
-                    f"{name} cannot use protected UDP 14550"
-                )
+                raise SimulationIsolationError(f"{name} cannot use protected UDP 14550")
         if len({self.qgc_input_port, self.qgc_output_port, self.px4_input_port}) != 3:
             raise SimulationIsolationError("interactive router UDP ports must be distinct")
         output_host, output_port = _parse_loopback_udpout(self.px4_output_endpoint)
@@ -409,9 +407,7 @@ class SimulatorInteractiveRouterSummary:
             "telemetry_sink_enabled": bool(telemetry_sink_enabled),
             "px4_telemetry_sink_frames": self.px4_telemetry_sink_frames,
             "px4_telemetry_sink_errors": self.px4_telemetry_sink_errors,
-            "px4_telemetry_sink_message_ids": _counter_mapping(
-                self.px4_telemetry_sink_message_ids
-            ),
+            "px4_telemetry_sink_message_ids": _counter_mapping(self.px4_telemetry_sink_message_ids),
             "px4_telemetry_sink_last_error": self.px4_telemetry_sink_last_error,
             "watchdog_ticks": self.watchdog_ticks,
             "watchdog_sink_enabled": bool(watchdog_sink_enabled),
@@ -437,9 +433,7 @@ class SimulatorInteractiveRouterSummary:
             "lifecycle_sink_errors": self.lifecycle_sink_errors,
             "lifecycle_sink_last_error": self.lifecycle_sink_last_error,
             "sim_flight_command_allowlist": sorted(SIM_FLIGHT_COMMAND_ALLOWLIST),
-            "sim_flight_mission_command_allowlist": sorted(
-                SIM_FLIGHT_MISSION_COMMAND_ALLOWLIST
-            ),
+            "sim_flight_mission_command_allowlist": sorted(SIM_FLIGHT_MISSION_COMMAND_ALLOWLIST),
             "ready": ready,
             "throttle_wire_mode": config.throttle_wire_mode,
             "literal_loopback_only": True,
@@ -487,9 +481,7 @@ class SimulatorInteractiveRouter:
             callable(getattr(lifecycle_sink, name, None))
             for name in ("command_long_send", "set_mode_send")
         ):
-            raise TypeError(
-                "lifecycle_sink must expose command_long_send or set_mode_send"
-            )
+            raise TypeError("lifecycle_sink must expose command_long_send or set_mode_send")
         self._lifecycle_sink = lifecycle_sink
         self.qgc_decoder = MavlinkFrameDecoder(
             maximum_buffer_bytes=self.config.maximum_decoder_buffer_bytes
@@ -530,12 +522,9 @@ class SimulatorInteractiveRouter:
         """Install/clear the optional deterministic lifecycle command sink."""
 
         if sink is not None and not any(
-            callable(getattr(sink, name, None))
-            for name in ("command_long_send", "set_mode_send")
+            callable(getattr(sink, name, None)) for name in ("command_long_send", "set_mode_send")
         ):
-            raise TypeError(
-                "lifecycle_sink must expose command_long_send or set_mode_send"
-            )
+            raise TypeError("lifecycle_sink must expose command_long_send or set_mode_send")
         with self._run_lock:
             self._lifecycle_sink = sink
 
@@ -690,9 +679,7 @@ class SimulatorInteractiveRouter:
                 return
         except Exception as exc:  # pragma: no cover - defensive transport edge.
             self.summary.lifecycle_sink_errors += 1
-            self.summary.lifecycle_sink_last_error = (
-                f"{type(exc).__name__}: {str(exc)[:240]}"
-            )
+            self.summary.lifecycle_sink_last_error = f"{type(exc).__name__}: {str(exc)[:240]}"
         else:
             self.summary.lifecycle_sink_calls += 1
 
@@ -769,9 +756,7 @@ class SimulatorInteractiveRouter:
                 result = sink(float(stamp))
             except Exception as exc:
                 self.summary.watchdog_sink_errors += 1
-                self.summary.watchdog_sink_last_error = (
-                    f"{type(exc).__name__}: {str(exc)[:240]}"
-                )
+                self.summary.watchdog_sink_last_error = f"{type(exc).__name__}: {str(exc)[:240]}"
             else:
                 self.summary.watchdog_sink_calls += 1
                 return result
@@ -904,10 +889,15 @@ class SimulatorInteractiveRouter:
         self.process_px4_datagram(datagram, source=source, timestamp_s=self.clock())
 
     def _source_reason(self, source: tuple[str, int], *, expected_port: int | None) -> str | None:
-        if not isinstance(source, tuple) or not source or source[0] not in {
-            LOOPBACK_HOST,
-            IPV6_LOOPBACK_HOST,
-        }:
+        if (
+            not isinstance(source, tuple)
+            or not source
+            or source[0]
+            not in {
+                LOOPBACK_HOST,
+                IPV6_LOOPBACK_HOST,
+            }
+        ):
             return "non_loopback_source"
         if expected_port is not None:
             if len(source) < 2:
@@ -993,9 +983,7 @@ class SimulatorInteractiveRouter:
         # remain read-only, while the explicit sim_flight mode may forward a
         # tiny, field-validated lifecycle subset.
         if frame.message_id == MSG_COMMAND_LONG:
-            if self.config.qgc_control_mode == "sim_flight" and not qgc_frame_is_read_only(
-                frame
-            ):
+            if self.config.qgc_control_mode == "sim_flight" and not qgc_frame_is_read_only(frame):
                 return self._sim_flight_command_rejection_reason(frame)
             if not self._qgc_frame_is_read_only_for_config(frame):
                 return "qgc_message_not_allowed"
@@ -1261,9 +1249,7 @@ class SimulatorInteractiveRouter:
             sink(frame, stamp)
         except Exception as exc:
             self.summary.px4_telemetry_sink_errors += 1
-            self.summary.px4_telemetry_sink_last_error = (
-                f"{type(exc).__name__}: {str(exc)[:240]}"
-            )
+            self.summary.px4_telemetry_sink_last_error = f"{type(exc).__name__}: {str(exc)[:240]}"
             return
         self.summary.px4_telemetry_sink_frames += 1
         self.summary.px4_telemetry_sink_message_ids[frame.message_id] += 1
@@ -1329,9 +1315,7 @@ def _zero_or_nan(values: tuple[float, ...]) -> bool:
     """Accept protocol's zero or NaN ('unspecified') padding, never infinity."""
 
     return all(
-        math.isnan(value)
-        or math.isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-6)
-        for value in values
+        math.isnan(value) or math.isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-6) for value in values
     )
 
 
@@ -1576,9 +1560,7 @@ def _build_frame_for_cli(
     if throttle_wire_mode not in {"auto", "qgc_legacy", "signed"}:
         raise ValueError("throttle_wire_mode must be auto, qgc_legacy or signed")
     wire_throttle = (
-        round(throttle * 2000 - 1000)
-        if throttle_wire_mode == "signed"
-        else round(throttle * 1000)
+        round(throttle * 2000 - 1000) if throttle_wire_mode == "signed" else round(throttle * 1000)
     )
     values = (round(pitch * 1000), round(roll * 1000), wire_throttle, round(yaw * 1000))
     if not all(-1000 <= value <= 1000 for value in values):

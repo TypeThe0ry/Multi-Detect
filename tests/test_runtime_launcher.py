@@ -193,9 +193,7 @@ def test_identity_hashes_are_stable_and_exclude_operational_state() -> None:
         _FakePixhawk(config),
         airframe_profile_hash=HASH_A,
     )
-    assert runtime_identity.firmware_identity_hash == (
-        _autopilot_version_identity().identity_hash
-    )
+    assert runtime_identity.firmware_identity_hash == (_autopilot_version_identity().identity_hash)
 
 
 def test_missing_heartbeat_cannot_become_a_valid_vehicle_binding() -> None:
@@ -426,9 +424,7 @@ def test_output_command_cannot_be_the_first_profile_attestation_event() -> None:
     assert len(connection.mode_calls) == 1
 
 
-def test_real_launcher_locks_legacy_firmwareless_flight_profile(
-    tmp_path, monkeypatch
-) -> None:
+def test_real_launcher_locks_legacy_firmwareless_flight_profile(tmp_path, monkeypatch) -> None:
     config, vehicle_hash, endpoint_hash = _identity()
     monkeypatch.setattr(launcher_module, "PixhawkReadOnlyTelemetryProvider", _FakePixhawk)
     profile_path = _write(
@@ -540,9 +536,7 @@ def test_unresolved_auto_endpoint_does_not_hash_the_literal_request() -> None:
                 mavlink_version=3,
             )
 
-    observed = build_pixhawk_runtime_identity(
-        _UnresolvedAuto(), airframe_profile_hash=HASH_A
-    )
+    observed = build_pixhawk_runtime_identity(_UnresolvedAuto(), airframe_profile_hash=HASH_A)
     assert observed.endpoint_binding_hash != derive_endpoint_binding_hash(config)
 
 
@@ -563,11 +557,16 @@ def test_failed_launch_closes_owned_sources(tmp_path, monkeypatch) -> None:
     )
     profile_path = tmp_path / "unsigned.json"
     profile_path.write_text(
-        json.dumps({"schema_version": 1, "profile": RuntimeProfile.hil(
-            vehicle_identity_hash=HASH_A,
-            airframe_profile_hash=HASH_A,
-            endpoint_binding_hash=HASH_B,
-        ).to_mapping()}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profile": RuntimeProfile.hil(
+                    vehicle_identity_hash=HASH_A,
+                    airframe_profile_hash=HASH_A,
+                    endpoint_binding_hash=HASH_B,
+                ).to_mapping(),
+            }
+        ),
         encoding="utf-8",
     )
 

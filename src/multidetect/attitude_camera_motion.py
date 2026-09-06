@@ -115,9 +115,7 @@ class AttitudeCameraMotionEstimator:
             0.0,
             1.0 - abs(captured_at_s - observed_at_s) / self.config.maximum_attitude_image_skew_s,
         )
-        return self.config.minimum_confidence + (
-            1.0 - self.config.minimum_confidence
-        ) * freshness
+        return self.config.minimum_confidence + (1.0 - self.config.minimum_confidence) * freshness
 
 
 def _camera_to_ned_rotation(

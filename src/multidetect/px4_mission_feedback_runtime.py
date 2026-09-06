@@ -71,9 +71,7 @@ def _runtime_mode(value: RuntimeMode | str) -> RuntimeMode:
                 "runtime_mode must be 'hil' or 'real'"
             ) from exc
     if mode not in PX4_MISSION_FEEDBACK_RUNTIME_MODES:
-        raise Px4MissionFeedbackRuntimeBindingError(
-            "runtime_mode must be 'hil' or 'real'"
-        )
+        raise Px4MissionFeedbackRuntimeBindingError("runtime_mode must be 'hil' or 'real'")
     return mode
 
 
@@ -248,9 +246,7 @@ def _binding_reasons(
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if profile.profile_id is not _expected_profile_id(mode):
-        reasons.append(
-            f"{mode.value}_runtime_profile_must_be_{_expected_profile_id(mode).value}"
-        )
+        reasons.append(f"{mode.value}_runtime_profile_must_be_{_expected_profile_id(mode).value}")
     if mode is RuntimeMode.HIL and identity.signing_identity_hash is not None:
         reasons.append("hil_runtime_must_not_bind_signing_identity")
     if not _heartbeat_complete(heartbeat):
@@ -300,17 +296,11 @@ def build_px4_mission_feedback_runtime_binding(
     """Build a signed, receive-only runtime binding for one observation."""
 
     if not isinstance(mission, ExecutableMission):
-        raise Px4MissionFeedbackRuntimeBindingError(
-            "mission must be an ExecutableMission"
-        )
+        raise Px4MissionFeedbackRuntimeBindingError("mission must be an ExecutableMission")
     if not isinstance(feedback, Px4MissionFeedbackSnapshot):
-        raise Px4MissionFeedbackRuntimeBindingError(
-            "feedback must be a Px4MissionFeedbackSnapshot"
-        )
+        raise Px4MissionFeedbackRuntimeBindingError("feedback must be a Px4MissionFeedbackSnapshot")
     mode = _runtime_mode(runtime_mode)
-    profile_path, payload, _, source_profile, key_id = _profile_document(
-        runtime_profile_path
-    )
+    profile_path, payload, _, source_profile, key_id = _profile_document(runtime_profile_path)
     clean_expected_key_id = require_text(expected_key_id, "expected_key_id")
     if key_id != clean_expected_key_id:
         raise Px4MissionFeedbackRuntimeBindingError(
@@ -451,10 +441,13 @@ def verify_px4_mission_feedback_runtime_binding(
             "runtime_binding.profile_document_sha256",
         )
         profile = RuntimeProfile.from_mapping(value["profile"])
-        if require_sha256(
-            value["profile_sha256"],
-            "runtime_binding.profile_sha256",
-        ) != profile.canonical_hash:
+        if (
+            require_sha256(
+                value["profile_sha256"],
+                "runtime_binding.profile_sha256",
+            )
+            != profile.canonical_hash
+        ):
             raise Px4MissionFeedbackRuntimeBindingError(
                 "runtime_binding profile_sha256 does not match profile"
             )
@@ -486,9 +479,7 @@ def verify_px4_mission_feedback_runtime_binding(
                 "runtime_binding airframe identity does not match Mission"
             )
         derived_vehicle_identity = (
-            derive_vehicle_identity_hash(heartbeat)
-            if _heartbeat_complete(heartbeat)
-            else None
+            derive_vehicle_identity_hash(heartbeat) if _heartbeat_complete(heartbeat) else None
         )
         if identity.vehicle_identity_hash != derived_vehicle_identity:
             raise Px4MissionFeedbackRuntimeBindingError(

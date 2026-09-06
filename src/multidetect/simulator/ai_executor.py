@@ -260,9 +260,7 @@ class SimulatorTelemetrySnapshot:
 
         return (
             self.gps_fix_type is not None
-            and MAVLINK_QUALIFIED_FIX_TYPE_MIN
-            <= self.gps_fix_type
-            <= MAVLINK_GPS_FIX_TYPE_MAX
+            and MAVLINK_QUALIFIED_FIX_TYPE_MIN <= self.gps_fix_type <= MAVLINK_GPS_FIX_TYPE_MAX
             and self.satellites_visible is not None
             and MAVLINK_QUALIFIED_SATELLITES_MIN
             <= self.satellites_visible
@@ -276,9 +274,7 @@ class SimulatorTelemetrySnapshot:
             <= float(self.gps_horizontal_accuracy_m)
             <= GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M
             and _finite(self.gps_vertical_accuracy_m)
-            and 0.0
-            <= float(self.gps_vertical_accuracy_m)
-            <= GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M
+            and 0.0 <= float(self.gps_vertical_accuracy_m) <= GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M
             and self.gps_observed_at_s is not None
             and _finite(self.gps_observed_at_s)
             and float(self.gps_observed_at_s) >= 0.0
@@ -298,9 +294,7 @@ class SimulatorTelemetrySnapshot:
                 values["observed_at_s"] = values.pop("time_s")
         if "observed_at_s" not in values:
             raise ValueError("telemetry snapshot requires observed_at_s or timestamp_s")
-        allowed = {
-            item.name for item in SimulatorTelemetrySnapshot.__dataclass_fields__.values()
-        }
+        allowed = {item.name for item in SimulatorTelemetrySnapshot.__dataclass_fields__.values()}
         values = {name: value for name, value in values.items() if name in allowed}
         return cls(**values)
 
@@ -448,7 +442,9 @@ class SimulatorAiDecision:
             "command": None if self.command is None else self.command.to_mapping(),
             "accepted": self.accepted,
             "executed": self.accepted,
-            "receipt": None if self.receipt is None else {
+            "receipt": None
+            if self.receipt is None
+            else {
                 "source": self.receipt.source,
                 "state": self.receipt.state,
                 "endpoint": self.receipt.endpoint,
@@ -701,9 +697,7 @@ class DeterministicSimulatorAiPolicy:
         assert snapshot.target_distance_m is not None
         bearing_error = _angle_delta_deg(float(snapshot.target_bearing_deg))
         yaw = limits.yaw(
-            self.config.bearing_gain
-            * bearing_error
-            / self.config.target_bearing_full_scale_deg
+            self.config.bearing_gain * bearing_error / self.config.target_bearing_full_scale_deg
         )
         roll = limits.roll(yaw * self.config.roll_coupling)
         distance_error = float(snapshot.target_distance_m) - self.config.desired_target_distance_m
@@ -719,9 +713,7 @@ class DeterministicSimulatorAiPolicy:
             return None
         bearing_error = _angle_delta_deg(float(snapshot.home_bearing_deg))
         yaw = limits.yaw(
-            self.config.bearing_gain
-            * bearing_error
-            / self.config.target_bearing_full_scale_deg
+            self.config.bearing_gain * bearing_error / self.config.target_bearing_full_scale_deg
         )
         roll = limits.roll(yaw * self.config.roll_coupling)
         # A positive pitch is the forward command used by the same normalized
@@ -732,9 +724,7 @@ class DeterministicSimulatorAiPolicy:
         )
         return SimulatorAiCommand(roll, pitch, yaw, limits.throttle(self.config.return_throttle))
 
-    def _return_gps_valid(
-        self, snapshot: SimulatorTelemetrySnapshot, *, now_s: float
-    ) -> bool:
+    def _return_gps_valid(self, snapshot: SimulatorTelemetrySnapshot, *, now_s: float) -> bool:
         gps_observed_at_s = snapshot.gps_observed_at_s
         if gps_observed_at_s is None or not _finite(gps_observed_at_s):
             return False
@@ -768,12 +758,10 @@ class DeterministicSimulatorAiPolicy:
             <= MAVLINK_SATELLITES_MAX
             and _finite(snapshot.gps_horizontal_accuracy_m)
             and 0.0 <= float(snapshot.gps_horizontal_accuracy_m)
-            and float(snapshot.gps_horizontal_accuracy_m)
-            <= maximum_horizontal_accuracy_m
+            and float(snapshot.gps_horizontal_accuracy_m) <= maximum_horizontal_accuracy_m
             and _finite(snapshot.gps_vertical_accuracy_m)
             and 0.0 <= float(snapshot.gps_vertical_accuracy_m)
-            and float(snapshot.gps_vertical_accuracy_m)
-            <= maximum_vertical_accuracy_m
+            and float(snapshot.gps_vertical_accuracy_m) <= maximum_vertical_accuracy_m
         )
 
     @staticmethod
@@ -815,13 +803,16 @@ class _Limits:
             float(getattr(value, "max_throttle", cls.max_throttle)),
         )
         if (
-            not all(_finite(item) for item in (
-                result.max_roll,
-                result.max_pitch,
-                result.max_yaw,
-                result.min_throttle,
-                result.max_throttle,
-            ))
+            not all(
+                _finite(item)
+                for item in (
+                    result.max_roll,
+                    result.max_pitch,
+                    result.max_yaw,
+                    result.min_throttle,
+                    result.max_throttle,
+                )
+            )
             or not 0.0 < result.max_roll <= 1.0
             or not 0.0 < result.max_pitch <= 1.0
             or not 0.0 < result.max_yaw <= 1.0

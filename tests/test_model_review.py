@@ -118,8 +118,7 @@ def test_model_review_bundle_is_pending_without_review_or_runtime_evidence(tmp_p
     assert bundle.document["physical_release_enabled"] is False
     assert bundle.document["review_status"] == "pending"
     assert any(
-        "provenance review is pending" in reason
-        for reason in bundle.document["failure_reasons"]
+        "provenance review is pending" in reason for reason in bundle.document["failure_reasons"]
     )
     assert any("model-check evidence" in reason for reason in bundle.document["failure_reasons"])
     assert output.is_file()
@@ -211,8 +210,7 @@ def test_model_review_bundle_rejects_model_check_hash_mismatch(tmp_path: Path) -
 
     assert bundle.production_approval_eligible is False
     assert any(
-        "model-check model_sha256" in reason
-        for reason in bundle.document["failure_reasons"]
+        "model-check model_sha256" in reason for reason in bundle.document["failure_reasons"]
     )
 
 
@@ -288,8 +286,7 @@ def test_model_review_bundle_reopen_rejects_pending_bundle_when_required(tmp_pat
 
 def test_model_review_schema_keeps_control_and_approval_closed() -> None:
     schema_path = (
-        Path(__file__).resolve().parents[1]
-        / "configs/schemas/model-review-bundle.schema.json"
+        Path(__file__).resolve().parents[1] / "configs/schemas/model-review-bundle.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 

@@ -122,9 +122,7 @@ class RuntimeProfile:
             raise AutonomyContractError("capabilities must be an array")
         capabilities = tuple(self.capabilities)
         if any(not isinstance(item, RuntimeCapability) for item in capabilities):
-            raise AutonomyContractError(
-                "capabilities must contain only RuntimeCapability values"
-            )
+            raise AutonomyContractError("capabilities must contain only RuntimeCapability values")
         object.__setattr__(self, "capabilities", capabilities)
         expected_capabilities = _PROFILE_CAPABILITIES[self.profile_id]
         if capabilities != expected_capabilities:
@@ -186,9 +184,7 @@ class RuntimeProfile:
         value = strict_object(
             raw,
             name="RuntimeProfile",
-            required=frozenset(
-                {"schema_version", "profile_id", "capabilities", "endpoint_class"}
-            ),
+            required=frozenset({"schema_version", "profile_id", "capabilities", "endpoint_class"}),
             optional=frozenset(
                 {
                     "vehicle_identity_hash",
@@ -372,9 +368,7 @@ class RuntimeDescriptor:
             raise AutonomyContractError(
                 "descriptor airframe_profile_hash does not match runtime profile"
             )
-        object.__setattr__(
-            self, "scenario_id", optional_text(self.scenario_id, "scenario_id")
-        )
+        object.__setattr__(self, "scenario_id", optional_text(self.scenario_id, "scenario_id"))
         object.__setattr__(
             self,
             "scenario_manifest_hash",
@@ -452,9 +446,7 @@ class RuntimeDescriptor:
                     "Replay scenario provenance must be supplied as id, manifest hash and seed"
                 )
         if self.fault_injection_enabled and self.scenario_manifest_hash is None:
-            raise AutonomyContractError(
-                "fault injection requires scenario manifest provenance"
-            )
+            raise AutonomyContractError("fault injection requires scenario manifest provenance")
 
     @classmethod
     def from_mapping(cls, raw: object) -> RuntimeDescriptor:
@@ -501,12 +493,8 @@ class RuntimeDescriptor:
                 if value.get("scenario_seed") is None
                 else require_int(value["scenario_seed"], "scenario_seed", minimum=0)
             ),
-            recording_hash=optional_sha256(
-                value.get("recording_hash"), "recording_hash"
-            ),
-            deterministic=require_bool(
-                value["deterministic"], "deterministic"
-            ),
+            recording_hash=optional_sha256(value.get("recording_hash"), "recording_hash"),
+            deterministic=require_bool(value["deterministic"], "deterministic"),
             fault_injection_enabled=require_bool(
                 value["fault_injection_enabled"], "fault_injection_enabled"
             ),
@@ -637,9 +625,7 @@ class RuntimeRunReport:
             "descriptor_hash",
             require_sha256(self.descriptor_hash, "descriptor_hash"),
         )
-        object.__setattr__(
-            self, "input_hash", require_sha256(self.input_hash, "input_hash")
-        )
+        object.__setattr__(self, "input_hash", require_sha256(self.input_hash, "input_hash"))
         if not isinstance(self.processed_frame_ids, Sequence) or isinstance(
             self.processed_frame_ids, (str, bytes, bytearray)
         ):

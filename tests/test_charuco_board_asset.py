@@ -7,12 +7,7 @@ import cv2
 
 from multidetect.camera_calibration import CharucoBoardSpec, CompatibleCharucoDetector
 
-ASSET = (
-    Path(__file__).parents[1]
-    / "configs"
-    / "calibration"
-    / "charuco-7x5-40mm-20mm-4200px.png"
-)
+ASSET = Path(__file__).parents[1] / "configs" / "calibration" / "charuco-7x5-40mm-20mm-4200px.png"
 EXPECTED_SHA256 = "66AAF16F10689E9EDFF68B4684128E028AD89B09AABC55AB9CDC4D02521B23AC"
 
 

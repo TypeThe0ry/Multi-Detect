@@ -63,11 +63,13 @@ class TestValidatePath:
 
     def test_rejects_parent_traversal(self, tmp_path: Path) -> None:
         import pytest
+
         with pytest.raises(ValueError, match="must not contain"):
             validate_path("../etc/passwd", tmp_path)
 
     def test_rejects_absolute_path(self, tmp_path: Path) -> None:
         import pytest
+
         with pytest.raises(ValueError, match="must be relative"):
             validate_path("/etc/passwd", tmp_path)
 
@@ -89,5 +91,6 @@ class TestGetAnalyzer:
 
     def test_unknown_tool_raises(self, tmp_path: Path) -> None:
         import pytest
+
         with pytest.raises(ValueError, match="Unknown tool"):
             get_analyzer("nonexistent", tmp_path, tmp_path / "build")

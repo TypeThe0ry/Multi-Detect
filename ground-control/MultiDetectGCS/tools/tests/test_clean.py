@@ -93,7 +93,9 @@ def test_clean_generated_removes_pycache(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("flag", ["--dry-run", "--all --dry-run", "--cache --dry-run"])
-def test_main_dry_run_exits_zero(flag: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_dry_run_exits_zero(
+    flag: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # repo_root() is hardcoded to tools/..; redirect by chdir-ing into a fake tree.
     fake_tools = tmp_path / "tools"
     fake_tools.mkdir()

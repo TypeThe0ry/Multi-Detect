@@ -106,15 +106,9 @@ class MetricDepthConfig:
                 raise ValueError(
                     "metric-depth calibration curve values must be finite and positive"
                 )
-            if any(
-                right <= left
-                for left, right in pairwise(self.calibration_curve_raw_m)
-            ):
+            if any(right <= left for left, right in pairwise(self.calibration_curve_raw_m)):
                 raise ValueError("metric-depth calibration raw curve must increase")
-            if any(
-                right <= left
-                for left, right in pairwise(self.calibration_curve_actual_m)
-            ):
+            if any(right <= left for left, right in pairwise(self.calibration_curve_actual_m)):
                 raise ValueError("metric-depth calibration actual curve must increase")
         if not 16 <= self.grid_width <= 640 or not 16 <= self.grid_height <= 360:
             raise ValueError("metric-depth grid dimensions are outside the supported range")
@@ -342,9 +336,9 @@ class MetricDepthEstimator:
         left_slope = (actual_breakpoints[1] - actual_breakpoints[0]) / (
             raw_breakpoints[1] - raw_breakpoints[0]
         )
-        right_slope = (
-            actual_breakpoints[-1] - actual_breakpoints[-2]
-        ) / (raw_breakpoints[-1] - raw_breakpoints[-2])
+        right_slope = (actual_breakpoints[-1] - actual_breakpoints[-2]) / (
+            raw_breakpoints[-1] - raw_breakpoints[-2]
+        )
         calibrated = self._np.asarray(calibrated, dtype=self._np.float32)
         left_mask = raw_depth < raw_breakpoints[0]
         right_mask = raw_depth > raw_breakpoints[-1]

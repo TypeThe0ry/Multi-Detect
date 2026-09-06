@@ -40,7 +40,7 @@ def test_qgc_operator_acceptance_resolves_docker_desktop_when_path_is_missing() 
     assert "GET-COMMAND DOCKER" in upper
     assert "C:\\PROGRAM FILES\\DOCKER\\DOCKER\\RESOURCES\\BIN\\DOCKER.EXE" in upper
     assert "$DOCKER = $DOCKERCANDIDATES[0]" in upper
-    assert 'INVOKE-CAPTUREDCOMMAND -FILEPATH $DOCKER' in upper
+    assert "INVOKE-CAPTUREDCOMMAND -FILEPATH $DOCKER" in upper
 
 
 def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
@@ -52,7 +52,7 @@ def test_qgc_runs_only_in_isolated_hil_with_metadata_only_jetson() -> None:
     assert 'MULTIDETECT_OPERATOR_UDP_HOST = "127.0.0.1"' in upper
     assert 'MULTIDETECT_OPERATOR_UDP_PORT = "$OPERATORDRIVERPORT"' in upper
     assert 'MULTIDETECT_OPERATOR_UDP_LOCAL_PORT = "$QGCPORT"' in upper
-    assert 'MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $TEMPORARYSIGNINGKEYHEX' in upper
+    assert "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX = $TEMPORARYSIGNINGKEYHEX" in upper
     assert 'MULTIDETECT_HIL_UI_AUTO_EXERCISE = "1"' in upper
     assert '"--LOCAL-PORT", "$OPERATORDRIVERPORT"' in upper
     assert '"--SIGNING-KEY-HEX-ENV", "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX"' in upper
@@ -183,10 +183,9 @@ def test_acceptance_can_capture_the_same_native_qgc_pid_without_claiming_human_a
     assert "SINGLE_NATIVE_SURFACE_MACHINE_CHECK -EQ $TRUE" in upper
     assert 'OPERATOR_VISUAL_ACCEPTANCE -EQ "NOT_CLAIMED"' in upper
     assert "NATIVE_VISUAL_MACHINE_CAPTURE = $NATIVEVISUALOBSERVATION" in upper
-    assert 'IF (-NOT $CAPTURENATIVEVISUALEVIDENCE)' in upper
+    assert "IF (-NOT $CAPTURENATIVEVISUALEVIDENCE)" in upper
     assert '$QGCSTART.WINDOWSTYLE = "HIDDEN"' in upper
     assert (
-        'MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS = '
-        'IF ($CAPTURENATIVEVISUALEVIDENCE) { "8000" } ELSE { "0" }'
-        in upper
+        "MULTIDETECT_HIL_UI_AUTO_EXIT_DELAY_MS = "
+        'IF ($CAPTURENATIVEVISUALEVIDENCE) { "8000" } ELSE { "0" }' in upper
     )

@@ -148,9 +148,7 @@ def load_candidates(
                 audit_sequence=_positive_int(event["sequence"], "audit sequence"),
                 audit_timestamp_s=audit_timestamp_s,
                 raw_depth_m=raw_depth_m,
-                calibrated_depth_m=_positive_float(
-                    details.get("slant_range_m"), "slant_range_m"
-                ),
+                calibrated_depth_m=_positive_float(details.get("slant_range_m"), "slant_range_m"),
                 sigma_m=_positive_float(details.get("sigma_m"), "sigma_m"),
                 calibration_profile=_nonempty_string(
                     details.get("calibration_profile"), "calibration_profile"

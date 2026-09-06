@@ -241,9 +241,7 @@ def test_capture_persists_and_independently_reloads_online_preflight_before_proc
     probe_path = tmp_path / "journal" / "online-preflight.json"
     events: list[str] = []
 
-    def write_probe(
-        path: Path, document: dict[str, object], *, overwrite: bool
-    ) -> Path:
+    def write_probe(path: Path, document: dict[str, object], *, overwrite: bool) -> Path:
         assert overwrite is False
         events.append("write-probe")
         path.parent.mkdir(parents=True)
@@ -567,9 +565,7 @@ def test_cli_status_output_cannot_overwrite_sources_reports_or_probe_artifact(
     config_path = _write_config(tmp_path)
     config = campaign.load_campaign_config(config_path)
     assert (
-        campaign.main(
-            ["status", "--config", str(config_path), "--status-out", str(config_path)]
-        )
+        campaign.main(["status", "--config", str(config_path), "--status-out", str(config_path)])
         == 2
     )
     assert "aliases" in capsys.readouterr().err

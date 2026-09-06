@@ -46,9 +46,15 @@ from scripts.gazebo_sensor_stream import (
 from scripts.gazebo_sensor_stream import main as sensor_stream_main
 
 TEST_ATTITUDE_COVARIANCE = (
-    0.0001, 0.0, 0.0,
-    0.0, 0.0004, 0.0,
-    0.0, 0.0, 0.0009,
+    0.0001,
+    0.0,
+    0.0,
+    0.0,
+    0.0004,
+    0.0,
+    0.0,
+    0.0,
+    0.0009,
 )
 
 
@@ -104,12 +110,42 @@ def _gazebo_message(*, stamp_ns: int, **fields: object) -> SimpleNamespace:
     if pose_with_covariance is not None and not hasattr(pose_with_covariance, "covariance"):
         pose_with_covariance.covariance = SimpleNamespace(
             data=[
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0001, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0004, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0009,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0001,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0004,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0009,
             ]
         )
     sec, nsec = divmod(stamp_ns, 1_000_000_000)
@@ -128,9 +164,18 @@ def _camera_info_message(**changes: object) -> SimpleNamespace:
         ),
         "projection": SimpleNamespace(
             p=[
-                539.93636802453, 0.0, 640.0, 0.0,
-                0.0, 539.93636802453, 480.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
+                539.93636802453,
+                0.0,
+                640.0,
+                0.0,
+                0.0,
+                539.93636802453,
+                480.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
             ]
         ),
         "rectification_matrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
@@ -180,9 +225,18 @@ def test_camera_info_semantics_match_repository_pinhole_calibration() -> None:
             {
                 "projection": SimpleNamespace(
                     p=[
-                        539.93636802453, 0.0, 640.0, 1.0,
-                        0.0, 539.93636802453, 480.0, 0.0,
-                        0.0, 0.0, 1.0, 0.0,
+                        539.93636802453,
+                        0.0,
+                        640.0,
+                        1.0,
+                        0.0,
+                        539.93636802453,
+                        480.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        0.0,
                     ]
                 )
             },
@@ -234,9 +288,7 @@ def _run_fake_gazebo_helper(
                         ),
                         width=2,
                         height=1,
-                        intrinsics=SimpleNamespace(
-                            k=[1.0, 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0]
-                        ),
+                        intrinsics=SimpleNamespace(k=[1.0, 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0]),
                         projection=SimpleNamespace(
                             p=[1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0]
                         ),
@@ -420,9 +472,7 @@ def _run_fake_gazebo_helper(
                                 pose_with_covariance=SimpleNamespace(
                                     pose=SimpleNamespace(
                                         position=SimpleNamespace(x=2.0, y=3.0, z=4.0),
-                                        orientation=SimpleNamespace(
-                                            x=0.0, y=0.0, z=0.0, w=1.0
-                                        ),
+                                        orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
                                     )
                                 ),
                                 twist_with_covariance=SimpleNamespace(
@@ -678,9 +728,15 @@ def _raw_odometry_message(covariance: object) -> SimpleNamespace:
 def test_odometry_extracts_angular_block_from_pose_covariance() -> None:
     covariance = [float(index) / 1000.0 for index in range(36)]
     angular = (
-        0.010, 0.002, 0.003,
-        0.002, 0.020, 0.004,
-        0.003, 0.004, 0.030,
+        0.010,
+        0.002,
+        0.003,
+        0.002,
+        0.020,
+        0.004,
+        0.003,
+        0.004,
+        0.030,
     )
     for row in range(3):
         for column in range(3):

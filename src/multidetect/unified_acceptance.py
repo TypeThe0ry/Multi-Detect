@@ -110,9 +110,7 @@ def run_unified_tracking_acceptance(
         # A process can be pre-empted (wall >> CPU) or OpenCV can fan out to
         # worker threads (CPU >> wall).  The minimum is the stable estimate of
         # the algorithm's own latency; both raw clocks remain observable.
-        association_samples_ms.append(
-            min(update.association_latency_ms, update_cpu_elapsed_ms)
-        )
+        association_samples_ms.append(min(update.association_latency_ms, update_cpu_elapsed_ms))
         snapshots = {item.track_id: item for item in update.tracks}
         if set(snapshots) != expected_track_ids:
             raise RuntimeError("unified target identities changed during the sustained benchmark")
@@ -137,9 +135,7 @@ def run_unified_tracking_acceptance(
     wall_p99_ms = _percentile(association_wall_samples_ms, 0.99)
     p95_capacity_hz = 1_000.0 / max(p95_ms, 1e-9)
     effective_benchmark_elapsed_s = min(benchmark_elapsed_s, benchmark_cpu_elapsed_s)
-    measured_end_to_end_rate_hz = cfg.benchmark_frames / max(
-        effective_benchmark_elapsed_s, 1e-9
-    )
+    measured_end_to_end_rate_hz = cfg.benchmark_frames / max(effective_benchmark_elapsed_s, 1e-9)
     wall_end_to_end_rate_hz = cfg.benchmark_frames / max(benchmark_elapsed_s, 1e-9)
     if (
         p95_capacity_hz < cfg.minimum_metadata_rate_hz
@@ -181,8 +177,7 @@ def run_unified_tracking_acceptance(
         "benchmark_effective_elapsed_s": effective_benchmark_elapsed_s,
         "measured_end_to_end_metadata_rate_hz": measured_end_to_end_rate_hz,
         "wall_end_to_end_metadata_rate_hz": wall_end_to_end_rate_hz,
-        "scheduler_contention_ratio": benchmark_elapsed_s
-        / max(benchmark_cpu_elapsed_s, 1e-9),
+        "scheduler_contention_ratio": benchmark_elapsed_s / max(benchmark_cpu_elapsed_s, 1e-9),
         "sustained_metadata_rate_hz_at_p95": p95_capacity_hz,
         "minimum_metadata_rate_hz": cfg.minimum_metadata_rate_hz,
         "short_occlusion": short_recovery,

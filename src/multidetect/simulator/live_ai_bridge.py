@@ -277,9 +277,7 @@ def _source_ids(message: object) -> tuple[int | None, int | None]:
             if system is None:
                 system = getattr(header, "srcSystem", getattr(header, "src_system", None))
             if component is None:
-                component = getattr(
-                    header, "srcComponent", getattr(header, "src_component", None)
-                )
+                component = getattr(header, "srcComponent", getattr(header, "src_component", None))
     try:
         system = None if system is None else int(system)
     except (TypeError, ValueError):
@@ -544,9 +542,7 @@ class SimulatorTelemetryBridge:
         self._perception_accepted = 0
         self._perception_rejected = 0
         self._perception_expired = 0
-        self._perception_rejections: deque[dict[str, object]] = deque(
-            maxlen=int(maximum_history)
-        )
+        self._perception_rejections: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
         self._last_perception: dict[str, object] | None = None
         self._history: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
         self._rejections: deque[dict[str, object]] = deque(maxlen=int(maximum_history))
@@ -658,9 +654,7 @@ class SimulatorTelemetryBridge:
                     sample = observation
                 elif isinstance(observation, Mapping):
                     values = dict(observation)
-                    if not any(
-                        key in values for key in ("observed_at_s", "timestamp_s", "time_s")
-                    ):
+                    if not any(key in values for key in ("observed_at_s", "timestamp_s", "time_s")):
                         values["observed_at_s"] = stamp
                     sample = SimulatorTelemetrySnapshot.from_mapping(values)
                 else:
@@ -968,9 +962,7 @@ class SimulatorTelemetryBridge:
         longitude_e7 = _wire_int32(_field(message, "lon"), unknown=_MAVLINK_INT32_MAX)
         coordinates = _valid_coordinate_pair(latitude_e7, longitude_e7)
 
-        fix_wire = _wire_integral(
-            _field(message, "fix_type"), minimum=0, maximum=255
-        )
+        fix_wire = _wire_integral(_field(message, "fix_type"), minimum=0, maximum=255)
         fix_type = normalize_gps_fix_type(fix_wire)
         satellites_wire = _wire_integral(
             _field(message, "satellites_visible"), minimum=0, maximum=255
@@ -980,9 +972,7 @@ class SimulatorTelemetryBridge:
         # INT32_MAX sentinel must not refresh ``gps_observed_at_s``: otherwise
         # an old coordinate can appear to have a current GPS fix even though
         # the frame cannot provide a complete navigation observation.
-        altitude_mm = _wire_int32(
-            _field(message, "alt"), unknown=_MAVLINK_INT32_MAX
-        )
+        altitude_mm = _wire_int32(_field(message, "alt"), unknown=_MAVLINK_INT32_MAX)
         eph = _wire_uint16(_field(message, "eph"), unknown=_MAVLINK_UINT16_MAX)
         epv = _wire_uint16(_field(message, "epv"), unknown=_MAVLINK_UINT16_MAX)
         velocity = _wire_uint16(_field(message, "vel"), unknown=_MAVLINK_UINT16_MAX)
@@ -992,9 +982,7 @@ class SimulatorTelemetryBridge:
         # previous value.
         latest["gps_fix_type"] = fix_type
         latest["satellites_visible"] = satellites
-        latest["gps_horizontal_accuracy_m"] = (
-            eph / 100.0 if eph is not None else math.nan
-        )
+        latest["gps_horizontal_accuracy_m"] = eph / 100.0 if eph is not None else math.nan
         latest["gps_vertical_accuracy_m"] = epv / 100.0 if epv is not None else math.nan
         if velocity is not None and self._timestamp_is_current(stamp, self._velocity_cursor_s):
             latest["ground_speed_mps"] = velocity / 100.0
@@ -1046,9 +1034,7 @@ class SimulatorTelemetryBridge:
         """Apply GLOBAL_POSITION_INT with per-field sentinel validation."""
 
         latest = self._latest
-        relative_alt_mm = _wire_int32(
-            _field(message, "relative_alt"), unknown=_MAVLINK_INT32_MAX
-        )
+        relative_alt_mm = _wire_int32(_field(message, "relative_alt"), unknown=_MAVLINK_INT32_MAX)
         if relative_alt_mm is not None and self._timestamp_is_current(
             stamp, self._altitude_cursor_s
         ):
@@ -1243,9 +1229,7 @@ class SimulatorTelemetryBridge:
         # retained separately in ``_apply``.
         return max(0.0, float(stamp) - self._last_heartbeat_at_s)
 
-    def _enforce_heartbeat_freshness(
-        self, stamp: float
-    ) -> SimulatorAiDecision | None:
+    def _enforce_heartbeat_freshness(self, stamp: float) -> SimulatorAiDecision | None:
         """Fail closed once when the PX4 heartbeat age crosses the timeout.
 
         The caller must hold ``self._lock``.  The returned decision is the

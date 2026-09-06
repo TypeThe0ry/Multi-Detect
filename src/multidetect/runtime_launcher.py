@@ -204,10 +204,7 @@ def _profile_identity_matches(profile: RuntimeProfile, identity: RuntimeIdentity
         (profile.airframe_profile_hash, identity.airframe_profile_hash),
         (profile.endpoint_binding_hash, identity.endpoint_binding_hash),
     )
-    if (
-        profile.firmware_identity_hash is not None
-        or profile.profile_id is RuntimeProfileId.FLIGHT
-    ):
+    if profile.firmware_identity_hash is not None or profile.profile_id is RuntimeProfileId.FLIGHT:
         required = (
             *required,
             (profile.firmware_identity_hash, identity.firmware_identity_hash),
@@ -238,9 +235,7 @@ class ProfileBoundFlightControlProvider(PixhawkFlightControlProvider):
         if expected_profile.profile_id is not RuntimeProfileId.FLIGHT:
             raise ValueError("profile-bound flight provider requires a flight profile")
         if expected_profile.firmware_identity_hash is None:
-            raise ValueError(
-                "profile-bound flight provider requires a firmware identity binding"
-            )
+            raise ValueError("profile-bound flight provider requires a firmware identity binding")
         selected_clock = clock or SystemClock()
         if not isinstance(selected_clock, Clock):
             raise TypeError("clock must implement Clock")
@@ -316,8 +311,7 @@ class ProfileBoundFlightControlProvider(PixhawkFlightControlProvider):
         heartbeat_gap = (
             previous_heartbeat_s is not None
             and self._last_heartbeat_s is not None
-            and self._last_heartbeat_s - previous_heartbeat_s
-            > self.config.stale_after_seconds
+            and self._last_heartbeat_s - previous_heartbeat_s > self.config.stale_after_seconds
         )
         heartbeat_changed = (
             previous_heartbeat.source_system_id is not None
@@ -412,9 +406,7 @@ class ProfileBoundFlightControlProvider(PixhawkFlightControlProvider):
         # event.  A prior receive-only snapshot must have established the epoch.
         if not self.profile_binding_attested:
             raise RuntimeError(self._profile_binding_reason)
-        failure, clear_firmware = self._profile_binding_failure(
-            now_s=self._clock.monotonic()
-        )
+        failure, clear_firmware = self._profile_binding_failure(now_s=self._clock.monotonic())
         if failure is not None:
             self._revoke_profile_binding(
                 failure,

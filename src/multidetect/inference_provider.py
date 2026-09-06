@@ -124,9 +124,7 @@ def create_onnxruntime_session(
         )
 
     attempt_lists = (
-        (candidates,)
-        if explicit
-        else tuple(candidates[index:] for index in range(len(candidates)))
+        (candidates,) if explicit else tuple(candidates[index:] for index in range(len(candidates)))
     )
     attempts: list[ProviderAttempt] = []
     failures: list[str] = []

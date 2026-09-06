@@ -120,9 +120,7 @@ def validation_report(
         },
         "all_measured": _metrics(all_residuals),
         "fitted_samples": _metrics(_residuals(fitted, mapper=profile.map_depth)),
-        "independent_holdout": _metrics(
-            _residuals(holdout, mapper=profile.map_depth)
-        ),
+        "independent_holdout": _metrics(_residuals(holdout, mapper=profile.map_depth)),
         "advisory_only": True,
         "automatic_calibration_update": False,
     }
@@ -167,9 +165,7 @@ def _load_rows(path: Path) -> tuple[Mapping[str, object], ...]:
                 name="outdoor depth calibration samples",
             )
         except (OSError, AutonomyContractError, TypeError) as exc:
-            raise ValueError(
-                f"JSON samples are not valid strict JSON: {exc}"
-            ) from exc
+            raise ValueError(f"JSON samples are not valid strict JSON: {exc}") from exc
         if isinstance(decoded, list) and all(isinstance(row, Mapping) for row in decoded):
             return tuple(decoded)
         raise ValueError("JSON samples must be a list of objects")
@@ -181,10 +177,7 @@ def _residuals(
     *,
     mapper: Callable[[float], float],
 ) -> tuple[float, ...]:
-    return tuple(
-        mapper(sample.raw_depth_m) - sample.actual_distance_m
-        for sample in samples
-    )
+    return tuple(mapper(sample.raw_depth_m) - sample.actual_distance_m for sample in samples)
 
 
 def _metrics(residuals: Iterable[float]) -> dict[str, float | int | None]:

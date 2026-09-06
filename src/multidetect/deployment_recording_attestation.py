@@ -47,9 +47,7 @@ def create_deployment_recording_attestation(
     normalized_stratum = _stratum(stratum)
     normalized_source = require_text(source_type, "source_type").lower()
     if normalized_source not in SOURCE_TYPES:
-        raise AutonomyContractError(
-            f"source_type must be one of: {', '.join(SOURCE_TYPES)}"
-        )
+        raise AutonomyContractError(f"source_type must be one of: {', '.join(SOURCE_TYPES)}")
     started = _utc(started_at_utc, "started_at_utc")
     ended = _utc(ended_at_utc, "ended_at_utc")
     _require_non_placeholder_start(started)
@@ -113,8 +111,7 @@ def write_deployment_recording_attestation(
         raise AutonomyContractError(f"deployment recording attestation already exists: {output}")
     document = create_deployment_recording_attestation(root, **values)
     payload = (
-        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True)
-        + "\n"
+        json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=root)
     temporary = Path(temporary_name)
@@ -163,9 +160,7 @@ def verify_deployment_recording_attestation(
     root = _recording_root(recording_root)
     path = root / ATTESTATION_NAME
     if path.is_symlink() or not path.is_file():
-        raise AutonomyContractError(
-            f"deployment recording source requires {ATTESTATION_NAME}"
-        )
+        raise AutonomyContractError(f"deployment recording source requires {ATTESTATION_NAME}")
     raw = strict_json_loads(path.read_bytes(), name="deployment recording attestation")
     value = strict_object(
         raw,
@@ -233,9 +228,7 @@ def verify_deployment_recording_attestation(
     ):
         raise AutonomyContractError("attested recording hash changed")
     if recording.started_at_utc != started:
-        raise AutonomyContractError(
-            "attested started_at_utc differs from recording manifest"
-        )
+        raise AutonomyContractError("attested started_at_utc differs from recording manifest")
     latest_event_at_s = _latest_event_at_s(recording)
     if ended < started + timedelta(seconds=latest_event_at_s):
         raise AutonomyContractError(
@@ -318,9 +311,7 @@ def _require_non_placeholder_start(value: datetime) -> None:
 def _stratum(value: object) -> str:
     normalized = require_text(value, "stratum").lower()
     if normalized not in REPLAY_SET_STRATA:
-        raise AutonomyContractError(
-            f"stratum must be one of: {', '.join(REPLAY_SET_STRATA)}"
-        )
+        raise AutonomyContractError(f"stratum must be one of: {', '.join(REPLAY_SET_STRATA)}")
     return normalized
 
 

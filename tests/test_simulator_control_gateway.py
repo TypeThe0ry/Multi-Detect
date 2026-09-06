@@ -195,9 +195,10 @@ def test_gateway_rejects_nonfinite_duration_and_post_stop_input() -> None:
     with pytest.raises(ValueError, match="finite"):
         gateway.run(duration_s=float("inf"))
     gateway.stop()
-    assert gateway.process_datagram(build_manual_control_frame(
-        pitch=0, roll=0, yaw=0, throttle=0.5
-    )) == ()
+    assert (
+        gateway.process_datagram(build_manual_control_frame(pitch=0, roll=0, yaw=0, throttle=0.5))
+        == ()
+    )
     assert gateway.evidence()["rejected_reasons"]["gateway_not_accepting"] == 1
 
 

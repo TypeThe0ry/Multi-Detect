@@ -2404,9 +2404,7 @@ class LiveMissionRunner:
                                     bbox=track.bbox,
                                     image_width_px=self.ranging_config.calibration.width_px,
                                     image_height_px=self.ranging_config.calibration.height_px,
-                                    minimum_sigma_px=(
-                                        self.ranging_config.target_center_sigma_px
-                                    ),
+                                    minimum_sigma_px=(self.ranging_config.target_center_sigma_px),
                                 )
                                 target_observation = anchor.observation(
                                     target_id=track.track_id,

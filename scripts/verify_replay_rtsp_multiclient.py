@@ -72,7 +72,6 @@ class EventReader:
         except BaseException as exc:  # the main thread reports the cause
             self.events.put(exc)
 
-
     def wait(self, event_name: str, timeout_s: float) -> Mapping[str, Any]:
         deadline = time.monotonic() + timeout_s
         while True:
@@ -241,9 +240,11 @@ class RawRtspClient:
         headers = {"CSeq": str(cseq), "User-Agent": "MultiDetectRTSPBench/1"}
         if extra_headers:
             headers.update(extra_headers)
-        request = f"{method} {uri} RTSP/1.0\r\n" + "".join(
-            f"{key}: {value}\r\n" for key, value in headers.items()
-        ) + "\r\n"
+        request = (
+            f"{method} {uri} RTSP/1.0\r\n"
+            + "".join(f"{key}: {value}\r\n" for key, value in headers.items())
+            + "\r\n"
+        )
         sock.sendall(request.encode("ascii"))
 
     def _recv(self) -> None:
@@ -385,6 +386,7 @@ class RawRtspClient:
         finally:
             self.finished.set()
             self.stop()
+
 
 def _pack_header(
     *,
@@ -561,8 +563,7 @@ def run(args: argparse.Namespace) -> int:
         server = reader.wait("server_ready", args.timeout_s)
         if server.get("url") != url or server.get("mount") != mount:
             raise BenchError(
-                "publisher server_ready URL identity did not match "
-                "the requested loopback URL"
+                "publisher server_ready URL identity did not match the requested loopback URL"
             )
         expected_shared_media = args.clients > 1
         if server.get("shared_media") is not expected_shared_media:

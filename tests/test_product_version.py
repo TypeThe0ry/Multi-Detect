@@ -75,16 +75,16 @@ def test_python_metadata_resolves_version_dynamically_from_the_manifest() -> Non
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
 
-    project_block = pyproject.split("[project]", 1)[1].split(
-        "[project.optional-dependencies]", 1
-    )[0]
+    project_block = pyproject.split("[project]", 1)[1].split("[project.optional-dependencies]", 1)[
+        0
+    ]
     assert 'dynamic = ["version"]' in project_block
     assert re.search(r"^version\s*=", project_block, flags=re.MULTILINE) is None
     assert 'version = { attr = "multidetect.product_version.__version__" }' in pyproject
     lock_project_block = lock.split('name = "multi-detect"', 1)[1].split(
         "[package.optional-dependencies]", 1
     )[0]
-    assert "source = { editable = \".\" }" in lock_project_block
+    assert 'source = { editable = "." }' in lock_project_block
     assert re.search(r"^version\s*=", lock_project_block, flags=re.MULTILINE) is None
     assert 'version = "0.1.0"' not in lock
 
@@ -102,25 +102,20 @@ def test_qgc_uses_numeric_version_and_separate_human_release_label() -> None:
         / "CustomOverrides.cmake"
     ).read_text(encoding="utf-8")
     git_cmake = (
-        REPO_ROOT
-        / "ground-control"
-        / "MultiDetectGCS"
-        / "cmake"
-        / "modules"
-        / "Git.cmake"
+        REPO_ROOT / "ground-control" / "MultiDetectGCS" / "cmake" / "modules" / "Git.cmake"
     ).read_text(encoding="utf-8")
 
     assert 'set(QGC_APP_RELEASE_LABEL ""' in options
     assert "configs/product-version.json" in overrides
-    assert 'string(JSON _multidetect_product_name GET' in overrides
-    assert 'string(JSON _multidetect_release_label GET' in overrides
-    assert 'string(JSON _multidetect_numeric_version GET' in overrides
+    assert "string(JSON _multidetect_product_name GET" in overrides
+    assert "string(JSON _multidetect_release_label GET" in overrides
+    assert "string(JSON _multidetect_numeric_version GET" in overrides
     assert "_multidetect_version_member_count" in overrides
     assert "must contain exactly six fields" in overrides
     assert "_multidetect_version_schema_type" in overrides
     assert '"${_multidetect_numeric_version}"' in overrides
     assert '"${_multidetect_release_label}"' in overrides
-    assert 'MultiDetectGCS-v${_multidetect_release_label}-windows-amd64.exe' in overrides
+    assert "MultiDetectGCS-v${_multidetect_release_label}-windows-amd64.exe" in overrides
     assert "_multidetect_label_sequence" in overrides
     assert "_multidetect_python_sequence" in overrides
     assert 'set(QGC_APP_VERSION "${QGC_APP_VERSION_OVERRIDE}")' in git_cmake
@@ -134,16 +129,16 @@ def test_windows_build_paths_use_label_and_skip_configure_checks_cache() -> None
 
     assert "Read-ProductVersionManifest" in build_script
     assert "configs\\product-version.json" in build_script
-    assert '$Version = $productVersion.ReleaseLabel' in build_script
-    assert '$numericVersion = $productVersion.Numeric' in build_script
+    assert "$Version = $productVersion.ReleaseLabel" in build_script
+    assert "$numericVersion = $productVersion.Numeric" in build_script
     assert '"build\\windows-v{0}-{1}" -f $Version' in build_script
     assert '"portable-v{0}" -f $Version' in build_script
     assert '"$Configuration\\MultiDetectGCS.exe"' in build_script
-    assert '[string]$ReleaseGateManifest = ' in build_script
-    assert '[switch]$RequireReleaseGate' in build_script
-    assert '$productVersion.Channel -eq \'release\'' in build_script
-    assert 'E7 release-gate evidence is incomplete' in build_script
-    assert 'Final release is blocked by E7 release gate' in build_script
+    assert "[string]$ReleaseGateManifest = " in build_script
+    assert "[switch]$RequireReleaseGate" in build_script
+    assert "$productVersion.Channel -eq 'release'" in build_script
+    assert "E7 release-gate evidence is incomplete" in build_script
+    assert "Final release is blocked by E7 release gate" in build_script
     assert "'--report-only'" in build_script
     assert "contains unsupported field(s)" in build_script
     assert "schema_version must be an integer" in build_script

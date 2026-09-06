@@ -225,9 +225,7 @@ def test_install_verifier_accepts_hashed_known_host_binding(
         base64.b64encode(salt).decode("ascii"),
         base64.b64encode(digest).decode("ascii"),
     )
-    host_key_path.write_text(
-        f"{hashed_host} {fields[1]} {fields[2]}\n", encoding="ascii"
-    )
+    host_key_path.write_text(f"{hashed_host} {fields[1]} {fields[2]}\n", encoding="ascii")
     host_key_ref = document["ssh_host_keys"]
     assert isinstance(host_key_ref, dict)
     host_key_ref["file_bytes"] = host_key_path.stat().st_size
@@ -256,9 +254,7 @@ def test_install_verifier_rejects_invalid_remote_completion(
             encoding="utf-8",
         )
     elif failure == "missing_run":
-        remote_path.write_text(
-            f"JETSON_EVIDENCE_TOOLS_READY={REMOTE_TARGET}\n", encoding="utf-8"
-        )
+        remote_path.write_text(f"JETSON_EVIDENCE_TOOLS_READY={REMOTE_TARGET}\n", encoding="utf-8")
     else:
         checks = document["remote_checks"]
         assert isinstance(checks, dict)
@@ -298,9 +294,7 @@ def test_install_verifier_rejects_package_identity_mismatch(
     receipt, _ = _installation(tmp_path)
     mismatched = _package_result()
     mismatched["source_git_head"] = "c" * 40
-    monkeypatch.setattr(
-        install_module, "verify_jetson_evidence_package", lambda _: mismatched
-    )
+    monkeypatch.setattr(install_module, "verify_jetson_evidence_package", lambda _: mismatched)
     with pytest.raises(ValueError, match="source identity differ"):
         verify_jetson_evidence_installation(receipt)
 

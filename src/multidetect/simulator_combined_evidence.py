@@ -47,9 +47,7 @@ PORT_RANGE_MAX = 60_000
 EXPECTED_PORT_COUNT = 9
 PROTECTED_GROUND_STATION_PORT = 14_550
 EXPECTED_RELEASE_MODE_EVENT = "sim_release_mode_evidence_prepared"
-EXPECTED_CAMERA_INFO_SEMANTIC_STATUS = (
-    "validated_k_p_rectification_plumb_bob_distortion"
-)
+EXPECTED_CAMERA_INFO_SEMANTIC_STATUS = "validated_k_p_rectification_plumb_bob_distortion"
 
 PORT_FIELDS = (
     "operator_server_udp",
@@ -645,9 +643,7 @@ def verify_evidence(
     )
     integrated_mapping = integrated if isinstance(integrated, Mapping) else {}
     sensor_transport = integrated_mapping.get("sensor_transport")
-    sensor_transport_mapping = (
-        sensor_transport if isinstance(sensor_transport, Mapping) else {}
-    )
+    sensor_transport_mapping = sensor_transport if isinstance(sensor_transport, Mapping) else {}
     camera_info_semantics_ok = (
         sensor_transport_mapping.get("camera_info_intrinsics_semantic_validation")
         == EXPECTED_CAMERA_INFO_SEMANTIC_STATUS
@@ -677,8 +673,7 @@ def verify_evidence(
     odometry_frames_complete = (
         sensor_transport_mapping.get("odometry_required") is True
         and type(sensor_transport_mapping.get("odometry_timestamp_frame_count")) is int
-        and sensor_transport_mapping.get("odometry_timestamp_frame_count")
-        == expected_sensor_frames
+        and sensor_transport_mapping.get("odometry_timestamp_frame_count") == expected_sensor_frames
         and sensor_transport_mapping.get("full_odometry_pose_velocity_fusion_claimed") is True
     )
     checks["odometry_frames_complete"] = odometry_frames_complete

@@ -30,8 +30,7 @@ from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 PNG = b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1Pe"
-    "AAAACklEQVQIHWMAAgAABAABDTukuQAAAABJRU5ErkJggg=="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACklEQVQIHWMAAgAABAABDTukuQAAAABJRU5ErkJggg=="
 )
 
 
@@ -180,9 +179,7 @@ def _complete_annotations(path: Path) -> None:
         else:
             frame["annotation"] = {
                 "status": "positive",
-                "objects": [
-                    {"label": "flame", "bbox": [0.25, 0.25, 0.55, 0.55]}
-                ],
+                "objects": [{"label": "flame", "bbox": [0.25, 0.25, 0.55, 0.55]}],
             }
     path.write_text(json.dumps(document), encoding="utf-8")
     review_replay_annotation_workspace(
@@ -369,9 +366,7 @@ def test_campaign_annotation_ui_runs_bound_loopback_workbench(tmp_path: Path) ->
     advance_field_replay_campaign(workspace)
     _complete_annotations(workspace / "annotations.json")
     assert inspect_field_replay_campaign(workspace)["stage"] == "annotation_finalize_ready"
-    with pytest.raises(
-        AutonomyContractError, match="current stage is annotation_finalize_ready"
-    ):
+    with pytest.raises(AutonomyContractError, match="current stage is annotation_finalize_ready"):
         field_replay_annotation_workbench_argv(workspace)
 
 

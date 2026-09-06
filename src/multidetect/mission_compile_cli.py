@@ -66,9 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         context = ContextSnapshot.from_mapping(
             strict_json_loads(args.context.read_bytes(), name="ContextSnapshot")
         )
-        runtime = strict_json_loads(
-            args.runtime.read_bytes(), name="MissionCompileRuntime"
-        )
+        runtime = strict_json_loads(args.runtime.read_bytes(), name="MissionCompileRuntime")
         compilation = compile_planned_task_mission_from_runtime(
             task,
             context,
@@ -91,13 +89,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _json_payload(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        indent=2,
-    ) + "\n"
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def _write_payload(path: Path, payload: str) -> None:

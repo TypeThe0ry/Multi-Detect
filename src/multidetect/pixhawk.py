@@ -235,12 +235,8 @@ class PixhawkAutopilotVersionIdentity:
                 "capabilities_hex": f"0x{self.capabilities:016x}",
                 "flight_sw_version_text": _firmware_version_text(self.flight_sw_version),
                 "flight_sw_version_type": _firmware_version_type(self.flight_sw_version),
-                "middleware_sw_version_text": _firmware_version_text(
-                    self.middleware_sw_version
-                ),
-                "middleware_sw_version_type": _firmware_version_type(
-                    self.middleware_sw_version
-                ),
+                "middleware_sw_version_text": _firmware_version_text(self.middleware_sw_version),
+                "middleware_sw_version_type": _firmware_version_type(self.middleware_sw_version),
                 "os_sw_version_text": _firmware_version_text(self.os_sw_version),
                 "os_sw_version_type": _firmware_version_type(self.os_sw_version),
                 "raw_device_uid_serialized": False,
@@ -400,9 +396,7 @@ class PixhawkReadOnlyTelemetryProvider:
         if mission_feedback_tracker is not None and not isinstance(
             mission_feedback_tracker, Px4MissionFeedbackTracker
         ):
-            raise TypeError(
-                "mission_feedback_tracker must be a Px4MissionFeedbackTracker or None"
-            )
+            raise TypeError("mission_feedback_tracker must be a Px4MissionFeedbackTracker or None")
         self.config = config
         self._mission_feedback_tracker = mission_feedback_tracker
         self._connection: Any | None = None
@@ -558,9 +552,7 @@ class PixhawkReadOnlyTelemetryProvider:
 
         return self._mission_feedback_tracker
 
-    def mission_feedback_snapshot(
-        self, *, now_s: float
-    ) -> Px4MissionFeedbackSnapshot | None:
+    def mission_feedback_snapshot(self, *, now_s: float) -> Px4MissionFeedbackSnapshot | None:
         """Return fresh/invalid Mission wire evidence without opening the link."""
 
         tracker = self._mission_feedback_tracker
@@ -654,12 +646,8 @@ class PixhawkReadOnlyTelemetryProvider:
                 "observed_at_s": self._last_attitude_uncertainty_s,
                 "age_s": self._sample_age(self._last_attitude_uncertainty_s, now_s),
                 "fresh": self._is_fresh(self._last_attitude_uncertainty_s, now_s),
-                "associated_with_attitude": self._attitude_uncertainty_available(
-                    now_s=now_s
-                ),
-                "maximum_attitude_association_s": (
-                    _ATTITUDE_UNCERTAINTY_MAX_ASSOCIATION_S
-                ),
+                "associated_with_attitude": self._attitude_uncertainty_available(now_s=now_s),
+                "maximum_attitude_association_s": (_ATTITUDE_UNCERTAINTY_MAX_ASSOCIATION_S),
                 "raw_angular_covariance_rad2": (
                     list(self._attitude_covariance_rad2)
                     if self._attitude_covariance_rad2 is not None
@@ -844,9 +832,7 @@ class PixhawkReadOnlyTelemetryProvider:
         if self.config.qualification_required and transport_link_healthy is True:
             link_healthy = qualification.passed is True
         mission_current_fresh = self._is_fresh(self._last_mission_current_s, now_s) is True
-        mission_reached_fresh = (
-            self._is_fresh(self._last_mission_item_reached_s, now_s) is True
-        )
+        mission_reached_fresh = self._is_fresh(self._last_mission_item_reached_s, now_s) is True
         attitude_uncertainty_available = self._attitude_uncertainty_available(now_s=now_s)
         return VehicleTelemetry(
             altitude_agl_m=self._altitude_agl_m,
@@ -891,24 +877,16 @@ class PixhawkReadOnlyTelemetryProvider:
                 self._last_attitude_s if self._last_attitude_s is not None else float("nan")
             ),
             attitude_roll_sigma_deg=(
-                self._attitude_roll_sigma_deg
-                if attitude_uncertainty_available
-                else float("nan")
+                self._attitude_roll_sigma_deg if attitude_uncertainty_available else float("nan")
             ),
             attitude_pitch_sigma_deg=(
-                self._attitude_pitch_sigma_deg
-                if attitude_uncertainty_available
-                else float("nan")
+                self._attitude_pitch_sigma_deg if attitude_uncertainty_available else float("nan")
             ),
             attitude_heading_sigma_deg=(
-                self._attitude_heading_sigma_deg
-                if attitude_uncertainty_available
-                else float("nan")
+                self._attitude_heading_sigma_deg if attitude_uncertainty_available else float("nan")
             ),
             attitude_uncertainty_source=(
-                self._attitude_uncertainty_source
-                if attitude_uncertainty_available
-                else None
+                self._attitude_uncertainty_source if attitude_uncertainty_available else None
             ),
             position_observed_at_s=(
                 self._last_position_s if self._last_position_s is not None else float("nan")
@@ -1051,10 +1029,13 @@ class PixhawkReadOnlyTelemetryProvider:
                 self._last_velocity_s,
             ):
                 velocity_north_cm_s, velocity_east_cm_s = velocity_cm_s  # type: ignore[misc]
-                self._ground_speed_mps = math.hypot(
-                    velocity_north_cm_s,
-                    velocity_east_cm_s,
-                ) / 100.0
+                self._ground_speed_mps = (
+                    math.hypot(
+                        velocity_north_cm_s,
+                        velocity_east_cm_s,
+                    )
+                    / 100.0
+                )
                 self._velocity_north_mps = velocity_north_cm_s / 100.0
                 self._velocity_east_mps = velocity_east_cm_s / 100.0
                 self._last_velocity_s = now_s
@@ -1076,9 +1057,7 @@ class PixhawkReadOnlyTelemetryProvider:
             if coordinates_valid:
                 latitude_deg, longitude_deg = coordinates_valid
                 global_is_current = self._timestamp_is_current(now_s, global_coordinate_cursor)
-                coordinate_is_current = self._timestamp_is_current(
-                    now_s, self._last_coordinate_s
-                )
+                coordinate_is_current = self._timestamp_is_current(now_s, self._last_coordinate_s)
                 if global_is_current and coordinate_is_current:
                     self._latitude_deg = latitude_deg
                     self._longitude_deg = longitude_deg
@@ -1104,10 +1083,7 @@ class PixhawkReadOnlyTelemetryProvider:
                     # frame is not older than the latest raw sample.  A newer
                     # raw sample is an independent complete source and must not
                     # be destroyed by an out-of-order estimator frame.
-                    if (
-                        self._last_gps_raw_s is None
-                        or now_s >= self._last_gps_raw_s
-                    ):
+                    if self._last_gps_raw_s is None or now_s >= self._last_gps_raw_s:
                         self._invalidate_gps_raw_sample()
         elif message_type == "LOCAL_POSITION_NED":
             self._ingest_local_position(
@@ -1232,14 +1208,10 @@ class PixhawkReadOnlyTelemetryProvider:
             eph_cm = _finite_float(getattr(message, "eph", None))
             epv_cm = _finite_float(getattr(message, "epv", None))
             self._gps_horizontal_accuracy_m = (
-                eph_cm / 100.0
-                if eph_cm is not None and 0.0 <= eph_cm < 65_535.0
-                else float("nan")
+                eph_cm / 100.0 if eph_cm is not None and 0.0 <= eph_cm < 65_535.0 else float("nan")
             )
             self._gps_vertical_accuracy_m = (
-                epv_cm / 100.0
-                if epv_cm is not None and 0.0 <= epv_cm < 65_535.0
-                else float("nan")
+                epv_cm / 100.0 if epv_cm is not None and 0.0 <= epv_cm < 65_535.0 else float("nan")
             )
             self._last_gps_altitude_m = altitude_mm / 1_000.0 if altitude_mm is not None else None
             # The raw freshness cursor represents one complete wire sample.
@@ -1248,9 +1220,7 @@ class PixhawkReadOnlyTelemetryProvider:
             # the independent height fallback, but it must not make an old
             # coordinate look like a newly qualified outdoor fix.
             raw_quality_fields_valid = (
-                satellites is not None
-                and eph_cm is not None
-                and 0.0 <= eph_cm < 65_535.0
+                satellites is not None and eph_cm is not None and 0.0 <= eph_cm < 65_535.0
             )
             if (
                 fix_type is not None
@@ -1737,9 +1707,7 @@ class PixhawkReadOnlyTelemetryProvider:
             heading_sigma,
             _MINIMUM_HEADING_SIGMA_DEG,
         )
-        self._attitude_uncertainty_source = (
-            _MAVLINK_ODOMETRY_ATTITUDE_UNCERTAINTY_SOURCE
-        )
+        self._attitude_uncertainty_source = _MAVLINK_ODOMETRY_ATTITUDE_UNCERTAINTY_SOURCE
         self._attitude_covariance_rad2 = covariance
         self._attitude_uncertainty_reset_counter = _mavlink_integral(
             getattr(message, "reset_counter", None),
@@ -1885,9 +1853,7 @@ def mavlink_odometry_attitude_covariance_rad2(value: object) -> tuple[float, ...
     determinant_tolerance = 1.0e-10 * scale * scale * scale
     minors = (a * e - b * b, a * i - c * c, e * i - f * f)
     determinant = a * (e * i - f * f) - b * (b * i - c * f) + c * (b * f - c * e)
-    if any(item < -minor_tolerance for item in minors) or (
-        determinant < -determinant_tolerance
-    ):
+    if any(item < -minor_tolerance for item in minors) or (determinant < -determinant_tolerance):
         raise ValueError("attitude_covariance_not_positive_semidefinite")
     return covariance
 
@@ -1949,11 +1915,7 @@ def _parse_autopilot_version_identity(
         maximum=(1 << 64) - 1,
     )
     uid2_value = getattr(message, "uid2", None)
-    uid2 = (
-        bytes(18)
-        if uid2_value is None
-        else _mavlink_byte_array(uid2_value, length=18)
-    )
+    uid2 = bytes(18) if uid2_value is None else _mavlink_byte_array(uid2_value, length=18)
     if (
         capabilities is None
         or any(value is None for value in uint32_fields)
@@ -2009,10 +1971,7 @@ def _mavlink_byte_array(value: object, *, length: int) -> bytes | None:
         return None
     if len(values) != length:
         return None
-    parsed = tuple(
-        _mavlink_integral(item, minimum=0, maximum=255)
-        for item in values
-    )
+    parsed = tuple(_mavlink_integral(item, minimum=0, maximum=255) for item in values)
     if any(item is None for item in parsed):
         return None
     return bytes(item for item in parsed if item is not None)
@@ -2034,11 +1993,11 @@ def _heartbeat_binding(identity: PixhawkHeartbeatIdentity) -> tuple[int | None, 
 
 
 def _firmware_version_text(value: int) -> str:
-    return f"{(value >> 24) & 0xff}.{(value >> 16) & 0xff}.{(value >> 8) & 0xff}"
+    return f"{(value >> 24) & 0xFF}.{(value >> 16) & 0xFF}.{(value >> 8) & 0xFF}"
 
 
 def _firmware_version_type(value: int) -> str:
-    version_type = value & 0xff
+    version_type = value & 0xFF
     return _FIRMWARE_VERSION_TYPE_NAMES.get(version_type, f"unknown_{version_type}")
 
 

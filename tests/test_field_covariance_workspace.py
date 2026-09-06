@@ -336,10 +336,13 @@ def test_receipt_reverification_allows_only_declared_and_verified_campaign_repor
         "campaign_status",
         lambda config: {"failed_count": 0, "passed_count": 1},
     )
-    assert workspace.verify_field_covariance_workspace(
-        destination,
-        allow_campaign_reports=True,
-    )["campaign_report_count"] == 1
+    assert (
+        workspace.verify_field_covariance_workspace(
+            destination,
+            allow_campaign_reports=True,
+        )["campaign_report_count"]
+        == 1
+    )
     assert workspace.verify_field_covariance_workspace_receipt(receipt)["gate_passed"] is True
 
     unexpected = destination / "reports" / "hil" / "not-a-leaf.json"

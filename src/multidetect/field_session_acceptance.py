@@ -245,9 +245,7 @@ def _gps_quality(
     ):
         return False, "coordinates_invalid"
     fix = _integer(gps.get("fix_type", gps.get("gps_fix_type", gps.get("fix"))))
-    sats = _integer(
-        gps.get("satellites_visible", gps.get("satellites", gps.get("sat_count")))
-    )
+    sats = _integer(gps.get("satellites_visible", gps.get("satellites", gps.get("sat_count"))))
     hacc = _number(gps.get("h_acc_m", gps.get("horizontal_accuracy_m", gps.get("h_acc"))))
     vacc = _number(gps.get("v_acc_m", gps.get("vertical_accuracy_m", gps.get("v_acc"))))
     # MAVLink ``GPS_RAW_INT`` reports eph/epv in centimetres.  Keep the
@@ -273,11 +271,7 @@ def _gps_quality(
     observed = _number(gps.get("observed_at_s", record.get("gps_observed_at_s")))
     if age is None and now_s is not None and observed is not None:
         age = now_s - observed
-    if (
-        fix is None
-        or fix < MAVLINK_QUALIFIED_FIX_TYPE_MIN
-        or fix > MAVLINK_GPS_FIX_TYPE_MAX
-    ):
+    if fix is None or fix < MAVLINK_QUALIFIED_FIX_TYPE_MIN or fix > MAVLINK_GPS_FIX_TYPE_MAX:
         return False, "fix_type<3"
     if (
         sats is None
@@ -359,9 +353,7 @@ def _direct_target_ids(record: Mapping[str, object]) -> set[str]:
     return {
         item.strip()
         for key, item in record.items()
-        if str(key).casefold() in _TARGET_IDENTITY_KEYS
-        and isinstance(item, str)
-        and item.strip()
+        if str(key).casefold() in _TARGET_IDENTITY_KEYS and isinstance(item, str) and item.strip()
     }
 
 
@@ -519,9 +511,7 @@ def validate_field_session(
         else:
             timestamp_non_decreasing = False
             reason = "timestamp_missing" if timestamp_key is None else "timestamp_invalid"
-            timestamp_errors.append(
-                {"index": index, "reason": reason}
-            )
+            timestamp_errors.append({"index": index, "reason": reason})
         cancel_event = _is_cancel_event(normalized)
         if cancel_event:
             cancel_seen = True
@@ -655,15 +645,16 @@ def validate_field_session(
                 "range_only": sorted(range_target_ids - gps_target_ids),
             }
         )
-    multiple_target_ids = sorted(gps_target_ids | range_target_ids) if len(
-        gps_target_ids | range_target_ids
-    ) > 1 else []
+    multiple_target_ids = (
+        sorted(gps_target_ids | range_target_ids)
+        if len(gps_target_ids | range_target_ids) > 1
+        else []
+    )
     same_record_pairs = sorted(
         {
             gps_index
-            for gps_index, gps_ids, _gps_contradictory, _gps_state_context in qualified_gps
-            for range_index, range_ids, _range_contradictory, _range_state_context
-            in qualified_range
+            for gps_index, gps_ids, *_gps_context in qualified_gps
+            for range_index, range_ids, *_range_context in qualified_range
             if gps_index == range_index
             and (not gps_ids or not range_ids or set(gps_ids).intersection(range_ids))
         }
@@ -671,18 +662,16 @@ def validate_field_session(
     same_record_without_id = sorted(
         {
             gps_index
-            for gps_index, gps_ids, _gps_contradictory, _gps_state_context in qualified_gps
-            for range_index, range_ids, _range_contradictory, _range_state_context
-            in qualified_range
+            for gps_index, gps_ids, *_gps_context in qualified_gps
+            for range_index, range_ids, *_range_context in qualified_range
             if gps_index == range_index and not gps_ids and not range_ids
         }
     )
     mismatched_same_record = sorted(
         {
             gps_index
-            for gps_index, gps_ids, _gps_contradictory, _gps_state_context in qualified_gps
-            for range_index, range_ids, _range_contradictory, _range_state_context
-            in qualified_range
+            for gps_index, gps_ids, *_gps_context in qualified_gps
+            for range_index, range_ids, *_range_context in qualified_range
             if gps_index == range_index
             and gps_ids
             and range_ids
@@ -699,9 +688,7 @@ def validate_field_session(
     elif matched_target_ids:
         # ``matched_target_ids`` is kept for provenance, but the gate requires
         # exactly one shared identity rather than any overlap between sets.
-        target_binding_valid = (
-            gps_target_ids == range_target_ids and len(matched_target_ids) == 1
-        )
+        target_binding_valid = gps_target_ids == range_target_ids and len(matched_target_ids) == 1
     elif gps_target_ids and range_target_ids:
         # Two known, disjoint identity sets cannot be rescued by an unrelated
         # same-frame sample elsewhere in the session.
@@ -794,9 +781,7 @@ def load_jsonl(path: Path) -> list[Mapping[str, object]]:
     # ``utf-8-sig`` accepts the BOM emitted by several Windows log writers;
     # strict_json_loads then rejects duplicate members and NaN/Infinity so a
     # last-key-wins or non-finite record cannot enter a field gate.
-    for line_number, line in enumerate(
-        path.read_text(encoding="utf-8-sig").splitlines(), start=1
-    ):
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         if not line.strip():
             continue
         try:
@@ -861,9 +846,7 @@ def main() -> int:
                 require_ready=True,
             )
         report["link_preflight"] = link_result
-        report["gate_passed"] = bool(report["gate_passed"]) and bool(
-            link_result.get("gate_passed")
-        )
+        report["gate_passed"] = bool(report["gate_passed"]) and bool(link_result.get("gate_passed"))
     encoded = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

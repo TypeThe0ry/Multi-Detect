@@ -81,9 +81,15 @@ def _wire_frame(
     orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
     velocity_flu_mps: tuple[float, float, float] = (4.0, 5.0, 6.0),
     attitude_covariance_enu_rad2: tuple[float, ...] = (
-        0.0001, 0.0, 0.0,
-        0.0, 0.0004, 0.0,
-        0.0, 0.0, 0.0009,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0004,
+        0.0,
+        0.0,
+        0.0,
+        0.0009,
     ),
 ) -> bytes:
     selected = payload if payload is not None else bytes((1, 2, 3, 4, 5, 6))
@@ -579,15 +585,18 @@ def test_gazebo_attitude_covariance_is_transformed_and_floored_with_provenance()
     assert floored.attitude_roll_sigma_deg == pytest.approx(0.4)
     assert floored.attitude_pitch_sigma_deg == pytest.approx(0.5)
     assert floored.attitude_heading_sigma_deg == pytest.approx(1.2)
-    assert (
-        floored.attitude_uncertainty_source
-        == "gazebo_odometry_covariance_with_configured_floor"
-    )
+    assert floored.attitude_uncertainty_source == "gazebo_odometry_covariance_with_configured_floor"
 
     covariance = (
-        0.0004, 0.0001, 0.0,
-        0.0001, 0.0009, 0.0,
-        0.0, 0.0, 0.0016,
+        0.0004,
+        0.0001,
+        0.0,
+        0.0001,
+        0.0009,
+        0.0,
+        0.0,
+        0.0,
+        0.0016,
     )
     measured_wire = replace(zero_wire, attitude_covariance_enu_rad2=covariance)
     transformed = gazebo_sim_attitude_sigmas_deg(measured_wire)
@@ -789,9 +798,9 @@ def test_gazebo_agl_fails_closed_without_dem_or_qualified_gps(
 def test_gazebo_backend_rejects_terrain_dem_from_another_scenario() -> None:
     runtime_input = load_runtime_scenario(SCENARIO, mode=RuntimeMode.SIM)
     with pytest.raises(ValueError, match="terrain_dem scenario_id"):
-            GazeboSimBackend(
-                scenario_input=runtime_input,
-                camera_calibration=_camera_calibration(),
+        GazeboSimBackend(
+            scenario_input=runtime_input,
+            camera_calibration=_camera_calibration(),
             docker_executable=Path(sys.executable).resolve(),
             container_name="owned-gazebo-sim",
             frame_count=1,
@@ -855,9 +864,9 @@ def test_gazebo_backend_fails_closed_on_invalid_scenario_rgb_binding(
     invalid_input = replace(runtime_input, sensors=mutate_sensors(runtime_input.sensors))
 
     with pytest.raises(ValueError, match=message):
-            GazeboSimBackend(
-                scenario_input=invalid_input,
-                camera_calibration=_camera_calibration(),
+        GazeboSimBackend(
+            scenario_input=invalid_input,
+            camera_calibration=_camera_calibration(),
             docker_executable=Path(sys.executable).resolve(),
             container_name="owned-gazebo-sim",
             frame_count=1,

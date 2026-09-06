@@ -155,7 +155,11 @@ def _load_target_geolocation_evidence(
     detections = frame.get("detections")
     if not isinstance(predicted, dict) or not isinstance(ranging, dict):
         raise HilFailure("target geolocation evidence lacks prediction/range data")
-    if not isinstance(detections, list) or len(detections) != 1 or not isinstance(detections[0], dict):
+    if (
+        not isinstance(detections, list)
+        or len(detections) != 1
+        or not isinstance(detections[0], dict)
+    ):
         raise HilFailure("target geolocation evidence must contain one final-frame detection")
     required_range_fields = (
         "slant_range_m",
@@ -232,7 +236,9 @@ def _load_target_geolocation_evidence(
         or ranging.get("flight_control_enabled") is not False
         or ranging.get("physical_release_enabled") is not False
     ):
-        raise HilFailure("target geolocation range solution violates the display-only safety boundary")
+        raise HilFailure(
+            "target geolocation range solution violates the display-only safety boundary"
+        )
     return {
         "file_path": str(path),
         "file_sha256": hashlib.sha256(raw).hexdigest(),
@@ -340,9 +346,7 @@ def _status_payloads(
     now = time.time()
     target_id = "hil-geolocated-target" if target_geolocation_evidence else "hil-fire-target"
     target_label = (
-        str(target_geolocation_evidence["label"])
-        if target_geolocation_evidence
-        else "flame"
+        str(target_geolocation_evidence["label"]) if target_geolocation_evidence else "flame"
     )
     mission_id = "hil-fire-mission"
     challenge = AuthorizationChallengeStatusMessage(
@@ -427,7 +431,8 @@ def _status_payloads(
             vehicle_profile=str(ranging["vehicle_profile"]),
             navigation_state=str(ranging["navigation_state"]),
             motion_regime=(
-                "static" if str(ranging["motion_regime"]) == "stationary"
+                "static"
+                if str(ranging["motion_regime"]) == "stationary"
                 else str(ranging["motion_regime"])
             ),
         )
@@ -591,7 +596,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     try:
         signing_key = bytes.fromhex(signing_key_text)
     except ValueError as error:
-        raise HilFailure(f"{args.signing_key_hex_env} must contain 64 hexadecimal digits") from error
+        raise HilFailure(
+            f"{args.signing_key_hex_env} must contain 64 hexadecimal digits"
+        ) from error
     if len(signing_key) != 32 or signing_key.hex() != signing_key_text.lower():
         raise HilFailure(f"{args.signing_key_hex_env} must contain 64 hexadecimal digits")
 
@@ -686,7 +693,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     raise HilFailure("decoded target selection has the wrong type")
                 decoded_selection = packet.message
                 if (
-                    decoded_selection.action not in (SelectionAction.SELECT, SelectionAction.SELECT_TRK)
+                    decoded_selection.action
+                    not in (SelectionAction.SELECT, SelectionAction.SELECT_TRK)
                     or decoded_selection.bbox is None
                 ):
                     raise HilFailure("QGC did not send the expected SELECT/TRK rectangle")
@@ -715,7 +723,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 )
                 for status_payload in status_payloads:
                     time.sleep(0.05)
-                    channel.sendto(adapter.wrap_authenticated_operator_payload(status_payload), destination)
+                    channel.sendto(
+                        adapter.wrap_authenticated_operator_payload(status_payload), destination
+                    )
                 continue
 
             if packet.message_type is WireMessageType.AUTHORIZATION_DECISION:

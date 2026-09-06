@@ -21,6 +21,7 @@ class TestCheckDependencies:
 
     def test_some_missing(self):
         """Returns names of missing tools."""
+
         def fake_which(name):
             return "/usr/bin/cmake" if name == "cmake" else None
 
@@ -45,12 +46,16 @@ class TestRequireTool:
 
     def test_not_found_raises(self):
         """Raises ToolNotFoundError when tool is missing."""
-        with patch.object(shutil, "which", return_value=None), \
-             pytest.raises(ToolNotFoundError, match="cmake"):
+        with (
+            patch.object(shutil, "which", return_value=None),
+            pytest.raises(ToolNotFoundError, match="cmake"),
+        ):
             require_tool("cmake")
 
     def test_hint_in_message(self):
         """Hint text appears in the error message."""
-        with patch.object(shutil, "which", return_value=None), \
-             pytest.raises(ToolNotFoundError, match="pip install"):
+        with (
+            patch.object(shutil, "which", return_value=None),
+            pytest.raises(ToolNotFoundError, match="pip install"),
+        ):
             require_tool("gcovr", hint="pip install gcovr")

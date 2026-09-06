@@ -187,11 +187,10 @@ def aircraft_pose_from_telemetry(
         getattr(telemetry, "heading_deg", math.nan),
         timestamp,
     )
+
     def finite_number(value: object) -> bool:
         return (
-            not isinstance(value, bool)
-            and isinstance(value, (int, float))
-            and math.isfinite(value)
+            not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
         )
 
     if not all(finite_number(value) for value in attitude):
@@ -203,9 +202,7 @@ def aircraft_pose_from_telemetry(
         getattr(telemetry, "attitude_heading_sigma_deg", math.nan),
     )
     source = getattr(telemetry, "attitude_uncertainty_source", None)
-    supplied = tuple(
-        finite_number(value) for value in telemetry_sigmas
-    )
+    supplied = tuple(finite_number(value) for value in telemetry_sigmas)
     if all(supplied):
         if (
             any(float(value) < 0.0 for value in telemetry_sigmas)
@@ -223,11 +220,7 @@ def aircraft_pose_from_telemetry(
             fallback_pitch_sigma_deg,
             fallback_heading_sigma_deg,
         )
-        if not all(
-            finite_number(value)
-            and float(value) >= 0.0
-            for value in fallback
-        ):
+        if not all(finite_number(value) and float(value) >= 0.0 for value in fallback):
             return None
         if not isinstance(fallback_source, str) or not fallback_source.strip():
             return None

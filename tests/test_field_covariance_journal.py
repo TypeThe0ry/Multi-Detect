@@ -36,9 +36,7 @@ def _runtime(
         "workspace_sha256": "b" * 64,
         "gate_passed": True,
     }
-    config = SimpleNamespace(
-        leaves=[SimpleNamespace(key=key) for key in REQUIRED_COMBINATIONS]
-    )
+    config = SimpleNamespace(leaves=[SimpleNamespace(key=key) for key in REQUIRED_COMBINATIONS])
     monkeypatch.setattr(
         journal,
         "verify_field_covariance_workspace_receipt",
@@ -376,9 +374,7 @@ def test_journal_index_reconciles_contiguous_prefix_and_verifies(
     assert all(item["recovery_path"] is None for item in index["records"])
     assert all(item["recovery_file_sha256"] is None for item in index["records"])
     output = tmp_path / "journal-index.json"
-    written = journal.write_field_covariance_journal_index(
-        receipt_path, journal_path, output
-    )
+    written = journal.write_field_covariance_journal_index(receipt_path, journal_path, output)
     assert written["index_path"] == str(output.resolve())
     verified = journal.verify_field_covariance_journal_index(output)
     assert verified["gate_passed"] is True
@@ -405,9 +401,7 @@ def test_journal_index_rejects_gap_and_campaign_count_mismatch(
 def test_journal_index_requires_preserved_released_lease(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     released = journal_path / journal.RELEASED_DIR / f"{1:032x}"
     (released / journal.LEASE_FILE).unlink()
     released.rmdir()
@@ -419,9 +413,7 @@ def test_journal_index_requires_preserved_released_lease(
 def test_journal_index_accepts_recovered_lease_after_session_commit_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     lease_id = f"{1:032x}"
     released = journal_path / journal.RELEASED_DIR / lease_id
     active = journal._lease_directory(journal_path, "b" * 64)
@@ -456,9 +448,7 @@ def test_journal_index_accepts_recovered_lease_after_session_commit_crash(
 def test_journal_index_rejects_ambiguous_released_and_recovered_archives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     lease_id = f"{1:032x}"
     released = journal_path / journal.RELEASED_DIR / lease_id
     recovered = journal_path / journal.RECOVERED_DIR / lease_id
@@ -472,9 +462,7 @@ def test_journal_index_rejects_ambiguous_released_and_recovered_archives(
 def test_journal_index_rejects_tampered_recovery_audit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     lease_id = f"{1:032x}"
     released = journal_path / journal.RELEASED_DIR / lease_id
     active = journal._lease_directory(journal_path, "b" * 64)
@@ -509,9 +497,7 @@ def test_journal_index_rejects_redigested_mismatched_recovery_audit(
     field: str,
     value: str,
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     lease_id = f"{1:032x}"
     released = journal_path / journal.RELEASED_DIR / lease_id
     active = journal._lease_directory(journal_path, "b" * 64)
@@ -566,9 +552,7 @@ def test_journal_index_rejects_snapshot_tamper_and_campaign_regression(
 def test_journal_index_rejects_blocked_probe_file_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     output = tmp_path / "journal-index.json"
     journal.write_field_covariance_journal_index(receipt_path, journal_path, output)
     blocked = journal_path / "blocked.online-preflight.json"
@@ -581,9 +565,7 @@ def test_journal_index_rejects_blocked_probe_file_drift(
 def test_journal_index_rejects_unreferenced_passing_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     monkeypatch.setattr(
         journal,
         "load_online_covariance_preflight_observation",
@@ -626,9 +608,7 @@ def test_journal_index_rejects_campaign_change_during_snapshot(
 def test_journal_index_rejects_probe_change_during_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     blocked = journal_path / "blocked.online-preflight.json"
 
     def mutate_during_load(path: object, **kwargs: object) -> dict[str, object]:
@@ -642,9 +622,7 @@ def test_journal_index_rejects_probe_change_during_snapshot(
             "gate_passed": False,
         }
 
-    monkeypatch.setattr(
-        journal, "load_online_covariance_preflight_observation", mutate_during_load
-    )
+    monkeypatch.setattr(journal, "load_online_covariance_preflight_observation", mutate_during_load)
 
     with pytest.raises(journal.FieldCovarianceJournalError, match="changed while building"):
         journal.build_field_covariance_journal_index(receipt_path, journal_path)
@@ -653,9 +631,7 @@ def test_journal_index_rejects_probe_change_during_snapshot(
 def test_journal_index_write_rolls_back_source_drift_after_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     output = tmp_path / "journal-index.json"
     blocked = journal_path / "blocked.online-preflight.json"
     real_write_new = journal._write_new
@@ -678,9 +654,7 @@ def test_journal_index_write_rolls_back_source_drift_after_build(
 def test_journal_index_write_rolls_back_new_artifact_after_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    journal_path, receipt_path, _, _, _ = _install_index_runtime(
-        tmp_path, monkeypatch, count=1
-    )
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(tmp_path, monkeypatch, count=1)
     output = tmp_path / "journal-index.json"
     real_write_new = journal._write_new
 

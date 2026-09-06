@@ -471,9 +471,7 @@ class _Transport:
             remote = ("127.0.0.1", remote[1] + 1)
         acknowledged_at_monotonic_ns = 1_015_000_000
         if self.acknowledgement_mode == "over_timeout":
-            acknowledged_at_monotonic_ns = (
-                send_receipt.sent_at_monotonic_ns + 1_000_000_001
-            )
+            acknowledged_at_monotonic_ns = send_receipt.sent_at_monotonic_ns + 1_000_000_001
         self.order.append("acceptance_ack")
         return UdpRuntimeStatusAckReceipt(
             acknowledgement=RuntimeStatusAck(

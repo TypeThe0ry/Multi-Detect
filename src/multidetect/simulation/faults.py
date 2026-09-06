@@ -47,9 +47,7 @@ class FaultEvent:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "event_id", require_text(self.event_id, "event_id"))
-        object.__setattr__(
-            self, "at_s", require_real(self.at_s, "at_s", minimum=0.0)
-        )
+        object.__setattr__(self, "at_s", require_real(self.at_s, "at_s", minimum=0.0))
         if not isinstance(self.kind, FaultKind):
             raise AutonomyContractError("fault kind must be a FaultKind")
         object.__setattr__(
@@ -57,9 +55,7 @@ class FaultEvent:
             "duration_s",
             optional_real(self.duration_s, "duration_s", minimum=0.0),
         )
-        object.__setattr__(
-            self, "magnitude", optional_real(self.magnitude, "magnitude")
-        )
+        object.__setattr__(self, "magnitude", optional_real(self.magnitude, "magnitude"))
 
     @classmethod
     def from_mapping(cls, raw: object) -> FaultEvent:

@@ -256,9 +256,7 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
             ),
         )
         if source_attestation["path"] != f"{stratum}/{ATTESTATION_NAME}":
-            raise AutonomyContractError(
-                f"stratum {stratum} source attestation path is invalid"
-            )
+            raise AutonomyContractError(f"stratum {stratum} source attestation path is invalid")
         frame_count = require_int(entry["frame_count"], f"entries[{index}].frame_count", minimum=1)
         if entry["annotation_state"] != "pending" or entry["prediction_state"] != "pending":
             raise AutonomyContractError(

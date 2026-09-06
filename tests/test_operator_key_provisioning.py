@@ -15,16 +15,10 @@ def test_operator_key_provisioner_uses_user_scope_and_cng_randomness() -> None:
 
     assert "MULTIDETECT_OPERATOR_KEY" in source
     assert "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX" in source
-    assert "[Environment]::GetEnvironmentVariable($operatorKeyName, \"User\")" in source
-    assert "[Environment]::GetEnvironmentVariable($mavlinkKeyName, \"User\")" in source
-    assert (
-        '[Environment]::SetEnvironmentVariable($operatorKeyName, $operatorKey, "User")'
-        in source
-    )
-    assert (
-        '[Environment]::SetEnvironmentVariable($mavlinkKeyName, $mavlinkKey, "User")'
-        in source
-    )
+    assert '[Environment]::GetEnvironmentVariable($operatorKeyName, "User")' in source
+    assert '[Environment]::GetEnvironmentVariable($mavlinkKeyName, "User")' in source
+    assert '[Environment]::SetEnvironmentVariable($operatorKeyName, $operatorKey, "User")' in source
+    assert '[Environment]::SetEnvironmentVariable($mavlinkKeyName, $mavlinkKey, "User")' in source
     assert "[Security.Cryptography.RandomNumberGenerator]::Create()" in source
     assert source.count(".GetBytes($bytes)") == 2
     assert source.count(".Dispose()") >= 3

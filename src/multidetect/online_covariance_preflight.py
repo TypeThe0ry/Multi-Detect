@@ -199,9 +199,7 @@ def _verify_current_campaign(
         )
     status = campaign_status(config)
     record = next(
-        item
-        for item in status["records"]
-        if (item["runtime_mode"], item["vehicle_class"]) == key
+        item for item in status["records"] if (item["runtime_mode"], item["vehicle_class"]) == key
     )
     if require_current_next_leaf:
         next_leaf = status.get("next_leaf")

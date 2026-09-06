@@ -475,11 +475,15 @@ def test_promote_lck_prefers_recognized_person_over_overlapping_manual_fallback(
 def test_promote_lck_rejects_a_low_quality_operator_track() -> None:
     bbox = BoundingBox(0.22, 0.20, 0.46, 0.66)
     pool = UnifiedTargetPool()
-    track_id = pool.update(
-        frame_id="frame-1",
-        captured_at_s=100.0,
-        observations=(_observation("person", bbox),),
-    ).tracks[0].track_id
+    track_id = (
+        pool.update(
+            frame_id="frame-1",
+            captured_at_s=100.0,
+            observations=(_observation("person", bbox),),
+        )
+        .tracks[0]
+        .track_id
+    )
     for index in range(2, 4):
         pool.update(
             frame_id=f"frame-{index}",
@@ -548,11 +552,15 @@ def test_cancel_trk_accepts_a_recent_stale_box_for_the_same_operator_track() -> 
     old_box = BoundingBox(0.12, 0.20, 0.28, 0.50)
     current_box = BoundingBox(0.20, 0.20, 0.36, 0.50)
     pool = UnifiedTargetPool()
-    track_id = pool.update(
-        frame_id="frame-1",
-        captured_at_s=100.0,
-        observations=(_observation("person", old_box),),
-    ).tracks[0].track_id
+    track_id = (
+        pool.update(
+            frame_id="frame-1",
+            captured_at_s=100.0,
+            observations=(_observation("person", old_box),),
+        )
+        .tracks[0]
+        .track_id
+    )
     coordinator = UnifiedSelectionTargetPool(pool)
     select = _command(1, SelectionAction.SELECT_TRK, old_box)
     coordinator.consume_bridge_result(

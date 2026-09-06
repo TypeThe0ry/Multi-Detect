@@ -118,10 +118,7 @@ def test_verifier_checks_cancel_identity_and_geolocation_reasons() -> None:
 
 def test_safety_evidence_schema_is_valid_json() -> None:
     schema_path = (
-        Path(__file__).parents[1]
-        / "configs"
-        / "schemas"
-        / "simulator-safety-evidence.schema.json"
+        Path(__file__).parents[1] / "configs" / "schemas" / "simulator-safety-evidence.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"

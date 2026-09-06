@@ -72,7 +72,7 @@ def test_rtsp_reconnect_keeps_strict_stdout_frame_barrier() -> None:
     assert "deliveredGenerations" in reader
     assert (
         'accepted.number("fanout_count", _sharedFactory ? lastClientCount : '
-        'deliveredGenerations.size())'
+        "deliveredGenerations.size())"
     ) in reader
     assert 'accepted.boolean("shared_media", _sharedFactory)' in reader
     assert '"block", FALSE' in source

@@ -34,9 +34,7 @@ class _Connection:
 
 def _v1_frame(message_id: int, payload: bytes, *, system: int = 1, component: int = 1) -> bytes:
     return (
-        bytes([0xFE, len(payload), 0, system, component, message_id & 0xFF])
-        + payload
-        + b"\x00\x00"
+        bytes([0xFE, len(payload), 0, system, component, message_id & 0xFF]) + payload + b"\x00\x00"
     )
 
 
@@ -152,9 +150,7 @@ def _make_bridge(
     *,
     heartbeat_timeout_s: float | None = 2.0,
     minimum_gps_fix_type: int = 3,
-) -> tuple[
-    SimulatorTelemetryBridge, SimulatorControlAuthority, _Connection
-]:
+) -> tuple[SimulatorTelemetryBridge, SimulatorControlAuthority, _Connection]:
     authority = SimulatorControlAuthority()
     connection = _Connection()
     adapter = SimulatorMavlinkControlAdapter(
@@ -205,9 +201,7 @@ def test_heartbeat_freshness_gate_fails_closed_once_and_records_age() -> None:
     assert evidence["heartbeat_stale_events"] == 1
     assert evidence["heartbeat_age_s"] == pytest.approx(1.5)
     assert evidence["heartbeat_stale_since_s"] == pytest.approx(11.0)
-    assert evidence["heartbeat_last_decision"]["reason"] == (
-        "flight_controller_link_unhealthy"
-    )
+    assert evidence["heartbeat_last_decision"]["reason"] == ("flight_controller_link_unhealthy")
 
 
 def test_raw_gps_frame_preserves_velocity_for_truth_free_speed_snapshot() -> None:

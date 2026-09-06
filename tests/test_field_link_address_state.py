@@ -269,9 +269,7 @@ def test_verifier_hashes_file_and_enforces_freshness(tmp_path: Path) -> None:
     assert stale["gate_passed"] is False
 
 
-def test_cli_outputs_verification_and_require_applied_exit_code(
-    tmp_path: Path, capsys
-) -> None:
+def test_cli_outputs_verification_and_require_applied_exit_code(tmp_path: Path, capsys) -> None:
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(_plan_document()), encoding="utf-8")
     assert main([str(path)]) == 0

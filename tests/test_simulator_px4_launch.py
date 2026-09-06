@@ -125,7 +125,7 @@ def test_valid_fake_px4_tree_is_strict_ready_and_does_not_modify_source(
     assert generated.count("BEGIN MULTIDETECT SIM MAVLINK OVERRIDE") == 1
     assert generated.count("mavlink start -x") == 1
     assert "mavlink start -x -t 127.0.0.1 -u 14540 -o 14541" in generated
-    assert "PATH=\"$MD_SIM_PX4_OVERLAY:$PATH\"" in wrapper
+    assert 'PATH="$MD_SIM_PX4_OVERLAY:$PATH"' in wrapper
     assert "export PX4_NET_INTERFACE=" in wrapper
     assert "-i 0 -s etc/init.d-posix/rcS" in wrapper
     assert "PX4_MAVLINK_CONTROL_PORT=14540" in wrapper
@@ -136,7 +136,7 @@ def test_valid_fake_px4_tree_is_strict_ready_and_does_not_modify_source(
     assert '. "$MD_SIM_PX4_RC_MAVLINK"' in generated_rcs
     assert generated_rcs.count(". px4-rc.mavlink") == 0
     assert '-s "$MD_SIM_PX4_RCS"' in wrapper
-    assert 'command -v px4-rc.mavlink' in wrapper
+    assert "command -v px4-rc.mavlink" in wrapper
     assert (workdir / "etc" / "init.d-posix" / "px4-rc.mavlink").read_bytes() == source_before
     assert (workdir / "etc" / "init.d-posix" / "rcS").read_bytes() == rc_s_before
     assert original_rc_s == rc_s_before

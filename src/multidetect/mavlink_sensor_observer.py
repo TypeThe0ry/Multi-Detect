@@ -196,10 +196,7 @@ def _safe_message_fields(message_type: str, values: dict[str, Any]) -> dict[str,
             "temperature_cdeg": values.get("temperature"),
         }
     if message_type == "LOCAL_POSITION_NED":
-        return {
-            key: _json_safe_value(values.get(key))
-            for key in ("x", "y", "z", "vx", "vy", "vz")
-        }
+        return {key: _json_safe_value(values.get(key)) for key in ("x", "y", "z", "vx", "vy", "vz")}
     if message_type == "WIND_COV":
         return {
             "wind_north_mps": _finite_number(values.get("wind_x")),
@@ -306,9 +303,7 @@ def build_sensor_fusion_readiness(
         and MAVLINK_QUALIFIED_SATELLITES_MIN <= satellites <= MAVLINK_SATELLITES_MAX
     )
     gps_velocity_ready = bool(
-        gps_fix_valid
-        and gps_velocity_cm_s is not None
-        and 0.0 <= gps_velocity_cm_s < 65_535.0
+        gps_fix_valid and gps_velocity_cm_s is not None and 0.0 <= gps_velocity_cm_s < 65_535.0
     )
 
     vfr_hud = last_messages.get("VFR_HUD", {})
@@ -318,9 +313,7 @@ def build_sensor_fusion_readiness(
         "differential_pressure",
     )
     airspeed_measurement_ready = bool(
-        differential_pressure_present_enabled
-        and airspeed_mps is not None
-        and airspeed_mps >= 0.0
+        differential_pressure_present_enabled and airspeed_mps is not None and airspeed_mps >= 0.0
     )
 
     wind = last_messages.get("WIND_COV", {})
@@ -403,8 +396,7 @@ def build_sensor_fusion_readiness(
         "absolute_scale_available": bool(metric_sources),
         "gps": {
             "message_observed": bool(
-                int(message_types.get("GPS_RAW_INT", 0))
-                or int(message_types.get("GPS2_RAW", 0))
+                int(message_types.get("GPS_RAW_INT", 0)) or int(message_types.get("GPS2_RAW", 0))
             ),
             "sensor_present": bool(gps_status.get("present")),
             "sensor_enabled": bool(gps_status.get("enabled")),
@@ -415,15 +407,9 @@ def build_sensor_fusion_readiness(
             "velocity_ready": gps_velocity_ready,
         },
         "air_data": {
-            "differential_pressure_present": bool(
-                differential_pressure_status.get("present")
-            ),
-            "differential_pressure_enabled": bool(
-                differential_pressure_status.get("enabled")
-            ),
-            "differential_pressure_healthy": bool(
-                differential_pressure_status.get("healthy")
-            ),
+            "differential_pressure_present": bool(differential_pressure_status.get("present")),
+            "differential_pressure_enabled": bool(differential_pressure_status.get("enabled")),
+            "differential_pressure_healthy": bool(differential_pressure_status.get("healthy")),
             "scaled_pressure_observed": int(message_types.get("SCALED_PRESSURE", 0)) > 0,
             "airspeed_mps": airspeed_mps,
             "airspeed_measurement_ready": airspeed_measurement_ready,

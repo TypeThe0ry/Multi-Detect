@@ -47,9 +47,7 @@ def test_load_furg_annotations_normalizes_rectangles(tmp_path: Path) -> None:
 def test_tracking_continuity_reports_confirmation_delay_and_gaps() -> None:
     module = _module()
     box = BoundingBox(0.1, 0.1, 0.4, 0.4)
-    truth = tuple(
-        GroundTruthFrame(str(index), (LabeledBox("flame", box),)) for index in range(8)
-    )
+    truth = tuple(GroundTruthFrame(str(index), (LabeledBox("flame", box),)) for index in range(8))
     predictions = tuple(
         PredictionFrame(
             str(index),

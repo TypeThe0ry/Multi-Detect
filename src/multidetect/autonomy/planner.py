@@ -88,9 +88,7 @@ def normalize_vehicle_class(value: object) -> str:
     """Normalize the airframe token used by all three PX4 mission paths."""
 
     if not isinstance(value, str) or not value.strip():
-        raise PlannerError(
-            "vehicle_class must be one of 'vtol', 'fixed-wing' or 'multirotor'"
-        )
+        raise PlannerError("vehicle_class must be one of 'vtol', 'fixed-wing' or 'multirotor'")
     normalized = "-".join(
         part
         for part in value.strip().lower().replace("_", "-").replace(" ", "-").split("-")
@@ -230,9 +228,7 @@ class PlanningEstimate:
             outbound_distance_m=require_real(
                 value["outbound_distance_m"], "outbound_distance_m", minimum=0.0
             ),
-            task_distance_m=require_real(
-                value["task_distance_m"], "task_distance_m", minimum=0.0
-            ),
+            task_distance_m=require_real(value["task_distance_m"], "task_distance_m", minimum=0.0),
             return_distance_m=require_real(
                 value["return_distance_m"], "return_distance_m", minimum=0.0
             ),
@@ -315,18 +311,12 @@ def estimate_task(
     # reserve merely because the raw endurance number looked large enough.
     reserve_pct = task.constraints.minimum_return_battery_pct
     energy_headroom_pct = (
-        context.battery_remaining_pct
-        - reserve_pct
-        - selected_policy.minimum_battery_margin_pct
+        context.battery_remaining_pct - reserve_pct - selected_policy.minimum_battery_margin_pct
     )
-    usable_fraction = max(
-        0.0, energy_headroom_pct / max(context.battery_remaining_pct, 1.0e-9)
-    )
+    usable_fraction = max(0.0, energy_headroom_pct / max(context.battery_remaining_pct, 1.0e-9))
     available_duration_s = context.estimated_flight_time_s * usable_fraction
     if estimated_duration_s > available_duration_s + 1.0e-9:
-        raise PlannerError(
-            "estimated mission duration exceeds energy budget above return reserve"
-        )
+        raise PlannerError("estimated mission duration exceeds energy budget above return reserve")
     if estimated_duration_s > task.constraints.maximum_duration_s + 1.0e-9:
         raise PlannerError("estimated mission duration exceeds task maximum_duration_s")
 

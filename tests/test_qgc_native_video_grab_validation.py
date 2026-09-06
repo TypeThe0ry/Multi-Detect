@@ -72,8 +72,7 @@ def _marker(
 
 def _write_log(path: Path, records: list[dict[str, object]]) -> None:
     lines = [
-        "qml: MULTIDETECT_HIL_VIDEO_GRAB "
-        + json.dumps(record, separators=(",", ":"))
+        "qml: MULTIDETECT_HIL_VIDEO_GRAB " + json.dumps(record, separators=(",", ":"))
         for record in records
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -184,12 +183,7 @@ def test_dpr_1_25_maps_logical_output_to_physical_grab_with_qt_rounding(
     assert evidence["gate_passed"] is True
     for capture in (evidence["capture_a"], evidence["capture_b"]):
         assert capture["marker_checks"]["device_pixel_ratio_positive_finite"] is True
-        assert (
-            capture["marker_checks"][
-                "capture_geometry_matches_logical_output_and_dpr"
-            ]
-            is True
-        )
+        assert capture["marker_checks"]["capture_geometry_matches_logical_output_and_dpr"] is True
 
 
 def test_wrong_dpr_is_rejected_even_when_png_and_marker_capture_sizes_match(
@@ -225,9 +219,7 @@ def test_wrong_dpr_is_rejected_even_when_png_and_marker_capture_sizes_match(
     assert evidence["gate_passed"] is False
     assert evidence["capture_a"]["marker_checks"]["capture_geometry_matches_png"] is True
     assert (
-        evidence["capture_a"]["marker_checks"][
-            "capture_geometry_matches_logical_output_and_dpr"
-        ]
+        evidence["capture_a"]["marker_checks"]["capture_geometry_matches_logical_output_and_dpr"]
         is False
     )
 
@@ -258,12 +250,7 @@ def test_missing_nonpositive_or_nonfinite_dpr_is_rejected(
     )
 
     assert evidence["gate_passed"] is False
-    assert (
-        evidence["capture_a"]["marker_checks"][
-            "device_pixel_ratio_positive_finite"
-        ]
-        is False
-    )
+    assert evidence["capture_a"]["marker_checks"]["device_pixel_ratio_positive_finite"] is False
     assert evidence["checks"]["capture_a_marker_valid"] is False
 
 

@@ -331,7 +331,7 @@ def _aim_target(
     *,
     observed_at_s: float,
     state: UnifiedTrackState | None = None,
-)-> FixedWingAimTarget:
+) -> FixedWingAimTarget:
     return FixedWingAimTarget(
         target_id=track.track_id,
         target_revision=track.observation_count,

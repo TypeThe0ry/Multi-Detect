@@ -78,9 +78,7 @@ def test_closed_loop_ai_waits_for_explicit_arm_and_command_sink_updates_state() 
         assert waiting.decision.mode.value == "paused"
         assert sim.connection.mav.messages == []
         # Use the generated MAVLink-shaped sink, as QGC/PX4 would.
-        sim.connection.mav.command_long_send(
-            1, 1, 400, 0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-        )
+        sim.connection.mav.command_long_send(1, 1, 400, 0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         assert sim.telemetry.armed is True
         released = sim.step()
         assert released.decision is not None

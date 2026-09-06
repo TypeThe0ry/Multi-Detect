@@ -32,9 +32,7 @@ def _run(mode: FlightMode) -> tuple[object, str]:
     return model.telemetry, model.evidence_hash
 
 
-@pytest.mark.parametrize(
-    "mode", [FlightMode.VTOL, FlightMode.FIXED_WING, FlightMode.MULTIROTOR]
-)
+@pytest.mark.parametrize("mode", [FlightMode.VTOL, FlightMode.FIXED_WING, FlightMode.MULTIROTOR])
 def test_deterministic_bounded_truth_free_telemetry(mode: FlightMode) -> None:
     snapshot, digest = _run(mode)
     assert isinstance(snapshot, FlightTelemetrySnapshot)
@@ -96,17 +94,13 @@ def test_model_starts_disarmed_and_explicit_arm_updates_snapshot() -> None:
     before = model.telemetry
     # A disarmed model remains stationary even when a stale actuator command
     # is presented; no implicit launch/arm occurs in ``step``.
-    after = model.step(
-        FlightControlSetpoint(pitch=0.5, yaw=0.5, throttle=1.0), 0.5
-    )
+    after = model.step(FlightControlSetpoint(pitch=0.5, yaw=0.5, throttle=1.0), 0.5)
     assert after.armed is False
     assert after.latitude_deg == pytest.approx(before.latitude_deg)
     assert after.longitude_deg == pytest.approx(before.longitude_deg)
     assert model.arm() is True
     assert model.telemetry.armed is True
-    moved = model.step(
-        FlightControlSetpoint(pitch=0.2, yaw=0.1, throttle=0.8), 0.5
-    )
+    moved = model.step(FlightControlSetpoint(pitch=0.2, yaw=0.1, throttle=0.8), 0.5)
     assert moved.armed is True
     assert moved.step_count == after.step_count + 1
 
@@ -179,9 +173,7 @@ def test_plain_multirotor_uses_hover_dynamics_and_rejects_vtol_transition() -> N
     assert model.mode is FlightMode.MULTIROTOR
     model.arm()
     before = model.telemetry
-    after = model.step(
-        FlightControlSetpoint(pitch=0.15, yaw=0.1, throttle=0.75), 0.25
-    )
+    after = model.step(FlightControlSetpoint(pitch=0.15, yaw=0.1, throttle=0.75), 0.25)
     assert after.mode == FlightMode.MULTIROTOR.value
     assert after.armed is True
     assert after.ground_speed_mps > before.ground_speed_mps
@@ -191,9 +183,7 @@ def test_plain_multirotor_uses_hover_dynamics_and_rejects_vtol_transition() -> N
 
 
 def test_gps_rtk_fix_types_are_preserved_through_the_sensor_contract() -> None:
-    model = DeterministicFlightModel(
-        config=FlightModelConfig(initial_gps_fix_type=8)
-    )
+    model = DeterministicFlightModel(config=FlightModelConfig(initial_gps_fix_type=8))
     assert model.telemetry.gps_fix_type == 8
     model.set_gps_status(
         fix_type=7,
@@ -264,6 +254,4 @@ def test_flight_model_fails_closed_before_crossing_a_geographic_pole() -> None:
 @pytest.mark.parametrize("latitude_deg", [-90.0, 90.0])
 def test_model_rejects_exact_pole_origin(latitude_deg: float) -> None:
     with pytest.raises(FlightModelError, match=r"within \(-90, 90\)"):
-        DeterministicFlightModel(
-            config=FlightModelConfig(initial_latitude_deg=latitude_deg)
-        )
+        DeterministicFlightModel(config=FlightModelConfig(initial_latitude_deg=latitude_deg))

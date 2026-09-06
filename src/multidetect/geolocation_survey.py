@@ -114,9 +114,7 @@ def load_survey_truth(path: str | Path) -> tuple[_TruthRow, ...]:
         seen.add(key)
         latitude, longitude = _coordinate_values(row, index)
         target_id = _optional_text(_first(row, _TARGET_ID_KEYS), "target_id", index)
-        captured_at_s = _optional_number(
-            _first(row, _CAPTURE_TIME_KEYS), "captured_at_s", index
-        )
+        captured_at_s = _optional_number(_first(row, _CAPTURE_TIME_KEYS), "captured_at_s", index)
         parsed.append(
             _TruthRow(
                 key=key,
@@ -181,9 +179,7 @@ def build_accuracy_report_from_target_event_replay(
         for key in (event.event_id, event.frame_id):
             previous = events_by_key.get(key)
             if previous is not None and previous.event_id != event.event_id:
-                raise ValueError(
-                    f"replay identifier {key!r} is shared by multiple events"
-                )
+                raise ValueError(f"replay identifier {key!r} is shared by multiple events")
             events_by_key[key] = event
 
     samples: list[GeolocationAccuracySample] = []
@@ -226,14 +222,12 @@ def build_accuracy_report_from_target_event_replay(
         matched_truth_keys.add(truth_row.key)
         if truth_row.target_id is not None and truth_row.target_id != event.target_id:
             raise ValueError(
-                f"truth row {truth_row.key!r} target_id does not match event "
-                f"{event.target_id!r}"
+                f"truth row {truth_row.key!r} target_id does not match event {event.target_id!r}"
             )
         if (
             max_truth_time_delta_s is not None
             and truth_row.captured_at_s is not None
-            and abs(truth_row.captured_at_s - event.captured_at_s)
-            > max_truth_time_delta_s
+            and abs(truth_row.captured_at_s - event.captured_at_s) > max_truth_time_delta_s
         ):
             raise ValueError(
                 f"truth row {truth_row.key!r} capture time is outside "
@@ -449,9 +443,7 @@ def _row_identifier(row: Mapping[str, object], index: int) -> str:
         if value is not None:
             values.append(value)
     if not values:
-        raise ValueError(
-            f"truth row {index} needs one of sample_id/event_id/frame_id/id"
-        )
+        raise ValueError(f"truth row {index} needs one of sample_id/event_id/frame_id/id")
     if len(set(values)) != 1:
         raise ValueError(f"truth row {index} contains conflicting identifiers")
     return values[0]
@@ -464,11 +456,15 @@ def _coordinate_values(row: Mapping[str, object], index: int) -> tuple[float, fl
         for key in ("ground_truth", "truth", "survey"):
             nested = row.get(key)
             if isinstance(nested, Mapping):
-                latitude = latitude if latitude is not None else _first(
-                    nested, ("latitude_deg", "latitude", "lat_deg", "lat")
+                latitude = (
+                    latitude
+                    if latitude is not None
+                    else _first(nested, ("latitude_deg", "latitude", "lat_deg", "lat"))
                 )
-                longitude = longitude if longitude is not None else _first(
-                    nested, ("longitude_deg", "longitude", "lon_deg", "lon")
+                longitude = (
+                    longitude
+                    if longitude is not None
+                    else _first(nested, ("longitude_deg", "longitude", "lon_deg", "lon"))
                 )
     if latitude is None or longitude is None:
         raise ValueError(f"truth row {index} is missing latitude/longitude")

@@ -69,10 +69,7 @@ def _manifest(
             "evidence_path": artifact.name,
             "evidence_sha256": artifact_sha,
             "gate_passed": True,
-            "parity": {
-                field: (chr(97 + index) * 64)
-                for index, field in enumerate(PARITY_FIELDS)
-            },
+            "parity": {field: (chr(97 + index) * 64) for index, field in enumerate(PARITY_FIELDS)},
             "operator_visual_acceptance": "passed",
             **statuses,
             "mission_path_acceptance": "passed",
@@ -107,8 +104,7 @@ def test_release_gate_requires_all_four_modes_and_reports_missing_evidence(tmp_p
     assert report["gate_passed"] is False
     assert report["release_allowed"] is False
     assert any(
-        "missing required runtime mode" in reason
-        for reason in report["release_blocked_reasons"]
+        "missing required runtime mode" in reason for reason in report["release_blocked_reasons"]
     )
     assert report["modes"]["real"]["passed"] is False
 
@@ -165,8 +161,7 @@ def test_release_gate_rejects_ambiguous_and_nonfinite_evidence_json(tmp_path: Pa
 
     assert report["modes"]["sim"]["passed"] is False
     assert any(
-        "duplicate JSON key 'gate_passed'" in reason
-        for reason in report["modes"]["sim"]["reasons"]
+        "duplicate JSON key 'gate_passed'" in reason for reason in report["modes"]["sim"]["reasons"]
     )
 
     nan_manifest = _manifest(tmp_path / "nonfinite")
@@ -185,8 +180,7 @@ def test_release_gate_rejects_ambiguous_and_nonfinite_evidence_json(tmp_path: Pa
 
     assert nan_report["modes"]["sim"]["passed"] is False
     assert any(
-        "non-finite JSON number NaN" in reason
-        for reason in nan_report["modes"]["sim"]["reasons"]
+        "non-finite JSON number NaN" in reason for reason in nan_report["modes"]["sim"]["reasons"]
     )
 
 
@@ -267,9 +261,7 @@ def test_release_gate_normalizes_runtime_mode_and_event_whitespace(tmp_path: Pat
     artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
 
     raw = json.loads(manifest.read_text(encoding="utf-8"))
-    raw["modes"]["sim"]["evidence_sha256"] = hashlib.sha256(
-        artifact_path.read_bytes()
-    ).hexdigest()
+    raw["modes"]["sim"]["evidence_sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     manifest.write_text(json.dumps(raw), encoding="utf-8")
 
     report = evaluate_release_gate(manifest, version_manifest_path=VERSION_MANIFEST)

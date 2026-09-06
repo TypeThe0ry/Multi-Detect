@@ -59,8 +59,8 @@ def collect_lupdate_errors(output: str) -> list[str]:
         errors.append(
             "tr() called without a translation context:\n"
             + "\n".join(no_context)
-            + "\n  Fix: Replace QT_TR_NOOP(\"...\") with QT_TRANSLATE_NOOP(\"ClassName\", \"...\")\n"
-            "       Replace tr(\"...\") with QCoreApplication::translate(\"ClassName\", \"...\")"
+            + '\n  Fix: Replace QT_TR_NOOP("...") with QT_TRANSLATE_NOOP("ClassName", "...")\n'
+            '       Replace tr("...") with QCoreApplication::translate("ClassName", "...")'
         )
     no_qobject = [line for line in output.splitlines() if _NO_QOBJECT_MARKER in line]
     if no_qobject:
@@ -68,7 +68,7 @@ def collect_lupdate_errors(output: str) -> list[str]:
             "Class uses tr() but is missing Q_OBJECT macro:\n"
             + "\n".join(no_qobject)
             + "\n  Fix: Add Q_OBJECT to the class declaration in the .h file,"
-            "\n       or replace tr(\"...\") with QCoreApplication::translate(\"ClassName\", \"...\")"
+            '\n       or replace tr("...") with QCoreApplication::translate("ClassName", "...")'
         )
     return errors
 
@@ -121,6 +121,7 @@ def main() -> int:
 
     print("Extracting JSON strings...")
     import qgc_lupdate_json  # sibling module: tools/translations/ is on sys.path
+
     qgc_lupdate_json.main()
 
     print("Generating pseudo-localization files...")

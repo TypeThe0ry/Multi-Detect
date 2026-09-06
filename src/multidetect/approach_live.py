@@ -50,9 +50,7 @@ class LiveApproachHilCoordinator:
         calibration: CameraCalibration,
         flight_control_enabled: bool | Callable[[], bool] = False,
     ) -> None:
-        if not isinstance(flight_control_enabled, bool) and not callable(
-            flight_control_enabled
-        ):
+        if not isinstance(flight_control_enabled, bool) and not callable(flight_control_enabled):
             raise TypeError("flight_control_enabled must be boolean or a callable")
         self.controller = controller
         self.calibration = calibration
@@ -152,14 +150,10 @@ class LiveApproachHilCoordinator:
             self.controller.select_target(evidence, now_s=now_s)
             self._binding = binding
             self._pilot_input_cancelled = False
-        elif (
-            self.controller.can_rearm_after_tracking_recovery
-            and track.state
-            in {
-                UnifiedTrackState.LOCKED,
-                UnifiedTrackState.TRACKING,
-            }
-        ):
+        elif self.controller.can_rearm_after_tracking_recovery and track.state in {
+            UnifiedTrackState.LOCKED,
+            UnifiedTrackState.TRACKING,
+        }:
             # Keep the operator's LCK binding, but require a newly issued
             # confirmation after a transient loss caused by camera motion or
             # stale visual evidence.  Operator/pilot cancellation remains

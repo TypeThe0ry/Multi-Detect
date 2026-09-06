@@ -359,9 +359,7 @@ def _load_jsonl(path: str | Path) -> tuple[dict[str, Any], ...]:
                     object_pairs_hook=_reject_duplicate_json_keys,
                 )
             except (json.JSONDecodeError, ValueError) as exc:
-                raise ValueError(
-                    f"JSONL line {line_number} is not strict JSON: {exc}"
-                ) from exc
+                raise ValueError(f"JSONL line {line_number} is not strict JSON: {exc}") from exc
             if not isinstance(raw, dict):
                 raise ValueError(f"JSONL line {line_number} must be an object")
             records.append(raw)

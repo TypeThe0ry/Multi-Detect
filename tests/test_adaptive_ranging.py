@@ -145,9 +145,7 @@ def test_future_gps_timestamp_is_rejected_instead_of_looking_fresh() -> None:
         ("maximum_gps_age_s", 1.51),
     ),
 )
-def test_adaptive_config_cannot_relax_canonical_gps_quality_gate(
-    field: str, value: float
-) -> None:
+def test_adaptive_config_cannot_relax_canonical_gps_quality_gate(field: str, value: float) -> None:
     with pytest.raises(ValueError, match="canonical"):
         AdaptiveRangingConfig(**{field: value})
 

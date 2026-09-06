@@ -183,9 +183,7 @@ class CameraMotionEstimate:
     rotation_deg: float = 0.0
     aspect_ratio: float = 1.0
     affine: tuple[float, float, float, float] | None = None
-    homography: tuple[float, float, float, float, float, float, float, float, float] | None = (
-        None
-    )
+    homography: tuple[float, float, float, float, float, float, float, float, float] | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -225,13 +223,10 @@ class CameraMotionEstimate:
                 raise ValueError("camera motion homography cannot have a centre projective pole")
             center_jacobian = _homography_jacobian(homography, 0.5, 0.5)
             determinant = (
-                center_jacobian[0] * center_jacobian[3]
-                - center_jacobian[1] * center_jacobian[2]
+                center_jacobian[0] * center_jacobian[3] - center_jacobian[1] * center_jacobian[2]
             )
             if not 0.25 <= determinant <= 4.0:
-                raise ValueError(
-                    "camera motion homography centre determinant must be in [0.25, 4]"
-                )
+                raise ValueError("camera motion homography centre determinant must be in [0.25, 4]")
             object.__setattr__(self, "homography", homography)
 
     @property
@@ -421,9 +416,7 @@ class UnifiedTargetPoolConfig:
             else self.strict_reid_distance
         )
         if effective_person_strict_reid > effective_person_appearance_gate:
-            raise ValueError(
-                "person strict ReID distance cannot exceed the person appearance gate"
-            )
+            raise ValueError("person strict ReID distance cannot exceed the person appearance gate")
         if not isinstance(self.allow_locked_full_frame_reid, bool):
             raise ValueError("allow_locked_full_frame_reid must be a boolean")
         confidence_thresholds = (
@@ -935,9 +928,7 @@ class UnifiedTargetPool:
         overlap = track.predicted_bbox.iou(observation.bbox)
         center_distance = track.predicted_bbox.center_distance(observation.bbox)
         motion_profile = _motion_profile(track.label)
-        innovation_gate = (
-            self.config.kalman_gate_sigma * motion_profile.innovation_gate_scale
-        )
+        innovation_gate = self.config.kalman_gate_sigma * motion_profile.innovation_gate_scale
         kalman_innovation_distance = self._kalman_innovation_distance(
             track,
             observation,
@@ -960,17 +951,11 @@ class UnifiedTargetPool:
                 )
             except ValueError:
                 return None
-            if (
-                appearance_distance is not None
-                and appearance_distance > appearance_gate
-            ):
+            if appearance_distance is not None and appearance_distance > appearance_gate:
                 return None
 
         if track.state is UnifiedTrackState.LOST:
-            if (
-                appearance_distance is None
-                or appearance_distance > strict_reid_gate
-            ):
+            if appearance_distance is None or appearance_distance > strict_reid_gate:
                 return None
             spatially_plausible = center_distance <= expanded_center_gate or overlap > 0.0
             full_frame_reid = not spatially_plausible
@@ -984,8 +969,7 @@ class UnifiedTargetPool:
                 and kalman_innovation_distance <= innovation_gate
             )
             strong_appearance = (
-                appearance_distance is not None
-                and appearance_distance <= strict_reid_gate
+                appearance_distance is not None and appearance_distance <= strict_reid_gate
             )
             if not (strong_motion or strong_appearance):
                 return None
@@ -1025,9 +1009,7 @@ class UnifiedTargetPool:
         if appearance_distance is None:
             cost = 0.62 * motion_cost + 0.38 * overlap_cost
         else:
-            appearance_cost = min(
-                1.0, appearance_distance / appearance_gate
-            )
+            appearance_cost = min(1.0, appearance_distance / appearance_gate)
             cost = 0.50 * appearance_cost + 0.30 * motion_cost + 0.20 * overlap_cost
         cost += (1.0 - observation.confidence) * 0.05
         return stage, cost, appearance_distance, reid_confirmed, full_frame_reid
@@ -1544,9 +1526,7 @@ def _multiply_homographies(
     """Compose normalized image transforms as ``left @ right``."""
 
     left_00, left_01, left_02, left_10, left_11, left_12, left_20, left_21, left_22 = left
-    right_00, right_01, right_02, right_10, right_11, right_12, right_20, right_21, right_22 = (
-        right
-    )
+    right_00, right_01, right_02, right_10, right_11, right_12, right_20, right_21, right_22 = right
     return _normalize_homography(
         (
             left_00 * right_00 + left_01 * right_10 + left_02 * right_20,

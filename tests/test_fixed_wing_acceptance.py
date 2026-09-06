@@ -64,9 +64,7 @@ def test_fixed_wing_software_acceptance_closes_target_and_control_gates() -> Non
 def test_fixed_wing_acceptance_cli_writes_json_evidence(tmp_path: Path) -> None:
     evidence = tmp_path / "fixed-wing.json"
     script = (
-        Path(__file__).resolve().parents[1]
-        / "scripts"
-        / "run_fixed_wing_software_acceptance.py"
+        Path(__file__).resolve().parents[1] / "scripts" / "run_fixed_wing_software_acceptance.py"
     )
     result = subprocess.run(
         [sys.executable, str(script), "--out", str(evidence)],

@@ -252,9 +252,7 @@ class SimulatorOrchestrator:
         self.fault = fault
         self.gateway_start_timeout_s = float(gateway_start_timeout_s)
         if throttle_wire_mode not in {"qgc_legacy", "signed"}:
-            raise SimulatorOrchestratorError(
-                "throttle_wire_mode must be 'qgc_legacy' or 'signed'"
-            )
+            raise SimulatorOrchestratorError("throttle_wire_mode must be 'qgc_legacy' or 'signed'")
         self.throttle_wire_mode = throttle_wire_mode
         # ``None`` preserves the old control-gateway path unless the caller
         # supplied a visible QGC executable.  An explicit bool is honoured so
@@ -276,9 +274,7 @@ class SimulatorOrchestrator:
                 or not math.isfinite(float(manual_watchdog_s))
                 or not 0 < float(manual_watchdog_s) <= 10
             ):
-                raise SimulatorOrchestratorError(
-                    "manual_watchdog_s must be in (0, 10] or None"
-                )
+                raise SimulatorOrchestratorError("manual_watchdog_s must be in (0, 10] or None")
         self.manual_watchdog_s = (
             0.5 if self.interactive and manual_watchdog_s is None else manual_watchdog_s
         )
@@ -293,9 +289,7 @@ class SimulatorOrchestrator:
             "read_only",
             "sim_flight",
         }:
-            raise SimulatorOrchestratorError(
-                "qgc_control_mode must be 'read_only' or 'sim_flight'"
-            )
+            raise SimulatorOrchestratorError("qgc_control_mode must be 'read_only' or 'sim_flight'")
         self._qgc_control_mode_override = qgc_control_mode
         try:
             requested_qgc_control_port = int(qgc_control_port)
@@ -394,9 +388,7 @@ class SimulatorOrchestrator:
             else bool(stack_plan_enabled and not self._custom_process_specs)
         )
         self.px4_launch_strict = (
-            bool(px4_launch_strict)
-            if px4_launch_strict is not None
-            else not self.dry_run
+            bool(px4_launch_strict) if px4_launch_strict is not None else not self.dry_run
         )
         self.px4_launch_plan: Px4LaunchPlan | None = None
         self._px4_launch_error: str | None = None
@@ -654,9 +646,7 @@ class SimulatorOrchestrator:
             gazebo_executable = self._stack_gazebo_executable or (
                 self.tools["gazebo"].executable or "gz"
             )
-            px4_executable = self._stack_px4_executable or (
-                self.tools["px4"].executable or "px4"
-            )
+            px4_executable = self._stack_px4_executable or (self.tools["px4"].executable or "px4")
             capabilities = {
                 "gazebo": self.tools["gazebo"].available,
                 "px4": self.tools["px4"].available,
@@ -743,11 +733,7 @@ class SimulatorOrchestrator:
             and not self.px4_launch_plan.ready_to_launch
             and self._px4_launch_error is None
         ):
-            failed = [
-                name
-                for name, value in self.px4_launch_plan.readiness
-                if not value
-            ]
+            failed = [name for name, value in self.px4_launch_plan.readiness if not value]
             self._px4_launch_error = "strict PX4 launch readiness failed: " + ", ".join(failed)
 
     def _px4_launch_evidence(self) -> dict[str, object]:
@@ -779,9 +765,7 @@ class SimulatorOrchestrator:
             "enabled": True,
             "strict_requested": self.px4_launch_strict,
             "error": self._px4_launch_error or "PX4 launch plan was not generated",
-            "stack_plan_sha256": None
-            if self.stack_plan is None
-            else self.stack_plan.evidence_hash,
+            "stack_plan_sha256": None if self.stack_plan is None else self.stack_plan.evidence_hash,
             "truth_free": True,
         }
 
@@ -929,9 +913,7 @@ class SimulatorOrchestrator:
         """Verify a plan cannot divert QGC/AI output to another endpoint."""
 
         if plan.scenario_id != self.runtime_input.scenario_id:
-            raise SimulatorStackError(
-                "stack plan scenario_id does not match runtime scenario"
-            )
+            raise SimulatorStackError("stack plan scenario_id does not match runtime scenario")
         if plan.scenario_manifest_hash != self.runtime_input.scenario_manifest_hash:
             raise SimulatorStackError(
                 "stack plan scenario_manifest_hash does not match runtime scenario"
@@ -943,9 +925,7 @@ class SimulatorOrchestrator:
                 "stack plan PX4 control endpoint conflicts with control adapter"
             )
         if plan.ports.qgc_input_port != expected_qgc_input:
-            raise SimulatorStackError(
-                "stack plan QGC input port conflicts with control gateway"
-            )
+            raise SimulatorStackError("stack plan QGC input port conflicts with control gateway")
         if plan.ports.qgc_output_port != self.qgc_output_port:
             raise SimulatorStackError(
                 "stack plan QGC output port conflicts with interactive router"
@@ -1032,12 +1012,7 @@ class SimulatorOrchestrator:
         """
 
         plan = self.px4_launch_plan
-        if (
-            self.dry_run
-            or not self.px4_launch_enabled
-            or plan is None
-            or not plan.ready_to_launch
-        ):
+        if self.dry_run or not self.px4_launch_enabled or plan is None or not plan.ready_to_launch:
             return tuple(specs)
         result: list[SimulatorProcessSpec] = []
         applied = False
@@ -1085,9 +1060,7 @@ class SimulatorOrchestrator:
         result: list[SimulatorProcessSpec] = []
         for spec in self.process_specs:
             if spec.name.lower() == "qgc":
-                result.append(
-                    replace(spec, command=self._qgc_interactive_command(spec.command))
-                )
+                result.append(replace(spec, command=self._qgc_interactive_command(spec.command)))
             else:
                 result.append(spec)
         return tuple(result)
@@ -1193,9 +1166,7 @@ class SimulatorOrchestrator:
                 "px4_launch_enabled": self.px4_launch_enabled,
                 "px4_launch_strict": self.px4_launch_strict,
                 "px4_launch_sha256": (
-                    None
-                    if self.px4_launch_plan is None
-                    else self.px4_launch_plan.evidence_hash
+                    None if self.px4_launch_plan is None else self.px4_launch_plan.evidence_hash
                 ),
                 "px4_launch_path": str(self.job_dir / "px4-launch.json"),
                 "px4_launch_error": self._px4_launch_error,
@@ -1206,9 +1177,7 @@ class SimulatorOrchestrator:
                 "readiness_path": str(self.job_dir / "readiness.json"),
                 "live_ai": self.live_ai,
                 "live_ai_transport": (
-                    "interactive_router_px4_telemetry"
-                    if self.live_ai
-                    else "disabled"
+                    "interactive_router_px4_telemetry" if self.live_ai else "disabled"
                 ),
                 "interactive_router": (
                     None
@@ -1235,9 +1204,11 @@ class SimulatorOrchestrator:
             if self._last_result is not None and self._started:
                 return self._last_result
             job_dir = self.prepare()
-            if self._stack_plan_error is not None and (
-                not self._stack_plan_compatibility or not self.dry_run
-            ) and not self._custom_process_specs:
+            if (
+                self._stack_plan_error is not None
+                and (not self._stack_plan_compatibility or not self.dry_run)
+                and not self._custom_process_specs
+            ):
                 result = self._result(
                     "blocked", error="invalid SIM stack plan: " + self._stack_plan_error
                 )
@@ -1307,9 +1278,7 @@ class SimulatorOrchestrator:
                         else ", ".join(readiness.errors)
                         or "required process/heartbeat readiness not satisfied"
                     )
-                    raise SimulatorOrchestratorError(
-                        "SIM runtime readiness failed: " + reason
-                    )
+                    raise SimulatorOrchestratorError("SIM runtime readiness failed: " + reason)
                 result = self._result("running")
                 self._last_result = result
                 self._started = True
@@ -1695,9 +1664,7 @@ class SimulatorOrchestrator:
             if self._interactive_error is not None:
                 raise SimulatorOrchestratorError(self._interactive_error)
             if self._interactive_finished.is_set():
-                raise SimulatorOrchestratorError(
-                    "SIM interactive router exited during startup"
-                )
+                raise SimulatorOrchestratorError("SIM interactive router exited during startup")
             raise SimulatorOrchestratorError(
                 "SIM interactive router did not become ready within "
                 f"{self.gateway_start_timeout_s:.3f}s"
@@ -1705,9 +1672,7 @@ class SimulatorOrchestrator:
         if self._interactive_error is not None:
             raise SimulatorOrchestratorError(self._interactive_error)
         if self._interactive_finished.wait(timeout=0.02):
-            raise SimulatorOrchestratorError(
-                "SIM interactive router exited during startup"
-            )
+            raise SimulatorOrchestratorError("SIM interactive router exited during startup")
 
     def _interactive_evidence(self) -> dict[str, object]:
         if self.interactive_router is None:
@@ -1787,9 +1752,7 @@ class SimulatorOrchestrator:
         # serializes writers from the router callback, ``stop()``, and direct
         # ``step_ai()`` calls without imposing a lock on MAVLink transport.
         with self._evidence_write_lock:
-            temporary = path.with_name(
-                f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
-            )
+            temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
             try:
                 payload = json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n"
                 with temporary.open("w", encoding="utf-8", newline="\n") as stream:

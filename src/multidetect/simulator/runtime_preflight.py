@@ -118,8 +118,10 @@ def _probe_wsl() -> dict[str, object]:
         "executable": executable,
         "reason": None
         if result.returncode == 0
-        else (next((line for line in output.splitlines() if line), None)
-              or "wsl --list --verbose returned a non-zero exit code"),
+        else (
+            next((line for line in output.splitlines() if line), None)
+            or "wsl --list --verbose returned a non-zero exit code"
+        ),
         "distros": deduped,
         "running_distros": running,
     }
@@ -527,16 +529,12 @@ def build_runtime_preflight_document(
     if missing:
         raise ValueError(f"missing simulator capability: {', '.join(sorted(missing))}")
 
-    tools = {
-        name: _capability_mapping(selected[name]) for name in sorted(expected)
-    }
+    tools = {name: _capability_mapping(selected[name]) for name in sorted(expected)}
     px4 = selected["px4"]
     gazebo = selected["gazebo"]
     docker = selected["docker"]
     native_ready = bool(px4.available and gazebo.available)
-    docker_ready = bool(
-        docker.available and docker.daemon_available is True
-    )
+    docker_ready = bool(docker.available and docker.daemon_available is True)
     if native_ready:
         execution_mode = "native"
         readiness_reason = "PX4 and Gazebo executables are available"
@@ -551,9 +549,7 @@ def build_runtime_preflight_document(
         if not gazebo.available:
             reasons.append(f"Gazebo: {gazebo.reason or 'executable unavailable'}")
         if docker.available and docker.daemon_available is not True:
-            reasons.append(
-                f"Docker daemon: {docker.daemon_reason or 'not responsive'}"
-            )
+            reasons.append(f"Docker daemon: {docker.daemon_reason or 'not responsive'}")
         elif not docker.available:
             reasons.append(f"Docker: {docker.reason or 'client unavailable'}")
         readiness_reason = "; ".join(reasons) or "no external runtime candidate"

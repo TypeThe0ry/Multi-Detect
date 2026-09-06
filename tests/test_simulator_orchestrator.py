@@ -47,7 +47,7 @@ class _FakeConnection:
         self.closed = False
 
     def close(self) -> None:
-            self.closed = True
+        self.closed = True
 
 
 class _FakeProcess:

@@ -231,8 +231,7 @@ def test_release_gate_external_binding_rejects_source_drift(tmp_path: Path) -> N
     external = report["simulator_external_evidence"]
     assert external["passed"] is False
     assert any(
-        "simulator_external_evidence" in reason
-        for reason in report["release_blocked_reasons"]
+        "simulator_external_evidence" in reason for reason in report["release_blocked_reasons"]
     )
 
 

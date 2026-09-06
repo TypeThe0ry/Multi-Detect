@@ -120,9 +120,7 @@ class _ProfileProvider:
         refresh_autopilot_version_at_snapshot: bool = True,
     ) -> None:
         self.config = config
-        self.resolved_endpoint = (
-            config.endpoint if resolved_endpoint is None else resolved_endpoint
-        )
+        self.resolved_endpoint = config.endpoint if resolved_endpoint is None else resolved_endpoint
         self.heartbeat_identity = PixhawkHeartbeatIdentity(
             source_system_id=config.expected_system_id,
             source_component_id=source_component_id,
@@ -151,9 +149,7 @@ class _ProfileProvider:
             else None
         )
         self.autopilot_version_observed_at_s = autopilot_version_observed_at_s
-        self._refresh_autopilot_version_at_snapshot = (
-            refresh_autopilot_version_at_snapshot
-        )
+        self._refresh_autopilot_version_at_snapshot = refresh_autopilot_version_at_snapshot
         self._link_healthy = link_healthy
         self._fail_receive = fail_receive
         self.closed = False
@@ -203,9 +199,7 @@ def test_profile_provision_binds_fresh_px4_endpoint_mission_and_vehicle(
         runtime_mode=runtime_mode,
         hmac_key=HMAC_KEY,
         key_id=KEY_ID,
-        signing_identity_hash=(
-            SIGNING_IDENTITY_HASH if runtime_mode == "real" else None
-        ),
+        signing_identity_hash=(SIGNING_IDENTITY_HASH if runtime_mode == "real" else None),
         duration_s=0.0,
         clock=lambda: 10.0,
     )
@@ -224,9 +218,7 @@ def test_profile_provision_binds_fresh_px4_endpoint_mission_and_vehicle(
     assert provision.runtime_identity.firmware_identity_hash == (
         provision.autopilot_version_identity.identity_hash
     )
-    assert provision.autopilot_version_identity.to_document()[
-        "raw_device_uid_serialized"
-    ] is False
+    assert provision.autopilot_version_identity.to_document()["raw_device_uid_serialized"] is False
     assert provision.profile.endpoint_binding_hash == (
         provision.runtime_identity.endpoint_binding_hash
     )
@@ -468,7 +460,7 @@ def test_provision_cli_reads_secrets_from_environment_and_dispatches_from_main(
 def test_packaging_exposes_profile_provision_command() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert (
-        'multidetect-px4-runtime-profile-provision = '
+        "multidetect-px4-runtime-profile-provision = "
         '"multidetect.px4_mission_feedback_cli:provision_main"'
     ) in pyproject
 

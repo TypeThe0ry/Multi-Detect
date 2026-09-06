@@ -125,9 +125,10 @@ def test_video_conversion_writes_verified_raw_recording_and_unknown_gps(
 
     manifest_path = output / "recording.manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert hashlib.sha256(manifest_path.read_bytes()).hexdigest() == summary[
-        "recording_manifest_sha256"
-    ]
+    assert (
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        == summary["recording_manifest_sha256"]
+    )
     recording = RawSensorReplayRecording.from_manifest(manifest_path)
     assert manifest["recording_hash"] == recording.recording_hash
     assert [frame.frame_id for frame in recording.frames] == [

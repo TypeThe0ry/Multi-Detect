@@ -106,16 +106,12 @@ def main() -> int:
         raise RuntimeError("OpenCV is required for common-detector evaluation") from exc
 
     ground_truth_class_names = tuple(
-        label.strip().lower()
-        for label in args.ground_truth_class_names.split(",")
-        if label.strip()
+        label.strip().lower() for label in args.ground_truth_class_names.split(",") if label.strip()
     )
     if not ground_truth_class_names:
         raise ValueError("ground-truth-class-names must contain at least one label")
     model_class_names = tuple(
-        label.strip().lower()
-        for label in args.model_class_names.split(",")
-        if label.strip()
+        label.strip().lower() for label in args.model_class_names.split(",") if label.strip()
     )
     if not model_class_names:
         raise ValueError("model-class-names must contain at least one label")
@@ -245,16 +241,12 @@ def _predict(detector: Any, image: Any, frame_id: str) -> PredictionFrame:
     latency_ms = (time.perf_counter() - started) * 1_000.0
     return PredictionFrame(
         frame_id=frame_id,
-        detections=tuple(
-            LabeledBox(item.label, item.bbox, item.confidence) for item in detections
-        ),
+        detections=tuple(LabeledBox(item.label, item.bbox, item.confidence) for item in detections),
         inference_latency_ms=latency_ms,
     )
 
 
-def _load_yolo_truth(
-    frame_id: str, path: Path, class_names: tuple[str, ...]
-) -> GroundTruthFrame:
+def _load_yolo_truth(frame_id: str, path: Path, class_names: tuple[str, ...]) -> GroundTruthFrame:
     if not path.is_file():
         return GroundTruthFrame(frame_id, ())
     objects: list[LabeledBox] = []

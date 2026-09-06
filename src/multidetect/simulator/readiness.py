@@ -55,9 +55,7 @@ def _port(value: object, *, name: str) -> int:
 
 def _loopback_host(value: object, *, name: str = "heartbeat host") -> str:
     if not isinstance(value, str) or value not in LOOPBACK_HOSTS:
-        raise SimulatorReadinessError(
-            f"{name} must be literal loopback 127.0.0.1 or ::1"
-        )
+        raise SimulatorReadinessError(f"{name} must be literal loopback 127.0.0.1 or ::1")
     return value
 
 
@@ -102,9 +100,7 @@ def parse_readiness_endpoint(value: str | tuple[str, int] | None) -> tuple[str, 
             # keeps an unbracketed IPv6 address deterministic (it will fail
             # the literal-host check unless bracketed).
             if text.count(":") != 1:
-                raise SimulatorReadinessError(
-                    "heartbeat endpoint must use host:port or [::1]:port"
-                )
+                raise SimulatorReadinessError("heartbeat endpoint must use host:port or [::1]:port")
             host, port_text = text.rsplit(":", 1)
     if port_text is None or not port_text.isdigit():
         raise SimulatorReadinessError("heartbeat endpoint port is invalid")
@@ -229,8 +225,10 @@ class SimulatorHeartbeatObservation:
         if value is None:
             return cls(endpoint=endpoint, source=source)
         nested_endpoint = value.get("endpoint")
-        selected_endpoint = endpoint if endpoint is not None else (
-            str(nested_endpoint) if nested_endpoint is not None else None
+        selected_endpoint = (
+            endpoint
+            if endpoint is not None
+            else (str(nested_endpoint) if nested_endpoint is not None else None)
         )
         if selected_endpoint is not None:
             # Keep this conversion strict even when the observation is built
@@ -249,9 +247,7 @@ class SimulatorHeartbeatObservation:
             frames = max(heartbeat, int(frames_value or 0))
         except (TypeError, ValueError):
             frames = heartbeat
-        datagrams_value = value.get(
-            "datagrams_received", value.get("px4_datagrams_received", 0)
-        )
+        datagrams_value = value.get("datagrams_received", value.get("px4_datagrams_received", 0))
         try:
             datagrams = max(0, int(datagrams_value or 0))
         except (TypeError, ValueError):
@@ -523,11 +519,7 @@ def _normalise_processes(
     else:
         items = []
         for item in processes:
-            if (
-                isinstance(item, (tuple, list))
-                and len(item) == 2
-                and isinstance(item[0], str)
-            ):
+            if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[0], str):
                 items.append((item[0], item[1]))
                 continue
             spec = getattr(item, "spec", None)

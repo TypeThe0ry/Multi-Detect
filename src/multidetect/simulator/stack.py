@@ -38,9 +38,7 @@ DEFAULT_QGC_INPUT_PORT = 14650
 DEFAULT_METADATA_PORT = 14640
 DEFAULT_RTSP_PORT = 8554
 
-_BUILTIN_WORLD_RE = re.compile(
-    r"^builtin://gazebo/(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)(?:\.sdf)?$"
-)
+_BUILTIN_WORLD_RE = re.compile(r"^builtin://gazebo/(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)(?:\.sdf)?$")
 _BUILTIN_ASSET_RE = re.compile(
     r"^builtin://(?P<kind>maps|terrain)/(?P<name>[A-Za-z0-9][A-Za-z0-9_.-]*)$"
 )
@@ -364,9 +362,7 @@ class SimulatorStackPlan:
         if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
             raise SimulatorStackError("seed must be a non-negative integer")
         if self.vehicle_class not in {"vtol", "fixed-wing", "multirotor"}:
-            raise SimulatorStackError(
-                "vehicle_class must be 'vtol', 'fixed-wing' or 'multirotor'"
-            )
+            raise SimulatorStackError("vehicle_class must be 'vtol', 'fixed-wing' or 'multirotor'")
         if self.gazebo_flavor not in {"gz", "gazebo", "ign"}:
             raise SimulatorStackError("gazebo_flavor must be gz, gazebo or ign")
         if not isinstance(self.gazebo_command, Sequence) or not self.gazebo_command:
@@ -662,8 +658,7 @@ def parse_builtin_asset_uri(
     asset_scenario_id = name[: -len(suffix)]
     if not asset_scenario_id or scenario_id is not None and asset_scenario_id != scenario_id:
         raise SimulatorStackError(
-            f"builtin {kind} asset '{asset_scenario_id}' does not match scenario_id "
-            f"'{scenario_id}'"
+            f"builtin {kind} asset '{asset_scenario_id}' does not match scenario_id '{scenario_id}'"
         )
     root = _resolve_repository_root(repository_root)
     path = root / "simulation" / kind / name
@@ -946,9 +941,7 @@ def _coerce_ports(
     if value is None:
         return SimulatorStackPorts()
     return (
-        value
-        if isinstance(value, SimulatorStackPorts)
-        else SimulatorStackPorts.from_mapping(value)
+        value if isinstance(value, SimulatorStackPorts) else SimulatorStackPorts.from_mapping(value)
     )
 
 
@@ -958,9 +951,7 @@ def _resolve_repository_root(value: str | Path | None) -> Path:
         root = Path.cwd() / root
     root = root.resolve()
     if not root.is_dir() or not (root / "simulation" / "gazebo").is_dir():
-        raise SimulatorStackError(
-            f"repository root does not contain simulation/gazebo: {root}"
-        )
+        raise SimulatorStackError(f"repository root does not contain simulation/gazebo: {root}")
     return root
 
 
@@ -1236,9 +1227,7 @@ def _validate_map_geojson(
         if not isinstance(geometry, dict) or not isinstance(geometry.get("type"), str):
             raise SimulatorStackError(f"map GeoJSON feature {index} geometry is invalid")
         pairs.extend(
-            _geojson_coordinate_pairs(
-                geometry.get("coordinates"), f"map GeoJSON feature {index}"
-            )
+            _geojson_coordinate_pairs(geometry.get("coordinates"), f"map GeoJSON feature {index}")
         )
     world_latitude, world_longitude, _world_elevation = world_coordinates
     longitudes = [pair[0] for pair in pairs]

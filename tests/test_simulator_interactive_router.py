@@ -132,9 +132,7 @@ def _command_long_frame(
     return _v1_frame(76, payload)
 
 
-def _set_mode_frame(
-    *, custom_mode: int, target_system: int = 1, base_mode: int = 1
-) -> bytes:
+def _set_mode_frame(*, custom_mode: int, target_system: int = 1, base_mode: int = 1) -> bytes:
     return _v1_frame(MSG_SET_MODE, struct.pack("<IBB", custom_mode, target_system, base_mode))
 
 
@@ -283,12 +281,8 @@ def test_qgc_source_and_message_policy_fail_closed() -> None:
     router = SimulatorInteractiveRouter(adapter, config=_config(_ports(), qgc_source_port=45678))
     router.process_qgc_datagram(_manual_frame(), source=("192.0.2.1", 45678))
     router.process_qgc_datagram(_manual_frame(), source=("127.0.0.1", 45679))
-    router.process_qgc_datagram(
-        _manual_frame(source_system=42), source=("127.0.0.1", 45678)
-    )
-    router.process_qgc_datagram(
-        _manual_frame(target_system=2), source=("127.0.0.1", 45678)
-    )
+    router.process_qgc_datagram(_manual_frame(source_system=42), source=("127.0.0.1", 45678))
+    router.process_qgc_datagram(_manual_frame(target_system=2), source=("127.0.0.1", 45678))
     # COMMAND_LONG/mission/control writes are not in the interactive QGC
     # read-only allowlist and must never reach PX4.
     router.process_qgc_datagram(_v1_frame(76, bytes(33)), source=("127.0.0.1", 45678))
@@ -307,9 +301,13 @@ def test_malformed_source_port_is_rejected_without_raising() -> None:
         adapter,
         config=_config(_ports(), qgc_source_port=45678),
     )
-    assert router.process_qgc_datagram(
-        _manual_frame(), source=("127.0.0.1", "not-a-port")  # type: ignore[arg-type]
-    ) == ()
+    assert (
+        router.process_qgc_datagram(
+            _manual_frame(),
+            source=("127.0.0.1", "not-a-port"),  # type: ignore[arg-type]
+        )
+        == ()
+    )
     assert adapter.manual == []
     assert router.evidence()["qgc_rejected_reasons"]["unexpected_source_port"] == 1
 
@@ -458,11 +456,14 @@ def test_split_frames_and_signed_throttle_modes() -> None:
     assert router.process_qgc_datagram(first[:5]) == ()
     assert len(router.process_qgc_datagram(first[5:] + second)) == 2
     assert [entry["throttle"] for entry in adapter.manual] == [0.25, 0.75]
-    assert _decode_qgc_manual_control(
-        struct.pack("<hhhhHB", 0, 0, -1000, 0, 0, 1),
-        version=1,
-        throttle_wire_mode="auto",
-    )[3] == 0.0
+    assert (
+        _decode_qgc_manual_control(
+            struct.pack("<hhhhHB", 0, 0, -1000, 0, 0, 1),
+            version=1,
+            throttle_wire_mode="auto",
+        )[3]
+        == 0.0
+    )
     assert _decode_qgc_manual_control(
         struct.pack("<hhhhHB", 0, 0, -1, 0, 0, 1),
         version=1,
@@ -500,9 +501,7 @@ def test_qgc_partial_frame_cannot_be_completed_by_another_source() -> None:
     router.process_qgc_datagram(frame[:5], source=("127.0.0.1", 41001))
     # The second loopback sender only contributes bytes after the source
     # boundary; those bytes must not complete the first sender's frame.
-    assert router.process_qgc_datagram(
-        frame[5:], source=("127.0.0.1", 41002)
-    ) == ()
+    assert router.process_qgc_datagram(frame[5:], source=("127.0.0.1", 41002)) == ()
     evidence = router.evidence()
     assert adapter.manual == []
     assert evidence["qgc_fragment_source_resets"] == 1
@@ -521,16 +520,12 @@ def test_px4_partial_frame_cannot_be_completed_by_another_source() -> None:
     )
     telemetry = _v1_frame(0, bytes(9), source_system=1, source_component=1)
     router.process_px4_datagram(telemetry[:4], source=("127.0.0.1", 42001))
-    assert router.process_px4_datagram(
-        telemetry[4:], source=("127.0.0.1", 42002)
-    ) == 0
+    assert router.process_px4_datagram(telemetry[4:], source=("127.0.0.1", 42002)) == 0
     evidence = router.evidence()
     assert forwarded == []
     assert evidence["px4_fragment_source_resets"] == 1
     assert evidence["px4_rejected_reasons"]["fragment_source_changed"] == 1
-    assert router.process_px4_datagram(
-        telemetry, source=("127.0.0.1", 42002)
-    ) == 1
+    assert router.process_px4_datagram(telemetry, source=("127.0.0.1", 42002)) == 1
 
 
 def test_qgc_control_mode_defaults_read_only_and_blocks_flight_commands() -> None:

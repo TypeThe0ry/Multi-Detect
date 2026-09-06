@@ -416,9 +416,7 @@ def _complete_annotations(
     document["reviewer"] = None
     document["reviewed_at_utc"] = None
     for index, frame in enumerate(document["frames"]):
-        if index == 0 or (
-            positive_all_detection_strata and frame["stratum"] != "no_fire"
-        ):
+        if index == 0 or (positive_all_detection_strata and frame["stratum"] != "no_fire"):
             frame["annotation"] = {
                 "status": "positive",
                 "objects": [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}],
@@ -490,9 +488,7 @@ def test_replay_annotation_workspace_keeps_empty_frames_unannotated(tmp_path: Pa
         / "configs/schemas/replay-annotation-workspace.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    Draft202012Validator(schema).validate(
-        json.loads(workspace.read_text(encoding="utf-8"))
-    )
+    Draft202012Validator(schema).validate(json.loads(workspace.read_text(encoding="utf-8")))
     report = inspect_replay_annotation_workspace(intake, workspace)
     assert report["frame_count"] == 6
     assert report["status_counts"] == {"unannotated": 6, "positive": 0, "negative": 0}
@@ -666,9 +662,12 @@ def test_replay_annotation_workspace_keeps_v1_reviewed_workspace_compatible(
     assert status["workspace_schema_version"] == 1
     assert status["review_content_bound"] is False
     assert status["finalization_ready"] is True
-    assert finalize_replay_annotation_workspace(
-        intake, workspace, tmp_path / "legacy-finalized"
-    )["annotations_reviewed"] is True
+    assert (
+        finalize_replay_annotation_workspace(intake, workspace, tmp_path / "legacy-finalized")[
+            "annotations_reviewed"
+        ]
+        is True
+    )
 
 
 def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path: Path) -> None:
@@ -711,9 +710,7 @@ def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path
             "--annotator",
             "annotator-a",
         ]
-        command.extend(
-            ["--object", "flame:0.1:0.2:0.4:0.6"] if index == 0 else ["--negative"]
-        )
+        command.extend(["--object", "flame:0.1:0.2:0.4:0.6"] if index == 0 else ["--negative"])
         annotated = subprocess.run(
             command,
             cwd=root,
@@ -869,9 +866,7 @@ def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutati
                     "annotator": "annotator-a",
                     "status": "positive" if positive else "negative",
                     "objects": (
-                        [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}]
-                        if positive
-                        else []
+                        [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}] if positive else []
                     ),
                 },
                 token=workbench.token,
@@ -1161,9 +1156,7 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
             "operator_visual_acceptance": "passed",
             "mission_path_acceptance": "passed",
             "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
-            "real_control_acceptance": "not_required"
-            if mode in {"replay", "sim"}
-            else "passed",
+            "real_control_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
         }
     parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
     release_gate_path = tmp_path / "release" / "release-gate.json"
@@ -1183,8 +1176,7 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     release_evaluation = evaluate_release_gate(release_gate_path)
     assert release_evaluation["replay_set"]["calibration_verification"]["passed"] is True
     assert (
-        release_evaluation["replay_set"]["calibration_verification"]["provenance_complete"]
-        is True
+        release_evaluation["replay_set"]["calibration_verification"]["provenance_complete"] is True
     )
 
     assert (
@@ -1247,20 +1239,16 @@ def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(
     assert manifest.claims["contains_predictions"] is False
     assert manifest.claims["accuracy_validated"] is False
     assert manifest.coverage()["night"] == {"entry_count": 1, "frame_count": 1}
-    serialized = json.loads(
-        (tmp_path / "replay-set.manifest.json").read_text(encoding="utf-8")
-    )
+    serialized = json.loads((tmp_path / "replay-set.manifest.json").read_text(encoding="utf-8"))
     schema = json.loads(
         (
-            Path(__file__).resolve().parents[1]
-            / "configs/schemas/replay-set-manifest.schema.json"
+            Path(__file__).resolve().parents[1] / "configs/schemas/replay-set-manifest.schema.json"
         ).read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(serialized)
     assert all(
-        entry["source_attestation"]["path"]
-        == f"{entry['entry_id']}/{ATTESTATION_NAME}"
+        entry["source_attestation"]["path"] == f"{entry['entry_id']}/{ATTESTATION_NAME}"
         for entry in serialized["entries"]
     )
     assert (

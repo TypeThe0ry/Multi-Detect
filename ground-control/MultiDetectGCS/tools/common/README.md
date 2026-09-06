@@ -10,15 +10,15 @@ QGC-specific regex patterns for code analysis.
 
 ```python
 from tools.common.patterns import (
-    FACT_MEMBER_PATTERN,        # Match: Fact _speedFact = ...
-    FACTGROUP_CLASS_PATTERN,    # Match: class VehicleGPSFactGroup : ...
-    MAVLINK_MSG_ID_PATTERN,     # Match: MAVLINK_MSG_ID_HEARTBEAT
-    PARAM_NAME_PATTERN,         # Match: "name": "latitude" in JSON
-    ACTIVE_VEHICLE_DIRECT_PATTERN,   # Match: activeVehicle()->method()
-    ACTIVE_VEHICLE_ASSIGN_PATTERN,   # Match: var = activeVehicle()
-    GET_PARAMETER_DIRECT_PATTERN,    # Match: getParameter()->method()
-    NULL_CHECK_PATTERNS,        # List of null-check pattern strings
-    make_query_pattern,         # Create filtered pattern from query
+    FACT_MEMBER_PATTERN,  # Match: Fact _speedFact = ...
+    FACTGROUP_CLASS_PATTERN,  # Match: class VehicleGPSFactGroup : ...
+    MAVLINK_MSG_ID_PATTERN,  # Match: MAVLINK_MSG_ID_HEARTBEAT
+    PARAM_NAME_PATTERN,  # Match: "name": "latitude" in JSON
+    ACTIVE_VEHICLE_DIRECT_PATTERN,  # Match: activeVehicle()->method()
+    ACTIVE_VEHICLE_ASSIGN_PATTERN,  # Match: var = activeVehicle()
+    GET_PARAMETER_DIRECT_PATTERN,  # Match: getParameter()->method()
+    NULL_CHECK_PATTERNS,  # List of null-check pattern strings
+    make_query_pattern,  # Create filtered pattern from query
 )
 ```
 
@@ -28,13 +28,13 @@ File discovery with proper filtering for QGC codebase.
 
 ```python
 from tools.common.file_traversal import (
-    find_repo_root,      # Find .git root directory
-    find_cpp_files,      # Find .cc, .cpp, .h, .hpp files
-    find_header_files,   # Find .h, .hpp files only
-    find_source_files,   # Find .cc, .cpp files only
-    find_json_files,     # Find JSON files by pattern
-    should_skip_path,    # Check if path should be skipped
-    DEFAULT_SKIP_DIRS,   # {'build', 'libs', 'test', ...}
+    find_repo_root,  # Find .git root directory
+    find_cpp_files,  # Find .cc, .cpp, .h, .hpp files
+    find_header_files,  # Find .h, .hpp files only
+    find_source_files,  # Find .cc, .cpp files only
+    find_json_files,  # Find JSON files by pattern
+    should_skip_path,  # Check if path should be skipped
+    DEFAULT_SKIP_DIRS,  # {'build', 'libs', 'test', ...}
 )
 ```
 
@@ -44,9 +44,9 @@ Shared GitHub Actions API helpers (via `gh`) used by CI scripts.
 
 ```python
 from tools.common.gh_actions import (
-    gh,                        # Run gh command and capture output
-    list_workflow_runs_for_sha,# List workflow runs for commit SHA
-    list_run_artifacts,        # List artifacts for a workflow run
+    gh,  # Run gh command and capture output
+    list_workflow_runs_for_sha,  # List workflow runs for commit SHA
+    list_run_artifacts,  # List artifacts for a workflow run
 )
 ```
 

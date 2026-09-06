@@ -69,9 +69,7 @@ GAZEBO_SIM_CAMERA_INTRINSICS_SEMANTIC_VALIDATION = (
 GAZEBO_SIM_SOURCE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_WIRE_ROW_ORDER = "top_to_bottom"
 GAZEBO_SIM_VERTICAL_FLIP_APPLIED = False
-GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE = (
-    "gazebo_odometry_covariance_with_configured_floor"
-)
+GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE = "gazebo_odometry_covariance_with_configured_floor"
 GAZEBO_SIM_DEFAULT_MINIMUM_ROLL_SIGMA_DEG = 0.3
 GAZEBO_SIM_DEFAULT_MINIMUM_PITCH_SIGMA_DEG = 0.3
 GAZEBO_SIM_DEFAULT_MINIMUM_HEADING_SIGMA_DEG = 1.0
@@ -550,10 +548,9 @@ def gazebo_sim_attitude_sigmas_deg(wire: GazeboSimWireFrame) -> tuple[float, flo
             # budget so ranging cannot mistake that representation for precise.
             return (180.0, 90.0, 180.0)
         for output_axis in range(3):
-            jacobian[output_axis][axis] = (
-                _wrapped_radian_delta(plus[output_axis], minus[output_axis])
-                / (2.0 * epsilon)
-            )
+            jacobian[output_axis][axis] = _wrapped_radian_delta(
+                plus[output_axis], minus[output_axis]
+            ) / (2.0 * epsilon)
     variances: list[float] = []
     for output_axis in range(3):
         variance = sum(
@@ -708,9 +705,7 @@ class GazeboSimTelemetryProvider:
         roll_deg, pitch_deg, heading_deg, velocity_north, velocity_east, _velocity_down = (
             _ned_frd_kinematics(wire)
         )
-        roll_sigma_deg, pitch_sigma_deg, heading_sigma_deg = (
-            gazebo_sim_attitude_sigmas_deg(wire)
-        )
+        roll_sigma_deg, pitch_sigma_deg, heading_sigma_deg = gazebo_sim_attitude_sigmas_deg(wire)
         with self._lock:
             if self._closed:
                 raise RuntimeError("GazeboSimTelemetryProvider is closed")
@@ -762,15 +757,9 @@ class GazeboSimTelemetryProvider:
                 gps_vertical_accuracy_m=self.simulated_gps_vertical_accuracy_m,
                 gps_observed_at_s=gps_observed,
                 attitude_observed_at_s=odometry_observed,
-                attitude_roll_sigma_deg=max(
-                    roll_sigma_deg, self.minimum_roll_sigma_deg
-                ),
-                attitude_pitch_sigma_deg=max(
-                    pitch_sigma_deg, self.minimum_pitch_sigma_deg
-                ),
-                attitude_heading_sigma_deg=max(
-                    heading_sigma_deg, self.minimum_heading_sigma_deg
-                ),
+                attitude_roll_sigma_deg=max(roll_sigma_deg, self.minimum_roll_sigma_deg),
+                attitude_pitch_sigma_deg=max(pitch_sigma_deg, self.minimum_pitch_sigma_deg),
+                attitude_heading_sigma_deg=max(heading_sigma_deg, self.minimum_heading_sigma_deg),
                 attitude_uncertainty_source=GAZEBO_SIM_ATTITUDE_UNCERTAINTY_SOURCE,
                 position_observed_at_s=gps_observed,
                 velocity_north_mps=velocity_north,
@@ -1668,7 +1657,7 @@ def reconstruct_gazebo_sim_wire_frame(
     except (TypeError, ValueError) as exc:
         raise RuntimeError("Gazebo SIM persisted payload is not byte-addressable") from exc
     digest = hashlib.sha256(unsigned_header + payload).digest()
-    signed_header = unsigned_header[:- len(digest)] + digest
+    signed_header = unsigned_header[: -len(digest)] + digest
     return read_gazebo_sim_wire_frame(
         io.BytesIO(signed_header + payload),
         expected_sequence=expected_sequence,

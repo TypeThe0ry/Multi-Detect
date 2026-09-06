@@ -204,8 +204,7 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
     assert '--aim-return-mode "${AIM_RETURN_MODE:-AUTO}"' in launcher
     assert '--aim-rc-input-rate-hz "${AIM_RC_INPUT_RATE_HZ:-20.0}"' in launcher
     assert (
-        '--aim-rc-input-maximum-age-seconds "${AIM_RC_INPUT_MAXIMUM_AGE_SECONDS:-0.30}"'
-        in launcher
+        '--aim-rc-input-maximum-age-seconds "${AIM_RC_INPUT_MAXIMUM_AGE_SECONDS:-0.30}"' in launcher
     )
     assert '--aim-rc-cancel-threshold-us "${AIM_RC_CANCEL_THRESHOLD_US:-50}"' in launcher
     assert '--reconnect-attempts "${CAMERA_RECONNECT_ATTEMPTS}"' in launcher
@@ -219,9 +218,7 @@ def test_jetson_bench_launcher_uses_rtsp_tensorrt_and_gated_v6x_control() -> Non
 
 
 def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> None:
-    deployer = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(
-        encoding="utf-8"
-    )
+    deployer = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(encoding="utf-8")
 
     assert "src/multidetect/adaptive_ranging.py" in deployer
     assert "src/multidetect/depth_calibration.py" in deployer
@@ -256,8 +253,8 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "grep -Fq 'minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN'" in deployer
     assert "grep -Fq 'MAVLINK_QUALIFIED_SATELLITES_MIN'" in deployer
     assert "grep -Fq 'gps_horizontal_accuracy_m'" in deployer
-    assert 'src/multidetect/mavlink_gps.py' in deployer
-    assert 'src/multidetect/navigation_fusion.py' in deployer
+    assert "src/multidetect/mavlink_gps.py" in deployer
+    assert "src/multidetect/navigation_fusion.py" in deployer
     assert "grep -Fq 'minimum_gps_satellites: int = MAVLINK_QUALIFIED_SATELLITES_MIN'" in deployer
     assert "CALIBRATION_DOCUMENT_SCHEMA_VERSION = 1" in deployer
     assert "geometry-accepted target depth events" in deployer
@@ -270,9 +267,7 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
 def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> None:
     recorder = (ROOT / "scripts/record_jetson_rtsp_evidence.sh").read_text(encoding="utf-8")
     launcher = (ROOT / "scripts/run_jetson_fire_patrol.sh").read_text(encoding="utf-8")
-    deployment = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(
-        encoding="utf-8"
-    )
+    deployment = (ROOT / "scripts/deploy_jetson_multimodal_ranging.ps1").read_text(encoding="utf-8")
 
     assert "record-rtsp-evidence" in recorder
     assert '--source-env "${SOURCE_ENV_NAME}"' in recorder
@@ -291,7 +286,7 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert "RTSP_EVIDENCE_SESSION_READY=" in recorder
     assert "RTSP_EVIDENCE_TRANSFER_INVENTORY=" in recorder
     assert "refusing overwrite" in recorder
-    assert "exec \"${PYTHON}\"" not in recorder
+    assert 'exec "${PYTHON}"' not in recorder
     assert 'SOURCE_ENV_NAME="${SOURCE_ENV_NAME:-CAMERA_SOURCE}"' in recorder
     assert "${CAMERA_SOURCE}" not in recorder
     assert "live-camera" not in recorder
@@ -303,7 +298,7 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert 'if [[ "${OPERATOR_UDP_ENABLED}" == "1" ]]' in launcher
     assert 'OPERATOR_UDP_ENABLED="${OPERATOR_UDP_ENABLED:-auto}"' in launcher
     assert 'if [[ "${OPERATOR_UDP_ENABLED}" == "auto" ]]' in launcher
-    assert 'MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX:-' in launcher
+    assert "MULTIDETECT_OPERATOR_MAVLINK_KEY_HEX:-" in launcher
     assert "OPERATOR_UDP_ENABLED must be auto, 0 or 1" in launcher
     assert '--operator-udp-port "${OPERATOR_UDP_PORT:-14580}"' in launcher
     assert (
@@ -326,12 +321,10 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
 
 
 def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart() -> None:
-    deployer = (ROOT / "scripts/deploy_jetson_evidence_capture.ps1").read_text(
-        encoding="utf-8"
-    )
+    deployer = (ROOT / "scripts/deploy_jetson_evidence_capture.ps1").read_text(encoding="utf-8")
 
     assert 'RemoteToolsRoot = "/home/jetson/Multi-Detect-evidence-tools"' in deployer
-    assert '[switch]$PackageOnly' in deployer
+    assert "[switch]$PackageOnly" in deployer
     assert '"src/multidetect"' in deployer
     assert '"configs/product-version.json"' in deployer
     assert '"scripts/record_jetson_rtsp_evidence.sh"' in deployer
@@ -347,8 +340,8 @@ def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart(
     assert "Generated deployment package file inventory is not closed" in deployer
     assert "bash -n scripts/record_jetson_rtsp_evidence.sh" in deployer
     assert "import multidetect.rtsp_evidence_recording" in deployer
-    assert "test ! -e \"`$target\"" in deployer
-    assert "mv -- \"`$stage\" \"`$target\"" in deployer
+    assert 'test ! -e "`$target"' in deployer
+    assert 'mv -- "`$stage" "`$target"' in deployer
     assert "BatchMode=yes" in deployer
     assert "systemctl" not in deployer
     assert "sudo " not in deployer
@@ -363,14 +356,14 @@ def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart(
     assert "remote_output = [ordered]@{" in deployer
     assert "package_manifest_verified = $true" in deployer
     assert '[string]$RemoteUser = "jetson"' in deployer
-    assert '[int]$SshPort = 22' in deployer
+    assert "[int]$SshPort = 22" in deployer
     assert '$sshDestination = "$RemoteUser@$HostAlias"' in deployer
     assert "StrictHostKeyChecking=yes" in deployer
     assert "UpdateHostKeys=no" in deployer
     assert "remote_user = $RemoteUser" in deployer
     assert "ssh_port = $SshPort" in deployer
     assert "PasswordAuthentication=yes" not in deployer
-    assert '[string]$KnownHostsFile =' in deployer
+    assert "[string]$KnownHostsFile =" in deployer
     assert "ssh-keygen.exe" in deployer
     assert "UserKnownHostsFile=$hostKeySnapshotPath" in deployer
     assert "GlobalKnownHostsFile=NUL" in deployer
@@ -459,8 +452,7 @@ def test_jetson_launcher_autoloads_priority_object_detector() -> None:
     launcher = (ROOT / "scripts/run_jetson_fire_patrol.sh").read_text(encoding="utf-8")
 
     assert (
-        'PRIORITY_OBJECT_DETECTOR_ENABLED="${PRIORITY_OBJECT_DETECTOR_ENABLED:-auto}"'
-        in launcher
+        'PRIORITY_OBJECT_DETECTOR_ENABLED="${PRIORITY_OBJECT_DETECTOR_ENABLED:-auto}"' in launcher
     )
     assert "models/visdrone-yolo26n-e30-960/best.onnx" in launcher
     assert "best.b1.fp16.trt86.engine" in launcher
@@ -469,32 +461,32 @@ def test_jetson_launcher_autoloads_priority_object_detector() -> None:
     assert '--priority-model-manifest "${PRIORITY_OBJECT_MODEL_MANIFEST}"' in launcher
     assert '--priority-confidence-threshold "${PRIORITY_OBJECT_CONFIDENCE_THRESHOLD}"' in launcher
     assert (
-        '--priority-person-confidence-threshold '
+        "--priority-person-confidence-threshold "
         '"${PRIORITY_OBJECT_PERSON_CONFIDENCE_THRESHOLD}"' in launcher
     )
     assert (
-        '--priority-vehicle-confidence-threshold '
+        "--priority-vehicle-confidence-threshold "
         '"${PRIORITY_OBJECT_VEHICLE_CONFIDENCE_THRESHOLD}"' in launcher
     )
     assert (
-        'PRIORITY_OBJECT_CAR_SINGLE_SOURCE_CONFIDENCE_THRESHOLD='
+        "PRIORITY_OBJECT_CAR_SINGLE_SOURCE_CONFIDENCE_THRESHOLD="
         '"${PRIORITY_OBJECT_CAR_SINGLE_SOURCE_CONFIDENCE_THRESHOLD:-0.80}"' in launcher
     )
     assert (
-        '--car-single-source-confidence-threshold '
+        "--car-single-source-confidence-threshold "
         '"${PRIORITY_OBJECT_CAR_SINGLE_SOURCE_CONFIDENCE_THRESHOLD}"' in launcher
     )
     expected_label_thresholds = (
-        'PRIORITY_OBJECT_LABEL_CONFIDENCE_THRESHOLDS='
+        "PRIORITY_OBJECT_LABEL_CONFIDENCE_THRESHOLDS="
         '"${PRIORITY_OBJECT_LABEL_CONFIDENCE_THRESHOLDS:-truck=0.80}"'
     )
     assert expected_label_thresholds in launcher
     assert (
-        '--priority-label-confidence-thresholds '
+        "--priority-label-confidence-thresholds "
         '"${PRIORITY_OBJECT_LABEL_CONFIDENCE_THRESHOLDS}"' in launcher
     )
     assert (
-        '--priority-vehicle-stability-frames '
+        "--priority-vehicle-stability-frames "
         '"${PRIORITY_OBJECT_VEHICLE_STABILITY_FRAMES}"' in launcher
     )
     assert '--priority-model-frame-stride "${PRIORITY_OBJECT_FRAME_STRIDE}"' in launcher

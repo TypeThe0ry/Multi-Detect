@@ -186,9 +186,7 @@ def _runtime_profile(
         profile = RuntimeProfile.hil(
             vehicle_identity_hash=vehicle_identity_hash,
             firmware_identity_hash=(
-                provider.autopilot_version_identity.identity_hash
-                if include_firmware
-                else None
+                provider.autopilot_version_identity.identity_hash if include_firmware else None
             ),
             airframe_profile_hash=mission.airframe_profile_hash,
             endpoint_binding_hash=endpoint_binding_hash,
@@ -197,9 +195,7 @@ def _runtime_profile(
         profile = RuntimeProfile.flight(
             vehicle_identity_hash=vehicle_identity_hash,
             firmware_identity_hash=(
-                provider.autopilot_version_identity.identity_hash
-                if include_firmware
-                else None
+                provider.autopilot_version_identity.identity_hash if include_firmware else None
             ),
             airframe_profile_hash=mission.airframe_profile_hash,
             signing_identity_hash=SIGNING_IDENTITY_HASH,
@@ -237,9 +233,7 @@ def _observe_bound(
         runtime_profile_path=profile_path,
         runtime_profile_hmac_key=RUNTIME_KEY,
         runtime_profile_key_id=RUNTIME_KEY_ID,
-        runtime_signing_identity_hash=(
-            SIGNING_IDENTITY_HASH if mode == "real" else None
-        ),
+        runtime_signing_identity_hash=(SIGNING_IDENTITY_HASH if mode == "real" else None),
     )
     return report, profile_path
 
@@ -290,9 +284,10 @@ def test_v2_observer_binds_signed_runtime_vehicle_endpoint_and_airframe(
     )
     assert report["runtime_binding"]["flight_control_enabled"] is False
     assert report["runtime_binding"]["output_locked"] is True
-    assert report["runtime_binding"]["observed_identity"][
-        "firmware_identity_hash"
-    ] == provider.autopilot_version_identity.identity_hash
+    assert (
+        report["runtime_binding"]["observed_identity"]["firmware_identity_hash"]
+        == provider.autopilot_version_identity.identity_hash
+    )
     assert RUNTIME_KEY.decode() not in json.dumps(report)
 
     output = write_px4_mission_feedback_observation(
@@ -327,12 +322,8 @@ def test_v2_hil_observer_rejects_real_signing_identity(tmp_path: Path) -> None:
 
     assert report["feedback_gate_passed"] is False
     assert report["runtime_binding"]["gate_passed"] is False
-    assert report["runtime_binding"]["reasons"] == (
-        "hil_runtime_must_not_bind_signing_identity",
-    )
-    assert report["reasons"] == (
-        "runtime_binding:hil_runtime_must_not_bind_signing_identity",
-    )
+    assert report["runtime_binding"]["reasons"] == ("hil_runtime_must_not_bind_signing_identity",)
+    assert report["reasons"] == ("runtime_binding:hil_runtime_must_not_bind_signing_identity",)
 
 
 def test_v2_observer_requires_profile_and_observed_firmware_identity(
@@ -360,9 +351,9 @@ def test_v2_observer_requires_profile_and_observed_firmware_identity(
         runtime_profile_key_id=RUNTIME_KEY_ID,
     )
     assert legacy_report["feedback_gate_passed"] is False
-    assert "runtime_profile_firmware_identity_missing" in legacy_report[
-        "runtime_binding"
-    ]["reasons"]
+    assert (
+        "runtime_profile_firmware_identity_missing" in legacy_report["runtime_binding"]["reasons"]
+    )
 
     missing_provider = _provider(mission)
     missing_profile = _runtime_profile(
@@ -385,9 +376,7 @@ def test_v2_observer_requires_profile_and_observed_firmware_identity(
         runtime_signing_identity_hash=SIGNING_IDENTITY_HASH,
     )
     assert missing_report["feedback_gate_passed"] is False
-    assert "observed_firmware_identity_missing" in missing_report["runtime_binding"][
-        "reasons"
-    ]
+    assert "observed_firmware_identity_missing" in missing_report["runtime_binding"]["reasons"]
 
     mismatch_provider = _provider(mission)
     mismatch_profile = _runtime_profile(
@@ -412,9 +401,10 @@ def test_v2_observer_requires_profile_and_observed_firmware_identity(
         runtime_profile_key_id=RUNTIME_KEY_ID,
     )
     assert mismatch_report["feedback_gate_passed"] is False
-    assert "runtime_profile_firmware_identity_mismatch" in mismatch_report[
-        "runtime_binding"
-    ]["reasons"]
+    assert (
+        "runtime_profile_firmware_identity_mismatch"
+        in mismatch_report["runtime_binding"]["reasons"]
+    )
 
 
 def test_v2_observer_rejects_endpoint_heartbeat_and_profile_file_tampering(
@@ -438,8 +428,8 @@ def test_v2_observer_rejects_endpoint_heartbeat_and_profile_file_tampering(
         for key, value in heartbeat_forgery["runtime_binding"].items()
         if key != "binding_sha256"
     }
-    heartbeat_forgery["runtime_binding"]["binding_sha256"] = (
-        feedback_cli.canonical_sha256(runtime_without_hash)
+    heartbeat_forgery["runtime_binding"]["binding_sha256"] = feedback_cli.canonical_sha256(
+        runtime_without_hash
     )
     heartbeat_forgery["evidence_sha256"] = feedback_cli.canonical_sha256(
         {key: value for key, value in heartbeat_forgery.items() if key != "evidence_sha256"}
@@ -517,9 +507,7 @@ def test_observation_schema_is_valid() -> None:
         )
     )
     feedback_schema = json.loads(
-        (ROOT / "configs/schemas/px4-mission-feedback.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "configs/schemas/px4-mission-feedback.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(schema)
     registry = Registry().with_resource(
@@ -536,20 +524,15 @@ def test_observation_schema_is_valid() -> None:
 
 def test_v2_observation_schema_validates_runtime_binding(tmp_path: Path) -> None:
     schema = json.loads(
-        (
-            ROOT
-            / "configs/schemas/px4-mission-feedback-observation-v2.schema.json"
-        ).read_text(encoding="utf-8")
+        (ROOT / "configs/schemas/px4-mission-feedback-observation-v2.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
     feedback_schema = json.loads(
-        (ROOT / "configs/schemas/px4-mission-feedback.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "configs/schemas/px4-mission-feedback.schema.json").read_text(encoding="utf-8")
     )
     runtime_profile_schema = json.loads(
-        (ROOT / "configs/schemas/runtime-profile.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "configs/schemas/runtime-profile.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator.check_schema(schema)
     registry = Registry().with_resources(

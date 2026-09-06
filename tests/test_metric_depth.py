@@ -172,9 +172,7 @@ def test_async_metric_depth_isolates_provider_specific_failure() -> None:
             assert runner.latest_result() is None
             time.sleep(0.005)
         assert runner.failure_count == 1
-        assert runner.last_error == (
-            "_ProviderSpecificFailure: synthetic provider failure"
-        )
+        assert runner.last_error == ("_ProviderSpecificFailure: synthetic provider failure")
     finally:
         runner.close()
 

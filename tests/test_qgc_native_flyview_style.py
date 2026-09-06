@@ -11,22 +11,10 @@ FLY_VIEW = QGC_ROOT / "src" / "FlyView" / "FlyView.qml"
 UPSTREAM_FLY_VIEW_VIDEO = QGC_ROOT / "src" / "FlyView" / "FlyViewVideo.qml"
 FLY_VIEW_VIDEO = CUSTOM_ROOT / "src" / "FlyViewVideo.qml"
 FLY_VIEW_LAYER = CUSTOM_ROOT / "src" / "FlyViewCustomLayer.qml"
-VIDEO_OVERLAY = (
-    CUSTOM_ROOT
-    / "res"
-    / "Custom"
-    / "MultiDetect"
-    / "MultiDetectVideoOverlay.qml"
-)
-MULTIDETECT_STATE = (
-    CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "MultiDetectState.qml"
-)
+VIDEO_OVERLAY = CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "MultiDetectVideoOverlay.qml"
+MULTIDETECT_STATE = CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "MultiDetectState.qml"
 TOOLBAR_INDICATOR = (
-    CUSTOM_ROOT
-    / "res"
-    / "Custom"
-    / "MultiDetect"
-    / "MultiDetectToolbarIndicator.qml"
+    CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "MultiDetectToolbarIndicator.qml"
 )
 CUSTOM_QRC = CUSTOM_ROOT / "custom.qrc"
 CUSTOM_CMAKE = CUSTOM_ROOT / "CMakeLists.txt"
@@ -82,10 +70,7 @@ def test_custom_resources_override_qgc_flyview_components_in_place() -> None:
         for item in qresource.findall("file")
     }
     assert aliases["QGroundControl/FlyView/FlyViewVideo.qml"] == FLY_VIEW_VIDEO.resolve()
-    assert (
-        aliases["QGroundControl/FlyView/FlyViewCustomLayer.qml"]
-        == FLY_VIEW_LAYER.resolve()
-    )
+    assert aliases["QGroundControl/FlyView/FlyViewCustomLayer.qml"] == FLY_VIEW_LAYER.resolve()
 
     native_fly_view = _qml_code(FLY_VIEW)
     assert "FlyViewVideo {" in native_fly_view
@@ -239,8 +224,7 @@ def test_pip_is_read_only_annotations_without_operator_chrome() -> None:
     )
     assert "visible: root.interactionEnabled && parent.operatorTracked" in overlay
     assert (
-        'visible: root.interactionEnabled && MultiDetectState.interactionState === "TRK"'
-        in overlay
+        'visible: root.interactionEnabled && MultiDetectState.interactionState === "TRK"' in overlay
     )
     assert "visible: root.interactionEnabled && root.showCompactStatus" in overlay
     assert "visible: root.interactionEnabled && MultiDetectState.operatorConfigured" in overlay
@@ -260,9 +244,7 @@ def test_pip_is_read_only_annotations_without_operator_chrome() -> None:
 
 
 def test_parallel_fixed_wing_video_hud_is_removed() -> None:
-    removed_hud = (
-        CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "FixedWingVideoHud.qml"
-    )
+    removed_hud = CUSTOM_ROOT / "res" / "Custom" / "MultiDetect" / "FixedWingVideoHud.qml"
     assert not removed_hud.exists()
     assert "FixedWingVideoHud" not in _qml_code(FLY_VIEW_VIDEO)
     assert "FixedWingVideoHud" not in _read(CUSTOM_CMAKE)
@@ -302,8 +284,8 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "readonly property bool _targetGeolocationQualified" in layer
     for required_gate in (
         "MultiDetectState.targetGeolocationAvailable",
-        "MultiDetectState.targetGeolocationTargetId !== \"\"",
-        "MultiDetectState.targetId !== \"\"",
+        'MultiDetectState.targetGeolocationTargetId !== ""',
+        'MultiDetectState.targetId !== ""',
         "MultiDetectState.targetGeolocationTargetId === MultiDetectState.targetId",
         "Number.isFinite(MultiDetectState.targetLatitudeDeg)",
         "MultiDetectState.targetLatitudeDeg > -90.0",
@@ -320,7 +302,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'typeof mapControl !== "undefined"' in layer
     assert "_targetMapVisible: _targetGeolocationQualified && _mapControlReady" in layer
     assert "_targetMapContextVisible: _mapControlReady" in layer
-    assert "MultiDetectState.targetId !== \"\"" in layer[layer.index("_targetMapContextVisible"):]
+    assert 'MultiDetectState.targetId !== ""' in layer[layer.index("_targetMapContextVisible") :]
     assert "mapControl.pipState.state === mapControl.pipState.fullState" in layer
 
     state = _qml_code(MULTIDETECT_STATE)
@@ -328,7 +310,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     geolocation_text_end = state.index("function rangeFusionText", geolocation_text_start)
     geolocation_text = state[geolocation_text_start:geolocation_text_end]
     assert 'if (targetId === "")' in geolocation_text
-    assert 'if (targetGeolocationTargetId !== targetId)' in geolocation_text
+    assert "if (targetGeolocationTargetId !== targetId)" in geolocation_text
     assert "onTargetIdChanged" in state
 
     projection_start = layer.index("function _updateTargetMapProjection()")
@@ -343,8 +325,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "const metersPerDegree = _wgs84MetersPerDegree(latitude)" in projection
     assert "const northLatitude = latitude + latitudeOffsetDeg" in projection
     assert (
-        "const eastLongitude = _normalizeLongitudeDeg(longitude + longitudeOffsetDeg)"
-        in projection
+        "const eastLongitude = _normalizeLongitudeDeg(longitude + longitudeOffsetDeg)" in projection
     )
     assert "northLatitude <= -90.0 || northLatitude >= 90.0" in projection
     assert "function _wgs84MetersPerDegree(latitudeDeg)" in layer
@@ -367,8 +348,7 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     range_handler = state[range_handler_start:range_handler_end]
     assert 'String(status.validity || "UNAVAILABLE").toUpperCase()' in range_handler
     assert (
-        'const rangeUsable = root.rangeValidity === "VALID" || '
-        'root.rangeValidity === "DEGRADED"'
+        'const rangeUsable = root.rangeValidity === "VALID" || root.rangeValidity === "DEGRADED"'
     ) in range_handler
     assert "const rangeFresh = root.rangeStatusFresh" in range_handler
     assert "if ((!rangeUsable || !rangeFresh) && rangeBelongsToCurrentTarget)" in range_handler
@@ -407,9 +387,9 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'qsTr("仅显示与记录；不产生飞控指令")' in card
     assert "multiDetectTargetEvidenceStore.saveSnapshot" in layer
     assert "function _optionalNumberText(value, precision, suffix)" in layer
-    assert "Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : \"--\"" in layer
-    assert "root._optionalNumberText(parent.parent.entry.range_m, 1, \" m\")" in card
-    assert "root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, \"°\")" in card
+    assert 'Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : "--"' in layer
+    assert 'root._optionalNumberText(parent.parent.entry.range_m, 1, " m")' in card
+    assert 'root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, "°")' in card
 
 
 def test_isolated_hil_exports_live_target_hit_geometry_without_selecting_it() -> None:
@@ -452,9 +432,7 @@ def test_selection_diagnostics_are_acceptance_only_and_cover_ack_and_track_statu
 def test_repeated_equal_remote_status_timestamp_cannot_freeze_qgc_command_clock() -> None:
     controller = _read(OPERATOR_CONTROLLER_SOURCE)
 
-    observer_start = controller.index(
-        "void MultiDetectOperatorController::_observeRemoteWireTime"
-    )
+    observer_start = controller.index("void MultiDetectOperatorController::_observeRemoteWireTime")
     observer = controller[observer_start:]
     assert "remoteSentAtMs > _remoteWireTimestampMs" in observer
     assert "remoteSentAtMs >= _remoteWireTimestampMs" not in observer
@@ -545,7 +523,7 @@ def test_target_cancel_state_machine_is_single_press_lck_to_trk_then_trk_cancel(
     timeout_end = state.index("property string statusMessage", timeout_start)
     timeout = state[timeout_start:timeout_end]
     assert 'timedOutAction === "CANCEL_TRK"' in timeout
-    assert 'TRK 取消未确认；目标保持隐藏' in timeout
+    assert "TRK 取消未确认；目标保持隐藏" in timeout
     assert "_removePendingCancelledTarget(root.pendingCancelledTargetId)" not in timeout
 
     # A manual box can be cancelled before Jetson has assigned a stable target
@@ -562,7 +540,7 @@ def test_target_cancel_state_machine_is_single_press_lck_to_trk_then_trk_cancel(
     assert "poolGenerationAtCancel: targetPoolGeneration" in state
     assert "root.targetPoolGeneration += 1" in state
     assert "_releasePendingCancelledBoxesForSelection({" in state
-    assert "cancelledStatusTargetId = String(status.targetId || \"\")" in state
+    assert 'cancelledStatusTargetId = String(status.targetId || "")' in state
     assert "_removePendingCancelledTargetBox(statusSelectionCommandId)" in state
 
     action_text = layer.index("text: MultiDetectState.mode3AimUiActive")
@@ -587,9 +565,7 @@ def test_multidetect_status_extends_the_native_qgc_toolbar_and_drawer() -> None:
     assert "const QVariantList& toolBarIndicators() final;" in header
     assert "_toolBarIndicatorList = QGCCorePlugin::toolBarIndicators();" in plugin
     assert "_toolBarIndicatorList.append" in plugin
-    assert (
-        'qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml' in plugin
-    )
+    assert "qrc:/qml/Custom/MultiDetect/MultiDetectToolbarIndicator.qml" in plugin
     assert "QT_RESOURCE_ALIAS MultiDetectToolbarIndicator.qml" in cmake
     assert "MultiDetectToolbarIndicator.qml" in cmake
 
@@ -714,9 +690,7 @@ def test_custom_qml_does_not_create_a_parallel_window_or_simulator_surface() -> 
         (CUSTOM_ROOT / "res" / "Custom" / "MultiDetect").glob("*.qml")
     )
     assert qml_paths
-    window_component = re.compile(
-        r"^\s*(?:ApplicationWindow|Window)\s*\{", flags=re.MULTILINE
-    )
+    window_component = re.compile(r"^\s*(?:ApplicationWindow|Window)\s*\{", flags=re.MULTILINE)
     mode_specific_surface_name = re.compile(
         r"(?:simulator|replay|hil|real).*(?:fly|view|window)|"
         r"(?:fly|view|window).*(?:simulator|replay|hil|real)",

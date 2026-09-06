@@ -101,8 +101,7 @@ def test_jetson_profile_rejects_thresholds_that_bypass_the_runtime_contract(
         "cannot exceed the mission minimum_confidence" in error for error in report["errors"]
     )
     assert any(
-        "FIRE_CANDIDATE_STABILITY_FRAMES must be positive" in error
-        for error in report["errors"]
+        "FIRE_CANDIDATE_STABILITY_FRAMES must be positive" in error for error in report["errors"]
     )
 
 

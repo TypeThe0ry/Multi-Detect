@@ -13,9 +13,7 @@ from multidetect.release_mode_evidence import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MODE_EVIDENCE_SCHEMA = (
-    REPO_ROOT / "configs" / "schemas" / "release-mode-evidence.schema.json"
-)
+MODE_EVIDENCE_SCHEMA = REPO_ROOT / "configs" / "schemas" / "release-mode-evidence.schema.json"
 
 
 def _source(path: Path, *, mode: str | None = "sim", gate: object = True) -> Path:
@@ -68,9 +66,7 @@ def test_accepts_windows_powershell_utf8_bom_source(tmp_path: Path) -> None:
         ).encode("utf-8")
     )
 
-    document = build_release_mode_evidence(
-        source, mode="sim", output_path=tmp_path / "out.json"
-    )
+    document = build_release_mode_evidence(source, mode="sim", output_path=tmp_path / "out.json")
 
     assert document["gate_passed"] is True
 
@@ -87,8 +83,7 @@ def test_rejects_ambiguous_and_nonfinite_source_json(tmp_path: Path) -> None:
 
     nonfinite = tmp_path / "nonfinite.json"
     nonfinite.write_text(
-        '{"event":"runner_finished","schema_version":1,"runtime_mode":"sim",'
-        '"gate_passed":NaN}',
+        '{"event":"runner_finished","schema_version":1,"runtime_mode":"sim","gate_passed":NaN}',
         encoding="utf-8",
     )
     with pytest.raises(ReleaseModeEvidenceError, match="non-finite JSON number NaN"):
@@ -154,9 +149,7 @@ def test_schema_matches_envelope_contract() -> None:
 
     assert schema["$schema"].endswith("draft/2020-12/schema")
     assert schema["properties"]["schema_version"] == {"const": 1}
-    assert schema["properties"]["acceptance_scope"] == {
-        "const": "explicit_source_gate_projection"
-    }
+    assert schema["properties"]["acceptance_scope"] == {"const": "explicit_source_gate_projection"}
     assert schema["properties"]["runtime_mode"]["enum"] == [
         "replay",
         "sim",
@@ -176,7 +169,5 @@ def test_cli_main_writes_envelope_and_returns_zero(tmp_path: Path) -> None:
     source = _source(tmp_path / "sim.json")
     output = tmp_path / "envelope.json"
 
-    assert main(
-        ["--mode", "sim", "--source", str(source), "--out", str(output)]
-    ) == 0
+    assert main(["--mode", "sim", "--source", str(source), "--out", str(output)]) == 0
     assert json.loads(output.read_text(encoding="utf-8"))["gate_passed"] is True

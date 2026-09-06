@@ -128,12 +128,15 @@ def test_field_session_rejects_stale_gps_and_range() -> None:
 
 
 def test_field_session_rejects_decreasing_event_timestamps() -> None:
-    records = [_record(state, timestamp) for state, timestamp in (
-        ("DET", 1.0),
-        ("TRK", 1.2),
-        ("LCK", 1.1),
-        ("TGT", 1.3),
-    )]
+    records = [
+        _record(state, timestamp)
+        for state, timestamp in (
+            ("DET", 1.0),
+            ("TRK", 1.2),
+            ("LCK", 1.1),
+            ("TGT", 1.3),
+        )
+    ]
     report = validate_field_session(records)
     assert report["timestamps"]["non_decreasing"] is False
     assert report["timestamps"]["errors"] == [
@@ -311,8 +314,7 @@ def test_field_session_rejects_mismatched_target_ids_in_the_same_record() -> Non
 
 def test_field_session_rejects_conflicting_root_and_nested_target_ids() -> None:
     records = [
-        _record(state, index * 0.1)
-        for index, state in enumerate(("DET", "TRK", "LCK", "TGT"))
+        _record(state, index * 0.1) for index, state in enumerate(("DET", "TRK", "LCK", "TGT"))
     ]
     for record in records:
         record["target_id"] = "target-a"
@@ -454,7 +456,7 @@ def test_nested_geolocation_and_range_details_are_recomputed() -> None:
                             "h_acc_m": 1.5,
                             "v_acc_m": 2.5,
                             "observed_at_s": index * 0.1,
-                        }
+                        },
                     },
                     "ranging": {
                         "target_id": "target-a",
@@ -463,7 +465,7 @@ def test_nested_geolocation_and_range_details_are_recomputed() -> None:
                             "slant_range_m": 20.0,
                             "source_age_s": 0.2,
                             "data_freshness_s": 0.2,
-                        }
+                        },
                     },
                 },
             }
@@ -639,8 +641,6 @@ def test_field_session_jsonl_loader_is_strict_and_accepts_windows_bom(
 
     valid = tmp_path / "valid-session.jsonl"
     valid.write_bytes(
-        ("\ufeff" + json.dumps(_record("DET", 0.0), ensure_ascii=False) + "\n").encode(
-            "utf-8"
-        )
+        ("\ufeff" + json.dumps(_record("DET", 0.0), ensure_ascii=False) + "\n").encode("utf-8")
     )
     assert len(load_jsonl(valid)) == 1

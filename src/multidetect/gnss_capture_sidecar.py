@@ -73,8 +73,10 @@ def create_gnss_replay_sidecar(
         raw_records[0].get("observed_at_monotonic_s"),
         "records[0].observed_at_monotonic_s",
     )
-    origin = first_observed if time_origin_monotonic_s is None else _finite_real(
-        time_origin_monotonic_s, "time_origin_monotonic_s"
+    origin = (
+        first_observed
+        if time_origin_monotonic_s is None
+        else _finite_real(time_origin_monotonic_s, "time_origin_monotonic_s")
     )
     offset = _finite_real(time_offset_s, "time_offset_s")
     assert origin is not None
@@ -117,8 +119,7 @@ def create_gnss_replay_sidecar(
         raise FileExistsError(f"GNSS replay sidecar already exists: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = "".join(
-        json.dumps(sample.to_mapping(), ensure_ascii=False, allow_nan=False, sort_keys=True)
-        + "\n"
+        json.dumps(sample.to_mapping(), ensure_ascii=False, allow_nan=False, sort_keys=True) + "\n"
         for sample in samples
     ).encode("utf-8")
     descriptor, temporary_name = tempfile.mkstemp(
@@ -206,9 +207,7 @@ def _telemetry_from_raw_record(
         )
         gps_time = gps_time - capture_time + replay_time
         if gps_time < 0.0:
-            raise AutonomyContractError(
-                "gps_observed_at_s maps to a negative replay timestamp"
-            )
+            raise AutonomyContractError("gps_observed_at_s maps to a negative replay timestamp")
     return VehicleTelemetry(
         altitude_agl_m=float("nan"),
         roll_deg=float("nan"),
@@ -266,11 +265,7 @@ def _finite_real(value: object, name: str) -> float:
 
 
 def _is_finite_real(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _reject_json_constant(value: str) -> object:

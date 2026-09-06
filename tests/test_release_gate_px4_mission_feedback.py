@@ -115,12 +115,8 @@ def _complete_statuses() -> dict[str, dict[str, str]]:
         mode: {
             "operator_visual_acceptance": "passed",
             "mission_path_acceptance": "passed",
-            "hardware_acceptance": (
-                "not_required" if mode in {"replay", "sim"} else "passed"
-            ),
-            "real_control_acceptance": (
-                "not_required" if mode in {"replay", "sim"} else "passed"
-            ),
+            "hardware_acceptance": ("not_required" if mode in {"replay", "sim"} else "passed"),
+            "real_control_acceptance": ("not_required" if mode in {"replay", "sim"} else "passed"),
         }
         for mode in MODES
     }
@@ -212,14 +208,10 @@ def _feedback_sources(
         mission_paths[vehicle_class] = mission_path
 
     bindings: list[tuple[str, str, Path, Path, Path]] = []
-    for sequence, (mode, vehicle_class) in enumerate(
-        PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS
-    ):
+    for sequence, (mode, vehicle_class) in enumerate(PX4_MISSION_FEEDBACK_REQUIRED_COMBINATIONS):
         mission = _mission(vehicle_class)
         provider = _FeedbackProvider(mission)
-        vehicle_identity_hash = derive_vehicle_identity_hash(
-            provider.heartbeat_identity
-        )
+        vehicle_identity_hash = derive_vehicle_identity_hash(provider.heartbeat_identity)
         endpoint_binding_hash = derive_endpoint_binding_hash(
             provider.config,
             resolved_endpoint=provider.resolved_endpoint,
@@ -269,9 +261,7 @@ def _feedback_sources(
             runtime_profile_path=profile_path,
             runtime_profile_hmac_key=RUNTIME_KEY,
             runtime_profile_key_id=RUNTIME_KEY_ID,
-            runtime_signing_identity_hash=(
-                SIGNING_IDENTITY_HASH if mode == "real" else None
-            ),
+            runtime_signing_identity_hash=(SIGNING_IDENTITY_HASH if mode == "real" else None),
         )
         report_path = tmp_path / "feedback" / mode / f"{vehicle_class}.json"
         write_px4_mission_feedback_observation(report_path, report)
@@ -315,8 +305,7 @@ def test_release_manifest_binds_and_reopens_six_mission_feedback_sources(
     assert binding["messages_transmitted"] == 0
     assert binding["checks"]["all_firmware_identities_bound"] is True
     assert all(
-        len(observation["firmware_identity_hash"]) == 64
-        for observation in binding["observations"]
+        len(observation["firmware_identity_hash"]) == 64 for observation in binding["observations"]
     )
     assert all(binding["checks"].values())
 
@@ -423,10 +412,7 @@ def test_release_gate_rejects_runtime_identity_record_forgery(
     report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
     assert report["gate_passed"] is False
     assert report["px4_mission_feedback"]["passed"] is False
-    assert any(
-        expected_reason in reason
-        for reason in report["px4_mission_feedback"]["reasons"]
-    )
+    assert any(expected_reason in reason for reason in report["px4_mission_feedback"]["reasons"])
 
 
 def test_release_binding_rejects_legacy_v1_feedback_report(tmp_path: Path) -> None:
@@ -474,9 +460,7 @@ def test_release_gate_rejects_boolean_zero_transmit_forgery(tmp_path: Path) -> N
         version_manifest_path=VERSION_MANIFEST,
         px4_mission_feedback_evidence=_feedback_sources(tmp_path),
     )
-    document["px4_mission_feedback"]["observations"][0][
-        "messages_transmitted"
-    ] = False
+    document["px4_mission_feedback"]["observations"][0]["messages_transmitted"] = False
     write_release_gate_manifest(output, document)
 
     report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
@@ -641,9 +625,7 @@ def test_release_gate_schema_declares_px4_feedback_matrix(tmp_path: Path) -> Non
     assert definition["properties"]["hardware_acceptance"]["const"] is False
     observation_definition = schema["$defs"]["px4MissionFeedbackObservationRecord"]
     assert "firmware_identity_hash" in observation_definition["required"]
-    assert "all_firmware_identities_bound" in definition["properties"]["checks"][
-        "required"
-    ]
+    assert "all_firmware_identities_bound" in definition["properties"]["checks"]["required"]
 
     evidence = _write_mode_evidence(tmp_path)
     document = build_release_gate_manifest(

@@ -218,9 +218,7 @@ class MissionProgressSnapshot:
                 or feedback.mission_hash != self.mission_hash
                 or feedback.mission_item_count != self.mission_item_count
             ):
-                raise MissionProgressError(
-                    "px4_feedback does not match the bound Mission identity"
-                )
+                raise MissionProgressError("px4_feedback does not match the bound Mission identity")
         if self.phase is MissionProgressPhase.COMPLETE:
             if len(completed) != self.mission_item_count or self.current_sequence is not None:
                 raise MissionProgressError("complete progress must contain every sequence")
@@ -453,9 +451,7 @@ class MissionProgressTracker:
                 or feedback.mission_hash != self.mission.canonical_hash
                 or feedback.mission_item_count != len(self.mission.items)
             ):
-                raise MissionProgressError(
-                    "px4_feedback does not match the bound Mission identity"
-                )
+                raise MissionProgressError("px4_feedback does not match the bound Mission identity")
             if not math.isclose(
                 feedback.evaluated_at_s,
                 now,

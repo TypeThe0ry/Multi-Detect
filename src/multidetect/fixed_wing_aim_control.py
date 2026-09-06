@@ -304,9 +304,7 @@ class FixedWingAimController:
         x_px = (bbox.x1 + bbox.x2) * 0.5 * self.calibration.width_px
         y_px = (bbox.y1 + bbox.y2) * 0.5 * self.calibration.height_px
         yaw = math.degrees(math.atan2(x_px - self.calibration.cx_px, self.calibration.fx_px))
-        pitch = math.degrees(
-            math.atan2(y_px - self.calibration.cy_px, self.calibration.fy_px)
-        )
+        pitch = math.degrees(math.atan2(y_px - self.calibration.cy_px, self.calibration.fy_px))
         return yaw, pitch
 
     @staticmethod
@@ -477,9 +475,7 @@ class FixedWingAimExecutor:
                 None,
                 self.controller.config.control_mode.strip().upper(),
             }:
-                self.transport.request_mode(
-                    self._entry_mode or self.controller.config.return_mode
-                )
+                self.transport.request_mode(self._entry_mode or self.controller.config.return_mode)
         self._prestream_count = 0
         self._control_mode_requested = False
         self._entry_mode = None

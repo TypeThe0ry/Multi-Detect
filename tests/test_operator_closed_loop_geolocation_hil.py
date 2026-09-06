@@ -18,12 +18,7 @@ from multidetect.operator_protocol import OperatorTunnelCodec, WireMessageType
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIVER = (
-    ROOT
-    / "ground-control"
-    / "MultiDetectGCS"
-    / "custom"
-    / "tests"
-    / "operator_closed_loop_hil.py"
+    ROOT / "ground-control" / "MultiDetectGCS" / "custom" / "tests" / "operator_closed_loop_hil.py"
 )
 
 

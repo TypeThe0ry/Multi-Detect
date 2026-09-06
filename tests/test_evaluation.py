@@ -70,7 +70,7 @@ def test_evaluation_jsonl_rejects_duplicate_keys_and_nonfinite_numbers(
 
 def test_evaluation_jsonl_accepts_windows_utf8_bom(tmp_path: Path) -> None:
     path = tmp_path / "bom.jsonl"
-    path.write_bytes(b"\xef\xbb\xbf{\"frame_id\":\"frame-1\",\"objects\":[]}\n")
+    path.write_bytes(b'\xef\xbb\xbf{"frame_id":"frame-1","objects":[]}\n')
     frames = load_ground_truth_jsonl(path)
     assert frames[0].frame_id == "frame-1"
 

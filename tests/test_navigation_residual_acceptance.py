@@ -26,7 +26,8 @@ def test_navigation_residual_acceptance_record_is_deterministically_qualified() 
     }
     assert record["scenarios"]["nominal"]["validity"] == "valid"
     assert record["scenarios"]["spread_inside_consistency_gate"]["validity"] == "degraded"
-    assert "navigation_velocity_uncertainty_inflated" in record["scenarios"][
-        "spread_inside_consistency_gate"
-    ]["reasons"]
+    assert (
+        "navigation_velocity_uncertainty_inflated"
+        in record["scenarios"]["spread_inside_consistency_gate"]["reasons"]
+    )
     json.dumps(record, ensure_ascii=False, allow_nan=False)

@@ -308,10 +308,7 @@ def test_replay_set_accuracy_rejects_empty_positive_evidence_even_when_reviewed(
     assert report["reviewed"] is True
     assert report["accuracy_validated"] is False
     assert report["gate_passed"] is False
-    assert any(
-        "precision/recall are undefined" in reason
-        for reason in report["failure_reasons"]
-    )
+    assert any("precision/recall are undefined" in reason for reason in report["failure_reasons"])
 
 
 def test_replay_set_accuracy_requires_positive_truth_and_prediction_in_each_positive_stratum(
@@ -335,8 +332,7 @@ def test_replay_set_accuracy_requires_positive_truth_and_prediction_in_each_posi
     assert report["metrics_gate_passed"] is False
     assert report["accuracy_validated"] is False
     assert any(
-        "night stratum contains no positive" in reason
-        for reason in report["failure_reasons"]
+        "night stratum contains no positive" in reason for reason in report["failure_reasons"]
     )
 
 
@@ -476,8 +472,10 @@ def test_release_gate_rejects_pending_accuracy_evidence(tmp_path: Path) -> None:
     report = evaluate_release_gate(release_manifest, version_manifest_path=VERSION_MANIFEST)
     assert report["gate_passed"] is False
     assert report["replay_set"]["passed"] is False
-    assert any("accuracy evidence gate_passed is false" in reason
-               for reason in report["replay_set"]["reasons"])
+    assert any(
+        "accuracy evidence gate_passed is false" in reason
+        for reason in report["replay_set"]["reasons"]
+    )
 
 
 def test_release_gate_rejects_claimed_accuracy_with_undefined_metrics(tmp_path: Path) -> None:

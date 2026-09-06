@@ -39,9 +39,7 @@ def strict_object(
 def require_schema_version(value: object, *, expected: int = 1) -> int:
     version = require_int(value, "schema_version", minimum=1)
     if version != expected:
-        raise AutonomyContractError(
-            f"unsupported schema_version {version}; expected {expected}"
-        )
+        raise AutonomyContractError(f"unsupported schema_version {version}; expected {expected}")
     return version
 
 

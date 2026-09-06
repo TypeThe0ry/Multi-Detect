@@ -154,8 +154,7 @@ class UnifiedSelectionTargetPool:
             sorted(
                 track_id
                 for track_id in self._tracked_track_ids
-                if track_id in snapshots
-                and snapshots[track_id].state is not UnifiedTrackState.LOST
+                if track_id in snapshots and snapshots[track_id].state is not UnifiedTrackState.LOST
             )
         )
 

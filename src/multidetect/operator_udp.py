@@ -117,10 +117,13 @@ class UdpRuntimeStatusAckReceipt:
 
     @property
     def latency_ms(self) -> float:
-        return max(
-            0,
-            self.acknowledged_at_monotonic_ns - self.sent_at_monotonic_ns,
-        ) / 1_000_000.0
+        return (
+            max(
+                0,
+                self.acknowledged_at_monotonic_ns - self.sent_at_monotonic_ns,
+            )
+            / 1_000_000.0
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,17 +561,13 @@ class UdpOperatorSelectionServer:
         # heartbeat-peer change atomic with arming or accepting one type-24 ACK.
         with self._metadata_peer_lock:
             self._expire_metadata_peer_locked(now_s=time.monotonic())
-            active_peer = (
-                self._metadata_peer if self._metadata_peer_has_heartbeat else None
-            )
+            active_peer = self._metadata_peer if self._metadata_peer_has_heartbeat else None
             if active_peer is None:
                 raise RuntimeError(
                     "runtime-status acceptance requires an active QGC heartbeat peer"
                 )
             if peer != active_peer:
-                raise RuntimeError(
-                    "runtime-status recipient is not the active QGC heartbeat peer"
-                )
+                raise RuntimeError("runtime-status recipient is not the active QGC heartbeat peer")
             receipt = UdpRuntimeStatusSendReceipt(
                 acknowledged_runtime_sequence=status.sequence,
                 run_hash64=status.run_hash64,
@@ -580,20 +579,12 @@ class UdpOperatorSelectionServer:
                     raise RuntimeError(
                         "a runtime-status acceptance acknowledgement is already pending"
                     )
-                last_sequence = self._last_runtime_status_ack_sequence_by_run.get(
-                    status.run_hash64
+                last_sequence = self._last_runtime_status_ack_sequence_by_run.get(status.run_hash64)
+                retired_sequence = self._retired_runtime_status_ack_sequence_by_run_peer.get(
+                    (status.run_hash64, peer)
                 )
-                retired_sequence = (
-                    self._retired_runtime_status_ack_sequence_by_run_peer.get(
-                        (status.run_hash64, peer)
-                    )
-                )
-                if (
-                    (last_sequence is not None and status.sequence <= last_sequence)
-                    or (
-                        retired_sequence is not None
-                        and status.sequence <= retired_sequence
-                    )
+                if (last_sequence is not None and status.sequence <= last_sequence) or (
+                    retired_sequence is not None and status.sequence <= retired_sequence
                 ):
                     raise RuntimeError(
                         "runtime-status acceptance sequence is duplicate or out of order"
@@ -630,9 +621,7 @@ class UdpOperatorSelectionServer:
                     "runtime-status send receipt is no longer the pending acceptance"
                 )
             if self._runtime_status_ack_waiting:
-                raise RuntimeError(
-                    "runtime-status acceptance acknowledgement already has a waiter"
-                )
+                raise RuntimeError("runtime-status acceptance acknowledgement already has a waiter")
             self._runtime_status_ack_waiting = True
             self._pending_runtime_status_ack_deadline_ns = deadline_ns
             while True:
@@ -655,31 +644,19 @@ class UdpOperatorSelectionServer:
                     if acknowledgement.remote != send_receipt.remote:
                         self._retire_runtime_status_send_locked(send_receipt)
                         self._clear_pending_runtime_status_locked()
-                        raise OperatorProtocolError(
-                            "runtime-status ACK peer does not match"
-                        )
+                        raise OperatorProtocolError("runtime-status ACK peer does not match")
                     if (
                         acknowledgement.acknowledgement.acknowledged_runtime_sequence
                         != send_receipt.acknowledged_runtime_sequence
                     ):
                         self._retire_runtime_status_send_locked(send_receipt)
                         self._clear_pending_runtime_status_locked()
-                        raise OperatorProtocolError(
-                            "runtime-status ACK sequence does not match"
-                        )
-                    if (
-                        acknowledgement.acknowledgement.run_hash64
-                        != send_receipt.run_hash64
-                    ):
+                        raise OperatorProtocolError("runtime-status ACK sequence does not match")
+                    if acknowledgement.acknowledgement.run_hash64 != send_receipt.run_hash64:
                         self._retire_runtime_status_send_locked(send_receipt)
                         self._clear_pending_runtime_status_locked()
-                        raise OperatorProtocolError(
-                            "runtime-status ACK run hash does not match"
-                        )
-                    if (
-                        acknowledgement.sent_at_monotonic_ns
-                        != send_receipt.sent_at_monotonic_ns
-                    ):
+                        raise OperatorProtocolError("runtime-status ACK run hash does not match")
+                    if acknowledgement.sent_at_monotonic_ns != send_receipt.sent_at_monotonic_ns:
                         self._retire_runtime_status_send_locked(send_receipt)
                         self._clear_pending_runtime_status_locked()
                         raise OperatorProtocolError(
@@ -776,9 +753,7 @@ class UdpOperatorSelectionServer:
             previous_heartbeat_peer = (
                 self._metadata_peer if self._metadata_peer_has_heartbeat else None
             )
-            same_heartbeat_peer = (
-                self._metadata_peer_has_heartbeat and self._metadata_peer == peer
-            )
+            same_heartbeat_peer = self._metadata_peer_has_heartbeat and self._metadata_peer == peer
             self._metadata_peer = peer
             self._metadata_peer_seen_at_s = time.monotonic()
             self._metadata_peer_has_heartbeat = from_heartbeat or same_heartbeat_peer
@@ -798,9 +773,7 @@ class UdpOperatorSelectionServer:
             return False
         if now_s - self._metadata_peer_seen_at_s <= self.metadata_peer_timeout_s:
             return False
-        previous_heartbeat_peer = (
-            self._metadata_peer if self._metadata_peer_has_heartbeat else None
-        )
+        previous_heartbeat_peer = self._metadata_peer if self._metadata_peer_has_heartbeat else None
         self._metadata_peer = None
         self._metadata_peer_seen_at_s = None
         self._metadata_peer_has_heartbeat = False
@@ -847,9 +820,7 @@ class UdpOperatorSelectionServer:
         # peer cannot change between validation and the ACK state transition.
         with self._metadata_peer_lock:
             self._expire_metadata_peer_locked(now_s=time.monotonic())
-            active_peer = (
-                self._metadata_peer if self._metadata_peer_has_heartbeat else None
-            )
+            active_peer = self._metadata_peer if self._metadata_peer_has_heartbeat else None
             with self._runtime_status_ack_condition:
                 if self._runtime_status_ack_is_retired_locked(
                     acknowledgement,
@@ -875,17 +846,12 @@ class UdpOperatorSelectionServer:
                     acknowledgement.acknowledged_runtime_sequence
                     != pending.acknowledged_runtime_sequence
                 ):
-                    raise OperatorProtocolError(
-                        "runtime-status ACK sequence does not match"
-                    )
+                    raise OperatorProtocolError("runtime-status ACK sequence does not match")
                 if acknowledgement.run_hash64 != pending.run_hash64:
                     raise OperatorProtocolError("runtime-status ACK run hash does not match")
 
                 deadline_ns = self._pending_runtime_status_ack_deadline_ns
-                if (
-                    deadline_ns is not None
-                    and acknowledged_at_monotonic_ns > deadline_ns
-                ):
+                if deadline_ns is not None and acknowledged_at_monotonic_ns > deadline_ns:
                     self._retire_runtime_status_send_locked(pending)
                     self._pending_runtime_status_ack_failure = TimeoutError(
                         "runtime-status acceptance acknowledgement arrived after deadline"
@@ -909,9 +875,9 @@ class UdpOperatorSelectionServer:
                     sent_at_monotonic_ns=pending.sent_at_monotonic_ns,
                     acknowledged_at_monotonic_ns=acknowledged_at_monotonic_ns,
                 )
-                self._last_runtime_status_ack_sequence_by_run[
-                    acknowledgement.run_hash64
-                ] = acknowledgement.acknowledged_runtime_sequence
+                self._last_runtime_status_ack_sequence_by_run[acknowledgement.run_hash64] = (
+                    acknowledgement.acknowledged_runtime_sequence
+                )
                 self._retire_runtime_status_send_locked(pending)
                 self._pending_runtime_status_ack = receipt
                 self._runtime_status_ack_condition.notify_all()

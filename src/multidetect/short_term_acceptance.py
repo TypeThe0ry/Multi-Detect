@@ -275,8 +275,7 @@ def run_short_term_tracking_acceptance(
         "benchmark_effective_elapsed_s": effective_benchmark_elapsed_s,
         "end_to_end_rate_hz": end_to_end_rate_hz,
         "wall_end_to_end_rate_hz": wall_end_to_end_rate_hz,
-        "scheduler_contention_ratio": benchmark_elapsed_s
-        / max(benchmark_cpu_elapsed_s, 1e-9),
+        "scheduler_contention_ratio": benchmark_elapsed_s / max(benchmark_cpu_elapsed_s, 1e-9),
         "processed_update_rate_hz": processed_update_rate_hz,
         "maximum_processing_latency_p95_ms": cfg.maximum_processing_latency_p95_ms,
         "minimum_end_to_end_rate_hz": cfg.minimum_end_to_end_rate_hz,

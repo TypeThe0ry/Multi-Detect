@@ -293,9 +293,7 @@ def test_stale_range_data_clears_metric_fields_but_keeps_visual_track() -> None:
         (10.1, "range_source_future"),
     ],
 )
-def test_range_source_timestamp_is_fail_closed(
-    timestamp: float, reason: str
-) -> None:
+def test_range_source_timestamp_is_fail_closed(timestamp: float, reason: str) -> None:
     bridge = SimulatorPerceptionBridge(clock=lambda: 10.0)
     result = bridge.feed_result(
         _telemetry(),

@@ -171,9 +171,7 @@ def target_geolocation_from_ned_offset(
             aircraft_velocity_north_mps,
             aircraft_velocity_east_mps,
         )
-        if velocity is None and (
-            velocity_inputs_present or acceleration_sigma_mps2 is not None
-        ):
+        if velocity is None and (velocity_inputs_present or acceleration_sigma_mps2 is not None):
             # A producer that advertises a motion sample must provide both
             # horizontal axes as finite values.  Silently falling back to the
             # old GPS point would publish a coordinate with no motion error
@@ -181,9 +179,7 @@ def target_geolocation_from_ned_offset(
             # The same fail-closed rule applies when an acceleration envelope
             # is present without the velocity mean it is meant to bound: the
             # envelope must never be silently dropped from the evidence sigma.
-            raise ValueError(
-                "motion compensation requires a complete finite N/E velocity pair"
-            )
+            raise ValueError("motion compensation requires a complete finite N/E velocity pair")
         if velocity is not None:
             reference_latitude_deg, reference_longitude_deg = wgs84_forward_from_ned(
                 latitude_deg=aircraft_latitude_deg,
@@ -325,9 +321,7 @@ def _finite_velocity_pair(
     if any(value is None for value in values):
         return None
     if any(
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
         for value in values
     ):
         return None
@@ -368,11 +362,7 @@ def wgs84_radii_of_curvature(latitude_deg: float) -> tuple[float, float]:
     eccentricity_squared = WGS84_FLATTENING * (2.0 - WGS84_FLATTENING)
     denominator = math.sqrt(1.0 - eccentricity_squared * math.sin(latitude_rad) ** 2)
     prime_vertical_m = WGS84_SEMI_MAJOR_AXIS_M / denominator
-    meridional_m = (
-        WGS84_SEMI_MAJOR_AXIS_M
-        * (1.0 - eccentricity_squared)
-        / denominator**3
-    )
+    meridional_m = WGS84_SEMI_MAJOR_AXIS_M * (1.0 - eccentricity_squared) / denominator**3
     return meridional_m, prime_vertical_m
 
 
@@ -452,11 +442,7 @@ def _wgs84_forward_from_ned(
     cos_azimuth = math.cos(azimuth_rad)
     sin_alpha = cos_reduced * sin_azimuth
     cos_squared_alpha = 1.0 - sin_alpha**2
-    u_squared = (
-        cos_squared_alpha
-        * (semi_major_m**2 - semi_minor_m**2)
-        / semi_minor_m**2
-    )
+    u_squared = cos_squared_alpha * (semi_major_m**2 - semi_minor_m**2) / semi_minor_m**2
     coefficient_a = 1.0 + (u_squared / 16384.0) * (
         4096.0 + u_squared * (-768.0 + u_squared * (320.0 - 175.0 * u_squared))
     )
@@ -471,15 +457,19 @@ def _wgs84_forward_from_ned(
         sine_sigma = math.sin(sigma_rad)
         cosine_sigma = math.cos(sigma_rad)
         cosine_two_sigma_m = math.cos(two_sigma_m_rad)
-        delta_sigma_rad = coefficient_b * sine_sigma * (
-            cosine_two_sigma_m
-            + (coefficient_b / 4.0)
+        delta_sigma_rad = (
+            coefficient_b
+            * sine_sigma
             * (
-                cosine_sigma * (-1.0 + 2.0 * cosine_two_sigma_m**2)
-                - (coefficient_b / 6.0)
-                * cosine_two_sigma_m
-                * (-3.0 + 4.0 * sine_sigma**2)
-                * (-3.0 + 4.0 * cosine_two_sigma_m**2)
+                cosine_two_sigma_m
+                + (coefficient_b / 4.0)
+                * (
+                    cosine_sigma * (-1.0 + 2.0 * cosine_two_sigma_m**2)
+                    - (coefficient_b / 6.0)
+                    * cosine_two_sigma_m
+                    * (-3.0 + 4.0 * sine_sigma**2)
+                    * (-3.0 + 4.0 * cosine_two_sigma_m**2)
+                )
             )
         )
         next_sigma_rad = distance_m / (semi_minor_m * coefficient_a) + delta_sigma_rad
@@ -493,34 +483,30 @@ def _wgs84_forward_from_ned(
     sine_sigma = math.sin(sigma_rad)
     cosine_sigma = math.cos(sigma_rad)
     cosine_two_sigma_m = math.cos(2.0 * sigma1_rad + sigma_rad)
-    temporary = (
-        sin_reduced * sine_sigma
-        - cos_reduced * cosine_sigma * cos_azimuth
-    )
+    temporary = sin_reduced * sine_sigma - cos_reduced * cosine_sigma * cos_azimuth
     latitude2_rad = math.atan2(
         sin_reduced * cosine_sigma + cos_reduced * sine_sigma * cos_azimuth,
-        (1.0 - flattening)
-        * math.sqrt(sin_alpha**2 + temporary**2),
+        (1.0 - flattening) * math.sqrt(sin_alpha**2 + temporary**2),
     )
     longitude_delta_rad = math.atan2(
         sine_sigma * sin_azimuth,
         cos_reduced * cosine_sigma - sin_reduced * sine_sigma * cos_azimuth,
     )
     correction = (
-        flattening
-        / 16.0
-        * cos_squared_alpha
-        * (4.0 + flattening * (4.0 - 3.0 * cos_squared_alpha))
+        flattening / 16.0 * cos_squared_alpha * (4.0 + flattening * (4.0 - 3.0 * cos_squared_alpha))
     )
-    longitude_delta_rad -= (1.0 - correction) * flattening * sin_alpha * (
-        sigma_rad
-        + correction
-        * sine_sigma
+    longitude_delta_rad -= (
+        (1.0 - correction)
+        * flattening
+        * sin_alpha
         * (
-            cosine_two_sigma_m
+            sigma_rad
             + correction
-            * cosine_sigma
-            * (-1.0 + 2.0 * cosine_two_sigma_m**2)
+            * sine_sigma
+            * (
+                cosine_two_sigma_m
+                + correction * cosine_sigma * (-1.0 + 2.0 * cosine_two_sigma_m**2)
+            )
         )
     )
     latitude2_deg = math.degrees(latitude2_rad)

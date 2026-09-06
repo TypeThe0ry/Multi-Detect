@@ -293,34 +293,46 @@ def validate_camera_info_semantics(
     if (width, height) != (expected_width, expected_height):
         raise ValueError("CameraInfo geometry does not match the expected calibration")
     k = tuple(
-        _finite(f"CameraInfo K[{index}]", value)
-        for index, value in enumerate(message.intrinsics.k)
+        _finite(f"CameraInfo K[{index}]", value) for index, value in enumerate(message.intrinsics.k)
     )
     p = tuple(
-        _finite(f"CameraInfo P[{index}]", value)
-        for index, value in enumerate(message.projection.p)
+        _finite(f"CameraInfo P[{index}]", value) for index, value in enumerate(message.projection.p)
     )
     r = tuple(
         _finite(f"CameraInfo R[{index}]", value)
         for index, value in enumerate(message.rectification_matrix)
     )
     distortion = tuple(
-        _finite(f"CameraInfo D[{index}]", value)
-        for index, value in enumerate(message.distortion.k)
+        _finite(f"CameraInfo D[{index}]", value) for index, value in enumerate(message.distortion.k)
     )
     if len(k) != 9 or len(p) != 12 or len(r) != 9 or len(distortion) != 5:
         raise ValueError("CameraInfo must contain K[9], P[12], R[9], and D[5]")
     if int(message.distortion.model) != 0:
         raise ValueError("CameraInfo distortion model must be PLUMB_BOB")
     expected_k = (
-        expected_fx_px, 0.0, expected_cx_px,
-        0.0, expected_fy_px, expected_cy_px,
-        0.0, 0.0, 1.0,
+        expected_fx_px,
+        0.0,
+        expected_cx_px,
+        0.0,
+        expected_fy_px,
+        expected_cy_px,
+        0.0,
+        0.0,
+        1.0,
     )
     expected_p = (
-        expected_fx_px, 0.0, expected_cx_px, 0.0,
-        0.0, expected_fy_px, expected_cy_px, 0.0,
-        0.0, 0.0, 1.0, 0.0,
+        expected_fx_px,
+        0.0,
+        expected_cx_px,
+        0.0,
+        0.0,
+        expected_fy_px,
+        expected_cy_px,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
     )
     identity = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
     for name, actual, expected, tolerance in (
@@ -332,9 +344,7 @@ def validate_camera_info_semantics(
         mismatch = next(
             (
                 (index, observed, required)
-                for index, (observed, required) in enumerate(
-                    zip(actual, expected, strict=True)
-                )
+                for index, (observed, required) in enumerate(zip(actual, expected, strict=True))
                 if not math.isclose(observed, required, rel_tol=0.0, abs_tol=tolerance)
             ),
             None,
@@ -365,7 +375,13 @@ def _parse_expected_camera_calibration(raw: str | None) -> dict[str, object] | N
     except json.JSONDecodeError as exc:
         raise ValueError("expected camera calibration is not valid JSON") from exc
     if not isinstance(document, dict) or set(document) != {
-        "width_px", "height_px", "fx_px", "fy_px", "cx_px", "cy_px", "distortion"
+        "width_px",
+        "height_px",
+        "fx_px",
+        "fy_px",
+        "cx_px",
+        "cy_px",
+        "distortion",
     }:
         raise ValueError("expected camera calibration has an invalid field set")
     distortion = document["distortion"]
@@ -472,8 +488,7 @@ def _validate_attitude_covariance(values: object) -> tuple[float, ...]:
     if len(covariance) != 9:
         raise ValueError("Odometry attitude covariance must contain exactly 9 values")
     normalized = tuple(
-        _finite(f"attitude_covariance[{index}]", value)
-        for index, value in enumerate(covariance)
+        _finite(f"attitude_covariance[{index}]", value) for index, value in enumerate(covariance)
     )
     scale = max(1.0, *(abs(value) for value in normalized))
     tolerance = 1.0e-10 * scale
@@ -573,9 +588,7 @@ def _validate_header(header: SensorWireHeader) -> SensorWireHeader:
         velocity_left_mps=header.velocity_left_mps,
         velocity_up_mps=header.velocity_up_mps,
     )
-    attitude_covariance = _validate_attitude_covariance(
-        header.attitude_covariance_enu_rad2
-    )
+    attitude_covariance = _validate_attitude_covariance(header.attitude_covariance_enu_rad2)
     return SensorWireHeader(
         sequence=sequence,
         sensor_stamp_ns=sensor_stamp_ns,
@@ -1028,9 +1041,7 @@ def _odometry_from_message(message: Any) -> tuple[float, ...]:
     if len(covariance_6x6) != 36:
         raise ValueError("Odometry pose covariance must contain exactly 36 values")
     angular = tuple(
-        covariance_6x6[row * 6 + column]
-        for row in range(3, 6)
-        for column in range(3, 6)
+        covariance_6x6[row * 6 + column] for row in range(3, 6) for column in range(3, 6)
     )
     return (*odometry, *_validate_attitude_covariance(angular))
 
@@ -1350,8 +1361,7 @@ def main() -> int:
                     velocity_left_mps=float(odometry["velocity_left_mps"]),
                     velocity_up_mps=float(odometry["velocity_up_mps"]),
                     attitude_covariance_enu_rad2=tuple(
-                        float(value)
-                        for value in odometry["attitude_covariance_enu_rad2"]
+                        float(value) for value in odometry["attitude_covariance_enu_rad2"]
                     ),
                     bgr_payload=bgr_payload,
                 )

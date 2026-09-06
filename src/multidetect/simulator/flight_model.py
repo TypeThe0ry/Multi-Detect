@@ -68,9 +68,7 @@ class FlightMode(str, Enum):
             # has a chance to return it.
             return aliases[normalized] if normalized in aliases else cls(normalized)
         except ValueError as exc:
-            raise FlightModelError(
-                "mode must be 'vtol', 'fixed-wing' or 'multirotor'"
-            ) from exc
+            raise FlightModelError("mode must be 'vtol', 'fixed-wing' or 'multirotor'") from exc
 
 
 # MAVLink command ids used by the in-process sink.  Keeping the values here
@@ -115,8 +113,13 @@ class FlightModelConfig:
 
     def __post_init__(self) -> None:
         positive = (
-            "max_speed_mps", "max_altitude_m", "max_roll_deg", "max_pitch_deg",
-            "max_yaw_rate_deg_s", "max_vertical_speed_mps", "max_dt_s",
+            "max_speed_mps",
+            "max_altitude_m",
+            "max_roll_deg",
+            "max_pitch_deg",
+            "max_yaw_rate_deg_s",
+            "max_vertical_speed_mps",
+            "max_dt_s",
         )
         for name in positive:
             if _finite(getattr(self, name), name) <= 0.0:
@@ -124,8 +127,11 @@ class FlightModelConfig:
         if self.max_roll_deg > 89.0 or self.max_pitch_deg > 89.0:
             raise FlightModelError("attitude bounds must be below 90 degrees")
         for name in (
-            "initial_latitude_deg", "initial_longitude_deg", "initial_altitude_m",
-            "initial_heading_deg", "initial_speed_mps",
+            "initial_latitude_deg",
+            "initial_longitude_deg",
+            "initial_altitude_m",
+            "initial_heading_deg",
+            "initial_speed_mps",
         ):
             _finite(getattr(self, name), name)
         if not -90.0 < self.initial_latitude_deg < 90.0:
@@ -221,8 +227,12 @@ class FlightTelemetrySnapshot(_BaseTelemetrySnapshot):
         if self.mode not in {item.value for item in FlightMode}:
             raise FlightModelError("telemetry mode is invalid")
         for name in (
-            "roll_deg", "pitch_deg", "yaw_deg", "airspeed_mps",
-            "wind_east_mps", "wind_north_mps",
+            "roll_deg",
+            "pitch_deg",
+            "yaw_deg",
+            "airspeed_mps",
+            "wind_east_mps",
+            "wind_north_mps",
         ):
             _finite(getattr(self, name), name)
         if self.airspeed_mps < 0.0 or self.step_count < 0:
@@ -234,19 +244,21 @@ class FlightTelemetrySnapshot(_BaseTelemetrySnapshot):
 
     def to_mapping(self) -> dict[str, object]:
         result = _BaseTelemetrySnapshot.to_mapping(self)
-        result.update({
-            "mode": self.mode,
-            "roll_deg": float(self.roll_deg),
-            "pitch_deg": float(self.pitch_deg),
-            "yaw_deg": float(self.yaw_deg),
-            "airspeed_mps": float(self.airspeed_mps),
-            "wind_east_mps": float(self.wind_east_mps),
-            "wind_north_mps": float(self.wind_north_mps),
-            "step_count": self.step_count,
-            "flight_mode": self.flight_mode,
-            "mission_started": self.mission_started,
-            "truth_free": True,
-        })
+        result.update(
+            {
+                "mode": self.mode,
+                "roll_deg": float(self.roll_deg),
+                "pitch_deg": float(self.pitch_deg),
+                "yaw_deg": float(self.yaw_deg),
+                "airspeed_mps": float(self.airspeed_mps),
+                "wind_east_mps": float(self.wind_east_mps),
+                "wind_north_mps": float(self.wind_north_mps),
+                "step_count": self.step_count,
+                "flight_mode": self.flight_mode,
+                "mission_started": self.mission_started,
+                "truth_free": True,
+            }
+        )
         return result
 
 
@@ -437,9 +449,7 @@ class DeterministicFlightModel:
         if not isinstance(reason, str) or not reason.strip():
             raise FlightModelError("arm reason must be a non-empty string")
         self._state.armed = armed
-        self._record_command(
-            "ARM" if armed else "DISARM", accepted=True, reason=reason.strip()
-        )
+        self._record_command("ARM" if armed else "DISARM", accepted=True, reason=reason.strip())
         self._last_snapshot = self._snapshot()
         return True
 
@@ -785,9 +795,7 @@ class DeterministicFlightModel:
         )
 
     def _record_command(self, name: str, *, accepted: bool, **details: object) -> None:
-        self._command_history.append(
-            {"name": name, "accepted": bool(accepted), **details}
-        )
+        self._command_history.append({"name": name, "accepted": bool(accepted), **details})
 
 
 def _coerce_control(value: object) -> FlightControlSetpoint:
@@ -795,15 +803,21 @@ def _coerce_control(value: object) -> FlightControlSetpoint:
         return value
     if isinstance(value, Mapping):
         return FlightControlSetpoint(
-            roll=value.get("roll", 0.0), pitch=value.get("pitch", 0.0),
-            yaw=value.get("yaw", 0.0), throttle=value.get("throttle", 0.0),
+            roll=value.get("roll", 0.0),
+            pitch=value.get("pitch", 0.0),
+            yaw=value.get("yaw", 0.0),
+            throttle=value.get("throttle", 0.0),
             timestamp_s=value.get("timestamp_s", value.get("timestamp")),
             source=value.get("source", "sim"),
         )
     try:
         return FlightControlSetpoint(
-            roll=value.roll, pitch=value.pitch, yaw=value.yaw, throttle=value.throttle,
-            timestamp_s=getattr(value, "timestamp_s", None), source=getattr(value, "source", "sim"),
+            roll=value.roll,
+            pitch=value.pitch,
+            yaw=value.yaw,
+            throttle=value.throttle,
+            timestamp_s=getattr(value, "timestamp_s", None),
+            source=getattr(value, "source", "sim"),
         )
     except AttributeError as exc:
         raise FlightModelError(
@@ -882,9 +896,18 @@ SimulatorFlightModel = DeterministicFlightModel
 SimulatorTelemetrySnapshot = FlightTelemetrySnapshot
 
 __all__ = [
-    "DeterministicFlightModel", "FlightControlSetpoint", "FlightMode", "FlightModel",
-    "FlightModelConfig", "FlightModelError", "FlightTelemetrySnapshot",
-    "MAV_CMD_COMPONENT_ARM_DISARM", "MAV_CMD_DO_VTOL_TRANSITION",
-    "MAV_CMD_MISSION_START", "MAV_CMD_NAV_LAND", "MAV_CMD_NAV_RETURN_TO_LAUNCH",
-    "SimulatorFlightModel", "SimulatorTelemetrySnapshot",
+    "DeterministicFlightModel",
+    "FlightControlSetpoint",
+    "FlightMode",
+    "FlightModel",
+    "FlightModelConfig",
+    "FlightModelError",
+    "FlightTelemetrySnapshot",
+    "MAV_CMD_COMPONENT_ARM_DISARM",
+    "MAV_CMD_DO_VTOL_TRANSITION",
+    "MAV_CMD_MISSION_START",
+    "MAV_CMD_NAV_LAND",
+    "MAV_CMD_NAV_RETURN_TO_LAUNCH",
+    "SimulatorFlightModel",
+    "SimulatorTelemetrySnapshot",
 ]

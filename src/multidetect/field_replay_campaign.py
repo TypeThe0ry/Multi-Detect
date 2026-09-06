@@ -111,12 +111,8 @@ def create_field_replay_campaign(
             "providers": list(provider_names),
             "confidence_threshold": _ratio(confidence_threshold, "confidence_threshold"),
             "iou_threshold": _ratio(iou_threshold, "iou_threshold"),
-            "maximum_detections": require_int(
-                maximum_detections, "maximum_detections", minimum=1
-            ),
-            "warmup_iterations": require_int(
-                warmup_iterations, "warmup_iterations", minimum=0
-            ),
+            "maximum_detections": require_int(maximum_detections, "maximum_detections", minimum=1),
+            "warmup_iterations": require_int(warmup_iterations, "warmup_iterations", minimum=0),
         },
         "accuracy": {
             "iou_threshold": require_real(
@@ -170,9 +166,7 @@ def inspect_field_replay_campaign(workspace: str | Path) -> dict[str, Any]:
 
     intake = paths["intake"]
     if not intake.exists():
-        missing = [
-            str(path) for path in plan["sources"].values() if not Path(path).is_dir()
-        ]
+        missing = [str(path) for path in plan["sources"].values() if not Path(path).is_dir()]
         if missing:
             return _finish(
                 base,
@@ -346,12 +340,8 @@ def advance_field_replay_campaign(
                 confidence_threshold=plan["model"]["confidence_threshold"],
                 minimum_precision=accuracy["minimum_precision"],
                 minimum_recall=accuracy["minimum_recall"],
-                maximum_false_alarm_frame_rate=accuracy[
-                    "maximum_false_alarm_frame_rate"
-                ],
-                maximum_missed_detection_frame_rate=accuracy[
-                    "maximum_missed_detection_frame_rate"
-                ],
+                maximum_false_alarm_frame_rate=accuracy["maximum_false_alarm_frame_rate"],
+                maximum_missed_detection_frame_rate=accuracy["maximum_missed_detection_frame_rate"],
                 maximum_latency_p95_ms=accuracy["maximum_latency_p95_ms"],
                 reviewed=True,
                 reviewer=accuracy_reviewer,
@@ -455,9 +445,7 @@ def _load_plan(workspace: str | Path) -> tuple[Path, Mapping[str, Any]]:
     require_text(value["dataset_version"], "dataset_version")
     _unique_strings(require_string_array(value["class_names"], "class_names"), "class_names")
     _sources(value["sources"])
-    outputs = strict_object(
-        value["outputs"], name="outputs", required=frozenset(_OUTPUTS)
-    )
+    outputs = strict_object(value["outputs"], name="outputs", required=frozenset(_OUTPUTS))
     if dict(outputs) != _OUTPUTS:
         raise AutonomyContractError("campaign outputs must match the canonical workspace layout")
     claims = strict_object(
@@ -697,9 +685,7 @@ def _verify_review_separation(
         identities.append(require_text(accuracy_reviewer, "accuracy reviewer"))
     if calibration_reviewer is None and require_calibration:
         calibration = _json_object(paths["calibration_report"], "calibration report")
-        calibration_reviewer = require_text(
-            calibration.get("reviewer"), "calibration reviewer"
-        )
+        calibration_reviewer = require_text(calibration.get("reviewer"), "calibration reviewer")
     if calibration_reviewer is not None:
         identities.append(require_text(calibration_reviewer, "calibration reviewer"))
     if len({identity.casefold() for identity in identities}) != len(identities):
@@ -710,9 +696,7 @@ def _verify_review_separation(
 
 
 def _verify_file_binding(value: object, name: str) -> None:
-    binding = strict_object(
-        value, name=name, required=frozenset({"path", "sha256", "bytes"})
-    )
+    binding = strict_object(value, name=name, required=frozenset({"path", "sha256", "bytes"}))
     path = Path(require_text(binding["path"], f"{name}.path"))
     if path.is_symlink():
         raise AutonomyContractError(f"{name} must not be a symbolic link")
@@ -720,9 +704,7 @@ def _verify_file_binding(value: object, name: str) -> None:
     payload = path.read_bytes()
     if len(payload) != require_int(binding["bytes"], f"{name}.bytes", minimum=1):
         raise AutonomyContractError(f"{name} byte count changed")
-    if hashlib.sha256(payload).hexdigest() != require_sha256(
-        binding["sha256"], f"{name}.sha256"
-    ):
+    if hashlib.sha256(payload).hexdigest() != require_sha256(binding["sha256"], f"{name}.sha256"):
         raise AutonomyContractError(f"{name} SHA-256 changed")
 
 
@@ -902,11 +884,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"field replay campaign: {exc}")
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 1 if result.get("stage") in {
-        "accuracy_failed",
-        "calibration_verification_failed",
-        "calibration_not_release_ready",
-    } else 0
+    return (
+        1
+        if result.get("stage")
+        in {
+            "accuracy_failed",
+            "calibration_verification_failed",
+            "calibration_not_release_ready",
+        }
+        else 0
+    )
 
 
 __all__ = [

@@ -314,9 +314,7 @@ def run_px4_mission_transaction_acceptance(
 
     item_count = len(compiled.wire_items)
     requested = (
-        tuple(journal_summary["requested_sequences"])
-        if journal_summary is not None
-        else tuple()
+        tuple(journal_summary["requested_sequences"]) if journal_summary is not None else tuple()
     )
     checks: dict[str, bool] = {
         "shared_dispatch_contract": True,
@@ -436,9 +434,9 @@ def verify_px4_mission_transaction_acceptance(
                     checks["journal_state_start_permitted"] = (
                         recovery.state is MissionTransactionState.START_PERMITTED
                     )
-                    checks["journal_record_count"] = len(recovery.records) >= int(
-                        entry.get("item_count", 0)
-                    ) + 6
+                    checks["journal_record_count"] = (
+                        len(recovery.records) >= int(entry.get("item_count", 0)) + 6
+                    )
                     checks["journal_sequences_complete"] = recovery.requested_sequences == tuple(
                         range(int(entry.get("item_count", 0)))
                     )
@@ -485,9 +483,8 @@ def verify_px4_mission_transaction_acceptance(
     checks = {
         "vehicle_classes_complete": class_set_ok,
         "entry_count": len(entries) == len(expected),
-        "all_entries_passed": bool(entry_results) and all(
-            result["gate_passed"] for result in entry_results
-        ),
+        "all_entries_passed": bool(entry_results)
+        and all(result["gate_passed"] for result in entry_results),
         "no_errors": not errors,
     }
     gate_passed = all(checks.values())

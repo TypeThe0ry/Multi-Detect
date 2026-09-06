@@ -55,9 +55,7 @@ def _campaign(workspace: Path) -> Path:
     return path
 
 
-def _install_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, Path, object]:
+def _install_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, object]:
     workspace = tmp_path / "received-workspace"
     campaign_path = _campaign(workspace)
     config = session.load_campaign_config(campaign_path)
@@ -216,9 +214,9 @@ def test_old_session_record_remains_valid_after_later_leaf_passes(
     second.parent.mkdir(parents=True, exist_ok=True)
     second.write_text('{"covariance":true}', encoding="utf-8")
 
-    assert session.verify_field_covariance_session_record(result["record_path"])[
-        "gate_passed"
-    ] is True
+    assert (
+        session.verify_field_covariance_session_record(result["record_path"])["gate_passed"] is True
+    )
 
 
 def test_session_verifier_rejects_record_receipt_probe_and_report_tamper(
@@ -291,9 +289,7 @@ def test_capture_callback_runs_under_exclusive_lease(
     journal_path = tmp_path / "journal"
     original_capture = session.capture_next
 
-    def capture_under_lease(
-        current: object, **kwargs: object
-    ) -> tuple[int, dict[str, object]]:
+    def capture_under_lease(current: object, **kwargs: object) -> tuple[int, dict[str, object]]:
         status = journal.capture_lease_status(receipt, journal_path)
         assert status["state"] == "held"
         with pytest.raises(journal.FieldCovarianceJournalError, match="already held"):

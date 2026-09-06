@@ -168,9 +168,14 @@ def create_fixture(
         observed_height = int(image.shape[0])
         if observed_width != width or observed_height != height:
             raise ValueError("Gazebo frames do not share one stable geometry")
-        captured_at_s = 1.0 + (
-            _require_int(raw_frame.get("stamp_ns"), f"frames[{index}].stamp_ns") - first_stamp_ns
-        ) / 1_000_000_000.0
+        captured_at_s = (
+            1.0
+            + (
+                _require_int(raw_frame.get("stamp_ns"), f"frames[{index}].stamp_ns")
+                - first_stamp_ns
+            )
+            / 1_000_000_000.0
+        )
         if captured_at_s <= previous_captured_at_s:
             raise ValueError("Gazebo frame timestamps must be strictly increasing")
         previous_captured_at_s = captured_at_s
@@ -239,9 +244,7 @@ def create_fixture(
             "bytes": len(event_payload),
         },
     }
-    manifest_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    manifest_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
     manifest_path = recording_directory / "recording.manifest.json"
     manifest_path.write_bytes(manifest_payload)
     model_path, model_manifest_path = create_synthetic_hil_model_bundle(

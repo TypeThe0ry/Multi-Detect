@@ -64,10 +64,7 @@ def _write_evidence(path: Path, mode: str, **extra: object) -> Path:
 
 
 def _evidence(tmp_path: Path) -> dict[str, Path]:
-    return {
-        mode: _write_evidence(tmp_path / "evidence" / f"{mode}.json", mode)
-        for mode in MODES
-    }
+    return {mode: _write_evidence(tmp_path / "evidence" / f"{mode}.json", mode) for mode in MODES}
 
 
 def _field_link_report(
@@ -102,9 +99,7 @@ def _address_bound_field_link_report(tmp_path: Path) -> tuple[Path, Path]:
     address_document = {
         "schema": "multidetect.field-link-address-state/v1",
         "schema_version": 1,
-        "generated_at_utc": datetime.fromtimestamp(
-            observed_epoch_s, tz=timezone.utc
-        ).isoformat(),
+        "generated_at_utc": datetime.fromtimestamp(observed_epoch_s, tz=timezone.utc).isoformat(),
         "computer_name": "FIELD-LAPTOP",
         "interface_alias": "Ethernet",
         "interface_index": 7,
@@ -669,9 +664,7 @@ def test_real_field_link_route_summary_is_bound_and_rechecked(tmp_path: Path) ->
     assert report["real_field_link"]["passed"] is True
     assert report["real_field_link"]["report"]["route_checks_requested"] is True
     assert report["real_field_link"]["report"]["route_checks_passed"] is True
-    assert report["real_field_link"]["report"]["route_source_cidr"] == (
-        "192.168.144.0/24"
-    )
+    assert report["real_field_link"]["report"]["route_source_cidr"] == ("192.168.144.0/24")
 
     tampered = json.loads(output.read_text(encoding="utf-8"))
     tampered["real_field_link"]["route_source_cidr"] = "10.0.0.0/8"
@@ -799,9 +792,7 @@ def test_final_release_requires_route_bound_real_field_link(tmp_path: Path) -> N
     assert document["real_field_link"]["route_source_cidr"] is None
 
     final_version = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
-    final_version.update(
-        {"release_label": "0.3.0", "python": "0.3.0", "channel": "release"}
-    )
+    final_version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
     final_version_path = tmp_path / "product-version-release.json"
     final_version_path.write_text(json.dumps(final_version), encoding="utf-8")
     report = evaluate_release_gate(output, version_manifest_path=final_version_path)
@@ -823,9 +814,7 @@ def test_final_release_requires_route_bound_real_field_link(tmp_path: Path) -> N
     missing_projection = json.loads(json.dumps(document))
     del missing_projection["real_field_link"]["address_state_bound"]
     output.write_text(json.dumps(missing_projection) + "\n", encoding="utf-8")
-    projection_report = evaluate_release_gate(
-        output, version_manifest_path=final_version_path
-    )
+    projection_report = evaluate_release_gate(output, version_manifest_path=final_version_path)
     assert any(
         "final release requires an explicit REAL field-link address-state binding projection"
         in reason
@@ -864,9 +853,7 @@ def test_real_alert_link_binding_is_hash_bound_and_reverified(tmp_path: Path) ->
     report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
     assert report["real_alert_link"]["present"] is True
     assert report["real_alert_link"]["passed"] is True
-    assert report["real_alert_link"]["report"]["event"] == (
-        "alert_link_bench_passed"
-    )
+    assert report["real_alert_link"]["report"]["event"] == ("alert_link_bench_passed")
 
     tampered = json.loads(output.read_text(encoding="utf-8"))
     tampered["real_alert_link"]["remote_host"] = "10.0.0.2"
@@ -941,9 +928,7 @@ def test_final_release_requires_real_alert_link_binding(tmp_path: Path) -> None:
         version_manifest_path=VERSION_MANIFEST,
     )
     final_version = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
-    final_version.update(
-        {"release_label": "0.3.0", "python": "0.3.0", "channel": "release"}
-    )
+    final_version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
     final_version_path = tmp_path / "product-version-release.json"
     final_version_path.write_text(json.dumps(final_version), encoding="utf-8")
 
@@ -1088,9 +1073,7 @@ def test_final_release_requires_target_state_evidence_binding(tmp_path: Path) ->
         version_manifest_path=VERSION_MANIFEST,
     )
     final_version = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
-    final_version.update(
-        {"release_label": "0.3.0", "python": "0.3.0", "channel": "release"}
-    )
+    final_version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
     final_version_path = tmp_path / "product-version-release.json"
     final_version_path.write_text(json.dumps(final_version), encoding="utf-8")
 
@@ -1489,9 +1472,7 @@ def test_simulator_scene_stream_set_schema_declares_binding() -> None:
     assert "simulator_scene_stream_set" in schema["properties"]
     definition = schema["$defs"]["simulatorSceneStreamSetRecord"]
     assert definition["additionalProperties"] is False
-    assert definition["properties"]["event"]["const"] == (
-        "simulator_scene_stream_set_verified"
-    )
+    assert definition["properties"]["event"]["const"] == ("simulator_scene_stream_set_verified")
     assert definition["properties"]["modes"]["const"] == [
         "fixed-wing",
         "multirotor",
@@ -1645,12 +1626,18 @@ def test_final_release_requires_replay_set_binding(tmp_path: Path) -> None:
     report = evaluate_release_gate(manifest, version_manifest_path=release_version)
     assert report["gate_passed"] is True
     assert report["release_allowed"] is False
-    assert any("final release requires a complete deployment-domain replay_set" in reason
-               for reason in report["release_blocked_reasons"])
-    assert any("final release requires a hash-bound REAL field-link preflight" in reason
-               for reason in report["release_blocked_reasons"])
-    assert any("final release requires a hash-bound SIM S4 safety evidence" in reason
-               for reason in report["release_blocked_reasons"])
+    assert any(
+        "final release requires a complete deployment-domain replay_set" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+    assert any(
+        "final release requires a hash-bound REAL field-link preflight" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+    assert any(
+        "final release requires a hash-bound SIM S4 safety evidence" in reason
+        for reason in report["release_blocked_reasons"]
+    )
     assert any(
         "final release requires a hash-bound REAL target geolocation accuracy report" in reason
         for reason in report["release_blocked_reasons"]
@@ -2108,12 +2095,8 @@ def test_release_gate_schema_declares_replay_set_calibration_verification_bindin
 def test_release_gate_schema_allows_pending_prerelease_mode_statuses() -> None:
     schema = json.loads(RELEASE_GATE_SCHEMA.read_text(encoding="utf-8"))
     definition = schema["$defs"]["modeRecord"]
-    assert definition["properties"]["operator_visual_acceptance"] == {
-        "$ref": "#/$defs/status"
-    }
-    assert definition["properties"]["mission_path_acceptance"] == {
-        "$ref": "#/$defs/status"
-    }
+    assert definition["properties"]["operator_visual_acceptance"] == {"$ref": "#/$defs/status"}
+    assert definition["properties"]["mission_path_acceptance"] == {"$ref": "#/$defs/status"}
 
 
 def test_release_gate_schema_declares_real_target_accuracy_binding() -> None:
@@ -2147,9 +2130,7 @@ def test_release_gate_schema_declares_simulator_safety_binding() -> None:
     assert "simulator_safety" in schema["properties"]
     definition = schema["$defs"]["simulatorSafetyRecord"]
     assert definition["additionalProperties"] is False
-    assert definition["properties"]["event"]["const"] == (
-        "simulator_safety_acceptance_finished"
-    )
+    assert definition["properties"]["event"]["const"] == ("simulator_safety_acceptance_finished")
     assert definition["properties"]["runtime_mode"]["const"] == "sim"
     assert definition["properties"]["gate_passed"]["const"] is True
     assert definition["properties"]["verifier_exit_code"]["const"] == 0
@@ -2209,9 +2190,7 @@ def test_release_gate_schema_declares_simulator_scenario_matrix_binding() -> Non
     assert "simulator_scenario_matrix" in schema["properties"]
     definition = schema["$defs"]["simulatorScenarioMatrixRecord"]
     assert definition["additionalProperties"] is False
-    assert definition["properties"]["event"]["const"] == (
-        "simulator_scenario_matrix_finished"
-    )
+    assert definition["properties"]["event"]["const"] == ("simulator_scenario_matrix_finished")
     assert definition["properties"]["scenario_count"]["const"] == 3
     assert definition["properties"]["enable_ai"]["const"] is True
     assert definition["properties"]["arm_on_start"]["const"] is True

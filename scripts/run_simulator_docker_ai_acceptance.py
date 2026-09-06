@@ -168,9 +168,7 @@ def parse_literal_loopback_udp_endpoint(
     if scheme not in {"udpin", "udpout"}:
         raise ValueError("scheme must be udpin or udpout")
     if not isinstance(endpoint, str):
-        raise DockerAiAcceptanceError(
-            f"{scheme} endpoint must be a literal loopback UDP URI"
-        )
+        raise DockerAiAcceptanceError(f"{scheme} endpoint must be a literal loopback UDP URI")
     match = _LOOPBACK_UDP_ENDPOINT.fullmatch(endpoint)
     if match is None or match.group("scheme") != scheme:
         raise DockerAiAcceptanceError(
@@ -185,8 +183,7 @@ def parse_literal_loopback_udp_endpoint(
         raise DockerAiAcceptanceError(f"{scheme} endpoint port is invalid") from exc
     if not 1 <= port <= 65535:
         raise DockerAiAcceptanceError(
-            f"{scheme} endpoint port must be in 1..65535 "
-            "for a literal loopback UDP URI"
+            f"{scheme} endpoint port must be in 1..65535 for a literal loopback UDP URI"
         )
     host = "127.0.0.1" if match.group("ipv4_port") is not None else "::1"
     return host, port
@@ -239,18 +236,12 @@ def _validate_minimum_gps_fix_type(value: object) -> int:
             raise ValueError
         selected = int(value)
     except (TypeError, ValueError) as exc:
-        raise DockerAiAcceptanceError(
-            "minimum_gps_fix_type must be an integer in 0..6"
-        ) from exc
+        raise DockerAiAcceptanceError("minimum_gps_fix_type must be an integer in 0..6") from exc
     if selected != value and isinstance(value, float):
         # Avoid silently accepting fractional thresholds such as 3.5.
-        raise DockerAiAcceptanceError(
-            "minimum_gps_fix_type must be an integer in 0..6"
-        )
+        raise DockerAiAcceptanceError("minimum_gps_fix_type must be an integer in 0..6")
     if not 0 <= selected <= 6:
-        raise DockerAiAcceptanceError(
-            "minimum_gps_fix_type must be an integer in 0..6"
-        )
+        raise DockerAiAcceptanceError("minimum_gps_fix_type must be an integer in 0..6")
     return selected
 
 
@@ -265,8 +256,10 @@ def _validate_exercise_flight_duration(value: object) -> float:
         raise DockerAiAcceptanceError(
             "exercise_flight_duration_s must be 0 or a finite value in 1..30 seconds"
         ) from exc
-    if not math.isfinite(selected) or selected < 0.0 or (
-        selected != 0.0 and not 1.0 <= selected <= MAX_EXERCISE_FLIGHT_DURATION_S
+    if (
+        not math.isfinite(selected)
+        or selected < 0.0
+        or (selected != 0.0 and not 1.0 <= selected <= MAX_EXERCISE_FLIGHT_DURATION_S)
     ):
         raise DockerAiAcceptanceError(
             "exercise_flight_duration_s must be 0 or a finite value in 1..30 seconds"
@@ -295,9 +288,7 @@ def _validate_minimum_flight_displacement(value: object) -> float:
 def _validate_flight_fault(value: object) -> str:
     normalized = str(value).strip().lower().replace("-", "_")
     if normalized not in FLIGHT_FAULTS:
-        raise DockerAiAcceptanceError(
-            f"flight fault must be one of {sorted(FLIGHT_FAULTS)!r}"
-        )
+        raise DockerAiAcceptanceError(f"flight fault must be one of {sorted(FLIGHT_FAULTS)!r}")
     return normalized
 
 
@@ -489,9 +480,7 @@ def _source_ids(message: object) -> tuple[int | None, int | None]:
             if system is None:
                 system = getattr(header, "srcSystem", getattr(header, "src_system", None))
             if component is None:
-                component = getattr(
-                    header, "srcComponent", getattr(header, "src_component", None)
-                )
+                component = getattr(header, "srcComponent", getattr(header, "src_component", None))
     try:
         system = None if system is None else int(system)
     except (TypeError, ValueError):
@@ -585,9 +574,7 @@ class DockerAiTelemetryProbe:
             # while retaining the detailed message for callers/evidence.
             raise ValueError(str(exc)) from exc
         try:
-            normalized_minimum_fix = _validate_minimum_gps_fix_type(
-                minimum_gps_fix_type
-            )
+            normalized_minimum_fix = _validate_minimum_gps_fix_type(minimum_gps_fix_type)
         except DockerAiAcceptanceError as exc:
             raise ValueError(str(exc)) from exc
         # Preserve the caller's exact URI for evidence (including bracketed
@@ -706,9 +693,7 @@ class DockerAiTelemetryProbe:
         # bounded live flight exercise uses a still-fail-closed 3 s timeout;
         # all other probe behavior retains the production bridge default.
         heartbeat_timeout_s = (
-            DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S
-            if normalized_flight_duration > 0.0
-            else 2.0
+            DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S if normalized_flight_duration > 0.0 else 2.0
         )
         self.bridge = SimulatorTelemetryBridge(
             self.executor,
@@ -836,9 +821,7 @@ class DockerAiTelemetryProbe:
         mav = getattr(connection, "mav", None)
         sender = getattr(mav, "command_long_send", None)
         if not callable(sender):
-            raise DockerAiAcceptanceError(
-                "MAVLink control connection has no command_long_send"
-            )
+            raise DockerAiAcceptanceError("MAVLink control connection has no command_long_send")
         constants = self._mavlink_constants()
         command_id = int(
             getattr(constants, "MAV_CMD_COMPONENT_ARM_DISARM", MAV_CMD_COMPONENT_ARM_DISARM)
@@ -907,10 +890,7 @@ class DockerAiTelemetryProbe:
         # sending an ACK must never make the armed-heartbeat gate pass.
         if source_system != self.px4_system_id:
             rejection_reason = "command_ack_source_system_mismatch"
-        elif (
-            self.px4_component_ids is not None
-            and source_component not in self.px4_component_ids
-        ):
+        elif self.px4_component_ids is not None and source_component not in self.px4_component_ids:
             rejection_reason = "command_ack_source_component_mismatch"
         elif command != MAV_CMD_COMPONENT_ARM_DISARM:
             rejection_reason = "command_ack_command_mismatch"
@@ -974,9 +954,7 @@ class DockerAiTelemetryProbe:
     def _request_disarm(self) -> bool:
         self.disarm_requested = True
         try:
-            self.disarm_command_sent = self._send_command_long(
-                action="disarm", param1=0.0
-            )
+            self.disarm_command_sent = self._send_command_long(action="disarm", param1=0.0)
         except (DockerAiAcceptanceError, OSError, RuntimeError, TypeError, ValueError) as exc:
             self.disarm_command_error = str(exc)
             self.command_results.append(
@@ -1002,9 +980,7 @@ class DockerAiTelemetryProbe:
             mav = getattr(connection, "mav", None)
             sender = getattr(mav, "set_mode_send", None)
             if not callable(sender):
-                raise DockerAiAcceptanceError(
-                    "MAVLink control connection has no set_mode_send"
-                )
+                raise DockerAiAcceptanceError("MAVLink control connection has no set_mode_send")
             sender(
                 int(self.adapter.config.target_system),
                 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
@@ -1041,9 +1017,7 @@ class DockerAiTelemetryProbe:
             mav = getattr(connection, "mav", None)
             sender = getattr(mav, "set_mode_send", None)
             if not callable(sender):
-                raise DockerAiAcceptanceError(
-                    "MAVLink control connection has no set_mode_send"
-                )
+                raise DockerAiAcceptanceError("MAVLink control connection has no set_mode_send")
             sender(
                 int(self.adapter.config.target_system),
                 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
@@ -1100,9 +1074,7 @@ class DockerAiTelemetryProbe:
             "enabled": self.exercise_arm,
             "autopilot_system_id": self.px4_system_id,
             "autopilot_component_ids": (
-                None
-                if self.px4_component_ids is None
-                else sorted(self.px4_component_ids)
+                None if self.px4_component_ids is None else sorted(self.px4_component_ids)
             ),
             "command_id": MAV_CMD_COMPONENT_ARM_DISARM,
             "arm_requested": self.arm_requested,
@@ -1344,12 +1316,8 @@ class DockerAiTelemetryProbe:
                             del self.flight_position_samples[:-MAX_POSITION_SAMPLES]
                         try:
                             displacement = wgs84_distance_m(
-                                latitude1_deg=float(
-                                    self.flight_initial_position["latitude_deg"]
-                                ),
-                                longitude1_deg=float(
-                                    self.flight_initial_position["longitude_deg"]
-                                ),
+                                latitude1_deg=float(self.flight_initial_position["latitude_deg"]),
+                                longitude1_deg=float(self.flight_initial_position["longitude_deg"]),
                                 latitude2_deg=latitude,
                                 longitude2_deg=longitude,
                             )
@@ -1439,8 +1407,7 @@ class DockerAiTelemetryProbe:
             return None
         decision_mapping = decision.to_mapping()
         accepted_track = bool(
-            decision_mapping.get("mode") == "track"
-            and decision_mapping.get("accepted") is True
+            decision_mapping.get("mode") == "track" and decision_mapping.get("accepted") is True
         )
         self.target_observation["accepted"] = accepted_track
         self.target_observation["decision"] = decision_mapping
@@ -1505,13 +1472,10 @@ class DockerAiTelemetryProbe:
 
         update_times = list(self.flight_target_update_times_s)
         refresh_coverage = (
-            max(0.0, update_times[-1] - update_times[0])
-            if len(update_times) >= 2
-            else 0.0
+            max(0.0, update_times[-1] - update_times[0]) if len(update_times) >= 2 else 0.0
         )
         update_gaps = [
-            later - earlier
-            for earlier, later in zip(update_times, update_times[1:], strict=False)
+            later - earlier for earlier, later in zip(update_times, update_times[1:], strict=False)
         ]
         maximum_refresh_gap = max(update_gaps, default=None)
         heartbeat_rows = [dict(sample) for sample in self.heartbeat_samples]
@@ -1590,10 +1554,7 @@ class DockerAiTelemetryProbe:
             status = "flight_mode_loss_observed"
         elif not self.flight_mode_observed:
             status = "flight_mode_not_observed"
-        elif (
-            self.inject_flight_fault == "heartbeat_dropout"
-            and not heartbeat_continuity_gate
-        ):
+        elif self.inject_flight_fault == "heartbeat_dropout" and not heartbeat_continuity_gate:
             status = "heartbeat_continuity_failed"
         elif not refresh_gate:
             status = "target_refresh_not_sustained"
@@ -1811,14 +1772,8 @@ class DockerAiTelemetryProbe:
                 if (
                     self.exercise_target
                     and self.bridge.evidence().get("armed_observed") is True
-                    and (
-                        self.exercise_flight_duration_s == 0.0
-                        or self.flight_mode_observed
-                    )
-                    and (
-                        self.exercise_flight_duration_s > 0.0
-                        or not self.target_observation_sent
-                    )
+                    and (self.exercise_flight_duration_s == 0.0 or self.flight_mode_observed)
+                    and (self.exercise_flight_duration_s > 0.0 or not self.target_observation_sent)
                     and not (
                         self.inject_flight_fault == "target_refresh_dropout"
                         and self.flight_fault_activated_at_s is not None
@@ -1826,17 +1781,12 @@ class DockerAiTelemetryProbe:
                 ):
                     self._exercise_target_observation()
                 bridge_data = self.bridge.evidence()
-                target_ready = (
-                    not self.exercise_target
-                    or (
-                        isinstance(self.target_decision, Mapping)
-                        and self.target_decision.get("mode") == "track"
-                        and self.target_decision.get("accepted") is True
-                    )
+                target_ready = not self.exercise_target or (
+                    isinstance(self.target_decision, Mapping)
+                    and self.target_decision.get("mode") == "track"
+                    and self.target_decision.get("accepted") is True
                 )
-                flight_data = self._flight_evidence(
-                    now_s=self.clock(), include_samples=False
-                )
+                flight_data = self._flight_evidence(now_s=self.clock(), include_samples=False)
                 flight_ready = bool(flight_data.get("gate_passed"))
                 fault_data = flight_data.get("fault_injection")
                 if (
@@ -1874,11 +1824,9 @@ class DockerAiTelemetryProbe:
                 )
                 capped_acceptance_ready = bool(
                     self._qualified()
-                    and int(capped_bridge_data.get("ai_steps", 0))
-                    >= self.minimum_ai_steps
+                    and int(capped_bridge_data.get("ai_steps", 0)) >= self.minimum_ai_steps
                     and capped_target_ready
-                    and self._flight_evidence(include_samples=False).get("gate_passed")
-                    is True
+                    and self._flight_evidence(include_samples=False).get("gate_passed") is True
                 )
                 if not capped_acceptance_ready:
                     self.error = (
@@ -1906,8 +1854,7 @@ class DockerAiTelemetryProbe:
             # intentionally bounded and is never counted as actuator-response
             # acceptance.
             if self.exercise_arm and (
-                self.arm_command_sent
-                or self.bridge.evidence().get("armed_observed") is True
+                self.arm_command_sent or self.bridge.evidence().get("armed_observed") is True
             ):
                 self._request_disarm()
             # If AI emitted a setpoint, stop() sends the canonical neutral frame
@@ -1956,9 +1903,7 @@ class DockerAiTelemetryProbe:
             "px4_identity": {
                 "system_id": self.px4_system_id,
                 "component_ids": (
-                    None
-                    if self.px4_component_ids is None
-                    else sorted(self.px4_component_ids)
+                    None if self.px4_component_ids is None else sorted(self.px4_component_ids)
                 ),
             },
             "minimum_gps_fix_type": self.minimum_gps_fix_type,
@@ -2001,13 +1946,9 @@ class DockerAiTelemetryProbe:
                     and self.target_decision.get("accepted") is True
                 ),
                 "observation": (
-                    None
-                    if self.target_observation is None
-                    else dict(self.target_observation)
+                    None if self.target_observation is None else dict(self.target_observation)
                 ),
-                "decision": (
-                    None if self.target_decision is None else dict(self.target_decision)
-                ),
+                "decision": (None if self.target_decision is None else dict(self.target_decision)),
                 "error": self.target_exercise_error,
                 "source": (
                     "synthetic_perception_flight_fixture"
@@ -2253,9 +2194,7 @@ def _empty_ai_evidence(
     inject_flight_fault: str = "none",
 ) -> dict[str, object]:
     normalized_component_ids = _normalize_component_ids(px4_component_ids)
-    normalized_flight_duration = _validate_exercise_flight_duration(
-        exercise_flight_duration_s
-    )
+    normalized_flight_duration = _validate_exercise_flight_duration(exercise_flight_duration_s)
     normalized_minimum_displacement = _validate_minimum_flight_displacement(
         minimum_flight_displacement_m
     )
@@ -2270,9 +2209,7 @@ def _empty_ai_evidence(
         "px4_identity": {
             "system_id": int(px4_system_id),
             "component_ids": (
-                None
-                if normalized_component_ids is None
-                else sorted(normalized_component_ids)
+                None if normalized_component_ids is None else sorted(normalized_component_ids)
             ),
         },
         "minimum_gps_fix_type": _validate_minimum_gps_fix_type(minimum_gps_fix_type),
@@ -2328,9 +2265,7 @@ def _empty_ai_evidence(
             },
             "flight_mode_gate_passed": normalized_flight_duration == 0.0,
             "heartbeat_timeout_s": (
-                DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S
-                if normalized_flight_duration > 0.0
-                else 2.0
+                DOCKER_FLIGHT_HEARTBEAT_TIMEOUT_S if normalized_flight_duration > 0.0 else 2.0
             ),
             "heartbeat_sample_count": 0,
             "maximum_heartbeat_gap_s": None,
@@ -2383,9 +2318,7 @@ def _empty_ai_evidence(
             "enabled": False,
             "autopilot_system_id": int(px4_system_id),
             "autopilot_component_ids": (
-                None
-                if normalized_component_ids is None
-                else sorted(normalized_component_ids)
+                None if normalized_component_ids is None else sorted(normalized_component_ids)
             ),
             "command_id": MAV_CMD_COMPONENT_ARM_DISARM,
             "arm_requested": False,
@@ -2442,9 +2375,7 @@ def _augment_payload(
     # shared policy path has actually been exercised.  A live run that is
     # safely disarmed is therefore *not exercised*, not an algorithm failure.
     runtime_gate_passed = bool(
-        payload.get("runtime_gate_passed")
-        if execution_requested
-        else payload.get("gate_passed")
+        payload.get("runtime_gate_passed") if execution_requested else payload.get("gate_passed")
     )
     truth_free = ai_evidence.get("truth_free") is True
     watchdog_failsafe = int(ai_evidence.get("watchdog_failsafe_steps", 0))
@@ -2514,10 +2445,7 @@ def _augment_payload(
         and runtime_gate_passed
         and not armed_observed
         and ai_accepted == 0
-        and (
-            startup_gate == "waiting_for_armed_heartbeat"
-            or ai_steps > 0
-        )
+        and (startup_gate == "waiting_for_armed_heartbeat" or ai_steps > 0)
     ):
         ai_policy_gate_status = "not_exercised_waiting_for_armed_heartbeat"
     elif ai_steps > 0:
@@ -2530,9 +2458,7 @@ def _augment_payload(
     payload["ai_policy_gate_passed"] = ai_gate
     payload["ai_policy_gate_status"] = ai_policy_gate_status
     payload["target_policy_gate_passed"] = target_policy_gate
-    payload["target_policy_gate_status"] = (
-        "passed" if target_policy_gate else "not_exercised"
-    )
+    payload["target_policy_gate_status"] = "passed" if target_policy_gate else "not_exercised"
     payload["target_exercise"] = dict(target_exercise)
     payload["flight_response_gate_passed"] = flight_response_gate
     payload["flight_response_gate_status"] = (
@@ -2545,21 +2471,19 @@ def _augment_payload(
         else str(flight_exercise.get("status") or "position_response_not_observed")
     )
     payload["flight_exercise"] = dict(flight_exercise)
-    payload["gate_passed"] = bool(
-        runtime_gate_passed and ai_gate and flight_response_gate
-    )
+    payload["gate_passed"] = bool(runtime_gate_passed and ai_gate and flight_response_gate)
     claims = payload.get("claims")
     claims = dict(claims) if isinstance(claims, Mapping) else {}
     claims.update(
         {
             "sim_ai_policy": ai_policy_gate_status,
-            "sim_ai_target_policy": (
-                "passed" if target_policy_gate else "not_exercised"
-            ),
+            "sim_ai_target_policy": ("passed" if target_policy_gate else "not_exercised"),
             "px4_sim_vehicle_motion": (
                 "not_exercised"
                 if not flight_requested
-                else "passed" if flight_response_gate else "not_observed"
+                else "passed"
+                if flight_response_gate
+                else "not_observed"
             ),
             "sim_ai_control_output": (
                 "emitted_by_shared_loopback_adapter" if ai_accepted > 0 else "none"
@@ -2584,25 +2508,28 @@ def _augment_payload(
             "flight_control_commands_sent": ai_accepted,
             "flight_control_output_enabled": bool(ai_accepted > 0),
             "gcs_heartbeat_only": bool(ai_accepted == 0),
-            "arm_exercise": ai_evidence.get("arm_exercise", {
-                "enabled": False,
-                "arm_requested": False,
-                "arm_attempts": 0,
-                "arm_last_attempt_at_s": None,
-                "arm_command_sent": False,
-                "arm_command_error": None,
-                "disarm_requested": False,
-                "disarm_command_sent": False,
-                "disarm_command_error": None,
-                "commands": [],
-                "acks": [],
-                "preflight": {
-                    "requested": False,
-                    "applied": False,
-                    "parameters": [],
-                    "error": None,
+            "arm_exercise": ai_evidence.get(
+                "arm_exercise",
+                {
+                    "enabled": False,
+                    "arm_requested": False,
+                    "arm_attempts": 0,
+                    "arm_last_attempt_at_s": None,
+                    "arm_command_sent": False,
+                    "arm_command_error": None,
+                    "disarm_requested": False,
+                    "disarm_command_sent": False,
+                    "disarm_command_error": None,
+                    "commands": [],
+                    "acks": [],
+                    "preflight": {
+                        "requested": False,
+                        "applied": False,
+                        "parameters": [],
+                        "error": None,
+                    },
                 },
-            }),
+            ),
             "flight_exercise": dict(flight_exercise),
         }
     )
@@ -2644,21 +2571,15 @@ def run_acceptance(
         raise DockerAiAcceptanceError("exercise_target requires --exercise-arm")
     if exercise_target and not execute:
         raise DockerAiAcceptanceError("exercise_target requires --execute")
-    normalized_flight_duration = _validate_exercise_flight_duration(
-        exercise_flight_duration_s
-    )
+    normalized_flight_duration = _validate_exercise_flight_duration(exercise_flight_duration_s)
     normalized_minimum_displacement = _validate_minimum_flight_displacement(
         minimum_flight_displacement_m
     )
     normalized_flight_fault = _validate_flight_fault(inject_flight_fault)
     if normalized_flight_duration > 0.0 and not exercise_target:
-        raise DockerAiAcceptanceError(
-            "exercise_flight_duration_s requires --exercise-target"
-        )
+        raise DockerAiAcceptanceError("exercise_flight_duration_s requires --exercise-target")
     if normalized_flight_fault != "none" and normalized_flight_duration <= 0.0:
-        raise DockerAiAcceptanceError(
-            "inject_flight_fault requires --exercise-flight-seconds"
-        )
+        raise DockerAiAcceptanceError("inject_flight_fault requires --exercise-flight-seconds")
     try:
         normalized_component_ids = _normalize_component_ids(px4_component_ids)
     except DockerAiAcceptanceError:
@@ -2675,6 +2596,7 @@ def run_acceptance(
     probes: list[DockerAiTelemetryProbe] = []
     arm_preflight_result: dict[str, object] | None = None
     if execute:
+
         def factory(endpoint: str) -> DockerAiTelemetryProbe:
             nonlocal arm_preflight_result
             _validate_telemetry_endpoint(endpoint)
@@ -2748,9 +2670,7 @@ def run_acceptance(
                 raise DockerAiAcceptanceError(
                     "exercise_target requested but telemetry probe did not enable it"
                 )
-            probe_flight_duration = getattr(
-                probe, "exercise_flight_duration_s", 0.0
-            )
+            probe_flight_duration = getattr(probe, "exercise_flight_duration_s", 0.0)
             if float(probe_flight_duration) != normalized_flight_duration:
                 raise DockerAiAcceptanceError(
                     "telemetry probe flight duration does not match acceptance config"
@@ -2762,12 +2682,10 @@ def run_acceptance(
             )
             if (
                 normalized_flight_duration > 0.0
-                and float(probe_minimum_displacement)
-                != normalized_minimum_displacement
+                and float(probe_minimum_displacement) != normalized_minimum_displacement
             ):
                 raise DockerAiAcceptanceError(
-                    "telemetry probe flight displacement threshold does not match "
-                    "acceptance config"
+                    "telemetry probe flight displacement threshold does not match acceptance config"
                 )
             probe_flight_fault = getattr(probe, "inject_flight_fault", "none")
             if str(probe_flight_fault) != normalized_flight_fault:
@@ -2882,8 +2800,7 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         default=None,
         help=(
-            "expected PX4 MAVLink source component (repeatable; defaults to "
-            "autopilot component 1)"
+            "expected PX4 MAVLink source component (repeatable; defaults to autopilot component 1)"
         ),
     )
     parser.add_argument("--image", default=PINNED_IMAGE)

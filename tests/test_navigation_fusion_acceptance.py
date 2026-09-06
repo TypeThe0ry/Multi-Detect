@@ -10,14 +10,13 @@ def test_navigation_fusion_acceptance_covers_scale_and_consistency_gates() -> No
     assert report["consistent_three_source"]["validity"] == "valid"
     assert report["consistent_three_source"]["sources"] == ("gps", "vio", "air_data")
     assert report["unscaled_vio_gate"]["validity"] == "degraded"
-    assert "vio:absolute_scale_invalid" in report["unscaled_vio_gate"][
-        "source_diagnostics"
-    ]
+    assert "vio:absolute_scale_invalid" in report["unscaled_vio_gate"]["source_diagnostics"]
     assert report["conflicting_pair_gate"]["validity"] == "invalid"
     assert report["outlier_rejection"]["rejected_sources"] == ("air_data",)
     assert report["spread_uncertainty_inflation"]["validity"] == "degraded"
-    assert "navigation_velocity_uncertainty_inflated" in report[
-        "spread_uncertainty_inflation"
-    ]["reasons"]
+    assert (
+        "navigation_velocity_uncertainty_inflated"
+        in report["spread_uncertainty_inflation"]["reasons"]
+    )
     assert report["messages_transmitted"] == 0
     assert report["flight_control_enabled"] is False

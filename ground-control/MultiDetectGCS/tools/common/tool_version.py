@@ -38,7 +38,9 @@ def uv_lock_version(package: str, *, lock_path: Path | None = None) -> str | Non
     except OSError:
         return None
     match = re.search(
-        r'\[\[package\]\]\s*\nname\s*=\s*"' + re.escape(package) + r'"\s*\nversion\s*=\s*"([\d.]+)"',
+        r'\[\[package\]\]\s*\nname\s*=\s*"'
+        + re.escape(package)
+        + r'"\s*\nversion\s*=\s*"([\d.]+)"',
         text,
     )
     return match.group(1) if match else None

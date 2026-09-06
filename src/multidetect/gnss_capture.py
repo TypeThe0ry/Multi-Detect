@@ -84,11 +84,15 @@ def _wire_int(
 
 def _coordinate_e7(values: Mapping[str, object]) -> tuple[float, float] | None:
     latitude_e7 = _wire_int(
-        values.get("lat"), minimum=_MAVLINK_INT32_MIN, maximum=_MAVLINK_INT32_MAX,
+        values.get("lat"),
+        minimum=_MAVLINK_INT32_MIN,
+        maximum=_MAVLINK_INT32_MAX,
         unknown=_MAVLINK_INT32_MAX,
     )
     longitude_e7 = _wire_int(
-        values.get("lon"), minimum=_MAVLINK_INT32_MIN, maximum=_MAVLINK_INT32_MAX,
+        values.get("lon"),
+        minimum=_MAVLINK_INT32_MIN,
+        maximum=_MAVLINK_INT32_MAX,
         unknown=_MAVLINK_INT32_MAX,
     )
     if latitude_e7 is None or longitude_e7 is None:
@@ -154,7 +158,9 @@ def _raw_gps_record(
     satellites = normalize_satellites_visible(satellites_wire)
     coordinates = _coordinate_e7(values)
     altitude_mm = _wire_int(
-        values.get("alt"), minimum=_MAVLINK_INT32_MIN, maximum=_MAVLINK_INT32_MAX,
+        values.get("alt"),
+        minimum=_MAVLINK_INT32_MIN,
+        maximum=_MAVLINK_INT32_MAX,
         unknown=_MAVLINK_INT32_MAX,
     )
     horizontal_accuracy_m = _accuracy_cm(values.get("eph"))
@@ -211,9 +217,7 @@ def _raw_gps_record(
             and float(values["cog"]) < 65_535.0
             else None
         ),
-        "mavlink_time_usec": _wire_int(
-            values.get("time_usec"), minimum=0, maximum=(1 << 64) - 1
-        ),
+        "mavlink_time_usec": _wire_int(values.get("time_usec"), minimum=0, maximum=(1 << 64) - 1),
         "qualified": reason is None,
         "qualification_reason": reason,
     }
@@ -228,7 +232,9 @@ def _global_position_record(
 ) -> dict[str, object]:
     coordinates = _coordinate_e7(values)
     altitude_mm = _wire_int(
-        values.get("alt"), minimum=_MAVLINK_INT32_MIN, maximum=_MAVLINK_INT32_MAX,
+        values.get("alt"),
+        minimum=_MAVLINK_INT32_MIN,
+        maximum=_MAVLINK_INT32_MAX,
         unknown=_MAVLINK_INT32_MAX,
     )
     return {
@@ -550,15 +556,11 @@ def _verify_raw_record(
         reasons.append(f"{prefix}.fix_type is outside MAVLink range")
     if not _valid_optional_integer(record.get("satellites_visible"), minimum=0, maximum=254):
         reasons.append(f"{prefix}.satellites_visible is outside the known range")
-    if not _valid_optional_integer(
-        record.get("satellites_visible_wire"), minimum=0, maximum=255
-    ):
+    if not _valid_optional_integer(record.get("satellites_visible_wire"), minimum=0, maximum=255):
         reasons.append(f"{prefix}.satellites_visible_wire is outside MAVLink range")
     latitude = record.get("latitude_deg")
     longitude = record.get("longitude_deg")
-    if latitude is not None and (
-        not _valid_number(latitude) or not -90.0 < float(latitude) < 90.0
-    ):
+    if latitude is not None and (not _valid_number(latitude) or not -90.0 < float(latitude) < 90.0):
         reasons.append(f"{prefix}.latitude_deg is outside the open WGS-84 latitude interval")
     if longitude is not None and (
         not _valid_number(longitude) or not -180.0 <= float(longitude) <= 180.0
@@ -612,9 +614,10 @@ def _verify_raw_record(
             max_vertical_accuracy_m
         ):
             reasons.append(f"{prefix}.qualified exceeds vertical accuracy gate")
-        if not _valid_number(record.get("gps_age_s"), non_negative=True) or float(
-            record["gps_age_s"]
-        ) > max_age_s:
+        if (
+            not _valid_number(record.get("gps_age_s"), non_negative=True)
+            or float(record["gps_age_s"]) > max_age_s
+        ):
             reasons.append(f"{prefix}.qualified exceeds GPS freshness gate")
         if record.get("gps_freshness") != "fresh":
             reasons.append(f"{prefix}.qualified requires fresh GPS")

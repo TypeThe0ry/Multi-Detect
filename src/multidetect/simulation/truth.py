@@ -67,9 +67,7 @@ class ScenarioTruth:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
-        object.__setattr__(
-            self, "scenario_id", require_text(self.scenario_id, "scenario_id")
-        )
+        object.__setattr__(self, "scenario_id", require_text(self.scenario_id, "scenario_id"))
         object.__setattr__(
             self,
             "scenario_version",
@@ -94,15 +92,11 @@ class ScenarioTruth:
         value = strict_object(
             raw,
             name="ScenarioTruth",
-            required=frozenset(
-                {"schema_version", "scenario_id", "scenario_version", "targets"}
-            ),
+            required=frozenset({"schema_version", "scenario_id", "scenario_version", "targets"}),
         )
         return cls(
             scenario_id=require_text(value["scenario_id"], "scenario_id"),
-            scenario_version=require_int(
-                value["scenario_version"], "scenario_version", minimum=1
-            ),
+            scenario_version=require_int(value["scenario_version"], "scenario_version", minimum=1),
             targets=tuple(
                 GroundTruthTarget.from_mapping(item)
                 for item in require_array(value["targets"], "targets")
@@ -131,17 +125,13 @@ class ScenarioExpectations:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
-        object.__setattr__(
-            self, "scenario_id", require_text(self.scenario_id, "scenario_id")
-        )
+        object.__setattr__(self, "scenario_id", require_text(self.scenario_id, "scenario_id"))
         object.__setattr__(
             self,
             "scenario_version",
             require_int(self.scenario_version, "scenario_version", minimum=1),
         )
-        states = require_string_array(
-            self.allowed_terminal_states, "allowed_terminal_states"
-        )
+        states = require_string_array(self.allowed_terminal_states, "allowed_terminal_states")
         if not states:
             raise AutonomyContractError("allowed_terminal_states must not be empty")
         object.__setattr__(self, "allowed_terminal_states", states)
@@ -150,9 +140,7 @@ class ScenarioExpectations:
             "maximum_false_geolocations",
             "maximum_unauthorized_commands",
         ):
-            object.__setattr__(
-                self, name, require_int(getattr(self, name), name, minimum=0)
-            )
+            object.__setattr__(self, name, require_int(getattr(self, name), name, minimum=0))
 
     @classmethod
     def from_mapping(cls, raw: object) -> ScenarioExpectations:
@@ -165,14 +153,10 @@ class ScenarioExpectations:
             "maximum_false_geolocations",
             "maximum_unauthorized_commands",
         }
-        value = strict_object(
-            raw, name="ScenarioExpectations", required=frozenset(names)
-        )
+        value = strict_object(raw, name="ScenarioExpectations", required=frozenset(names))
         return cls(
             scenario_id=require_text(value["scenario_id"], "scenario_id"),
-            scenario_version=require_int(
-                value["scenario_version"], "scenario_version", minimum=1
-            ),
+            scenario_version=require_int(value["scenario_version"], "scenario_version", minimum=1),
             allowed_terminal_states=require_string_array(
                 value["allowed_terminal_states"], "allowed_terminal_states"
             ),

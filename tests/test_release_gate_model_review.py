@@ -32,10 +32,7 @@ def _write_mode_artifact(path: Path, mode: str) -> str:
 
 
 def _four_mode_evidence(tmp_path: Path) -> dict[str, Path]:
-    return {
-        mode: tmp_path / f"{mode}.json"
-        for mode in ("replay", "sim", "hil", "real")
-    }
+    return {mode: tmp_path / f"{mode}.json" for mode in ("replay", "sim", "hil", "real")}
 
 
 def _build_modes(

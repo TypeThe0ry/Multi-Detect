@@ -369,11 +369,8 @@ def test_raw_bgr24_persistence_is_exact_hash_bound_and_tamper_evident(
         "wire_row_order": module.GAZEBO_SIM_WIRE_ROW_ORDER,
     }
     assert manifest["repository_model_assets"] == model_assets
-    assert {
-        item["path"] for item in manifest["repository_model_assets"]["files"]
-    } >= {
-        "multidetect_coco_car_billboard_v1/materials/textures/"
-        "coco-car-positive-control-v1.png",
+    assert {item["path"] for item in manifest["repository_model_assets"]["files"]} >= {
+        "multidetect_coco_car_billboard_v1/materials/textures/coco-car-positive-control-v1.png",
         "multidetect_coco_car_billboard_v1/meshes/car_billboard.mtl",
         "multidetect_coco_car_billboard_v1/meshes/car_billboard.obj",
     }
@@ -523,9 +520,7 @@ def test_sensor_transport_emits_provenance_and_hash_bound_raw_frame_set(
                 "cy_px": 0.5,
             },
             "source": "repository_calibration_hash_bound",
-            "camera_info_intrinsics_semantic_validation": (
-                "pending_k_p_distortion_validation"
-            ),
+            "camera_info_intrinsics_semantic_validation": ("pending_k_p_distortion_validation"),
         },
     )
     frame_output = tmp_path / "actual-gazebo-pixels"

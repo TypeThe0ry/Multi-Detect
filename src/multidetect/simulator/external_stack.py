@@ -188,10 +188,9 @@ def _command_executable_matches(command: Sequence[str], expected: str, *, label:
     observed_path = Path(command[0]).expanduser()
     expected_path = Path(expected).expanduser()
     if expected_path.is_absolute():
-        matches = (
-            observed_path.is_absolute()
-            and observed_path.resolve(strict=False) == expected_path.resolve(strict=False)
-        )
+        matches = observed_path.is_absolute() and observed_path.resolve(
+            strict=False
+        ) == expected_path.resolve(strict=False)
     else:
         # A bare planner command must stay bare.  Accepting an arbitrary
         # absolute path with the same basename would silently redirect the
@@ -389,11 +388,7 @@ class ExternalProcessSpec:
         object.__setattr__(
             self,
             "env",
-            dict(
-                sorted(
-                    _normalise_environment(self.env, label=f"{self.name} env").items()
-                )
-            ),
+            dict(sorted(_normalise_environment(self.env, label=f"{self.name} env").items())),
         )
         object.__setattr__(
             self,
@@ -556,9 +551,7 @@ class ExternalStackPlan:
     def gate_passed(self) -> bool:
         checks = dict(self.validation)
         required = {
-            key: value
-            for key, value in checks.items()
-            if key not in _ADVISORY_VALIDATION_KEYS
+            key: value for key, value in checks.items() if key not in _ADVISORY_VALIDATION_KEYS
         }
         return bool(required) and all(required.values())
 
@@ -570,8 +563,7 @@ class ExternalStackPlan:
     def ready_to_launch(self) -> bool:
         checks = dict(self.validation)
         ready = bool(
-            checks.get("tools_available", False)
-            and checks.get("px4_workdir_resolved", False)
+            checks.get("tools_available", False) and checks.get("px4_workdir_resolved", False)
         )
         if self.px4_launch is not None:
             ready = ready and self.px4_launch.ready_to_launch
@@ -713,8 +705,11 @@ def build_external_stack_plan(
         )
 
     if job_dir is None:
-        selected_job_dir = stack_plan.repository_root / "artifacts" / "evaluation" / (
-            f"external-stack-{stack_plan.scenario_id}"
+        selected_job_dir = (
+            stack_plan.repository_root
+            / "artifacts"
+            / "evaluation"
+            / (f"external-stack-{stack_plan.scenario_id}")
         )
     else:
         selected_job_dir = _as_absolute_path(job_dir, label="job_dir")
@@ -752,9 +747,10 @@ def build_external_stack_plan(
     # especially important when the command uses a relative ``rcS`` path.
     if workdir_ok:
         configured = environment.get("PX4_WORKDIR")
-        if configured is not None and _as_absolute_path(
-            configured, label="PX4_WORKDIR"
-        ) != selected_px4_cwd:
+        if (
+            configured is not None
+            and _as_absolute_path(configured, label="PX4_WORKDIR") != selected_px4_cwd
+        ):
             raise ExternalStackError("PX4_WORKDIR does not match selected PX4 cwd")
         environment["PX4_WORKDIR"] = str(selected_px4_cwd)
     _validate_environment(
@@ -780,9 +776,7 @@ def build_external_stack_plan(
 
     tools_available = _tool_available(stack_plan, "px4") and _tool_available(stack_plan, "gazebo")
     if strict and not tools_available:
-        missing = [
-            name for name in DEFAULT_PROCESS_ORDER if not _tool_available(stack_plan, name)
-        ]
+        missing = [name for name in DEFAULT_PROCESS_ORDER if not _tool_available(stack_plan, name)]
         raise ExternalStackError("simulator tools unavailable: " + ", ".join(missing))
     if strict and not workdir_ok:
         raise ExternalStackError(workdir_reason or "PX4_WORKDIR is unresolved")

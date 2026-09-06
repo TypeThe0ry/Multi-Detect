@@ -191,8 +191,10 @@ def test_final_release_policy_rejects_nominal_matrix_and_accepts_coverage_matrix
     assert nominal_verification["gate_passed"] is False
     assert nominal_verification["checks"]["fault_coverage_required_for_release"] is False
     assert nominal_verification["checks"]["fault_coverage_auto_extended_for_release"] is False
-    assert any("final release requires fault_coverage_required=true" in reason
-               for reason in nominal_verification["reasons"])
+    assert any(
+        "final release requires fault_coverage_required=true" in reason
+        for reason in nominal_verification["reasons"]
+    )
 
     covered = run_scenario_matrix(
         SCENARIOS,

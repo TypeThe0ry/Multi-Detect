@@ -59,9 +59,7 @@ class ScenarioManifestIndex:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
-        object.__setattr__(
-            self, "scenario_id", require_text(self.scenario_id, "scenario_id")
-        )
+        object.__setattr__(self, "scenario_id", require_text(self.scenario_id, "scenario_id"))
         object.__setattr__(
             self,
             "scenario_version",
@@ -69,9 +67,7 @@ class ScenarioManifestIndex:
         )
         for name in ("runtime_input", "truth", "expectations"):
             if not isinstance(getattr(self, name), ScenarioChannelReference):
-                raise AutonomyContractError(
-                    f"{name} must be a ScenarioChannelReference"
-                )
+                raise AutonomyContractError(f"{name} must be a ScenarioChannelReference")
         paths = (self.runtime_input.path, self.truth.path, self.expectations.path)
         if len(paths) != len(set(paths)):
             raise AutonomyContractError("scenario channels must use distinct files")
@@ -97,16 +93,10 @@ class ScenarioManifestIndex:
         )
         return cls(
             scenario_id=require_text(value["scenario_id"], "scenario_id"),
-            scenario_version=require_int(
-                value["scenario_version"], "scenario_version", minimum=1
-            ),
-            runtime_input=ScenarioChannelReference.from_mapping(
-                channels["runtime_input"]
-            ),
+            scenario_version=require_int(value["scenario_version"], "scenario_version", minimum=1),
+            runtime_input=ScenarioChannelReference.from_mapping(channels["runtime_input"]),
             truth=ScenarioChannelReference.from_mapping(channels["truth"]),
-            expectations=ScenarioChannelReference.from_mapping(
-                channels["expectations"]
-            ),
+            expectations=ScenarioChannelReference.from_mapping(channels["expectations"]),
             schema_version=require_schema_version(value["schema_version"]),
         )
 

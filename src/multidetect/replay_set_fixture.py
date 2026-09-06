@@ -96,9 +96,7 @@ def _prediction_boxes(*, stratum: str) -> tuple[dict[str, object], ...]:
     if stratum not in REPLAY_SET_POSITIVE_STRATA:
         return ()
     if stratum == "smoke_only":
-        return (
-            {"label": "smoke", "confidence": 0.90, "bbox": list(_SMOKE_BOX)},
-        )
+        return ({"label": "smoke", "confidence": 0.90, "bbox": list(_SMOKE_BOX)},)
     return (
         {"label": "flame", "confidence": 0.95, "bbox": list(_FLAME_BOX)},
         {"label": "smoke", "confidence": 0.90, "bbox": list(_SMOKE_BOX)},
@@ -124,9 +122,7 @@ def _write_stratum_streams(
         prediction_records.append(
             {
                 "captured_at_s": frame.captured_at_s,
-                "detections": [
-                    dict(item) for item in _prediction_boxes(stratum=stratum)
-                ],
+                "detections": [dict(item) for item in _prediction_boxes(stratum=stratum)],
                 "frame_id": frame.frame_id,
                 "inference_latency_ms": latency_base_ms + (0.25 * index),
             }
@@ -309,9 +305,7 @@ def create_positive_replay_set(
             "positive_strata": list(REPLAY_SET_POSITIVE_STRATA),
             "frame_count_by_stratum": manifest.coverage(),
             "positive_stratum_coverage": accuracy["positive_stratum_coverage"],
-            "positive_strata_coverage_passed": accuracy[
-                "positive_strata_coverage_passed"
-            ],
+            "positive_strata_coverage_passed": accuracy["positive_strata_coverage_passed"],
             "metrics_evaluated": accuracy["metrics_evaluated"],
             "metrics_gate_passed": accuracy["metrics_gate_passed"],
             "accuracy_report": {

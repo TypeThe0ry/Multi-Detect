@@ -176,9 +176,7 @@ def build_binding(
     ):
         raise SimulatorSceneStreamSetError("evidence_paths must be a sequence")
     if len(evidence_paths) != 3:
-        raise SimulatorSceneStreamSetError(
-            "scene-stream set requires exactly three evidence files"
-        )
+        raise SimulatorSceneStreamSetError("scene-stream set requires exactly three evidence files")
     output_dir = Path(manifest_directory).expanduser().resolve()
     records: list[dict[str, Any]] = []
     streams: list[SimulatorSceneStream] = []
@@ -214,9 +212,7 @@ def build_binding(
                 f"scene-stream scenario IDs must be unique: {stream.scenario_id}"
             )
         if mode in seen_modes:
-            raise SimulatorSceneStreamSetError(
-                f"scene-stream vehicle modes must be unique: {mode}"
-            )
+            raise SimulatorSceneStreamSetError(f"scene-stream vehicle modes must be unique: {mode}")
         if release_label is None:
             release_label = stream.release_label
         elif stream.release_label != release_label:
@@ -243,9 +239,7 @@ def build_binding(
         "all_gate_passed": all(item["gate_passed"] is True for item in records),
         "all_deterministic": all(stream.deterministic is True for stream in streams),
         "all_truth_free": all(stream.truth_free is True for stream in streams),
-        "all_snapshots_nonempty": all(
-            len(stream.snapshots) >= 1 for stream in streams
-        ),
+        "all_snapshots_nonempty": all(len(stream.snapshots) >= 1 for stream in streams),
         "records_hash_bound": all(
             _is_sha256(item["sha256"])
             and _is_sha256(item["canonical_sha256"])
@@ -256,9 +250,7 @@ def build_binding(
     }
     if not all(checks.values()):
         failed = ", ".join(name for name, value in checks.items() if not value)
-        raise SimulatorSceneStreamSetError(
-            f"scene-stream set binding checks failed: {failed}"
-        )
+        raise SimulatorSceneStreamSetError(f"scene-stream set binding checks failed: {failed}")
     return {
         "schema_version": SCHEMA_VERSION,
         "event": EVENT,

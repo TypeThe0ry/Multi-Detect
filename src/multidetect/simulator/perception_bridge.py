@@ -382,9 +382,7 @@ class SimulatorPerceptionBridge:
             if not isinstance(candidate, SimulatorAiExecutor):
                 raise TypeError("telemetry_bridge must expose a SimulatorAiExecutor")
             if not callable(getattr(telemetry_bridge, "ingest_perception", None)):
-                raise TypeError(
-                    "telemetry_bridge must expose callable ingest_perception()"
-                )
+                raise TypeError("telemetry_bridge must expose callable ingest_perception()")
             if executor is not None and candidate is not executor:
                 raise ValueError("executor and telemetry_bridge must share one executor")
             executor = candidate
@@ -685,9 +683,7 @@ class SimulatorPerceptionBridge:
                             target_distance_m=None,
                             target_confidence=None,
                         )
-                        self._last_reasons = tuple(
-                            (*self._last_reasons, bridge_rejection_reason)
-                        )
+                        self._last_reasons = tuple((*self._last_reasons, bridge_rejection_reason))
                         with self._lock:
                             self._rejected += 1
         elif self.executor is not None:
@@ -810,7 +806,11 @@ class SimulatorPerceptionBridge:
             return default if result is None else float(result)
 
         altitude = optional_float(
-            "altitude_agl_m", "relative_altitude_m", "relative_alt_m", "altitude_m", "alt",
+            "altitude_agl_m",
+            "relative_altitude_m",
+            "relative_alt_m",
+            "altitude_m",
+            "alt",
             default=0.0,
         )
         if altitude < 0.0:
@@ -826,7 +826,12 @@ class SimulatorPerceptionBridge:
         heading = _normalize_absolute_bearing(heading) or 0.0
 
         speed = optional_float(
-            "ground_speed_mps", "groundspeed", "speed_mps", "speed", "airspeed_mps", "airspeed",
+            "ground_speed_mps",
+            "groundspeed",
+            "speed_mps",
+            "speed",
+            "airspeed_mps",
+            "airspeed",
             default=0.0,
         )
         if not _present(telemetry, "ground_speed_mps", "groundspeed", "speed_mps", "speed")[0]:
@@ -869,9 +874,7 @@ class SimulatorPerceptionBridge:
         hacc = optional_float(
             "gps_horizontal_accuracy_m", "horizontal_accuracy_m", "gps_accuracy_m", default=math.nan
         )
-        vacc = optional_float(
-            "gps_vertical_accuracy_m", "vertical_accuracy_m", default=math.nan
-        )
+        vacc = optional_float("gps_vertical_accuracy_m", "vertical_accuracy_m", default=math.nan)
         if _finite(hacc) and hacc < 0.0:
             raise ValueError("gps_horizontal_accuracy_m must be non-negative")
         if _finite(vacc) and vacc < 0.0:
@@ -911,20 +914,14 @@ class SimulatorPerceptionBridge:
             telemetry, "altitude_observed_at_s", "relative_altitude_observed_at_s", default=stamp
         )
         position_present, _ = _present(telemetry, "position_observed_at_s")
-        position_time = self._optional_timestamp(
-            telemetry, "position_observed_at_s", default=stamp
-        )
+        position_time = self._optional_timestamp(telemetry, "position_observed_at_s", default=stamp)
         if not position_present:
             # Backwards-compatible mapping support: older telemetry objects
             # exposed only the dedicated GPS timestamp.  Keep the fused
             # position timestamp populated for those producers.
-            position_time = self._optional_timestamp(
-                telemetry, "gps_observed_at_s", default=stamp
-            )
+            position_time = self._optional_timestamp(telemetry, "gps_observed_at_s", default=stamp)
         gps_present, _ = _present(telemetry, "gps_observed_at_s")
-        gps_time = self._optional_timestamp(
-            telemetry, "gps_observed_at_s", default=None
-        )
+        gps_time = self._optional_timestamp(telemetry, "gps_observed_at_s", default=None)
         if not gps_present:
             # Legacy producers had no separate GPS cursor.  Infer one only
             # when the observation itself carries a complete fix; a generic
@@ -1323,9 +1320,7 @@ class SimulatorPerceptionBridge:
         if bearing is None:
             bearing_raw = _read(source, "home_bearing_deg", "home_bearing", default=None)
             if bearing_raw is None and source is not telemetry:
-                bearing_raw = _read(
-                    telemetry, "home_bearing_deg", "home_bearing", default=None
-                )
+                bearing_raw = _read(telemetry, "home_bearing_deg", "home_bearing", default=None)
             bearing = _number(bearing_raw, "home_bearing_deg", allow_nan=True)
         if distance is None:
             distance_raw = _read(source, "home_distance_m", "distance_to_home_m", default=None)
@@ -1398,8 +1393,7 @@ class SimulatorPerceptionBridge:
         absolute = math.degrees(
             math.atan2(
                 math.sin(dlon) * math.cos(lat2),
-                math.cos(lat1) * math.sin(lat2)
-                - math.sin(lat1) * math.cos(lat2) * math.cos(dlon),
+                math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon),
             )
         )
         return _normalize_relative_bearing(absolute - heading_deg) or 0.0, distance
