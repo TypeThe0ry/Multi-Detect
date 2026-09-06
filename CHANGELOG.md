@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v115 resumable field replay campaign（2026-09-06）
+
+- 新增 `multidetect-field-replay-campaign`、仓库 wrapper 与 closed plan schema，把六分层 field intake、
+  人工标注/finalize、固定模型 runtime inference、reviewed accuracy、threshold calibration 和 fresh verifier
+  编排为不可覆盖、可恢复的 fail-closed 状态机；
+- 每次 `status/advance` 都重开模型哈希与已完成证据；缺现场目录或人工步骤时返回精确 stage/next action，
+  标注员、标注复核人、accuracy reviewer、threshold reviewer 必须四人独立；
+- 真实 ONNX Runtime 六分层端到端回归已到 `complete`，但只验证软件闭环，不代表已有现场数据。
+  全量 3,515 tests：`3514 passed, 1 skipped`；共享 parity、E7 当前 32 blockers 与 QGC EXE 均未变。
+
 ### v0.3.0-pre.8 v114 final calibration promotion gate（2026-09-06）
 
 - E7 calibration 诊断新增聚合 `promotion_ready`，必须同时来自报告声明和当前输入确定性重算；

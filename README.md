@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v114：最终发布要求 calibration promotion-ready |
+| 当前工程迭代 | v115：现场六分层回放 campaign 可恢复编排 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v109–v114 prediction、accuracy、calibration 与 E7 provenance 闭环
+### v109–v115 field replay campaign 与 provenance 闭环
+
+`multidetect-field-replay-campaign` 把六分层真实记录 intake、双人标注、固定模型推理、独立 accuracy
+复核、独立 threshold 复核和 fresh verification 串成可恢复状态机。机器步骤可重复 `advance`；缺记录或人工
+身份时明确停住，四个角色必须互不相同，任何 pending 状态都不会产生发布通过声明。
 
 `multidetect-replay-predictions` 对已复核六分层 replay bundle 复用正式 decoder、ONNX/TensorRT detector、
 letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、

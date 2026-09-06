@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T04:05:07Z",
+  "updated_at_utc": "2026-09-06T04:25:05Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "24fb1d5b43f1ee0de0d37dfc3a05dc205eb99854",
-    "commit_subject": "fix(release): require calibration promotion readiness",
-    "commits_ahead_of_origin_main": 116
+    "commit": "5900ab820768fb7c32c79af9c8bca874e4e95db3",
+    "commit_subject": "feat(replay): orchestrate field evidence campaign",
+    "commits_ahead_of_origin_main": 118
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v114",
+  "working_iteration": "v115",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v114-final.xml",
-      "tests": 3512,
-      "passed": 3511,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v115-final.xml",
+      "tests": 3515,
+      "passed": 3514,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 197.33,
-      "junit_local_path": "tmp/current-progress-regression-v114-final.xml",
-      "junit_file_bytes": 512248,
-      "junit_file_sha256": "c4b5020705a7501b433eabe7dba80db9dacbe696dd5da3d0a6bd4da159460795",
+      "duration_seconds": 208.81,
+      "junit_local_path": "tmp/current-progress-regression-v115-final.xml",
+      "junit_file_bytes": 512680,
+      "junit_file_sha256": "7484ecd43da22a8b2e903df539efddeeafdaecaeb65673658dc568ba227e0d50",
       "distributed_in_git": false
     },
     "ruff": {
@@ -74,6 +74,19 @@
     }
   },
   "evidence": {
+    "field_replay_campaign": {
+      "schema": "field-replay-campaign-plan/v1",
+      "schema_path": "configs/schemas/field-replay-campaign-plan.schema.json",
+      "runner_module": "multidetect.field_replay_campaign",
+      "wrapper": "scripts/run_field_replay_campaign.py",
+      "commands": ["create", "status", "advance"],
+      "canonical_strata": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"],
+      "review_roles_must_be_distinct": true,
+      "machine_stages_resumable": true,
+      "field_campaign_executed": false,
+      "release_ready": false,
+      "next_action": "collect six real deployment recordings, then create and advance the campaign"
+    },
     "pixhawk_covariance_field_campaign": {
       "schema": "multidetect.pixhawk-covariance-field-campaign/v1",
       "schema_path": "configs/schemas/pixhawk-covariance-field-campaign.schema.json",

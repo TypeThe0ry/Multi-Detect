@@ -2071,6 +2071,10 @@ Perception Core            Flight Integration
   清单逐条绑定 raw recording、人工真值和可选预测流，重新验证文件哈希与帧 ID；六类
   `day/night/haze/reflection/smoke_only/no_fire` 覆盖、部署来源和标注复核只决定数据集门，
   `accuracy_validated` 永远等待独立 IoU evaluator 报告，不会由目录存在性或合成数据自动置真。
+- `field_replay_campaign.py`、`scripts/run_field_replay_campaign.py` 与
+  `configs/schemas/field-replay-campaign-plan.schema.json` 是上述现场证据链的可恢复编排层：计划
+  固定六个来源、模型和质量门参数，`advance` 只执行可确定的机器 stage，遇到采集或四人独立审核
+  就停住；每次 `status` 都从磁盘重开模型、receipt、accuracy 和 calibration，不保存可伪造的动态通过位。
 - `replay_set_evaluation.py` 与 `scripts/evaluate_replay_set.py` 在不修改原清单的前提下，逐条
   复用 frame-aligned IoU evaluator，汇总 precision/recall、误报/漏检帧率和 p95 延迟；报告同时
   绑定回放集 raw/canonical SHA-256，并要求显式 `--reviewed --reviewer` 才能将独立精度门置真。

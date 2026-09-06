@@ -310,6 +310,38 @@ python scripts/evaluate_replay_set.py `
   --out artifacts\replay-sets\fire-smoke-2026\accuracy-report.json
 ```
 
+## 可恢复的现场 campaign（推荐入口）
+
+v115 起无需人工记忆 intake → annotation → prediction → accuracy → calibration 的命令顺序。
+先创建一次不可覆盖计划；来源目录可以尚未采集，状态会停在 `awaiting_sources`：
+
+```powershell
+python scripts/run_field_replay_campaign.py create artifacts\field-campaigns\fire-smoke-v1 `
+  --campaign-id fire-smoke-v1 --dataset-id fire-smoke-field --dataset-version v1 `
+  --source day=D:\capture\day --source night=D:\capture\night `
+  --source haze=D:\capture\haze --source reflection=D:\capture\reflection `
+  --source smoke_only=D:\capture\smoke-only --source no_fire=D:\capture\no-fire `
+  --model models\fire-smoke.onnx --model-manifest models\fire-smoke.manifest.json `
+  --provider CUDAExecutionProvider
+
+python scripts/run_field_replay_campaign.py advance artifacts\field-campaigns\fire-smoke-v1
+```
+
+首次 `advance` 自动完成 intake 和标注工作区创建，然后停在 `annotation_required`。人工编辑
+`annotations.json`，填写所有帧的 positive/negative、annotator、独立 annotation reviewer 和 UTC 时间后：
+
+```powershell
+python scripts/run_field_replay_campaign.py advance artifacts\field-campaigns\fire-smoke-v1 `
+  --accuracy-reviewer accuracy-reviewer-c `
+  --calibration-reviewer threshold-reviewer-d
+```
+
+四个角色必须互不相同。命令会自动续跑可确定的机器步骤，每次都重开模型和既有证据；若缺人审、
+精度未达标、calibration 未 promotion-ready 或文件被改动，会停在对应 stage 或直接 fail-closed。
+计划结构见
+[`field-replay-campaign-plan.schema.json`](../configs/schemas/field-replay-campaign-plan.schema.json)。
+synthetic HIL 的端到端回归只证明软件状态机贯通，不可替代这六个真实采集目录和人工评审。
+
 ## 采集阶段 readiness 检查
 
 回放集采集过程中，可用只读 readiness 检查一次性查看部署来源、标注复核、预测流和正例

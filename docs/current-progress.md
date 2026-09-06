@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v114 工作树）
+最后更新：2026-09-06（v115 工作树）
+
+## v115 本轮已收口
+
+- 新增不可覆盖的 `field-replay-campaign.json` 计划和 `create/status/advance` CLI，把六个真实来源目录、
+  固定模型/manifest、推理参数、accuracy 门限和 calibration grid 全部做 path/hash/bytes/canonical 绑定；
+- 自动推进 intake、annotation workspace、finalize、正式 ONNX runtime predictions、reviewed accuracy、
+  reviewed threshold calibration 和独立 fresh verification；真实记录缺失或人工标注/复核缺失时停在明确 stage，
+  不生成正向 claim；
+- annotator、annotation reviewer、accuracy reviewer、threshold reviewer 强制四人互异；重新打开 campaign
+  会逐层复验 receipt/report/model，手工替换或篡改继续 fail-closed；
+- synthetic HIL ONNX 六分层端到端测试已实际走到 `complete`，并覆盖 pending、模型篡改、CLI 和幂等恢复。
+  这只证明编排软件可运行，现场六分层采集和人工审核仍未执行；
+- 全量回归 3,515 tests：`3514 passed, 1 skipped, 0 failed, 0 errors`，耗时 208.81 秒；JUnit
+  512,680 bytes、SHA-256 `7484ECD43DA22A8B2E903DF539EFDDEEAFDAECAEB65673658DC568BA227E0D50`；
+  全仓 Ruff 通过。共享 parity、QGC C++/QML 和 portable EXE 未变，当前 E7 仍为 32 blockers。
 
 ## v114 本轮已收口
 

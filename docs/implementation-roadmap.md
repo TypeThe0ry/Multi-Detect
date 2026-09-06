@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 现场六分层回放 campaign（v115）
+
+- [x] 不可变计划绑定六层来源、固定模型、阈值和 canonical hash；
+- [x] `create/status/advance` 可恢复推进所有确定性机器步骤；
+- [x] 缺现场数据或人工动作时给出唯一 stage/next action，不伪造完成；
+- [x] 标注、标注复核、accuracy、threshold 四个身份强制互异；
+- [x] 每次重开模型、receipt、accuracy、calibration 和 fresh verification；
+- [x] closed schema、wrapper、真实 ONNX Runtime 端到端与篡改回归；
+- [ ] 采集真实 day/night/haze/reflection/smoke-only/no-fire recording；
+- [ ] 四名独立人员完成标注和两级评审，以真实模型生成 promotion-ready 证据。
+
 ## 最终 calibration promotion gate（v114）
 
 - [x] E7 汇总 report/recomputed promotion readiness；
