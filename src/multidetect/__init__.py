@@ -132,6 +132,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".video_replay_recording",
         "create_video_replay_recording",
     ),
+    "create_rtsp_evidence_replay_recording": (
+        ".rtsp_evidence_replay",
+        "create_rtsp_evidence_replay_recording",
+    ),
     "join_raw_replay_telemetry": (
         ".replay_telemetry_join",
         "join_raw_replay_telemetry",
@@ -481,6 +485,7 @@ __all__ = [
     "calibrate_replay_set_thresholds",
     "verify_replay_set_calibration_report",
     "create_video_replay_recording",
+    "create_rtsp_evidence_replay_recording",
     "join_raw_replay_telemetry",
     "create_gnss_replay_sidecar",
     "discover_field_link_hosts",

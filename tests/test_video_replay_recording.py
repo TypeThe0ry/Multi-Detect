@@ -176,6 +176,42 @@ def test_video_conversion_supports_fps_override_and_selected_frame_limit(
     assert summary["source_attestation_handoff"]["attestation_time_eligible"] is False
 
 
+def test_video_conversion_enforces_source_binding_and_records_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "input.video"
+    source.write_bytes(b"camera-container")
+    output = tmp_path / "recording"
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    binding = {
+        "type": "rtsp_evidence_recording_v3",
+        "verified": True,
+        "manifest": {"sha256": "b" * 64},
+    }
+    _install_fake_cv2(monkeypatch, _Capture([_frame(0), _frame(1)], fps=5.0))
+
+    summary = create_video_replay_recording(
+        source,
+        output,
+        started_at_utc="2026-09-06T04:00:00Z",
+        expected_source_video_sha256=source_hash,
+        expected_source_video_bytes=source.stat().st_size,
+        source_evidence_binding=binding,
+    )
+
+    assert summary["source_evidence_binding"] == binding
+    on_disk = json.loads((output / "recording-summary.json").read_text(encoding="utf-8"))
+    assert on_disk["source_evidence_binding"] == binding
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        create_video_replay_recording(
+            source,
+            tmp_path / "wrong-hash",
+            expected_source_video_sha256="0" * 64,
+        )
+    assert not (tmp_path / "wrong-hash").exists()
+
+
 def test_video_conversion_reads_a_real_opencv_container(tmp_path: Path) -> None:
     cv2 = pytest.importorskip("cv2")
     np = pytest.importorskip("numpy")

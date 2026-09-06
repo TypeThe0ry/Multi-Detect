@@ -18,11 +18,12 @@ import math
 import os
 import shutil
 import tempfile
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .autonomy.serialization import require_sha256
+from .autonomy.serialization import canonical_json, canonical_sha256, require_int, require_sha256
 from .backends import RawSensorReplayRecording
 from .compat import UTC
 from .deployment_recording_attestation import (
@@ -45,6 +46,9 @@ def create_video_replay_recording(
     fps: float | None = None,
     frame_stride: int = 1,
     frame_limit: int | None = None,
+    expected_source_video_sha256: str | None = None,
+    expected_source_video_bytes: int | None = None,
+    source_evidence_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a hash-bound raw replay directory from ``video``.
 
@@ -77,6 +81,28 @@ def create_video_replay_recording(
         raise ValueError("frame_limit must be a positive integer when supplied")
     effective_fps_override = _positive_finite(fps, "fps") if fps is not None else None
     normalized_airframe = require_sha256(airframe_profile_hash, "airframe_profile_hash")
+    expected_source_hash = (
+        require_sha256(expected_source_video_sha256, "expected_source_video_sha256")
+        if expected_source_video_sha256 is not None
+        else None
+    )
+    normalized_expected_bytes = (
+        require_int(expected_source_video_bytes, "expected_source_video_bytes", minimum=1)
+        if expected_source_video_bytes is not None
+        else None
+    )
+    if source_evidence_binding is not None and not isinstance(source_evidence_binding, Mapping):
+        raise ValueError("source_evidence_binding must be an object")
+    normalized_source_binding = (
+        json.loads(canonical_json(source_evidence_binding))
+        if source_evidence_binding is not None
+        else None
+    )
+    source_video_sha256, source_video_bytes = _sha256_file(video_path)
+    if expected_source_hash is not None and source_video_sha256 != expected_source_hash:
+        raise ValueError("source video SHA-256 does not match its expected evidence binding")
+    if normalized_expected_bytes is not None and source_video_bytes != normalized_expected_bytes:
+        raise ValueError("source video byte count does not match its expected evidence binding")
     normalized_start = _format_utc(_parse_utc(started_at_utc))
     normalized_recording_id = video_path.stem if recording_id is None else recording_id
     if not isinstance(normalized_recording_id, str) or not normalized_recording_id.strip():
@@ -175,6 +201,12 @@ def create_video_replay_recording(
             frame_count += 1
         if width is None or height is None or not events:
             raise ValueError("video did not yield any decodable frames")
+        final_source_sha256, final_source_bytes = _sha256_file(video_path)
+        if (final_source_sha256, final_source_bytes) != (
+            source_video_sha256,
+            source_video_bytes,
+        ):
+            raise ValueError("source video changed while replay frames were being decoded")
     except BaseException:
         _remove_staging_path(temporary_path)
         raise
@@ -226,7 +258,6 @@ def create_video_replay_recording(
     attestation_window = derive_deployment_recording_time_window(temporary_path)
 
     product = load_product_version()
-    source_video_sha256, source_video_bytes = _sha256_file(video_path)
     final_manifest_path = output_path / "recording.manifest.json"
     summary = {
         "event": "video_replay_recording_created",
@@ -296,6 +327,9 @@ def create_video_replay_recording(
             ),
         ],
     }
+    if normalized_source_binding is not None:
+        summary["source_evidence_binding"] = normalized_source_binding
+        summary["summary_canonical_hash"] = canonical_sha256(summary)
     (temporary_path / "recording-summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

@@ -67,6 +67,7 @@ multidetect-replay-predictions = "multidetect.replay_prediction_cli:main"
 multidetect-field-replay-campaign = "multidetect.field_replay_campaign:main"
 multidetect-replay-annotation-ui = "multidetect.replay_annotation_workbench:main"
 multidetect-deployment-recording-attestation = "multidetect.deployment_recording_attestation_cli:main"
+multidetect-rtsp-to-replay = "multidetect.rtsp_evidence_replay:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

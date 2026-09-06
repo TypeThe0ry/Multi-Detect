@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .evidence_session import normalize_evidence_session_id
+from .rtsp_evidence_recording import verify_rtsp_evidence_recording_manifest
 from .tracking_evaluation import IdentityPredictionFrame, load_identity_prediction_jsonl
 from .video_evidence import (
     VideoEvidenceProbe,
@@ -72,7 +73,11 @@ def prepare_tracking_review_bundle(
     session_id = frames[0].session_id
     if session_id is None:
         raise ValueError("identity predictions must contain an evidence session ID")
-    recording_manifest = _load_recording_manifest(source_video_manifest_path)
+    recording_manifest = _load_recording_manifest(
+        source_video_manifest_path,
+        source_video_path=source_video_path,
+        video_probe=video_probe,
+    )
     if recording_manifest["session_id"] != session_id:
         raise ValueError("identity predictions and source video use different evidence sessions")
     source_video_sha256 = _sha256_file(source_video_path)
@@ -80,7 +85,9 @@ def prepare_tracking_review_bundle(
         raise ValueError("source video SHA256 does not match its recording manifest")
     if recording_manifest["output_bytes"] != source_video_path.stat().st_size:
         raise ValueError("source video size does not match its recording manifest")
-    source_video_probe = (video_probe or probe_video_evidence)(source_video_path)
+    source_video_probe = recording_manifest.get("verified_video_probe")
+    if not isinstance(source_video_probe, VideoEvidenceProbe):
+        source_video_probe = (video_probe or probe_video_evidence)(source_video_path)
     if not source_video_probe.passed:
         raise ValueError(
             "source video validation failed: " + "; ".join(source_video_probe.failure_reasons)
@@ -207,7 +214,12 @@ def tracking_review_bundle_document(
     }
 
 
-def _load_recording_manifest(path: Path) -> dict[str, object]:
+def _load_recording_manifest(
+    path: Path,
+    *,
+    source_video_path: Path,
+    video_probe: Callable[[Path], VideoEvidenceProbe] | None,
+) -> dict[str, object]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -216,8 +228,27 @@ def _load_recording_manifest(path: Path) -> dict[str, object]:
         raise ValueError("source video recording manifest must be an object")
     if raw.get("event") != "rtsp_tracking_evidence_recording_completed":
         raise ValueError("source video recording manifest has the wrong event type")
-    if raw.get("schema_version") != 2:
-        raise ValueError("source video recording manifest schema version must be 2")
+    schema_version = raw.get("schema_version")
+    if schema_version == 3:
+        verified = verify_rtsp_evidence_recording_manifest(
+            path,
+            expected_video=source_video_path,
+            video_probe=video_probe,
+        )
+        return {
+            "session_id": verified.session_id,
+            "output_sha256": verified.output_sha256,
+            "output_bytes": verified.output_bytes,
+            "started_at_monotonic_s": _finite_nonnegative_manifest_number(
+                raw.get("started_at_monotonic_s"), "recording start"
+            ),
+            "ended_at_monotonic_s": _finite_nonnegative_manifest_number(
+                raw.get("ended_at_monotonic_s"), "recording end"
+            ),
+            "verified_video_probe": verified.video_probe,
+        }
+    if schema_version != 2:
+        raise ValueError("source video recording manifest schema version must be 2 or 3")
     if raw.get("passed") is not True:
         raise ValueError("source video recording manifest did not pass")
     if raw.get("source_uri_recorded") is not False:

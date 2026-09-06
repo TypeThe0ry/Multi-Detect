@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/rtsp-evidence-recording.schema.json",
+  "title": "Multi-Detect RTSP Evidence Recording v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "schema_version",
+    "session_id",
+    "recorded_at_utc",
+    "started_at_utc",
+    "ended_at_utc",
+    "utc_clock",
+    "source_description",
+    "source_uri_recorded",
+    "transport",
+    "codec",
+    "container",
+    "requested_duration_s",
+    "actual_duration_s",
+    "started_at_monotonic_s",
+    "ended_at_monotonic_s",
+    "output_video",
+    "output_bytes",
+    "output_sha256",
+    "eos_received",
+    "stream_copy_no_decode_or_reencode",
+    "video_probe",
+    "passed",
+    "flight_control_enabled",
+    "physical_release_enabled",
+    "canonical_hash"
+  ],
+  "properties": {
+    "event": { "const": "rtsp_tracking_evidence_recording_completed" },
+    "schema_version": { "const": 3 },
+    "session_id": { "type": "string", "format": "uuid" },
+    "recorded_at_utc": { "type": "string", "format": "date-time" },
+    "started_at_utc": { "type": "string", "format": "date-time" },
+    "ended_at_utc": { "type": "string", "format": "date-time" },
+    "utc_clock": { "const": "system_utc_enclosing_stream_copy" },
+    "source_description": { "const": "RTSP source" },
+    "source_uri_recorded": { "const": false },
+    "transport": { "const": "tcp" },
+    "codec": { "const": "h265" },
+    "container": { "const": "matroska" },
+    "requested_duration_s": { "type": "number", "minimum": 1, "maximum": 86400 },
+    "actual_duration_s": { "type": "number", "exclusiveMinimum": 0 },
+    "started_at_monotonic_s": { "type": "number", "minimum": 0 },
+    "ended_at_monotonic_s": { "type": "number", "exclusiveMinimum": 0 },
+    "output_video": { "type": "string", "minLength": 1 },
+    "output_bytes": { "type": "integer", "minimum": 1 },
+    "output_sha256": { "$ref": "#/$defs/sha256" },
+    "eos_received": { "type": "boolean" },
+    "stream_copy_no_decode_or_reencode": { "type": "boolean" },
+    "video_probe": { "$ref": "#/$defs/videoProbe" },
+    "passed": { "type": "boolean" },
+    "flight_control_enabled": { "const": false },
+    "physical_release_enabled": { "const": false },
+    "canonical_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullablePositiveNumber": {
+      "oneOf": [
+        { "type": "number", "exclusiveMinimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "nullablePositiveInteger": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "null" }
+      ]
+    },
+    "videoProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decoded_frame_count",
+        "declared_frame_count",
+        "fps",
+        "width",
+        "height",
+        "duration_s",
+        "full_frame_scan_completed",
+        "stable_dimensions",
+        "passed",
+        "failure_reasons"
+      ],
+      "properties": {
+        "decoded_frame_count": { "type": "integer", "minimum": 0 },
+        "declared_frame_count": { "$ref": "#/$defs/nullablePositiveInteger" },
+        "fps": { "$ref": "#/$defs/nullablePositiveNumber" },
+        "width": { "$ref": "#/$defs/nullablePositiveInteger" },
+        "height": { "$ref": "#/$defs/nullablePositiveInteger" },
+        "duration_s": { "$ref": "#/$defs/nullablePositiveNumber" },
+        "full_frame_scan_completed": { "type": "boolean" },
+        "stable_dimensions": { "type": "boolean" },
+        "passed": { "type": "boolean" },
+        "failure_reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

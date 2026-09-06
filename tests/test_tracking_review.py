@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from multidetect.rtsp_evidence_recording import (
+    RtspEvidenceRecordingConfig,
+    StreamCopyResult,
+    record_rtsp_evidence,
+)
 from multidetect.tracking_evaluation import load_identity_ground_truth_jsonl
 from multidetect.tracking_review import prepare_tracking_review_bundle
 from multidetect.video_evidence import VideoEvidenceProbe
@@ -121,6 +127,52 @@ def test_tracking_review_bundle_binds_video_predictions_and_unreviewed_draft(
 
     with pytest.raises(ValueError, match="unknown ground-truth frame fields"):
         load_identity_ground_truth_jsonl(report.draft_path)
+
+
+def test_tracking_review_bundle_accepts_strict_v3_rtsp_manifest(tmp_path: Path) -> None:
+    predictions, _unused_video, _unused_manifest = _bound_inputs(tmp_path / "inputs")
+    video = tmp_path / "source.mkv"
+    manifest = tmp_path / "source.manifest.json"
+
+    def runner(_source: str, path: Path, *_args) -> StreamCopyResult:
+        path.write_bytes(b"v3-stream-copy")
+        return StreamCopyResult(
+            actual_duration_s=1.0,
+            eos_received=True,
+            started_at_monotonic_s=0.0,
+            ended_at_monotonic_s=1.0,
+        )
+
+    times = iter(
+        (
+            datetime.fromisoformat("2026-09-06T07:00:00+00:00"),
+            datetime.fromisoformat("2026-09-06T07:00:01+00:00"),
+        )
+    )
+    record_rtsp_evidence(
+        RtspEvidenceRecordingConfig(
+            source_env="CAMERA_SOURCE",
+            session_id=SESSION_ID,
+            output_video=video,
+            manifest_out=manifest,
+            duration_s=1.0,
+        ),
+        environ={"CAMERA_SOURCE": "rtsp://camera/stream"},
+        stream_copy_runner=runner,
+        video_probe=lambda path: _valid_probe(path),
+        utc_now=lambda: next(times),
+    )
+
+    report = prepare_tracking_review_bundle(
+        predictions,
+        video,
+        manifest,
+        tmp_path / "review-v3",
+        video_probe=lambda path: _valid_probe(path),
+    )
+
+    assert report.frame_count == 6
+    assert report.source_video_track_timeline_coverage_validated is True
 
 
 def test_tracking_review_bundle_refuses_to_overwrite_human_work_without_opt_in(
