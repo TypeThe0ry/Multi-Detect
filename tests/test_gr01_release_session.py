@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,9 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft202012Validator
 
+from multidetect import gr01_release_plan as plan_module
 from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from multidetect.gr01_release_plan import create_gr01_release_session_plan
 from multidetect.gr01_release_session import (
     Gr01ReleaseSessionError,
     create_gr01_release_session_record,
@@ -80,11 +83,12 @@ def _statuses() -> dict[str, dict[str, str]]:
 
 def _sources(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     *,
     observed_at: datetime | None = None,
     evaluated_at: datetime | None = None,
     max_age_s: float = 900.0,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     observed_at = observed_at or datetime.now(timezone.utc)
     evaluated_at = evaluated_at or observed_at + timedelta(seconds=1)
     bench_document = run_gr01_link_bench(
@@ -102,6 +106,33 @@ def _sources(
     bench = tmp_path / "session" / "gr01-link-bench.json"
     bench.parent.mkdir(parents=True, exist_ok=True)
     bench.write_text(json.dumps(bench_document, sort_keys=True) + "\n", encoding="utf-8")
+
+    identity = plan_module._source_identity(ROOT)
+    identity["repository"]["tracked_dirty"] = False
+    identity["release_parity"]["source_verified"] = True
+    monkeypatch.setattr(plan_module, "_source_identity", lambda _root: identity)
+    monkeypatch.setenv("MULTIDETECT_OPERATOR_HMAC_KEY", "present-for-test")
+    monkeypatch.setenv("MULTIDETECT_MAVLINK_SIGNING_KEY_HEX", "present-for-test")
+    plan = tmp_path / "session" / "gr01-release-session-plan.json"
+    repository_output = ROOT / "tmp"
+    repository_output.mkdir(parents=True, exist_ok=True)
+    create_gr01_release_session_plan(
+        plan,
+        host_address="192.168.144.20",
+        port=14580,
+        hardware_id="GR01-OPERATOR-001",
+        expected_source_cidr="192.168.144.0/24",
+        operator_hmac_environment="MULTIDETECT_OPERATOR_HMAC_KEY",
+        mavlink_signing_environment="MULTIDETECT_MAVLINK_SIGNING_KEY_HEX",
+        minimum_round_trips=3,
+        maximum_packet_loss_rate=0.01,
+        maximum_ack_latency_p95_ms=500.0,
+        maximum_attempts=3,
+        maximum_evidence_age_s=max_age_s,
+        repository_root=ROOT,
+        python_path=Path(sys.executable),
+        output_root=repository_output,
+    )
 
     evidence = _evidence(tmp_path)
     manifest = tmp_path / "session" / "release-gate" / "manifest.json"
@@ -131,15 +162,18 @@ def _sources(
         + "\n",
         encoding="utf-8",
     )
-    return bench, manifest, report
+    return plan, bench, manifest, report
 
 
-def test_record_is_schema_valid_and_independently_reverified(tmp_path: Path) -> None:
-    bench, manifest, report = _sources(tmp_path)
+def test_record_is_schema_valid_and_independently_reverified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, bench, manifest, report = _sources(tmp_path, monkeypatch)
     record = tmp_path / "session" / "gr01-release-session.json"
 
     document = create_gr01_release_session_record(
         record,
+        release_plan=plan,
         bench_report=bench,
         release_manifest=manifest,
         release_report=report,
@@ -152,6 +186,7 @@ def test_record_is_schema_valid_and_independently_reverified(tmp_path: Path) -> 
         document
     )
     assert document["gate_passed"] is True
+    assert document["release_plan"]["configuration_matches_bench_and_e7"] is True
     assert document["claims"] == {
         "gr01_binding_verified": True,
         "overall_release_allowed": False,
@@ -168,11 +203,12 @@ def test_record_is_schema_valid_and_independently_reverified(tmp_path: Path) -> 
     assert verification["reasons"] == []
 
 
-def test_verifier_rejects_source_tampering(tmp_path: Path) -> None:
-    bench, manifest, report = _sources(tmp_path)
+def test_verifier_rejects_source_tampering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan, bench, manifest, report = _sources(tmp_path, monkeypatch)
     record = tmp_path / "session" / "gr01-release-session.json"
     create_gr01_release_session_record(
         record,
+        release_plan=plan,
         bench_report=bench,
         release_manifest=manifest,
         release_report=report,
@@ -188,10 +224,38 @@ def test_verifier_rejects_source_tampering(tmp_path: Path) -> None:
     assert any("does not match" in reason for reason in verification["reasons"])
 
 
-def test_creator_rejects_expired_gr01_binding(tmp_path: Path) -> None:
+def test_verifier_rejects_release_plan_configuration_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, bench, manifest, report = _sources(tmp_path, monkeypatch)
+    record = tmp_path / "session" / "gr01-release-session.json"
+    create_gr01_release_session_record(
+        record,
+        release_plan=plan,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    document = json.loads(plan.read_text(encoding="utf-8"))
+    document["thresholds"]["minimum_round_trips"] = 4
+    plan.write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    verification = verify_gr01_release_session_record(
+        record,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    assert verification["gate_passed"] is False
+    assert any("does not match bench and E7" in reason for reason in verification["reasons"])
+
+
+def test_creator_rejects_expired_gr01_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     observed_at = datetime.now(timezone.utc)
-    bench, manifest, report = _sources(
+    plan, bench, manifest, report = _sources(
         tmp_path,
+        monkeypatch,
         observed_at=observed_at,
         evaluated_at=observed_at + timedelta(seconds=31),
         max_age_s=30.0,
@@ -200,6 +264,7 @@ def test_creator_rejects_expired_gr01_binding(tmp_path: Path) -> None:
     with pytest.raises(Gr01ReleaseSessionError, match="binding failed"):
         create_gr01_release_session_record(
             tmp_path / "session" / "gr01-release-session.json",
+            release_plan=plan,
             bench_report=bench,
             release_manifest=manifest,
             release_report=report,
@@ -207,11 +272,14 @@ def test_creator_rejects_expired_gr01_binding(tmp_path: Path) -> None:
         )
 
 
-def test_verifier_rejects_record_metadata_tampering(tmp_path: Path) -> None:
-    bench, manifest, report = _sources(tmp_path)
+def test_verifier_rejects_record_metadata_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, bench, manifest, report = _sources(tmp_path, monkeypatch)
     record = tmp_path / "session" / "gr01-release-session.json"
     create_gr01_release_session_record(
         record,
+        release_plan=plan,
         bench_report=bench,
         release_manifest=manifest,
         release_report=report,
@@ -230,15 +298,18 @@ def test_verifier_rejects_record_metadata_tampering(tmp_path: Path) -> None:
 
 
 def test_creator_is_write_new_and_cli_reports_failure(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    bench, manifest, report = _sources(tmp_path)
+    plan, bench, manifest, report = _sources(tmp_path, monkeypatch)
     record = tmp_path / "session" / "gr01-release-session.json"
     record.write_text("reserved\n", encoding="utf-8")
 
     with pytest.raises(Gr01ReleaseSessionError, match="already exists"):
         create_gr01_release_session_record(
             record,
+            release_plan=plan,
             bench_report=bench,
             release_manifest=manifest,
             release_report=report,

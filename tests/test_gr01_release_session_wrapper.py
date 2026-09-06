@@ -68,6 +68,7 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
 
     assert text.index("'gr01-link-bench.json'") < text.index("'gr01-release-session.json'")
     assert text.index("'gr01-release-session-plan.json'") < text.index("'gr01-link-bench.json'")
+    assert "'--plan', $planPath" in text
     assert text.index("'create'") < text.index("'verify'")
     assert "MULTIDETECT_OPERATOR_HMAC_KEY=" not in text
     assert "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX=" not in text

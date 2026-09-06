@@ -1,10 +1,11 @@
 """Verify one freshness-bound GR01 bench-to-E7 release session.
 
 The producer runs the existing hardware bench and current release-gate wrapper.
-This module is the independent consumer: it reopens the bench, manifest and
-evaluation report, reruns both canonical verifiers, and writes a success record
-only when the GR01 binding is present, fresh and passing.  The record does not
-upgrade the overall release gate or any physical-flight claim.
+This module is the independent consumer: it reopens the source-bound execution
+plan, bench, manifest and evaluation report, reruns the canonical verifiers,
+and writes a success record only when the planned configuration is the one that
+reached the GR01 and E7 evidence.  The record does not upgrade the overall
+release gate or any physical-flight claim.
 """
 
 from __future__ import annotations
@@ -23,9 +24,14 @@ from uuid import uuid4
 
 from .autonomy.serialization import strict_json_loads
 from .gr01_bench import verify_gr01_link_bench_report
+from .gr01_release_plan import (
+    PLAN_SCHEMA,
+    PLAN_SCHEMA_VERSION,
+    verify_gr01_release_session_plan,
+)
 from .release_gate import evaluate_release_gate
 
-SESSION_SCHEMA_VERSION = 1
+SESSION_SCHEMA_VERSION = 2
 SESSION_EVENT = "multidetect_gr01_release_session_verified"
 
 
@@ -94,6 +100,7 @@ def _require_timestamp(value: object, *, name: str) -> str:
 
 
 def _validate_sources(
+    release_plan: str | Path,
     bench_report: str | Path,
     release_manifest: str | Path,
     release_report: str | Path,
@@ -101,13 +108,20 @@ def _validate_sources(
     record_directory: Path,
     version_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
+    plan_path = _source(release_plan, name="GR01 release-session plan")
     bench_path = _source(bench_report, name="GR01 bench report")
     manifest_path = _source(release_manifest, name="release manifest")
     report_path = _source(release_report, name="release evaluation report")
-    if len({bench_path, manifest_path, report_path}) != 3:
+    if len({plan_path, bench_path, manifest_path, report_path}) != 4:
         raise Gr01ReleaseSessionError(
-            "bench, manifest and evaluation report must be distinct files"
+            "plan, bench, manifest and evaluation report must be distinct files"
         )
+
+    plan = _load_object(plan_path, name="GR01 release-session plan")
+    plan_verification = verify_gr01_release_session_plan(plan_path, require_ready=True)
+    if plan_verification.get("gate_passed") is not True:
+        detail = "; ".join(str(item) for item in plan_verification.get("reasons", []))
+        raise Gr01ReleaseSessionError(f"GR01 release-session plan verification failed: {detail}")
 
     bench = _load_object(bench_path, name="GR01 bench report")
     bench_verification = verify_gr01_link_bench_report(bench, require_passed=True)
@@ -160,7 +174,59 @@ def _validate_sources(
     if binding.get("report_bytes") != bench_path.stat().st_size:
         raise Gr01ReleaseSessionError("release manifest GR01 bench byte count does not match")
 
+    thresholds = plan.get("thresholds")
+    source_identity = plan.get("source_identity")
+    repository_identity = (
+        source_identity.get("repository") if isinstance(source_identity, Mapping) else None
+    )
+    parity_identity = (
+        source_identity.get("release_parity") if isinstance(source_identity, Mapping) else None
+    )
+    if not all(
+        isinstance(item, Mapping) for item in (thresholds, repository_identity, parity_identity)
+    ):
+        raise Gr01ReleaseSessionError("GR01 release-session plan identity is incomplete")
+    expected_configuration = {
+        "host_address": bench.get("remote_host"),
+        "port": bench.get("remote_port"),
+        "hardware_id": bench.get("hardware_id"),
+        "expected_source_cidr": bench.get("expected_source_cidr"),
+        "minimum_round_trips": bench.get("requested_round_trips"),
+        "maximum_packet_loss_rate": bench.get("thresholds", {}).get("maximum_packet_loss_rate"),
+        "maximum_ack_latency_p95_ms": bench.get("thresholds", {}).get("maximum_ack_latency_p95_ms"),
+        "maximum_attempts": bench.get("thresholds", {}).get("maximum_attempts"),
+        "maximum_evidence_age_s": float(max_age_s),
+    }
+    planned_configuration = {
+        "host_address": plan.get("host_address"),
+        "port": plan.get("port"),
+        "hardware_id": plan.get("hardware_id"),
+        "expected_source_cidr": plan.get("expected_source_cidr"),
+        "minimum_round_trips": thresholds.get("minimum_round_trips"),
+        "maximum_packet_loss_rate": thresholds.get("maximum_packet_loss_rate"),
+        "maximum_ack_latency_p95_ms": thresholds.get("maximum_ack_latency_p95_ms"),
+        "maximum_attempts": thresholds.get("maximum_attempts"),
+        "maximum_evidence_age_s": thresholds.get("maximum_evidence_age_s"),
+    }
+    if planned_configuration != expected_configuration:
+        raise Gr01ReleaseSessionError(
+            "GR01 release-session plan does not match bench and E7 configuration"
+        )
+
     return {
+        "release_plan": {
+            "path": _relative(plan_path, directory=record_directory),
+            "sha256": _sha256(plan_path),
+            "bytes": plan_path.stat().st_size,
+            "schema": PLAN_SCHEMA,
+            "schema_version": PLAN_SCHEMA_VERSION,
+            "git_head": repository_identity.get("git_head"),
+            "release_label": parity_identity.get("release_label"),
+            "safety_policy_hash": parity_identity.get("safety_policy_hash"),
+            "source_verified": parity_identity.get("source_verified"),
+            "ready_to_execute": plan.get("ready_to_execute"),
+            "configuration_matches_bench_and_e7": True,
+        },
         "bench_report": {
             "path": _relative(bench_path, directory=record_directory),
             "sha256": bench_sha,
@@ -203,6 +269,7 @@ def _validate_sources(
 def create_gr01_release_session_record(
     output: str | Path,
     *,
+    release_plan: str | Path,
     bench_report: str | Path,
     release_manifest: str | Path,
     release_report: str | Path,
@@ -214,6 +281,7 @@ def create_gr01_release_session_record(
         raise Gr01ReleaseSessionError(f"output already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     sources = _validate_sources(
+        release_plan,
         bench_report,
         release_manifest,
         release_report,
@@ -262,6 +330,7 @@ def verify_gr01_release_session_record(
             "event",
             "session_id",
             "created_at_utc",
+            "release_plan",
             "bench_report",
             "release_manifest",
             "release_report",
@@ -286,6 +355,11 @@ def verify_gr01_release_session_record(
             reasons.append("stored gate result is not a clean pass")
 
         directory = path.parent
+        plan = _resolve_record_path(
+            document.get("release_plan", {}).get("path"),
+            directory=directory,
+            name="release_plan",
+        )
         bench = _resolve_record_path(
             document.get("bench_report", {}).get("path"),
             directory=directory,
@@ -302,13 +376,20 @@ def verify_gr01_release_session_record(
             name="release_report",
         )
         recomputed = _validate_sources(
+            plan,
             bench,
             manifest,
             report,
             record_directory=directory,
             version_manifest_path=version_manifest_path,
         )
-        for field in ("bench_report", "release_manifest", "release_report", "claims"):
+        for field in (
+            "release_plan",
+            "bench_report",
+            "release_manifest",
+            "release_report",
+            "claims",
+        ):
             if document.get(field) != recomputed[field]:
                 reasons.append(f"{field} does not match source recomputation")
     except (AttributeError, Gr01ReleaseSessionError, OSError, TypeError, ValueError) as exc:
@@ -327,6 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create", help="write a verified success record")
+    create.add_argument("--plan", required=True, type=Path)
     create.add_argument("--bench", required=True, type=Path)
     create.add_argument("--manifest", required=True, type=Path)
     create.add_argument("--report", required=True, type=Path)
@@ -345,6 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "create":
             document = create_gr01_release_session_record(
                 args.out,
+                release_plan=args.plan,
                 bench_report=args.bench,
                 release_manifest=args.manifest,
                 release_report=args.report,

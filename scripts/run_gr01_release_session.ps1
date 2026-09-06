@@ -273,6 +273,7 @@ $recordTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_ses
 Invoke-Checked -Executable $pythonPath -Arguments @(
     $recordTool,
     'create',
+    '--plan', $planPath,
     '--bench', $benchPath,
     '--manifest', $manifestFiles[0].FullName,
     '--report', $reportFiles[0].FullName,

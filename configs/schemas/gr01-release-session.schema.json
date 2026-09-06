@@ -9,6 +9,7 @@
     "event",
     "session_id",
     "created_at_utc",
+    "release_plan",
     "bench_report",
     "release_manifest",
     "release_report",
@@ -17,10 +18,40 @@
     "reasons"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "event": {"const": "multidetect_gr01_release_session_verified"},
     "session_id": {"type": "string", "minLength": 1},
     "created_at_utc": {"type": "string", "format": "date-time"},
+    "release_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "schema",
+        "schema_version",
+        "git_head",
+        "release_label",
+        "safety_policy_hash",
+        "source_verified",
+        "ready_to_execute",
+        "configuration_matches_bench_and_e7"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "multidetect.gr01-release-session-plan/v2"},
+        "schema_version": {"const": 2},
+        "git_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "release_label": {"type": "string", "minLength": 1},
+        "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+        "source_verified": {"const": true},
+        "ready_to_execute": {"const": true},
+        "configuration_matches_bench_and_e7": {"const": true}
+      }
+    },
     "bench_report": {
       "type": "object",
       "additionalProperties": false,
