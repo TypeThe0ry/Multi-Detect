@@ -23,18 +23,23 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .alert_link_topology import (
+    AlertLinkTopology,
+    load_alert_link_topology,
+    parse_alert_link_topology,
+)
 from .alerts import (
     AcknowledgedAlertTransport,
     AlertAcknowledgementError,
     RetryingAcknowledgedAlertPublisher,
     UdpAcknowledgedAlertTransport,
 )
-from .autonomy.serialization import strict_json_loads
+from .autonomy.serialization import canonical_sha256, strict_json_loads
 from .compat import UTC
 from .domain import BoundingBox, FireAlert
 
-ALERT_LINK_BENCH_SCHEMA_VERSION = 4
-SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4})
+ALERT_LINK_BENCH_SCHEMA_VERSION = 5
+SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4, 5})
 DEFAULT_MINIMUM_ROUND_TRIPS = 20
 DEFAULT_MAXIMUM_ATTEMPTS = 3
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
@@ -67,6 +72,7 @@ class AlertLinkBenchConfig:
     hardware_mode: bool = False
     hardware_id: str | None = None
     expected_source_cidr: str | None = None
+    topology: AlertLinkTopology | None = None
 
     def __post_init__(self) -> None:
         if type(self.hardware_mode) is not bool:
@@ -121,6 +127,13 @@ class AlertLinkBenchConfig:
                 raise ValueError("alert-link expected source CIDR is invalid") from exc
             if source_network.is_loopback:
                 raise ValueError("alert-link hardware source CIDR cannot be loopback")
+        if self.topology is not None and not self.hardware_mode:
+            raise ValueError("alert-link topology requires hardware mode")
+        if self.topology is not None:
+            if self.hardware_id != self.topology.hardware_id:
+                raise ValueError("alert-link hardware ID conflicts with topology")
+            if _canonical_network(self.expected_source_cidr) != self.topology.expected_source_cidr:
+                raise ValueError("alert-link source CIDR conflicts with topology")
 
 
 def run_alert_link_bench(
@@ -148,6 +161,16 @@ def run_alert_link_bench(
     session_id = f"alert-link-bench-{uuid4()}"
     remote_host, remote_port, remote_is_loopback = _remote_details(transport)
     expected_source_cidr = _canonical_network(config.expected_source_cidr)
+    topology_document = config.topology.to_mapping() if config.topology is not None else None
+    topology_sha256 = config.topology.sha256 if config.topology is not None else None
+    topology_binding_verified = not config.hardware_mode or (
+        config.topology is not None
+        and remote_host == config.topology.remote_host
+        and remote_port == config.topology.remote_port
+        and expected_source_cidr == config.topology.expected_source_cidr
+        and getattr(transport, "sender_id", None) == config.topology.sender_id
+        and getattr(transport, "receiver_id", None) == config.topology.receiver_id
+    )
     local_source_address: str | None = None
     source_route_verified = False
     transport_source_address = (
@@ -282,6 +305,7 @@ def run_alert_link_bench(
         "source_route": source_route_verified or not config.hardware_mode,
         "transport_source_binding": transport_source_address_bound or not config.hardware_mode,
         "transport_source_observations": transport_source_observations_complete,
+        "topology_binding": topology_binding_verified,
         "correlated_ack": correlated_ack_verified,
         "authenticated_transport": authenticated_ack_verified or not config.hardware_mode,
     }
@@ -300,6 +324,8 @@ def run_alert_link_bench(
         reasons.append("alert-link transport socket is not bound to the selected source address")
     if config.hardware_mode and not checks["transport_source_observations"]:
         reasons.append("alert-link ACK samples do not prove the bound sender source address")
+    if config.hardware_mode and not checks["topology_binding"]:
+        reasons.append("alert-link endpoint or source route is not bound to a verified topology")
     if not checks["correlated_ack"]:
         reasons.append("correlated alert acknowledgement is not verified")
     if config.hardware_mode and not checks["authenticated_transport"]:
@@ -334,6 +360,9 @@ def run_alert_link_bench(
         "transport_source_observation_count": len(observed_transport_source_addresses),
         "transport_source_observations_complete": transport_source_observations_complete,
         "hardware_id": config.hardware_id.strip() if config.hardware_id else None,
+        "topology": topology_document,
+        "topology_sha256": topology_sha256,
+        "topology_binding_verified": topology_binding_verified,
         "requested_round_trips": config.minimum_round_trips,
         "round_trip_samples": accepted_round_trips,
         "failed_round_trips": failed_round_trips,
@@ -384,10 +413,11 @@ def verify_alert_link_bench_report(
 
     schema_version = document.get("schema_version")
     if schema_version not in SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS:
-        reasons.append("schema_version must be 1, 2, 3 or 4")
-    is_route_bound = schema_version in {2, 3, 4}
-    is_transport_bound = schema_version in {3, 4}
-    has_transport_observations = schema_version == 4
+        reasons.append("schema_version must be 1, 2, 3, 4 or 5")
+    is_route_bound = schema_version in {2, 3, 4, 5}
+    is_transport_bound = schema_version in {3, 4, 5}
+    has_transport_observations = schema_version in {4, 5}
+    has_topology_binding = schema_version == 5
     event = document.get("event")
     if isinstance(event, str):
         hardware_event = event in {
@@ -644,6 +674,42 @@ def verify_alert_link_bench_report(
     elif hardware_id is not None:
         reasons.append("software baseline hardware_id must be null")
 
+    topology_binding = not hardware_event
+    if has_topology_binding:
+        topology_document = document.get("topology")
+        topology_hash = document.get("topology_sha256")
+        declared_topology_binding = document.get("topology_binding_verified")
+        if software_event:
+            topology_binding = topology_document is None and topology_hash is None
+        elif isinstance(topology_document, dict):
+            try:
+                topology = parse_alert_link_topology(
+                    topology_document,
+                    base_dir=Path.cwd(),
+                    verify_evidence_files=False,
+                )
+            except ValueError as exc:
+                reasons.append(f"topology snapshot is invalid: {exc}")
+            else:
+                topology_binding = (
+                    isinstance(topology_hash, str)
+                    and topology_hash == canonical_sha256(topology_document)
+                    and topology.remote_host == remote_host
+                    and topology.remote_port == remote_port
+                    and topology.expected_source_cidr == expected_source_cidr
+                    and topology.hardware_id == hardware_id
+                )
+        if type(declared_topology_binding) is not bool:
+            reasons.append("topology_binding_verified must be a boolean")
+        elif declared_topology_binding is not topology_binding:
+            reasons.append("topology_binding_verified does not match the topology snapshot")
+        if not topology_binding:
+            reasons.append("topology snapshot/hash does not bind the hardware endpoint")
+    else:
+        for field in ("topology", "topology_sha256", "topology_binding_verified"):
+            if field in document:
+                reasons.append(f"schema v1/v2/v3/v4 report cannot contain {field}")
+
     packet_loss = document.get("packet_loss_rate")
     packet_loss_value = _finite_float(packet_loss)
     if packet_loss_value is None or not 0 <= packet_loss_value <= 1:
@@ -813,6 +879,7 @@ def verify_alert_link_bench_report(
             if has_transport_observations
             else {}
         ),
+        **({"topology_binding": topology_binding} if has_topology_binding else {}),
         "correlated_ack": correlated_ack,
         "authenticated_transport": authenticated_ack or not hardware_event,
     }
@@ -850,6 +917,10 @@ def verify_alert_link_bench_report(
     if hardware_event and has_transport_observations and not transport_source_observations:
         computed_reasons.append(
             "alert-link ACK samples do not prove the bound sender source address"
+        )
+    if hardware_event and has_topology_binding and not topology_binding:
+        computed_reasons.append(
+            "alert-link endpoint or source route is not bound to a verified topology"
         )
     if not correlated_ack:
         computed_reasons.append("correlated alert acknowledgement is not verified")
@@ -985,11 +1056,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "transport diagnostic and never enables flight control or payload release."
         )
     )
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--port", type=int, default=14_600)
+    parser.add_argument("--topology", type=Path)
+    parser.add_argument("--host")
+    parser.add_argument("--port", type=int)
     parser.add_argument("--hmac-key-env", required=True)
-    parser.add_argument("--sender-id", default="aircraft-1")
-    parser.add_argument("--receiver-id", default="ground-station-1")
+    parser.add_argument("--sender-id")
+    parser.add_argument("--receiver-id")
     parser.add_argument("--minimum-round-trips", type=int, default=DEFAULT_MINIMUM_ROUND_TRIPS)
     parser.add_argument("--maximum-attempts", type=int, default=DEFAULT_MAXIMUM_ATTEMPTS)
     parser.add_argument("--ack-timeout-seconds", type=float, default=DEFAULT_ACK_TIMEOUT_SECONDS)
@@ -1017,6 +1089,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    try:
+        topology = load_alert_link_topology(args.topology) if args.topology is not None else None
+    except ValueError as exc:
+        parser.error(str(exc))
+    if topology is not None:
+        for name, supplied, expected in (
+            ("--host", args.host, topology.remote_host),
+            ("--port", args.port, topology.remote_port),
+            ("--sender-id", args.sender_id, topology.sender_id),
+            ("--receiver-id", args.receiver_id, topology.receiver_id),
+            ("--hardware-id", args.hardware_id, topology.hardware_id),
+            ("--expected-source-cidr", args.expected_source_cidr, topology.expected_source_cidr),
+        ):
+            if supplied is not None and supplied != expected:
+                parser.error(f"{name} conflicts with --topology")
+        args.host = topology.remote_host
+        args.port = topology.remote_port
+        args.sender_id = topology.sender_id
+        args.receiver_id = topology.receiver_id
+        args.hardware_id = topology.hardware_id
+        args.expected_source_cidr = topology.expected_source_cidr
+        args.hardware_mode = True
+    if args.host is None:
+        parser.error("--host is required without --topology")
+    if args.port is None:
+        args.port = 14_600
+    if args.sender_id is None:
+        args.sender_id = "aircraft-1"
+    if args.receiver_id is None:
+        args.receiver_id = "ground-station-1"
+
     config = AlertLinkBenchConfig(
         minimum_round_trips=args.minimum_round_trips,
         maximum_attempts=args.maximum_attempts,
@@ -1027,6 +1130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hardware_mode=args.hardware_mode,
         hardware_id=args.hardware_id,
         expected_source_cidr=args.expected_source_cidr,
+        topology=topology,
     )
     source_host: str | None = None
     if config.hardware_mode:

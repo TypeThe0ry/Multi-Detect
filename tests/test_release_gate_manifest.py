@@ -176,7 +176,7 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
     path = tmp_path / "alert-link" / "hardware.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
-        "schema_version": 4,
+        "schema_version": 5,
         "event": "alert_link_bench_passed",
         "observed_at_utc": "2026-09-03T10:00:00+00:00",
         "hardware_observed": True,
@@ -191,6 +191,7 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
             "source_route": True,
             "transport_source_binding": True,
             "transport_source_observations": True,
+            "topology_binding": True,
             "correlated_ack": True,
             "authenticated_transport": True,
         },
@@ -206,6 +207,23 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
         "observed_transport_source_addresses": ["192.168.1.13"] * 20,
         "transport_source_observation_count": 20,
         "transport_source_observations_complete": True,
+        "topology": {
+            "schema_version": 1,
+            "topology_id": "test-gr01-direct",
+            "mode": "gr01_direct",
+            "remote_host": "192.168.1.5",
+            "remote_port": 14600,
+            "expected_source_cidr": "192.168.1.0/24",
+            "sender_id": "aircraft-1",
+            "receiver_id": "ground-station-1",
+            "hardware_id": "GR01-ALERT-001",
+            "fallback_evidence": None,
+            "advisory_only": True,
+            "flight_control_enabled": False,
+            "physical_release_enabled": False,
+            "payload_release_requested": False,
+        },
+        "topology_binding_verified": True,
         "hardware_id": "GR01-ALERT-001",
         "requested_round_trips": 20,
         "round_trip_samples": 20,
@@ -230,6 +248,7 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
         "production_approved": False,
         "physical_release_approved": False,
     }
+    document["topology_sha256"] = canonical_sha256(document["topology"])
     assert verify_alert_link_bench_report(document, require_passed=True)["gate_passed"] is True
     path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
     return path
@@ -2078,7 +2097,7 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
     assert definition["properties"]["simulation_only"]["const"] is False
     assert definition["properties"]["remote_is_loopback"]["const"] is False
     assert definition["properties"]["authenticated_ack_verified"]["const"] is True
-    assert definition["properties"]["schema_version"]["enum"] == [1, 2, 3, 4]
+    assert definition["properties"]["schema_version"]["const"] == 5
     assert definition["properties"]["source_route_verified"]["const"] is True
     assert definition["properties"]["checks"]["properties"]["source_route"]["const"] is True
     assert (
@@ -2090,7 +2109,7 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
         is True
     )
     route_binding = definition["allOf"][0]
-    assert route_binding["if"]["properties"]["schema_version"]["enum"] == [2, 3, 4]
+    assert route_binding["if"]["properties"]["schema_version"]["enum"] == [2, 3, 4, 5]
     assert set(route_binding["then"]["required"]) == {
         "expected_source_cidr",
         "local_source_address",
@@ -2098,7 +2117,7 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
     }
     assert route_binding["then"]["properties"]["checks"]["required"] == ["source_route"]
     transport_binding = definition["allOf"][1]
-    assert transport_binding["if"]["properties"]["schema_version"]["enum"] == [3, 4]
+    assert transport_binding["if"]["properties"]["schema_version"]["enum"] == [3, 4, 5]
     assert set(transport_binding["then"]["required"]) == {
         "transport_source_address",
         "transport_source_address_bound",
@@ -2107,7 +2126,7 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
         "transport_source_binding"
     ]
     observed_binding = definition["allOf"][2]
-    assert observed_binding["if"]["properties"]["schema_version"]["const"] == 4
+    assert observed_binding["if"]["properties"]["schema_version"]["enum"] == [4, 5]
     assert set(observed_binding["then"]["required"]) == {
         "observed_transport_source_addresses",
         "transport_source_observation_count",
@@ -2121,6 +2140,10 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
         "packet_loss_limit",
         "ack_latency_limit",
         "mode_boundary",
+        "source_route",
+        "transport_source_binding",
+        "transport_source_observations",
+        "topology_binding",
         "correlated_ack",
         "authenticated_transport",
     }

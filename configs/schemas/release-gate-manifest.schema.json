@@ -252,6 +252,17 @@
         "ack_latency_p95_ms",
         "correlated_ack_verified",
         "authenticated_ack_verified",
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
+        "transport_source_address",
+        "transport_source_address_bound",
+        "observed_transport_source_addresses",
+        "transport_source_observation_count",
+        "transport_source_observations_complete",
+        "topology",
+        "topology_sha256",
+        "topology_binding_verified",
         "checks",
         "thresholds",
         "gate_passed",
@@ -259,7 +270,7 @@
       ],
       "allOf": [
         {
-          "if": {"properties": {"schema_version": {"enum": [2, 3, 4]}}},
+          "if": {"properties": {"schema_version": {"enum": [2, 3, 4, 5]}}},
           "then": {
             "required": [
               "expected_source_cidr",
@@ -270,7 +281,7 @@
           }
         },
         {
-          "if": {"properties": {"schema_version": {"enum": [3, 4]}}},
+          "if": {"properties": {"schema_version": {"enum": [3, 4, 5]}}},
           "then": {
             "required": [
               "transport_source_address",
@@ -280,7 +291,7 @@
           }
         },
         {
-          "if": {"properties": {"schema_version": {"const": 4}}},
+          "if": {"properties": {"schema_version": {"enum": [4, 5]}}},
           "then": {
             "required": [
               "observed_transport_source_addresses",
@@ -296,7 +307,7 @@
         "report_sha256": {"$ref": "#/$defs/sha256"},
         "report_bytes": {"type": "integer", "minimum": 0},
         "event": {"const": "alert_link_bench_passed"},
-        "schema_version": {"enum": [1, 2, 3, 4]},
+        "schema_version": {"const": 5},
         "hardware_observed": {"const": true},
         "simulation_only": {"const": false},
         "remote_host": {"type": "string", "minLength": 1},
@@ -314,6 +325,9 @@
         },
         "transport_source_observation_count": {"type": "integer", "minimum": 1},
         "transport_source_observations_complete": {"const": true},
+        "topology": {"type": "object"},
+        "topology_sha256": {"$ref": "#/$defs/sha256"},
+        "topology_binding_verified": {"const": true},
         "hardware_id": {"type": "string", "minLength": 1},
         "requested_round_trips": {"type": "integer", "minimum": 1},
         "round_trip_samples": {"type": "integer", "minimum": 0},
@@ -333,6 +347,10 @@
             "packet_loss_limit",
             "ack_latency_limit",
             "mode_boundary",
+            "source_route",
+            "transport_source_binding",
+            "transport_source_observations",
+            "topology_binding",
             "correlated_ack",
             "authenticated_transport"
           ],
@@ -344,6 +362,7 @@
             "source_route": {"const": true},
             "transport_source_binding": {"const": true},
             "transport_source_observations": {"const": true},
+            "topology_binding": {"const": true},
             "correlated_ack": {"const": true},
             "authenticated_transport": {"const": true}
           }

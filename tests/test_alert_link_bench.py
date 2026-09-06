@@ -14,6 +14,7 @@ from multidetect.alert_link_bench import (
     verify_alert_link_bench_report,
     verify_main,
 )
+from multidetect.alert_link_topology import AlertLinkTopology
 from multidetect.alerts import (
     AlertDeliveryReceipt,
     AuthenticatedUdpAlertReceiver,
@@ -28,6 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class _ScriptedTransport:
     host = "127.0.0.1"
     port = 14600
+    sender_id = "aircraft-1"
+    receiver_id = "ground-station-1"
 
     def __init__(self, outcomes: list[object]) -> None:
         self.outcomes = outcomes
@@ -53,6 +56,22 @@ def _config(**overrides: object) -> AlertLinkBenchConfig:
         "maximum_backoff_seconds": 0.0,
     }
     values.update(overrides)
+    if (
+        values.get("hardware_mode") is True
+        and "topology" not in values
+        and isinstance(values.get("expected_source_cidr"), str)
+        and isinstance(values.get("hardware_id"), str)
+    ):
+        values["topology"] = AlertLinkTopology(
+            topology_id="test-gr01-direct",
+            mode="gr01_direct",
+            remote_host="192.168.144.11",
+            remote_port=14600,
+            expected_source_cidr=str(values["expected_source_cidr"]),
+            sender_id="aircraft-1",
+            receiver_id="ground-station-1",
+            hardware_id=str(values["hardware_id"]),
+        )
     return AlertLinkBenchConfig(**values)
 
 
@@ -88,7 +107,7 @@ def test_alert_link_software_baseline_reports_correlated_round_trips() -> None:
         observed_at=lambda: NOW,
     )
 
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert result["event"] == "alert_link_software_baseline_bench_passed"
     assert result["passed"] is True
     assert result["simulation_only"] is True
@@ -187,7 +206,7 @@ def test_alert_link_hardware_mode_binds_and_checks_selected_source_route() -> No
         source_address_resolver=lambda _host, _port: "192.168.1.13",
     )
 
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert result["expected_source_cidr"] == "192.168.144.0/24"
     assert result["local_source_address"] == "192.168.1.13"
     assert result["source_route_verified"] is False
@@ -406,6 +425,7 @@ def test_alert_link_bench_verifier_keeps_legacy_v1_reports_readable() -> None:
             "source_route",
             "transport_source_binding",
             "transport_source_observations",
+            "topology_binding",
         }
     }
     for field in (
@@ -417,6 +437,9 @@ def test_alert_link_bench_verifier_keeps_legacy_v1_reports_readable() -> None:
         "observed_transport_source_addresses",
         "transport_source_observation_count",
         "transport_source_observations_complete",
+        "topology",
+        "topology_sha256",
+        "topology_binding_verified",
     ):
         legacy.pop(field)
 
@@ -439,13 +462,21 @@ def test_alert_link_bench_verifier_keeps_route_bound_v2_reports_readable() -> No
     legacy["checks"] = {
         key: value
         for key, value in report["checks"].items()
-        if key not in {"transport_source_binding", "transport_source_observations"}
+        if key
+        not in {
+            "transport_source_binding",
+            "transport_source_observations",
+            "topology_binding",
+        }
     }
     legacy.pop("transport_source_address")
     legacy.pop("transport_source_address_bound")
     legacy.pop("observed_transport_source_addresses")
     legacy.pop("transport_source_observation_count")
     legacy.pop("transport_source_observations_complete")
+    legacy.pop("topology")
+    legacy.pop("topology_sha256")
+    legacy.pop("topology_binding_verified")
 
     verified = verify_alert_link_bench_report(legacy, require_passed=True)
     assert verified["gate_passed"] is True
@@ -466,11 +497,14 @@ def test_alert_link_bench_verifier_keeps_sender_bound_v3_reports_readable() -> N
     legacy["checks"] = {
         key: value
         for key, value in report["checks"].items()
-        if key != "transport_source_observations"
+        if key not in {"transport_source_observations", "topology_binding"}
     }
     legacy.pop("observed_transport_source_addresses")
     legacy.pop("transport_source_observation_count")
     legacy.pop("transport_source_observations_complete")
+    legacy.pop("topology")
+    legacy.pop("topology_sha256")
+    legacy.pop("topology_binding_verified")
 
     verified = verify_alert_link_bench_report(legacy, require_passed=True)
     assert verified["gate_passed"] is True
@@ -505,6 +539,29 @@ def test_alert_link_bench_verifier_recomputes_endpoint_and_handles_malformed_eve
     malformed_result = verify_alert_link_bench_report(malformed_event)
     assert malformed_result["gate_passed"] is False
     assert "event is not a supported" in " ".join(malformed_result["reasons"])
+
+
+def test_alert_link_bench_verifier_rejects_tampered_topology_hash() -> None:
+    transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
+    transport.host = "192.168.144.11"
+    result = run_alert_link_bench(
+        transport,
+        _config(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-ALERT-001",
+            expected_source_cidr="192.168.144.0/24",
+        ),
+        wall_clock=lambda: 100.0,
+        monotonic_clock=lambda: 10.0,
+        observed_at=lambda: NOW,
+        source_address_resolver=lambda _host, _port: "192.168.144.13",
+    )
+    tampered = dict(result)
+    tampered["topology_sha256"] = "0" * 64
+    verification = verify_alert_link_bench_report(tampered)
+    assert verification["gate_passed"] is False
+    assert "topology" in " ".join(verification["reasons"])
 
 
 def test_alert_link_bench_verifier_rejects_duplicate_json_keys(tmp_path, capsys) -> None:

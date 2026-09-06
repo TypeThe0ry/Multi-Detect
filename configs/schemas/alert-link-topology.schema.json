@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/alert-link-topology.schema.json",
+  "title": "Multi-Detect selected physical alert-link topology",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "topology_id", "mode", "remote_host", "remote_port",
+    "expected_source_cidr", "sender_id", "receiver_id", "hardware_id",
+    "fallback_evidence", "advisory_only", "flight_control_enabled",
+    "physical_release_enabled", "payload_release_requested"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "topology_id": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["gr01_direct", "v6x_fallback"]},
+    "remote_host": {"type": "string", "minLength": 1},
+    "remote_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "expected_source_cidr": {"type": "string", "minLength": 1},
+    "sender_id": {"type": "string", "minLength": 1},
+    "receiver_id": {"type": "string", "minLength": 1},
+    "hardware_id": {"type": "string", "minLength": 1},
+    "fallback_evidence": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gr01_direct_failure", "px4_sitl_routing", "v6x_actuator_disconnected_bench"],
+          "properties": {
+            "gr01_direct_failure": {"$ref": "#/$defs/evidenceReference"},
+            "px4_sitl_routing": {"$ref": "#/$defs/evidenceReference"},
+            "v6x_actuator_disconnected_bench": {"$ref": "#/$defs/evidenceReference"}
+          }
+        }
+      ]
+    },
+    "advisory_only": {"const": true},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false},
+    "payload_release_requested": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "gr01_direct"}}},
+      "then": {"properties": {"fallback_evidence": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"mode": {"const": "v6x_fallback"}}},
+      "then": {"properties": {"fallback_evidence": {"type": "object"}}}
+    }
+  ],
+  "$defs": {
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

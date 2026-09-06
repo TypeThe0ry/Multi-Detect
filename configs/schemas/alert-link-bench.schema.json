@@ -39,7 +39,7 @@
   ],
   "allOf": [
     {
-      "if": {"properties": {"schema_version": {"enum": [2, 3, 4]}}},
+      "if": {"properties": {"schema_version": {"enum": [2, 3, 4, 5]}}},
       "then": {
         "required": [
           "expected_source_cidr",
@@ -50,7 +50,7 @@
       }
     },
     {
-      "if": {"properties": {"schema_version": {"enum": [3, 4]}}},
+      "if": {"properties": {"schema_version": {"enum": [3, 4, 5]}}},
       "then": {
         "required": [
           "transport_source_address",
@@ -60,7 +60,7 @@
       }
     },
     {
-      "if": {"properties": {"schema_version": {"const": 4}}},
+      "if": {"properties": {"schema_version": {"enum": [4, 5]}}},
       "then": {
         "required": [
           "observed_transport_source_addresses",
@@ -69,10 +69,17 @@
         ],
         "properties": {"checks": {"required": ["transport_source_observations"]}}
       }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": 5}}},
+      "then": {
+        "required": ["topology", "topology_sha256", "topology_binding_verified"],
+        "properties": {"checks": {"required": ["topology_binding"]}}
+      }
     }
   ],
   "properties": {
-    "schema_version": {"enum": [1, 2, 3, 4]},
+    "schema_version": {"enum": [1, 2, 3, 4, 5]},
     "event": {
       "enum": [
         "alert_link_bench_passed",
@@ -105,6 +112,7 @@
         "source_route": {"type": "boolean"},
         "transport_source_binding": {"type": "boolean"},
         "transport_source_observations": {"type": "boolean"},
+        "topology_binding": {"type": "boolean"},
         "correlated_ack": {"type": "boolean"},
         "authenticated_transport": {"type": "boolean"}
       }
@@ -125,6 +133,12 @@
     "transport_source_observation_count": {"type": "integer", "minimum": 0},
     "transport_source_observations_complete": {"type": "boolean"},
     "hardware_id": {"type": ["string", "null"]},
+    "topology": {"type": ["object", "null"]},
+    "topology_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "topology_binding_verified": {"type": "boolean"},
     "requested_round_trips": {"type": "integer", "minimum": 1},
     "round_trip_samples": {"type": "integer", "minimum": 0},
     "failed_round_trips": {"type": "integer", "minimum": 0},

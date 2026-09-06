@@ -191,7 +191,9 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # acknowledged transport and bench contract bind its selected source
         # route. Keep protocol, runner and schema in the shared safety hash.
         "src/multidetect/alerts.py",
+        "src/multidetect/alert_link_topology.py",
         "src/multidetect/alert_link_bench.py",
+        "configs/schemas/alert-link-topology.schema.json",
         "configs/schemas/alert-link-bench.schema.json",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",
