@@ -4,6 +4,7 @@
 #include <QtCore/QFile>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QSaveFile>
 #include <QtCore/QTemporaryDir>
 #include <cstdlib>
 #include <iostream>
@@ -78,7 +79,7 @@ QVariantMap makeDocument(const QVariantMap& range, const QVariantMap& geolocatio
 
 } // namespace
 
-int main()
+int main(int argc, char* argv[])
 {
     const QVariantMap valid = makeDocument(rangeStatus(), geolocationStatus(), gnssStatus());
     const QVariantMap validReadiness = valid.value(QStringLiteral("readiness")).toMap();
@@ -144,6 +145,17 @@ int main()
             "atomic save must leave exactly one JSON file");
     require(QDir(temporaryDirectory.path()).entryList({QStringLiteral("*.tmp")}, QDir::Files).isEmpty(),
             "atomic save must not leave temporary files");
+
+    if (argc == 3 && QByteArray(argv[1]) == QByteArrayLiteral("--emit")) {
+        constexpr qulonglong emittedNowMs = 1788762600000ULL;
+        const QVariantMap emitted = makeDocument(
+            rangeStatus(), geolocationStatus(), gnssStatus(), emittedNowMs, emittedNowMs - 100);
+        QSaveFile output(QString::fromLocal8Bit(argv[2]));
+        require(output.open(QIODevice::WriteOnly), "emitted diagnostic output must open");
+        require(output.write(QJsonDocument::fromVariant(emitted).toJson(QJsonDocument::Indented)) > 0,
+                "emitted diagnostic output must be written");
+        require(output.commit(), "emitted diagnostic output must commit atomically");
+    }
 
     std::cout << "MultiDetectTargetObservationDiagnosticsSelfTest: PASS\n";
     return EXIT_SUCCESS;

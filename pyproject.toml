@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Multi-Detect contributors" }]
-dependencies = []
+dependencies = ["jsonschema>=4.20"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6", "jsonschema>=4.20", "requests>=2.32"]
@@ -33,6 +33,7 @@ multidetect-release-mode-evidence = "multidetect.release_mode_evidence:main"
 multidetect-field-preflight = "multidetect.field_link_preflight:main"
 multidetect-field-preflight-verify = "multidetect.field_link_preflight:verify_main"
 multidetect-field-address-state-verify = "multidetect.field_link_address_state:main"
+multidetect-target-observation-diagnostics-verify = "multidetect.target_observation_diagnostics:main"
 multidetect-field-session = "multidetect.field_session_acceptance:main"
 multidetect-field-capture = "multidetect.field_session_capture:main"
 multidetect-field-capture-verify = "multidetect.field_session_capture:verify_main"

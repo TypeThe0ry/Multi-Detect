@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-observation-diagnostics.schema.json",
+  "title": "Multi-Detect target observation diagnostics v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at_utc",
+    "local_now_ms",
+    "maximum_age_ms",
+    "readiness",
+    "producer_epoch_summary",
+    "range_status",
+    "target_geolocation_status",
+    "gnss_status",
+    "local_receive",
+    "advisory_only",
+    "flight_control_enabled",
+    "physical_release_enabled"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.target-observation-diagnostics.v1"},
+    "schema_version": {"const": 1},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "local_now_ms": {"type": "integer", "minimum": 0},
+    "maximum_age_ms": {"const": 1500},
+    "readiness": {"$ref": "#/$defs/readiness"},
+    "producer_epoch_summary": {"$ref": "#/$defs/producerEpochSummary"},
+    "range_status": {"$ref": "#/$defs/rangeStatus"},
+    "target_geolocation_status": {"$ref": "#/$defs/geolocationStatus"},
+    "gnss_status": {"$ref": "#/$defs/gnssStatus"},
+    "local_receive": {"$ref": "#/$defs/localReceive"},
+    "advisory_only": {"const": true},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false}
+  },
+  "$defs": {
+    "nonNegativeInteger": {"type": "integer", "minimum": 0},
+    "finiteNumber": {"type": "number"},
+    "safetyFields": {
+      "atomicObservation": {"type": "boolean"},
+      "producerEpoch": {"$ref": "#/$defs/nonNegativeInteger"},
+      "sequence": {"$ref": "#/$defs/nonNegativeInteger"},
+      "sentAtMs": {"$ref": "#/$defs/nonNegativeInteger"},
+      "sourceAgeMs": {"$ref": "#/$defs/nonNegativeInteger"},
+      "advisoryOnly": {"const": true},
+      "flightControlEnabled": {"const": false},
+      "physicalReleaseEnabled": {"const": false}
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "locatable",
+        "reasons",
+        "atomic_identity_matched",
+        "status_fresh",
+        "coordinates_included"
+      ],
+      "properties": {
+        "locatable": {"type": "boolean"},
+        "reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "atomic_identity_matched": {"type": "boolean"},
+        "status_fresh": {"type": "boolean"},
+        "coordinates_included": {"type": "boolean"}
+      }
+    },
+    "producerEpochSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active_epoch": {"$ref": "#/$defs/nonNegativeInteger"},
+        "health_level": {"type": "string", "minLength": 1},
+        "health_reason": {"type": "string", "minLength": 1},
+        "producer_restart_count": {"$ref": "#/$defs/nonNegativeInteger"},
+        "retired_epoch_reject_count": {"$ref": "#/$defs/nonNegativeInteger"},
+        "epoch_transition_reject_count": {"$ref": "#/$defs/nonNegativeInteger"},
+        "epoch_changed_at_ms": {"$ref": "#/$defs/nonNegativeInteger"},
+        "epoch_last_incident_at_ms": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "rangeStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetId": {"type": "string"},
+        "calibrationId": {"type": "string"},
+        "sourceFrameId": {"type": "string"},
+        "validity": {"type": "string"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "rejectedSources": {"type": "array", "items": {"type": "string"}},
+        "slantRangeM": {"$ref": "#/$defs/finiteNumber"},
+        "groundRangeM": {"$ref": "#/$defs/finiteNumber"},
+        "slantRangeLowM": {"$ref": "#/$defs/finiteNumber"},
+        "slantRangeHighM": {"$ref": "#/$defs/finiteNumber"},
+        "groundRangeLowM": {"$ref": "#/$defs/finiteNumber"},
+        "groundRangeHighM": {"$ref": "#/$defs/finiteNumber"},
+        "relativeBearingDeg": {"$ref": "#/$defs/finiteNumber"},
+        "absoluteBearingDeg": {"$ref": "#/$defs/finiteNumber"},
+        "bearingSigmaDeg": {"$ref": "#/$defs/finiteNumber"},
+        "northOffsetM": {"$ref": "#/$defs/finiteNumber"},
+        "eastOffsetM": {"$ref": "#/$defs/finiteNumber"},
+        "dataFreshnessS": {"$ref": "#/$defs/finiteNumber"},
+        "sensorConsistency": {"$ref": "#/$defs/finiteNumber"},
+        "sourceContributions": {"type": "array", "items": {"type": "object"}},
+        "fusionProfile": {"type": "string"},
+        "vehicleProfile": {"type": "string"},
+        "navigationState": {"type": "string"},
+        "motionRegime": {"type": "string"},
+        "atomicObservation": {"$ref": "#/$defs/safetyFields/atomicObservation"},
+        "producerEpoch": {"$ref": "#/$defs/safetyFields/producerEpoch"},
+        "sequence": {"$ref": "#/$defs/safetyFields/sequence"},
+        "sentAtMs": {"$ref": "#/$defs/safetyFields/sentAtMs"},
+        "sourceAgeMs": {"$ref": "#/$defs/safetyFields/sourceAgeMs"},
+        "advisoryOnly": {"$ref": "#/$defs/safetyFields/advisoryOnly"},
+        "flightControlEnabled": {"$ref": "#/$defs/safetyFields/flightControlEnabled"},
+        "physicalReleaseEnabled": {"$ref": "#/$defs/safetyFields/physicalReleaseEnabled"}
+      }
+    },
+    "geolocationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetId": {"type": "string"},
+        "sourceFrameId": {"type": "string"},
+        "available": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "latitudeDeg": {"type": "number", "exclusiveMinimum": -90, "exclusiveMaximum": 90},
+        "longitudeDeg": {"type": "number", "minimum": -180, "maximum": 180},
+        "horizontalSigmaM": {"type": "number", "minimum": 0},
+        "atomicObservation": {"$ref": "#/$defs/safetyFields/atomicObservation"},
+        "producerEpoch": {"$ref": "#/$defs/safetyFields/producerEpoch"},
+        "sequence": {"$ref": "#/$defs/safetyFields/sequence"},
+        "sentAtMs": {"$ref": "#/$defs/safetyFields/sentAtMs"},
+        "sourceAgeMs": {"$ref": "#/$defs/safetyFields/sourceAgeMs"},
+        "advisoryOnly": {"$ref": "#/$defs/safetyFields/advisoryOnly"},
+        "flightControlEnabled": {"$ref": "#/$defs/safetyFields/flightControlEnabled"},
+        "physicalReleaseEnabled": {"$ref": "#/$defs/safetyFields/physicalReleaseEnabled"}
+      }
+    },
+    "gnssStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "qualified": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "positionHealthyAvailable": {"type": "boolean"},
+        "positionHealthy": {"type": "boolean"},
+        "fixTypeAvailable": {"type": "boolean"},
+        "fixType": {"$ref": "#/$defs/nonNegativeInteger"},
+        "satellitesAvailable": {"type": "boolean"},
+        "satellitesVisible": {"$ref": "#/$defs/nonNegativeInteger"},
+        "horizontalAccuracyAvailable": {"type": "boolean"},
+        "horizontalAccuracyM": {"type": "number", "minimum": 0},
+        "verticalAccuracyAvailable": {"type": "boolean"},
+        "verticalAccuracyM": {"type": "number", "minimum": 0},
+        "sourceAgeAvailable": {"type": "boolean"},
+        "headingAccuracyDeg": {"type": "number", "minimum": 0},
+        "atomicObservation": {"$ref": "#/$defs/safetyFields/atomicObservation"},
+        "producerEpoch": {"$ref": "#/$defs/safetyFields/producerEpoch"},
+        "sequence": {"$ref": "#/$defs/safetyFields/sequence"},
+        "sentAtMs": {"$ref": "#/$defs/safetyFields/sentAtMs"},
+        "sourceAgeMs": {"$ref": "#/$defs/safetyFields/sourceAgeMs"},
+        "advisoryOnly": {"$ref": "#/$defs/safetyFields/advisoryOnly"},
+        "flightControlEnabled": {"$ref": "#/$defs/safetyFields/flightControlEnabled"},
+        "physicalReleaseEnabled": {"$ref": "#/$defs/safetyFields/physicalReleaseEnabled"}
+      }
+    },
+    "receiveEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["received_at_ms", "age_ms"],
+      "properties": {
+        "received_at_ms": {"$ref": "#/$defs/nonNegativeInteger"},
+        "age_ms": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonNegativeInteger"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "localReceive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range", "target_geolocation", "gnss"],
+      "properties": {
+        "range": {"$ref": "#/$defs/receiveEntry"},
+        "target_geolocation": {"$ref": "#/$defs/receiveEntry"},
+        "gnss": {"$ref": "#/$defs/receiveEntry"}
+      }
+    }
+  }
+}
