@@ -1,12 +1,19 @@
 # Implementation roadmap
 
+## Jetson→Windows 证据包传输回执（v123）
+
+- [x] 源端闭合 inventory 绑定逐文件 portable path、bytes、SHA-256 与 canonical bundle hash；
+- [x] 目的端重新枚举并保存第二份完整清单，严格拒绝文件增删、变化、symlink 和路径冲突；
+- [x] inventory/verification 双 Schema、strict verifier、installed CLI、clean-checkout wrapper 与全量回归；
+- [ ] 在真实 Jetson H.265 v3 采集目录执行 snapshot，复制到 Windows 后生成真实 verification receipt 并人工签收。
+
 ## 可搬迁 RTSP evidence chain（v122）
 
 - [x] 同目录 RTSP 容器使用 manifest-relative 路径，迁移不改 canonical 内容；
 - [x] raw replay source binding 明确记录 `recording_root|absolute` 解析基准；
 - [x] 整个父目录迁移后重开 source manifest/video/summary/raw recording 全链；
 - [x] 迁移正例、summary 篡改负例和全量回归；
-- [ ] 将一份真实 Jetson H.265 v3 证据目录复制到 Windows，保存传输前后目录清单/hash 并人工验收。
+- [ ] 用 v123 工具搬运一份真实 Jetson H.265 v3 证据目录并人工验收回执。
 
 ## RTSP evidence container → raw replay（v121）
 

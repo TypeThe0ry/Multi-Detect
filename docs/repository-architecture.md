@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v123 byte-exact evidence transfer（2026-09-06，`v0.3.0-pre.8`）
+
+`src/multidetect/evidence_bundle_transfer.py` 提供 source inventory、destination verification receipt 及各自的
+strict verifier；installed CLI 为 `multidetect-evidence-transfer`，源码树入口为
+`scripts/evidence_bundle_transfer.py`，两个 closed schema 位于 `configs/schemas/evidence-bundle-transfer-*.schema.json`。
+inventory 可随证据目录复制但不把自身计入哈希；verification receipt 必须写在目的目录外，避免改变待验证集合。
+该层只证明复制前后字节与相对路径一致，不证明采集设备、现场人员、GNSS、HIL/REAL 或 release。
+
 ## v122 portable RTSP evidence chain（2026-09-06，`v0.3.0-pre.8`）
 
 v3 采集清单优先以 manifest 目录为基准记录容器相对路径；raw replay 的 source binding 再明确记录

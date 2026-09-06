@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T06:38:13Z",
+  "updated_at_utc": "2026-09-06T06:52:06Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "911361326066e3fa31b0ab9bce6a7890aeaaab97",
-    "commit_subject": "feat(replay): make RTSP evidence portable",
-    "commits_ahead_of_origin_main": 132
+    "commit": "32950f1a063f00b52d84650f608520aa498b26f7",
+    "commit_subject": "feat(evidence): verify portable bundle transfers",
+    "commits_ahead_of_origin_main": 134
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v122",
+  "working_iteration": "v123",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v122-final.xml",
-      "tests": 3537,
-      "passed": 3536,
-      "skipped": 1,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v123-final.xml",
+      "tests": 3544,
+      "passed": 3542,
+      "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 258.60,
-      "junit_local_path": "tmp/current-progress-regression-v122-final.xml",
-      "junit_file_bytes": 515775,
-      "junit_file_sha256": "ea5f7a260dae01ded9f28cbefc2e534eb7c74e99027cdfece5fde8ca110112af",
+      "duration_seconds": 260.53,
+      "junit_local_path": "tmp/current-progress-regression-v123-final.xml",
+      "junit_file_bytes": 516859,
+      "junit_file_sha256": "5593142e374b2a05f90a2ea1ec3dd17efbac15bac39355c84514537b740c3281",
       "distributed_in_git": false
     },
     "ruff": {
@@ -74,6 +74,22 @@
     }
   },
   "evidence": {
+    "evidence_bundle_transfer": {
+      "implementation": "src/multidetect/evidence_bundle_transfer.py",
+      "installed_command": "multidetect-evidence-transfer",
+      "repository_wrapper": "scripts/evidence_bundle_transfer.py",
+      "commands": ["snapshot", "verify", "verify-receipt"],
+      "inventory_schema": "configs/schemas/evidence-bundle-transfer-inventory.schema.json",
+      "verification_schema": "configs/schemas/evidence-bundle-transfer-verification.schema.json",
+      "portable_relative_file_inventory": true,
+      "source_and_destination_bytes_sha256_bound": true,
+      "exact_file_set_required": true,
+      "symlinks_rejected": true,
+      "atomic_non_overwriting_outputs": true,
+      "hardware_acceptance": false,
+      "release_ready": false,
+      "real_jetson_transfer_receipt": "pending_physical_capture"
+    },
     "rtsp_evidence_replay_conversion": {
       "recording_implementation": "src/multidetect/rtsp_evidence_recording.py",
       "conversion_implementation": "src/multidetect/rtsp_evidence_replay.py",

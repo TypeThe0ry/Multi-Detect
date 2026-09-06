@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v123 byte-exact evidence transfer receipt（2026-09-06）
+
+- 新增 `multidetect-evidence-transfer snapshot|verify|verify-receipt` 与 clean-checkout wrapper；Jetson 源端 inventory
+  和 Windows 目的端 receipt 分别保存完整逐文件 relative path/bytes/SHA-256 与 canonical bundle hash；
+- 增删、内容变化、大小写路径冲突、symlink、回执污染被校验目录和任何 hardware/release claim 均 fail-closed；
+- 全量 3,544 tests：`3542 passed, 2 skipped`；Ruff/compileall/diff check/parity 重生成通过，QGC EXE 未改变。
+
 ### v0.3.0-pre.8 v122 portable RTSP evidence chain（2026-09-06）
 
 - 新 v3 RTSP 清单对同目录容器写相对引用，使原清单 canonical hash 在 Jetson→Windows 整包迁移后保持不变；

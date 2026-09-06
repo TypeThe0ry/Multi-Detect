@@ -1,6 +1,18 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v122 工作树）
+最后更新：2026-09-06（v123 工作树）
+
+## v123 本轮已收口
+
+- 新增 `multidetect-evidence-transfer` 和 clean-checkout wrapper：`snapshot` 在 Jetson 侧生成不可覆盖的 closed
+  inventory，逐文件绑定 portable relative path、bytes、SHA-256、总数、总字节与 canonical bundle hash；
+- `verify` 在 Windows 复制目录上重新枚举完整文件集并逐项比较，拒绝缺失、增项、内容/大小变化、symlink、
+  大小写冲突和把验证回执写入被验证目录；验证回执独立保存源 inventory 身份与目的端完整清单；
+- inventory 与 verification 各有 strict verifier 和 JSON Schema；两者固定 `hardware_acceptance=false`、
+  `release_ready=false`，目录改名不影响内容验证，仍不替代真实设备、人员或外场验收；
+- 全量回归 3,544 tests：`3542 passed, 2 skipped, 0 failed, 0 errors`，耗时 260.53 秒；JUnit
+  516,859 bytes、SHA-256 `5593142E374B2A05F90A2EA1EC3DD17EFBAC15BAC39355C84514537B740C3281`；
+  全仓 Ruff、compileall、diff check 与 parity 重生成通过，parity 字节未变化，QGC portable 未重建。
 
 ## v122 本轮已收口
 
