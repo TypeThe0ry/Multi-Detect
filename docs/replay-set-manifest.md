@@ -122,8 +122,11 @@ python scripts/run_replay_predictions.py verify `
 python scripts/evaluate_replay_set.py `
   artifacts\replay-sets\fire-smoke-field-v1-predicted\replay-set.manifest.json `
   --prediction-run-receipt artifacts\replay-sets\fire-smoke-field-v1-predicted\prediction-run.receipt.json `
-  --output artifacts\replay-sets\fire-smoke-field-v1-predicted\accuracy-report.json
+  --out artifacts\replay-sets\fire-smoke-field-v1-predicted\accuracy-report.json
 ```
+
+安装后的等价入口是 `multidetect evaluate-replay-set`，参数与上面的 wrapper 相同；两条 CLI 都把
+`--prediction-run-receipt` 交给同一个 evaluator/verifier，不存在安装路径降级。
 
 runner 会先复验 v108 annotation bundle 与模型 manifest/artifact，然后使用实时路径同一份
 `ReplayFrameSource`、letterbox、ONNX/TensorRT detector、host NMS（仅 raw Ultralytics 模型）和

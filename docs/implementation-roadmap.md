@@ -6,7 +6,7 @@
 - [x] 从 verified receipt 派生模型 artifact SHA、ID、版本，拒绝调用者冲突元数据；
 - [x] accuracy report 绑定 receipt byte/canonical hash、model manifest、runtime 与 synthetic HIL 事实；
 - [x] readiness fresh recomputation 再次复验 receipt 并比较完整 prediction binding；
-- [x] CLI、closed schema、synthetic HIL ONNX 端到端及负向回归已完成；
+- [x] wrapper、安装主 CLI、closed schema、synthetic HIL ONNX 端到端及负向回归已完成；
 - [ ] 在真实 field-reviewed bundle 上生成 receipt、accuracy、readiness，并完成独立模型评审。
 
 ## 固定模型 replay predictions 与 provenance（v109）

@@ -1,6 +1,17 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v110 工作树）
+最后更新：2026-09-06（v111 工作树）
+
+## v111 本轮已收口
+
+- 修复安装主命令与仓库 wrapper 的能力漂移：`multidetect evaluate-replay-set` 现在同样公开
+  `--prediction-run-receipt`，并原样转交 v110 evaluator verifier；
+- synthetic HIL ONNX 端到端回归先生成真实 runtime predictions/receipt，再分别调用 wrapper 与主 CLI，
+  两者都必须返回相同 receipt canonical hash；以后删参或漏转发会直接失败；
+- 未修改 detector、测距/定位、QGC、共享 parity 或飞控路径，因此不重建 portable EXE；
+- 全量回归 3,510 tests：`3509 passed, 1 skipped, 0 failed, 0 errors`，耗时 192.917 秒；JUnit
+  511,970 bytes、SHA-256 `C0E68ED6656C4AA59D7FEEB00D3BCF9C8328787E325FA68C527F26A1638EB637`；
+  全仓 Ruff、compileall 与 diff check 通过。
 
 ## v110 本轮已收口
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T03:00:49Z",
+  "updated_at_utc": "2026-09-06T03:08:55Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "7e9406f497a18f41d7e5ed4cce87460d6e733a80",
-    "commit_subject": "feat(replay): bind prediction provenance to accuracy",
-    "commits_ahead_of_origin_main": 108
+    "commit": "164d69638406f209c1ff9414397837bcf97d1e93",
+    "commit_subject": "fix(cli): expose prediction receipt binding",
+    "commits_ahead_of_origin_main": 110
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v110",
+  "working_iteration": "v111",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v110-final.xml",
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v111-final.xml",
       "tests": 3510,
       "passed": 3509,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 191.635,
-      "junit_local_path": "tmp/current-progress-regression-v110-final.xml",
+      "duration_seconds": 192.917,
+      "junit_local_path": "tmp/current-progress-regression-v111-final.xml",
       "junit_file_bytes": 511970,
-      "junit_file_sha256": "ae8ea9c38a226e570dced72a5c9722f71236b731ddc34166b8c039ffe347f145",
+      "junit_file_sha256": "c0e68ed6656c4aa59d7feeb00d3bcf9c8328787e325fa68c527f26a1638eb637",
       "distributed_in_git": false
     },
     "ruff": {
@@ -767,6 +767,9 @@
     },
     "prediction_accuracy_provenance": {
       "evaluator_flag": "--prediction-run-receipt",
+      "installed_cli_support": "multidetect evaluate-replay-set",
+      "clean_checkout_wrapper_support": "scripts/evaluate_replay_set.py",
+      "cli_surfaces_end_to_end_verified_equal": true,
       "receipt_verified_before_evaluation": true,
       "model_identity_derived_from_verified_receipt": true,
       "accuracy_report_binding_fields": [

@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v111 installed evaluator CLI parity（2026-09-06）
+
+- 修复主命令 `multidetect evaluate-replay-set` 未暴露 `--prediction-run-receipt` 的接口漂移；安装入口现在与
+  clean-checkout wrapper 共用同一 verifier、模型身份派生和 accuracy binding；
+- synthetic HIL ONNX 端到端回归同时执行两个 CLI 表面并比较 receipt canonical hash。全量 3,510 tests：
+  `3509 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v110 prediction-to-accuracy provenance binding（2026-09-06）
 
 - evaluator 新增 `--prediction-run-receipt`，在计算指标前独立复验 prediction bundle，并从 receipt 派生模型

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v110：预测运行与精度/readiness provenance 闭环 |
+| 当前工程迭代 | v111：安装 CLI 与 wrapper provenance 行为一致 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -88,7 +88,8 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、
 provider、文件哈希和延迟的 `prediction-run.receipt.json`；独立 verifier 会重开整条来源链。
 
-evaluator 的 `--prediction-run-receipt` 会再次验证 receipt，从中派生模型身份并写入 accuracy report；readiness
+evaluator（wrapper 与 `multidetect evaluate-replay-set`）的 `--prediction-run-receipt` 会再次验证 receipt，
+从中派生模型身份并写入 accuracy report；readiness
 新鲜重算也会复验同一 receipt，拒绝混入另一预测运行或模型。真实 runtime、production approval、synthetic HIL、
 accuracy 与 release 仍是彼此独立的事实；软件闭环不代表现场数据或发布门通过。
 
