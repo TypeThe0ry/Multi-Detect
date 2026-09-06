@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v147 工作树）
+最后更新：2026-09-06（v148 工作树）
+
+## v148 本轮已收口
+
+- portable review schema 升级到 v3：第二机必须从环境读取 32-byte Ed25519 seed，receipt 绑定 reviewer、key ID、
+  public key、signed-payload SHA-256 和 64-byte signature；私钥不会进入命令、回执或日志；
+- 独立 `verify` 不信任 receipt 内嵌 key，强制使用包外固定公钥；错误公钥、signature tamper、claim tamper、缺失或
+  非法 seed 均 fail-closed，其中 key 错误在任何 transfer/review receipt 写入前零输出；
+- claims 明确 `reviewer_key_possession_verified=true`、`reviewer_human_identity_verified=false`，只证明密钥持有和
+  回执完整性，不伪造真人身份、target environment、完整 E7、网络、硬件或飞行验收；
+- clean commit `1bcd492d08e1e9a61b1b93659a6f4a3c376800bf` 的软件签名 smoke `5 passed`；JUnit 1,009 bytes、
+  SHA-256 `F93E70227DA0C83BEE6F24DB96A81E012C46C4A88A1A5E97ED26702208A9BF2F`；
+- safety parity 更新为 `F86FF499...97FA569F`；external join/revalidation、三机型 matrix 与 6 正例/9 故障 campaign
+  已按当前 parity 重算并独立通过。E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,645 tests：`3643 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  270.522 秒；JUnit 531,218 bytes、SHA-256 `144ACD03F4D678CD9E9A9D6E3631570D438D993F7934A3D054F6AA2076A25209`。
+  真实 reviewer key 登记、真实第二机签署与现场 GR01 session 仍待完成。
 
 ## v147 本轮已收口
 

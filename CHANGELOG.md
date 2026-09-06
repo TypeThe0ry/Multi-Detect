@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v148 reviewer-signed GR01 portable review（2026-09-06）
+
+- portable review schema 升级到 v3；第二机 review 必须从环境读取 32-byte Ed25519 seed，绑定 reviewer/key ID/public key，
+  对完整 review payload 签名；私钥不进入命令行、回执或日志；
+- 独立 `verify` 强制接收包外固定 reviewer 公钥，拒绝错误公钥、签名篡改、缺失/非法私钥；签名材料非法时在任何
+  transfer/review receipt 写入前 fail-closed；
+- claims 只证明指定公钥对应私钥的持有与回执完整性，明确保持 `reviewer_human_identity_verified=false`，并继续保持
+  no-environment/no-full-E7/no-hardware/no-flight 边界。签名专项 smoke `5 passed`；新 parity 派生证据全部通过，E7
+  仍为 `false / false / 32 blockers`，最终全量回归 `3643 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v147 trusted GR01 inventory anchor（2026-09-06）
 
 - portable review schema 升级到 v2；`review` 必须接收独立渠道保存的 inventory SHA-256，并在创建 transfer/review

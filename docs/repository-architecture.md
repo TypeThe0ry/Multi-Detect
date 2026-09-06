@@ -1,5 +1,15 @@
 # 统一仓库架构
 
+## v148 reviewer-signed GR01 review（2026-09-06，`v0.3.0-pre.8`）
+
+- `gr01_release_review.py`：review receipt v3 新增 reviewer/key ID/public key 和 Ed25519 signature；签名覆盖除 signature/
+  canonical hash 外的完整 canonical payload；
+- `review` 只从指定环境变量读取 32-byte hex seed；`verify` 必须显式接收包外可信 reviewer 公钥；
+- closed schema 固定签名算法、payload hash、64-byte signature 与 `reviewer_human_identity_verified=false`；
+- PyNaCl 通过已有 `.[security]` extra 提供；无效 key、错误公钥、签名/claim 篡改均有 fail-closed 回归。
+
+这层证明回执由相应私钥持有者签署且签后未改，不自行证明 reviewer 的现实身份或现场/HIL/REAL/飞行事实。
+
 ## v147 trusted GR01 inventory anchor（2026-09-06，`v0.3.0-pre.8`）
 
 - `gr01_release_review.py review` 新增必填 `expected_inventory_sha256`，在创建任何 receipt 前核对实际 inventory 文件；

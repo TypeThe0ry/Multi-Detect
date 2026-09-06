@@ -1,5 +1,34 @@
 # v0.3.0 E7 发布门
 
+## v148 reviewer-signed portable review（2026-09-06，`v0.3.0-pre.8`）
+
+第二台机器必须安装 security extra，并在执行 review 前使用预登记的 reviewer Ed25519 key。seed 是 32-byte hex，
+只通过环境变量传入；不能写进仓库、命令参数或 session 媒体：
+
+```powershell
+python -m pip install -e ".[security]"
+$env:MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX = '<64位私钥seed hex>'
+$reviewerPublicKey = python -c "import os; from nacl.signing import SigningKey; n='MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX'; print(bytes(SigningKey(bytes.fromhex(os.environ[n])).verify_key).hex())"
+# 在执行 review 前，把 $reviewerPublicKey 与 reviewer/key ID 的关系登记给独立审核方。
+
+python .\scripts\verify_gr01_release_session_review.py review `
+  --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
+  --expected-inventory-sha256 <独立渠道保存的inventory SHA-256> `
+  --reviewer 'reviewer-b' --reviewer-key-id 'field-reviewer-b-2026' `
+  --reviewer-signing-key-env MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX `
+  --destination-root D:\review\gr01-session `
+  --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
+  --out D:\review\receipts\gr01-portable-review.json
+
+python .\scripts\verify_gr01_release_session_review.py verify `
+  D:\review\receipts\gr01-portable-review.json `
+  --expected-reviewer-public-key-hex <预登记的reviewer公钥hex>
+```
+
+`verify` 不相信 receipt 内嵌公钥，必须与包外预登记值一致后再验签。该签名证明 key possession 和 receipt 完整性；
+不能在收到待验证 receipt 后才把其中的 key 当可信来源。公钥与真人身份的登记关系仍由现场组织负责，所以 receipt 固定
+`reviewer_human_identity_verified=false`。
+
 ## v147 trusted transfer-inventory anchor（2026-09-06，`v0.3.0-pre.8`）
 
 v146 的复制目录和 inventory 若一起被替换，单靠包内清单无法建立包外信任。v147 因此要求现场 snapshot 后把脚本打印的
@@ -9,6 +38,8 @@ v146 的复制目录和 inventory 若一起被替换，单靠包内清单无法�
 python .\scripts\verify_gr01_release_session_review.py review `
   --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
   --expected-inventory-sha256 <独立渠道保存的64位SHA-256> `
+  --reviewer 'reviewer-b' --reviewer-key-id 'field-reviewer-b-2026' `
+  --reviewer-signing-key-env MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX `
   --destination-root D:\review\gr01-session `
   --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
   --out D:\review\receipts\gr01-portable-review.json
@@ -32,12 +63,15 @@ gr01-release-session-transfer-inventory.json
 python .\scripts\verify_gr01_release_session_review.py review `
   --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
   --expected-inventory-sha256 <独立渠道保存的64位SHA-256> `
+  --reviewer 'reviewer-b' --reviewer-key-id 'field-reviewer-b-2026' `
+  --reviewer-signing-key-env MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX `
   --destination-root D:\review\gr01-session `
   --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
   --out D:\review\receipts\gr01-portable-review.json
 
 python .\scripts\verify_gr01_release_session_review.py verify `
-  D:\review\receipts\gr01-portable-review.json
+  D:\review\receipts\gr01-portable-review.json `
+  --expected-reviewer-public-key-hex <预登记的reviewer公钥hex>
 ```
 
 `review` 先验证 6 个源文件逐字节不变，再离线重算五源 record、portable handoff、GR01 bench、配置一致性和

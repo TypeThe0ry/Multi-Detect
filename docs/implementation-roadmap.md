@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Reviewer-signed GR01 portable review（v148）
+
+- [x] review receipt v3 使用 Ed25519 签署完整 canonical payload，私钥仅从环境读取；
+- [x] receipt 绑定 reviewer、key ID、公钥、signed-payload hash 与 signature；
+- [x] 独立 verifier 强制使用包外固定公钥，错误公钥和签名篡改 fail-closed；
+- [x] 缺失/非法 signing seed 在任何 transfer/review receipt 写入前零输出；
+- [x] claims 区分 key possession 与未验证的真人身份，不扩大硬件/飞行声明；
+- [ ] 预登记真实 reviewer 公钥，在第二台现场机器签署并由第三方使用预登记公钥复核真实 session。
+
 ## Trusted GR01 transfer-inventory anchor（v147）
 
 - [x] portable review 必须显式接收独立保存的 inventory SHA-256；
