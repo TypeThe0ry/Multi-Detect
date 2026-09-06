@@ -157,10 +157,12 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/domain.py",
         "src/multidetect/gnss_capture_sidecar.py",
         "src/multidetect/mission.py",
-        # The Python status model, canonical wire vocabulary and status
-        # builders must move together with the native QGC decoder.  Binding
-        # all three prevents an internal fail-closed reason from becoming an
-        # unencodable live-status exception in only one runtime mode.
+        # The Python status model, canonical wire vocabulary, status builders,
+        # and publication bridge must move together with the native QGC
+        # decoder.  The bridge owns same-producer-frame GNSS/range/geolocation
+        # publication, so omitting it would allow a stale task identity after
+        # that fail-closed boundary changes.
+        "src/multidetect/operator_bridge.py",
         "src/multidetect/operator_link.py",
         "src/multidetect/operator_protocol.py",
         "src/multidetect/operator_status.py",

@@ -891,6 +891,12 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
             _reject(QStringLiteral("target-geolocation source frame is stale or regressed"));
             return;
         }
+        // Preserve the authenticated envelope provenance after all common
+        // authentication, replay, and sequence gates have passed.  QML uses
+        // sentAtMs to bind target coordinates to GNSS from the same producer
+        // frame before a local evidence snapshot can be saved.
+        fields.insert(QStringLiteral("sequence"), packet.sequence);
+        fields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
         _targetGeolocationStatus = fields;
         _lastTargetGeolocationStatusAtMs = _lastAuthenticatedAtMs;
         emit targetGeolocationStatusChanged();

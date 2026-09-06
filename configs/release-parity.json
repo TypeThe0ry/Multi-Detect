@@ -3,8 +3,8 @@
     "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
     "px4_mission_path_hash": "4c852fec73594739e6cf22e56e553aa8230a7fa249b8c4cd1881fff2a0cd8184",
     "safety_policy_hash": "e17cc6288da39f65390b4e51cad232bc81f3f6343d144d9360dd99fe2b165f0a",
-    "task_contract_hash": "579e6190da26fd28c82b28ee4069fea755dc5d29973b5ec15e64522b3c9ce8ad",
-    "ui_contract_hash": "6230337df9585b90b256ae64ad016b2397a9f51ddacbaf1bae99acac1c66d14e"
+    "task_contract_hash": "da902e0e0e4011545c02c04043369bb02e576af524cead77d2d7858bf82c3cdc",
+    "ui_contract_hash": "ae570e81fe7a31e695d3659869b6b77621cd3052306b260adc855f55a4bfb1c1"
   },
   "product": "Multi-Detect",
   "release_label": "0.3.0-pre.8",
@@ -137,6 +137,7 @@
       "src/multidetect/field_evidence_bundle.py",
       "src/multidetect/gnss_capture_sidecar.py",
       "src/multidetect/mission.py",
+      "src/multidetect/operator_bridge.py",
       "src/multidetect/operator_link.py",
       "src/multidetect/operator_protocol.py",
       "src/multidetect/operator_status.py",

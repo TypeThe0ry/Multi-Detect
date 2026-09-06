@@ -1309,6 +1309,7 @@ def test_bridge_range_and_geolocation_share_one_current_frame_cadence() -> None:
         produced_at_s=100.01,
         range_status=base_range,
         target_geolocation_status=base_geo,
+        gnss_status=_gnss_status(produced_at_s=100.01),
     )
     suppressed = bridge.process_frame(
         tracks=tracks,
@@ -1329,6 +1330,7 @@ def test_bridge_range_and_geolocation_share_one_current_frame_cadence() -> None:
             source_captured_at_s=100.04,
             produced_at_s=100.05,
         ),
+        gnss_status=_gnss_status(sequence=2, produced_at_s=100.05),
     )
     heartbeat_range = replace(
         base_range,
@@ -1351,15 +1353,19 @@ def test_bridge_range_and_geolocation_share_one_current_frame_cadence() -> None:
         produced_at_s=100.08,
         range_status=heartbeat_range,
         target_geolocation_status=heartbeat_geo,
+        gnss_status=_gnss_status(sequence=3, produced_at_s=100.08),
     )
     bridge.close()
 
     assert first.published_range_statuses == (base_range,)
     assert first.published_target_geolocation_statuses == (base_geo,)
+    assert first.published_gnss_statuses == (_gnss_status(produced_at_s=100.01),)
     assert suppressed.published_range_statuses == ()
     assert suppressed.published_target_geolocation_statuses == ()
+    assert suppressed.published_gnss_statuses == ()
     assert heartbeat.published_range_statuses == (heartbeat_range,)
     assert heartbeat.published_target_geolocation_statuses == (heartbeat_geo,)
+    assert heartbeat.published_gnss_statuses == (_gnss_status(sequence=3, produced_at_s=100.08),)
     assert [status.source_frame_id for status, _peer in transport.range_published] == [
         "frame-100",
         "frame-102",
@@ -1395,6 +1401,7 @@ def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> 
         produced_at_s=100.01,
         range_status=base_range,
         target_geolocation_status=base_geo,
+        gnss_status=_gnss_status(produced_at_s=100.01),
     )
     retry_range = replace(
         base_range,
@@ -1417,6 +1424,7 @@ def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> 
         produced_at_s=100.03,
         range_status=retry_range,
         target_geolocation_status=retry_geo,
+        gnss_status=_gnss_status(sequence=2, produced_at_s=100.03),
     )
     suppressed = bridge.process_frame(
         tracks=tracks,
@@ -1437,16 +1445,20 @@ def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> 
             source_captured_at_s=100.04,
             produced_at_s=100.05,
         ),
+        gnss_status=_gnss_status(sequence=3, produced_at_s=100.05),
     )
     bridge.close()
 
     assert first.published_range_statuses == (base_range,)
     assert first.published_target_geolocation_statuses == ()
+    assert first.published_gnss_statuses == (_gnss_status(produced_at_s=100.01),)
     assert first.transport_errors[-1] == "OSError"
     assert retry.published_range_statuses == (retry_range,)
     assert retry.published_target_geolocation_statuses == (retry_geo,)
+    assert retry.published_gnss_statuses == (_gnss_status(sequence=2, produced_at_s=100.03),)
     assert suppressed.published_range_statuses == ()
     assert suppressed.published_target_geolocation_statuses == ()
+    assert suppressed.published_gnss_statuses == ()
     assert transport.geolocation_attempt_count == 2
     assert [status.source_frame_id for status, _peer in transport.range_published] == [
         "frame-100",
@@ -1516,5 +1528,56 @@ def test_bridge_rejects_stale_or_unpaired_range_geolocation_metadata() -> None:
     assert pair_mismatch.published_range_statuses == ()
     assert pair_mismatch.published_target_geolocation_statuses == ()
     assert pair_mismatch.transport_errors[-1] == "RangeGeolocationPairMismatch"
+    assert transport.range_published == []
+    assert transport.target_geolocation_published == []
+
+
+def test_bridge_requires_same_timestamp_gnss_for_geolocation_triple() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+
+    missing = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=_range_status(),
+        target_geolocation_status=_target_geolocation_status(),
+    )
+    mismatched = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=_range_status(),
+        target_geolocation_status=_target_geolocation_status(),
+        gnss_status=_gnss_status(sequence=2, produced_at_s=100.02),
+    )
+    weak = replace(
+        _gnss_status(sequence=3, produced_at_s=100.01),
+        qualified=False,
+        reason="gps_fix_unqualified",
+        fix_type=2,
+    )
+    inconsistent = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=_range_status(),
+        target_geolocation_status=_target_geolocation_status(),
+        gnss_status=weak,
+    )
+    bridge.close()
+
+    assert missing.transport_errors[-1] == "TargetGeolocationGnssStatusMissing"
+    assert mismatched.transport_errors[-1] == "TargetGeolocationGnssTimestampMismatch"
+    assert inconsistent.transport_errors[-1] == "TargetGeolocationGnssQualificationMismatch"
+    assert missing.published_target_geolocation_statuses == ()
+    assert mismatched.published_target_geolocation_statuses == ()
+    assert inconsistent.published_target_geolocation_statuses == ()
     assert transport.range_published == []
     assert transport.target_geolocation_published == []

@@ -1171,6 +1171,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
             self.safety_published = []
             self.range_published = []
             self.target_geolocation_published = []
+            self.gnss_published = []
             self.closed = False
 
         def start_background(self) -> None:
@@ -1196,6 +1197,9 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
 
         def publish_target_geolocation_status(self, status, *, peer) -> None:
             self.target_geolocation_published.append((status, peer))
+
+        def publish_gnss_status(self, status, *, peer) -> None:
+            self.gnss_published.append((status, peer))
 
         def close(self) -> None:
             self.closed = True
@@ -1247,6 +1251,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
     assert (
         len(transport.target_geolocation_published) == result.remote_target_geolocation_status_count
     )
+    assert len(transport.gnss_published) >= 1
     assert all(status.advisory_only for status, _peer in transport.mission_published)
     assert all(status.advisory_only for status, _peer in transport.safety_published)
     assert all(

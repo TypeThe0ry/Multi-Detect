@@ -717,6 +717,8 @@ QtObject {
         }
 
         function onTargetGeolocationStatusReceived(status) {
+            root.targetGeolocationSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
+            root.targetGeolocationSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
             root.targetGeolocationTargetId = String(status.targetId || "");
             root.targetGeolocationSourceFrameId = String(status.sourceFrameId || "");
             root.targetGeolocationAvailable = status.available === true;
@@ -1159,6 +1161,8 @@ QtObject {
     property real gnssVerticalAccuracyM: -1.0
     property real gnssSourceAgeMs: NaN
     property bool targetGeolocationAvailable: false
+    property real targetGeolocationSequence: -1
+    property real targetGeolocationSentAtMs: NaN
     property real targetHorizontalSigmaM: -1.0
     property real targetLatitudeDeg: NaN
     property real targetLongitudeDeg: NaN
@@ -1168,6 +1172,17 @@ QtObject {
                                                                 rangeSourceFrameId !== "" &&
                                                                 targetGeolocationTargetId === rangeTargetId &&
                                                                 targetGeolocationSourceFrameId === rangeSourceFrameId
+    readonly property bool targetGeolocationGnssBindingValid: Number.isFinite(targetGeolocationSequence) &&
+                                                               targetGeolocationSequence >= 0 &&
+                                                               Math.floor(targetGeolocationSequence) === targetGeolocationSequence &&
+                                                               Number.isFinite(gnssSequence) &&
+                                                               gnssSequence >= 0 &&
+                                                               Math.floor(gnssSequence) === gnssSequence &&
+                                                               Number.isFinite(targetGeolocationSentAtMs) &&
+                                                               targetGeolocationSentAtMs >= 0 &&
+                                                               Number.isFinite(gnssSentAtMs) &&
+                                                               gnssSentAtMs >= 0 &&
+                                                               targetGeolocationSentAtMs === gnssSentAtMs
     readonly property bool targetGeolocationSourceFresh: Number.isFinite(targetGeolocationSourceAgeMs) &&
                                                          targetGeolocationSourceAgeMs >= 0.0 &&
                                                          targetGeolocationSourceAgeMs <= maximumTargetGeolocationSourceAgeMs &&
@@ -2046,6 +2061,8 @@ QtObject {
 
     function _resetTargetGeolocationStatus() {
         targetGeolocationAvailable = false;
+        targetGeolocationSequence = -1;
+        targetGeolocationSentAtMs = NaN;
         targetHorizontalSigmaM = -1.0;
         targetLatitudeDeg = NaN;
         targetLongitudeDeg = NaN;

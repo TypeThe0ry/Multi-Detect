@@ -393,6 +393,8 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "root._gnssEvidenceQualified" in card
     assert 'qsTr("不可保存：当前 GNSS 质量证据不合格或已过期")' in layer
     for field in (
+        "target_geolocation_sequence",
+        "target_geolocation_sent_at_ms",
         "gnss_status_sequence",
         "gnss_sent_at_ms",
         "gnss_qualified",
@@ -405,11 +407,14 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
         "gnss_source_age_ms",
     ):
         assert f'"{field}"' in layer
-    assert "multidetect.target-evidence.v2" in card
+    assert "multidetect.target-evidence.v3" in card
+    assert 'qsTr("GNSS：旧版 v2 同期质量记录，无原子 envelope 绑定")' in card
     assert 'qsTr("GNSS：旧版 v1 记录，无独立质量证据")' in card
     evidence_store = _read(TARGET_EVIDENCE_STORE_SOURCE)
     assert 'QStringLiteral("multidetect.target-evidence.v1")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v2")' in evidence_store
+    assert 'QStringLiteral("multidetect.target-evidence.v3")' in evidence_store
+    assert "targetGeolocationSentAtMs != gnssSentAtMs" in evidence_store
     assert "gnssHorizontalAccuracyM > 6.0" in evidence_store
     assert "gnssVerticalAccuracyM > 10.0" in evidence_store
     assert "gnssSourceAgeMs > 1500.0" in evidence_store
@@ -671,6 +676,7 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     controller = _read(OPERATOR_CONTROLLER_SOURCE)
     state = _qml_code(MULTIDETECT_STATE)
     indicator = _qml_code(TOOLBAR_INDICATOR)
+    layer = _read(FLY_VIEW_LAYER)
 
     assert "GnssStatus = 25" in protocol_header
     gnss_start = protocol.index("} else if (type == MessageType::GnssStatus) {")
@@ -708,6 +714,21 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "property real gnssSequence: -1" in state
     assert "property real gnssSentAtMs: NaN" in state
     assert "function _resetGnssStatus()" in state
+    target_geo_start = controller.index(
+        "packet.type == MultiDetectOperatorProtocol::MessageType::TargetGeolocationStatus"
+    )
+    target_geo_end = controller.index(
+        "packet.type == MultiDetectOperatorProtocol::MessageType::GnssStatus", target_geo_start
+    )
+    target_geo = controller[target_geo_start:target_geo_end]
+    assert 'fields.insert(QStringLiteral("sequence"), packet.sequence)' in target_geo
+    assert 'fields.insert(QStringLiteral("sentAtMs")' in target_geo
+    assert "function onTargetGeolocationStatusReceived(status)" in state
+    assert "property real targetGeolocationSequence: -1" in state
+    assert "property real targetGeolocationSentAtMs: NaN" in state
+    assert "readonly property bool targetGeolocationGnssBindingValid" in state
+    assert "targetGeolocationSentAtMs === gnssSentAtMs" in state
+    assert "MultiDetectState.targetGeolocationGnssBindingValid" in layer
     gps_start = indicator.index("function _gpsQualityValue()")
     gps_end = indicator.index("function _gnssDetailValue()", gps_start)
     gps = indicator[gps_start:gps_end]

@@ -93,7 +93,8 @@ bool validSnapshotRecord(const QJsonObject& record)
     const QString schema = record.value(QStringLiteral("schema")).toString();
     const bool legacyV1 = schema == QStringLiteral("multidetect.target-evidence.v1");
     const bool gnssV2 = schema == QStringLiteral("multidetect.target-evidence.v2");
-    if (!legacyV1 && !gnssV2) {
+    const bool boundV3 = schema == QStringLiteral("multidetect.target-evidence.v3");
+    if (!legacyV1 && !gnssV2 && !boundV3) {
         return false;
     }
     if (!validJsonText(record, QStringLiteral("target_id"), kMaximumTargetIdLength, true) ||
@@ -146,7 +147,7 @@ bool validSnapshotRecord(const QJsonObject& record)
         return false;
     }
 
-    if (gnssV2) {
+    if (gnssV2 || boundV3) {
         bool gnssPresent = false;
         double gnssValue = 0.0;
         const auto validInteger = [&record, &gnssPresent, &gnssValue](
@@ -174,6 +175,22 @@ bool validSnapshotRecord(const QJsonObject& record)
             !record.value(QStringLiteral("gnss_position_healthy")).toBool() ||
             record.value(QStringLiteral("gnss_reason")).toString() != QStringLiteral("gps_qualified")) {
             return false;
+        }
+        if (boundV3) {
+            double targetSequence = 0.0;
+            double targetSentAtMs = 0.0;
+            double gnssSentAtMs = 0.0;
+            if (!finiteJsonNumber(record, QStringLiteral("target_geolocation_sequence"), 0.0,
+                                  kMaximumGnssSequence, true, &gnssPresent, &targetSequence) ||
+                std::floor(targetSequence) != targetSequence ||
+                !finiteJsonNumber(record, QStringLiteral("target_geolocation_sent_at_ms"), 0.0,
+                                  kMaximumExactJsonInteger, true, &gnssPresent, &targetSentAtMs) ||
+                std::floor(targetSentAtMs) != targetSentAtMs ||
+                !finiteJsonNumber(record, QStringLiteral("gnss_sent_at_ms"), 0.0,
+                                  kMaximumExactJsonInteger, true, &gnssPresent, &gnssSentAtMs) ||
+                targetSentAtMs != gnssSentAtMs) {
+                return false;
+            }
         }
     }
     return true;
@@ -292,6 +309,8 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     };
     bool gnssQualified = false;
     bool gnssPositionHealthy = false;
+    double targetGeolocationSequence = 0.0;
+    double targetGeolocationSentAtMs = 0.0;
     double gnssSequence = 0.0;
     double gnssSentAtMs = 0.0;
     double gnssFixType = 0.0;
@@ -303,6 +322,10 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     if (!requiredBoolean("gnss_qualified", &gnssQualified) || !gnssQualified ||
         !requiredBoolean("gnss_position_healthy", &gnssPositionHealthy) || !gnssPositionHealthy ||
         gnssReason != QStringLiteral("gps_qualified") ||
+        !requiredInteger("target_geolocation_sequence", 0.0, kMaximumGnssSequence,
+                         &targetGeolocationSequence) ||
+        !requiredInteger("target_geolocation_sent_at_ms", 0.0, kMaximumExactJsonInteger,
+                         &targetGeolocationSentAtMs) ||
         !requiredInteger("gnss_status_sequence", 0.0, kMaximumGnssSequence, &gnssSequence) ||
         !requiredInteger("gnss_sent_at_ms", 0.0, kMaximumExactJsonInteger, &gnssSentAtMs) ||
         !requiredInteger("gnss_fix_type", 3.0, 8.0, &gnssFixType) ||
@@ -315,7 +338,11 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         gnssVerticalAccuracyM > 10.0 ||
         !finiteNumber(snapshot.value(QStringLiteral("gnss_source_age_ms")), &gnssSourceAgeMs) ||
         gnssSourceAgeMs < 0.0 || gnssSourceAgeMs > 1500.0) {
-        _setLastError(tr("Qualified, fresh GNSS quality evidence is required for a v2 snapshot."));
+        _setLastError(tr("Qualified, fresh, same-frame GNSS quality evidence is required for a v3 snapshot."));
+        return false;
+    }
+    if (targetGeolocationSentAtMs != gnssSentAtMs) {
+        _setLastError(tr("Target geolocation and GNSS evidence must share one authenticated producer frame."));
         return false;
     }
 
@@ -326,7 +353,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
 
     QJsonObject record;
-    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v2"));
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v3"));
     record.insert(QStringLiteral("saved_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     record.insert(QStringLiteral("target_id"), targetId);
     record.insert(QStringLiteral("target_label"), boundedText(snapshot, "target_label", kMaximumTargetLabelLength));
@@ -344,6 +371,8 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     if (sourceAgePresent) {
         record.insert(QStringLiteral("source_age_ms"), sourceAgeMs);
     }
+    record.insert(QStringLiteral("target_geolocation_sequence"), targetGeolocationSequence);
+    record.insert(QStringLiteral("target_geolocation_sent_at_ms"), targetGeolocationSentAtMs);
     record.insert(QStringLiteral("gnss_status_sequence"), gnssSequence);
     record.insert(QStringLiteral("gnss_sent_at_ms"), gnssSentAtMs);
     record.insert(QStringLiteral("gnss_qualified"), gnssQualified);

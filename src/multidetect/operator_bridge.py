@@ -686,20 +686,12 @@ class LiveOperatorBridge:
         published_range_statuses: tuple[RangeStatusMessage, ...] = ()
         published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
         published_gnss_statuses: tuple[GnssStatusMessage, ...] = ()
-        if (
-            gnss_status is not None
-            and self._active_peer is not None
-            and self._gnss_status_due(gnss_status)
-            and self._publish_gnss_status(gnss_status, self._active_peer, errors)
-        ):
-            published_gnss_statuses = (gnss_status,)
-            self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
-            self._last_gnss_status_at_s = gnss_status.produced_at_s
         range_geolocation_error = self._range_geolocation_binding_error(
             frame_id=frame_id,
             captured_at_s=captured_at_s,
             range_status=range_status,
             target_geolocation_status=target_geolocation_status,
+            gnss_status=gnss_status,
         )
         if range_geolocation_error is not None:
             # A mismatched pair would be retained independently by QGC and
@@ -709,22 +701,29 @@ class LiveOperatorBridge:
         elif (
             range_status is not None
             and target_geolocation_status is not None
+            and gnss_status is not None
             and self._active_peer is not None
             and (
                 self._range_status_due(range_status)
                 or self._target_geolocation_status_due(target_geolocation_status)
             )
         ):
-            # Range and WGS-84 status form one retained QGC state even though
-            # the wire uses two authenticated message types.  Apply one
-            # publication decision and advance the cadence only after both
-            # sends succeed.  A partial transport failure is retried as a pair
-            # on the next frame; QGC remains fail-closed meanwhile.
-            range_published = self._publish_range_status(
-                range_status,
-                self._active_peer,
-                errors,
-            )
+            # Range, WGS-84 and GNSS quality form one retained QGC evidence
+            # state even though the wire uses three authenticated message
+            # types. Publish the exact same-timestamp GNSS observation first;
+            # QGC only enables durable evidence after the geolocation envelope
+            # arrives with that timestamp. A partial failure leaves the UI
+            # fail-closed and retries the complete triple on the next frame.
+            gnss_published = self._publish_gnss_status(gnss_status, self._active_peer, errors)
+            if gnss_published:
+                published_gnss_statuses = (gnss_status,)
+                range_published = self._publish_range_status(
+                    range_status,
+                    self._active_peer,
+                    errors,
+                )
+            else:
+                range_published = False
             if range_published:
                 published_range_statuses = (range_status,)
                 geolocation_published = self._publish_target_geolocation_status(
@@ -744,6 +743,8 @@ class LiveOperatorBridge:
                     self._last_target_geolocation_status_at_s = (
                         target_geolocation_status.produced_at_s
                     )
+                    self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
+                    self._last_gnss_status_at_s = gnss_status.produced_at_s
         elif (
             range_status is not None
             and target_geolocation_status is None
@@ -756,6 +757,16 @@ class LiveOperatorBridge:
             published_range_statuses = (range_status,)
             self._last_range_status_fingerprint = self._range_status_fingerprint(range_status)
             self._last_range_status_at_s = range_status.produced_at_s
+        if (
+            (target_geolocation_status is None or range_geolocation_error is not None)
+            and gnss_status is not None
+            and self._active_peer is not None
+            and self._gnss_status_due(gnss_status)
+            and self._publish_gnss_status(gnss_status, self._active_peer, errors)
+        ):
+            published_gnss_statuses = (gnss_status,)
+            self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
+            self._last_gnss_status_at_s = gnss_status.produced_at_s
         published_release_statuses: tuple[ReleaseStatusMessage, ...] = ()
         if (
             release_status is not None
@@ -1285,6 +1296,7 @@ class LiveOperatorBridge:
         captured_at_s: float,
         range_status: RangeStatusMessage | None,
         target_geolocation_status: TargetGeolocationStatusMessage | None,
+        gnss_status: GnssStatusMessage | None,
     ) -> str | None:
         """Return one stable fail-closed reason for invalid retained metadata.
 
@@ -1314,6 +1326,12 @@ class LiveOperatorBridge:
             or range_status.source_captured_at_s != target_geolocation_status.source_captured_at_s
         ):
             return "RangeGeolocationPairMismatch"
+        if gnss_status is None:
+            return "TargetGeolocationGnssStatusMissing"
+        if gnss_status.produced_at_s != target_geolocation_status.produced_at_s:
+            return "TargetGeolocationGnssTimestampMismatch"
+        if target_geolocation_status.available and not gnss_status.qualified:
+            return "TargetGeolocationGnssQualificationMismatch"
         return None
 
     def _target_geolocation_status_due(self, status: TargetGeolocationStatusMessage) -> bool:

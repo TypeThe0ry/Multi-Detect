@@ -112,6 +112,7 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     assert "src/multidetect/backends/raw_replay.py" in document["source_files"]["task_contract"]
     assert "src/multidetect/replay.py" in document["source_files"]["task_contract"]
     assert "src/multidetect/operator_link.py" in document["source_files"]["task_contract"]
+    assert "src/multidetect/operator_bridge.py" in document["source_files"]["task_contract"]
     assert "src/multidetect/operator_status.py" in document["source_files"]["task_contract"]
     assert "configs/schemas/local-dem-grid.schema.json" in document["source_files"]["safety_policy"]
     assert "src/multidetect/simulator/stack.py" in document["source_files"]["safety_policy"]
