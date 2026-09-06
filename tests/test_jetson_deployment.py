@@ -281,6 +281,17 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert '--session-id "${tracking_evidence_session_id}"' in recorder
     assert 'tracking_evidence_session_id="${TRACKING_EVIDENCE_SESSION_ID:-}"' in recorder
     assert "must match the live tracker session" in recorder
+    assert 'session_root="${SESSION_ROOT:-${EVIDENCE_DIR}/jetson-rtsp-${timestamp}}"' in recorder
+    assert 'raw_replay_out="${session_root}/raw-replay"' in recorder
+    assert 'inventory_out="${session_root}/transfer-inventory.json"' in recorder
+    assert "multidetect.rtsp_evidence_replay" in recorder
+    assert "multidetect.evidence_bundle_transfer snapshot" in recorder
+    assert '--bundle-id "${tracking_evidence_session_id}"' in recorder
+    assert "partial evidence retained at" in recorder
+    assert "RTSP_EVIDENCE_SESSION_READY=" in recorder
+    assert "RTSP_EVIDENCE_TRANSFER_INVENTORY=" in recorder
+    assert "refusing overwrite" in recorder
+    assert "exec \"${PYTHON}\"" not in recorder
     assert 'SOURCE_ENV_NAME="${SOURCE_ENV_NAME:-CAMERA_SOURCE}"' in recorder
     assert "${CAMERA_SOURCE}" not in recorder
     assert "live-camera" not in recorder
