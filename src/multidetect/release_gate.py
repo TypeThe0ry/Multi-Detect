@@ -867,6 +867,7 @@ def _replay_set_calibration_verification_result(
     result: dict[str, Any] = {
         "present": raw_record is not None,
         "passed": False,
+        "promotion_ready": False,
         "provenance_complete": False,
         "reasons": [],
         "artifact": None,
@@ -1141,6 +1142,10 @@ def _replay_set_calibration_verification_result(
             result["provenance_complete"] = bool(
                 verification.get("report_provenance_complete") is True
                 and verification.get("recomputed_provenance_complete") is True
+            )
+            result["promotion_ready"] = bool(
+                verification.get("report_promotion_ready") is True
+                and verification.get("recomputed_promotion_ready") is True
             )
 
     if artifact_info is not None:
@@ -5344,10 +5349,17 @@ def evaluate_release_gate(
                 release_reasons.append(
                     "final release requires passing replay_set calibration verification"
                 )
-            elif not calibration_verification.get("provenance_complete"):
-                release_reasons.append(
-                    "final release requires provenance-complete replay_set calibration verification"
-                )
+            else:
+                if not calibration_verification.get("provenance_complete"):
+                    release_reasons.append(
+                        "final release requires provenance-complete replay_set "
+                        "calibration verification"
+                    )
+                if not calibration_verification.get("promotion_ready"):
+                    release_reasons.append(
+                        "final release requires promotion-ready replay_set "
+                        "calibration verification"
+                    )
             if not real_field_link_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound REAL field-link preflight"

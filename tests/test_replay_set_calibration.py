@@ -460,6 +460,7 @@ def test_release_gate_binds_independent_calibration_verification(tmp_path: Path)
     assert binding["recomputed_provenance_complete"] is False
     report = evaluate_release_gate(output)
     assert report["replay_set"]["calibration_verification"]["passed"] is True
+    assert report["replay_set"]["calibration_verification"]["promotion_ready"] is True
     assert report["replay_set"]["calibration_verification"]["provenance_complete"] is False
     assert report["gate_passed"] is True
 
@@ -483,6 +484,7 @@ def test_release_gate_binds_independent_calibration_verification(tmp_path: Path)
         historical_report["replay_set"]["calibration_verification"]["provenance_complete"]
         is False
     )
+    assert historical_report["replay_set"]["calibration_verification"]["promotion_ready"] is True
 
     verification_path.write_text(
         verification_path.read_text(encoding="utf-8").replace(
@@ -560,6 +562,85 @@ def test_release_gate_rejects_calibration_verification_bound_to_other_manifest(
             replay_set_manifest=replay_manifest,
             replay_set_calibration_verification=verification_path,
         )
+
+
+def test_final_release_requires_promotion_ready_calibration(tmp_path: Path) -> None:
+    """A deterministic but unapproved calibration remains prerelease-only."""
+
+    replay_manifest = _manifest(tmp_path / "replay")
+    calibration = calibrate_replay_set_thresholds(
+        replay_manifest,
+        thresholds=(0.3, 0.6, 0.9),
+        reviewed=False,
+    )
+    assert calibration["promotion_ready"] is False
+    report_path = replay_manifest.parent / "pending-threshold-calibration.json"
+    report_path.write_text(json.dumps(calibration, indent=2) + "\n", encoding="utf-8")
+    verification_path = replay_manifest.parent / "pending-calibration-verification.json"
+    verification_path.write_text(
+        json.dumps(verify_replay_set_calibration_report(report_path), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    evidence: dict[str, Path] = {}
+    statuses: dict[str, dict[str, str]] = {}
+    for mode in ("replay", "sim", "hil", "real"):
+        path = tmp_path / "evidence" / f"{mode}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "event": f"{mode}_acceptance_finished",
+                    "runtime_mode": mode,
+                    "gate_passed": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        evidence[mode] = path
+        statuses[mode] = {
+            "operator_visual_acceptance": "passed",
+            "mission_path_acceptance": "passed",
+            "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
+            "real_control_acceptance": "not_required"
+            if mode in {"replay", "sim"}
+            else "passed",
+        }
+
+    parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
+    output = tmp_path / "release" / "release-gate.json"
+    document = build_release_gate_manifest(
+        evidence,
+        parity=parity,
+        statuses=statuses,
+        output_path=output,
+        replay_set_manifest=replay_manifest,
+        replay_set_calibration_verification=verification_path,
+    )
+    write_release_gate_manifest(output, document)
+    prerelease = evaluate_release_gate(output)
+    assert prerelease["gate_passed"] is True
+    assert prerelease["replay_set"]["calibration_verification"]["promotion_ready"] is False
+
+    final_manifest = json.loads(output.read_text(encoding="utf-8"))
+    final_manifest["release_label"] = "0.3.0"
+    output.write_text(json.dumps(final_manifest, indent=2) + "\n", encoding="utf-8")
+    version_path = tmp_path / "product-version-release.json"
+    version = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "configs" / "product-version.json"
+        ).read_text(encoding="utf-8")
+    )
+    version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
+    version_path.write_text(json.dumps(version, indent=2) + "\n", encoding="utf-8")
+
+    final = evaluate_release_gate(output, version_manifest_path=version_path)
+
+    assert final["release_allowed"] is False
+    assert any(
+        "final release requires promotion-ready replay_set calibration verification" in reason
+        for reason in final["release_blocked_reasons"]
+    )
 
 
 def test_replay_set_calibration_keeps_review_and_prediction_gates_separate(
