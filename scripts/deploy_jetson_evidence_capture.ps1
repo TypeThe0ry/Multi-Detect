@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$HostAlias = "192.168.144.20",
+    [string]$RemoteUser = "jetson",
+    [ValidateRange(1, 65535)]
+    [int]$SshPort = 22,
     [string]$RemoteToolsRoot = "/home/jetson/Multi-Detect-evidence-tools",
     [string]$RuntimePython = "/home/jetson/Multi-Detect/.venv/bin/python",
     [string]$DeploymentId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"),
@@ -25,6 +28,9 @@ if ($RuntimePython -notmatch '^/[A-Za-z0-9._/-]+$') {
 }
 if (-not $PackageOnly -and $HostAlias -notmatch '^[A-Za-z0-9._:-]+$') {
     throw "HostAlias contains unsupported characters."
+}
+if (-not $PackageOnly -and $RemoteUser -notmatch '^[A-Za-z_][A-Za-z0-9._-]{0,31}$') {
+    throw "RemoteUser contains unsupported characters."
 }
 
 $outputRoot = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
@@ -204,8 +210,10 @@ try {
 
     $ssh = Get-Command ssh.exe -ErrorAction Stop
     $scp = Get-Command scp.exe -ErrorAction Stop
-    & $scp.Source -o BatchMode=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 `
-        $archivePath "${HostAlias}:/tmp/$archiveName"
+    $sshDestination = "$RemoteUser@$HostAlias"
+    & $scp.Source -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no `
+        -o ConnectTimeout=15 -o ConnectionAttempts=1 -P $SshPort `
+        $archivePath "${sshDestination}:/tmp/$archiveName"
     if ($LASTEXITCODE -ne 0) {
         throw "Copying the Jetson evidence deployment archive failed: $LASTEXITCODE"
     }
@@ -242,8 +250,9 @@ printf 'JETSON_EVIDENCE_TOOLS_READY=%s\n' "`$target"
 printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/scripts/record_jetson_rtsp_evidence.sh\n' "`$target" "`$runtime_python" "`$target"
 "@
     $remoteOutput = @(
-        & $ssh.Source -o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=1 `
-            $HostAlias $remoteScript 2>&1 |
+        & $ssh.Source -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no `
+            -o ConnectTimeout=20 -o ConnectionAttempts=1 -p $SshPort `
+            $sshDestination $remoteScript 2>&1 |
             ForEach-Object { $_.ToString() }
     )
     $remoteExitCode = $LASTEXITCODE
@@ -279,11 +288,13 @@ printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/sc
     $remoteOutputItem = Get-Item -LiteralPath $remoteOutputPath
     $packageReceiptItem = Get-Item -LiteralPath $receiptPath
     $installReceipt = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         event = "jetson_evidence_tools_installed"
         installed_at_utc = (Get-Date).ToUniversalTime().ToString("o")
         deployment_id = $DeploymentId
         host_alias = $HostAlias
+        remote_user = $RemoteUser
+        ssh_port = $SshPort
         remote_target = $expectedTarget
         runtime_python = $RuntimePython
         source_git_head = $sourceHead

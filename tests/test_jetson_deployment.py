@@ -362,6 +362,14 @@ def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart(
     assert "JETSON_EVIDENCE_INSTALL_RECEIPT=" in deployer
     assert "remote_output = [ordered]@{" in deployer
     assert "package_manifest_verified = $true" in deployer
+    assert '[string]$RemoteUser = "jetson"' in deployer
+    assert '[int]$SshPort = 22' in deployer
+    assert '$sshDestination = "$RemoteUser@$HostAlias"' in deployer
+    assert "StrictHostKeyChecking=yes" in deployer
+    assert "UpdateHostKeys=no" in deployer
+    assert "remote_user = $RemoteUser" in deployer
+    assert "ssh_port = $SshPort" in deployer
+    assert "PasswordAuthentication=yes" not in deployer
     assert 'export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"' in (
         ROOT / "scripts/record_jetson_rtsp_evidence.sh"
     ).read_text(encoding="utf-8")

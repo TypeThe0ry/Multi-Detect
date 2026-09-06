@@ -50,11 +50,13 @@ def _installation(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         encoding="utf-8",
     )
     document: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "event": "jetson_evidence_tools_installed",
         "installed_at_utc": "2026-09-06T09:00:00Z",
         "deployment_id": DEPLOYMENT_ID,
         "host_alias": "multidetect-jetson",
+        "remote_user": "jetson",
+        "ssh_port": 22,
         "remote_target": REMOTE_TARGET,
         "runtime_python": RUNTIME_PYTHON,
         "source_git_head": SOURCE_HEAD,
@@ -205,6 +207,31 @@ def test_install_verifier_rejects_package_identity_mismatch(
         install_module, "verify_jetson_evidence_package", lambda _: mismatched
     )
     with pytest.raises(ValueError, match="source identity differ"):
+        verify_jetson_evidence_installation(receipt)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "pattern"),
+    [
+        ("remote_user", "bad user", "remote user is invalid"),
+        ("ssh_port", 0, "ssh_port must be at least 1"),
+        ("ssh_port", 65536, "ssh_port must be at most 65535"),
+    ],
+)
+def test_install_verifier_rejects_invalid_ssh_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+    pattern: str,
+) -> None:
+    receipt, document = _installation(tmp_path)
+    document[field] = value
+    _rewrite(receipt, document)
+    monkeypatch.setattr(
+        install_module, "verify_jetson_evidence_package", lambda _: _package_result()
+    )
+    with pytest.raises(ValueError, match=pattern):
         verify_jetson_evidence_installation(receipt)
 
 

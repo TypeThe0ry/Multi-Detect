@@ -1,21 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/jetson-evidence-tools-installation.schema.json",
-  "title": "Multi-Detect Jetson Evidence Tools Installation v1",
+  "title": "Multi-Detect Jetson Evidence Tools Installation v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version", "event", "installed_at_utc", "deployment_id", "host_alias",
+    "remote_user", "ssh_port",
     "remote_target", "runtime_python", "source_git_head", "package_receipt",
     "archive_sha256", "remote_output", "remote_checks", "service_restart_requested",
     "sudo_used", "remote_install_verified", "hardware_acceptance", "release_ready"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "event": { "const": "jetson_evidence_tools_installed" },
     "installed_at_utc": { "type": "string", "format": "date-time" },
     "deployment_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$" },
     "host_alias": { "type": "string", "pattern": "^[A-Za-z0-9._:-]+$" },
+    "remote_user": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9._-]{0,31}$"
+    },
+    "ssh_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
     "remote_target": { "$ref": "#/$defs/absolutePosixPath" },
     "runtime_python": { "$ref": "#/$defs/absolutePosixPath" },
     "source_git_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },

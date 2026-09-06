@@ -25,6 +25,7 @@ from .jetson_evidence_package import verify_jetson_evidence_package
 
 _DEPLOYMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _GIT_HEAD = re.compile(r"^[0-9a-f]{40}$")
+_REMOTE_USER = re.compile(r"^[A-Za-z_][A-Za-z0-9._-]{0,31}$")
 
 
 def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
@@ -40,6 +41,8 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
             "installed_at_utc",
             "deployment_id",
             "host_alias",
+            "remote_user",
+            "ssh_port",
             "remote_target",
             "runtime_python",
             "source_git_head",
@@ -55,7 +58,7 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
         }
     )
     document = strict_object(raw, name="JetsonEvidenceToolsInstallation", required=required)
-    require_schema_version(document["schema_version"])
+    require_schema_version(document["schema_version"], expected=2)
     if document["event"] != "jetson_evidence_tools_installed":
         raise AutonomyContractError("Jetson evidence install receipt event is invalid")
     _require_timestamp(document["installed_at_utc"])
@@ -65,6 +68,10 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
     host_alias = require_text(document["host_alias"], "host_alias")
     if re.fullmatch(r"[A-Za-z0-9._:-]+", host_alias) is None:
         raise AutonomyContractError("Jetson evidence install host alias is invalid")
+    remote_user = require_text(document["remote_user"], "remote_user")
+    if _REMOTE_USER.fullmatch(remote_user) is None:
+        raise AutonomyContractError("Jetson evidence install remote user is invalid")
+    ssh_port = require_int(document["ssh_port"], "ssh_port", minimum=1, maximum=65535)
     remote_target = _require_posix_absolute(document["remote_target"], "remote_target")
     runtime_python = _require_posix_absolute(document["runtime_python"], "runtime_python")
     source_head = require_text(document["source_git_head"], "source_git_head")
@@ -149,6 +156,8 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
         "receipt_file_bytes": len(receipt_payload),
         "deployment_id": deployment_id,
         "host_alias": host_alias,
+        "remote_user": remote_user,
+        "ssh_port": ssh_port,
         "remote_target": remote_target,
         "source_git_head": source_head,
         "package_receipt_sha256": package_ref["file_sha256"],
