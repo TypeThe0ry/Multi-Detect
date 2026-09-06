@@ -1,5 +1,31 @@
 # v0.3.0 E7 发布门
 
+## v146 portable final-session review（2026-09-06，`v0.3.0-pre.8`）
+
+现场 `run_gr01_release_session.ps1` 在 final record 独立复核之后自动创建：
+
+```text
+gr01-release-session-transfer-inventory.json
+```
+
+把完整 session 目录复制到第二台机器后，在复制包之外保存两份 review 输出：
+
+```powershell
+python .\scripts\verify_gr01_release_session_review.py review `
+  --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
+  --destination-root D:\review\gr01-session `
+  --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
+  --out D:\review\receipts\gr01-portable-review.json
+
+python .\scripts\verify_gr01_release_session_review.py verify `
+  D:\review\receipts\gr01-portable-review.json
+```
+
+`review` 先验证 6 个源文件逐字节不变，再离线重算五源 record、portable handoff、GR01 bench、配置一致性和
+manifest/report GR01 绑定。它有意不读取原目标机 absolute paths/secrets，也不重开 E7 的全部传递来源，所以 receipt
+固定声明 `target_environment_reverified=false` 与 `canonical_e7_sources_recomputed=false`。当前只有软件复制 fixture，
+真实 GR01 session、真实第二机审阅和人工签字仍待完成。
+
 ## v145 imported source-plan pre-network match（2026-09-06，`v0.3.0-pre.8`）
 
 开发机先用 `-PlanOnly` 生成 source plan，复制到现场机后可直接导入：

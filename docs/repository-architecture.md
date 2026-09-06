@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v146 portable GR01 final-session review（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/gr01_release_review.py`：现场强验证后 snapshot，以及第二机 byte-exact + portable semantic review；
+- `scripts/verify_gr01_release_session_review.py`：提供 `snapshot/review/verify` 的 clean-checkout 入口；
+- `configs/schemas/gr01-release-session-review.schema.json`：封闭 transfer/session/claim 投影与 canonical hash；
+- `gr01_release_handoff.py` 新增 portable verifier：重算 plan/source/target/checks，但明确不声称当前目标环境重验；
+- `run_gr01_release_session.ps1`：成功 record 后自动写 `gr01-release-session-transfer-inventory.json`；
+- generic evidence transfer 的实现、wrapper 和两个 schema 与以上三项一并纳入 `safety_policy` parity。
+
+跨机 review 证明“收到的 6 文件与 inventory 一致且内部语义仍闭合”，不证明第二机重新访问现场 target checkout、secret、
+网络或硬件，也不重算 E7 全部传递来源；真实 session 的第二机复核仍是开放现场门。
+
 ## v145 imported source plan（2026-09-06，`v0.3.0-pre.8`）
 
 - `run_gr01_release_session.ps1 -SourcePlan`：将外部 source plan 作为不可变输入复制到仓库内 session，拒绝 reparse，

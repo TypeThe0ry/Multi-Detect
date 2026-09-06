@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v146 portable GR01 final-session review（2026-09-06）
+
+- 现场 final session 独立验证成功后自动生成 6 文件 transfer inventory；目标机环境、secret 与 canonical source
+  仍只在现场 snapshot 阶段由强 verifier 验证；
+- 新增第二机 `review`：逐字节核对复制包，重开 plan/handoff/bench/E7 manifest/report，重算 handoff、bench、配置和
+  GR01/E7 绑定；closed receipt 固定 `target_environment_reverified=false`、`canonical_e7_sources_recomputed=false`，
+  不产生硬件、飞行、控制或载荷声明；
+- transfer primitive、review producer/verifier/schema 和现场调用顺序全部进入 safety parity；新 parity 派生证据通过，
+  E7 保持 `false / false / 32 blockers`、GR01 `present=false`。软件跨机 fixture 通过但不构成真实现场验收；最终全量
+  回归为 `3640 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v145 imported GR01 source plan（2026-09-06）
 
 - 现场 producer 新增 `-SourcePlan`：regular non-reparse 输入逐字复制到 session，前后 SHA-256 必须一致；

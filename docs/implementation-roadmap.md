@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Portable GR01 final-session review（v146）
+
+- [x] 现场 final record 强验证成功后自动生成 6 文件 byte-exact transfer inventory；
+- [x] 第二机离线重算五源 file identity、portable handoff、GR01 bench、配置与 manifest/report GR01 绑定；
+- [x] closed review receipt 明确 target environment/full E7 transitive sources 未重验，保持 no-control/no-flight claims；
+- [x] 复制篡改、record 投影篡改、重造 inventory、receipt claim/canonical hash 篡改均 fail-closed；
+- [ ] 对真实 GR01 session 包在真实第二台机器运行 `review/verify`，归档 operator/reviewer 签字和 inventory 外部校验值。
+
 ## Imported source-plan pre-network binding（v145）
 
 - [x] 现场 producer 支持 `-SourcePlan`，逐字导入到 session 并核对复制前后 SHA-256；

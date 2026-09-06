@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v145 工作树）
+最后更新：2026-09-06（v146 工作树）
+
+## v146 本轮已收口
+
+- 新增 `gr01_release_review.py`、repository wrapper 与 closed review schema：现场 final record 先经过原有强 verifier，
+  再把 plan、handoff、bench、E7 manifest/report 与 record 共 6 文件写入逐字节 transfer inventory；
+- `run_gr01_release_session.ps1` 只有在五源 record 独立验证成功后才执行 `snapshot`，因此输出目录直接具备跨机搬运清单；
+  inventory/transfer/review 输出均 write-new，复制包拒绝增删改、symlink、路径逃逸和 case collision；
+- 第二机 `review` 不依赖 origin/target 绝对路径或现场 secret：重开五源 hash/bytes，执行 portable handoff verifier、
+  GR01 bench verifier，核对 plan→handoff→bench/E7 配置、target Git/parity 投影和 manifest/report GR01 绑定；专门回归
+  证明单独篡改 record projection 后即使重建通用 inventory，内部五源投影不一致仍 fail-closed；
+- review receipt 固定 `target_environment_reverified=false`、`canonical_e7_sources_recomputed=false`，并保持
+  no-hardware/no-flight/no-control/no-payload。clean commit `da585dc14be11cb6f383f16b3eb06ac56349146e` 的软件跨机
+  fixture 通过；JUnit 356 bytes、SHA-256 `F26FBD3750858FEDB603FC818C6354829D8DA34F009B9EC46B7E4D9AC83E225F`；
+- safety parity 更新为 `2E3B5C4A...87A6A3C`；external join/revalidation、三机型 matrix、6 正例/9 故障 campaign
+  均重算并独立通过。E7 保持 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,642 tests：`3640 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  267.29 秒；JUnit 530,699 bytes、SHA-256 `3C38DCAAA153B253080834D357BB1856073EAA4661BE037CEC0F26314348D194`。
+  该 fixture 没有连接网络/硬件，不构成 GR01 或第二台真实现场机验收。
 
 ## v145 本轮已收口
 
