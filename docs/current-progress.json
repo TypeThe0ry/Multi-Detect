@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T02:46:13Z",
+  "updated_at_utc": "2026-09-06T03:00:49Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "a64750c73d4e49a4c13f319cd12bdbba20015e67",
-    "commit_subject": "feat(replay): bind fixed-model prediction runs",
-    "commits_ahead_of_origin_main": 106
+    "commit": "7e9406f497a18f41d7e5ed4cce87460d6e733a80",
+    "commit_subject": "feat(replay): bind prediction provenance to accuracy",
+    "commits_ahead_of_origin_main": 108
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v109",
+  "working_iteration": "v110",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v109-final.xml",
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v110-final.xml",
       "tests": 3510,
       "passed": 3509,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 194.679,
-      "junit_local_path": "tmp/current-progress-regression-v109-final.xml",
+      "duration_seconds": 191.635,
+      "junit_local_path": "tmp/current-progress-regression-v110-final.xml",
       "junit_file_bytes": 511970,
-      "junit_file_sha256": "9bc817eb6611fad799302d9eac66658e8abbcb45cf48d6a6373339b0963c75f9",
+      "junit_file_sha256": "ae8ea9c38a226e570dced72a5c9722f71236b731ddc34166b8c039ffe347f145",
       "distributed_in_git": false
     },
     "ruff": {
@@ -763,6 +763,22 @@
       "runtime_inference_smoke": "passed_synthetic_hil_onnx",
       "field_predictions_complete": false,
       "accuracy_validated": false,
+      "release_claim": "not_claimed"
+    },
+    "prediction_accuracy_provenance": {
+      "evaluator_flag": "--prediction-run-receipt",
+      "receipt_verified_before_evaluation": true,
+      "model_identity_derived_from_verified_receipt": true,
+      "accuracy_report_binding_fields": [
+        "receipt_file_sha256",
+        "receipt_canonical_sha256",
+        "model_manifest_sha256",
+        "runtime_inference_executed",
+        "synthetic_hil_only"
+      ],
+      "readiness_fresh_recomputation_reverifies_receipt": true,
+      "conflicting_caller_model_metadata_rejected": true,
+      "field_accuracy_validated": false,
       "release_claim": "not_claimed"
     },
     "release_gate_report": {

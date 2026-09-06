@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v110 prediction-to-accuracy provenance binding（2026-09-06）
+
+- evaluator 新增 `--prediction-run-receipt`，在计算指标前独立复验 prediction bundle，并从 receipt 派生模型
+  artifact SHA、ID 与版本；调用者提供冲突元数据会 fail-closed；
+- accuracy report 新增 receipt byte/canonical hash、model manifest SHA、runtime inference 与 synthetic HIL 绑定；
+  readiness 的 fresh recomputation 会再次复验 receipt 并比较完整 binding，阻止预测、模型和指标交叉拼接；
+- 保持旧无 receipt 报告兼容，现场 predictions/accuracy/release 仍未完成。新增回归后全量 3,510 tests：
+  `3509 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v109 fixed-model replay prediction provenance（2026-09-06）
 
 - 新增固定模型 replay prediction runner、installed CLI、clean-checkout wrapper 与 closed receipt schema；六个

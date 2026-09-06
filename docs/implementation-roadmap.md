@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## prediction receipt 到 accuracy/readiness 绑定（v110）
+
+- [x] evaluator 接受并独立复验 `prediction-run.receipt.json`；
+- [x] 从 verified receipt 派生模型 artifact SHA、ID、版本，拒绝调用者冲突元数据；
+- [x] accuracy report 绑定 receipt byte/canonical hash、model manifest、runtime 与 synthetic HIL 事实；
+- [x] readiness fresh recomputation 再次复验 receipt 并比较完整 prediction binding；
+- [x] CLI、closed schema、synthetic HIL ONNX 端到端及负向回归已完成；
+- [ ] 在真实 field-reviewed bundle 上生成 receipt、accuracy、readiness，并完成独立模型评审。
+
 ## 固定模型 replay predictions 与 provenance（v109）
 
 - [x] 从 v108 reviewed bundle 复验 annotation/raw/truth 绑定后再启动推理；
@@ -9,7 +18,8 @@
 - [x] 原子、不可覆盖输出及 annotation/model/prediction/new-manifest 全链独立 verifier；
 - [x] CLI、wrapper、closed receipt schema、test-double 负声明和真实 ONNX Runtime smoke；
 - [ ] 在真实 v108 field-reviewed bundle 上运行固定候选模型并保存 receipt；
-- [ ] 执行 evaluator/readiness/threshold calibration，并由独立 reviewer 评审模型状态。
+- [x] evaluator/readiness 已可验证并绑定 prediction receipt；
+- [ ] 在真实 field 数据上执行 accuracy/threshold calibration，并由独立 reviewer 评审模型状态。
 
 ## replay-set 独立人工标注工作区（v108）
 

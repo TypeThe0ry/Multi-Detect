@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v109 工作树）
+最后更新：2026-09-06（v110 工作树）
+
+## v110 本轮已收口
+
+- accuracy evaluator 新增可选 `prediction-run.receipt.json` 输入；计算指标前调用 prediction 独立 verifier，
+  复验 annotation/raw/truth/model/predictions/new manifest 全链，而不是只信 accuracy 调用参数；
+- model artifact SHA、model ID 和 model version 从已验证 receipt 派生；调用者若同时提供冲突值会 fail-closed，
+  防止另一模型或另一轮 predictions 被拼进同一份精度报告；
+- accuracy report 新增 receipt 字节 SHA、canonical hash、model manifest SHA、runtime inference 与 synthetic HIL
+  事实绑定；closed schema 已同步，未使用 receipt 的旧评估路径保持兼容；
+- readiness fresh recomputation 会取出并再次验证同一 receipt，再比较完整 `prediction_run_binding`；因此静态
+  accuracy JSON 即使自改模型字段，也不能绕过新鲜重算；
+- CLI、报告写入和 synthetic HIL ONNX 端到端测试已覆盖 receipt→evaluator→readiness 链及冲突拒绝；
+- 全量回归 3,510 tests：`3509 passed, 1 skipped, 0 failed, 0 errors`，耗时 191.635 秒；JUnit
+  511,970 bytes、SHA-256 `AE8EA9C38A226E570DCED72A5C9722F71236B731DDC34166B8C039FFE347F145`；
+  全仓 Ruff、compileall 与 diff check 通过。
 
 ## v109 本轮已收口
 

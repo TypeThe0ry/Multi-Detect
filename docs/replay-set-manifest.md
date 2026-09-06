@@ -118,6 +118,11 @@ python scripts/run_replay_predictions.py run `
 
 python scripts/run_replay_predictions.py verify `
   artifacts\replay-sets\fire-smoke-field-v1-predicted
+
+python scripts/evaluate_replay_set.py `
+  artifacts\replay-sets\fire-smoke-field-v1-predicted\replay-set.manifest.json `
+  --prediction-run-receipt artifacts\replay-sets\fire-smoke-field-v1-predicted\prediction-run.receipt.json `
+  --output artifacts\replay-sets\fire-smoke-field-v1-predicted\accuracy-report.json
 ```
 
 runner 会先复验 v108 annotation bundle 与模型 manifest/artifact，然后使用实时路径同一份
@@ -131,6 +136,11 @@ class/input/output、阈值与 NMS、provider selection、runtime 版本、每�
 `runtime_inference_executed`、`production_approved` 与 `synthetic_hil_only` 是不同事实；即使 predictions 齐全，
 receipt 仍固定 `accuracy_validated=false`、`release_ready=false`。下一步必须运行 evaluator/readiness 并由独立人员
 评审部署域指标。
+
+提供 `--prediction-run-receipt` 后，evaluator 会先运行 prediction 独立 verifier，再从 receipt 派生模型 artifact
+SHA、ID 与版本，并把 receipt byte/canonical hash、model manifest、runtime inference 和 synthetic HIL 事实写入
+accuracy report。readiness 的 fresh recomputation 会再次复验该 receipt 并比较完整 binding；混用另一轮预测、
+另一模型或自改 accuracy 元数据都会 fail-closed。
 
 采集或标注尚未完成时也可以生成一个明确的 pending 清单：
 

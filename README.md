@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v109：固定模型全分层预测与 provenance 闭环 |
+| 当前工程迭代 | v110：预测运行与精度/readiness provenance 闭环 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,17 +82,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v109 固定模型 prediction provenance 闭环
+### v109–v110 prediction 与 accuracy provenance 闭环
 
-`multidetect-replay-predictions` / `scripts/run_replay_predictions.py` 直接读取 v108 已复核 replay bundle，
-验证并复制固定 model artifact 与 manifest，然后对六个 strata 依次复用正式
-`ReplayFrameSource → OnnxNx6/OnnxRawYoloDetector → JsonlPredictionWriter` 链生成逐帧 predictions。离线
-回放没有另写预处理、NMS 或类别适配器，因此与实时 detector 保持同一实现。
+`multidetect-replay-predictions` 对已复核六分层 replay bundle 复用正式 decoder、ONNX/TensorRT detector、
+letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、
+provider、文件哈希和延迟的 `prediction-run.receipt.json`；独立 verifier 会重开整条来源链。
 
-输出采用不可覆盖 sibling temporary，保留原 annotation manifest 的独立哈希链，并新增模型身份、输入尺寸、
-阈值、provider selection、runtime 版本、逐层 prediction SHA/帧数和延迟分位数的 canonical receipt；verify 会
-重开 annotation、raw recording、model/manifest、六份 predictions 和新 replay manifest。真实 runtime 是否执行、
-模型是否 production-approved、是否 synthetic HIL 分开记录；完成 predictions 仍不代表精度或发布通过。
+evaluator 的 `--prediction-run-receipt` 会再次验证 receipt，从中派生模型身份并写入 accuracy report；readiness
+新鲜重算也会复验同一 receipt，拒绝混入另一预测运行或模型。真实 runtime、production approval、synthetic HIL、
+accuracy 与 release 仍是彼此独立的事实；软件闭环不代表现场数据或发布门通过。
 
 ### v108 独立人工标注闭环
 
