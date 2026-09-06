@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v132：认证 ACK 实链源路由绑定 |
+| 当前工程迭代 | v133：认证 ACK 实链发送源固定 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,11 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132 认证 ACK 实链源路由绑定
+### v132–v133 认证 ACK 实链源绑定
 
-hardware ACK bench v2 在首包前用无发包 UDP route selection 核对 `local_source_address` 是否属于显式
-`--expected-source-cidr`；错网卡时 0 transmission fail-closed。route 字段进入 release manifest 与 safety
-parity；旧 v1 仍可读。GR01/V6X/G20 实链仍未验收，命令与边界见 [告警数据链路](docs/data-link-alerts.md)。
+hardware ACK bench 在首包前核对 OS route source 与显式 CIDR；v3 再把同一地址固定到真实 UDP sender socket。
+route 或 bind 不一致均为 0 transmission；v1/v2 历史记录仍可复核。GR01/V6X/G20 实链未验收，详见
+[告警数据链路](docs/data-link-alerts.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定
 

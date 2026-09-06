@@ -674,6 +674,8 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Hash-bind a passing REAL authenticated alert-link bench into the E7 manifest; re-open and re-verify its source report on every evaluation while keeping prerelease manifests backward-compatible.
 - [x] Bind hardware-mode ACK evidence to the OS-selected local UDP source address and an explicit
   expected source CIDR before transmitting; wrong-interface reports stop at zero transmissions.
+- [x] Pin every authenticated UDP sender socket to the preflight-selected source address and require
+  route/CIDR/transport-source agreement before the hardware ACK loop can transmit.
 - [ ] Implement and validate the authenticated ACK transport on the selected real data link.
 
 ### 4. Model and replay validation

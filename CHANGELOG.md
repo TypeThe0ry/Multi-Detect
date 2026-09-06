@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v133 authenticated ACK sender-source pinning（2026-09-06）
+
+- authenticated UDP transport 新增可选 canonical IPv4 `source_host`，每个真实发送 socket 在 connect/send 前先
+  `bind(source_host, 0)`；hardware bench v3 只有 OS route source、expected CIDR 与 transport source 三者一致才
+  进入 ACK 循环，否则保持 0 transmission；
+- v1/v2 历史报告继续可复核，新 release manifest 只写 v3 并绑定 transport source/address result。当前错网段
+  实测为合法失败，软件证据重新绑定后 E7 仍为 32 blockers，不提升 GR01/V6X/G20 现场声明；最终全量回归
+  `3580 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v132 authenticated ACK source-route binding（2026-09-06）
 
 - alert-link hardware bench 升级为 v2：必须声明 expected source CIDR，并在任何探测包发送前绑定 OS 选择的

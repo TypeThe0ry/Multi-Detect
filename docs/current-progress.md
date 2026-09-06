@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v132 工作树）
+最后更新：2026-09-06（v133 工作树）
+
+## v133 本轮已收口
+
+- `UdpAcknowledgedAlertTransport` 新增 canonical IPv4 `source_host`；配置后每次发送使用的实际 UDP socket 都先
+  `bind(source_host, 0)`，不再只依赖另一个预检 socket 对下一跳路由的预测；
+- alert-link bench 升级 schema v3，同时记录 `transport_source_address` 与
+  `transport_source_address_bound`。hardware 只有 route source 属于 expected CIDR 且 sender socket 固定同一地址
+  才进入 ACK loop；v1/v2 历史报告仍可复核，新 release manifest 只接受通过的 v3；
+- 当前控制机真实负测的 route/transport source 均为 `192.168.1.13`，不属于 `192.168.144.0/24`，所以 bench
+  退出 1、离线 verifier 退出 0、`transmission_attempts=0`；这不是实链通过；
+- 新 parity 下 external join/revalidation、reported-position matrix、6 正例/9 故障 campaign 均重算通过；E7
+  重跑保持 `gate_passed=false`、`release_allowed=false`、32 blockers。
+- 最终全量回归 3,582 tests 为 `3580 passed, 2 skipped, 0 failed, 0 errors`，耗时 242.077 秒；JUnit
+  522,327 bytes、SHA-256 `4E61645B598CA28AAF1A8BEEF13C7130C73E6CFD31D75B9F4C9A5D80FDD6853A`。
 
 ## v132 本轮已收口
 

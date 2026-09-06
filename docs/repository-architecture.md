@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v133 authenticated ACK sender-source pinning（2026-09-06，`v0.3.0-pre.8`）
+
+`UdpAcknowledgedAlertTransport(source_host=...)` 会在每次 authenticated alert 的实际发送 socket 上先执行
+`bind(source_host, 0)`，再 connect/send/receive ACK。bench v3 将 OS route-selected source、expected CIDR、
+transport configured source 与 equality result 一并序列化；hardware 模式只有三者闭合才进入 round-trip loop，
+否则 0 transmission。独立 verifier 重算 canonical address/equality/reasons，release writer 只接受通过的 v3，
+evaluator 仍兼容历史 v1/v2。该功能固定软件发送面，不替代真实 GR01/V6X/G20 射频和路由验收。
+
 ## v132 authenticated ACK source-route contract（2026-09-06，`v0.3.0-pre.8`）
 
 `src/multidetect/alert_link_bench.py` 在构造 REAL ACK 样本前先对明确 IP endpoint 执行无发包 UDP route
