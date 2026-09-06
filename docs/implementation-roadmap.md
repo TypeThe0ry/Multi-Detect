@@ -676,6 +676,8 @@ feedback sources and finish in `return_requested` with physical control disabled
   expected source CIDR before transmitting; wrong-interface reports stop at zero transmissions.
 - [x] Pin every authenticated UDP sender socket to the preflight-selected source address and require
   route/CIDR/transport-source agreement before the hardware ACK loop can transmit.
+- [x] Bind every successful ACK receipt to the sender socket's runtime `getsockname()` IPv4 and
+  require complete source observations in hardware bench schema v4.
 - [ ] Implement and validate the authenticated ACK transport on the selected real data link.
 
 ### 4. Model and replay validation

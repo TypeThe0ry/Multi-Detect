@@ -1,6 +1,19 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v133 工作树）
+最后更新：2026-09-06（v134 工作树）
+
+## v134 本轮已收口
+
+- `AlertDeliveryReceipt` 新增 `source_address`；真实 UDP transport 在 bind/connect 后、send 前读取 socket
+  `getsockname()`，规范化为 IPv4，并在它与配置 `source_host` 不同时直接失败；
+- retry publisher 暴露最后一份已通过 receipt 校验的结果；alert-link bench v4 保存每个成功 ACK 的实际 sender
+  source、观察数和完整性。hardware 只有全部成功样本都观察到同一 route/bind 地址才通过；
+- 新 release manifest 只接受通过的 v4，历史 v1/v2/v3 仍可独立复核。当前错网段负测仍为 0 transmission，
+  v4 另明确记录 0 个运行时 source observation；
+- 新 parity 下 external join/revalidation、三机型 reported-position matrix 和 6 正例/9 故障 campaign 均已重算并
+  独立复核；E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers。
+- 最终全量回归 3,584 tests 为 `3582 passed, 2 skipped, 0 failed, 0 errors`，耗时 242.754 秒；JUnit
+  522,614 bytes、SHA-256 `6735DE1B6A3FB85351D17F46CA9BAFECEE09DE1978F6E791D6D365663BC7C71C`。
 
 ## v133 本轮已收口
 

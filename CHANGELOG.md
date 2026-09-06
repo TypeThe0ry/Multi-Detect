@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v134 authenticated ACK runtime source observation（2026-09-06）
+
+- UDP ACK receipt 新增实际 sender socket `getsockname()` IPv4；transport 在 send 前复核该运行时地址与
+  `source_host` 一致，retry publisher 只保留已校验成功的最后 receipt；
+- hardware bench v4 要求全部成功 ACK 样本都有实际源地址观察且均等于 route/bind 地址；即使 ACK 成功，缺失或
+  不一致的运行时源观察仍 fail-closed。新 release manifest 只写 v4，evaluator 继续兼容 v1/v2/v3；全量回归
+  `3582 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v133 authenticated ACK sender-source pinning（2026-09-06）
 
 - authenticated UDP transport 新增可选 canonical IPv4 `source_host`，每个真实发送 socket 在 connect/send 前先

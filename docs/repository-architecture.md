@@ -1,5 +1,15 @@
 # 统一仓库架构
 
+## v134 authenticated ACK runtime source observation（2026-09-06，`v0.3.0-pre.8`）
+
+`AlertDeliveryReceipt.source_address` 将发送 socket 在 connect 后、send 前读取的 canonical IPv4 带回 bench；
+`RetryingAcknowledgedAlertPublisher.last_receipt` 只发布已通过 alert ID、receiver、timestamp 和 source address
+校验的成功 receipt。bench v4 序列化逐 ACK 运行时源地址、观察数和完整性，hardware 必须满足“成功样本数 =
+观察数 = 请求数，且每个观察值 = transport source = route-selected source”。
+
+release manifest writer 只接受通过的 v4，evaluator 对 v4 新字段逐项重开源报告；历史 v1/v2/v3 保持只读兼容。
+这补强了软件证据的实际 socket 绑定，但仍不替代 GR01/V6X/G20 真实链路、射频和现场验收。
+
 ## v133 authenticated ACK sender-source pinning（2026-09-06，`v0.3.0-pre.8`）
 
 `UdpAcknowledgedAlertTransport(source_host=...)` 会在每次 authenticated alert 的实际发送 socket 上先执行
