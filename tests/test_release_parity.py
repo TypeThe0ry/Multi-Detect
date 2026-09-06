@@ -132,8 +132,11 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "scripts/run_multidetect_cli.py",
         "scripts/verify_gr01_release_session_plan.py",
         "scripts/verify_gr01_release_session.py",
+        "scripts/verify_gr01_release_session_handoff.py",
         "configs/schemas/gr01-release-session-plan.schema.json",
+        "configs/schemas/gr01-release-session-handoff.schema.json",
         "configs/schemas/gr01-release-session.schema.json",
+        "src/multidetect/gr01_release_handoff.py",
         "src/multidetect/gr01_release_plan.py",
     } <= set(document["source_files"]["safety_policy"])
     for paths in document["source_files"].values():

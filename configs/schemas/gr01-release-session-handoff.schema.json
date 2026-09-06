@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-release-session-handoff.schema.json",
+  "title": "Multi-Detect portable GR01 release-session handoff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "event", "generated_at_utc", "host_id",
+    "source_plan", "target_paths", "target_identity", "secret_environment",
+    "checks", "source_equivalent", "ready_to_execute", "reasons", "claims"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.gr01-release-session-handoff/v1"},
+    "schema_version": {"const": 1},
+    "event": {"const": "multidetect_gr01_release_session_handoff_verified"},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "host_id": {"type": "string", "minLength": 1},
+    "source_plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "schema", "schema_version", "configuration_sha256", "git_head"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "multidetect.gr01-release-session-plan/v2"},
+        "schema_version": {"const": 2},
+        "configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "git_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "target_paths": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository_root", "python", "output_root"],
+      "properties": {
+        "repository_root": {"type": "string", "minLength": 1},
+        "python": {"type": "string", "minLength": 1},
+        "output_root": {"type": "string", "minLength": 1}
+      }
+    },
+    "target_identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["git_head", "tracked_dirty", "release_parity", "tools"],
+      "properties": {
+        "git_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tracked_dirty": {"type": "boolean"},
+        "release_parity": {"$ref": "#/$defs/parity"},
+        "tools": {"type": "object", "minProperties": 4, "additionalProperties": {"$ref": "#/$defs/file"}}
+      }
+    },
+    "secret_environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operator_hmac", "mavlink_signing"],
+      "properties": {
+        "operator_hmac": {"$ref": "#/$defs/secret"},
+        "mavlink_signing": {"$ref": "#/$defs/secret"}
+      }
+    },
+    "checks": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin_tracked_clean", "target_tracked_clean", "git_head_matches", "release_parity_matches", "tool_identity_matches", "target_parity_source_verified"],
+      "properties": {
+        "origin_tracked_clean": {"type": "boolean"},
+        "target_tracked_clean": {"type": "boolean"},
+        "git_head_matches": {"type": "boolean"},
+        "release_parity_matches": {"type": "boolean"},
+        "tool_identity_matches": {"type": "boolean"},
+        "target_parity_source_verified": {"type": "boolean"}
+      }
+    },
+    "source_equivalent": {"type": "boolean"},
+    "ready_to_execute": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "claims": {
+      "type": "object", "additionalProperties": false,
+      "required": ["network_contacted", "hardware_observed", "hardware_flight_acceptance", "physical_release_enabled", "flight_control_enabled", "payload_release_requested", "secret_values_serialized"],
+      "properties": {
+        "network_contacted": {"const": false},
+        "hardware_observed": {"const": false},
+        "hardware_flight_acceptance": {"const": "not_claimed"},
+        "physical_release_enabled": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "payload_release_requested": {"const": false},
+        "secret_values_serialized": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "secret": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "present"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "present": {"type": "boolean"}
+      }
+    },
+    "parity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "release_label", "safety_policy_hash", "source_verified"],
+      "properties": {
+        "path": {"const": "configs/release-parity.json"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "release_label": {"type": "string", "pattern": "^0\\.3\\.0-pre\\.[0-9]+$"},
+        "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+        "source_verified": {"type": "boolean"}
+      }
+    }
+  }
+}
