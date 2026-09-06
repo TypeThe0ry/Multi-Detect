@@ -72,6 +72,20 @@ python scripts/replay_annotation_workspace.py inspect `
   artifacts\replay-sets\fire-smoke-field-v1.annotations.json
 ```
 
+也可以启动仅限本机的可视化画框工作台：
+
+```powershell
+python scripts/run_replay_annotation_workbench.py `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  --open-browser
+```
+
+默认地址为 `http://127.0.0.1:8765/`。服务拒绝非 loopback 监听；页面 mutation 使用每次启动随机 token，
+并以 CSP nonce、严格 JSON 和请求大小上限约束输入。图像响应会重新核对 intake/workspace、相对路径、
+symlink、字节数和 SHA-256。它只修改 annotation workspace，不连接相机、Pixhawk 或执行器；真实人员仍须
+目视确认每帧、按下面的相同语义保存正/负例，另一人完成 review。
+
 标注文件里每帧初始为 `{"status":"unannotated","objects":null}`。使用 CLI 明确写入正例：
 
 ```powershell

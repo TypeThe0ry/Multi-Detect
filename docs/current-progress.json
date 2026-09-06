@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T04:45:39Z",
+  "updated_at_utc": "2026-09-06T05:05:23Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "ad9057162debf185375800a3dedd968f310e6608",
-    "commit_subject": "feat(replay): bind human annotation review",
-    "commits_ahead_of_origin_main": 120
+    "commit": "57fe105a53d6a8723ad6cc9d836ed77b6d2f2d37",
+    "commit_subject": "feat(replay): add visual annotation workbench",
+    "commits_ahead_of_origin_main": 122
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v116",
+  "working_iteration": "v117",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v116-final.xml",
-      "tests": 3518,
-      "passed": 3517,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v117-final.xml",
+      "tests": 3519,
+      "passed": 3518,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 235.59,
-      "junit_local_path": "tmp/current-progress-regression-v116-final.xml",
-      "junit_file_bytes": 513092,
-      "junit_file_sha256": "d8ecbfd450d0b168f22533ca57d72bf562675117b091318d1e34eada2948b7dc",
+      "duration_seconds": 265.846,
+      "junit_local_path": "tmp/current-progress-regression-v117-final.xml",
+      "junit_file_bytes": 513238,
+      "junit_file_sha256": "22ab545fb5beb86fbb54766acee1cb806ceb8361ece57ef59d59227a42e811fa",
       "distributed_in_git": false
     },
     "ruff": {
@@ -755,6 +755,20 @@
       "post_review_change_invalidates_review": true,
       "legacy_v1_read_compatible": true,
       "campaign_requires_v2_binding": true,
+      "visual_workbench": {
+        "implementation": "src/multidetect/replay_annotation_workbench.py",
+        "installed_command": "multidetect-replay-annotation-ui",
+        "repository_wrapper": "scripts/run_replay_annotation_workbench.py",
+        "loopback_only": true,
+        "mutation_token": "random_per_process",
+        "csp_nonce": "random_per_process",
+        "strict_json": true,
+        "image_hash_reverified": true,
+        "features": ["frame_navigation", "bbox_canvas", "positive_negative", "status_counts", "review"],
+        "hardware_io": false,
+        "automated_http_lifecycle": "passed",
+        "manual_visual_acceptance": "pending_field_people"
+      },
       "atomic_truth_export": true,
       "assignment_recomputed_from_intake": true,
       "predictions_complete": false,

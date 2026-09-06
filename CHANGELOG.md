@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v117 local visual annotation workbench（2026-09-06）
+
+- 新增 `multidetect-replay-annotation-ui` 与 clean-checkout wrapper：浏览已通过 intake/hash 复验的帧，
+  在原始像素坐标画多类别 bbox，逐帧保存正/负例、前后导航、统计计数并发起独立 review；
+- 服务仅接受数值 loopback 地址；随机 mutation token、CSP nonce、严格 JSON/大小上限、精确 frame ID、
+  symlink/路径逃逸和图像 SHA-256 复验共同 fail-closed，且明确不连接相机、Pixhawk 或执行器；
+- HTTP 生命周期、鉴权、输入拒绝、真实 PNG、标注与 review-content 绑定均有回归；全量 3,519 tests：
+  `3518 passed, 1 skipped`。真实人员视觉/交互验收、现场标注、E7 32 blockers 与 QGC EXE 均未改变。
+
 ### v0.3.0-pre.8 v116 annotation review-content binding（2026-09-06）
 
 - `multidetect-replay-annotations` 新增 `annotate`/`review`：按 frame ID 原子写入 positive/negative、

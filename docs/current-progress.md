@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v116 工作树）
+最后更新：2026-09-06（v117 工作树）
+
+## v117 本轮已收口
+
+- 新增 `multidetect-replay-annotation-ui` 和 `scripts/run_replay_annotation_workbench.py`：本机浏览
+  已验证 intake 图像，在 canvas 上拖拽多类别 bbox，逐帧保存 positive/negative，支持前后导航、状态计数、
+  清除未保存框和独立 reviewer 提交；底层复用 v116 原子 annotation/review API；
+- HTTP 服务仅允许数值 loopback 地址，默认 `127.0.0.1:8765`；随机 mutation token、CSP nonce、无 CORS、
+  256 KiB 请求上限、严格 JSON（重复键/非有限数/额外字段拒绝）共同保护 mutation；
+- 每次页面读取图像都会重新验证 intake/workspace、frame ID、相对路径、目录 containment、非 symlink、字节数
+  与 SHA-256；服务启动事件固定 `loopback_only=true`、`hardware_io=false`，不访问相机、飞控或执行器；
+- HTTP 生命周期回归覆盖页面/CSP、真 PNG、无 token、重复键、额外字段、正例、五个负例与最终 review binding；
+  内嵌 JavaScript 已用 Node `--check` 验证。真实人工视觉/交互验收仍待现场执行；
+- 全量回归 3,519 tests：`3518 passed, 1 skipped, 0 failed, 0 errors`，耗时 265.846 秒；JUnit
+  513,238 bytes、SHA-256 `22AB545FB5BEB86FBB54766ACEE1CB806CEB8361ECE57EF59D59227A42E811FA`；
+  全仓 Ruff 通过。共享 parity、QGC C++/QML、portable EXE 和当前 E7 32 blockers 均未改变。
 
 ## v116 本轮已收口
 

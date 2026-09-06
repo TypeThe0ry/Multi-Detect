@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v116：人工标注 CLI 与 review-content 绑定 |
+| 当前工程迭代 | v117：本机可视化回放标注工作台 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v109–v116 field replay campaign 与 provenance 闭环
+### v109–v117 field replay campaign 与 provenance 闭环
 
 `multidetect-field-replay-campaign` 把六分层真实记录 intake、双人标注、固定模型推理、独立 accuracy
 复核、独立 threshold 复核和 fresh verification 串成可恢复状态机。机器步骤可重复 `advance`；缺记录或人工
@@ -101,11 +101,14 @@ calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，
 显式投影 report/recomputed provenance 与 promotion readiness。旧证据在预发布仍可读；最终 `v0.3.0`
 要求 provenance 完整且 report/recomputed calibration 都已独立批准。
 
-### v108–v116 独立人工标注闭环
+### v108–v117 独立人工标注闭环
 
 `multidetect-replay-annotations` / `scripts/replay_annotation_workspace.py` 现在从 v107 intake 生成逐帧
 工作区；`annotate/review` CLI 原子写入逐帧 positive/negative 与独立复核。v2 `review_content_hash`
 绑定全部标注和人员/时间，复核后修改会撤销复核，直接篡改会失败；v1 仅保留历史读取兼容。
+
+`multidetect-replay-annotation-ui` 提供本机画框、正/负例、计数与复核；仅监听 `127.0.0.1`，
+以随机 token、CSP nonce 和严格 JSON 保护写入。
 
 finalize 要求 annotator/reviewer 非空且大小写不敏感地互不相同、UTC review timestamp、全帧完成，并从已
 验证 intake 重新推导 frame/image assignment。通过后才在 sibling temporary 中一次生成六份

@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 本机可视化回放标注工作台（v117）
+
+- [x] hash-verified 图像读取与精确 frame ID API；
+- [x] canvas bbox、多类别、正/负例、前后导航和计数；
+- [x] 独立 reviewer 提交并复用 v116 review-content binding；
+- [x] loopback-only、mutation token、CSP nonce、严格 JSON 与路径边界；
+- [x] installed/wrapper CLI、HTTP 生命周期、Node 语法和全量回归；
+- [ ] 由真实标注员/复核员完成现场视觉与交互验收及六分层 campaign。
+
 ## 人工标注 review-content 绑定（v116）
 
 - [x] 逐帧 positive/negative、多目标 bbox 和 annotator CLI；
