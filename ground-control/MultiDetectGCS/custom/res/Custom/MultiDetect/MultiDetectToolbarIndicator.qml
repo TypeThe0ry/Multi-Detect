@@ -421,6 +421,20 @@ Item {
                 " · H/V " + horizontal + "/" + vertical + " · " + age;
     }
 
+    function _producerEpochValue() {
+        const epoch = Number(MultiDetectState.targetObservationProducerEpoch);
+        if (!Number.isFinite(epoch) || epoch <= 0)
+            return qsTr("等待原子目标观测");
+        const changedAtMs = Number(MultiDetectState.targetObservationEpochChangedAtMs);
+        const changedAt = Number.isFinite(changedAtMs) && changedAtMs > 0 ?
+                new Date(changedAtMs).toLocaleTimeString(Qt.locale(), "HH:mm:ss") : "--";
+        return qsTr("epoch %1 · 重启 %2 · 旧包拒绝 %3 · 切换拒绝 %4 · %5").arg(
+                    Math.round(epoch)).arg(
+                    Math.round(MultiDetectState.targetObservationProducerRestartCount)).arg(
+                    Math.round(MultiDetectState.targetObservationRetiredEpochRejectCount)).arg(
+                    Math.round(MultiDetectState.targetObservationEpochTransitionRejectCount)).arg(changedAt);
+    }
+
     function _rangeStatusValue() {
         const validity = String(MultiDetectState.rangeValidity || "UNAVAILABLE").toUpperCase();
         if (validity === "UNAVAILABLE")
@@ -811,6 +825,11 @@ Item {
                             LabelledLabel {
                                 label: qsTr("GNSS 详情")
                                 labelText: control._gnssDetailValue()
+                            }
+
+                            LabelledLabel {
+                                label: qsTr("观测生产者")
+                                labelText: control._producerEpochValue()
                             }
 
                             LabelledLabel {

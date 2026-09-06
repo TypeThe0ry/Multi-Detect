@@ -37,6 +37,11 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(QVariantMap rangeStatus READ rangeStatus NOTIFY rangeStatusChanged)
     Q_PROPERTY(QVariantMap targetGeolocationStatus READ targetGeolocationStatus NOTIFY targetGeolocationStatusChanged)
     Q_PROPERTY(QVariantMap gnssStatus READ gnssStatus NOTIFY gnssStatusChanged)
+    Q_PROPERTY(quint32 targetObservationProducerEpoch READ targetObservationProducerEpoch NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationProducerRestartCount READ targetObservationProducerRestartCount NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationRetiredEpochRejectCount READ targetObservationRetiredEpochRejectCount NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationEpochTransitionRejectCount READ targetObservationEpochTransitionRejectCount NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationEpochChangedAtMs READ targetObservationEpochChangedAtMs NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -96,6 +101,11 @@ public:
 
     QVariantMap targetGeolocationStatus() const { return _targetGeolocationStatus; }
     QVariantMap gnssStatus() const { return _gnssStatus; }
+    quint32 targetObservationProducerEpoch() const { return _targetObservationEpoch.activeEpoch(); }
+    qulonglong targetObservationProducerRestartCount() const { return _targetObservationProducerRestartCount; }
+    qulonglong targetObservationRetiredEpochRejectCount() const { return _targetObservationRetiredEpochRejectCount; }
+    qulonglong targetObservationEpochTransitionRejectCount() const { return _targetObservationEpochTransitionRejectCount; }
+    qulonglong targetObservationEpochChangedAtMs() const { return _targetObservationEpochChangedAtMs; }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -155,6 +165,7 @@ signals:
     void rangeStatusChanged();
     void targetGeolocationStatusChanged();
     void gnssStatusChanged();
+    void targetObservationEpochStatsChanged();
     void releaseStatusChanged();
     void runtimeStatusChanged();
     void approachChallengeChanged();
@@ -324,6 +335,10 @@ private:
     QHash<int, quint32> _lastStatusSequence;
     QHash<int, quint64> _lastStatusAcceptedAtMs;
     MultiDetectObservationEpoch _targetObservationEpoch;
+    qulonglong _targetObservationProducerRestartCount = 0;
+    qulonglong _targetObservationRetiredEpochRejectCount = 0;
+    qulonglong _targetObservationEpochTransitionRejectCount = 0;
+    qulonglong _targetObservationEpochChangedAtMs = 0;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

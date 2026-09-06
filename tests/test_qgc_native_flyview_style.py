@@ -765,6 +765,14 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert atomic.count('insert(QStringLiteral("producerEpoch")') == 3
     assert "_acceptTargetObservationEpoch(fields)" in controller
     assert "_targetObservationEpoch.observe(incomingEpoch)" in controller
+    assert "MultiDetectObservationEpoch::Result::CapacityExhausted" in controller
+    assert "_targetObservationRetiredEpochRejectCount" in controller
+    assert "_targetObservationEpochTransitionRejectCount" in controller
+    assert "targetObservationEpochStatsChanged" in controller
+    assert "kMaximumRetiredEpochs = 32" in _read(CUSTOM_ROOT / "src/MultiDetectObservationEpoch.h")
+    assert "return Result::CapacityExhausted" in _read(
+        CUSTOM_ROOT / "src/MultiDetectObservationEpoch.h"
+    )
     gps_start = indicator.index("function _gpsQualityValue()")
     gps_end = indicator.index("function _gnssDetailValue()", gps_start)
     gps = indicator[gps_start:gps_end]
@@ -772,6 +780,12 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "MultiDetectState.targetId" not in gps
     assert "targetGeolocation" not in gps
     assert 'qsTr("不可定位 · 等待 GNSS_STATUS")' in gps
+    assert 'label: qsTr("观测生产者")' in indicator
+    assert "function _producerEpochValue()" in indicator
+    assert "MultiDetectState.targetObservationProducerEpoch" in indicator
+    assert "MultiDetectState.targetObservationProducerRestartCount" in indicator
+    assert "MultiDetectState.targetObservationRetiredEpochRejectCount" in indicator
+    assert "MultiDetectState.targetObservationEpochTransitionRejectCount" in indicator
 
 
 def test_operator_actions_use_native_qgc_buttons_without_a_custom_hud_card() -> None:

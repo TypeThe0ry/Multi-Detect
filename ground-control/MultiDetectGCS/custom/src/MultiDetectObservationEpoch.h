@@ -15,6 +15,7 @@ public:
         Current,
         Advanced,
         Retired,
+        CapacityExhausted,
     };
 
     Result observe(quint32 epoch)
@@ -29,11 +30,14 @@ public:
             return Result::Retired;
         }
         if (_activeEpoch != 0) {
-            _retiredEpochs.append(_activeEpoch);
-            constexpr int kMaximumRetiredEpochs = 32;
-            while (_retiredEpochs.size() > kMaximumRetiredEpochs) {
-                _retiredEpochs.removeFirst();
+            // Never evict a retired epoch: eviction could let a very delayed
+            // authenticated datagram reactivate after enough producer
+            // restarts. Bound memory by refusing the 33rd session transition
+            // until the QGC controller itself is restarted.
+            if (_retiredEpochs.size() >= kMaximumRetiredEpochs) {
+                return Result::CapacityExhausted;
             }
+            _retiredEpochs.append(_activeEpoch);
         }
         _activeEpoch = epoch;
         return Result::Advanced;
@@ -41,8 +45,10 @@ public:
 
     quint32 activeEpoch() const { return _activeEpoch; }
     int retiredCount() const { return _retiredEpochs.size(); }
+    static constexpr int maximumRetiredEpochs() { return kMaximumRetiredEpochs; }
 
 private:
+    static constexpr int kMaximumRetiredEpochs = 32;
     quint32 _activeEpoch = 0;
     QList<quint32> _retiredEpochs;
 };

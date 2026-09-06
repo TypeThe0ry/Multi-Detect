@@ -64,6 +64,18 @@ int main(int argc, char* argv[])
     failures += check(observationEpoch.observe(0x11111111U) == MultiDetectObservationEpoch::Result::Retired &&
                           observationEpoch.activeEpoch() == 0x22222222U,
                       "delayed old observation epoch must never reactivate");
+    for (quint32 epoch = 3; epoch <= 33; ++epoch) {
+        failures += check(observationEpoch.observe(epoch) == MultiDetectObservationEpoch::Result::Advanced,
+                          "observation epoch must advance while retirement capacity remains");
+    }
+    failures += check(observationEpoch.retiredCount() == MultiDetectObservationEpoch::maximumRetiredEpochs(),
+                      "observation epoch retirement history must reach its exact bounded capacity");
+    failures += check(observationEpoch.observe(34) == MultiDetectObservationEpoch::Result::CapacityExhausted &&
+                          observationEpoch.activeEpoch() == 33,
+                      "observation epoch must fail closed instead of evicting retired history");
+    failures += check(observationEpoch.observe(0x11111111U) == MultiDetectObservationEpoch::Result::Retired &&
+                          observationEpoch.activeEpoch() == 33,
+                      "oldest retired observation epoch must remain retired at capacity");
 
     QHash<int, quint32> pagedStatusSequence;
     failures += check(MultiDetectPagedStatusSequence::acceptPageSequence(&pagedStatusSequence, 1, 20),

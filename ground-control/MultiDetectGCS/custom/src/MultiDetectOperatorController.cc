@@ -1676,18 +1676,33 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
         _reject(QStringLiteral("atomic target observation producer epoch is invalid"));
         return false;
     }
+    const quint32 previousEpoch = _targetObservationEpoch.activeEpoch();
     const MultiDetectObservationEpoch::Result result = _targetObservationEpoch.observe(incomingEpoch);
     if (result == MultiDetectObservationEpoch::Result::Current) {
         return true;
     }
     if (result == MultiDetectObservationEpoch::Result::Retired) {
+        ++_targetObservationRetiredEpochRejectCount;
+        emit targetObservationEpochStatsChanged();
         _reject(QStringLiteral("atomic target observation belongs to a retired producer epoch"));
+        return false;
+    }
+    if (result == MultiDetectObservationEpoch::Result::CapacityExhausted) {
+        ++_targetObservationEpochTransitionRejectCount;
+        emit targetObservationEpochStatsChanged();
+        _reject(QStringLiteral("atomic target observation producer epoch transition capacity is exhausted"));
         return false;
     }
     if (result == MultiDetectObservationEpoch::Result::Invalid) {
         _reject(QStringLiteral("atomic target observation producer epoch is invalid"));
         return false;
     }
+
+    if (previousEpoch != 0) {
+        ++_targetObservationProducerRestartCount;
+    }
+    _targetObservationEpochChangedAtMs = static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+    emit targetObservationEpochStatsChanged();
 
     // A producer restart resets its wire sequence and all camera-frame replay
     // state. Retire the previous epoch before clearing the visible triple so

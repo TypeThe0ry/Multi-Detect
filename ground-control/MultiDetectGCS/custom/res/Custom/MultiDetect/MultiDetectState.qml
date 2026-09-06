@@ -120,6 +120,16 @@ QtObject {
     property real jetsonFps: 0.0
     property real jetsonTemperatureC: 0.0
     readonly property string metadataLinkState: _operator !== null ? _operator.linkState : "UNAVAILABLE"
+    readonly property real targetObservationProducerEpoch: _operator !== null ?
+                                                               Number(_operator.targetObservationProducerEpoch) : 0
+    readonly property real targetObservationProducerRestartCount: _operator !== null ?
+                                                                      Number(_operator.targetObservationProducerRestartCount) : 0
+    readonly property real targetObservationRetiredEpochRejectCount: _operator !== null ?
+                                                                        Number(_operator.targetObservationRetiredEpochRejectCount) : 0
+    readonly property real targetObservationEpochTransitionRejectCount: _operator !== null ?
+                                                                           Number(_operator.targetObservationEpochTransitionRejectCount) : 0
+    readonly property double targetObservationEpochChangedAtMs: _operator !== null ?
+                                                                      Number(_operator.targetObservationEpochChangedAtMs) : 0
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is
     // cleared by C++ and therefore always renders UNKNOWN here.
