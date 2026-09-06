@@ -1,5 +1,15 @@
 # 统一仓库架构
 
+## v136 GR01 physical-source bench contract（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/operator_udp.py`：持续 G20/Jetson UDP session 支持 explicit IPv4 source bind，并暴露实际
+  `getsockname()` 地址；一次性 selection client 透传同一配置；
+- `src/multidetect/gr01_bench.py`、`configs/schemas/gr01-link-bench.schema.json` 与
+  `scripts/verify_gr01_link_bench.py`：hardware bench 在发送前验证 endpoint/source CIDR，错路由零发送；独立
+  verifier 重算计数守恒、丢包、时延形状、签名/双向标志和 no-control 约束；
+- `src/multidetect/cli.py`：`gr01-link-bench` 新增 `--expected-source-cidr`，报告使用临时文件 + `os.replace`
+  原子提交。上述生成/复核路径全部绑定到 `safety_policy` parity，但真实 GR01/G20 无线验收仍是独立现场门。
+
 ## v135 selected physical alert-link topology（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/alert_link_topology.py` 与 `configs/schemas/alert-link-topology.schema.json`：严格加载并

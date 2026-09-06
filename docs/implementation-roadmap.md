@@ -868,6 +868,9 @@ Exit criteria: every uncertain or inconsistent condition stays locked, no automa
 - [x] Keep target selection separate from payload deployment authorization.
 - [ ] Bench-test simultaneous RTSP clients through an onboard Ethernet switch.
 - [ ] Verify bidirectional IP packets between Jetson and the custom G20 application over GR01.
+- [x] Make the GR01 selection/ACK bench bind the OS-selected sender IPv4 to an expected aircraft
+  CIDR, fail with zero transmissions on a wrong route, and independently verify its strict report.
+  This closes the software evidence contract only; the preceding physical GR01 check remains open.
 - [x] Define a strict, hash-bound selected-link topology contract. Hardware ACK evidence now binds
   the GR01-direct endpoint/source/identity snapshot; selecting V6X fallback requires hashed GR01
   failure, PX4 SITL routing and actuator-disconnected V6X bench evidence before any UDP send.

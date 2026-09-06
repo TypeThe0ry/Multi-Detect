@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v135：真实数据链拓扑契约与 v5 报告绑定 |
+| 当前工程迭代 | v136：GR01 双向选择/ACK 的源路由绑定与独立复核 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,10 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132–v135 认证 ACK 实链源与拓扑绑定
+### v132–v136 认证 ACK 实链源与拓扑绑定
 
-hardware ACK bench 依次绑定 route source、UDP sender 与 ACK socket source；v135 再从 strict topology JSON
-绑定 endpoint/CIDR/身份及 SHA-256。V6X 回退缺三份前置证据时无法启动；实链仍未验收。详见
+ACK bench 依次绑定 route、sender、socket source；v135 绑定 topology JSON 与 SHA-256。v136 将同一边界扩展到
+GR01 选择/ACK：持续 UDP session 绑定 OS 源地址，schema/verifier 重算路由、计数、阈值和签名标志。V6X
+回退缺三份前置证据时无法启动；GR01 实链仍未验收。详见
 [告警数据链路](docs/data-link-alerts.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定

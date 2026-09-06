@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v135 工作树）
+最后更新：2026-09-06（v136 工作树）
+
+## v136 本轮已收口
+
+- GR01 目标选择/ACK hardware bench 现在强制 `--expected-source-cidr`；CLI 先读取 OS route 选择的
+  canonical IPv4，再把同一地址显式 bind 到实际持续 UDP session。源地址不在声明网段时，往返循环不启动，
+  `transmission_attempts=0`；
+- 新增 strict `gr01-link-bench` schema 与离线 verifier，独立重算 endpoint、source route、ACK/timeout/attempt
+  守恒、丢包、P50/P95 形状、阈值、HMAC/MAVLink2/双向标志、结果字段和全部 no-control 位；伪造 route flag、
+  计数或 `passed` 不能通过；
+- `operator_udp.py`、GR01 bench、CLI、schema 和 verifier 均进入 `safety_policy` parity。Phase 6 的软件验收契约
+  已完成，但“经真实 GR01 双向 IP 实测”继续未勾选；该变更没有发送飞控或载荷指令，也不构成射频/现场通过；
+- 首次全量回归发现且只发现进度 JSON 尚未同步新 parity（`3596 passed, 2 skipped, 1 failed`）；该文档一致性
+  失败已按设计阻止虚假收口；同步后最终全量回归 3,599 tests 为
+  `3597 passed, 2 skipped, 0 failed, 0 errors`，耗时 250.04 秒。JUnit 524,720 bytes、SHA-256
+  `68467B9949C7CA0A5203045F26C37682839A6D93713ECD59115FE450D0C8D7C2`。
+- 新 safety parity 下已从原始不可变 source 重算三机型 external join/revalidation、reported-position matrix 与
+  6 正例/9 故障 campaign，四项 verifier 均通过；E7 重新生成后仍为 `gate_passed=false`、
+  `release_allowed=false`、32 blockers，GR01/G20、现场数据和人工验收没有被软件证据替代。
 
 ## v135 本轮已收口
 

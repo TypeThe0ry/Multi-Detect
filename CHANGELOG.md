@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v136 GR01 physical-source bench verification（2026-09-06）
+
+- `gr01-link-bench --hardware-mode` 现在要求 expected source CIDR，先解析 OS route 再把同一 IPv4 bind 到实际
+  持续 UDP session；错网卡/错网段在首个选择包前以 0 transmission 失败；
+- 新增 strict schema、独立 verifier 与 console entry point，重算 endpoint/source、attempt/ACK/timeout 守恒、
+  丢包/时延阈值、双重签名/双向标志和全部 no-control 位；生成 CLI 改为原子写报告，相关实现全部进入 safety
+  parity；最终全量回归 `3597 passed, 2 skipped`。真实 GR01/G20 双向 IP 与射频台架仍未通过，不提升最终发布状态。
+
 ### v0.3.0-pre.8 v135 selected alert-link topology contract（2026-09-06）
 
 - 新增 strict、canonical、hash-bound 的 `gr01_direct` / `v6x_fallback` topology 契约；V6X 回退强制绑定
