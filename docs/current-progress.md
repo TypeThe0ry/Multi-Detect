@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v108 工作树）
+最后更新：2026-09-06（v109 工作树）
+
+## v109 本轮已收口
+
+- 新增固定模型 replay prediction runner：先复验 v108 annotation bundle 与 model manifest/artifact，再复用正式
+  `ReplayFrameSource`、`OnnxNx6Detector`/`OnnxRawYoloDetector`、`JsonlPredictionWriter`，没有离线算法分叉；
+- 六个 canonical strata 严格按 recording 帧序生成 predictions，模型类别 canonical 化后必须与 reviewed replay
+  完全一致，未知输出类别、帧缺失/重复/错序均 fail-closed；
+- 输出采用不可覆盖 sibling temporary；bundle 内复制并绑定固定模型，保留原 annotation manifest，另生成包含
+  predictions 的新 manifest 和 canonical receipt；receipt 锁定模型身份/hash、输入/NMS/threshold、provider、
+  runtime 版本、逐层文件 hash/帧数及 P50/P95/maximum/total latency；
+- 独立 verifier 重开 raw/intake/workspace/truth/原 annotation manifest/model/manifest/predictions/新 manifest 全链；
+  test double、真实 runtime、production approval、synthetic HIL 和 accuracy/release claims 明确分离；
+- installed CLI、clean-checkout wrapper、closed receipt schema 与 4 项回归已落库；实际 synthetic HIL ONNX 集成
+  smoke 已经通过 OpenCV、ONNX Runtime、letterbox、Nx6 adapter 和 `fire→flame` 规范化；
+- 全量回归 3,510 tests：`3509 passed, 1 skipped, 0 failed, 0 errors`，耗时 194.679 秒；JUnit
+  511,970 bytes、SHA-256 `9BC817EB6611FAD799302D9EAC66658E8ABBCB45CF48D6A6373339B0963C75F9`；
+  全仓 Ruff 与 compileall 通过。
 
 ## v108 本轮已收口
 
@@ -951,8 +968,9 @@ reported-position 路径；v63 又完成每机型双重复与三故障 fail-clos
 ### P2：部署域模型和 replay-set
 
 使用 v107 intake 显式导入 day/night/haze/reflection/smoke-only/no-fire 真实录像，再用 v108 workspace 完成
-独立人工标注与 review receipt；随后运行固定模型 predictions、fire/smoke 与 person/vehicle 安全模型，
-测量 per-class precision/recall/false alarms/misses/latency，完成独立评审后再改变 model status。
+独立人工标注与 review receipt；用 v109 runner 在该真实 reviewed bundle 上运行固定 fire/smoke 模型，并继续
+运行 person/vehicle 安全模型，测量 per-class precision/recall/false alarms/misses/latency，完成独立评审后再改变
+model status。当前只完成 runner 与 synthetic HIL runtime smoke，没有 field receipt 或部署域 accuracy 结论。
 
 ### P3：真实硬件与室外定位
 

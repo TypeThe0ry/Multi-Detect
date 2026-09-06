@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T02:14:00Z",
+  "updated_at_utc": "2026-09-06T02:46:13Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "54915cb9ebccb861cf08e74b552e7c94bb5daec5",
-    "commit_subject": "feat(replay): add reviewed annotation workspace",
-    "commits_ahead_of_origin_main": 104
+    "commit": "a64750c73d4e49a4c13f319cd12bdbba20015e67",
+    "commit_subject": "feat(replay): bind fixed-model prediction runs",
+    "commits_ahead_of_origin_main": 106
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v108",
+  "working_iteration": "v109",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v108-final.xml",
-      "tests": 3506,
-      "passed": 3505,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v109-final.xml",
+      "tests": 3510,
+      "passed": 3509,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 177.668,
-      "junit_local_path": "tmp/current-progress-regression-v108-final.xml",
-      "junit_file_bytes": 511437,
-      "junit_file_sha256": "445fff48ac1b2a99051ef6490c96d6fcecd96130870a12414992d50acd5abe99",
+      "duration_seconds": 194.679,
+      "junit_local_path": "tmp/current-progress-regression-v109-final.xml",
+      "junit_file_bytes": 511970,
+      "junit_file_sha256": "9bc817eb6611fad799302d9eac66658e8abbcb45cf48d6a6373339b0963c75f9",
       "distributed_in_git": false
     },
     "ruff": {
@@ -743,6 +743,27 @@
       "accuracy_validated": false,
       "release_claim": "not_claimed",
       "field_review_receipt": "pending_physical_annotation"
+    },
+    "replay_prediction_run": {
+      "implementation": "src/multidetect/replay_prediction_run.py",
+      "installed_command": "multidetect-replay-predictions",
+      "repository_wrapper": "scripts/run_replay_predictions.py",
+      "receipt_schema": "configs/schemas/replay-prediction-run-receipt.schema.json",
+      "commands": ["run", "verify"],
+      "shared_runtime_pipeline": [
+        "ReplayFrameSource",
+        "OnnxNx6Detector_or_OnnxRawYoloDetector",
+        "JsonlPredictionWriter"
+      ],
+      "canonical_strata_count": 6,
+      "atomic_non_overwriting_output": true,
+      "model_artifact_copied_and_hash_bound": true,
+      "annotation_manifest_chain_preserved": true,
+      "frame_and_class_alignment_verified": true,
+      "runtime_inference_smoke": "passed_synthetic_hil_onnx",
+      "field_predictions_complete": false,
+      "accuracy_validated": false,
+      "release_claim": "not_claimed"
     },
     "release_gate_report": {
       "local_path": "artifacts/evaluation/terminal-continuation-v106/wrapper-default-final/release-gate-pre.8-current-20260906T014323Z-v6-bound-report.json",

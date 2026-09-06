@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 固定模型 replay predictions 与 provenance（v109）
+
+- [x] 从 v108 reviewed bundle 复验 annotation/raw/truth 绑定后再启动推理；
+- [x] 复用正式 frame decoder、ONNX/TensorRT detector、letterbox/NMS/adapter 与 prediction writer；
+- [x] 固定 model artifact/manifest/class/input/output/threshold/provider/runtime 身份；
+- [x] 六 strata prediction stream 逐文件 hash、逐帧顺序和延迟统计；
+- [x] 原子、不可覆盖输出及 annotation/model/prediction/new-manifest 全链独立 verifier；
+- [x] CLI、wrapper、closed receipt schema、test-double 负声明和真实 ONNX Runtime smoke；
+- [ ] 在真实 v108 field-reviewed bundle 上运行固定候选模型并保存 receipt；
+- [ ] 执行 evaluator/readiness/threshold calibration，并由独立 reviewer 评审模型状态。
+
 ## replay-set 独立人工标注工作区（v108）
 
 - [x] 从 verified intake 推导逐帧、逐图像 immutable assignment；
@@ -10,7 +21,8 @@
 - [x] 独立 verify 重开并对账 raw/intake/workspace/truth/manifest 全链；
 - [x] create/inspect/finalize/verify CLI、installed command、closed schemas 与回归；
 - [ ] 使用真实 v107 field intake 完成人工双人标注和 review receipt；
-- [ ] 固定候选模型生成全帧 predictions，执行 evaluator/readiness/threshold 独立评审。
+- [x] 固定候选模型全帧 predictions 的共享 runner/provenance/verifier 已实现；
+- [ ] 在真实 field-reviewed 数据上执行 runner，再做 evaluator/readiness/threshold 独立评审。
 
 ## 部署 replay-set 不可变 intake（v107）
 

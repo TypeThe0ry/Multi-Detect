@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v108：独立人工标注工作区与原子真值导出 |
+| 当前工程迭代 | v109：固定模型全分层预测与 provenance 闭环 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,6 +82,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v109 固定模型 prediction provenance 闭环
+
+`multidetect-replay-predictions` / `scripts/run_replay_predictions.py` 直接读取 v108 已复核 replay bundle，
+验证并复制固定 model artifact 与 manifest，然后对六个 strata 依次复用正式
+`ReplayFrameSource → OnnxNx6/OnnxRawYoloDetector → JsonlPredictionWriter` 链生成逐帧 predictions。离线
+回放没有另写预处理、NMS 或类别适配器，因此与实时 detector 保持同一实现。
+
+输出采用不可覆盖 sibling temporary，保留原 annotation manifest 的独立哈希链，并新增模型身份、输入尺寸、
+阈值、provider selection、runtime 版本、逐层 prediction SHA/帧数和延迟分位数的 canonical receipt；verify 会
+重开 annotation、raw recording、model/manifest、六份 predictions 和新 replay manifest。真实 runtime 是否执行、
+模型是否 production-approved、是否 synthetic HIL 分开记录；完成 predictions 仍不代表精度或发布通过。
+
 ### v108 独立人工标注闭环
 
 `multidetect-replay-annotations` / `scripts/replay_annotation_workspace.py` 现在从 v107 intake 生成逐帧
@@ -93,17 +105,8 @@ finalize 要求 annotator/reviewer 非空且大小写不敏感地互不相同、
 `ground-truth.jsonl`、reviewed workspace、closed review receipt 和正式 replay manifest；独立 verify 会逐字节
 对账 workspace → truth → manifest，仍固定 predictions/accuracy/release 为 false。
 
-### v107 部署录像进入可执行 intake
-
-新增 `multidetect-replay-set-intake` 和 `scripts/prepare_deployment_replay_set.py`。操作者必须把
-day/night/haze/reflection/smoke_only/no_fire 六个 strata 显式绑定到六个不同的 raw recording 目录；
-工具会先通过现有 `RawSensorReplayRecording` 重开源数据，只复制 manifest、event stream 与被引用图像，
-在 sibling 临时目录生成 closed-schema、canonical-hash receipt，完成二次重开/逐文件 SHA-256 校验后才原子
-发布输出目录。
-
-intake 永远写入 `annotation_state=pending`、`prediction_state=pending`、`release_ready=false`，不会复制源目录
-里可能存在的旧 ground truth/predictions，也不接受覆盖、重复录像、symlink、路径逃逸或 claims 篡改。人工标注
-和固定模型 predictions 完成后，继续由既有 replay-set manifest/evaluator/readiness 链路接管。
+v107 的六分层不可变 intake 命令、拒绝条件和 receipt 契约见
+[分层回放集清单](docs/replay-set-manifest.md) 与 [当前进度](docs/current-progress.md)。
 
 ### v106 replay-set readiness 进入 E7
 

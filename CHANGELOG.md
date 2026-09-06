@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v109 fixed-model replay prediction provenance（2026-09-06）
+
+- 新增固定模型 replay prediction runner、installed CLI、clean-checkout wrapper 与 closed receipt schema；六个
+  strata 共用正式 raw replay decoder、ONNX/TensorRT detector、letterbox/NMS/adapter 和 JSONL writer；
+- 原子输出绑定 reviewed annotation 原始 manifest、固定 model/manifest、输入和阈值、provider/runtime、逐层
+  predictions 与延迟统计；独立 verifier 重开完整 provenance 链并拒绝覆盖、类别/帧错配和内容篡改；
+- test double、真实 runtime、production approval、synthetic HIL、accuracy/release claims 分离；实际 ONNX Runtime
+  smoke 通过，但 field predictions 和 accuracy review 尚未完成。新增 4 项回归；全量 3,510 tests：
+  `3509 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v108 reviewed replay annotation workspace（2026-09-06）
 
 - 新增逐帧 annotation workspace：未标注为 `objects=null`，positive/negative 必须显式选择并通过类别/bbox

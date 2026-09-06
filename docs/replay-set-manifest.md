@@ -101,8 +101,38 @@ finalize 会从 intake 重推 assignment，不信任编辑文件自报的 frame/
 `annotation-workspace.reviewed.json`、`annotation-review.receipt.json` 和 `replay-set.manifest.json`，但仍明确
 `predictions_complete=false`、`accuracy_validated=false`、`release_ready=false`。
 
-再由固定模型生成 predictions 并执行 evaluator/readiness。采集或标注尚未完成时也可以生成一个
-明确的 pending 清单：
+然后用一份 hash-bound 固定模型生成全帧 predictions：
+
+```powershell
+python scripts/run_replay_predictions.py run `
+  artifacts\replay-sets\fire-smoke-field-v1-reviewed `
+  artifacts\replay-sets\fire-smoke-field-v1-predicted `
+  --model artifacts\models\fire-smoke.onnx `
+  --model-manifest artifacts\models\fire-smoke.manifest.json `
+  --model-format auto `
+  --confidence-threshold 0.25 `
+  --iou-threshold 0.45 `
+  --maximum-detections 300 `
+  --provider CUDAExecutionProvider `
+  --provider CPUExecutionProvider
+
+python scripts/run_replay_predictions.py verify `
+  artifacts\replay-sets\fire-smoke-field-v1-predicted
+```
+
+runner 会先复验 v108 annotation bundle 与模型 manifest/artifact，然后使用实时路径同一份
+`ReplayFrameSource`、letterbox、ONNX/TensorRT detector、host NMS（仅 raw Ultralytics 模型）和
+`JsonlPredictionWriter`。它不覆盖输入或输出目录；固定模型与 manifest 被复制进新 bundle，原 annotation
+manifest 另存为 `annotation-source.replay-set.manifest.json`，新 `replay-set.manifest.json` 才绑定六份
+`predictions.jsonl`。
+
+`prediction-run.receipt.json` 绑定 annotation review canonical hash、两个 replay manifest、模型 artifact/manifest、
+class/input/output、阈值与 NMS、provider selection、runtime 版本、每层 prediction SHA/字节/帧数和延迟统计。
+`runtime_inference_executed`、`production_approved` 与 `synthetic_hil_only` 是不同事实；即使 predictions 齐全，
+receipt 仍固定 `accuracy_validated=false`、`release_ready=false`。下一步必须运行 evaluator/readiness 并由独立人员
+评审部署域指标。
+
+采集或标注尚未完成时也可以生成一个明确的 pending 清单：
 
 ```powershell
 cd D:\Projects\Multi-Detect
