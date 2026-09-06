@@ -341,6 +341,18 @@ Item {
         mode3AimLoopCue.stop();
     }
 
+    function _copyProducerEpochDiagnostics() {
+        const diagnostics = MultiDetectState.producerEpochDiagnosticsJson();
+        if (diagnostics === "") {
+            _setTargetEvidenceFeedback(qsTr("观测生产者诊断不可用"), true);
+            return;
+        }
+        QGroundControl.copyToClipboard(diagnostics);
+        _setTargetEvidenceFeedback(
+            qsTr("已复制生产者诊断：%1 个事件").arg(
+                Math.round(MultiDetectState.targetObservationEpochEventCount)), false);
+    }
+
     function _wgs84MetersPerDegree(latitudeDeg) {
         if (!Number.isFinite(latitudeDeg) || latitudeDeg <= -90.0 || latitudeDeg >= 90.0)
             return null;
@@ -843,6 +855,11 @@ Item {
                              multiDetectTargetEvidenceStore.snapshotCount > 0
                     text: qsTr("记录")
                     onClicked: root._openTargetEvidenceHistoryDialog()
+                }
+
+                QGCButton {
+                    text: qsTr("复制诊断")
+                    onClicked: root._copyProducerEpochDiagnostics()
                 }
             }
 

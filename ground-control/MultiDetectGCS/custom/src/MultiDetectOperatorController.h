@@ -45,6 +45,9 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(qulonglong targetObservationEpochLastIncidentAtMs READ targetObservationEpochLastIncidentAtMs NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(QString targetObservationEpochHealthLevel READ targetObservationEpochHealthLevel NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(QString targetObservationEpochHealthReason READ targetObservationEpochHealthReason NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(QVariantList targetObservationEpochEvents READ targetObservationEpochEvents NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationEpochEventCount READ targetObservationEpochEventCount NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationEpochDroppedEventCount READ targetObservationEpochDroppedEventCount NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -112,6 +115,9 @@ public:
     qulonglong targetObservationEpochLastIncidentAtMs() const { return _targetObservationEpochLastIncidentAtMs; }
     QString targetObservationEpochHealthLevel() const;
     QString targetObservationEpochHealthReason() const;
+    QVariantList targetObservationEpochEvents() const { return _targetObservationEpochEvents; }
+    qulonglong targetObservationEpochEventCount() const { return _targetObservationEpochEventCount; }
+    qulonglong targetObservationEpochDroppedEventCount() const { return _targetObservationEpochDroppedEventCount; }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -160,6 +166,7 @@ public:
     Q_INVOKABLE bool sendPayloadTargetSlideConfirmation(int slideDurationMs, double completionFraction,
                                                         bool continuous);
     Q_INVOKABLE double depthAtNormalized(double x, double y) const;
+    Q_INVOKABLE QString targetObservationEpochDiagnosticsJson() const;
 
 signals:
     void linkStateChanged();
@@ -285,6 +292,8 @@ private:
     void _setLinkState(const QString& state);
     bool _isNewStatus(MultiDetectOperatorProtocol::MessageType type, quint32 sequence, quint64 receivedAtMs);
     bool _acceptTargetObservationEpoch(const QVariantMap& fields);
+    void _recordTargetObservationEpochEvent(const QString& kind, quint32 incomingEpoch,
+                                            quint32 previousEpoch, qulonglong occurredAtMs);
     bool _acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs, quint64 receivedAtMs);
     void _clearTargetGeolocationSourceState();
     quint64 _operatorWireNowMs(quint64 localNowMs) const;
@@ -346,6 +355,9 @@ private:
     qulonglong _targetObservationEpochTransitionRejectCount = 0;
     qulonglong _targetObservationEpochChangedAtMs = 0;
     qulonglong _targetObservationEpochLastIncidentAtMs = 0;
+    QVariantList _targetObservationEpochEvents;
+    qulonglong _targetObservationEpochEventCount = 0;
+    qulonglong _targetObservationEpochDroppedEventCount = 0;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

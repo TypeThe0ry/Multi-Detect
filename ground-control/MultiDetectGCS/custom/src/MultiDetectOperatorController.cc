@@ -2,6 +2,7 @@
 
 #include <QtCore/QBuffer>
 #include <QtCore/QDateTime>
+#include <QtCore/QJsonDocument>
 #include <QtCore/QSet>
 #include <QtCore/QSettings>
 #include <QtCore/QUuid>
@@ -39,6 +40,8 @@ static_assert(MULTIDETECT_PHYSICAL_RELEASE == 0, "Operator metadata transport mu
 QGC_LOGGING_CATEGORY(MultiDetectOperatorLog, "MultiDetect.Operator")
 
 namespace {
+
+constexpr qsizetype kMaximumTargetObservationEpochEvents = 64;
 
 QString environmentValue(const char* name, const QString& fallback = {})
 {
@@ -1685,6 +1688,8 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
         ++_targetObservationRetiredEpochRejectCount;
         _targetObservationEpochLastIncidentAtMs =
             static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+        _recordTargetObservationEpochEvent(QStringLiteral("retired_epoch_rejected"), incomingEpoch,
+                                           previousEpoch, _targetObservationEpochLastIncidentAtMs);
         emit targetObservationEpochStatsChanged();
         _reject(QStringLiteral("atomic target observation belongs to a retired producer epoch"));
         return false;
@@ -1693,6 +1698,9 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
         ++_targetObservationEpochTransitionRejectCount;
         _targetObservationEpochLastIncidentAtMs =
             static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+        _recordTargetObservationEpochEvent(QStringLiteral("transition_capacity_exhausted"),
+                                           incomingEpoch, previousEpoch,
+                                           _targetObservationEpochLastIncidentAtMs);
         emit targetObservationEpochStatsChanged();
         _reject(QStringLiteral("atomic target observation producer epoch transition capacity is exhausted"));
         return false;
@@ -1706,6 +1714,9 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
         ++_targetObservationProducerRestartCount;
     }
     _targetObservationEpochChangedAtMs = static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+    _recordTargetObservationEpochEvent(previousEpoch == 0 ? QStringLiteral("epoch_initialized")
+                                                          : QStringLiteral("producer_restart"),
+                                       incomingEpoch, previousEpoch, _targetObservationEpochChangedAtMs);
     emit targetObservationEpochStatsChanged();
 
     // A producer restart resets its wire sequence and all camera-frame replay
@@ -1776,6 +1787,68 @@ QString MultiDetectOperatorController::targetObservationEpochHealthReason() cons
         return QStringLiteral("producer_restart_observed");
     }
     return QStringLiteral("producer_epoch_stable");
+}
+
+void MultiDetectOperatorController::_recordTargetObservationEpochEvent(
+    const QString& kind, quint32 incomingEpoch, quint32 previousEpoch, qulonglong occurredAtMs)
+{
+    ++_targetObservationEpochEventCount;
+    if (_targetObservationEpochEvents.size() >= kMaximumTargetObservationEpochEvents) {
+        _targetObservationEpochEvents.removeFirst();
+        ++_targetObservationEpochDroppedEventCount;
+    }
+
+    QVariantMap event;
+    event.insert(QStringLiteral("event_index"), QVariant::fromValue(_targetObservationEpochEventCount));
+    event.insert(QStringLiteral("occurred_at_ms"), QVariant::fromValue(occurredAtMs));
+    event.insert(QStringLiteral("kind"), kind);
+    event.insert(QStringLiteral("health_level"), targetObservationEpochHealthLevel());
+    event.insert(QStringLiteral("health_reason"), targetObservationEpochHealthReason());
+    event.insert(QStringLiteral("incoming_epoch"), incomingEpoch);
+    event.insert(QStringLiteral("previous_epoch"), previousEpoch);
+    event.insert(QStringLiteral("active_epoch"), _targetObservationEpoch.activeEpoch());
+    event.insert(QStringLiteral("producer_restart_count"),
+                 QVariant::fromValue(_targetObservationProducerRestartCount));
+    event.insert(QStringLiteral("retired_epoch_reject_count"),
+                 QVariant::fromValue(_targetObservationRetiredEpochRejectCount));
+    event.insert(QStringLiteral("epoch_transition_reject_count"),
+                 QVariant::fromValue(_targetObservationEpochTransitionRejectCount));
+    _targetObservationEpochEvents.append(event);
+}
+
+QString MultiDetectOperatorController::targetObservationEpochDiagnosticsJson() const
+{
+    QVariantMap summary;
+    summary.insert(QStringLiteral("active_epoch"), _targetObservationEpoch.activeEpoch());
+    summary.insert(QStringLiteral("health_level"), targetObservationEpochHealthLevel());
+    summary.insert(QStringLiteral("health_reason"), targetObservationEpochHealthReason());
+    summary.insert(QStringLiteral("producer_restart_count"),
+                   QVariant::fromValue(_targetObservationProducerRestartCount));
+    summary.insert(QStringLiteral("retired_epoch_reject_count"),
+                   QVariant::fromValue(_targetObservationRetiredEpochRejectCount));
+    summary.insert(QStringLiteral("epoch_transition_reject_count"),
+                   QVariant::fromValue(_targetObservationEpochTransitionRejectCount));
+    summary.insert(QStringLiteral("epoch_changed_at_ms"),
+                   QVariant::fromValue(_targetObservationEpochChangedAtMs));
+    summary.insert(QStringLiteral("epoch_last_incident_at_ms"),
+                   QVariant::fromValue(_targetObservationEpochLastIncidentAtMs));
+    summary.insert(QStringLiteral("event_count"), QVariant::fromValue(_targetObservationEpochEventCount));
+    summary.insert(QStringLiteral("retained_event_count"), _targetObservationEpochEvents.size());
+    summary.insert(QStringLiteral("dropped_event_count"),
+                   QVariant::fromValue(_targetObservationEpochDroppedEventCount));
+
+    QVariantMap document;
+    document.insert(QStringLiteral("schema"), QStringLiteral("multidetect.producer-epoch-diagnostics.v1"));
+    document.insert(QStringLiteral("schema_version"), 1);
+    document.insert(QStringLiteral("generated_at_utc"),
+                    QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    document.insert(QStringLiteral("event_capacity"), kMaximumTargetObservationEpochEvents);
+    document.insert(QStringLiteral("summary"), summary);
+    document.insert(QStringLiteral("events"), _targetObservationEpochEvents);
+    document.insert(QStringLiteral("advisory_only"), true);
+    document.insert(QStringLiteral("flight_control_enabled"), false);
+    document.insert(QStringLiteral("physical_release_enabled"), false);
+    return QString::fromUtf8(QJsonDocument::fromVariant(document).toJson(QJsonDocument::Indented));
 }
 
 bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,

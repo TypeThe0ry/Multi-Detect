@@ -805,6 +805,32 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "MultiDetectState.targetObservationProducerRestartCount" in indicator
     assert "MultiDetectState.targetObservationRetiredEpochRejectCount" in indicator
     assert "MultiDetectState.targetObservationEpochTransitionRejectCount" in indicator
+    assert "targetObservationEpochEvents READ targetObservationEpochEvents" in controller_header
+    assert (
+        "targetObservationEpochEventCount READ targetObservationEpochEventCount"
+        in controller_header
+    )
+    assert (
+        "targetObservationEpochDroppedEventCount READ targetObservationEpochDroppedEventCount"
+        in controller_header
+    )
+    assert "targetObservationEpochDiagnosticsJson() const" in controller_header
+    assert "kMaximumTargetObservationEpochEvents = 64" in controller
+    assert 'QStringLiteral("epoch_initialized")' in controller
+    assert 'QStringLiteral("producer_restart")' in controller
+    assert 'QStringLiteral("retired_epoch_rejected")' in controller
+    assert 'QStringLiteral("transition_capacity_exhausted")' in controller
+    assert 'QStringLiteral("multidetect.producer-epoch-diagnostics.v1")' in controller
+    assert 'document.insert(QStringLiteral("advisory_only"), true)' in controller
+    assert 'document.insert(QStringLiteral("flight_control_enabled"), false)' in controller
+    assert 'document.insert(QStringLiteral("physical_release_enabled"), false)' in controller
+    assert 'summary.insert(QStringLiteral("retained_event_count")' in controller
+    assert 'summary.insert(QStringLiteral("dropped_event_count")' in controller
+    assert "function producerEpochDiagnosticsJson()" in state
+    assert "function _copyProducerEpochDiagnostics()" in layer
+    assert 'text: qsTr("复制诊断")' in layer
+    assert "enabled: MultiDetectState.targetObservationEpochEventCount > 0" not in layer
+    assert "MultiDetectState.targetObservationEpochDroppedEventCount" in indicator
 
 
 def test_operator_actions_use_native_qgc_buttons_without_a_custom_hud_card() -> None:

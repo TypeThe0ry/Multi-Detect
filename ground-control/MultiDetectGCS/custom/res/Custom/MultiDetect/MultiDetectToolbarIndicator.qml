@@ -428,11 +428,17 @@ Item {
         const changedAtMs = Number(MultiDetectState.targetObservationEpochChangedAtMs);
         const changedAt = Number.isFinite(changedAtMs) && changedAtMs > 0 ?
                 new Date(changedAtMs).toLocaleTimeString(Qt.locale(), "HH:mm:ss") : "--";
-        return qsTr("%1 · epoch %2 · 重启 %3 · 旧包拒绝 %4 · 切换拒绝 %5 · %6").arg(
+        const dropped = Math.round(MultiDetectState.targetObservationEpochDroppedEventCount);
+        const eventText = dropped > 0 ?
+                qsTr("事件 %1（丢弃 %2）").arg(Math.round(
+                    MultiDetectState.targetObservationEpochEventCount)).arg(dropped) :
+                qsTr("事件 %1").arg(Math.round(MultiDetectState.targetObservationEpochEventCount));
+        return qsTr("%1 · epoch %2 · 重启 %3 · 旧包拒绝 %4 · 切换拒绝 %5 · %6 · %7").arg(
                     _producerEpochHealthText()).arg(Math.round(epoch)).arg(
                     Math.round(MultiDetectState.targetObservationProducerRestartCount)).arg(
                     Math.round(MultiDetectState.targetObservationRetiredEpochRejectCount)).arg(
-                    Math.round(MultiDetectState.targetObservationEpochTransitionRejectCount)).arg(changedAt);
+                    Math.round(MultiDetectState.targetObservationEpochTransitionRejectCount)).arg(
+                    eventText).arg(changedAt);
     }
 
     function _producerEpochHealthText() {

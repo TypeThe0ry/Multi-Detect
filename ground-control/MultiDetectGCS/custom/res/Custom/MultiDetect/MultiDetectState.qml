@@ -137,6 +137,16 @@ QtObject {
     readonly property string targetObservationEpochHealthReason: _operator !== null ?
                                                                          String(_operator.targetObservationEpochHealthReason) :
                                                                          "waiting_for_atomic_observation"
+    readonly property var targetObservationEpochEvents: _operator !== null ?
+                                                                _operator.targetObservationEpochEvents : []
+    readonly property real targetObservationEpochEventCount: _operator !== null ?
+                                                                    Number(_operator.targetObservationEpochEventCount) : 0
+    readonly property real targetObservationEpochDroppedEventCount: _operator !== null ?
+                                                                           Number(_operator.targetObservationEpochDroppedEventCount) : 0
+
+    function producerEpochDiagnosticsJson() {
+        return _operator !== null ? String(_operator.targetObservationEpochDiagnosticsJson()) : "";
+    }
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is
     // cleared by C++ and therefore always renders UNKNOWN here.
