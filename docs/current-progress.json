@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T11:24:00Z",
+  "updated_at_utc": "2026-09-06T11:43:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "6485b9a2ab4d939e412dbaba944a8333f8510b92",
-    "commit_subject": "feat(release): gate final GR01 operator link",
-    "commits_ahead_of_origin_main": 164
+    "commit": "a9384d4633f2191131af592cfd40019f5b7ff72b",
+    "commit_subject": "test: close annotation workbench pipes",
+    "commits_ahead_of_origin_main": 167
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v137",
+  "working_iteration": "v138",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,29 +74,29 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12",
-      "tests": 3604,
-      "passed_tests": 3602,
+      "tests": 3608,
+      "passed_tests": 3606,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 240.937,
+      "duration_seconds": 238.449,
       "local_artifacts_present": true,
-      "junit_local_path": "tmp/current-progress-regression-v137-py312-final.xml",
-      "junit_file_bytes": 525403,
-      "junit_file_sha256": "669e08ae1821beb602b45651558dfb101b83f2d3bb9a2eada3315c2c4600e86a",
+      "junit_local_path": "tmp/current-progress-regression-v138-py312-final.xml",
+      "junit_file_bytes": 525966,
+      "junit_file_sha256": "3ee31f54061d0cdc7f976687f87fa47b67b342907c6c38e8727d6d7513575b75",
       "distributed_in_git": false
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 7454,
-    "file_sha256": "74854de43d5bf772aaafe9da4b7359603ba9fc7f20b37f9612772ee1d9cccc09",
+    "file_sha256": "5179c34077dc61cf0a0bbeb530aa8a08a28ceb53fc327e5cadb66d70fd9a8723",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
       "safety_policy_hash": "aa7fb7305e5215ae61e2fb3339b000e18ea08ea3c52d3d2594a98fcf48e42649",
-      "px4_mission_path_hash": "aa38db69e111fb429dabce57cf4585d9069f172fbe3759321ef843f5f45808a7"
+      "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5"
     }
   },
   "evidence": {
@@ -116,6 +116,17 @@
       "evaluator_reopens_hash_bound_source": true,
       "required_separately_from_real_alert_link": true,
       "required_for_final_release": true,
+      "current_hardware_report_present": false,
+      "hardware_claimed": false
+    },
+    "gr01_release_gate_freshness": {
+      "observed_at_utc_bound": true,
+      "report_timestamp_epoch_s_bound": true,
+      "default_max_age_s": 900.0,
+      "writer_rejects_stale_or_future_reports": true,
+      "evaluator_recomputes_age_at_evaluated_at_utc": true,
+      "legacy_prerelease_records_readable": true,
+      "freshness_required_for_final_release": true,
       "current_hardware_report_present": false,
       "hardware_claimed": false
     },

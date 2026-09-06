@@ -1,5 +1,28 @@
 # v0.3.0 E7 发布门
 
+## v138 REAL GR01 evidence freshness（2026-09-06，`v0.3.0-pre.8`）
+
+GR01 选择/ACK 台架报告不能作为永久凭证。新 manifest 同时绑定源报告的 `observed_at_utc`、等价
+`report_timestamp_epoch_s` 和 `max_age_s`；默认有效期 900 秒。writer 在创建 manifest 当下检查时区、有限值、
+未来偏差和 age，过期报告不会进入新 manifest。evaluator 又在每次复评时使用顶层 canonical
+`evaluated_at_utc` 重算 age，因此一个创建时合格的报告会在窗口结束后自动关门。
+
+历史 prerelease manifest 若完全不含 freshness 三字段仍可审计读取；任一字段单独出现属于 partial binding，
+立即失败。最终 `0.3.0` 即使源 hash、硬件 ID、endpoint/source route、ACK 和签名全部通过，也必须包含三字段，
+否则增加 `final release requires freshness-bound REAL GR01 operator-link provenance` 阻断。
+
+```powershell
+.\scripts\run_current_release_gate_pre8.ps1 `
+  -RealGr01OperatorLinkBench D:\FieldEvidence\gr01-link-bench.json `
+  -RealGr01OperatorLinkMaxAgeSeconds 900 `
+  -OutputDirectory D:\FieldEvidence\release-gate `
+  -Stamp 20260906T120000Z
+```
+
+部署身份不是单个字符串，而是同一 hash-bound report 内的 `hardware_id + remote_host:remote_port +
+expected_source_cidr + local_source_address + observed_at_utc`。当前没有真实报告，E7 仍显示
+`present=false/passed=false`，不构成 GR01/G20、HIL、REAL、射频或实飞通过。
+
 ## v137 REAL GR01 operator-link 独立门（2026-09-06，`v0.3.0-pre.8`）
 
 目标选择/ACK 与 fire-alert 是两条用途不同的数据链。新 manifest 顶层键

@@ -1,6 +1,27 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v137 工作树）
+最后更新：2026-09-06（v138 工作树）
+
+## v138 本轮已收口
+
+- `real_gr01_operator_link` 新增 `observed_at_utc`、`report_timestamp_epoch_s` 与 `max_age_s` 三字段原子绑定；
+  writer 默认只接收 900 秒内的报告，拒绝过期、无时区、非有限时间和超过 5 秒容差的未来时间；
+- evaluator 使用整个 E7 报告共用的 canonical `evaluated_at_utc` 重算 age，时间字符串与 epoch 不一致、投影缺一、
+  源报告时间漂移、复评时已过期全部 fail-closed；历史 prerelease 记录仍可读取，但最终 `0.3.0` 明确要求 freshness
+  三字段完整存在，不能永久复用旧台架报告；
+- Windows wrapper 新增 `-RealGr01OperatorLinkMaxAgeSeconds`（默认 900，范围 0..86400）并传给 manifest CLI；部署
+  证据身份现在由 hardware ID、non-loopback endpoint、expected source CIDR、实际 source address 和采集时间共同组成；
+- release parity 仍为 7,454 bytes，SHA-256
+  `5179C34077DC61CF0A0BBEB530AA8A08A28CEB53FC327E5CADB66D70FD9A8723`；release-gate schema 变更令
+  PX4 Mission path hash 更新为 `91CFD7816000A26BF04BEA11703247DDED3A4B07AAC7797CEBC9BD5161E746E5`，其余四组不变；
+- 三机型 external join/revalidation、reported-position matrix 与 6 正例/9 故障 campaign 均从不可变 source 按新
+  parity 重算并独立通过。E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，且
+  `real_gr01_operator_link.present=false`，没有伪造现场报告；
+- 首轮 strict 全量回归发现 annotation UI 测试的 `Popen` stdout/stderr 管道未关闭，产生 1 个
+  `ResourceWarning`；测试改用 `communicate()` 并含 timeout/kill 回收，连续定向复测通过。最终全量 3,608 tests：
+  `3606 passed, 2 skipped, 0 failed, 0 errors`，JUnit 238.449 秒、525,966 bytes、SHA-256
+  `3EE31F54061D0CDC7F976687F87FA47B67B342907C6C38E8727D6D7513575B75`；Ruff format/lint、compileall、schema
+  与 diff check 全部通过。本轮未改 C++/QML，portable EXE 不重建。
 
 ## v137 本轮已收口
 

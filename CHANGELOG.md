@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v138 GR01 evidence freshness（2026-09-06）
+
+- GR01 E7 记录新增 source UTC、epoch 和 max-age 原子绑定，writer 默认拒绝超过 900 秒或 materially future 的
+  报告；evaluator 以统一 `evaluated_at_utc` 在每次复评时重算 age，partial/tampered/expired provenance 均
+  fail-closed；历史 prerelease 可读，但 final channel 强制完整 freshness 字段；
+- CLI/PowerShell wrapper/schema/tests 已同步；新 PX4 parity 的四份派生证据独立通过，E7 继续 32 blockers 且
+  无真实 GR01 report。strict 全量回归中顺带修复 annotation UI 测试子进程管道泄漏，最终
+  `3606 passed, 2 skipped`；本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v137 GR01 operator-link final release gate（2026-09-06）
 
 - E7 新增独立 `real_gr01_operator_link`：writer hash-bind 并严格复核真实 GR01 selection/ACK bench，evaluator

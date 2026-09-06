@@ -1,5 +1,18 @@
 # 统一仓库架构
 
+## v138 GR01 freshness-bound E7 identity（2026-09-06，`v0.3.0-pre.8`）
+
+- `release_gate_manifest.py`：解析 source `observed_at_utc`，在创建时执行默认 900 秒 freshness 与未来时钟容差，
+  并写入 timestamp/epoch/max-age 投影；
+- `release_gate.py`：以共用 `evaluated_at_utc` 重算证据 age，验证 timestamp↔epoch↔source，一旦超龄、部分绑定或
+  时间漂移即阻断；final channel 另要求完整 freshness provenance；
+- release-gate schema、manifest CLI 和 `run_current_release_gate_pre8.ps1`：分别声明三字段、
+  `--real-gr01-operator-link-max-age-s` 与 `-RealGr01OperatorLinkMaxAgeSeconds`；
+- `tests/test_release_gate_manifest.py`：覆盖创建时 stale、复评过期、partial binding、legacy prerelease 兼容与
+  legacy final 阻断；annotation workbench subprocess 测试同时闭合 stdout/stderr 管道资源生命周期。
+
+本层只缩短可接受证据的时间窗口，不把历史软件或台架记录提升为现场验收。当前真实 GR01 记录仍缺失。
+
 ## v137 GR01 operator-link E7 binding（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/release_gate_manifest.py`：将通过的 strict GR01 bench 规范化为 hash-bound

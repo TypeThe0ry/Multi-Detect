@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## GR01 operator-link freshness and deployment identity（v138）
+
+- [x] manifest 原子绑定 GR01 bench 的 UTC 字符串、epoch 与最大允许年龄，默认 900 秒；
+- [x] writer 在落盘前拒绝 stale、naive、非有限及超出 5 秒容差的未来报告；
+- [x] evaluator 以 canonical `evaluated_at_utc` 重算 age，并复核 source timestamp 与 manifest 投影一致；
+- [x] final release 拒绝缺少任一 freshness 字段的历史 GR01 记录，同时保留 prerelease 读取兼容；
+- [x] schema、CLI、PowerShell wrapper 和 stale/future/partial/legacy-final 回归闭合；
+- [ ] 在真实飞机网段生成带真实 GR01/G20 hardware ID、endpoint/source identity 的新鲜 bench，并在 900 秒窗口内
+  创建和评估最终候选 manifest。
+
 ## GR01 operator-link final release binding（v137）
 
 - [x] release manifest 写入独立 `real_gr01_operator_link` 并绑定 strict bench 文件身份；

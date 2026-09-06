@@ -46,6 +46,13 @@ Use `-RealGr01OperatorLinkBench <report.json>` with `run_current_release_gate_pr
 keeps prerelease diagnostics available but leaves final `0.3.0` blocked. Neither record enables
 flight control or physical payload release.
 
+The GR01 binding also expires. Its source `observed_at_utc`, equivalent epoch and `max_age_s` are
+bound together; the default is 900 seconds and can be set with
+`-RealGr01OperatorLinkMaxAgeSeconds`. Manifest creation rejects already-stale or materially future
+reports, while every later E7 evaluation recomputes age from its canonical `evaluated_at_utc`.
+Hardware ID, remote endpoint, declared aircraft CIDR, actual sender source address and observation
+time therefore form one deployment evidence identity rather than a reusable Boolean pass.
+
 ## Local loopback HIL
 
 Use a random key with at least 32 bytes. Keep it in the process environment or a mode-0600 service
