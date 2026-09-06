@@ -90,33 +90,6 @@ function Invoke-Checked {
     }
 }
 
-function Write-NewJson {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)]$Document
-    )
-    $parent = Split-Path -Parent $Path
-    if (-not [string]::IsNullOrWhiteSpace($parent)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-    $payload = $Document | ConvertTo-Json -Depth 8
-    $encoding = [System.Text.UTF8Encoding]::new($false)
-    $bytes = $encoding.GetBytes($payload + [Environment]::NewLine)
-    $stream = [System.IO.File]::Open(
-        $Path,
-        [System.IO.FileMode]::CreateNew,
-        [System.IO.FileAccess]::Write,
-        [System.IO.FileShare]::None
-    )
-    try {
-        $stream.Write($bytes, 0, $bytes.Length)
-        $stream.Flush($true)
-    }
-    finally {
-        $stream.Dispose()
-    }
-}
-
 try {
     $remoteAddress = [System.Net.IPAddress]::Parse($HostAddress)
 }
@@ -142,8 +115,6 @@ if ($cidrParts.Count -ne 2 -or
     throw "ExpectedSourceCidr must be an IPv4 CIDR: $ExpectedSourceCidr"
 }
 
-$secretEnvironment = [ordered]@{}
-$missingSecretEnvironment = [System.Collections.Generic.List[string]]::new()
 foreach ($secret in @(
         @{ key = 'operator_hmac'; name = $OperatorHmacKeyEnvironment },
         @{ key = 'mavlink_signing'; name = $MavlinkSigningKeyEnvironment }
@@ -155,13 +126,6 @@ foreach ($secret in @(
     $environmentValue = Get-Item -LiteralPath ("Env:" + $environmentName) -ErrorAction SilentlyContinue
     $present = $null -ne $environmentValue -and
         -not [string]::IsNullOrWhiteSpace([string]$environmentValue.Value)
-    $secretEnvironment[[string]$secret.key] = [ordered]@{
-        name = $environmentName
-        present = [bool]$present
-    }
-    if (-not $present) {
-        $missingSecretEnvironment.Add($environmentName)
-    }
     if (-not $PlanOnly -and -not $present) {
         throw "Required secret environment variable is not set: $environmentName"
     }
@@ -193,53 +157,48 @@ $multiDetectCli = Resolve-RepositoryPath -Requested 'scripts\run_multidetect_cli
 Invoke-Checked -Executable $pythonPath -Arguments @($multiDetectCli, '--help') -Label 'Python package preflight'
 $outputRoot = Resolve-RepositoryPath -Requested $OutputDirectory
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+
+function Get-Gr01PlanArguments {
+    param([Parameter(Mandatory = $true)][string]$Destination)
+    $planTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_plan.py'
+    return @(
+        $planTool, 'create',
+        '--host-address', $remoteAddress.ToString(),
+        '--port', [string]$Port,
+        '--hardware-id', $HardwareId,
+        '--expected-source-cidr', $ExpectedSourceCidr,
+        '--operator-hmac-environment', $OperatorHmacKeyEnvironment,
+        '--mavlink-signing-environment', $MavlinkSigningKeyEnvironment,
+        '--minimum-round-trips', [string]$MinimumRoundTrips,
+        '--maximum-packet-loss-rate', $MaximumPacketLossRate.ToString(
+            [Globalization.CultureInfo]::InvariantCulture
+        ),
+        '--maximum-ack-latency-p95-ms', $MaximumAckLatencyP95Milliseconds.ToString(
+            [Globalization.CultureInfo]::InvariantCulture
+        ),
+        '--maximum-attempts', [string]$MaximumAttempts,
+        '--maximum-evidence-age-s', $MaximumEvidenceAgeSeconds.ToString(
+            [Globalization.CultureInfo]::InvariantCulture
+        ),
+        '--repository-root', $root,
+        '--python', $pythonPath,
+        '--output-root', $outputRoot,
+        '--out', $Destination
+    )
+}
+
 if ($PlanOnly) {
     $planPath = if ([string]::IsNullOrWhiteSpace($PlanOutput)) {
         Join-Path $outputRoot ("gr01-release-session-plan-" + $Stamp + '.json')
     } else {
         Resolve-RepositoryPath -Requested $PlanOutput
     }
-    $plan = [ordered]@{
-        schema = 'multidetect.gr01-release-session-plan/v1'
-        schema_version = 1
-        generated_at_utc = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
-        host_address = $remoteAddress.ToString()
-        port = $Port
-        hardware_id = $HardwareId
-        expected_source_cidr = $ExpectedSourceCidr
-        secret_environment = $secretEnvironment
-        thresholds = [ordered]@{
-            minimum_round_trips = $MinimumRoundTrips
-            maximum_packet_loss_rate = $MaximumPacketLossRate
-            maximum_ack_latency_p95_ms = $MaximumAckLatencyP95Milliseconds
-            maximum_attempts = $MaximumAttempts
-            maximum_evidence_age_s = $MaximumEvidenceAgeSeconds
-        }
-        paths = [ordered]@{
-            repository_root = $root
-            python = $pythonPath
-            output_root = $outputRoot
-        }
-        operations = @(
-            'gr01_hardware_bench',
-            'independent_bench_verification',
-            'freshness_bound_e7_evaluation',
-            'independent_release_session_verification'
-        )
-        ready_to_execute = $missingSecretEnvironment.Count -eq 0
-        reasons = @($missingSecretEnvironment | ForEach-Object {
-                "required secret environment variable is not set: $_"
-            })
-        claims = [ordered]@{
-            network_contacted = $false
-            hardware_observed = $false
-            hardware_flight_acceptance = 'not_claimed'
-            physical_release_enabled = $false
-            flight_control_enabled = $false
-            payload_release_requested = $false
-        }
-    }
-    Write-NewJson -Path $planPath -Document $plan
+    $planTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_plan.py'
+    $planArguments = Get-Gr01PlanArguments -Destination $planPath
+    Invoke-Checked -Executable $pythonPath -Arguments $planArguments -Label 'GR01 release-session plan creation'
+    Invoke-Checked -Executable $pythonPath -Arguments @(
+        $planTool, 'verify', $planPath, '--check-environment'
+    ) -Label 'GR01 release-session plan verification'
     Write-Output "GR01 release session plan written: $planPath"
     return
 }
@@ -248,6 +207,13 @@ if (Test-Path -LiteralPath $sessionRoot) {
     throw "Session output already exists: $sessionRoot"
 }
 New-Item -ItemType Directory -Path $sessionRoot | Out-Null
+$planPath = Join-Path $sessionRoot 'gr01-release-session-plan.json'
+$planTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_plan.py'
+Invoke-Checked -Executable $pythonPath -Arguments (Get-Gr01PlanArguments -Destination $planPath) `
+    -Label 'GR01 release-session execution preflight creation'
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $planTool, 'verify', $planPath, '--check-environment', '--require-ready'
+) -Label 'GR01 release-session execution preflight verification'
 
 $benchPath = Join-Path $sessionRoot 'gr01-link-bench.json'
 $benchArguments = @(

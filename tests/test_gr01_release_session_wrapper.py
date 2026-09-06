@@ -59,13 +59,17 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "Session output already exists",
         "InvariantCulture",
         "cannot override controlled parameter",
-        "multidetect.gr01-release-session-plan/v1",
-        "network_contacted = $false",
+        "verify_gr01_release_session_plan.py",
+        "--check-environment",
+        "--require-ready",
         "This record verifies the GR01 E7 binding only",
     ):
         assert token in text
 
     assert text.index("'gr01-link-bench.json'") < text.index("'gr01-release-session.json'")
+    assert text.index("'gr01-release-session-plan.json'") < text.index(
+        "'gr01-link-bench.json'"
+    )
     assert text.index("'create'") < text.index("'verify'")
     assert "MULTIDETECT_OPERATOR_HMAC_KEY=" not in text
     assert "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX=" not in text
@@ -122,8 +126,13 @@ def test_plan_only_writes_closed_no_network_receipt_without_secrets() -> None:
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)
         assert document["ready_to_execute"] is False
+        assert document["schema"] == "multidetect.gr01-release-session-plan/v2"
         assert document["claims"]["network_contacted"] is False
         assert document["claims"]["hardware_observed"] is False
+        assert document["source_identity"]["repository"]["git_head"]
+        assert document["source_identity"]["release_parity"]["path"] == (
+            "configs/release-parity.json"
+        )
         assert document["secret_environment"] == {
             "operator_hmac": {"name": "MULTIDETECT_OPERATOR_HMAC_KEY", "present": False},
             "mavlink_signing": {

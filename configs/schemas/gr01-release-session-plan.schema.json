@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session-plan.schema.json",
-  "title": "Multi-Detect GR01 release session plan",
+  "title": "Multi-Detect GR01 release session plan v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,14 +15,15 @@
     "secret_environment",
     "thresholds",
     "paths",
+    "source_identity",
     "operations",
     "ready_to_execute",
     "reasons",
     "claims"
   ],
   "properties": {
-    "schema": {"const": "multidetect.gr01-release-session-plan/v1"},
-    "schema_version": {"const": 1},
+    "schema": {"const": "multidetect.gr01-release-session-plan/v2"},
+    "schema_version": {"const": 2},
     "generated_at_utc": {"type": "string", "format": "date-time"},
     "host_address": {"type": "string", "format": "ipv4", "not": {"const": "127.0.0.1"}},
     "port": {"type": "integer", "minimum": 1, "maximum": 65535},
@@ -65,6 +66,59 @@
         "output_root": {"type": "string", "minLength": 1}
       }
     },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "release_parity", "tools"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root", "git_head", "tracked_dirty"],
+          "properties": {
+            "root": {"type": "string", "minLength": 1},
+            "git_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "tracked_dirty": {"type": "boolean"}
+          }
+        },
+        "release_parity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "bytes",
+            "release_label",
+            "safety_policy_hash",
+            "source_verified"
+          ],
+          "properties": {
+            "path": {"const": "configs/release-parity.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "bytes": {"type": "integer", "minimum": 1},
+            "release_label": {"type": "string", "pattern": "^0\\.3\\.0-pre\\.[0-9]+$"},
+            "safety_policy_hash": {"$ref": "#/$defs/sha256"},
+            "source_verified": {"type": "boolean"}
+          }
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scripts_run_gr01_release_session_ps1",
+            "scripts_run_multidetect_cli_py",
+            "scripts_verify_gr01_release_session_plan_py",
+            "src_multidetect_gr01_release_plan_py"
+          ],
+          "properties": {
+            "scripts_run_gr01_release_session_ps1": {"$ref": "#/$defs/file"},
+            "scripts_run_multidetect_cli_py": {"$ref": "#/$defs/file"},
+            "scripts_verify_gr01_release_session_plan_py": {"$ref": "#/$defs/file"},
+            "src_multidetect_gr01_release_plan_py": {"$ref": "#/$defs/file"}
+          }
+        }
+      }
+    },
     "operations": {
       "type": "array",
       "prefixItems": [
@@ -101,6 +155,17 @@
     }
   },
   "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
     "secret": {
       "type": "object",
       "additionalProperties": false,
