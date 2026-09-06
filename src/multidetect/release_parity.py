@@ -174,6 +174,16 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # a SIM run can claim map/terrain availability.
         "configs/schemas/local-dem-grid.schema.json",
         "src/multidetect/authorization.py",
+        # Physical HIL/REAL connectivity is a safety gate, not workstation
+        # setup trivia. Bind the read-only inventory, secondary-address
+        # planner/applicator, wrapper, CLI shims and canonical verifier so a
+        # link-readiness change invalidates stale field evidence everywhere.
+        "scripts/prepare_field_link.ps1",
+        "scripts/inspect_field_link_interfaces.ps1",
+        "scripts/run_field_link_preflight.ps1",
+        "scripts/run_field_link_preflight.py",
+        "scripts/verify_field_link_preflight.py",
+        "src/multidetect/field_link_preflight.py",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",
         "src/multidetect/simulator/control_gateway.py",

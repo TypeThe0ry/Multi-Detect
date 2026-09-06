@@ -2,7 +2,7 @@
   "parity": {
     "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
     "px4_mission_path_hash": "4bdefec05c4b42c045b3b8678acf196b62960ed248489f3904c3ab4170bbcc1a",
-    "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
+    "safety_policy_hash": "792296e8b365bc70e4715f9871927908f14509afcd9016d0cbbe104ba48c7b74",
     "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
   },
@@ -75,7 +75,13 @@
     "safety_policy": [
       "configs/schemas/autonomy-operator-grant.schema.json",
       "configs/schemas/local-dem-grid.schema.json",
+      "scripts/inspect_field_link_interfaces.ps1",
+      "scripts/prepare_field_link.ps1",
+      "scripts/run_field_link_preflight.ps1",
+      "scripts/run_field_link_preflight.py",
+      "scripts/verify_field_link_preflight.py",
       "src/multidetect/authorization.py",
+      "src/multidetect/field_link_preflight.py",
       "src/multidetect/safety.py",
       "src/multidetect/simulator/control.py",
       "src/multidetect/simulator/control_gateway.py",

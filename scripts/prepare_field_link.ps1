@@ -7,8 +7,10 @@ param(
     [string]$AutoSelectCidr = '',
     [switch]$AutoSelectInterface,
     [switch]$VerifyOnly,
+    [switch]$PlanOnly,
     [switch]$Remove,
-    [switch]$Elevate
+    [switch]$Elevate,
+    [string]$Output = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +30,9 @@ function Show-FieldLinkState {
     $routes = @(Get-NetRoute -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 -DestinationPrefix '192.168.144.0/24' -ErrorAction SilentlyContinue)
 
     [pscustomobject]@{
+        schema_version = 1
+        generated_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        computer_name = [string]$env:COMPUTERNAME
         interface_alias = $adapter.Name
         interface_index = $adapter.ifIndex
         interface_status = [string]$adapter.Status
@@ -147,6 +152,41 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Resolve-OutputPath {
+    if ([string]::IsNullOrWhiteSpace($Output)) {
+        return $null
+    }
+    return [System.IO.Path]::GetFullPath($Output)
+}
+
+function Write-FieldLinkState {
+    param([Parameter(Mandatory)] $State)
+
+    $json = $State | ConvertTo-Json -Depth 8
+    if ($null -ne $script:resolvedOutput) {
+        $parent = Split-Path -Parent $script:resolvedOutput
+        if (-not [string]::IsNullOrWhiteSpace($parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        $encoding = [System.Text.UTF8Encoding]::new($false)
+        $bytes = $encoding.GetBytes($json)
+        $stream = [System.IO.File]::Open(
+            $script:resolvedOutput,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None
+        )
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    Write-Output $json
+}
+
 function ConvertTo-StartProcessArgument {
     param([Parameter(Mandatory)][string]$Value)
 
@@ -187,6 +227,10 @@ function Invoke-ElevatedSelf {
     if ($Remove) {
         $childArguments.Add('-Remove')
     }
+    if ($null -ne $script:resolvedOutput) {
+        $childArguments.Add('-Output')
+        $childArguments.Add($script:resolvedOutput)
+    }
 
     $argumentLine = ($childArguments | ForEach-Object {
             ConvertTo-StartProcessArgument -Value ([string]$_)
@@ -212,8 +256,62 @@ if (-not (Get-NetAdapter -Name $InterfaceAlias -ErrorAction SilentlyContinue)) {
     throw "Network interface '$InterfaceAlias' was not found"
 }
 
+if ($VerifyOnly -and $PlanOnly) {
+    throw 'VerifyOnly and PlanOnly are mutually exclusive'
+}
+
+$script:resolvedOutput = Resolve-OutputPath
+if ($null -ne $script:resolvedOutput -and (Test-Path -LiteralPath $script:resolvedOutput)) {
+    throw "Output already exists: $script:resolvedOutput"
+}
+
 if ($VerifyOnly) {
-    Show-FieldLinkState | ConvertTo-Json -Depth 6
+    $state = Show-FieldLinkState
+    $state | Add-Member -NotePropertyName execution -NotePropertyValue ([ordered]@{
+            mode = 'verify'
+            changed = $false
+            output = $script:resolvedOutput
+        })
+    Write-FieldLinkState -State $state
+    exit 0
+}
+
+$existing = @(Get-TargetAddress)
+$changeRequired = if ($Remove) { $existing.Count -gt 0 } else { $existing.Count -eq 0 }
+$sameAddressElsewhere = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+    Where-Object {
+        $_.IPAddress -eq $IpAddress -and
+        $_.InterfaceAlias -ne $InterfaceAlias
+    })
+
+if (-not $Remove -and $sameAddressElsewhere.Count -gt 0) {
+    $owners = ($sameAddressElsewhere | ForEach-Object { $_.InterfaceAlias }) -join ', '
+    throw "Address $IpAddress is already assigned to another interface: $owners"
+}
+
+if ($PlanOnly) {
+    $operation = if ($Remove) { 'remove-secondary-address' } else { 'add-secondary-address' }
+    $rollbackOperation = if ($Remove) { 'add-secondary-address' } else { 'remove-secondary-address' }
+    $state = Show-FieldLinkState
+    $state | Add-Member -NotePropertyName execution -NotePropertyValue ([ordered]@{
+            mode = 'plan'
+            operation = $operation
+            would_change = [bool]$changeRequired
+            requires_elevation = [bool]$changeRequired
+            requested_address = $IpAddress
+            requested_prefix_length = $PrefixLength
+            secondary_address_only = $true
+            skip_as_source = $true
+            default_gateway_change = $false
+            dns_change = $false
+            explicit_route_change = $false
+            rollback_operation = $rollbackOperation
+            rollback_command = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" -InterfaceAlias "{1}" -IpAddress "{2}" -PrefixLength {3} {4} -Elevate' -f
+                $PSCommandPath, $InterfaceAlias, $IpAddress, $PrefixLength,
+                $(if ($Remove) { '' } else { '-Remove' })).Trim()
+            output = $script:resolvedOutput
+        })
+    Write-FieldLinkState -State $state
     exit 0
 }
 
@@ -225,8 +323,6 @@ if ($Elevate -and -not (Test-IsAdministrator)) {
 if (-not (Test-IsAdministrator)) {
     throw 'Applying or removing the field-link address requires an elevated PowerShell window'
 }
-
-$existing = @(Get-TargetAddress)
 
 if ($Remove) {
     if ($existing.Count -eq 0) {
@@ -241,16 +337,6 @@ if ($Remove) {
     }
 }
 else {
-    $sameAddressElsewhere = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
-        Where-Object {
-            $_.IPAddress -eq $IpAddress -and
-            $_.InterfaceAlias -ne $InterfaceAlias
-        })
-    if ($sameAddressElsewhere.Count -gt 0) {
-        $owners = ($sameAddressElsewhere | ForEach-Object { $_.InterfaceAlias }) -join ', '
-        throw "Address $IpAddress is already assigned to another interface: $owners"
-    }
-
     if ($existing.Count -eq 0) {
         if ($PSCmdlet.ShouldProcess("$InterfaceAlias $IpAddress/$PrefixLength", 'Add secondary field-link address')) {
             New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IpAddress -PrefixLength $PrefixLength -SkipAsSource $true -ErrorAction Stop | Out-Null
@@ -261,4 +347,13 @@ else {
     }
 }
 
-Show-FieldLinkState | ConvertTo-Json -Depth 6
+$finalState = Show-FieldLinkState
+$finalState | Add-Member -NotePropertyName execution -NotePropertyValue ([ordered]@{
+        mode = 'apply'
+        operation = $(if ($Remove) { 'remove-secondary-address' } else { 'add-secondary-address' })
+        changed = [bool]$changeRequired
+        requested_address = $IpAddress
+        requested_prefix_length = $PrefixLength
+        output = $script:resolvedOutput
+    })
+Write-FieldLinkState -State $finalState

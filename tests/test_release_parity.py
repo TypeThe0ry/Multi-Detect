@@ -115,6 +115,14 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     assert "src/multidetect/operator_status.py" in document["source_files"]["task_contract"]
     assert "configs/schemas/local-dem-grid.schema.json" in document["source_files"]["safety_policy"]
     assert "src/multidetect/simulator/stack.py" in document["source_files"]["safety_policy"]
+    assert {
+        "scripts/prepare_field_link.ps1",
+        "scripts/inspect_field_link_interfaces.ps1",
+        "scripts/run_field_link_preflight.ps1",
+        "scripts/run_field_link_preflight.py",
+        "scripts/verify_field_link_preflight.py",
+        "src/multidetect/field_link_preflight.py",
+    } <= set(document["source_files"]["safety_policy"])
     for paths in document["source_files"].values():
         assert paths == sorted(paths)
         assert all(not path.startswith(("artifacts/", "build/")) for path in paths)
