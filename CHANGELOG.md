@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v152 independent GNSS quality status（2026-09-07）
+
+- 新增认证 operator protocol 类型 `25` `GNSS_STATUS`，以独立 5 Hz 心跳发布 position health、fix、卫星数、
+  水平/垂直精度、样本年龄与 canonical reason；它不依赖目标选择或测距结果，也不携带经纬度；
+- Python domain/codec/MAVLink/UDP/live bridge 与 QGC C++ decoder/controller/QML 全链接入同一质量门；伪造
+  qualified 弱 fix 被两端拒绝，QGC 1 秒失效清空，toolbar 在目标选择前即可显示不可定位原因与原始诊断；
+- 状态固定 `advisoryOnly=true`、`flightControlEnabled=false`、`physicalReleaseEnabled=false`，未增加任何控制；
+  相关 277 项 Python/QGC 静态回归通过，native protocol 与 replay RTSP wire self-test 退出码均为 0；全仓
+  回归为 `3656 passed, 2 skipped, 0 failed`；
+- 重新构建 `0.3.0-pre.8` Release/portable，EXE 为 46,587,392 bytes，SHA-256
+  `2686D5EFAAB375E08C41C5AD8050C0BB9807C33309F52D1102AB774E96EF61A9`，portable simple boot 退出码 0；
+  当前 parity 的 external/matrix/campaign 派生证据也已重算，E7 仍为 `false / false / 31 blockers`；这些只
+  构成软件构建证据，人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞仍未声明通过。
+
 ### v0.3.0-pre.8 v151 现场链路只读刷新与 E7 重绑定（2026-09-07）
 
 - 在当前台式机执行 3 样本、协议级、路由级只读 field-link 预检；报告及独立接口诊断均通过结构/哈希复验，

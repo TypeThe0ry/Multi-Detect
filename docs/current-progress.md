@@ -1,6 +1,34 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v151 工作树）
+最后更新：2026-09-07（v152 工作树）
+
+## v152 本轮已收口
+
+- 新增独立 `GNSS_STATUS`（operator wire type `25`）：Jetson 在目标尚未选择、range 尚未形成时也按默认
+  `5 Hz` 发布 GNSS position health、fix type、卫星数、水平/垂直精度、样本年龄和 canonical reason。
+  消息刻意不含 latitude/longitude，避免诊断面变成另一条坐标来源。
+- domain/codec 对 `fix>=3`、卫星 `>=6`、水平精度 `<=6 m`、垂直精度 `<=10 m`、年龄 `<=1.5 s`
+  和 position healthy 使用与 `AdaptiveRangingPolicy.assess_gps_quality` 相同的 fail-closed 语义；伪造
+  qualified 的弱 fix 在 Python 和 QGC C++ 两端均拒绝。
+- live bridge、MAVLink tunnel 与 UDP session 完成独立 cadence/sequence/peer-change 接入；构建失败只丢弃
+  可选诊断包并写 audit，不阻断感知主循环。Jetson 部署验证也检查 type 25 encoder/cadence 是否存在。
+- 原生 QGC controller 只在认证、重放和 sequence 门后采纳状态，1 秒无新包即清空；Fly View toolbar
+  “室外测距质量”新增 GPS/GNSS 与 GNSS 详情，即使无 target 也能显示精确不可定位原因、fix、卫星数、
+  H/V accuracy 和年龄。该链固定 display-only，不开放飞控或物理投放。
+- 相关 277 项 Python/QGC 静态回归通过；全仓回归为 `3656 passed, 2 skipped, 0 failed`（3658 tests，
+  374.669 s）。Ruff、Ruff format、compileall 与 `git diff --check` 通过；native operator protocol
+  self-test 和 replay RTSP wire self-test 均退出 0。release parity 已按当前源码重新生成。
+- Windows Release 与 portable EXE 均为 46,587,392 bytes，SHA-256
+  `2686D5EFAAB375E08C41C5AD8050C0BB9807C33309F52D1102AB774E96EF61A9`；portable hidden simple boot
+  退出 0。构建物路径为
+  `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
+- 本轮只关闭软件链“选目标前看不到原始 GNSS 质量”的缺口；人工 Fly View、室外 GNSS 精度、真实
+  Jetson/相机/Pixhawk/GR01、HIL/REAL 与实飞仍为 `not_claimed`，E7 继续为 31 blockers。
+- 当前 parity 的 external join/revalidation、三机型 response matrix 和 6 正例/9 故障 campaign 已重新
+  派生并全部通过；随后用新鲜只读 field-link 报告重算 E7。manifest SHA-256
+  `678755799EB890BD650D955F2B811ED2E453FA3D75B4C4C3374E55F729157A82`，report SHA-256
+  `A5947B5B9ED0837C2D65161A18CD83D26FCA06D5FE67D27B135377AF4EC50876`，结果仍是
+  `gate_passed=false`、`release_allowed=false`、31 blockers。
 
 ## v151 本轮已收口
 

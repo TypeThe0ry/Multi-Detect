@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v151：现场链路只读刷新与 E7 重绑定 |
+| 当前工程迭代 | v152：独立 GNSS 质量状态与原生 QGC 诊断 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v152 独立 GNSS 质量状态
+
+Jetson 现在以认证 operator protocol 类型 `25`、默认 `5 Hz` 发布独立 `GNSS_STATUS`：即使尚未选择
+目标，原生 QGC 的“室外测距质量”也能显示 position health、fix type、卫星数、水平/垂直精度、
+样本年龄以及精确的不可定位原因。合格门与共享定位算法保持一致（`fix>=3`、卫星 `>=6`、
+水平 `<=6 m`、垂直 `<=10 m`、年龄 `<=1.5 s`）；弱样本和伪造的 qualified 状态 fail-closed。
+该消息不携带经纬度，QGC 端 1 秒无新包即清空，且固定为 display-only，不增加飞控或物理投放权限。
+
+已构建并 simple-boot 验证新的 `0.3.0-pre.8` portable EXE；这是 software/build 证据，不替代人工
+Fly View、室外 GNSS、HIL/REAL、硬件或飞行验收。路径、哈希和测试明细见
+[当前进度](docs/current-progress.md)。
 
 ### v151 当前现场链路状态
 
