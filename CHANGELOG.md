@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v99 verified journal index publication（2026-09-06）
+
+- `journal-status --out` 在 write-new 后从磁盘运行完整 verifier，成功返回不再来自未落盘内存对象；
+- 使用同一 `indexed_at` 重建 post-write 快照并与 pre-write 版本逐字比较，阻断 build/write 窗口内新增
+  session/probe、campaign 前移和文件漂移；
+- 失败时只回滚本轮新建的 index，保留 journal 与预存输出；PX4 Mission parity 更新为
+  `4bdefec0...bbcc1a`；全量回归 3,480 tests：`3479 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+  产品保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v98 stable journal snapshots and sealed blocked probes（2026-09-06）
 
 - journal index 将 blocked probe 从裸计数升级为逐文件清单，绑定 path/file SHA、online evidence digest、

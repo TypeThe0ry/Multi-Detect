@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 可验证、可回滚的 index 发布（v99）
+
+- [x] index write-new 后立即从磁盘执行完整 verifier；
+- [x] 用同一 indexed timestamp 重建 post-write 快照，并与 pre-write 快照逐字核对；
+- [x] 跨 build/write 窗口的文件篡改、新增 artifact 或 campaign 漂移均使发布失败；
+- [x] 失败只回滚本轮新建输出，不覆盖或删除预存 index/journal 证据；
+- [x] 覆盖写后篡改与写后新增 probe 的可重复回归；
+- [ ] 在现场采集进程并发完成时反复发布 index，验证只产生完整稳定快照。
+
 ## 稳定 journal 快照与 blocked probe 封账（v98）
 
 - [x] 用逐文件 blocked probe 记录替代不可独立复验的裸计数；

@@ -1,6 +1,19 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v98 工作树）
+最后更新：2026-09-06（v99 工作树）
+
+## v99 本轮已收口
+
+- `write_field_covariance_journal_index` 先生成稳定快照、write-new 输出，再从磁盘执行完整 index verifier；
+  成功返回值来自 verifier，不再信任未落盘内存对象；
+- 复验后使用同一 `indexed_at` 重建第二份当前快照并与首份逐字比较，捕获 build→write 窗口内新增
+  session/probe、campaign 前移或证据内容漂移；
+- 输出仍拒绝覆盖；只有本轮确认新建的 index 才会在复验失败时删除，journal、receipt、session、probe 和
+  预存输出均不修改；测试覆盖写后 blocked probe 篡改和写后新增 probe 两条回滚路径；
+- `px4_mission_path_hash=4BDEFEC0...BCC1A`，其余四组 parity 未变化。全量回归 3,480 tests：
+  `3479 passed, 1 skipped, 0 failed, 0 errors`，耗时 101.403 秒；JUnit 507,924 bytes、SHA-256
+  `EC912331EA105664692CAC0241E14D8989618A8D0DB302455654125376ADE1E6`；全仓 Ruff 与 compileall 通过。
+  本轮无 QGC C++/QML 改动，未重建 EXE；真实 HIL/REAL/hardware/flight 门仍未通过。
 
 ## v98 本轮已收口
 

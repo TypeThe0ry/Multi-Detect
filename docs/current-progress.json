@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T00:09:39Z",
+  "updated_at_utc": "2026-09-06T00:14:16Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "65c32361220dac65854618e752027d5be51ded38",
-    "commit_subject": "fix(evidence): seal blocked probe journal snapshots",
-    "commits_ahead_of_origin_main": 84
+    "commit": "abf45a04522fe888a0ec8cfde1d73ee688264a4f",
+    "commit_subject": "fix(evidence): verify journal index publication",
+    "commits_ahead_of_origin_main": 86
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v98",
+  "working_iteration": "v99",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v98-final.xml",
-      "tests": 3478,
-      "passed": 3477,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v99-final.xml",
+      "tests": 3480,
+      "passed": 3479,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 101.246,
-      "junit_local_path": "tmp/current-progress-regression-v98-final.xml",
-      "junit_file_bytes": 507642,
-      "junit_file_sha256": "e617eb9f2b7227635604a37f0f807b4388f9ea2952e4a4752bdad00fc8c7a464",
+      "duration_seconds": 101.403,
+      "junit_local_path": "tmp/current-progress-regression-v99-final.xml",
+      "junit_file_bytes": 507924,
+      "junit_file_sha256": "ec912331ea105664692cac0241e14d8989618a8d0db302455654125376ade1e6",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 6561,
-    "file_sha256": "7128022d22e7b37b2bf90f9d81769f98de92056ed098db97901f28af6d2a8b14",
+    "file_sha256": "f75754f8056496b0b41d69649e0b8ab142ca1b41140ddb88ed113597d26aa276",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "f24e5bae713d4645b6d903393d5978811e0f4464410934db049ebf0b0d9521a0"
+      "px4_mission_path_hash": "4bdefec05c4b42c045b3b8678acf196b62960ed248489f3904c3ab4170bbcc1a"
     }
   },
   "evidence": {
@@ -228,6 +228,9 @@
       "unreferenced_passing_probe_rejected": true,
       "quiescent_capture_required_for_index": true,
       "campaign_and_artifact_snapshot_double_read": true,
+      "index_write_new_reopened_and_verified": true,
+      "post_write_same_timestamp_snapshot_rebuilt": true,
+      "failed_index_publication_rolls_back_new_output": true,
       "real_journal_collected": false,
       "claims": {
         "software_exclusive_journal_gate_implemented": "passed",

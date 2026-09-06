@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v98：blocked probe 逐文件封账，index 仅在 capture 静止且 campaign/session/probe 双读稳定时生成 |
+| 当前工程迭代 | v99：index write-new 后从磁盘复验并以同一时间戳重建快照，跨写盘漂移自动回滚 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,15 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v99 可验证、可回滚的 index 发布
+
+`journal-status --out` 不再在 `_write_new` 成功后直接宣告完成。它先构建稳定快照，再 write-new 写入目标，
+从磁盘运行完整 `verify-index`，最后用完全相同的 `indexed_at` 再构建一次当前快照并逐字比较。这样既能发现
+已写 index 自身的问题，也能发现第一次 build 与 durable write 之间出现的新 session/probe 或源文件漂移。
+
+任一复验或重建失败时，只删除本轮确定为新建的 index 输出，不碰预存文件和 journal 证据；调用方不会收到
+`gate_passed=true`。成功返回值来自落盘文件 verifier，而不是内存中的预写对象。
 
 ### v98 稳定 journal 快照与 blocked probe 封账
 
