@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v135 selected physical alert-link topology（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/alert_link_topology.py` 与 `configs/schemas/alert-link-topology.schema.json`：严格加载并
+  canonical hash 绑定 `gr01_direct` / `v6x_fallback`，后者必须复核三份前置证据；
+- `src/multidetect/alert_link_bench.py` 与 `configs/schemas/alert-link-bench.schema.json`：v5 hardware report
+  内嵌 topology snapshot/hash；CLI 冲突参数和离线篡改均 fail-closed；
+- `release_gate_manifest.py` / `release_gate.py`：当前 REAL alert-link 发布证据只接受 v5，同时保留旧报告审计可读性。
+
 ## v134 authenticated ACK runtime source observation（2026-09-06，`v0.3.0-pre.8`）
 
 `AlertDeliveryReceipt.source_address` 将发送 socket 在 connect 后、send 前读取的 canonical IPv4 带回 bench；

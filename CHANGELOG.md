@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v135 selected alert-link topology contract（2026-09-06）
+
+- 新增 strict、canonical、hash-bound 的 `gr01_direct` / `v6x_fallback` topology 契约；V6X 回退强制绑定
+  GR01 失败、PX4 SITL 路由和拆桨 V6X 台架三份 SHA-256 证据，缺一即在发送前失败；
+- hardware ACK bench v5 从 `--topology` 原子加载 endpoint/source/identity，报告内嵌 topology 与 canonical hash，
+  offline verifier 重算绑定；release manifest 只接受 v5，旧 v1-v4 保持可读；全量回归
+  `3590 passed, 2 skipped`。新 parity 派生证据复核通过，E7 仍为 32 blockers；该变更不宣称现场链路已验收。
+
 ### v0.3.0-pre.8 v134 authenticated ACK runtime source observation（2026-09-06）
 
 - UDP ACK receipt 新增实际 sender socket `getsockname()` IPv4；transport 在 send 前复核该运行时地址与

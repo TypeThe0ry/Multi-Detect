@@ -59,6 +59,12 @@ image-space heuristic with persistent geospatial target identity.
 
 ## MVP boundary
 
+Physical alert-link selection is a separate fail-closed safety contract. `alert_link_topology.py`
+loads a canonical GR01-direct or V6X-fallback document; `alert_link_bench.py` binds that snapshot and
+its SHA-256 to every new hardware report. V6X fallback is not an automatic failover: three explicit
+evidence references must hash-match before the topology can be loaded. This proves configuration
+identity only; packet passage and radio behavior remain hardware acceptance gates.
+
 The repository contains no live autopilot command, actuator, GPIO, serial release or MAVLink
 release path. It can consume MAVLink telemetry read-only and it can process local/RTSP camera
 frames, but the only mission-connected payload endpoint remains an in-memory fake used for

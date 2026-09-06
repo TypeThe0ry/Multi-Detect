@@ -64,6 +64,27 @@ multi-detect live-camera configs/missions/fire_patrol.demo.json `
   --alert-outbox artifacts/fire-alerts.sqlite3
 ```
 
+GR01 直连 topology 文件结构如下；`remote_host` 必须替换为现场确认的 G20/地面端 IPv4，不能填写主机名：
+
+```json
+{
+  "schema_version": 1,
+  "topology_id": "aircraft-1-gr01-direct",
+  "mode": "gr01_direct",
+  "remote_host": "192.168.144.21",
+  "remote_port": 14600,
+  "expected_source_cidr": "192.168.144.0/24",
+  "sender_id": "aircraft-1",
+  "receiver_id": "ground-station-1",
+  "hardware_id": "GR01-ALERT-REPLACE-SERIAL",
+  "fallback_evidence": null,
+  "advisory_only": true,
+  "flight_control_enabled": false,
+  "physical_release_enabled": false,
+  "payload_release_requested": false
+}
+```
+
 ### Bounded alert-link bench
 
 现场接通后，用同一个认证 UDP 端点先做有界告警 ACK 压测。它复用 live patrol 的
@@ -75,24 +96,23 @@ ACK 的样本计入成功；重试次数、缺 ACK 次数、丢包率和 ACK P50
 ```powershell
 $env:MULTIDETECT_ALERT_KEY = '<SAME-KEY-AS-RECEIVER>'
 python scripts/run_alert_link_bench.py `
-  --host GROUND_STATION_NETWORK_IP --port 14600 `
+  --topology artifacts/field/alert-link-topology.json `
   --hmac-key-env MULTIDETECT_ALERT_KEY `
-  --sender-id aircraft-1 --receiver-id ground-station-1 `
   --minimum-round-trips 100 --maximum-attempts 3 `
   --maximum-packet-loss-rate 0.01 `
   --maximum-ack-latency-p95-ms 500 `
-  --hardware-mode --hardware-id GR01-ALERT-<SERIAL> `
-  --expected-source-cidr 192.168.144.0/24 `
   --out artifacts/evaluation/alert-link-bench-<DATE>.json
 ```
 
-`--hardware-mode` 是现场操作员对端点和设备编号的显式声明；解析器会拒绝回环、无法解析
+`--topology` 是现场操作员对端点、设备编号和选定物理路径的原子声明，并自动进入 hardware mode；解析器会拒绝回环、无法解析
 的主机名以及非认证 UDP transport，所以本机回环只能作为 software baseline。v2 会在第一个告警发送前
 通过 UDP route selection（不发送数据）记录 `local_source_address`；该地址必须属于
 `--expected-source-cidr`。v3 还把该地址作为 `source_host` 固定到每一个真实 UDP sender socket；v4 进一步从
 每个成功 ACK receipt 保存实际 socket `getsockname()` 源地址，并要求全部观察都与 route/bind 地址一致。route
 source、CIDR 或 transport source 任一不一致，ACK 循环都不会启动且 `transmission_attempts=0`；即使收到 ACK，
-缺失实际 sender source observation 也不能通过。报告结构由
+缺失实际 sender source observation 也不能通过。v5 还内嵌规范化 topology 与 canonical SHA-256；命令行另给
+host/port/source CIDR/双方 ID/设备 ID 时必须与 topology 完全一致。选择 `v6x_fallback` 必须在 topology 同目录下
+提供并哈希匹配 GR01 直连失败、PX4 SITL 路由和拆桨 V6X 台架三份证据，不能静默自动回退。报告结构由
 [`configs/schemas/alert-link-bench.schema.json`](../configs/schemas/alert-link-bench.schema.json)
 约束。即使 bench 通过，也只关闭“认证 ACK/时延/丢包”这一条数据链路子门；GR01 型号、
 天线/射频稳定性、断链恢复、时钟同步和完整现场 `HIL/REAL` 仍需独立证据复核。

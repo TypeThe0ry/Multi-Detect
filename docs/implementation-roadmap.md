@@ -868,6 +868,9 @@ Exit criteria: every uncertain or inconsistent condition stays locked, no automa
 - [x] Keep target selection separate from payload deployment authorization.
 - [ ] Bench-test simultaneous RTSP clients through an onboard Ethernet switch.
 - [ ] Verify bidirectional IP packets between Jetson and the custom G20 application over GR01.
+- [x] Define a strict, hash-bound selected-link topology contract. Hardware ACK evidence now binds
+  the GR01-direct endpoint/source/identity snapshot; selecting V6X fallback requires hashed GR01
+  failure, PX4 SITL routing and actuator-disconnected V6X bench evidence before any UDP send.
 - [x] Implement and deterministically mutation-fuzz the compact signed `TUNNEL` payload codec, bounded ACK retry, TTL, correlation and replay protection.
 - [x] Wrap the codec in signed, addressed MAVLink2 `TUNNEL` byte frames; verify software
   round-trip, source/target identity, tamper rejection, replay rejection and unrelated-message rejection.

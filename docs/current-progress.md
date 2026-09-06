@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v134 工作树）
+最后更新：2026-09-06（v135 工作树）
+
+## v135 本轮已收口
+
+- 新增 strict `alert-link-topology` 契约，将 `gr01_direct` 与 `v6x_fallback` 明确区分；直连 endpoint 必须位于
+  声明 source CIDR，所有地址采用 canonical non-loopback IPv4，任何控制/投放位都固定关闭；
+- V6X 回退必须同时提供并逐字节 SHA-256 复核 GR01 直连失败、PX4 SITL 路由、拆桨 V6X 台架三份相对路径证据；
+  缺失、越界、不可读或哈希漂移均在 UDP 发送前失败；
+- alert-link bench 升级 v5，`--topology` 原子提供 endpoint、port、sender/receiver、hardware ID 与 source CIDR，
+  冲突 CLI 参数会被拒绝；报告内嵌规范化 topology 和 canonical SHA-256，独立 verifier 重算绑定；
+- release manifest 只接受 v5 REAL alert-link 报告，历史 v1-v4 仍可独立复核；topology 源码/schema 已加入
+  `safety_policy` parity。该软件契约没有证明 GR01/V6X/G20 现场链路已通。
+- 最终全量回归 3,592 tests 为 `3590 passed, 2 skipped, 0 failed, 0 errors`，耗时 242.489 秒；JUnit
+  523,829 bytes、SHA-256 `7DBB937B24033EBB17F1BFCFA862E1A651624F7F65D5265A038046EE432168A5`。
+- 新 parity 下重算的三机型 external join/revalidation、reported-position matrix、6 正例/9 故障 campaign
+  均经独立 verifier 通过；E7 重跑保持 `gate_passed=false`、`release_allowed=false`、32 blockers。
 
 ## v134 本轮已收口
 
