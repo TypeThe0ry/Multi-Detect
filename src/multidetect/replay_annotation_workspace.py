@@ -111,6 +111,77 @@ def inspect_replay_annotation_workspace(
     }
 
 
+def replay_annotation_workspace_document(
+    intake_root: str | Path,
+    workspace: str | Path,
+) -> dict[str, object]:
+    """Return a verified, JSON-safe snapshot for a local annotation frontend."""
+
+    _source, _payload, document, intake_report, expected_frames = _load_mutable_workspace(
+        intake_root, workspace
+    )
+    parsed = _validate_workspace(
+        document,
+        intake_report=intake_report,
+        expected_frames=expected_frames,
+        require_complete=False,
+    )
+    return {
+        "schema_version": parsed["schema_version"],
+        "dataset_id": parsed["dataset_id"],
+        "dataset_version": parsed["dataset_version"],
+        "class_names": list(parsed["class_names"]),
+        "assignment_hash": parsed["assignment_hash"],
+        "annotator": parsed["annotator"],
+        "reviewer": parsed["reviewer"],
+        "reviewed_at_utc": parsed["reviewed_at_utc"],
+        "review_content_hash": parsed["review_content_hash"],
+        "frames": parsed["frames"],
+    }
+
+
+def read_replay_annotation_image(
+    intake_root: str | Path,
+    workspace: str | Path,
+    *,
+    frame_id: str,
+) -> tuple[bytes, str]:
+    """Read exactly one hash-verified assigned image without accepting a raw path."""
+
+    intake = Path(intake_root).resolve(strict=True)
+    document = replay_annotation_workspace_document(intake, workspace)
+    target_id = require_text(frame_id, "frame_id")
+    matches = [frame for frame in document["frames"] if frame["frame_id"] == target_id]
+    if len(matches) != 1:
+        raise AutonomyContractError("frame_id must match exactly one assigned frame")
+    image = matches[0]["image"]
+    relative = _relative_path(image["path"], "annotation image path")
+    source = intake / Path(*PurePosixPath(relative).parts)
+    if source.is_symlink():
+        raise AutonomyContractError("annotation image must not be a symbolic link")
+    resolved = source.resolve(strict=True)
+    try:
+        resolved.relative_to(intake)
+    except ValueError as exc:
+        raise AutonomyContractError("annotation image escaped the verified intake") from exc
+    payload = resolved.read_bytes()
+    if hashlib.sha256(payload).hexdigest() != require_sha256(
+        image["sha256"], "annotation image sha256"
+    ):
+        raise AutonomyContractError("annotation image SHA-256 changed")
+    suffix = resolved.suffix.lower()
+    content_types = {
+        ".bmp": "image/bmp",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }
+    if suffix not in content_types:
+        raise AutonomyContractError("annotation image encoding is unsupported by the workbench")
+    return payload, content_types[suffix]
+
+
 def annotate_replay_frame(
     intake_root: str | Path,
     workspace: str | Path,
@@ -830,6 +901,8 @@ __all__ = [
     "annotate_replay_frame",
     "create_replay_annotation_workspace",
     "inspect_replay_annotation_workspace",
+    "read_replay_annotation_image",
+    "replay_annotation_workspace_document",
     "review_replay_annotation_workspace",
     "finalize_replay_annotation_workspace",
     "verify_finalized_replay_annotations",

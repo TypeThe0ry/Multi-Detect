@@ -5,8 +5,11 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from base64 import b64decode
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -23,6 +26,7 @@ from multidetect.release_gate_manifest import (
     build_release_gate_manifest,
     write_release_gate_manifest,
 )
+from multidetect.replay_annotation_workbench import create_replay_annotation_workbench
 from multidetect.replay_annotation_workspace import (
     annotate_replay_frame,
     create_replay_annotation_workspace,
@@ -697,6 +701,140 @@ def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path
     )
     assert verified.returncode == 0, verified.stderr
     assert json.loads(verified.stdout)["annotations_reviewed"] is True
+
+
+def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations(
+    tmp_path: Path,
+) -> None:
+    intake = tmp_path / "intake"
+    prepare_deployment_replay_set(
+        _intake_sources(tmp_path / "sources", valid_images=True),
+        intake,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    workspace = tmp_path / "annotations.json"
+    create_replay_annotation_workspace(intake, workspace)
+    with pytest.raises(AutonomyContractError, match="loopback only"):
+        create_replay_annotation_workbench(intake, workspace, host="0.0.0.0")
+
+    help_run = subprocess.run(
+        [sys.executable, "scripts/run_replay_annotation_workbench.py", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert help_run.returncode == 0, help_run.stderr
+    assert "loopback-only" in help_run.stdout.lower()
+
+    workbench = create_replay_annotation_workbench(intake, workspace, port=0)
+    thread = threading.Thread(target=workbench.serve_forever, daemon=True)
+    thread.start()
+
+    def request_json(
+        path: str,
+        body: dict[str, object] | None = None,
+        *,
+        token: str | None = None,
+    ) -> dict[str, object]:
+        payload = None if body is None else json.dumps(body).encode("utf-8")
+        headers = {} if body is None else {"Content-Type": "application/json"}
+        if token is not None:
+            headers["X-Annotation-Token"] = token
+        request = Request(workbench.url + path.lstrip("/"), data=payload, headers=headers)
+        with urlopen(request, timeout=5) as response:
+            return json.loads(response.read())
+
+    try:
+        with urlopen(workbench.url, timeout=5) as response:
+            html = response.read().decode("utf-8")
+            csp = response.headers["Content-Security-Policy"]
+        assert "Multi-Detect 标注工作台" in html
+        assert '<canvas id="canvas">' in html
+        assert "script-src 'nonce-" in csp
+        assert "script-src 'unsafe-inline'" not in csp
+        assert "__TOKEN__" not in html and "__NONCE__" not in html
+
+        snapshot = request_json("/api/workspace")
+        frames = snapshot["document"]["frames"]
+        with urlopen(
+            workbench.url + "api/image?frame_id=" + frames[0]["frame_id"], timeout=5
+        ) as response:
+            assert response.headers.get_content_type() == "image/png"
+            assert response.read().startswith(b"\x89PNG")
+
+        with pytest.raises(HTTPError) as forbidden:
+            request_json(
+                "/api/annotate",
+                {
+                    "frame_id": frames[0]["frame_id"],
+                    "annotator": "annotator-a",
+                    "status": "negative",
+                    "objects": [],
+                },
+            )
+        assert forbidden.value.code == 403
+
+        duplicate_request = Request(
+            workbench.url + "api/annotate",
+            data=b'{"frame_id":"first","frame_id":"second"}',
+            headers={
+                "Content-Type": "application/json",
+                "X-Annotation-Token": workbench.token,
+            },
+        )
+        with pytest.raises(HTTPError) as duplicate:
+            urlopen(duplicate_request, timeout=5)
+        assert duplicate.value.code == 409
+
+        with pytest.raises(HTTPError) as unknown_field:
+            request_json(
+                "/api/annotate",
+                {
+                    "frame_id": frames[0]["frame_id"],
+                    "annotator": "annotator-a",
+                    "status": "negative",
+                    "objects": [],
+                    "approved": True,
+                },
+                token=workbench.token,
+            )
+        assert unknown_field.value.code == 409
+
+        for index, frame in enumerate(frames):
+            positive = index == 0
+            result = request_json(
+                "/api/annotate",
+                {
+                    "frame_id": frame["frame_id"],
+                    "annotator": "annotator-a",
+                    "status": "positive" if positive else "negative",
+                    "objects": (
+                        [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}]
+                        if positive
+                        else []
+                    ),
+                },
+                token=workbench.token,
+            )
+        assert result["status"]["all_frames_annotated"] is True
+        assert result["status"]["status_counts"] == {
+            "unannotated": 0,
+            "positive": 1,
+            "negative": 5,
+        }
+        reviewed = request_json(
+            "/api/review",
+            {"reviewer": "reviewer-b"},
+            token=workbench.token,
+        )
+        assert reviewed["status"]["finalization_ready"] is True
+        assert reviewed["status"]["review_content_bound"] is True
+    finally:
+        workbench.shutdown()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
 
 
 def test_replay_predictions_materialize_fixed_model_provenance_atomically(

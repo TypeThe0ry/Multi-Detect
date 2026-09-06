@@ -65,6 +65,7 @@ multidetect-replay-set-intake = "multidetect.replay_set_intake_cli:main"
 multidetect-replay-annotations = "multidetect.replay_annotation_cli:main"
 multidetect-replay-predictions = "multidetect.replay_prediction_cli:main"
 multidetect-field-replay-campaign = "multidetect.field_replay_campaign:main"
+multidetect-replay-annotation-ui = "multidetect.replay_annotation_workbench:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
