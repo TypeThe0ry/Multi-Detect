@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-review-trust-registry.schema.json",
+  "title": "Multi-Detect GR01 review trust registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event", "schema_version", "registry_id", "issued_at_utc", "valid_from_utc",
+    "expires_at_utc", "principals", "policy", "claims", "canonical_hash"
+  ],
+  "properties": {
+    "event": {"const": "multidetect_gr01_review_trust_registry"},
+    "schema_version": {"const": 1},
+    "registry_id": {"type": "string", "format": "uuid"},
+    "issued_at_utc": {"type": "string", "format": "date-time"},
+    "valid_from_utc": {"type": "string", "format": "date-time"},
+    "expires_at_utc": {"type": "string", "format": "date-time"},
+    "principals": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "principal_id", "identity", "role", "key_id", "public_key_ed25519_hex",
+          "valid_from_utc", "expires_at_utc", "revoked", "revoked_at_utc", "revocation_reason"
+        ],
+        "properties": {
+          "principal_id": {"type": "string", "minLength": 1},
+          "identity": {"type": "string", "minLength": 1},
+          "role": {"enum": ["source_operator", "reviewer"]},
+          "key_id": {"type": "string", "minLength": 1},
+          "public_key_ed25519_hex": {"$ref": "#/$defs/hex32"},
+          "valid_from_utc": {"type": "string", "format": "date-time"},
+          "expires_at_utc": {"type": "string", "format": "date-time"},
+          "revoked": {"type": "boolean"},
+          "revoked_at_utc": {"type": ["string", "null"], "format": "date-time"},
+          "revocation_reason": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_reviewer_distinct_principals", "operator_reviewer_distinct_keys",
+        "expired_keys_rejected", "revoked_keys_rejected"
+      ],
+      "properties": {
+        "operator_reviewer_distinct_principals": {"const": true},
+        "operator_reviewer_distinct_keys": {"const": true},
+        "expired_keys_rejected": {"const": true},
+        "revoked_keys_rejected": {"const": true}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_identity_verified", "hardware_flight_acceptance", "physical_release_enabled",
+        "flight_control_enabled", "payload_release_requested"
+      ],
+      "properties": {
+        "human_identity_verified": {"const": false},
+        "hardware_flight_acceptance": {"const": "not_claimed"},
+        "physical_release_enabled": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "payload_release_requested": {"const": false}
+      }
+    },
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "hex32": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

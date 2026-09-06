@@ -1,17 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session-review.schema.json",
-  "title": "Multi-Detect portable GR01 release-session review v4",
+  "title": "Multi-Detect portable GR01 release-session review v5",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "event", "schema_version", "reviewed_at_utc", "bundle_id", "reviewer", "source_attestation",
+    "event", "schema_version", "reviewed_at_utc", "bundle_id", "reviewer", "trust_registry",
+    "source_attestation",
     "transfer", "session", "claims", "gate_passed", "reasons", "signature",
     "canonical_hash"
   ],
   "properties": {
     "event": {"const": "multidetect_gr01_release_session_portable_reviewed"},
-    "schema_version": {"const": 4},
+    "schema_version": {"const": 5},
     "reviewed_at_utc": {"type": "string", "format": "date-time"},
     "bundle_id": {"type": "string", "format": "uuid"},
     "reviewer": {
@@ -24,14 +25,35 @@
         "public_key_ed25519_hex": {"$ref": "#/$defs/hex32"}
       }
     },
+    "trust_registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry_id", "file_bytes", "file_sha256", "expected_file_sha256",
+        "canonical_hash", "operator_principal_id", "reviewer_principal_id",
+        "active_at_review", "revocation_checked"
+      ],
+      "properties": {
+        "registry_id": {"type": "string", "format": "uuid"},
+        "file_bytes": {"type": "integer", "minimum": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_file_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_hash": {"$ref": "#/$defs/sha256"},
+        "operator_principal_id": {"type": "string", "minLength": 1},
+        "reviewer_principal_id": {"type": "string", "minLength": 1},
+        "active_at_review": {"const": true},
+        "revocation_checked": {"const": true}
+      }
+    },
     "source_attestation": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "file_bytes", "file_sha256", "canonical_hash", "operator_identity",
+        "attested_at_utc", "file_bytes", "file_sha256", "canonical_hash", "operator_identity",
         "operator_key_id", "operator_public_key_ed25519_hex", "inventory_signature_verified"
       ],
       "properties": {
+        "attested_at_utc": {"type": "string", "format": "date-time"},
         "file_bytes": {"type": "integer", "minimum": 1},
         "file_sha256": {"$ref": "#/$defs/sha256"},
         "canonical_hash": {"$ref": "#/$defs/sha256"},
@@ -95,7 +117,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "portable_session_integrity_verified", "source_inventory_signature_verified",
+        "portable_session_integrity_verified", "trust_registry_verified",
+        "trusted_keys_active_at_review", "trusted_keys_not_revoked_at_review",
+        "source_operator_key_active_at_attestation",
+        "source_inventory_signature_verified",
         "operator_key_possession_verified", "operator_human_identity_verified",
         "operator_reviewer_separation_verified", "review_signature_verified",
         "reviewer_key_possession_verified", "reviewer_human_identity_verified",
@@ -104,6 +129,10 @@
       ],
       "properties": {
         "portable_session_integrity_verified": {"const": true},
+        "trust_registry_verified": {"const": true},
+        "trusted_keys_active_at_review": {"const": true},
+        "trusted_keys_not_revoked_at_review": {"const": true},
+        "source_operator_key_active_at_attestation": {"const": true},
         "source_inventory_signature_verified": {"const": true},
         "operator_key_possession_verified": {"const": true},
         "operator_human_identity_verified": {"const": false},

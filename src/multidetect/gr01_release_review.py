@@ -40,8 +40,12 @@ from .gr01_release_session import (
     SESSION_SCHEMA_VERSION,
     verify_gr01_release_session_record,
 )
+from .gr01_review_trust_registry import (
+    require_trusted_gr01_principal,
+    verify_gr01_review_trust_registry,
+)
 
-REVIEW_SCHEMA_VERSION = 4
+REVIEW_SCHEMA_VERSION = 5
 REVIEW_EVENT = "multidetect_gr01_release_session_portable_reviewed"
 SOURCE_ATTESTATION_SCHEMA_VERSION = 1
 SOURCE_ATTESTATION_EVENT = "multidetect_gr01_release_session_source_attested"
@@ -629,7 +633,8 @@ def review_gr01_release_session_bundle(
     review_out: str | Path,
     *,
     expected_inventory_sha256: str,
-    expected_operator_public_key_hex: str,
+    trust_registry: str | Path,
+    expected_trust_registry_sha256: str,
     reviewer: str,
     reviewer_key_id: str,
     reviewer_signing_key_environment: str,
@@ -655,13 +660,50 @@ def review_gr01_release_session_bundle(
     verified_inventory = verify_evidence_transfer_inventory(inventory)
     if verified_inventory["file_sha256"] != expected_inventory_hash:
         raise Gr01ReleaseReviewError("transfer inventory SHA-256 does not match trusted value")
+    reviewed_at = datetime.now(timezone.utc)
     reviewer_name = require_text(reviewer, "reviewer")
     key_id = require_text(reviewer_key_id, "reviewer_key_id")
+    verified_registry = verify_gr01_review_trust_registry(
+        trust_registry,
+        expected_file_sha256=expected_trust_registry_sha256,
+        at_utc=reviewed_at,
+    )
     source_path = _regular_file(source_attestation, name="GR01 source attestation")
+    untrusted_source = _load_object(source_path, name="GR01 source attestation")
+    source_attested_at_text = require_text(
+        untrusted_source.get("attested_at_utc"),
+        "attested_at_utc",
+    )
+    try:
+        source_attested_at = datetime.fromisoformat(source_attested_at_text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("attested_at_utc is not an ISO-8601 timestamp") from exc
+    if source_attested_at.tzinfo is None or source_attested_at.utcoffset() is None:
+        raise Gr01ReleaseReviewError("attested_at_utc must include a timezone")
+    if source_attested_at > reviewed_at:
+        raise Gr01ReleaseReviewError("source attestation cannot postdate the portable review")
+    source_time_registry = verify_gr01_review_trust_registry(
+        trust_registry,
+        expected_file_sha256=expected_trust_registry_sha256,
+        at_utc=source_attested_at,
+    )
+    untrusted_operator = strict_object(
+        untrusted_source.get("operator"),
+        name="operator",
+        required=frozenset({"identity", "key_id", "public_key_ed25519_hex"}),
+    )
+    trusted_operator = require_trusted_gr01_principal(
+        source_time_registry,
+        role="source_operator",
+        key_id=untrusted_operator["key_id"],
+        identity=untrusted_operator["identity"],
+        public_key_ed25519_hex=untrusted_operator["public_key_ed25519_hex"],
+        at_utc=source_attested_at,
+    )
     source = verify_gr01_release_session_source_attestation(
         source_path,
         inventory,
-        expected_operator_public_key_hex=expected_operator_public_key_hex,
+        expected_operator_public_key_hex=trusted_operator["public_key_ed25519_hex"],
     )
     signing_key = _signing_key_from_environment(
         reviewer_signing_key_environment,
@@ -675,22 +717,51 @@ def review_gr01_release_session_bundle(
         or public_key_hex == source_operator["public_key_ed25519_hex"]
     ):
         raise Gr01ReleaseReviewError("source operator and reviewer roles and keys must be distinct")
+    trusted_reviewer = require_trusted_gr01_principal(
+        verified_registry,
+        role="reviewer",
+        key_id=key_id,
+        identity=reviewer_name,
+        public_key_ed25519_hex=public_key_hex,
+        at_utc=reviewed_at,
+    )
+    require_trusted_gr01_principal(
+        verified_registry,
+        role="source_operator",
+        key_id=source_operator["key_id"],
+        identity=source_operator["identity"],
+        public_key_ed25519_hex=source_operator["public_key_ed25519_hex"],
+        at_utc=reviewed_at,
+    )
     transfer = verify_evidence_bundle_transfer(inventory, root, transfer_path)
     verify_evidence_bundle_transfer_receipt(transfer_path)
     semantic = _portable_session_review(root)
     document: dict[str, Any] = {
         "event": REVIEW_EVENT,
         "schema_version": REVIEW_SCHEMA_VERSION,
-        "reviewed_at_utc": datetime.now(timezone.utc)
-        .isoformat(timespec="microseconds")
-        .replace("+00:00", "Z"),
+        "reviewed_at_utc": reviewed_at.isoformat(timespec="microseconds").replace("+00:00", "Z"),
         "bundle_id": transfer["bundle_id"],
         "reviewer": {
             "identity": reviewer_name,
             "key_id": key_id,
             "public_key_ed25519_hex": public_key_hex,
         },
+        "trust_registry": {
+            "registry_id": verified_registry["document"]["registry_id"],
+            "file_bytes": verified_registry["file_bytes"],
+            "file_sha256": verified_registry["file_sha256"],
+            "expected_file_sha256": require_sha256(
+                expected_trust_registry_sha256,
+                "expected_trust_registry_sha256",
+            ),
+            "canonical_hash": verified_registry["document"]["canonical_hash"],
+            "operator_principal_id": trusted_operator["principal_id"],
+            "reviewer_principal_id": trusted_reviewer["principal_id"],
+            "active_at_review": True,
+            "revocation_checked": True,
+        },
         "source_attestation": {
+            "attested_at_utc": source_attested_at_text,
             "file_bytes": source_path.stat().st_size,
             "file_sha256": _sha256(source_path),
             "canonical_hash": source["canonical_hash"],
@@ -714,6 +785,10 @@ def review_gr01_release_session_bundle(
         "session": semantic,
         "claims": {
             "portable_session_integrity_verified": True,
+            "trust_registry_verified": True,
+            "trusted_keys_active_at_review": True,
+            "trusted_keys_not_revoked_at_review": True,
+            "source_operator_key_active_at_attestation": True,
             "source_inventory_signature_verified": True,
             "operator_key_possession_verified": True,
             "operator_human_identity_verified": False,
@@ -741,7 +816,8 @@ def review_gr01_release_session_bundle(
     _atomic_write(review_path, document)
     verify_gr01_release_session_review_receipt(
         review_path,
-        expected_reviewer_public_key_hex=public_key_hex,
+        trust_registry=trust_registry,
+        expected_trust_registry_sha256=expected_trust_registry_sha256,
     )
     return document
 
@@ -749,7 +825,8 @@ def review_gr01_release_session_bundle(
 def verify_gr01_release_session_review_receipt(
     receipt: str | Path,
     *,
-    expected_reviewer_public_key_hex: str,
+    trust_registry: str | Path,
+    expected_trust_registry_sha256: str,
 ) -> dict[str, Any]:
     path = _regular_file(receipt, name="GR01 portable review receipt")
     document = strict_object(
@@ -762,6 +839,7 @@ def verify_gr01_release_session_review_receipt(
                 "reviewed_at_utc",
                 "bundle_id",
                 "reviewer",
+                "trust_registry",
                 "source_attestation",
                 "transfer",
                 "session",
@@ -799,17 +877,72 @@ def verify_gr01_release_session_review_receipt(
         reviewer["public_key_ed25519_hex"],
         "reviewer.public_key_ed25519_hex",
     )
-    expected_public_key_hex = _require_hex_32(
-        expected_reviewer_public_key_hex,
-        "expected_reviewer_public_key_hex",
+    verified_registry = verify_gr01_review_trust_registry(
+        trust_registry,
+        expected_file_sha256=expected_trust_registry_sha256,
+        at_utc=parsed_reviewed_at,
     )
-    if public_key_hex != expected_public_key_hex:
-        raise Gr01ReleaseReviewError("portable review reviewer public key is not trusted")
+    trusted_reviewer = require_trusted_gr01_principal(
+        verified_registry,
+        role="reviewer",
+        key_id=reviewer["key_id"],
+        identity=reviewer["identity"],
+        public_key_ed25519_hex=public_key_hex,
+        at_utc=parsed_reviewed_at,
+    )
+    registry_projection = strict_object(
+        document["trust_registry"],
+        name="trust_registry",
+        required=frozenset(
+            {
+                "registry_id",
+                "file_bytes",
+                "file_sha256",
+                "expected_file_sha256",
+                "canonical_hash",
+                "operator_principal_id",
+                "reviewer_principal_id",
+                "active_at_review",
+                "revocation_checked",
+            }
+        ),
+    )
+    registry_id = require_text(registry_projection["registry_id"], "trust_registry.registry_id")
+    try:
+        if str(UUID(registry_id)) != registry_id:
+            raise ValueError
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("trust_registry.registry_id must be a canonical UUID") from exc
+    require_int(registry_projection["file_bytes"], "trust_registry.file_bytes", minimum=1)
+    for name in ("file_sha256", "expected_file_sha256", "canonical_hash"):
+        require_sha256(registry_projection[name], f"trust_registry.{name}")
+    require_text(
+        registry_projection["operator_principal_id"],
+        "trust_registry.operator_principal_id",
+    )
+    require_text(
+        registry_projection["reviewer_principal_id"],
+        "trust_registry.reviewer_principal_id",
+    )
+    require_bool(registry_projection["active_at_review"], "trust_registry.active_at_review")
+    require_bool(registry_projection["revocation_checked"], "trust_registry.revocation_checked")
+    if (
+        registry_projection["registry_id"] != verified_registry["document"]["registry_id"]
+        or registry_projection["file_bytes"] != verified_registry["file_bytes"]
+        or registry_projection["file_sha256"] != verified_registry["file_sha256"]
+        or registry_projection["expected_file_sha256"] != verified_registry["file_sha256"]
+        or registry_projection["canonical_hash"] != verified_registry["document"]["canonical_hash"]
+        or registry_projection["reviewer_principal_id"] != trusted_reviewer["principal_id"]
+        or registry_projection["active_at_review"] is not True
+        or registry_projection["revocation_checked"] is not True
+    ):
+        raise Gr01ReleaseReviewError("portable review trust registry binding is invalid")
     source_attestation = strict_object(
         document["source_attestation"],
         name="source_attestation",
         required=frozenset(
             {
+                "attested_at_utc",
                 "file_bytes",
                 "file_sha256",
                 "canonical_hash",
@@ -820,6 +953,20 @@ def verify_gr01_release_session_review_receipt(
             }
         ),
     )
+    source_attested_at_text = require_text(
+        source_attestation["attested_at_utc"],
+        "source_attestation.attested_at_utc",
+    )
+    try:
+        source_attested_at = datetime.fromisoformat(source_attested_at_text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError(
+            "source_attestation.attested_at_utc is not an ISO-8601 timestamp"
+        ) from exc
+    if source_attested_at.tzinfo is None or source_attested_at.utcoffset() is None:
+        raise Gr01ReleaseReviewError("source_attestation.attested_at_utc must include a timezone")
+    if source_attested_at > parsed_reviewed_at:
+        raise Gr01ReleaseReviewError("source attestation cannot postdate the portable review")
     require_int(source_attestation["file_bytes"], "source_attestation.file_bytes", minimum=1)
     for name in ("file_sha256", "canonical_hash"):
         require_sha256(source_attestation[name], f"source_attestation.{name}")
@@ -847,6 +994,29 @@ def verify_gr01_release_session_review_receipt(
         or operator_public_key == public_key_hex
     ):
         raise Gr01ReleaseReviewError("portable review operator and reviewer separation is invalid")
+    source_time_registry = verify_gr01_review_trust_registry(
+        trust_registry,
+        expected_file_sha256=expected_trust_registry_sha256,
+        at_utc=source_attested_at,
+    )
+    trusted_operator = require_trusted_gr01_principal(
+        source_time_registry,
+        role="source_operator",
+        key_id=operator_key_id,
+        identity=operator_identity,
+        public_key_ed25519_hex=operator_public_key,
+        at_utc=source_attested_at,
+    )
+    require_trusted_gr01_principal(
+        verified_registry,
+        role="source_operator",
+        key_id=operator_key_id,
+        identity=operator_identity,
+        public_key_ed25519_hex=operator_public_key,
+        at_utc=parsed_reviewed_at,
+    )
+    if registry_projection["operator_principal_id"] != trusted_operator["principal_id"]:
+        raise Gr01ReleaseReviewError("portable review operator registry binding is invalid")
     transfer = strict_object(
         document["transfer"],
         name="transfer",
@@ -938,6 +1108,10 @@ def verify_gr01_release_session_review_receipt(
         required=frozenset(
             {
                 "portable_session_integrity_verified",
+                "trust_registry_verified",
+                "trusted_keys_active_at_review",
+                "trusted_keys_not_revoked_at_review",
+                "source_operator_key_active_at_attestation",
                 "source_inventory_signature_verified",
                 "operator_key_possession_verified",
                 "operator_human_identity_verified",
@@ -956,6 +1130,10 @@ def verify_gr01_release_session_review_receipt(
     )
     if (
         claims["portable_session_integrity_verified"] is not True
+        or claims["trust_registry_verified"] is not True
+        or claims["trusted_keys_active_at_review"] is not True
+        or claims["trusted_keys_not_revoked_at_review"] is not True
+        or claims["source_operator_key_active_at_attestation"] is not True
         or claims["source_inventory_signature_verified"] is not True
         or claims["operator_key_possession_verified"] is not True
         or claims["operator_human_identity_verified"] is not False
@@ -1007,7 +1185,7 @@ def verify_gr01_release_session_review_receipt(
         raise Gr01ReleaseReviewError("portable review signed payload hash does not match")
     _, verify_key_type, bad_signature_error = _signing_types()
     try:
-        verify_key_type(bytes.fromhex(expected_public_key_hex)).verify(
+        verify_key_type(bytes.fromhex(trusted_reviewer["public_key_ed25519_hex"])).verify(
             signed_payload,
             signature_bytes,
         )
@@ -1058,7 +1236,8 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--inventory", required=True, type=Path)
     review.add_argument("--expected-inventory-sha256", required=True)
     review.add_argument("--source-attestation", required=True, type=Path)
-    review.add_argument("--expected-operator-public-key-hex", required=True)
+    review.add_argument("--trust-registry", required=True, type=Path)
+    review.add_argument("--expected-trust-registry-sha256", required=True)
     review.add_argument("--reviewer", required=True)
     review.add_argument("--reviewer-key-id", required=True)
     review.add_argument("--reviewer-signing-key-env", required=True)
@@ -1067,7 +1246,8 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--out", required=True, type=Path)
     verify = subparsers.add_parser("verify", help="verify a saved portable review receipt")
     verify.add_argument("receipt", type=Path)
-    verify.add_argument("--expected-reviewer-public-key-hex", required=True)
+    verify.add_argument("--trust-registry", required=True, type=Path)
+    verify.add_argument("--expected-trust-registry-sha256", required=True)
     return parser
 
 
@@ -1097,7 +1277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.transfer_receipt_out,
                 args.out,
                 expected_inventory_sha256=args.expected_inventory_sha256,
-                expected_operator_public_key_hex=args.expected_operator_public_key_hex,
+                trust_registry=args.trust_registry,
+                expected_trust_registry_sha256=args.expected_trust_registry_sha256,
                 reviewer=args.reviewer,
                 reviewer_key_id=args.reviewer_key_id,
                 reviewer_signing_key_environment=args.reviewer_signing_key_env,
@@ -1105,7 +1286,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             document = verify_gr01_release_session_review_receipt(
                 args.receipt,
-                expected_reviewer_public_key_hex=args.expected_reviewer_public_key_hex,
+                trust_registry=args.trust_registry,
+                expected_trust_registry_sha256=args.expected_trust_registry_sha256,
             )
     except (AutonomyContractError, Gr01ReleaseReviewError, OSError, TypeError, ValueError) as exc:
         print(f"GR01 release-session review: {exc}")

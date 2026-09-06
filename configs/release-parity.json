@@ -2,7 +2,7 @@
   "parity": {
     "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
     "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5",
-    "safety_policy_hash": "b900403a0adf1b10dff608db79cfa416c83838b80ada93fc3f1c89c1936b6f35",
+    "safety_policy_hash": "e179f40642000ba7c095fa623eea61629ed033c9bb5beb3efbb18173fe0030de",
     "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
   },
@@ -85,6 +85,7 @@
       "configs/schemas/gr01-release-session-review.schema.json",
       "configs/schemas/gr01-release-session-source-attestation.schema.json",
       "configs/schemas/gr01-release-session.schema.json",
+      "configs/schemas/gr01-review-trust-registry.schema.json",
       "configs/schemas/local-dem-grid.schema.json",
       "scripts/evidence_bundle_transfer.py",
       "scripts/inspect_field_link_interfaces.ps1",
@@ -100,6 +101,7 @@
       "scripts/verify_gr01_release_session_handoff.py",
       "scripts/verify_gr01_release_session_plan.py",
       "scripts/verify_gr01_release_session_review.py",
+      "scripts/verify_gr01_review_trust_registry.py",
       "src/multidetect/alert_link_bench.py",
       "src/multidetect/alert_link_topology.py",
       "src/multidetect/alerts.py",
@@ -113,6 +115,7 @@
       "src/multidetect/gr01_release_plan.py",
       "src/multidetect/gr01_release_review.py",
       "src/multidetect/gr01_release_session.py",
+      "src/multidetect/gr01_review_trust_registry.py",
       "src/multidetect/operator_udp.py",
       "src/multidetect/safety.py",
       "src/multidetect/simulator/control.py",

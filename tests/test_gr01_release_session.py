@@ -11,8 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
+from nacl.signing import SigningKey
 
 from multidetect import gr01_release_plan as plan_module
+from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.evidence_bundle_transfer import create_evidence_transfer_inventory
 from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
 from multidetect.gr01_release_handoff import create_gr01_release_session_handoff
@@ -31,6 +33,7 @@ from multidetect.gr01_release_session import (
     main,
     verify_gr01_release_session_record,
 )
+from multidetect.gr01_review_trust_registry import create_gr01_review_trust_registry
 from multidetect.operator_link import VideoGeometry
 from multidetect.operator_protocol import SelectionAck, SelectionAckReason
 from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
@@ -43,6 +46,7 @@ REVIEW_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-review.sche
 SOURCE_ATTESTATION_SCHEMA = (
     ROOT / "configs" / "schemas" / "gr01-release-session-source-attestation.schema.json"
 )
+TRUST_REGISTRY_SCHEMA = ROOT / "configs" / "schemas" / "gr01-review-trust-registry.schema.json"
 MODES = ("replay", "sim", "hil", "real")
 PARITY = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
 REVIEW_SIGNING_KEY_ENV = "MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX_TEST"
@@ -73,6 +77,54 @@ def _source_attestation(
         operator_key_id="field-operator-a-2026",
         operator_signing_key_environment=OPERATOR_SIGNING_KEY_ENV,
     )
+
+
+def _trust_registry(tmp_path: Path) -> dict[str, object]:
+    path = tmp_path / "gr01-review-trust-registry.json"
+    if not path.exists():
+        operator_public_key = bytes(
+            SigningKey(bytes.fromhex(OPERATOR_SIGNING_KEY_HEX)).verify_key
+        ).hex()
+        reviewer_public_key = bytes(
+            SigningKey(bytes.fromhex(REVIEW_SIGNING_KEY_HEX)).verify_key
+        ).hex()
+        create_gr01_review_trust_registry(
+            path,
+            registry_id="98765432-1234-5678-9234-567812345678",
+            issued_at_utc=datetime(2025, 12, 31, tzinfo=timezone.utc),
+            valid_from_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            expires_at_utc=datetime(2030, 1, 1, tzinfo=timezone.utc),
+            principals=[
+                {
+                    "principal_id": "field-operator-a",
+                    "identity": "operator-a",
+                    "role": "source_operator",
+                    "key_id": "field-operator-a-2026",
+                    "public_key_ed25519_hex": operator_public_key,
+                    "valid_from_utc": "2026-01-01T00:00:00Z",
+                    "expires_at_utc": "2030-01-01T00:00:00Z",
+                    "revoked": False,
+                    "revoked_at_utc": None,
+                    "revocation_reason": None,
+                },
+                {
+                    "principal_id": "field-reviewer-b",
+                    "identity": "reviewer-b",
+                    "role": "reviewer",
+                    "key_id": "field-reviewer-b-2026",
+                    "public_key_ed25519_hex": reviewer_public_key,
+                    "valid_from_utc": "2026-01-01T00:00:00Z",
+                    "expires_at_utc": "2030-01-01T00:00:00Z",
+                    "revoked": False,
+                    "revoked_at_utc": None,
+                    "revocation_reason": None,
+                },
+            ],
+        )
+    return {
+        "trust_registry": path,
+        "expected_trust_registry_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
 
 
 class _PassingSession:
@@ -511,6 +563,48 @@ def test_field_snapshot_and_second_machine_portable_review(
         )
     destination = tmp_path / "second-machine-session"
     shutil.copytree(source_root, destination)
+    trust = _trust_registry(tmp_path)
+    trust_schema = json.loads(TRUST_REGISTRY_SCHEMA.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(trust_schema)
+    Draft202012Validator(
+        trust_schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    ).validate(json.loads(Path(trust["trust_registry"]).read_text(encoding="utf-8")))
+    future_operator_registry_path = tmp_path / "future-operator-registry.json"
+    future_operator_registry = json.loads(Path(trust["trust_registry"]).read_text(encoding="utf-8"))
+    attested_at = datetime.fromisoformat(
+        source_attestation["attested_at_utc"].replace("Z", "+00:00")
+    )
+    future_operator = next(
+        item for item in future_operator_registry["principals"] if item["role"] == "source_operator"
+    )
+    future_operator["valid_from_utc"] = (
+        (attested_at + timedelta(seconds=1))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    future_operator_registry.pop("canonical_hash")
+    future_operator_registry["canonical_hash"] = canonical_sha256(future_operator_registry)
+    future_operator_registry_path.write_text(
+        json.dumps(future_operator_registry) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="source_operator key is expired or not active"):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            source_attestation_path,
+            destination,
+            tmp_path / "future-operator-transfer.json",
+            tmp_path / "future-operator-review.json",
+            expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
+            trust_registry=future_operator_registry_path,
+            expected_trust_registry_sha256=hashlib.sha256(
+                future_operator_registry_path.read_bytes()
+            ).hexdigest(),
+            **_review_signing(monkeypatch),
+        )
+    assert not (tmp_path / "future-operator-transfer.json").exists()
+    assert not (tmp_path / "future-operator-review.json").exists()
     monkeypatch.setenv(REVIEW_SIGNING_KEY_ENV, REVIEW_SIGNING_KEY_HEX)
     with pytest.raises(ValueError, match="roles and keys must be distinct"):
         review_gr01_release_session_bundle(
@@ -520,7 +614,7 @@ def test_field_snapshot_and_second_machine_portable_review(
             tmp_path / "same-identity-transfer.json",
             tmp_path / "same-identity-review.json",
             expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
-            expected_operator_public_key_hex=operator_public_key,
+            **trust,
             reviewer="operator-a",
             reviewer_key_id="field-reviewer-b-2026",
             reviewer_signing_key_environment=REVIEW_SIGNING_KEY_ENV,
@@ -535,7 +629,7 @@ def test_field_snapshot_and_second_machine_portable_review(
             tmp_path / "same-key-transfer.json",
             tmp_path / "same-key-review.json",
             expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
-            expected_operator_public_key_hex=operator_public_key,
+            **trust,
             reviewer="reviewer-b",
             reviewer_key_id="field-reviewer-b-2026",
             reviewer_signing_key_environment=REVIEW_SIGNING_KEY_ENV,
@@ -550,7 +644,7 @@ def test_field_snapshot_and_second_machine_portable_review(
         transfer_receipt,
         review_receipt,
         expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest().upper(),
-        expected_operator_public_key_hex=operator_public_key,
+        **trust,
         **_review_signing(monkeypatch),
     )
 
@@ -571,10 +665,16 @@ def test_field_snapshot_and_second_machine_portable_review(
     assert review["session"]["five_source_hashes_verified"] is True
     assert review["session"]["bench_recomputed"] is True
     assert review["reviewer"]["identity"] == "reviewer-b"
+    assert review["trust_registry"]["active_at_review"] is True
+    assert review["trust_registry"]["revocation_checked"] is True
     assert review["source_attestation"]["operator_identity"] == "operator-a"
     assert review["signature"]["algorithm"] == "Ed25519"
     assert review["claims"] == {
         "portable_session_integrity_verified": True,
+        "trust_registry_verified": True,
+        "trusted_keys_active_at_review": True,
+        "trusted_keys_not_revoked_at_review": True,
+        "source_operator_key_active_at_attestation": True,
         "source_inventory_signature_verified": True,
         "operator_key_possession_verified": True,
         "operator_human_identity_verified": False,
@@ -589,26 +689,45 @@ def test_field_snapshot_and_second_machine_portable_review(
         "flight_control_enabled": False,
         "payload_release_requested": False,
     }
-    expected_public_key = review["reviewer"]["public_key_ed25519_hex"]
     assert (
         verify_gr01_release_session_review_receipt(
             review_receipt,
-            expected_reviewer_public_key_hex=expected_public_key,
+            **trust,
         )
         == review
     )
-    with pytest.raises(ValueError, match="public key is not trusted"):
+    with pytest.raises(ValueError, match="registry SHA-256 is not trusted"):
         verify_gr01_release_session_review_receipt(
             review_receipt,
-            expected_reviewer_public_key_hex="00" * 32,
+            trust_registry=trust["trust_registry"],
+            expected_trust_registry_sha256="00" * 32,
         )
+    trust_path = Path(trust["trust_registry"])
+    original_trust = trust_path.read_bytes()
+    revoked_trust = json.loads(original_trust)
+    revoked_reviewer = next(
+        item for item in revoked_trust["principals"] if item["role"] == "reviewer"
+    )
+    revoked_reviewer["revoked"] = True
+    revoked_reviewer["revoked_at_utc"] = "2026-06-01T00:00:00Z"
+    revoked_reviewer["revocation_reason"] = "test rotation"
+    revoked_trust.pop("canonical_hash")
+    revoked_trust["canonical_hash"] = canonical_sha256(revoked_trust)
+    trust_path.write_text(json.dumps(revoked_trust) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="reviewer key is revoked"):
+        verify_gr01_release_session_review_receipt(
+            review_receipt,
+            trust_registry=trust_path,
+            expected_trust_registry_sha256=hashlib.sha256(trust_path.read_bytes()).hexdigest(),
+        )
+    trust_path.write_bytes(original_trust)
     changed = json.loads(review_receipt.read_text(encoding="utf-8"))
     changed["signature"]["signature_ed25519_hex"] = "00" * 64
     review_receipt.write_text(json.dumps(changed) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Ed25519 signature is invalid"):
         verify_gr01_release_session_review_receipt(
             review_receipt,
-            expected_reviewer_public_key_hex=expected_public_key,
+            **trust,
         )
     review_receipt.write_text(json.dumps(review) + "\n", encoding="utf-8")
     changed = json.loads(review_receipt.read_text(encoding="utf-8"))
@@ -617,7 +736,7 @@ def test_field_snapshot_and_second_machine_portable_review(
     with pytest.raises(ValueError, match="claim boundary"):
         verify_gr01_release_session_review_receipt(
             review_receipt,
-            expected_reviewer_public_key_hex=expected_public_key,
+            **trust,
         )
 
 
@@ -642,9 +761,7 @@ def test_portable_review_rejects_changed_copy(
         version_manifest_path=VERSION_MANIFEST,
     )
     source_attestation_path = tmp_path / "changed-source-attestation.json"
-    source_attestation = _source_attestation(
-        source_root / INVENTORY_NAME, source_attestation_path, monkeypatch
-    )
+    _source_attestation(source_root / INVENTORY_NAME, source_attestation_path, monkeypatch)
     destination = tmp_path / "changed-copy"
     shutil.copytree(source_root, destination)
     (destination / "gr01-link-bench.json").write_text("{}\n", encoding="utf-8")
@@ -659,9 +776,7 @@ def test_portable_review_rejects_changed_copy(
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
-            expected_operator_public_key_hex=source_attestation["operator"][
-                "public_key_ed25519_hex"
-            ],
+            **_trust_registry(tmp_path),
             **_review_signing(monkeypatch),
         )
     assert not (tmp_path / "changed-review.json").exists()
@@ -688,9 +803,7 @@ def test_portable_semantic_review_rejects_reinventoried_record_tampering(
     record.write_text(json.dumps(changed) + "\n", encoding="utf-8")
     create_evidence_transfer_inventory(source_root, source_root / INVENTORY_NAME)
     source_attestation_path = tmp_path / "reinventoried-source-attestation.json"
-    source_attestation = _source_attestation(
-        source_root / INVENTORY_NAME, source_attestation_path, monkeypatch
-    )
+    _source_attestation(source_root / INVENTORY_NAME, source_attestation_path, monkeypatch)
     destination = tmp_path / "reinventoried-copy"
     shutil.copytree(source_root, destination)
 
@@ -704,9 +817,7 @@ def test_portable_semantic_review_rejects_reinventoried_record_tampering(
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
-            expected_operator_public_key_hex=source_attestation["operator"][
-                "public_key_ed25519_hex"
-            ],
+            **_trust_registry(tmp_path),
             **_review_signing(monkeypatch),
         )
 
@@ -733,7 +844,7 @@ def test_portable_review_requires_matching_out_of_band_inventory_hash(
     )
     inventory = source_root / INVENTORY_NAME
     source_attestation_path = tmp_path / "wrong-anchor-source-attestation.json"
-    source_attestation = _source_attestation(inventory, source_attestation_path, monkeypatch)
+    _source_attestation(inventory, source_attestation_path, monkeypatch)
     destination = tmp_path / "wrong-anchor-copy"
     shutil.copytree(source_root, destination)
     transfer_receipt = tmp_path / "wrong-anchor-transfer.json"
@@ -747,9 +858,7 @@ def test_portable_review_requires_matching_out_of_band_inventory_hash(
             transfer_receipt,
             review_receipt,
             expected_inventory_sha256="0" * 64,
-            expected_operator_public_key_hex=source_attestation["operator"][
-                "public_key_ed25519_hex"
-            ],
+            **_trust_registry(tmp_path),
             **_review_signing(monkeypatch),
         )
     assert not transfer_receipt.exists()
@@ -784,7 +893,7 @@ def test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs(
         version_manifest_path=VERSION_MANIFEST,
     )
     source_attestation_path = tmp_path / "unsigned-source-attestation.json"
-    source_attestation = _source_attestation(inventory, source_attestation_path, monkeypatch)
+    _source_attestation(inventory, source_attestation_path, monkeypatch)
     destination = tmp_path / "unsigned-copy"
     shutil.copytree(source_root, destination)
     key_environment = "MULTIDETECT_MISSING_OR_INVALID_REVIEW_KEY_TEST"
@@ -802,9 +911,7 @@ def test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs(
             transfer_receipt,
             review_receipt,
             expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
-            expected_operator_public_key_hex=source_attestation["operator"][
-                "public_key_ed25519_hex"
-            ],
+            **_trust_registry(tmp_path),
             reviewer="reviewer-b",
             reviewer_key_id="field-reviewer-b-2026",
             reviewer_signing_key_environment=key_environment,
@@ -843,7 +950,8 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
     assert review_help.returncode == 0, review_help.stderr
     assert "--expected-inventory-sha256" in review_help.stdout
     assert "--source-attestation" in review_help.stdout
-    assert "--expected-operator-public-key-hex" in review_help.stdout
+    assert "--trust-registry" in review_help.stdout
+    assert "--expected-trust-registry-sha256" in review_help.stdout
     assert "--reviewer" in review_help.stdout
     assert "--reviewer-key-id" in review_help.stdout
     assert "--reviewer-signing-key-env" in review_help.stdout
@@ -861,4 +969,5 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
         timeout=30,
     )
     assert verify_help.returncode == 0, verify_help.stderr
-    assert "--expected-reviewer-public-key-hex" in verify_help.stdout
+    assert "--trust-registry" in verify_help.stdout
+    assert "--expected-trust-registry-sha256" in verify_help.stdout
