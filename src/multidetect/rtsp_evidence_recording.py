@@ -228,7 +228,7 @@ def rtsp_evidence_recording_document(
         "actual_duration_s": report.actual_duration_s,
         "started_at_monotonic_s": report.started_at_monotonic_s,
         "ended_at_monotonic_s": report.ended_at_monotonic_s,
-        "output_video": str(report.output_video),
+        "output_video": _portable_video_reference(report.output_video, report.manifest_out),
         "output_bytes": report.output_bytes,
         "output_sha256": report.output_sha256,
         "eos_received": report.eos_received,
@@ -528,6 +528,17 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _portable_video_reference(output_video: Path, manifest_out: Path) -> str:
+    """Use a relocatable reference when the video lives under the manifest directory."""
+
+    video = output_video.resolve()
+    manifest_parent = manifest_out.resolve().parent
+    try:
+        return video.relative_to(manifest_parent).as_posix()
+    except ValueError:
+        return str(video)
 
 
 def _require_utc_clock_value(value: object, name: str) -> datetime:

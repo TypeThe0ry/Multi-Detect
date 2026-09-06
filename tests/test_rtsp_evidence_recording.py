@@ -84,6 +84,7 @@ def test_rtsp_evidence_recording_is_hash_bound_redacted_stream_copy(tmp_path: Pa
     assert document["utc_clock"] == "system_utc_enclosing_stream_copy"
     assert document["started_at_monotonic_s"] == 100.0
     assert document["ended_at_monotonic_s"] == 112.1
+    assert document["output_video"] == "recording.mkv"
     assert document["source_uri_recorded"] is False
     assert document["stream_copy_no_decode_or_reencode"] is True
     assert document["video_probe"]["passed"] is True

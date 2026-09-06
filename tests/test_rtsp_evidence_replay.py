@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -201,9 +202,19 @@ def test_rtsp_evidence_container_to_raw_replay_real_opencv_path(tmp_path: Path) 
     assert verification["position_healthy"] is False
     assert verification["release_ready"] is False
 
-    summary_path = output / "recording-summary.json"
+    moved = tmp_path / "moved-bundle"
+    moved.mkdir()
+    shutil.move(str(video), moved / video.name)
+    shutil.move(str(manifest), moved / manifest.name)
+    shutil.move(str(output), moved / output.name)
+    moved_output = moved / output.name
+    moved_verification = verify_rtsp_evidence_replay_recording(moved_output)
+    assert moved_verification["recording_hash"] == recording.recording_hash
+    assert moved_verification["source_video_sha256"] == report.output_sha256
+
+    summary_path = moved_output / "recording-summary.json"
     changed = json.loads(summary_path.read_text(encoding="utf-8"))
     changed["gps_bound"] = True
     summary_path.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(ValueError, match="gps_bound must remain false"):
-        verify_rtsp_evidence_replay_recording(output)
+        verify_rtsp_evidence_replay_recording(moved_output)

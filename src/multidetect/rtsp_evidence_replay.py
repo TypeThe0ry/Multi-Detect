@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,8 @@ def create_rtsp_evidence_replay_recording(
     """
 
     verified = verify_rtsp_evidence_recording_manifest(evidence_manifest)
-    binding = _source_binding(verified)
+    output_root = Path(output).expanduser().resolve()
+    binding = _source_binding(verified, output_root)
     summary = create_video_replay_recording(
         verified.output_video,
         output,
@@ -168,18 +170,23 @@ def verify_rtsp_evidence_replay_recording(output: str | Path) -> dict[str, Any]:
     manifest_binding = strict_object(
         binding["manifest"],
         name="source_evidence_binding.manifest",
-        required=frozenset({"path", "sha256", "bytes", "canonical_hash"}),
+        required=frozenset({"path", "path_base", "sha256", "bytes", "canonical_hash"}),
     )
-    source_manifest_path = Path(require_text(manifest_binding["path"], "manifest.path"))
+    source_manifest_path = _resolve_bound_path(
+        root,
+        require_text(manifest_binding["path"], "manifest.path"),
+        require_text(manifest_binding["path_base"], "manifest.path_base"),
+    )
     verified_source = verify_rtsp_evidence_recording_manifest(source_manifest_path)
-    if dict(binding) != _source_binding(verified_source):
+    if dict(binding) != _source_binding(verified_source, root):
         raise AutonomyContractError("RTSP replay source evidence binding changed")
 
-    recording_manifest_path = Path(
+    recorded_manifest_reference = Path(
         require_text(summary["recording_manifest"], "recording_manifest")
     )
-    if recording_manifest_path.resolve() != (root / "recording.manifest.json").resolve():
-        raise AutonomyContractError("RTSP replay summary points at a different raw manifest")
+    if recorded_manifest_reference.name != "recording.manifest.json":
+        raise AutonomyContractError("RTSP replay summary raw manifest reference is invalid")
+    recording_manifest_path = root / "recording.manifest.json"
     if recording_manifest_path.is_symlink() or not recording_manifest_path.is_file():
         raise AutonomyContractError("RTSP replay raw manifest must be a regular file")
     manifest_payload = recording_manifest_path.read_bytes()
@@ -194,8 +201,6 @@ def verify_rtsp_evidence_replay_recording(output: str | Path) -> dict[str, Any]:
         raise AutonomyContractError("RTSP replay recording ID changed")
     if summary["started_at_utc"] != verified_source.started_at_utc:
         raise AutonomyContractError("RTSP replay UTC anchor changed")
-    if summary["source_video"] != str(verified_source.output_video):
-        raise AutonomyContractError("RTSP replay source video path changed")
     if require_sha256(summary["source_video_sha256"], "source_video_sha256") != (
         verified_source.output_sha256
     ):
@@ -220,19 +225,28 @@ def verify_rtsp_evidence_replay_recording(output: str | Path) -> dict[str, Any]:
     }
 
 
-def _source_binding(verified: VerifiedRtspEvidenceRecording) -> dict[str, Any]:
+def _source_binding(
+    verified: VerifiedRtspEvidenceRecording,
+    recording_root: Path,
+) -> dict[str, Any]:
+    manifest_path, manifest_base = _portable_path_binding(
+        verified.manifest_path, recording_root
+    )
+    video_path, video_base = _portable_path_binding(verified.output_video, recording_root)
     return {
         "type": "rtsp_evidence_recording_v3",
         "verified": True,
         "manifest": {
-            "path": str(verified.manifest_path),
+            "path": manifest_path,
+            "path_base": manifest_base,
             "sha256": verified.manifest_sha256,
             "bytes": verified.manifest_bytes,
             "canonical_hash": verified.canonical_hash,
         },
         "session_id": verified.session_id,
         "source_video": {
-            "path": str(verified.output_video),
+            "path": video_path,
+            "path_base": video_base,
             "sha256": verified.output_sha256,
             "bytes": verified.output_bytes,
         },
@@ -251,6 +265,28 @@ def _source_binding(verified: VerifiedRtspEvidenceRecording) -> dict[str, Any]:
             "release_ready": False,
         },
     }
+
+
+def _portable_path_binding(path: Path, recording_root: Path) -> tuple[str, str]:
+    resolved = path.resolve(strict=True)
+    try:
+        relative = Path(os.path.relpath(resolved, start=recording_root.resolve()))
+    except ValueError:
+        return str(resolved), "absolute"
+    return relative.as_posix(), "recording_root"
+
+
+def _resolve_bound_path(root: Path, reference: str, path_base: str) -> Path:
+    path = Path(reference)
+    if path_base == "recording_root":
+        if path.is_absolute():
+            raise AutonomyContractError("recording-root source path must be relative")
+        return (root / path).resolve()
+    if path_base == "absolute":
+        if not path.is_absolute():
+            raise AutonomyContractError("absolute source path binding must be absolute")
+        return path.resolve()
+    raise AutonomyContractError("source path_base is invalid")
 
 
 def build_parser() -> argparse.ArgumentParser:
