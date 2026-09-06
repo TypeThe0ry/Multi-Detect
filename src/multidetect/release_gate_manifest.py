@@ -108,6 +108,7 @@ import re
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,8 @@ from .simulator_external_evidence import (
 )
 
 MANIFEST_SCHEMA_VERSION = 1
+DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S = 900.0
+_GR01_OPERATOR_LINK_MAX_FUTURE_SKEW_S = 5.0
 # Keep the evaluator's naming available to callers that treat the writer and
 # evaluator as one release-gate surface.
 RELEASE_GATE_SCHEMA_VERSION = MANIFEST_SCHEMA_VERSION
@@ -869,6 +872,7 @@ def _real_gr01_operator_link_record(
     *,
     output_identity: Path,
     manifest_directory: Path,
+    max_age_s: float,
 ) -> dict[str, Any]:
     """Create a hash-bound REAL GR01 operator selection/ACK record."""
 
@@ -919,10 +923,46 @@ def _real_gr01_operator_link_record(
                 f"{field} does not identify a REAL GR01 operator bench"
             )
 
+    observed_at_raw = document.get("observed_at_utc")
+    if not isinstance(observed_at_raw, str) or not observed_at_raw.strip():
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report observed_at_utc is missing or empty"
+        )
+    observed_at = observed_at_raw.strip()
+    parse_value = observed_at[:-1] + "+00:00" if observed_at.endswith(("Z", "z")) else observed_at
+    try:
+        observed_timestamp = datetime.fromisoformat(parse_value)
+    except ValueError as exc:
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report observed_at_utc must be ISO-8601"
+        ) from exc
+    if observed_timestamp.tzinfo is None:
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report observed_at_utc must include a timezone"
+        )
+    report_timestamp_epoch_s = observed_timestamp.timestamp()
+    if not math.isfinite(report_timestamp_epoch_s):
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report observed_at_utc is not finite"
+        )
+    age_s = datetime.now(timezone.utc).timestamp() - report_timestamp_epoch_s
+    if age_s < -_GR01_OPERATOR_LINK_MAX_FUTURE_SKEW_S:
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report observed_at_utc is in the future"
+        )
+    if age_s > max_age_s:
+        raise ReleaseGateManifestError(
+            "real_gr01_operator_link bench report is stale: "
+            f"age {age_s:.3f}s exceeds max_age_s {max_age_s:.3f}s"
+        )
+
     record: dict[str, Any] = {
         "report_path": _relative_path(resolved, manifest_directory=manifest_directory),
         "report_sha256": sha256_file(resolved),
         "report_bytes": resolved.stat().st_size,
+        "observed_at_utc": observed_at,
+        "report_timestamp_epoch_s": report_timestamp_epoch_s,
+        "max_age_s": max_age_s,
     }
     for field in (
         "event",
@@ -2453,6 +2493,7 @@ def build_release_gate_manifest(
     field_evidence_bundle: str | Path | None = None,
     real_alert_link_bench_report: str | Path | None = None,
     real_gr01_operator_link_bench_report: str | Path | None = None,
+    real_gr01_operator_link_max_age_s: float = DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
 ) -> dict[str, Any]:
@@ -2500,6 +2541,10 @@ def build_release_gate_manifest(
     normalized_real_field_link_max_age_s = _normalise_nonnegative_float(
         real_field_link_max_age_s,
         name="real_field_link_max_age_s",
+    )
+    normalized_real_gr01_operator_link_max_age_s = _normalise_nonnegative_float(
+        real_gr01_operator_link_max_age_s,
+        name="real_gr01_operator_link_max_age_s",
     )
     normalized_events = _normalise_mode_mapping(artifact_events, name="artifact_events")
     normalized_notes = _normalise_mode_mapping(notes, name="notes")
@@ -2608,6 +2653,7 @@ def build_release_gate_manifest(
             real_gr01_operator_link_bench_report,
             output_identity=output_identity,
             manifest_directory=manifest_directory,
+            max_age_s=normalized_real_gr01_operator_link_max_age_s,
         )
         if real_gr01_operator_link_bench_report is not None
         else None
@@ -2932,6 +2978,7 @@ def create_release_gate_manifest(
     real_alert_link_bench_report: str | Path | None = None,
     real_gr01_operator_link_bench_report: str | Path | None = None,
     real_field_link_max_age_s: float = DEFAULT_FIELD_LINK_MAX_AGE_S,
+    real_gr01_operator_link_max_age_s: float = DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
 ) -> dict[str, Any]:
@@ -2978,6 +3025,7 @@ def create_release_gate_manifest(
         field_evidence_bundle=field_evidence_bundle,
         real_alert_link_bench_report=real_alert_link_bench_report,
         real_gr01_operator_link_bench_report=real_gr01_operator_link_bench_report,
+        real_gr01_operator_link_max_age_s=real_gr01_operator_link_max_age_s,
         model_review_bundle=model_review_bundle,
         simulator_scene_stream_set_evidence=simulator_scene_stream_set_evidence,
     )
@@ -3134,6 +3182,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "optional hash-bound REAL GR01 selection/ACK bench report; "
             "it is required separately when evaluating a final release"
+        ),
+    )
+    parser.add_argument(
+        "--real-gr01-operator-link-max-age-s",
+        type=float,
+        default=DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S,
+        help=(
+            "maximum age in seconds for the bound REAL GR01 operator-link bench "
+            f"(default: {DEFAULT_GR01_OPERATOR_LINK_MAX_AGE_S:g})"
         ),
     )
     parser.add_argument(
@@ -3460,6 +3517,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             real_field_link_max_age_s=args.real_field_link_max_age_s,
             real_alert_link_bench_report=args.real_alert_link_bench_report,
             real_gr01_operator_link_bench_report=(args.real_gr01_operator_link_bench_report),
+            real_gr01_operator_link_max_age_s=args.real_gr01_operator_link_max_age_s,
             real_target_accuracy_report=args.real_target_accuracy_report,
             real_target_state_evidence_report=args.real_target_state_evidence_report,
             simulator_safety_evidence=args.simulator_safety_evidence,

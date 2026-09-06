@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -258,7 +258,11 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
     return path
 
 
-def _real_gr01_operator_link_report(tmp_path: Path) -> Path:
+def _real_gr01_operator_link_report(
+    tmp_path: Path,
+    *,
+    observed_at_utc: datetime | None = None,
+) -> Path:
     class Session:
         remote = ("192.168.144.20", 14580)
         local_source_address = "192.168.144.10"
@@ -287,7 +291,7 @@ def _real_gr01_operator_link_report(tmp_path: Path) -> Path:
             expected_source_cidr="192.168.144.0/24",
         ),
         wall_clock=lambda: 1_000.0,
-        observed_at=lambda: datetime(2026, 9, 6, 11, 0, tzinfo=timezone.utc),
+        observed_at=lambda: observed_at_utc or datetime.now(timezone.utc),
     )
     path = tmp_path / "gr01-operator-link" / "hardware.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1029,6 +1033,14 @@ def test_real_gr01_operator_link_is_hash_bound_and_reverified(tmp_path: Path) ->
     binding = document["real_gr01_operator_link"]
     assert binding["report_path"] == "../gr01-operator-link/hardware.json"
     assert binding["report_sha256"] == sha256_file(bench)
+    assert (
+        binding["observed_at_utc"]
+        == json.loads(bench.read_text(encoding="utf-8"))["observed_at_utc"]
+    )
+    assert binding["report_timestamp_epoch_s"] == pytest.approx(
+        datetime.fromisoformat(binding["observed_at_utc"].replace("Z", "+00:00")).timestamp()
+    )
+    assert binding["max_age_s"] == 900.0
     assert binding["event"] == "gr01_bench_passed"
     assert binding["source_route_verified"] is True
     assert binding["bidirectional_ip_verified"] is True
@@ -1048,6 +1060,87 @@ def test_real_gr01_operator_link_is_hash_bound_and_reverified(tmp_path: Path) ->
     assert any(
         "real_gr01_operator_link local_source_address does not match report" in reason
         for reason in changed["release_blocked_reasons"]
+    )
+
+
+def test_real_gr01_operator_link_writer_rejects_stale_report(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    bench = _real_gr01_operator_link_report(
+        tmp_path,
+        observed_at_utc=datetime.now(timezone.utc) - timedelta(seconds=60),
+    )
+
+    with pytest.raises(ReleaseGateManifestError, match="bench report is stale"):
+        create_release_gate_manifest(
+            output_path=tmp_path / "manifests" / "release-gate-stale-gr01.json",
+            replay_evidence=evidence["replay"],
+            sim_evidence=evidence["sim"],
+            hil_evidence=evidence["hil"],
+            real_evidence=evidence["real"],
+            parity=PARITY,
+            statuses=_complete_statuses(),
+            version_manifest_path=VERSION_MANIFEST,
+            real_gr01_operator_link_bench_report=bench,
+            real_gr01_operator_link_max_age_s=30.0,
+        )
+
+
+def test_real_gr01_operator_link_is_rejected_after_bound_age_expires(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    observed_at = datetime.now(timezone.utc)
+    bench = _real_gr01_operator_link_report(tmp_path, observed_at_utc=observed_at)
+    output = tmp_path / "manifests" / "release-gate-expired-gr01.json"
+    create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+        real_gr01_operator_link_bench_report=bench,
+        real_gr01_operator_link_max_age_s=30.0,
+    )
+
+    report = evaluate_release_gate(
+        output,
+        version_manifest_path=VERSION_MANIFEST,
+        evaluated_at_utc=(observed_at + timedelta(seconds=31)).isoformat(),
+    )
+    assert report["real_gr01_operator_link"]["passed"] is False
+    assert report["real_gr01_operator_link"]["age_s"] == pytest.approx(31.0)
+    assert any(
+        "real_gr01_operator_link observation is stale" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+
+
+def test_real_gr01_operator_link_partial_freshness_binding_fails_closed(
+    tmp_path: Path,
+) -> None:
+    evidence = _evidence(tmp_path)
+    bench = _real_gr01_operator_link_report(tmp_path)
+    output = tmp_path / "manifests" / "release-gate-partial-gr01.json"
+    create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+        real_gr01_operator_link_bench_report=bench,
+    )
+    document = json.loads(output.read_text(encoding="utf-8"))
+    del document["real_gr01_operator_link"]["max_age_s"]
+    output.write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert report["real_gr01_operator_link"]["passed"] is False
+    assert any(
+        "freshness binding is partial" in reason for reason in report["release_blocked_reasons"]
     )
 
 
@@ -1106,6 +1199,39 @@ def test_final_release_requires_real_gr01_operator_link_binding(tmp_path: Path) 
     report = evaluate_release_gate(output, version_manifest_path=final_version_path)
     assert any(
         "final release requires a hash-bound REAL GR01 operator selection/ACK bench" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+
+
+def test_final_release_rejects_legacy_gr01_binding_without_freshness(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    bench = _real_gr01_operator_link_report(tmp_path)
+    output = tmp_path / "manifests" / "release-gate-final-legacy-gr01.json"
+    create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+        real_gr01_operator_link_bench_report=bench,
+    )
+    document = json.loads(output.read_text(encoding="utf-8"))
+    for field in ("observed_at_utc", "report_timestamp_epoch_s", "max_age_s"):
+        del document["real_gr01_operator_link"][field]
+    output.write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    final_version = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
+    final_version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
+    final_version_path = tmp_path / "product-version-release.json"
+    final_version_path.write_text(json.dumps(final_version), encoding="utf-8")
+
+    report = evaluate_release_gate(output, version_manifest_path=final_version_path)
+    assert report["real_gr01_operator_link"]["passed"] is True
+    assert any(
+        "final release requires freshness-bound REAL GR01 operator-link provenance" in reason
         for reason in report["release_blocked_reasons"]
     )
 
@@ -1965,6 +2091,8 @@ def test_cli_binds_real_gr01_operator_link_bench_report(tmp_path: Path) -> None:
         str(parity_file),
         "--real-gr01-operator-link-bench",
         str(bench_report),
+        "--real-gr01-operator-link-max-age-s",
+        "600",
     ]
     for mode in MODES:
         arguments.extend(
@@ -1985,6 +2113,7 @@ def test_cli_binds_real_gr01_operator_link_bench_report(tmp_path: Path) -> None:
     raw = json.loads(output.read_text(encoding="utf-8"))
     assert raw["real_gr01_operator_link"]["gate_passed"] is True
     assert raw["real_gr01_operator_link"]["event"] == "gr01_bench_passed"
+    assert raw["real_gr01_operator_link"]["max_age_s"] == 600.0
 
 
 def test_cli_binds_real_target_accuracy_report(tmp_path: Path) -> None:
@@ -2337,6 +2466,9 @@ def test_release_gate_schema_declares_real_gr01_operator_link_binding() -> None:
     assert definition["properties"]["bidirectional_ip_verified"]["const"] is True
     assert definition["properties"]["flight_control_enabled"]["const"] is False
     assert definition["properties"]["physical_release_enabled"]["const"] is False
+    assert definition["properties"]["observed_at_utc"]["format"] == "date-time"
+    assert definition["properties"]["report_timestamp_epoch_s"]["type"] == "number"
+    assert definition["properties"]["max_age_s"]["minimum"] == 0
 
 
 def test_release_gate_schema_declares_replay_set_calibration_verification_binding() -> None:

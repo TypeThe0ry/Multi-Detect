@@ -409,12 +409,16 @@
         "bidirectional_ip_verified", "signed_operator_round_trip",
         "application_hmac_verified", "mavlink2_signature_verified", "checks", "thresholds",
         "payload_release_requested", "flight_control_enabled", "physical_release_enabled",
-        "hardware_control_enabled", "gate_passed"
+        "hardware_control_enabled", "observed_at_utc", "report_timestamp_epoch_s",
+        "max_age_s", "gate_passed"
       ],
       "properties": {
         "report_path": {"type": "string", "minLength": 1},
         "report_sha256": {"$ref": "#/$defs/sha256"},
         "report_bytes": {"type": "integer", "minimum": 0},
+        "observed_at_utc": {"type": "string", "format": "date-time"},
+        "report_timestamp_epoch_s": {"type": "number"},
+        "max_age_s": {"type": "number", "minimum": 0},
         "event": {"const": "gr01_bench_passed"},
         "schema_version": {"const": 1},
         "hardware_observed": {"const": true},

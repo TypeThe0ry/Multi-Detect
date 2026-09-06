@@ -339,6 +339,9 @@ _REAL_GR01_OPERATOR_LINK_KEYS = frozenset(
         "report_path",
         "report_sha256",
         "report_bytes",
+        "observed_at_utc",
+        "report_timestamp_epoch_s",
+        "max_age_s",
         *_REAL_GR01_OPERATOR_LINK_BOUND_FIELDS,
         "gate_passed",
     }
@@ -1950,6 +1953,7 @@ def _real_gr01_operator_link_result(
     raw_record: object,
     *,
     manifest_directory: Path,
+    evaluated_at_utc: str,
 ) -> dict[str, Any]:
     """Re-open and independently verify the REAL GR01 selection/ACK report."""
 
@@ -1996,6 +2000,77 @@ def _real_gr01_operator_link_result(
     expected_bytes = raw_record.get("report_bytes")
     if type(expected_bytes) is not int or expected_bytes < 0:
         reasons.append("real_gr01_operator_link.report_bytes must be a non-negative integer")
+
+    freshness_fields = ("observed_at_utc", "report_timestamp_epoch_s", "max_age_s")
+    freshness_present = [field in raw_record for field in freshness_fields]
+    freshness_bound = all(freshness_present)
+    if any(freshness_present) and not freshness_bound:
+        reasons.append(
+            "real_gr01_operator_link freshness binding is partial; "
+            "observed_at_utc, report_timestamp_epoch_s and max_age_s are all required"
+        )
+    expected_observed_at: str | None = None
+    expected_report_timestamp: float | None = None
+    configured_max_age_s: float | None = None
+    if freshness_bound:
+        raw_observed_at = raw_record.get("observed_at_utc")
+        if not isinstance(raw_observed_at, str) or not raw_observed_at.strip():
+            reasons.append("real_gr01_operator_link.observed_at_utc is missing or empty")
+        else:
+            expected_observed_at = raw_observed_at.strip()
+        raw_timestamp = raw_record.get("report_timestamp_epoch_s")
+        if not _is_finite_number(raw_timestamp):
+            reasons.append(
+                "real_gr01_operator_link.report_timestamp_epoch_s must be a finite number"
+            )
+        else:
+            expected_report_timestamp = float(raw_timestamp)
+        raw_max_age = raw_record.get("max_age_s")
+        if not _is_finite_number(raw_max_age) or float(raw_max_age) < 0.0:
+            reasons.append("real_gr01_operator_link.max_age_s must be a finite non-negative number")
+        else:
+            configured_max_age_s = float(raw_max_age)
+        if expected_observed_at is not None and expected_report_timestamp is not None:
+            parse_value = (
+                expected_observed_at[:-1] + "+00:00"
+                if expected_observed_at.endswith(("Z", "z"))
+                else expected_observed_at
+            )
+            try:
+                parsed_observed_at = datetime.fromisoformat(parse_value)
+            except ValueError:
+                reasons.append("real_gr01_operator_link.observed_at_utc must be ISO-8601")
+            else:
+                if parsed_observed_at.tzinfo is None:
+                    reasons.append(
+                        "real_gr01_operator_link.observed_at_utc must include a timezone"
+                    )
+                elif not math.isclose(
+                    parsed_observed_at.timestamp(),
+                    expected_report_timestamp,
+                    rel_tol=0.0,
+                    abs_tol=1e-6,
+                ):
+                    reasons.append(
+                        "real_gr01_operator_link report_timestamp_epoch_s does not match "
+                        "observed_at_utc"
+                    )
+        if expected_report_timestamp is not None and configured_max_age_s is not None:
+            evaluation_epoch_s = datetime.fromisoformat(
+                evaluated_at_utc[:-1] + "+00:00"
+                if evaluated_at_utc.endswith("Z")
+                else evaluated_at_utc
+            ).timestamp()
+            age_s = evaluation_epoch_s - expected_report_timestamp
+            result["age_s"] = age_s
+            result["max_age_s"] = configured_max_age_s
+            if age_s < -5.0:
+                reasons.append("real_gr01_operator_link observation is in the future")
+            elif age_s > configured_max_age_s:
+                reasons.append(
+                    "real_gr01_operator_link observation is stale: "
+                    f"age {age_s:.3f}s exceeds max_age_s {configured_max_age_s:.3f}s"
+                )
 
     expected_contract: dict[str, object] = {
         "event": "gr01_bench_passed",
@@ -2074,6 +2149,11 @@ def _real_gr01_operator_link_result(
                         matches = actual == expected
                     if not matches:
                         reasons.append(f"real_gr01_operator_link {field} does not match report")
+                if freshness_bound and expected_observed_at is not None:
+                    if report_document.get("observed_at_utc") != expected_observed_at:
+                        reasons.append(
+                            "real_gr01_operator_link observed_at_utc does not match report"
+                        )
                 if verification.get("gate_passed") is not True:
                     for reason in verification.get("reasons", []):
                         if isinstance(reason, str) and reason:
@@ -5163,6 +5243,7 @@ def evaluate_release_gate(
     real_gr01_operator_link_result = _real_gr01_operator_link_result(
         raw_real_gr01_operator_link,
         manifest_directory=path.parent,
+        evaluated_at_utc=evaluation_timestamp,
     )
     if raw_real_gr01_operator_link is not None and not real_gr01_operator_link_result["passed"]:
         top_reasons.extend(
@@ -5656,6 +5737,16 @@ def evaluate_release_gate(
                 release_reasons.extend(
                     f"real_gr01_operator_link: {reason}"
                     for reason in real_gr01_operator_link_result["reasons"]
+                )
+            if real_gr01_operator_link_result["present"] and (
+                not isinstance(raw_real_gr01_operator_link, Mapping)
+                or "observed_at_utc" not in raw_real_gr01_operator_link
+                or "report_timestamp_epoch_s" not in raw_real_gr01_operator_link
+                or "max_age_s" not in raw_real_gr01_operator_link
+            ):
+                release_reasons.append(
+                    "final release requires freshness-bound REAL GR01 operator-link provenance "
+                    "(observed_at_utc, report_timestamp_epoch_s and max_age_s)"
                 )
             if not real_target_accuracy_result["present"]:
                 release_reasons.append(

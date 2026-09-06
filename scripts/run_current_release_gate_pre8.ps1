@@ -37,6 +37,8 @@ param(
     # Optional signed GR01 target-selection/ACK bench. It is a separate final
     # gate from the authenticated fire-alert link above.
     [string]$RealGr01OperatorLinkBench = '',
+    [ValidateRange(0, 86400)]
+    [double]$RealGr01OperatorLinkMaxAgeSeconds = 900.0,
     # Optional hash-bound model-review envelope.  Keep it empty by default so
     # existing prerelease rebinding remains compatible; final release checks
     # must pass the reviewed deployment candidate explicitly.
@@ -309,6 +311,8 @@ foreach ($path in $QgcOperatorVisualAcceptanceEvidence) {
 }
 $controlArguments.Add('--real-field-link-max-age-s')
 $controlArguments.Add($RealFieldLinkMaxAgeSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
+$controlArguments.Add('--real-gr01-operator-link-max-age-s')
+$controlArguments.Add($RealGr01OperatorLinkMaxAgeSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
 $controlArguments.Add('--allow-incomplete')
 $controlArguments.Add('--no-overwrite')
 
