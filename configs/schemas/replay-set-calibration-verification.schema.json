@@ -17,6 +17,10 @@
     "gate_passed",
     "reasons"
   ],
+  "dependentRequired": {
+    "report_provenance_complete": ["recomputed_provenance_complete"],
+    "recomputed_provenance_complete": ["report_provenance_complete"]
+  },
   "properties": {
     "event": {"const": "replay_set_threshold_calibration_verified"},
     "schema_version": {"const": 1},
@@ -26,6 +30,8 @@
     "manifest_path": {"type": ["string", "null"]},
     "report_promotion_ready": {"type": ["boolean", "null"]},
     "recomputed_promotion_ready": {"type": ["boolean", "null"]},
+    "report_provenance_complete": {"type": ["boolean", "null"]},
+    "recomputed_provenance_complete": {"type": ["boolean", "null"]},
     "checks": {
       "type": "object",
       "additionalProperties": false,

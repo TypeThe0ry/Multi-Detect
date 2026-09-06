@@ -560,9 +560,15 @@ def _replay_set_calibration_verification_record(
             "replay_set calibration report is bound to a different manifest canonical hash"
         )
 
-    for field in ("report_promotion_ready", "recomputed_promotion_ready"):
+    for field in (
+        "report_promotion_ready",
+        "recomputed_promotion_ready",
+        "report_provenance_complete",
+        "recomputed_provenance_complete",
+    ):
         value = verification.get(field)
-        if type(value) is not bool or document.get(field) != value:
+        declared = document.get(field, False)
+        if type(value) is not bool or type(declared) is not bool or declared != value:
             raise ReleaseGateManifestError(
                 f"replay_set calibration verification {field} does not match the verifier result"
             )
@@ -585,6 +591,10 @@ def _replay_set_calibration_verification_record(
         "canonical_sha256": replay_canonical_sha256,
         "report_promotion_ready": verification["report_promotion_ready"],
         "recomputed_promotion_ready": verification["recomputed_promotion_ready"],
+        "report_provenance_complete": verification["report_provenance_complete"],
+        "recomputed_provenance_complete": verification[
+            "recomputed_provenance_complete"
+        ],
         "gate_passed": True,
     }
 

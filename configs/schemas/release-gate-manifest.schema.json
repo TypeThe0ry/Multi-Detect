@@ -175,6 +175,8 @@
         "canonical_sha256",
         "report_promotion_ready",
         "recomputed_promotion_ready",
+        "report_provenance_complete",
+        "recomputed_provenance_complete",
         "gate_passed"
       ],
       "properties": {
@@ -188,6 +190,8 @@
         "canonical_sha256": {"$ref": "#/$defs/sha256"},
         "report_promotion_ready": {"type": "boolean"},
         "recomputed_promotion_ready": {"type": "boolean"},
+        "report_provenance_complete": {"type": "boolean"},
+        "recomputed_provenance_complete": {"type": "boolean"},
         "gate_passed": {"const": true}
       }
     },

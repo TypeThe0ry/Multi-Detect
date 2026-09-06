@@ -290,6 +290,8 @@ def test_replay_set_calibration_verifier_recomputes_report_and_hashes(tmp_path: 
     assert verification["gate_passed"] is True
     assert verification["report_promotion_ready"] is True
     assert verification["recomputed_promotion_ready"] is True
+    assert verification["report_provenance_complete"] is False
+    assert verification["recomputed_provenance_complete"] is False
     assert all(verification["checks"].values())
 
     overridden = verify_replay_set_calibration_report(
@@ -298,6 +300,30 @@ def test_replay_set_calibration_verifier_recomputes_report_and_hashes(tmp_path: 
     )
     assert overridden["gate_passed"] is True
     assert all(overridden["checks"].values())
+
+
+def test_replay_set_calibration_verifier_reads_pre_provenance_report(tmp_path: Path) -> None:
+    """A pre-v112 report stays verifiable but cannot claim provenance completeness."""
+
+    manifest = _manifest(tmp_path / "source")
+    report = calibrate_replay_set_thresholds(
+        manifest,
+        thresholds=(0.3, 0.6, 0.9),
+        reviewed=True,
+        reviewer="qa-team",
+    )
+    report.pop("prediction_run_binding")
+    report.pop("accuracy_report_binding")
+    report.pop("provenance_complete")
+    report_path = tmp_path / "source" / "legacy-threshold-calibration.json"
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    verification = verify_replay_set_calibration_report(report_path)
+
+    assert verification["gate_passed"] is True
+    assert verification["checks"]["recomputed_report_matches"] is True
+    assert verification["report_provenance_complete"] is False
+    assert verification["recomputed_provenance_complete"] is False
 
 
 def test_replay_set_calibration_verifier_rejects_tampered_stability(tmp_path: Path) -> None:
@@ -430,9 +456,33 @@ def test_release_gate_binds_independent_calibration_verification(tmp_path: Path)
     binding = document["replay_set"]["calibration_verification"]
     assert binding["gate_passed"] is True
     assert binding["report_promotion_ready"] is True
+    assert binding["report_provenance_complete"] is False
+    assert binding["recomputed_provenance_complete"] is False
     report = evaluate_release_gate(output)
     assert report["replay_set"]["calibration_verification"]["passed"] is True
+    assert report["replay_set"]["calibration_verification"]["provenance_complete"] is False
     assert report["gate_passed"] is True
+
+    historical_verification = json.loads(verification_path.read_text(encoding="utf-8"))
+    historical_verification.pop("report_provenance_complete")
+    historical_verification.pop("recomputed_provenance_complete")
+    verification_path.write_text(
+        json.dumps(historical_verification, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    historical_manifest = json.loads(output.read_text(encoding="utf-8"))
+    historical_binding = historical_manifest["replay_set"]["calibration_verification"]
+    historical_binding.pop("report_provenance_complete")
+    historical_binding.pop("recomputed_provenance_complete")
+    historical_binding["sha256"] = hashlib.sha256(verification_path.read_bytes()).hexdigest()
+    output.write_text(json.dumps(historical_manifest, indent=2) + "\n", encoding="utf-8")
+
+    historical_report = evaluate_release_gate(output)
+    assert historical_report["replay_set"]["calibration_verification"]["passed"] is True
+    assert (
+        historical_report["replay_set"]["calibration_verification"]["provenance_complete"]
+        is False
+    )
 
     verification_path.write_text(
         verification_path.read_text(encoding="utf-8").replace(

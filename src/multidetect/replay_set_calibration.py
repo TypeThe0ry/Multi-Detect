@@ -485,7 +485,7 @@ def verify_replay_set_calibration_report(
                 reasons.append(f"calibration report request could not be re-computed: {exc}")
             else:
                 checks["recomputed_report_matches"] = _json_equivalent(
-                    _normalize_report_paths(document),
+                    _normalize_report_paths(_with_legacy_provenance_defaults(document)),
                     _normalize_report_paths(recomputed),
                 )
                 if not checks["recomputed_report_matches"]:
@@ -532,6 +532,16 @@ def _calibration_verification_document(
     recomputed_promotion_ready = (
         recomputed.get("promotion_ready") if isinstance(recomputed, Mapping) else None
     )
+    report_provenance_complete = (
+        document.get("provenance_complete") is True
+        if isinstance(document, Mapping)
+        else None
+    )
+    recomputed_provenance_complete = (
+        recomputed.get("provenance_complete") is True
+        if isinstance(recomputed, Mapping)
+        else None
+    )
     unique_reasons = _unique_reasons(list(reasons))
     return {
         "event": "replay_set_threshold_calibration_verified",
@@ -542,6 +552,8 @@ def _calibration_verification_document(
         "manifest_path": str(manifest_path) if manifest_path is not None else None,
         "report_promotion_ready": report_promotion_ready,
         "recomputed_promotion_ready": recomputed_promotion_ready,
+        "report_provenance_complete": report_provenance_complete,
+        "recomputed_provenance_complete": recomputed_provenance_complete,
         "checks": dict(checks),
         "gate_passed": not unique_reasons,
         "reasons": unique_reasons,
@@ -565,6 +577,16 @@ def _normalize_report_paths(value: object, *, key: str | None = None) -> object:
     if isinstance(value, list):
         return [_normalize_report_paths(item, key=key) for item in value]
     return value
+
+
+def _with_legacy_provenance_defaults(document: Mapping[str, Any]) -> dict[str, Any]:
+    """Upgrade a pre-v112 advisory report for deterministic compatibility checks."""
+
+    normalized = dict(document)
+    normalized.setdefault("prediction_run_binding", None)
+    normalized.setdefault("accuracy_report_binding", None)
+    normalized.setdefault("provenance_complete", False)
+    return normalized
 
 
 def _json_equivalent(left: object, right: object) -> bool:

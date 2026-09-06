@@ -18,6 +18,11 @@ from multidetect.model_manifest import (
     create_candidate_model_manifest,
     write_candidate_model_manifest,
 )
+from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
+from multidetect.release_gate_manifest import (
+    build_release_gate_manifest,
+    write_release_gate_manifest,
+)
 from multidetect.replay_annotation_workspace import (
     create_replay_annotation_workspace,
     finalize_replay_annotation_workspace,
@@ -753,7 +758,58 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     )
     Draft202012Validator.check_schema(calibration_schema)
     Draft202012Validator(calibration_schema).validate(calibration)
-    assert verify_replay_set_calibration_report(calibration_path)["gate_passed"] is True
+    calibration_verification = verify_replay_set_calibration_report(calibration_path)
+    assert calibration_verification["gate_passed"] is True
+    assert calibration_verification["report_provenance_complete"] is True
+    assert calibration_verification["recomputed_provenance_complete"] is True
+
+    verification_path = predicted_root / "threshold-calibration-verification.json"
+    verification_path.write_text(json.dumps(calibration_verification), encoding="utf-8")
+    evidence: dict[str, Path] = {}
+    statuses: dict[str, dict[str, str]] = {}
+    for mode in ("replay", "sim", "hil", "real"):
+        evidence_path = tmp_path / "evidence" / f"{mode}.json"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text(
+            json.dumps(
+                {
+                    "event": f"{mode}_acceptance_finished",
+                    "runtime_mode": mode,
+                    "gate_passed": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        evidence[mode] = evidence_path
+        statuses[mode] = {
+            "operator_visual_acceptance": "passed",
+            "mission_path_acceptance": "passed",
+            "hardware_acceptance": "not_required" if mode in {"replay", "sim"} else "passed",
+            "real_control_acceptance": "not_required"
+            if mode in {"replay", "sim"}
+            else "passed",
+        }
+    parity = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
+    release_gate_path = tmp_path / "release" / "release-gate.json"
+    release_gate = build_release_gate_manifest(
+        evidence,
+        parity=parity,
+        statuses=statuses,
+        output_path=release_gate_path,
+        replay_set_manifest=predicted_root / "replay-set.manifest.json",
+        replay_set_accuracy_evidence=reviewed_accuracy_path,
+        replay_set_calibration_verification=verification_path,
+    )
+    calibration_binding = release_gate["replay_set"]["calibration_verification"]
+    assert calibration_binding["report_provenance_complete"] is True
+    assert calibration_binding["recomputed_provenance_complete"] is True
+    write_release_gate_manifest(release_gate_path, release_gate)
+    release_evaluation = evaluate_release_gate(release_gate_path)
+    assert release_evaluation["replay_set"]["calibration_verification"]["passed"] is True
+    assert (
+        release_evaluation["replay_set"]["calibration_verification"]["provenance_complete"]
+        is True
+    )
 
     assert (
         cli_main(

@@ -184,6 +184,8 @@ _REPLAY_SET_CALIBRATION_KEYS = frozenset(
         "canonical_sha256",
         "report_promotion_ready",
         "recomputed_promotion_ready",
+        "report_provenance_complete",
+        "recomputed_provenance_complete",
         "gate_passed",
     }
 )
@@ -852,8 +854,10 @@ def _replay_set_calibration_verification_result(
 ) -> dict[str, Any]:
     """Re-validate the optional independent calibration-verification binding.
 
-    Calibration is advisory and does not replace replay-set accuracy evidence.
-    When a caller binds the independent verifier artifact, however, every read
+    Calibration does not replace replay-set accuracy evidence. It remains
+    advisory on prereleases, while the final release channel requires complete
+    prediction-run and accuracy-report provenance. When a caller binds the
+    independent verifier artifact, every read
     must prove that the artifact itself, its calibration report and the replay
     manifest all still refer to the same bytes.  A pending calibration result
     (``report_promotion_ready=false``) remains valid here: this binding proves
@@ -863,6 +867,7 @@ def _replay_set_calibration_verification_result(
     result: dict[str, Any] = {
         "present": raw_record is not None,
         "passed": False,
+        "provenance_complete": False,
         "reasons": [],
         "artifact": None,
         "verification": None,
@@ -949,6 +954,10 @@ def _replay_set_calibration_verification_result(
     for field in ("report_promotion_ready", "recomputed_promotion_ready", "gate_passed"):
         if type(raw_record.get(field)) is not bool:
             reasons.append(f"replay_set.calibration_verification.{field} must be a boolean")
+    for field in ("report_provenance_complete", "recomputed_provenance_complete"):
+        value = raw_record.get(field, False)
+        if type(value) is not bool:
+            reasons.append(f"replay_set.calibration_verification.{field} must be a boolean")
     expected_gate = raw_record.get("gate_passed")
     if expected_gate is False:
         reasons.append("replay_set calibration verification gate_passed is false")
@@ -986,9 +995,20 @@ def _replay_set_calibration_verification_result(
                 "recomputed_promotion_ready",
                 raw_record.get("recomputed_promotion_ready"),
             ),
+            (
+                "report_provenance_complete",
+                raw_record.get("report_provenance_complete", False),
+            ),
+            (
+                "recomputed_provenance_complete",
+                raw_record.get("recomputed_provenance_complete", False),
+            ),
             ("gate_passed", expected_gate),
         ):
-            if artifact_document.get(field) != expected:
+            observed = artifact_document.get(field, False) if field.endswith(
+                "provenance_complete"
+            ) else artifact_document.get(field)
+            if observed != expected:
                 reasons.append(
                     f"replay_set calibration verification {field} does not match the bound record"
                 )
@@ -1107,11 +1127,21 @@ def _replay_set_calibration_verification_result(
                 and verification.get("report_sha256") != expected_report_sha
             ):
                 reasons.append("replay_set calibration verifier report SHA-256 does not match")
-            for field in ("report_promotion_ready", "recomputed_promotion_ready"):
-                if verification.get(field) != raw_record.get(field):
+            for field in (
+                "report_promotion_ready",
+                "recomputed_promotion_ready",
+                "report_provenance_complete",
+                "recomputed_provenance_complete",
+            ):
+                bound_value = raw_record.get(field, False)
+                if verification.get(field) != bound_value:
                     reasons.append(
                         f"replay_set calibration verifier {field} does not match the bound record"
                     )
+            result["provenance_complete"] = bool(
+                verification.get("report_provenance_complete") is True
+                and verification.get("recomputed_provenance_complete") is True
+            )
 
     if artifact_info is not None:
         artifact_info.update(
@@ -1124,6 +1154,12 @@ def _replay_set_calibration_verification_result(
                 "canonical_sha256": actual_canonical_sha or expected_canonical_record_sha,
                 "report_promotion_ready": raw_record.get("report_promotion_ready"),
                 "recomputed_promotion_ready": raw_record.get("recomputed_promotion_ready"),
+                "report_provenance_complete": raw_record.get(
+                    "report_provenance_complete", False
+                ),
+                "recomputed_provenance_complete": raw_record.get(
+                    "recomputed_provenance_complete", False
+                ),
                 "gate_passed": raw_record.get("gate_passed"),
             }
         )
@@ -5298,6 +5334,19 @@ def evaluate_release_gate(
             elif replay_set_result.get("accuracy_evidence") is None:
                 release_reasons.append(
                     "final release requires hash-bound replay_set accuracy evidence"
+                )
+            calibration_verification = replay_set_result.get("calibration_verification")
+            if not isinstance(calibration_verification, Mapping):
+                release_reasons.append(
+                    "final release requires provenance-complete replay_set calibration verification"
+                )
+            elif not calibration_verification.get("passed"):
+                release_reasons.append(
+                    "final release requires passing replay_set calibration verification"
+                )
+            elif not calibration_verification.get("provenance_complete"):
+                release_reasons.append(
+                    "final release requires provenance-complete replay_set calibration verification"
                 )
             if not real_field_link_result["present"]:
                 release_reasons.append(

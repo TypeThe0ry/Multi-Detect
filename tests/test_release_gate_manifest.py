@@ -2101,6 +2101,8 @@ def test_release_gate_schema_declares_replay_set_calibration_verification_bindin
     assert definition["properties"]["gate_passed"]["const"] is True
     assert "report_promotion_ready" in definition["required"]
     assert "recomputed_promotion_ready" in definition["required"]
+    assert "report_provenance_complete" in definition["required"]
+    assert "recomputed_provenance_complete" in definition["required"]
 
 
 def test_release_gate_schema_allows_pending_prerelease_mode_statuses() -> None:

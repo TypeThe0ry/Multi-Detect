@@ -369,6 +369,10 @@ def test_final_release_requires_hash_bound_simulator_scenario_matrix(
     assert report["simulator_scenario_matrix"]["present"] is False
     assert report["simulator_scene_stream_set"]["present"] is False
     assert any(
+        "final release requires provenance-complete replay_set calibration verification" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+    assert any(
         "final release requires a hash-bound three-airframe SIM scenario matrix" in reason
         for reason in report["release_blocked_reasons"]
     )
