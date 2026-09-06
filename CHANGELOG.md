@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v141 source-bound GR01 session plan（2026-09-06）
+
+- GR01 plan schema v2 绑定 Git HEAD/tracked-clean、canonical parity 来源复算和四个执行工具的 bytes/SHA-256；
+  独立 verifier 可重开所有来源并可选复核当前 secret presence；
+- 实际 session 在 UDP bench 前强制创建 plan 并执行 `--check-environment --require-ready`，源码 dirty、parity stale、
+  工具漂移或 secret 缺失均在网络前 fail-closed；secret 值仍不序列化；
+- 新 parity 的 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 独立通过；
+  E7 保持 `false / false / 32 blockers`、GR01 `present=false`；最终全量回归 `3620 passed, 2 skipped`。
+  本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v140 GR01 field-session plan receipt（2026-09-06）
 
 - transactional wrapper 新增 `-PlanOnly/-PlanOutput`：验证 literal IPv4、CIDR、路径、解释器、阈值与两个 secret

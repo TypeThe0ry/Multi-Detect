@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v140 工作树）
+最后更新：2026-09-06（v141 工作树）
+
+## v141 本轮已收口
+
+- GR01 plan 升级为 schema v2：除现场参数和 secret presence 外，新增 Git HEAD、tracked-dirty、canonical
+  `release-parity.json` 来源复算，以及 producer、CLI shim、独立 verifier、plan module 四个工具的 bytes/SHA-256；
+- 新增 `gr01_release_plan.py` 与 installed-tree-independent verifier。verify 会重开工具和 parity，重新计算来源身份；
+  `--check-environment` 复核 secret 是否仍存在，`--require-ready` 同时拒绝 diagnostic/non-ready plan；
+- 实际 session 在任何 UDP bench 之前先 write-new 生成 plan，并立即执行
+  `verify --check-environment --require-ready`。源码 dirty、parity stale、工具漂移或 secret 缺失都会在网络前失败；
+- 干净提交 `abca8465d53ea525b545380ff06e40ca922a81da` 的无网络 smoke 成功复核来源，但因两个 secret 均缺失而
+  `ready_to_execute=false`；计划 SHA-256 为
+  `2F88627DFBA4FA02014EF15B3768583BB347081BE3FE0E3A6B85D8961B5D1332`，未接触网络或硬件；
+- canonical parity 为 7,857 bytes、SHA-256
+  `4C62CE8B5E2A6687F9E29DEA5EC28888B4635BB508891AF7A247CE1CCC9D7F8B`，safety hash 为
+  `C05D32D7EF7F37A72E03001BE86DD190D56930A48926BE97CC2B78DF9942C8F8`；四份派生证据独立通过。
+  E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
+  最终全量回归 3,622 tests：`3620 passed, 2 skipped, 0 failed, 0 errors`，耗时 155.35 秒；JUnit
+  527,791 bytes、SHA-256 `05D64EBDA25BDFAA8F26DE5AA780B9070A5DD36B2AF3167231DD1C31E4DC8F35`。
+  本轮不改 C++/QML，不重建 portable EXE，也不产生硬件、射频、飞行或最终发布声明。
 
 ## v140 本轮已收口
 

@@ -1,5 +1,16 @@
 # 统一仓库架构
 
+## v141 source-bound GR01 session plan（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/gr01_release_plan.py`：plan v2 producer/consumer，规范化参数，重算 canonical parity，并绑定
+  Git HEAD、tracked-dirty 和四个执行工具的 bytes/SHA-256；
+- `scripts/verify_gr01_release_session_plan.py` / console entry：从源码树或安装环境独立复核 plan；
+- `run_gr01_release_session.ps1`：预演和实际执行共用同一 plan creator；实际路径在任何 UDP 前强制
+  `verify --check-environment --require-ready`；
+- plan schema v2 与上述实现全部进入 `safety_policy` parity。secret 仍只记录环境变量名和 present，不记录值。
+
+该边界证明执行配置与源码身份一致，不证明 GR01/G20 已在线；当前无网络 smoke 因 secret 缺失保持 non-ready。
+
 ## v140 GR01 session plan boundary（2026-09-06，`v0.3.0-pre.8`）
 
 - `run_gr01_release_session.ps1 -PlanOnly`：不接触网络的现场配置预演，write-new 输出 ready/reasons；

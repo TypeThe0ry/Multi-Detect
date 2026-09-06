@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T12:30:00Z",
+  "updated_at_utc": "2026-09-06T13:10:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "128db13a18c1db766273f8250f72c1cfe84ae6a3",
-    "commit_subject": "feat(release): preflight GR01 field sessions",
-    "commits_ahead_of_origin_main": 171
+    "commit": "abca8465d53ea525b545380ff06e40ca922a81da",
+    "commit_subject": "feat(release): bind GR01 plans to source identity",
+    "commits_ahead_of_origin_main": 173
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v140",
+  "working_iteration": "v141",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,28 +74,28 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12",
-      "tests": 3616,
-      "passed_tests": 3614,
+      "tests": 3622,
+      "passed_tests": 3620,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 204.33,
+      "duration_seconds": 155.35,
       "local_artifacts_present": true,
-      "junit_local_path": "tmp/current-progress-regression-v140-py312-final.xml",
-      "junit_file_bytes": 527019,
-      "junit_file_sha256": "9e65d248ba8167721784769af91ba3417d3cf106a0eedf5ca78c47ef0a46eb8e",
+      "junit_local_path": "tmp/current-progress-regression-v141-py312-final.xml",
+      "junit_file_bytes": 527791,
+      "junit_file_sha256": "05d64ebda25bdfaa8f26de5aa780b9070a5dd36b2af3167231dd1c31e4dc8f35",
       "distributed_in_git": false
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 7758,
-    "file_sha256": "4fb09c34e7925d43b3a55926ff543d8a42716320c613e71948d2a2be8aa70402",
+    "bytes": 7857,
+    "file_sha256": "4c62ce8b5e2a6687f9e29dea5ec28888b4635bb508891af7a247ce1ccc9d7f8b",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
-      "safety_policy_hash": "c3f6d82749779d8ad1e7484ac237dc2e92078c396f75288bab476c7969afd059",
+      "safety_policy_hash": "c05d32d7ef7f37a72e03001be86dd190d56930a48926be97cc2b78df9942c8f8",
       "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5"
     }
   },
@@ -147,12 +147,31 @@
       "payload_release_requested": false
     },
     "gr01_release_session_plan": {
+      "schema_version": 2,
       "plan_only_supported": true,
       "closed_schema": "configs/schemas/gr01-release-session-plan.schema.json",
       "repository_source_cli_shim": "scripts/run_multidetect_cli.py",
+      "source_identity_bound": true,
+      "git_head_bound": true,
+      "tracked_dirty_bound": true,
+      "release_parity_source_recomputed": true,
+      "tool_bytes_and_sha256_bound": true,
+      "independent_verifier": "scripts/verify_gr01_release_session_plan.py",
+      "actual_session_requires_check_environment_and_ready_before_network": true,
       "secret_names_and_presence_only": true,
       "secret_values_serialized": false,
       "missing_secrets_reported_without_execution": true,
+      "clean_source_smoke": {
+        "source_commit": "abca8465d53ea525b545380ff06e40ca922a81da",
+        "tracked_dirty": false,
+        "parity_source_verified": true,
+        "ready_to_execute": false,
+        "reason_count": 2,
+        "local_path": "tmp/gr01-plan-v141-smoke-8f6465e51aad46b981ee538097280efe.json",
+        "file_bytes": 3006,
+        "file_sha256": "2f88627dfba4fa02014ef15b3768583bb347081be3fe0e3a6b85d8961b5d1332",
+        "distributed_in_git": false
+      },
       "network_contacted": false,
       "hardware_observed": false,
       "hardware_flight_acceptance": "not_claimed",
@@ -963,10 +982,10 @@
       "e7_binding": "connected_fail_closed_pending_four_independent_human_reviews"
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v137/px4-reported-position-response-matrix-v137-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v141/px4-reported-position-response-matrix-v141-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "8fbadf198e8e5c283984ef1e75356e649d76dd1848f75db3ec32b8b66aba14a1",
-      "matrix_sha256": "98d35dcf0e878d833d0ed4ebd9085ba2b42b5df929f3ded564c995645c79e60b",
+      "file_sha256": "d2d5d1d3e2a4bbfcb8e013e878ef7eec6491672538af05ba4d4f94a8f1f17c75",
+      "matrix_sha256": "09dfb287e21d898c61f2726e43ad5f6852d7774aa5f712af4d498abfe5c343da",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
@@ -979,10 +998,10 @@
       "hardware_acceptance": "not_claimed"
     },
     "px4_reported_position_response_campaign": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v137/px4-reported-position-response-campaign-v137-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v141/px4-reported-position-response-campaign-v141-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "07bb63b843ddfb2117e980d6f60c58ada8f1fa948e82e1d2a207d188b880ee56",
-      "campaign_sha256": "93e648dabde9c7f316f5d54e00c8473ff7af04a203c0b0db99c139f8d41956a1",
+      "file_sha256": "84b9287f77ee38bda663ea00db7eeff2d57117e3729c26cbfc6576ce68aac0fd",
+      "campaign_sha256": "31fda483d51d19a3e33d4abfb932e301d81291ad85c95b71a6dc373fb8d3b807",
       "gate_passed": true,
       "positive_run_count": 6,
       "fault_run_count": 9,
@@ -991,11 +1010,11 @@
       "hardware_acceptance": "not_claimed"
     },
     "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v137/simulator-external-runtime-ai-join-v137-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v141/simulator-external-runtime-ai-join-v141-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "73c5f01128bceb52f25bd9fefb6f42eb89239d52ecba6dcbf116d0a2c907c20c",
-      "verification_local_path": "artifacts/evaluation/terminal-continuation-v137/simulator-external-runtime-ai-revalidation-v137-current-parity-pre8.json",
-      "verification_file_sha256": "681786161f3e849d5b1c383e3be9b1459f74cda74e9b6a04f671f159741c41ef",
+      "file_sha256": "cdd4a5f3d0dcda902cf766b8207c3f9f6c5d67747c57f7d51849baa24c90997d",
+      "verification_local_path": "artifacts/evaluation/terminal-continuation-v141/simulator-external-runtime-ai-revalidation-v141-current-parity-pre8.json",
+      "verification_file_sha256": "8426f7b634cc0e9115306e6fd2c302d40c4088c19d79b1044989fab81f52711e",
       "gate_passed": true,
       "source_recomputed": true,
       "new_external_runtime_claimed": false
@@ -1150,11 +1169,11 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v137/release-gate/release-gate-pre.8-current-20260906T112400Z-v6-bound.json",
-      "manifest_file_sha256": "a110fbc9990bf573ecca188207a8bef6e72bbc1862943fbae02984fa4dc01dc6",
-      "local_path": "artifacts/evaluation/terminal-continuation-v137/release-gate/release-gate-pre.8-current-20260906T112400Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v141/release-gate/release-gate-pre.8-current-20260906T130100Z-v6-bound.json",
+      "manifest_file_sha256": "935a086edd97d298975b450d0c00e4fb97ac580fc72665d0645798dc4a897f9a",
+      "local_path": "artifacts/evaluation/terminal-continuation-v141/release-gate/release-gate-pre.8-current-20260906T130100Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "72786c307a245e7adcfc956493600b2516e97c80a3ab73a21be2d9723103f657",
+      "file_sha256": "ee7bcdb7eb58a21c4daa3ca769c8acfb702a69c265d1f498f8a5f8f6c57ca68d",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32

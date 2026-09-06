@@ -1,5 +1,19 @@
 # v0.3.0 E7 发布门
 
+## v141 source-bound GR01 plan gate（2026-09-06，`v0.3.0-pre.8`）
+
+plan schema v2 不再只证明“参数看起来有效”，还绑定执行源码：Git HEAD、tracked-clean、canonical
+`release-parity.json` 的 bytes/SHA 与来源复算结果，以及 PowerShell producer、repository CLI shim、独立 verifier、
+plan module 四个工具的 bytes/SHA。独立 verifier 会重开这些文件；`--check-environment` 还会核对 secret presence
+是否从计划生成后发生变化，`--require-ready` 拒绝任何 diagnostic/non-ready plan。
+
+实际 `run_gr01_release_session.ps1` 在打开 UDP 前必须创建 plan 并通过上述两个开关。dirty tree、stale parity、
+tool drift 或 missing secret 均不会进入 bench。提交 `abca8465d53ea525b545380ff06e40ca922a81da` 的无网络 smoke
+确认 source identity 全部通过，但两个现场 secret 不存在，故 `ready_to_execute=false`；这不是 GR01/E7/hardware pass。
+
+v141 parity 重算后的 external join/revalidation、reported-position matrix/campaign 均通过；E7 报告仍为
+`gate_passed=false`、`release_allowed=false`、32 blockers，`real_gr01_operator_link.present=false/passed=false`。
+
 ## v140 no-network GR01 session rehearsal（2026-09-06，`v0.3.0-pre.8`）
 
 到现场前可先运行同一 producer 的预演模式：

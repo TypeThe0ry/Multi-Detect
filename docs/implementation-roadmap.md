@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Source-bound GR01 field-session plan（v141）
+
+- [x] plan v2 绑定 Git HEAD、tracked-clean、canonical parity 来源验证及四个执行工具身份；
+- [x] 独立 verifier 重开 parity/tools，并支持复核 secret presence 和要求 ready；
+- [x] 实际 session 在任何 UDP 前强制 create + `--check-environment --require-ready`；
+- [x] dirty tree、stale parity、tool tamper、environment drift、missing secret 与 non-ready 均有 fail-closed 回归；
+- [x] 干净提交下完成无网络 smoke；来源通过但 secret 缺失，故仍为 diagnostic/non-ready；
+- [ ] 在隔离飞机网段的同一干净部署提交中注入现场 secret，先保存 ready plan，再执行真实 GR01 session。
+
 ## GR01 field-session no-network rehearsal（v140）
 
 - [x] `-PlanOnly` 在任何 bench/network 操作前验证 endpoint、CIDR、身份、阈值、路径和 Python CLI；
