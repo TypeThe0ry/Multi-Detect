@@ -21,6 +21,9 @@ CUSTOM_CMAKE = CUSTOM_ROOT / "CMakeLists.txt"
 CUSTOM_PLUGIN_HEADER = CUSTOM_ROOT / "src" / "CustomPlugin.h"
 CUSTOM_PLUGIN_SOURCE = CUSTOM_ROOT / "src" / "CustomPlugin.cc"
 OPERATOR_CONTROLLER_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorController.cc"
+OPERATOR_CONTROLLER_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorController.h"
+OPERATOR_PROTOCOL_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.cc"
+OPERATOR_PROTOCOL_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.h"
 
 
 def _read(path: Path) -> str:
@@ -622,6 +625,11 @@ def test_multidetect_status_extends_the_native_qgc_toolbar_and_drawer() -> None:
     ):
         assert detail in expanded
     assert "function _gpsQualityValue()" in indicator
+    assert "MultiDetectState.gnssStatusAvailable" in indicator
+    assert "MultiDetectState.gnssQualified" in indicator
+    assert "MultiDetectState.gnssReason" in indicator
+    assert "function _gnssDetailValue()" in indicator
+    assert 'label: qsTr("GNSS 详情")' in expanded
     assert "function _rangeStatusValue()" in indicator
 
     assert "id: statusPanel" not in layer
@@ -629,6 +637,55 @@ def test_multidetect_status_extends_the_native_qgc_toolbar_and_drawer() -> None:
     assert "id: runtimeIdentityLabel" not in layer
     assert "statusPanel." not in layer
     assert "runtimeIdentityBadge." not in layer
+
+
+def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent() -> None:
+    protocol_header = _read(OPERATOR_PROTOCOL_HEADER)
+    protocol = _read(OPERATOR_PROTOCOL_SOURCE)
+    controller_header = _read(OPERATOR_CONTROLLER_HEADER)
+    controller = _read(OPERATOR_CONTROLLER_SOURCE)
+    state = _qml_code(MULTIDETECT_STATE)
+    indicator = _qml_code(TOOLBAR_INDICATOR)
+
+    assert "GnssStatus = 25" in protocol_header
+    gnss_start = protocol.index("} else if (type == MessageType::GnssStatus) {")
+    gnss_end = protocol.index("} else if (type == MessageType::RuntimeStatus) {", gnss_start)
+    gnss = protocol[gnss_start:gnss_end]
+    for gate in (
+        "fixTypeValue < 3",
+        "satellitesValue < 6",
+        "horizontalAccuracy > 60",
+        "verticalAccuracy > 100",
+        "sourceAge > 15",
+    ):
+        assert gate in gnss
+    assert 'QStringLiteral("gps_qualified")' in gnss
+    assert 'QStringLiteral("advisoryOnly"), true' in gnss
+    assert 'QStringLiteral("flightControlEnabled"), false' in gnss
+    assert 'QStringLiteral("physicalReleaseEnabled"), false' in gnss
+    assert "latitudeDeg" not in gnss
+    assert "longitudeDeg" not in gnss
+
+    assert (
+        "Q_PROPERTY(QVariantMap gnssStatus READ gnssStatus NOTIFY gnssStatusChanged)"
+        in controller_header
+    )
+    assert "void gnssStatusReceived(const QVariantMap& status);" in controller_header
+    assert "packet.type == MultiDetectOperatorProtocol::MessageType::GnssStatus" in controller
+    assert "_lastGnssStatusAtMs = _lastAuthenticatedAtMs" in controller
+    assert "constexpr quint64 kGnssStatusStaleMs = 1000" in controller
+    assert "nowMs - _lastGnssStatusAtMs > kGnssStatusStaleMs" in controller
+
+    assert "function onGnssStatusReceived(status)" in state
+    assert "property bool gnssStatusAvailable: false" in state
+    assert "function _resetGnssStatus()" in state
+    gps_start = indicator.index("function _gpsQualityValue()")
+    gps_end = indicator.index("function _gnssDetailValue()", gps_start)
+    gps = indicator[gps_start:gps_end]
+    assert "MultiDetectState.gnssStatusAvailable" in gps
+    assert "MultiDetectState.targetId" not in gps
+    assert "targetGeolocation" not in gps
+    assert 'qsTr("不可定位 · 等待 GNSS_STATUS")' in gps
 
 
 def test_operator_actions_use_native_qgc_buttons_without_a_custom_hud_card() -> None:

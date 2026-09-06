@@ -20,6 +20,7 @@ from .operator_link import (
     AuthorizationDecisionAcceptance,
     AuthorizationDecisionCommand,
     AuthorizationDecisionCommandGuard,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -534,6 +535,14 @@ class UdpOperatorSelectionServer:
     ) -> None:
         self._channel.sendto(self.mavlink.encode_target_geolocation_status(status), peer)
 
+    def publish_gnss_status(
+        self,
+        status: GnssStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_gnss_status(status), peer)
+
     def publish_release_status(
         self,
         status: ReleaseStatusMessage,
@@ -1034,6 +1043,7 @@ class UdpOperatorSessionClient:
         self._last_patrol_status_sequence: int | None = None
         self._last_range_status_sequence: int | None = None
         self._last_target_geolocation_status_sequence: int | None = None
+        self._last_gnss_status_sequence: int | None = None
         self._last_release_status_sequence: int | None = None
         self._last_runtime_status_sequence: int | None = None
         self._runtime_status_ack_sequence = 0
@@ -1051,6 +1061,7 @@ class UdpOperatorSessionClient:
             WireMessageType.PATROL_STATUS: deque(maxlen=1),
             WireMessageType.RANGE_STATUS: deque(maxlen=1),
             WireMessageType.TARGET_GEOLOCATION_STATUS: deque(maxlen=1),
+            WireMessageType.GNSS_STATUS: deque(maxlen=1),
             WireMessageType.RELEASE_STATUS: deque(maxlen=1),
             WireMessageType.RUNTIME_STATUS: deque(maxlen=1),
             WireMessageType.APPROACH_CHALLENGE: deque(maxlen=1),
@@ -1104,6 +1115,7 @@ class UdpOperatorSessionClient:
             self._last_safety_status_sequence = None
             self._last_patrol_status_sequence = None
             self._last_range_status_sequence = None
+            self._last_gnss_status_sequence = None
             self._last_release_status_sequence = None
             self._last_runtime_status_sequence = None
             self._last_approach_challenge_sequence = None
@@ -1369,6 +1381,20 @@ class UdpOperatorSessionClient:
         ):
             raise OperatorProtocolError("target geolocation status sequence is not newer")
         self._last_target_geolocation_status_sequence = status.sequence
+        return status
+
+    def receive_gnss_status(self, *, timeout_s: float) -> GnssStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("GNSS status timeout must be positive")
+        status = self._receive_message(WireMessageType.GNSS_STATUS, timeout_s=timeout_s)
+        if not isinstance(status, GnssStatusMessage):
+            raise OperatorProtocolError("decoded GNSS status has the wrong type")
+        if (
+            self._last_gnss_status_sequence is not None
+            and status.sequence <= self._last_gnss_status_sequence
+        ):
+            raise OperatorProtocolError("GNSS status sequence is not newer")
+        self._last_gnss_status_sequence = status.sequence
         return status
 
     def receive_release_status(self, *, timeout_s: float) -> ReleaseStatusMessage:

@@ -9,6 +9,7 @@ from .adaptive_ranging import AdaptiveRangingPolicy
 from .approach_hil import ApproachHilAssessment, SlideConfirmationChallenge
 from .autonomy.serialization import require_sha256
 from .domain import AuthorizationChallenge, DeploymentWindowSolution, MissionPhase, VehicleTelemetry
+from .mavlink_gps import normalize_gps_fix_type, normalize_satellites_visible
 from .mission import MissionStatus, ObservationOutcome
 from .multimodal_ranging import RangeSolution, RangeValidity
 from .operator_link import (
@@ -18,6 +19,7 @@ from .operator_link import (
     ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -632,6 +634,50 @@ def build_target_geolocation_status_message(
     )
 
 
+def build_gnss_status_message(
+    *,
+    sequence: int,
+    telemetry: VehicleTelemetry,
+    produced_at_s: float,
+    adaptive_ranging_policy: AdaptiveRangingPolicy | None = None,
+) -> GnssStatusMessage:
+    """Build an always-target-independent GNSS quality diagnostic.
+
+    Invalid raw inputs remain visible as unavailable fields while the exact
+    canonical adaptive-ranging policy supplies the fail-closed reason. No
+    coordinates are copied into this display-only packet.
+    """
+
+    policy = adaptive_ranging_policy or AdaptiveRangingPolicy()
+    assessment = policy.assess_gps_quality(telemetry, now_s=produced_at_s)
+
+    def valid_non_negative(value: object) -> float | None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isfinite(value)
+            or value < 0.0
+        ):
+            return None
+        return float(value)
+
+    position_healthy = (
+        telemetry.position_healthy if isinstance(telemetry.position_healthy, bool) else None
+    )
+    return GnssStatusMessage(
+        sequence=sequence,
+        produced_at_s=produced_at_s,
+        qualified=assessment.qualified,
+        reason=assessment.reason,
+        position_healthy=position_healthy,
+        fix_type=normalize_gps_fix_type(telemetry.gps_fix_type),
+        satellites_visible=normalize_satellites_visible(telemetry.satellites_visible),
+        horizontal_accuracy_m=valid_non_negative(telemetry.gps_horizontal_accuracy_m),
+        vertical_accuracy_m=valid_non_negative(telemetry.gps_vertical_accuracy_m),
+        source_age_s=assessment.age_s,
+    )
+
+
 def _geolocation_motion_kwargs(
     telemetry: VehicleTelemetry,
     *,
@@ -1043,4 +1089,5 @@ __all__ = [
     "build_scene_context_status_messages",
     "build_target_pool_status_messages",
     "build_target_geolocation_status_message",
+    "build_gnss_status_message",
 ]

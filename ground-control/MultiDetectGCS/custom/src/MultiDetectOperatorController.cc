@@ -895,6 +895,11 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         _lastTargetGeolocationStatusAtMs = _lastAuthenticatedAtMs;
         emit targetGeolocationStatusChanged();
         emit targetGeolocationStatusReceived(fields);
+    } else if (packet.type == MultiDetectOperatorProtocol::MessageType::GnssStatus) {
+        _gnssStatus = fields;
+        _lastGnssStatusAtMs = _lastAuthenticatedAtMs;
+        emit gnssStatusChanged();
+        emit gnssStatusReceived(fields);
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::ReleaseStatus) {
         _releaseStatus = fields;
         _lastReleaseStatusAtMs = _lastAuthenticatedAtMs;
@@ -1195,6 +1200,11 @@ void MultiDetectOperatorController::_poll()
             _targetGeolocationStatus.clear();
             emit targetGeolocationStatusChanged();
         }
+        if (!_gnssStatus.isEmpty()) {
+            _gnssStatus.clear();
+            _lastGnssStatusAtMs = 0;
+            emit gnssStatusChanged();
+        }
         _clearTargetGeolocationSourceState();
         if (!_releaseStatus.isEmpty()) {
             _releaseStatus.clear();
@@ -1281,6 +1291,14 @@ void MultiDetectOperatorController::_poll()
         if (!_targetGeolocationStatus.isEmpty()) {
             _targetGeolocationStatus.clear();
             emit targetGeolocationStatusChanged();
+        }
+    }
+    constexpr quint64 kGnssStatusStaleMs = 1000;
+    if (_lastGnssStatusAtMs != 0 && nowMs - _lastGnssStatusAtMs > kGnssStatusStaleMs) {
+        _lastGnssStatusAtMs = 0;
+        if (!_gnssStatus.isEmpty()) {
+            _gnssStatus.clear();
+            emit gnssStatusChanged();
         }
     }
     constexpr quint64 kReleaseStatusStaleMs = 1000;

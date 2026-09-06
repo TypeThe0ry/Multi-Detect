@@ -15,6 +15,17 @@ from .domain import (
     RuleCheck,
     Verdict,
 )
+from .mavlink_gps import (
+    GNSS_CANONICAL_MAX_GPS_AGE_S,
+    GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M,
+    GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M,
+    MAVLINK_GPS_FIX_TYPE_MAX,
+    MAVLINK_GPS_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_FIX_TYPE_MIN,
+    MAVLINK_QUALIFIED_SATELLITES_MIN,
+    MAVLINK_SATELLITES_MAX,
+    MAVLINK_SATELLITES_MIN,
+)
 from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .patrol_advisory import AdvisoryValidity, PatrolPhase, ReturnObserveDirection
 from .payload_target_gate import PayloadTargetEligibility
@@ -113,6 +124,24 @@ TARGET_GEOLOCATION_REASON_IDS = (
     "geolocation_input_invalid",
     "target_uncertainty_out_of_wire_range",
     "target_range_invalid",
+)
+
+# Raw aircraft GNSS quality is transported independently of target
+# geolocation. This lets QGC diagnose a weak receiver before a target is
+# selected without extending the protocol-v1 type-22 body.
+GNSS_STATUS_REASON_IDS = (
+    "gps_position_unhealthy",
+    "gps_coordinates_invalid",
+    "gps_fix_unqualified",
+    "gps_satellites_insufficient",
+    "gps_horizontal_accuracy_invalid",
+    "gps_horizontal_accuracy_exceeded",
+    "gps_vertical_accuracy_invalid",
+    "gps_vertical_accuracy_exceeded",
+    "gps_timestamp_unavailable",
+    "gps_timestamp_future",
+    "gps_stale",
+    "gps_qualified",
 )
 
 RELEASE_REASON_IDS = (
@@ -1360,6 +1389,85 @@ class TargetGeolocationStatusMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class GnssStatusMessage:
+    """Raw aircraft GNSS quality diagnostics for display only.
+
+    Coordinates are deliberately absent. The message exposes only receiver
+    health and quality scalars and cannot be interpreted as a target or
+    vehicle-control command.
+    """
+
+    sequence: int
+    produced_at_s: float
+    qualified: bool
+    reason: str
+    position_healthy: bool | None
+    fix_type: int | None
+    satellites_visible: int | None
+    horizontal_accuracy_m: float | None
+    vertical_accuracy_m: float | None
+    source_age_s: float | None
+    advisory_only: bool = True
+    flight_control_enabled: bool = False
+    physical_release_enabled: bool = False
+    protocol_version: int = OPERATOR_LINK_PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if self.protocol_version != OPERATOR_LINK_PROTOCOL_VERSION:
+            raise ValueError("unsupported operator-link protocol version")
+        if not 0 <= self.sequence <= 0xFFFFFFFF:
+            raise ValueError("sequence must fit in an unsigned 32-bit integer")
+        if not isfinite(self.produced_at_s) or self.produced_at_s < 0.0:
+            raise ValueError("GNSS status timestamp must be finite and non-negative")
+        if not isinstance(self.qualified, bool):
+            raise ValueError("GNSS qualified flag must be boolean")
+        if self.reason not in GNSS_STATUS_REASON_IDS:
+            raise ValueError("GNSS reason must use the registered wire vocabulary")
+        if self.position_healthy is not None and not isinstance(self.position_healthy, bool):
+            raise ValueError("GNSS position health must be boolean or unavailable")
+        if self.fix_type is not None and (
+            isinstance(self.fix_type, bool)
+            or not isinstance(self.fix_type, int)
+            or not MAVLINK_GPS_FIX_TYPE_MIN <= self.fix_type <= MAVLINK_GPS_FIX_TYPE_MAX
+        ):
+            raise ValueError("GNSS fix type is outside the MAVLink domain")
+        if self.satellites_visible is not None and (
+            isinstance(self.satellites_visible, bool)
+            or not isinstance(self.satellites_visible, int)
+            or not MAVLINK_SATELLITES_MIN <= self.satellites_visible <= MAVLINK_SATELLITES_MAX
+        ):
+            raise ValueError("GNSS satellite count is outside the MAVLink domain")
+        for value, name in (
+            (self.horizontal_accuracy_m, "horizontal accuracy"),
+            (self.vertical_accuracy_m, "vertical accuracy"),
+            (self.source_age_s, "source age"),
+        ):
+            if value is not None and (not isfinite(value) or value < 0.0):
+                raise ValueError(f"GNSS {name} must be finite and non-negative when present")
+        if self.qualified:
+            if self.reason != "gps_qualified":
+                raise ValueError("qualified GNSS status must use gps_qualified reason")
+            if (
+                self.position_healthy is not True
+                or self.fix_type is None
+                or self.fix_type < MAVLINK_QUALIFIED_FIX_TYPE_MIN
+                or self.satellites_visible is None
+                or self.satellites_visible < MAVLINK_QUALIFIED_SATELLITES_MIN
+                or self.horizontal_accuracy_m is None
+                or self.horizontal_accuracy_m > GNSS_CANONICAL_MAX_HORIZONTAL_ACCURACY_M
+                or self.vertical_accuracy_m is None
+                or self.vertical_accuracy_m > GNSS_CANONICAL_MAX_VERTICAL_ACCURACY_M
+                or self.source_age_s is None
+                or self.source_age_s > GNSS_CANONICAL_MAX_GPS_AGE_S
+            ):
+                raise ValueError("qualified GNSS status does not satisfy canonical quality gates")
+        elif self.reason == "gps_qualified":
+            raise ValueError("unqualified GNSS status cannot claim gps_qualified")
+        if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
+            raise ValueError("GNSS status transport must remain display-only")
+
+
+@dataclass(frozen=True, slots=True)
 class ReleaseStatusMessage:
     """Authenticated Mode-2 impact advice; never an authorization or actuator command."""
 
@@ -2203,6 +2311,8 @@ __all__ = [
     "TargetPoolEntry",
     "TargetPoolStatusMessage",
     "TargetGeolocationStatusMessage",
+    "GnssStatusMessage",
+    "GNSS_STATUS_REASON_IDS",
     "TARGET_GEOLOCATION_REASON_IDS",
     "TrackingState",
     "TrackStatusMessage",

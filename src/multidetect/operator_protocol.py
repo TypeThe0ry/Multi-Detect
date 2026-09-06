@@ -21,6 +21,7 @@ from .domain import (
 from .multimodal_ranging import RangeSourceContribution, RangeValidity
 from .operator_link import (
     APPROACH_REASON_IDS,
+    GNSS_STATUS_REASON_IDS,
     MAX_RANGE_STATUS_SOURCE_AGE_MS,
     MAX_RANGE_STATUS_SOURCE_AGE_S,
     MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS,
@@ -39,6 +40,7 @@ from .operator_link import (
     AuthorizationDecision,
     AuthorizationDecisionCommand,
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -98,6 +100,7 @@ _PAYLOAD_TARGET_ACK = struct.Struct(">QBBI")
 _PAYLOAD_TARGET_STATUS = struct.Struct(">16sQIQIBHB")
 _RUNTIME_STATUS = struct.Struct(">BBBBQQQQ")
 _RUNTIME_STATUS_ACK = struct.Struct(">IQ")
+_GNSS_STATUS = struct.Struct(">BBBBBHHH")
 
 
 class OperatorProtocolError(ValueError):
@@ -129,6 +132,7 @@ class WireMessageType(IntEnum):
     TARGET_GEOLOCATION_STATUS = 22
     RUNTIME_STATUS = 23
     RUNTIME_STATUS_ACK = 24
+    GNSS_STATUS = 25
 
 
 class SelectionAckReason(IntEnum):
@@ -296,6 +300,7 @@ OperatorMessage: TypeAlias = (
     | PayloadTargetStatusMessage
     | RuntimeStatusMessage
     | RuntimeStatusAck
+    | GnssStatusMessage
 )
 
 
@@ -679,6 +684,30 @@ class OperatorTunnelCodec:
         )
         return self._encode_frame(
             WireMessageType.TARGET_GEOLOCATION_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_gnss_status(self, status: GnssStatusMessage) -> bytes:
+        """Encode aircraft GNSS quality without coordinates or control authority."""
+
+        reason_value = GNSS_STATUS_REASON_IDS.index(status.reason) + 1
+        position_health = (
+            0 if status.position_healthy is None else (2 if status.position_healthy else 1)
+        )
+        body = _GNSS_STATUS.pack(
+            int(status.qualified),
+            reason_value,
+            position_health,
+            0xFF if status.fix_type is None else status.fix_type,
+            0xFF if status.satellites_visible is None else status.satellites_visible,
+            _encode_distance(status.horizontal_accuracy_m),
+            _encode_distance(status.vertical_accuracy_m),
+            _encode_duration(status.source_age_s),
+        )
+        return self._encode_frame(
+            WireMessageType.GNSS_STATUS,
             sequence=status.sequence,
             sent_at_s=status.produced_at_s,
             body=body,
@@ -1265,6 +1294,12 @@ class OperatorTunnelCodec:
             )
         elif message_type is WireMessageType.RUNTIME_STATUS_ACK:
             message = self._decode_runtime_status_ack(body)
+        elif message_type is WireMessageType.GNSS_STATUS:
+            message = self._decode_gnss_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
         else:  # pragma: no cover - exhaustive IntEnum dispatch guard
             raise OperatorProtocolError("unsupported operator-link message type")
         return DecodedOperatorPacket(message_type, sequence, sent_at_s, message)
@@ -2010,6 +2045,46 @@ class OperatorTunnelCodec:
             raise OperatorProtocolError(
                 f"invalid target-geolocation-status content: {exc}"
             ) from exc
+
+    def _decode_gnss_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> GnssStatusMessage:
+        if len(body) != _GNSS_STATUS.size:
+            raise OperatorProtocolError("GNSS-status body has an invalid size")
+        (
+            qualified_value,
+            reason_value,
+            position_health_value,
+            fix_type_value,
+            satellites_value,
+            horizontal_accuracy,
+            vertical_accuracy,
+            source_age,
+        ) = _GNSS_STATUS.unpack(body)
+        if qualified_value not in {0, 1} or position_health_value not in {0, 1, 2}:
+            raise OperatorProtocolError("GNSS-status flags are invalid")
+        if not 1 <= reason_value <= len(GNSS_STATUS_REASON_IDS):
+            raise OperatorProtocolError("GNSS-status reason is invalid")
+        position_healthy = {0: None, 1: False, 2: True}[position_health_value]
+        try:
+            return GnssStatusMessage(
+                sequence=sequence,
+                produced_at_s=sent_at_s,
+                qualified=bool(qualified_value),
+                reason=GNSS_STATUS_REASON_IDS[reason_value - 1],
+                position_healthy=position_healthy,
+                fix_type=None if fix_type_value == 0xFF else fix_type_value,
+                satellites_visible=None if satellites_value == 0xFF else satellites_value,
+                horizontal_accuracy_m=_decode_distance(horizontal_accuracy),
+                vertical_accuracy_m=_decode_distance(vertical_accuracy),
+                source_age_s=_decode_duration(source_age),
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(f"invalid GNSS-status content: {exc}") from exc
 
     def _decode_release_status(
         self,
@@ -2884,6 +2959,7 @@ __all__ = [
     "AuthorizationDecisionAck",
     "AuthorizationDecisionAckReason",
     "DecodedOperatorPacket",
+    "GnssStatusMessage",
     "MAX_TUNNEL_PAYLOAD_BYTES",
     "OPERATOR_TUNNEL_PAYLOAD_TYPE_EXPERIMENTAL",
     "OperatorProtocolError",

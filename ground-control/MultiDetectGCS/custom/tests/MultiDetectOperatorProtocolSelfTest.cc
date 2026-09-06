@@ -384,6 +384,34 @@ int main(int argc, char* argv[])
     failures += check(std::abs(packet.fields.value(QStringLiteral("horizontalSigmaM")).toDouble() - 6.7) < 0.001,
                       "target geolocation uncertainty mismatch");
 
+    const QByteArray gnssStatus = vector(
+        "4d44011900000000006d00000000000f433a000b010c02030e000c001a0003"
+        "a0774b282c477228897879a29a9131dc");
+    failures += check(gnssStatus.size() == 47, "GNSS status vector must fit the MAVLink TUNNEL payload");
+    failures += check(protocol.decode(gnssStatus, &packet, &error), "GNSS status golden vector must decode");
+    failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::GnssStatus,
+                      "GNSS status vector message type mismatch");
+    failures += check(packet.fields.value(QStringLiteral("qualified")).toBool() &&
+                          packet.fields.value(QStringLiteral("reason")).toString() == QStringLiteral("gps_qualified") &&
+                          packet.fields.value(QStringLiteral("fixType")).toInt() == 3 &&
+                          packet.fields.value(QStringLiteral("satellitesVisible")).toInt() == 14,
+                      "GNSS status qualification fields mismatch");
+    failures += check(std::abs(packet.fields.value(QStringLiteral("horizontalAccuracyM")).toDouble() - 1.2) < 0.001 &&
+                          std::abs(packet.fields.value(QStringLiteral("verticalAccuracyM")).toDouble() - 2.6) < 0.001 &&
+                          packet.fields.value(QStringLiteral("sourceAgeMs")).toInt() == 300,
+                      "GNSS status diagnostic values mismatch");
+    failures += check(packet.fields.value(QStringLiteral("advisoryOnly")).toBool() &&
+                          !packet.fields.value(QStringLiteral("flightControlEnabled")).toBool() &&
+                          !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
+                      "GNSS status must remain display-only");
+
+    QByteArray forgedQualifiedGnss = gnssStatus;
+    forgedQualifiedGnss[24] = static_cast<char>(0x04);  // only four satellites
+    forgedQualifiedGnss = resign(forgedQualifiedGnss, key);
+    failures += check(!protocol.decode(forgedQualifiedGnss, &packet, &error) &&
+                          error == QStringLiteral("GNSS-status qualification is inconsistent"),
+                      "GNSS decoder must reject a falsely qualified weak fix");
+
     const QByteArray withheldTargetGeolocation = vector(
         "4d44011600000000006d00000000000f433a001ee65c7f305ba849ec9b383ba6daf97c12"
         "00028000000080000000ffff003227a23e2a8f5c69b50b5e05d22a56617b");

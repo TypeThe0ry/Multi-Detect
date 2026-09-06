@@ -29,6 +29,7 @@ from multidetect.operator_link import (
     AuthorizationDecision,
     AuthorizationDecisionCommand,
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -523,6 +524,67 @@ def test_target_geolocation_status_round_trip_is_explicitly_gps_qualified() -> N
     assert message.advisory_only is True
     assert message.flight_control_enabled is False
     assert message.physical_release_enabled is False
+
+
+def test_gnss_status_round_trip_exposes_raw_quality_without_coordinates() -> None:
+    status = GnssStatusMessage(
+        sequence=109,
+        produced_at_s=1_000.25,
+        qualified=True,
+        reason="gps_qualified",
+        position_healthy=True,
+        fix_type=3,
+        satellites_visible=14,
+        horizontal_accuracy_m=1.24,
+        vertical_accuracy_m=2.57,
+        source_age_s=0.34,
+    )
+
+    encoded = _codec().encode_gnss_status(status)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 47
+    assert decoded.message_type is WireMessageType.GNSS_STATUS
+    message = decoded.message
+    assert isinstance(message, GnssStatusMessage)
+    assert message.qualified is True
+    assert message.position_healthy is True
+    assert message.fix_type == 3
+    assert message.satellites_visible == 14
+    assert message.horizontal_accuracy_m == pytest.approx(1.2)
+    assert message.vertical_accuracy_m == pytest.approx(2.6)
+    assert message.source_age_s == pytest.approx(0.3)
+    assert not hasattr(message, "latitude_deg")
+    assert message.advisory_only is True
+    assert message.flight_control_enabled is False
+
+
+def test_gnss_status_preserves_unqualified_diagnostics_and_rejects_false_qualified() -> None:
+    weak = GnssStatusMessage(
+        sequence=110,
+        produced_at_s=1_000.25,
+        qualified=False,
+        reason="gps_satellites_insufficient",
+        position_healthy=True,
+        fix_type=3,
+        satellites_visible=4,
+        horizontal_accuracy_m=8.0,
+        vertical_accuracy_m=12.0,
+        source_age_s=0.2,
+    )
+    decoded = _codec().decode(_codec().encode_gnss_status(weak)).message
+    assert isinstance(decoded, GnssStatusMessage)
+    assert decoded.satellites_visible == 4
+    assert decoded.horizontal_accuracy_m == pytest.approx(8.0)
+
+    with pytest.raises(ValueError, match="canonical quality gates"):
+        replace(weak, qualified=True, reason="gps_qualified")
+
+    forged = bytearray(_codec().encode_gnss_status(weak))
+    forged[20] = 1
+    forged[21] = 12
+    with pytest.raises(OperatorProtocolError, match="canonical quality gates"):
+        _codec().decode(_resign(bytes(forged)))
 
 
 def test_target_geolocation_status_withholds_coordinates_when_gps_is_not_qualified() -> None:

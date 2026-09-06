@@ -643,6 +643,24 @@ QtObject {
                 root._resetTargetGeolocationStatus();
         }
 
+        function onGnssStatusChanged() {
+            if (root._operator.gnssStatus.qualified === undefined)
+                root._resetGnssStatus();
+        }
+
+        function onGnssStatusReceived(status) {
+            root.gnssStatusAvailable = true;
+            root.gnssQualified = status.qualified === true;
+            root.gnssReason = String(status.reason || "");
+            root.gnssPositionHealthyAvailable = status.positionHealthyAvailable === true;
+            root.gnssPositionHealthy = status.positionHealthy === true;
+            root.gnssFixType = status.fixTypeAvailable === true && Number.isFinite(status.fixType) ? status.fixType : -1;
+            root.gnssSatellitesVisible = status.satellitesAvailable === true && Number.isFinite(status.satellitesVisible) ? status.satellitesVisible : -1;
+            root.gnssHorizontalAccuracyM = status.horizontalAccuracyAvailable === true && Number.isFinite(status.horizontalAccuracyM) ? status.horizontalAccuracyM : -1.0;
+            root.gnssVerticalAccuracyM = status.verticalAccuracyAvailable === true && Number.isFinite(status.verticalAccuracyM) ? status.verticalAccuracyM : -1.0;
+            root.gnssSourceAgeMs = status.sourceAgeAvailable === true && Number.isFinite(status.sourceAgeMs) ? status.sourceAgeMs : NaN;
+        }
+
         function onRangeStatusReceived(status) {
             root.rangeTargetId = status.targetId;
             root.rangeCalibrationId = status.calibrationId;
@@ -1126,6 +1144,16 @@ QtObject {
     property string rangeSourceFrameId: ""
     property string rangeTargetId: ""
     property string rangeValidity: "UNAVAILABLE"
+    property bool gnssStatusAvailable: false
+    property bool gnssQualified: false
+    property string gnssReason: ""
+    property bool gnssPositionHealthyAvailable: false
+    property bool gnssPositionHealthy: false
+    property int gnssFixType: -1
+    property int gnssSatellitesVisible: -1
+    property real gnssHorizontalAccuracyM: -1.0
+    property real gnssVerticalAccuracyM: -1.0
+    property real gnssSourceAgeMs: NaN
     property bool targetGeolocationAvailable: false
     property real targetHorizontalSigmaM: -1.0
     property real targetLatitudeDeg: NaN
@@ -2021,6 +2049,19 @@ QtObject {
         targetGeolocationSourceAgeMs = NaN;
         targetGeolocationSourceFrameId = "";
         targetGeolocationTargetId = "";
+    }
+
+    function _resetGnssStatus() {
+        gnssStatusAvailable = false;
+        gnssQualified = false;
+        gnssReason = "";
+        gnssPositionHealthyAvailable = false;
+        gnssPositionHealthy = false;
+        gnssFixType = -1;
+        gnssSatellitesVisible = -1;
+        gnssHorizontalAccuracyM = -1.0;
+        gnssVerticalAccuracyM = -1.0;
+        gnssSourceAgeMs = NaN;
     }
 
     function _resetReleaseStatus() {

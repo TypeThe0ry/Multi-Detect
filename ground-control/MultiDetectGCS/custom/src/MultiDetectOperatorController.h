@@ -35,6 +35,7 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(QVariantMap patrolStatus READ patrolStatus NOTIFY patrolStatusChanged)
     Q_PROPERTY(QVariantMap rangeStatus READ rangeStatus NOTIFY rangeStatusChanged)
     Q_PROPERTY(QVariantMap targetGeolocationStatus READ targetGeolocationStatus NOTIFY targetGeolocationStatusChanged)
+    Q_PROPERTY(QVariantMap gnssStatus READ gnssStatus NOTIFY gnssStatusChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -93,6 +94,7 @@ public:
     QVariantMap rangeStatus() const { return _rangeStatus; }
 
     QVariantMap targetGeolocationStatus() const { return _targetGeolocationStatus; }
+    QVariantMap gnssStatus() const { return _gnssStatus; }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -151,6 +153,7 @@ signals:
     void patrolStatusChanged();
     void rangeStatusChanged();
     void targetGeolocationStatusChanged();
+    void gnssStatusChanged();
     void releaseStatusChanged();
     void runtimeStatusChanged();
     void approachChallengeChanged();
@@ -167,6 +170,7 @@ signals:
     void patrolStatusReceived(const QVariantMap& status);
     void rangeStatusReceived(const QVariantMap& status);
     void targetGeolocationStatusReceived(const QVariantMap& status);
+    void gnssStatusReceived(const QVariantMap& status);
     void releaseStatusReceived(const QVariantMap& status);
     void safetyStatusReceived(const QVariantMap& status);
     void authorizationChallengeReceived(const QVariantMap& challenge);
@@ -307,6 +311,7 @@ private:
     quint64 _lastPatrolStatusAtMs = 0;
     quint64 _lastRangeStatusAtMs = 0;
     quint64 _lastTargetGeolocationStatusAtMs = 0;
+    quint64 _lastGnssStatusAtMs = 0;
     quint64 _lastReleaseStatusAtMs = 0;
     quint64 _lastRuntimeStatusAtMs = 0;
     quint64 _lastApproachStatusAtMs = 0;
@@ -324,6 +329,7 @@ private:
     QVariantMap _patrolStatus;
     QVariantMap _rangeStatus;
     QVariantMap _targetGeolocationStatus;
+    QVariantMap _gnssStatus;
     QHash<QString, TargetGeolocationSourceState> _targetGeolocationSourceStates;
     QHash<QString, quint64> _targetGeolocationLatestCaptureAtMs;
     QVariantMap _releaseStatus;

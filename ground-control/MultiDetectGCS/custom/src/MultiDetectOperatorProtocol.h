@@ -55,6 +55,7 @@ public:
         TargetGeolocationStatus = 22,
         RuntimeStatus = 23,
         RuntimeStatusAck = 24,
+        GnssStatus = 25,
     };
 
     struct DecodedPacket

@@ -13,6 +13,7 @@ from .operator_link import (
     ApproachStatusMessage,
     AuthorizationChallengeStatusMessage,
     AuthorizationDecisionCommand,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -110,6 +111,13 @@ class OperatorStatusTransport(Protocol):
     def publish_target_geolocation_status(
         self,
         status: TargetGeolocationStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> None: ...
+
+    def publish_gnss_status(
+        self,
+        status: GnssStatusMessage,
         *,
         peer: OperatorPeer,
     ) -> None: ...
@@ -236,6 +244,7 @@ class OperatorBridgeResult:
     published_patrol_statuses: tuple[PatrolStatusMessage, ...] = ()
     published_range_statuses: tuple[RangeStatusMessage, ...] = ()
     published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
+    published_gnss_statuses: tuple[GnssStatusMessage, ...] = ()
     published_release_statuses: tuple[ReleaseStatusMessage, ...] = ()
     accepted_approach_confirmations: tuple[
         tuple[ApproachConfirmationCommand, OperatorPeer], ...
@@ -265,6 +274,7 @@ class LiveOperatorBridge:
         mission_status_heartbeat_s: float = 1.0,
         range_status_heartbeat_s: float = 1.0 / 15.0,
         target_geolocation_status_heartbeat_s: float = 1.0 / 15.0,
+        gnss_status_heartbeat_s: float = 0.2,
         release_status_heartbeat_s: float = 1.0 / 15.0,
         runtime_status_heartbeat_s: float = 1.0,
         approach_status_heartbeat_s: float = 1.0 / 15.0,
@@ -284,6 +294,8 @@ class LiveOperatorBridge:
             or target_geolocation_status_heartbeat_s <= 0.0
         ):
             raise ValueError("target geolocation status heartbeat must be finite and positive")
+        if not isfinite(gnss_status_heartbeat_s) or gnss_status_heartbeat_s <= 0.0:
+            raise ValueError("GNSS status heartbeat must be finite and positive")
         if not isfinite(release_status_heartbeat_s) or release_status_heartbeat_s <= 0.0:
             raise ValueError("release status heartbeat must be finite and positive")
         if not isfinite(runtime_status_heartbeat_s) or runtime_status_heartbeat_s <= 0.0:
@@ -309,6 +321,7 @@ class LiveOperatorBridge:
         self.mission_status_heartbeat_s = mission_status_heartbeat_s
         self.range_status_heartbeat_s = range_status_heartbeat_s
         self.target_geolocation_status_heartbeat_s = target_geolocation_status_heartbeat_s
+        self.gnss_status_heartbeat_s = gnss_status_heartbeat_s
         self.release_status_heartbeat_s = release_status_heartbeat_s
         self.runtime_status_heartbeat_s = runtime_status_heartbeat_s
         self.approach_status_heartbeat_s = approach_status_heartbeat_s
@@ -330,6 +343,8 @@ class LiveOperatorBridge:
         self._last_range_status_at_s: float | None = None
         self._last_target_geolocation_status_fingerprint: tuple[object, ...] | None = None
         self._last_target_geolocation_status_at_s: float | None = None
+        self._last_gnss_status_fingerprint: tuple[object, ...] | None = None
+        self._last_gnss_status_at_s: float | None = None
         self._last_release_status_fingerprint: tuple[object, ...] | None = None
         self._last_release_status_at_s: float | None = None
         self._last_runtime_status_fingerprint: tuple[object, ...] | None = None
@@ -374,6 +389,7 @@ class LiveOperatorBridge:
         patrol_status: PatrolStatusMessage | None = None,
         range_status: RangeStatusMessage | None = None,
         target_geolocation_status: TargetGeolocationStatusMessage | None = None,
+        gnss_status: GnssStatusMessage | None = None,
         release_status: ReleaseStatusMessage | None = None,
         runtime_status: RuntimeStatusMessage | None = None,
         approach_challenge: ApproachChallengeStatusMessage | None = None,
@@ -669,6 +685,16 @@ class LiveOperatorBridge:
             self._last_patrol_status_at_s = patrol_status.produced_at_s
         published_range_statuses: tuple[RangeStatusMessage, ...] = ()
         published_target_geolocation_statuses: tuple[TargetGeolocationStatusMessage, ...] = ()
+        published_gnss_statuses: tuple[GnssStatusMessage, ...] = ()
+        if (
+            gnss_status is not None
+            and self._active_peer is not None
+            and self._gnss_status_due(gnss_status)
+            and self._publish_gnss_status(gnss_status, self._active_peer, errors)
+        ):
+            published_gnss_statuses = (gnss_status,)
+            self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
+            self._last_gnss_status_at_s = gnss_status.produced_at_s
         range_geolocation_error = self._range_geolocation_binding_error(
             frame_id=frame_id,
             captured_at_s=captured_at_s,
@@ -877,6 +903,7 @@ class LiveOperatorBridge:
             published_patrol_statuses=published_patrol_statuses,
             published_range_statuses=published_range_statuses,
             published_target_geolocation_statuses=published_target_geolocation_statuses,
+            published_gnss_statuses=published_gnss_statuses,
             published_release_statuses=published_release_statuses,
             published_runtime_statuses=published_runtime_statuses,
             accepted_approach_confirmations=tuple(accepted_approach_confirmations),
@@ -912,6 +939,8 @@ class LiveOperatorBridge:
         self._last_range_status_at_s = None
         self._last_target_geolocation_status_fingerprint = None
         self._last_target_geolocation_status_at_s = None
+        self._last_gnss_status_fingerprint = None
+        self._last_gnss_status_at_s = None
         self._last_release_status_fingerprint = None
         self._last_release_status_at_s = None
         self._last_runtime_status_fingerprint = None
@@ -1033,6 +1062,22 @@ class LiveOperatorBridge:
         errors: list[str],
     ) -> bool:
         publish = getattr(self.transport, "publish_target_geolocation_status", None)
+        if not callable(publish):
+            return False
+        try:
+            publish(status, peer=peer)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(type(exc).__name__)
+            return False
+        return True
+
+    def _publish_gnss_status(
+        self,
+        status: GnssStatusMessage,
+        peer: OperatorPeer,
+        errors: list[str],
+    ) -> bool:
+        publish = getattr(self.transport, "publish_gnss_status", None)
         if not callable(publish):
             return False
         try:
@@ -1282,6 +1327,14 @@ class LiveOperatorBridge:
             >= self.target_geolocation_status_heartbeat_s
         )
 
+    def _gnss_status_due(self, status: GnssStatusMessage) -> bool:
+        fingerprint = self._gnss_status_fingerprint(status)
+        if fingerprint != self._last_gnss_status_fingerprint:
+            return True
+        if self._last_gnss_status_at_s is None:
+            return True
+        return status.produced_at_s - self._last_gnss_status_at_s >= self.gnss_status_heartbeat_s
+
     def _release_status_due(self, status: ReleaseStatusMessage) -> bool:
         fingerprint = self._release_status_fingerprint(status)
         if fingerprint != self._last_release_status_fingerprint:
@@ -1480,6 +1533,19 @@ class LiveOperatorBridge:
             _quantize(status.latitude_deg, 10_000_000.0),
             _quantize(status.longitude_deg, 10_000_000.0),
             _quantize(status.horizontal_sigma_m, 10.0),
+        )
+
+    @staticmethod
+    def _gnss_status_fingerprint(status: GnssStatusMessage) -> tuple[object, ...]:
+        return (
+            status.qualified,
+            status.reason,
+            status.position_healthy,
+            status.fix_type,
+            status.satellites_visible,
+            _quantize(status.horizontal_accuracy_m, 10.0),
+            _quantize(status.vertical_accuracy_m, 10.0),
+            _quantize(status.source_age_s, 10.0),
         )
 
     @staticmethod

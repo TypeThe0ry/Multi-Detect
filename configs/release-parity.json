@@ -1,10 +1,10 @@
 {
   "parity": {
     "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
-    "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5",
-    "safety_policy_hash": "e179f40642000ba7c095fa623eea61629ed033c9bb5beb3efbb18173fe0030de",
-    "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
-    "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
+    "px4_mission_path_hash": "4c852fec73594739e6cf22e56e553aa8230a7fa249b8c4cd1881fff2a0cd8184",
+    "safety_policy_hash": "e17cc6288da39f65390b4e51cad232bc81f3f6343d144d9360dd99fe2b165f0a",
+    "task_contract_hash": "579e6190da26fd28c82b28ee4069fea755dc5d29973b5ec15e64522b3c9ce8ad",
+    "ui_contract_hash": "0726b2931d19f4ad86ee6b3ebf97c86f8d15d9118ea81ef7fa778728fcf909fe"
   },
   "product": "Multi-Detect",
   "release_label": "0.3.0-pre.8",

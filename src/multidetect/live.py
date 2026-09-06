@@ -70,6 +70,7 @@ from .operator_link import (
 from .operator_status import (
     RangeSolutionFrameBinding,
     build_authorization_challenge_status_message,
+    build_gnss_status_message,
     build_mission_status_message,
     build_patrol_status_message,
     build_range_status_message,
@@ -1069,6 +1070,7 @@ class LiveMissionRunner:
         remote_patrol_status_sequence = 0
         remote_range_status_sequence = 0
         remote_target_geolocation_status_sequence = 0
+        remote_gnss_status_sequence = 0
         remote_release_status_sequence = 0
         remote_runtime_status_sequence = 0
         remote_authorization_challenge_sequence = 0
@@ -3005,6 +3007,28 @@ class LiveMissionRunner:
                     # frame, so advance the packet timestamp to that local
                     # watermark when necessary.
                     produced_at_s = max(captured.captured_at_s, self.clock.monotonic())
+                    remote_gnss_status_sequence = (remote_gnss_status_sequence + 1) & 0xFFFFFFFF
+                    gnss_status_message = None
+                    try:
+                        gnss_status_message = build_gnss_status_message(
+                            sequence=remote_gnss_status_sequence,
+                            telemetry=telemetry,
+                            produced_at_s=produced_at_s,
+                            adaptive_ranging_policy=self.adaptive_ranging_policy,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        remote_transport_errors += 1
+                        self.mission.audit.append(
+                            "operator.gnss_status_build_failed",
+                            produced_at_s,
+                            {
+                                "frame_id": captured.frame_id,
+                                "error_type": type(exc).__name__,
+                                "error": str(exc)[:240],
+                                "metadata_packet_dropped": True,
+                                "perception_continues": True,
+                            },
+                        )
                     authorization_challenge_message = None
                     if outcome.challenge is not None:
                         remote_authorization_challenge_sequence = (
@@ -3280,6 +3304,7 @@ class LiveMissionRunner:
                         patrol_status=patrol_status_message,
                         range_status=range_status_message,
                         target_geolocation_status=target_geolocation_status_message,
+                        gnss_status=gnss_status_message,
                         release_status=release_status_message,
                         runtime_status=runtime_status_message,
                         approach_challenge=(

@@ -10,6 +10,7 @@ from multidetect.multimodal_ranging import RangeSolution, RangeValidity
 from multidetect.operator_link import RuntimeBackendHealth, RuntimeMode
 from multidetect.operator_status import (
     RangeSolutionFrameBinding,
+    build_gnss_status_message,
     build_range_status_message,
     build_runtime_status_from_descriptor,
     build_runtime_status_message,
@@ -22,6 +23,64 @@ HASH_B = "b" * 64
 HASH_C = "c" * 64
 HASH_D = "d" * 64
 HASH_E = "e" * 64
+
+
+def _qualified_gnss_telemetry(**overrides: object) -> VehicleTelemetry:
+    values: dict[str, object] = {
+        "altitude_agl_m": 10.0,
+        "roll_deg": 0.0,
+        "pitch_deg": 0.0,
+        "ground_speed_mps": 0.0,
+        "in_allowed_zone": True,
+        "geofence_healthy": True,
+        "position_healthy": True,
+        "link_healthy": True,
+        "flight_mode_allows_deploy": False,
+        "release_zone_clear": False,
+        "latitude_deg": 1.3,
+        "longitude_deg": 103.8,
+        "gps_fix_type": 3,
+        "satellites_visible": 12,
+        "gps_horizontal_accuracy_m": 1.2,
+        "gps_vertical_accuracy_m": 2.4,
+        "gps_observed_at_s": 99.8,
+    }
+    values.update(overrides)
+    return VehicleTelemetry(**values)
+
+
+def test_gnss_status_builder_uses_canonical_policy_and_raw_quality() -> None:
+    status = build_gnss_status_message(
+        sequence=4,
+        telemetry=_qualified_gnss_telemetry(),
+        produced_at_s=100.0,
+    )
+    assert status.qualified is True
+    assert status.reason == "gps_qualified"
+    assert status.fix_type == 3
+    assert status.satellites_visible == 12
+    assert status.source_age_s == pytest.approx(0.2)
+
+
+def test_gnss_status_builder_withholds_invalid_raw_fields_but_keeps_reason() -> None:
+    status = build_gnss_status_message(
+        sequence=5,
+        telemetry=_qualified_gnss_telemetry(
+            gps_fix_type=255,
+            satellites_visible=255,
+            gps_horizontal_accuracy_m=float("nan"),
+            gps_vertical_accuracy_m=-1.0,
+            gps_observed_at_s=float("nan"),
+        ),
+        produced_at_s=100.0,
+    )
+    assert status.qualified is False
+    assert status.reason == "gps_fix_unqualified"
+    assert status.fix_type is None
+    assert status.satellites_visible is None
+    assert status.horizontal_accuracy_m is None
+    assert status.vertical_accuracy_m is None
+    assert status.source_age_s is None
 
 
 def _valid_range_solution(

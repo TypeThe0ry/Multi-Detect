@@ -24,6 +24,7 @@ from multidetect.operator_link import (
     AuthorizationDecision,
     AuthorizationDecisionCommand,
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -94,6 +95,7 @@ class _Transport:
         self.patrol_published = []
         self.range_published = []
         self.target_geolocation_published = []
+        self.gnss_published = []
         self.release_published = []
         self.runtime_published = []
         self.approach_challenges = []
@@ -157,6 +159,9 @@ class _Transport:
 
     def publish_target_geolocation_status(self, status, *, peer) -> None:
         self.target_geolocation_published.append((status, peer))
+
+    def publish_gnss_status(self, status, *, peer) -> None:
+        self.gnss_published.append((status, peer))
 
     def publish_release_status(self, status, *, peer) -> None:
         self.release_published.append((status, peer))
@@ -409,6 +414,21 @@ def _target_geolocation_status() -> TargetGeolocationStatusMessage:
         latitude_deg=1.3004,
         longitude_deg=103.8006,
         horizontal_sigma_m=3.2,
+    )
+
+
+def _gnss_status(*, sequence: int = 1, produced_at_s: float = 100.01) -> GnssStatusMessage:
+    return GnssStatusMessage(
+        sequence=sequence,
+        produced_at_s=produced_at_s,
+        qualified=True,
+        reason="gps_qualified",
+        position_healthy=True,
+        fix_type=3,
+        satellites_visible=12,
+        horizontal_accuracy_m=1.2,
+        vertical_accuracy_m=2.4,
+        source_age_s=0.2,
     )
 
 
@@ -1166,6 +1186,59 @@ def test_bridge_publishes_signed_runtime_identity_on_change_and_one_hz_heartbeat
     assert all(status.metadata_only for status, _peer in transport.runtime_published)
     assert all(not status.direct_pixhawk_writes for status, _peer in transport.runtime_published)
     assert all(not status.physical_release_enabled for status, _peer in transport.runtime_published)
+
+
+def test_bridge_publishes_gnss_before_selection_and_uses_five_hz_heartbeat() -> None:
+    transport = _PeerAwareTransport()
+    bridge = _bridge(transport)
+    bridge.start()
+    base = _gnss_status()
+
+    first = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        gnss_status=base,
+    )
+    suppressed = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-101",
+        captured_at_s=100.1,
+        produced_at_s=100.11,
+        gnss_status=_gnss_status(sequence=2, produced_at_s=100.11),
+    )
+    heartbeat_status = _gnss_status(sequence=3, produced_at_s=100.211)
+    heartbeat = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-102",
+        captured_at_s=100.2,
+        produced_at_s=100.211,
+        gnss_status=heartbeat_status,
+    )
+    weak = replace(
+        heartbeat_status,
+        sequence=4,
+        produced_at_s=100.22,
+        qualified=False,
+        reason="gps_satellites_insufficient",
+        satellites_visible=4,
+    )
+    changed = bridge.process_frame(
+        tracks=(),
+        frame_id="frame-103",
+        captured_at_s=100.21,
+        produced_at_s=100.22,
+        gnss_status=weak,
+    )
+    bridge.close()
+
+    assert first.published_gnss_statuses == (base,)
+    assert suppressed.published_gnss_statuses == ()
+    assert heartbeat.published_gnss_statuses == (heartbeat_status,)
+    assert changed.published_gnss_statuses == (weak,)
+    assert transport.gnss_published == [(base, PEER), (heartbeat_status, PEER), (weak, PEER)]
+    assert all(status.advisory_only for status, _peer in transport.gnss_published)
 
 
 def test_bridge_range_status_has_fifteen_hz_heartbeat_without_control() -> None:

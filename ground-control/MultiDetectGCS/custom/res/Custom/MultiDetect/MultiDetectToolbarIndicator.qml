@@ -382,21 +382,43 @@ Item {
     // target has been selected. These values are diagnostic only and never
     // open a vehicle link or enable a flight action.
     function _gpsQualityValue() {
-        const ageMs = Number(MultiDetectState.targetGeolocationSourceAgeMs);
-        if (MultiDetectState.targetGeolocationAvailable &&
-                MultiDetectState.targetGeolocationSourceFresh &&
-                Number.isFinite(ageMs))
+        if (!MultiDetectState.gnssStatusAvailable)
+            return qsTr("不可定位 · 等待 GNSS_STATUS");
+
+        const ageMs = Number(MultiDetectState.gnssSourceAgeMs);
+        if (MultiDetectState.gnssQualified && Number.isFinite(ageMs))
             return qsTr("合格 · 源 %1 ms").arg(Math.round(ageMs));
 
         const reasonLabels = {
-            "gps_navigation_not_qualified": qsTr("GPS 质量门未通过"),
-            "target_offset_unavailable": qsTr("目标偏移不可用"),
-            "geolocation_input_invalid": qsTr("GPS 输入无效"),
-            "target_uncertainty_out_of_wire_range": qsTr("不确定度超出范围"),
-            "target_range_invalid": qsTr("目标测距无效")
+            "gps_position_unhealthy": qsTr("位置健康异常"),
+            "gps_coordinates_invalid": qsTr("坐标无效"),
+            "gps_fix_unqualified": qsTr("定位类型不足"),
+            "gps_satellites_insufficient": qsTr("卫星数不足"),
+            "gps_horizontal_accuracy_invalid": qsTr("水平精度无效"),
+            "gps_horizontal_accuracy_exceeded": qsTr("水平误差过大"),
+            "gps_vertical_accuracy_invalid": qsTr("垂直精度无效"),
+            "gps_vertical_accuracy_exceeded": qsTr("垂直误差过大"),
+            "gps_timestamp_unavailable": qsTr("时间戳不可用"),
+            "gps_timestamp_future": qsTr("时间戳超前"),
+            "gps_stale": qsTr("数据过期")
         };
-        const reason = String(MultiDetectState.targetGeolocationReason || "");
+        const reason = String(MultiDetectState.gnssReason || "");
         return qsTr("不可定位 · ") + (reasonLabels[reason] || qsTr("等待合格 GPS"));
+    }
+
+    function _gnssDetailValue() {
+        if (!MultiDetectState.gnssStatusAvailable)
+            return qsTr("fix -- · 卫星 -- · H/V -- · 年龄 --");
+        const fix = MultiDetectState.gnssFixType >= 0 ? MultiDetectState.gnssFixType : "--";
+        const satellites = MultiDetectState.gnssSatellitesVisible >= 0 ? MultiDetectState.gnssSatellitesVisible : "--";
+        const horizontal = MultiDetectState.gnssHorizontalAccuracyM >= 0.0 ?
+                MultiDetectState.gnssHorizontalAccuracyM.toFixed(1) + " m" : "--";
+        const vertical = MultiDetectState.gnssVerticalAccuracyM >= 0.0 ?
+                MultiDetectState.gnssVerticalAccuracyM.toFixed(1) + " m" : "--";
+        const age = Number.isFinite(MultiDetectState.gnssSourceAgeMs) ?
+                Math.round(MultiDetectState.gnssSourceAgeMs) + " ms" : "--";
+        return "fix " + fix + " · " + qsTr("卫星 ") + satellites +
+                " · H/V " + horizontal + "/" + vertical + " · " + age;
     }
 
     function _rangeStatusValue() {
@@ -784,6 +806,11 @@ Item {
                             LabelledLabel {
                                 label: qsTr("GPS/GNSS")
                                 labelText: control._gpsQualityValue()
+                            }
+
+                            LabelledLabel {
+                                label: qsTr("GNSS 详情")
+                                labelText: control._gnssDetailValue()
                             }
 
                             LabelledLabel {

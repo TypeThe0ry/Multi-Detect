@@ -439,7 +439,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::RuntimeStatusAck)) {
+        typeValue > static_cast<quint8>(MessageType::GnssStatus)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
@@ -952,6 +952,66 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
             fields.insert(QStringLiteral("longitudeDeg"), static_cast<double>(longitudeE7) / 10000000.0);
             fields.insert(QStringLiteral("horizontalSigmaM"), static_cast<double>(horizontalSigma) / 10.0);
         }
+        fields.insert(QStringLiteral("advisoryOnly"), true);
+        fields.insert(QStringLiteral("flightControlEnabled"), false);
+        fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+    } else if (type == MessageType::GnssStatus) {
+        quint8 qualifiedValue = 0, reasonValue = 0, positionHealthValue = 0;
+        quint8 fixTypeValue = 0, satellitesValue = 0;
+        quint16 horizontalAccuracy = 0, verticalAccuracy = 0, sourceAge = 0;
+        if (!reader.readU8(&qualifiedValue) || !reader.readU8(&reasonValue) ||
+            !reader.readU8(&positionHealthValue) || !reader.readU8(&fixTypeValue) ||
+            !reader.readU8(&satellitesValue) || !reader.readU16(&horizontalAccuracy) ||
+            !reader.readU16(&verticalAccuracy) || !reader.readU16(&sourceAge) || !reader.atEnd()) {
+            return fail(error, QStringLiteral("GNSS-status body has an invalid size"));
+        }
+        static const QStringList reasonRegistry = {
+            QStringLiteral("gps_position_unhealthy"),
+            QStringLiteral("gps_coordinates_invalid"),
+            QStringLiteral("gps_fix_unqualified"),
+            QStringLiteral("gps_satellites_insufficient"),
+            QStringLiteral("gps_horizontal_accuracy_invalid"),
+            QStringLiteral("gps_horizontal_accuracy_exceeded"),
+            QStringLiteral("gps_vertical_accuracy_invalid"),
+            QStringLiteral("gps_vertical_accuracy_exceeded"),
+            QStringLiteral("gps_timestamp_unavailable"),
+            QStringLiteral("gps_timestamp_future"),
+            QStringLiteral("gps_stale"),
+            QStringLiteral("gps_qualified"),
+        };
+        constexpr quint8 kUnavailableU8 = std::numeric_limits<quint8>::max();
+        constexpr quint16 kUnavailableU16 = std::numeric_limits<quint16>::max();
+        const bool qualified = qualifiedValue == 1;
+        const bool fixAvailable = fixTypeValue != kUnavailableU8;
+        const bool satellitesAvailable = satellitesValue != kUnavailableU8;
+        const bool horizontalAvailable = horizontalAccuracy != kUnavailableU16;
+        const bool verticalAvailable = verticalAccuracy != kUnavailableU16;
+        const bool sourceAgeAvailable = sourceAge != kUnavailableU16;
+        if (qualifiedValue > 1 || reasonValue < 1 || reasonValue > reasonRegistry.size() ||
+            positionHealthValue > 2 || (fixAvailable && fixTypeValue > 8)) {
+            return fail(error, QStringLiteral("GNSS-status content is invalid"));
+        }
+        if ((qualified &&
+             (reasonValue != reasonRegistry.size() || positionHealthValue != 2 || !fixAvailable || fixTypeValue < 3 ||
+              !satellitesAvailable || satellitesValue < 6 || !horizontalAvailable || horizontalAccuracy > 60 ||
+              !verticalAvailable || verticalAccuracy > 100 || !sourceAgeAvailable || sourceAge > 15)) ||
+            (!qualified && reasonValue == reasonRegistry.size())) {
+            return fail(error, QStringLiteral("GNSS-status qualification is inconsistent"));
+        }
+        fields.insert(QStringLiteral("qualified"), qualified);
+        fields.insert(QStringLiteral("reason"), reasonRegistry.at(reasonValue - 1));
+        fields.insert(QStringLiteral("positionHealthyAvailable"), positionHealthValue != 0);
+        fields.insert(QStringLiteral("positionHealthy"), positionHealthValue == 2);
+        fields.insert(QStringLiteral("fixTypeAvailable"), fixAvailable);
+        fields.insert(QStringLiteral("fixType"), fixAvailable ? fixTypeValue : -1);
+        fields.insert(QStringLiteral("satellitesAvailable"), satellitesAvailable);
+        fields.insert(QStringLiteral("satellitesVisible"), satellitesAvailable ? satellitesValue : -1);
+        fields.insert(QStringLiteral("horizontalAccuracyAvailable"), horizontalAvailable);
+        fields.insert(QStringLiteral("horizontalAccuracyM"), horizontalAvailable ? decodeDistance(horizontalAccuracy) : -1.0);
+        fields.insert(QStringLiteral("verticalAccuracyAvailable"), verticalAvailable);
+        fields.insert(QStringLiteral("verticalAccuracyM"), verticalAvailable ? decodeDistance(verticalAccuracy) : -1.0);
+        fields.insert(QStringLiteral("sourceAgeAvailable"), sourceAgeAvailable);
+        fields.insert(QStringLiteral("sourceAgeMs"), sourceAgeAvailable ? static_cast<int>(sourceAge) * 100 : -1);
         fields.insert(QStringLiteral("advisoryOnly"), true);
         fields.insert(QStringLiteral("flightControlEnabled"), false);
         fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
