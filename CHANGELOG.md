@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v127 source-bound Jetson installation receipt（2026-09-06）
+
+- SSH 远端安装只有在退出码为 0 且唯一 READY/RUN marker 完整匹配后才写 installation receipt；回执绑定
+  package receipt、archive SHA、remote output bytes/SHA、source HEAD、目标目录、runtime Python 和全部远端检查；
+- 新增 closed Schema、installed/clean-checkout verifier；package-only、输出篡改、marker 重复/缺失、检查失败和
+  hardware/release 越界声明均 fail-closed。当前无飞机网段，未生成真实安装回执；全量 3,563 tests：
+  `3561 passed, 2 skipped`，Ruff/compileall/PowerShell/Bash/diff/parity 通过，QGC EXE 未改变。
+
 ### v0.3.0-pre.8 v126 independent Jetson evidence package verifier（2026-09-06）
 
 - 新增 installed/clean-checkout 独立 verifier 与 receipt Schema；从 tar 流复核 archive、source manifest、

@@ -1,5 +1,14 @@
 # 统一仓库架构
 
+## v127 source-bound remote installation receipt（2026-09-06，`v0.3.0-pre.8`）
+
+`src/multidetect/jetson_evidence_install.py` 是远端安装后的独立消费边界；installed CLI 为
+`multidetect-jetson-evidence-install-verify`，wrapper 为 `scripts/verify_jetson_evidence_installation.py`，closed
+contract 位于 `configs/schemas/jetson-evidence-tools-installation.schema.json`。PowerShell producer 先保存 SSH
+输出，再以退出码和唯一完成 marker 为条件生成回执；verifier 重新打开精确 package receipt/tar 与 remote output，
+交叉检查 source/deployment/archive/target/runtime 身份。package-only 和失败 SSH 不存在“安装成功”路径；该层也不
+提升 hardware、HIL/REAL、flight 或 release。
+
 ## v126 independent package verification（2026-09-06，`v0.3.0-pre.8`）
 
 `src/multidetect/jetson_evidence_package.py` 是与 PowerShell producer 独立的消费边界；installed CLI 为

@@ -682,8 +682,16 @@ python scripts\verify_jetson_evidence_capture_package.py `
 ```
 
 接入 `192.168.144.0/24` 后去掉 `-PackageOnly` 并传入 `-HostAlias 192.168.144.20`；部署只写独立
-`Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。必须保留输出的 package receipt 和远端
-`JETSON_EVIDENCE_TOOLS_READY`，后者尚未取得时不能声明 Jetson 安装完成。
+`Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。成功时必须一起保留 `.package.json`、
+`.remote-output.txt` 和 `.install.json`；SSH 失败只产生 `.failed-remote-output.txt`，`-PackageOnly` 不产生
+`.install.json`。用独立消费方重开三件套：
+
+```powershell
+python scripts\verify_jetson_evidence_installation.py `
+  build\jetson-evidence-deploy\multidetect-evidence-tools-<deployment-id>.install.json
+```
+
+只有该命令通过才能声明隔离工具已远端安装；它仍不代表相机、GNSS、Pixhawk、HIL/REAL 或 release 通过。
 
 Jetson 的 `scripts/record_jetson_rtsp_evidence.sh` 现在一条命令创建独立会话目录，顺序生成 RTSP evidence v3、
 raw replay 和 transfer inventory；RTSP URI/凭据不会落盘。现场运行：

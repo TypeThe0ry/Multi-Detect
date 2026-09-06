@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Jetson remote installation receipt（v127）
+
+- [x] SSH stdout/stderr 持久化，并以退出码 0、唯一 exact READY marker、唯一 RUN marker 共同授权回执；
+- [x] 安装回执绑定 package receipt、tar、source HEAD、目标目录、runtime Python、remote output 和远端检查；
+- [x] closed Schema、installed CLI、clean-checkout wrapper 与独立重开验证；
+- [x] package-only、篡改、重复/缺失 marker、失败检查和越界声明负测；
+- [ ] 恢复飞机网段后执行真实安装，保存 package/remote-output/install 三件套并运行独立 verifier。
+
 ## 独立 Jetson evidence package verifier（v126）
 
 - [x] receipt closed schema、archive identity、source manifest 与逐文件流式 SHA 复核；

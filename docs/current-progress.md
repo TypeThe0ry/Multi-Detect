@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v126 工作树）
+最后更新：2026-09-06（v127 工作树）
+
+## v127 本轮已收口
+
+- `scripts/deploy_jetson_evidence_capture.ps1` 现在保存完整 SSH 输出；仅在 SSH 退出码为 0、唯一
+  `JETSON_EVIDENCE_TOOLS_READY=<exact target>` 与唯一 `JETSON_EVIDENCE_RUN=` 同时存在后，才原子写入安装回执；
+- installation receipt 绑定 package receipt bytes/SHA、archive SHA、source Git HEAD、deployment ID、host、远端
+  目标、runtime Python、remote output bytes/SHA 和六项远端检查。SSH 失败只保留
+  `failed-remote-output.txt`，`-PackageOnly` 不产生安装回执；
+- 新增 `multidetect-jetson-evidence-install-verify`、clean-checkout wrapper 和 closed Schema；独立 verifier 会重新
+  打开 package receipt/tar 与远端输出，拒绝 package-only 冒充安装、身份漂移、输出篡改、marker 重复/缺失、
+  检查失败，以及 sudo/service restart/hardware/release 越界声明；
+- 全量回归 3,563 tests：`3561 passed, 2 skipped, 0 failed, 0 errors`，耗时 269.32 秒；JUnit
+  519,572 bytes、SHA-256 `A86DAFAE06F727CD2C62AC3ADC5E188E5C7C77EBDA19CF628584DD5F23301EC7`；
+  Ruff、compileall、PowerShell parse、Git Bash syntax、diff check 与 parity 重生成通过。当前控制机仍无飞机网段，
+  因而没有伪造真实 install receipt；remote install、hardware、HIL/REAL 和 release 仍未通过，E7 仍有 32 blockers。
 
 ## v126 本轮已收口
 
@@ -1135,7 +1150,7 @@ v59 矩阵内部摘要为：
 ## 当前共享契约身份
 
 `configs/release-parity.json`：7,007 bytes，文件 SHA-256
-`4824DA3149980A24CF4A14D785E6708E65AAAE27E55CEE2079DC3C67B96A1E57`。
+`BE038D24EA0FC2BEF05917B653A3F2A2DE687B2FE67688C97522FC760D191378`。
 
 | 契约组 | 当前哈希 |
 |---|---|
@@ -1143,7 +1158,7 @@ v59 矩阵内部摘要为：
 | Core algorithm | `ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f` |
 | Task contract | `89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad` |
 | Safety policy | `d5b15bf45f8f55b484b6f43f6c624a2f9c6494245ef1a1cae55e0b1a4dfbc87e` |
-| PX4 Mission path | `7cd5cd2b0599c81d14fa9fd6fba6c978645cde4ec38ce4f8bbd20e4c6b32402f` |
+| PX4 Mission path | `63cc68012d31fdb9c174d4a036ae2ca8e093d01d5afbbd58fae7b8c6d99988a5` |
 
 ## 功能成熟度矩阵
 

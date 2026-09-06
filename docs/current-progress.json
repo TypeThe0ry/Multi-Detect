@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T07:25:00Z",
+  "updated_at_utc": "2026-09-06T07:39:11Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "abec5e02cc6a62c7d85d5fdfd6cdb4e16841f814",
-    "commit_subject": "feat(jetson): independently verify evidence packages",
-    "commits_ahead_of_origin_main": 140
+    "commit": "43b4377efaf9dcf90019b5ff34557527500215b2",
+    "commit_subject": "feat(jetson): bind remote evidence installations",
+    "commits_ahead_of_origin_main": 142
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v126",
+  "working_iteration": "v127",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v126-final.xml",
-      "tests": 3552,
-      "passed": 3550,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v127-final.xml",
+      "tests": 3563,
+      "passed": 3561,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 260.93,
-      "junit_local_path": "tmp/current-progress-regression-v126-final.xml",
-      "junit_file_bytes": 518004,
-      "junit_file_sha256": "6872c45e81708a11619387f10f2446de31ec6fe1a968ed796814d2da741b0155",
+      "duration_seconds": 269.32,
+      "junit_local_path": "tmp/current-progress-regression-v127-final.xml",
+      "junit_file_bytes": 519572,
+      "junit_file_sha256": "a86dafae06f727cd2c62ac3adc5e188e5c7c77ebda19cf628584dd5f23301ec7",
       "distributed_in_git": false
     },
     "ruff": {
@@ -80,6 +80,16 @@
       "installed_verifier_command": "multidetect-jetson-evidence-package-verify",
       "verifier_wrapper": "scripts/verify_jetson_evidence_capture_package.py",
       "receipt_schema": "configs/schemas/jetson-evidence-tools-package.schema.json",
+      "installation_verifier": "src/multidetect/jetson_evidence_install.py",
+      "installation_verifier_command": "multidetect-jetson-evidence-install-verify",
+      "installation_verifier_wrapper": "scripts/verify_jetson_evidence_installation.py",
+      "installation_receipt_schema": "configs/schemas/jetson-evidence-tools-installation.schema.json",
+      "installation_receipt_requires_ssh_exit_zero": true,
+      "installation_receipt_requires_unique_exact_ready_and_run_markers": true,
+      "installation_receipt_binds_package_and_remote_output": true,
+      "package_only_writes_installation_receipt": false,
+      "failed_ssh_writes_installation_receipt": false,
+      "real_installation_receipt_collected": false,
       "source_git_head": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
       "source_dirty": false,
       "package_local_path": "build/jetson-evidence-deploy/multidetect-evidence-tools-v125-14b1010.tar",
