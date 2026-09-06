@@ -28,6 +28,7 @@ from .autonomy.serialization import (
     strict_json_loads,
     strict_object,
 )
+from .replay_annotation_workbench import main as replay_annotation_workbench_main
 from .replay_annotation_workspace import (
     create_replay_annotation_workspace,
     finalize_replay_annotation_workspace,
@@ -374,6 +375,34 @@ def advance_field_replay_campaign(
     raise AutonomyContractError("campaign advance exceeded the deterministic stage limit")
 
 
+def field_replay_annotation_workbench_argv(
+    workspace: str | Path,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = False,
+) -> list[str]:
+    """Resolve a workbench launch only for the current annotation gate."""
+
+    status = inspect_field_replay_campaign(workspace)
+    if status["stage"] != "annotation_required":
+        raise AutonomyContractError(
+            "annotation workbench requires campaign stage annotation_required; "
+            f"current stage is {status['stage']}"
+        )
+    argv = [
+        status["paths"]["intake"],
+        status["paths"]["annotations"],
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    if open_browser:
+        argv.append("--open-browser")
+    return argv
+
+
 def _load_plan(workspace: str | Path) -> tuple[Path, Mapping[str, Any]]:
     requested = Path(workspace)
     plan_path = requested / PLAN_NAME if requested.is_dir() else requested
@@ -533,6 +562,7 @@ def _status(plan: Mapping[str, Any], paths: Mapping[str, Path]) -> dict[str, Any
         "paths": {name: str(path) for name, path in paths.items()},
         "artifacts": {},
         "next_argv": [],
+        "annotation_workbench_argv": [],
         "release_ready": False,
     }
 
@@ -561,6 +591,13 @@ def _finish(
         ]
     )
     if stage == "annotation_required":
+        status["annotation_workbench_argv"] = [
+            "python",
+            "scripts/run_field_replay_campaign.py",
+            "annotation-ui",
+            str(Path(status["paths"]["intake"]).parent),
+            "--open-browser",
+        ]
         annotation = status["artifacts"].get("annotations", {})
         pending = annotation.get("next_unannotated")
         if pending is not None:
@@ -773,6 +810,13 @@ def build_parser() -> argparse.ArgumentParser:
     advance.add_argument("workspace", type=Path)
     advance.add_argument("--accuracy-reviewer")
     advance.add_argument("--calibration-reviewer")
+    annotation_ui = subparsers.add_parser(
+        "annotation-ui", help="open the loopback workbench for this campaign"
+    )
+    annotation_ui.add_argument("workspace", type=Path)
+    annotation_ui.add_argument("--host", default="127.0.0.1")
+    annotation_ui.add_argument("--port", type=int, default=8765)
+    annotation_ui.add_argument("--open-browser", action="store_true")
     return parser
 
 
@@ -809,12 +853,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "status":
             result = inspect_field_replay_campaign(args.workspace)
-        else:
+        elif args.command == "advance":
             result = advance_field_replay_campaign(
                 args.workspace,
                 accuracy_reviewer=args.accuracy_reviewer,
                 calibration_reviewer=args.calibration_reviewer,
             )
+        else:
+            workbench_argv = field_replay_annotation_workbench_argv(
+                args.workspace,
+                host=args.host,
+                port=args.port,
+                open_browser=args.open_browser,
+            )
+            status = inspect_field_replay_campaign(args.workspace)
+            print(
+                json.dumps(
+                    {
+                        "event": "field_replay_annotation_workbench_authorized",
+                        "campaign_id": status["campaign_id"],
+                        "dataset_id": status["dataset_id"],
+                        "dataset_version": status["dataset_version"],
+                        "plan_canonical_hash": status["plan_canonical_hash"],
+                        "stage": status["stage"],
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            return replay_annotation_workbench_main(workbench_argv)
     except (AutonomyContractError, OSError, ValueError) as exc:
         print(f"field replay campaign: {exc}")
         return 2
@@ -832,6 +899,7 @@ __all__ = [
     "advance_field_replay_campaign",
     "build_parser",
     "create_field_replay_campaign",
+    "field_replay_annotation_workbench_argv",
     "inspect_field_replay_campaign",
     "main",
 ]

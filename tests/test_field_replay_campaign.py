@@ -6,6 +6,7 @@ import subprocess
 import sys
 from base64 import b64decode
 from pathlib import Path
+from urllib.request import urlopen
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -16,6 +17,7 @@ from multidetect.field_replay_campaign import (
     PLAN_NAME,
     advance_field_replay_campaign,
     create_field_replay_campaign,
+    field_replay_annotation_workbench_argv,
     inspect_field_replay_campaign,
 )
 from multidetect.replay_annotation_workspace import review_replay_annotation_workspace
@@ -234,6 +236,24 @@ def test_campaign_advances_intake_and_stops_at_human_annotation(
         "positive": 0,
         "negative": 0,
     }
+    assert status["annotation_workbench_argv"] == [
+        "python",
+        "scripts/run_field_replay_campaign.py",
+        "annotation-ui",
+        str(workspace),
+        "--open-browser",
+    ]
+    assert field_replay_annotation_workbench_argv(
+        workspace, host="127.0.0.1", port=0, open_browser=True
+    ) == [
+        status["paths"]["intake"],
+        status["paths"]["annotations"],
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",
+        "--open-browser",
+    ]
 
     _complete_annotations(workspace / "annotations.json")
     legacy = json.loads((workspace / "annotations.json").read_text(encoding="utf-8"))
@@ -254,6 +274,76 @@ def test_campaign_advances_intake_and_stops_at_human_annotation(
     )
     assert help_run.returncode == 0, help_run.stderr
     assert "field replay campaign" in help_run.stdout.lower()
+    assert "annotation-ui" in help_run.stdout
+
+
+def test_campaign_workbench_rejects_non_annotation_stages(tmp_path: Path) -> None:
+    model, manifest = _placeholder_model(tmp_path / "model")
+    workspace = tmp_path / "campaign"
+    _create(
+        workspace,
+        _sources(tmp_path / "sources", create=True),
+        model,
+        manifest,
+    )
+
+    with pytest.raises(AutonomyContractError, match="current stage is intake_ready"):
+        field_replay_annotation_workbench_argv(workspace)
+
+
+def test_campaign_annotation_ui_runs_bound_loopback_workbench(tmp_path: Path) -> None:
+    model, manifest = _placeholder_model(tmp_path / "model")
+    workspace = tmp_path / "campaign"
+    _create(
+        workspace,
+        _sources(tmp_path / "sources", create=True),
+        model,
+        manifest,
+    )
+    advance_field_replay_campaign(workspace)
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "scripts/run_field_replay_campaign.py",
+            "annotation-ui",
+            str(workspace),
+            "--port",
+            "0",
+        ],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        authorized = json.loads(process.stdout.readline())
+        assert authorized["event"] == "field_replay_annotation_workbench_authorized"
+        assert authorized["campaign_id"] == "field-campaign-001"
+        assert authorized["dataset_id"] == "deployment-field-2026"
+        assert authorized["dataset_version"] == "v1"
+        assert authorized["stage"] == "annotation_required"
+        assert len(authorized["plan_canonical_hash"]) == 64
+        started = json.loads(process.stdout.readline())
+        assert started["event"] == "replay_annotation_workbench_started"
+        assert started["loopback_only"] is True
+        assert started["hardware_io"] is False
+        with urlopen(started["url"], timeout=5.0) as response:  # noqa: S310
+            page = response.read().decode("utf-8")
+        assert response.status == 200
+        assert "Multi-Detect 标注工作台" in page
+    finally:
+        process.terminate()
+        process.wait(timeout=10.0)
+
+    advance_field_replay_campaign(workspace)
+    _complete_annotations(workspace / "annotations.json")
+    assert inspect_field_replay_campaign(workspace)["stage"] == "annotation_finalize_ready"
+    with pytest.raises(
+        AutonomyContractError, match="current stage is annotation_finalize_ready"
+    ):
+        field_replay_annotation_workbench_argv(workspace)
 
 
 def test_campaign_runs_real_model_accuracy_calibration_and_fresh_verification(
