@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v107：部署录像不可覆盖 intake 与 hash-bound 回验 |
+| 当前工程迭代 | v108：独立人工标注工作区与原子真值导出 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,17 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v108 独立人工标注闭环
+
+`multidetect-replay-annotations` / `scripts/replay_annotation_workspace.py` 现在从 v107 intake 生成逐帧
+工作区。每帧初始值是 `unannotated` 与 `objects=null`，不能靠空数组把遗漏标注伪装成无目标；标注者必须
+显式选择 `positive` 或 `negative`，positive 至少一个合法类别/归一化 bbox，negative 必须为空。
+
+finalize 要求 annotator/reviewer 非空且大小写不敏感地互不相同、UTC review timestamp、全帧完成，并从已
+验证 intake 重新推导 frame/image assignment。通过后才在 sibling temporary 中一次生成六份
+`ground-truth.jsonl`、reviewed workspace、closed review receipt 和正式 replay manifest；独立 verify 会逐字节
+对账 workspace → truth → manifest，仍固定 predictions/accuracy/release 为 false。
 
 ### v107 部署录像进入可执行 intake
 

@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v108 reviewed replay annotation workspace（2026-09-06）
+
+- 新增逐帧 annotation workspace：未标注为 `objects=null`，positive/negative 必须显式选择并通过类别/bbox
+  约束，禁止遗漏帧冒充负例；
+- finalizer 强制 annotator/reviewer 分离、UTC review time 和完整 frame assignment，在临时 sibling 中原子生成
+  六份 truth、reviewed workspace、review receipt 与 replay manifest；
+- verifier 从 intake 重推 assignment，并逐字节闭合 workspace/truth/manifest/receipt，篡改或 TOCTOU 不一致均
+  fail-closed；predictions/accuracy/release 仍为 false。新增 4 项回归；全量 3,506 tests：
+  `3505 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v107 immutable deployment replay intake（2026-09-06）
 
 - 新增六分层 deployment recording intake、installed CLI、clean-checkout wrapper 和 closed receipt schema；

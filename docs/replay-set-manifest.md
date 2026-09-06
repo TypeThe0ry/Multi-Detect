@@ -59,8 +59,49 @@ intake 要求六个显式且不同的源目录/recording hash，不使用 mtime 
 帧数及 inventory 做 canonical 绑定，并固定标注/预测为 pending、全部 review/accuracy/release claims 为
 false。输出目录已存在、任一 symlink/路径逃逸/hash 变化/重复录像/receipt 篡改都会失败，临时目录会清理。
 
-随后由独立标注者在每个 stratum 写入帧 ID 对齐的 ground truth，并由固定模型生成 predictions，再创建
-正式 manifest。采集或标注尚未完成时也可以生成一个
+随后生成逐帧人工标注工作区：
+
+```powershell
+python scripts/replay_annotation_workspace.py create `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  --class-names flame,smoke
+
+python scripts/replay_annotation_workspace.py inspect `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json
+```
+
+标注文件里每帧初始为 `{"status":"unannotated","objects":null}`。标注者必须逐帧改成：
+
+```json
+{"status":"positive","objects":[{"label":"flame","bbox":[0.1,0.2,0.4,0.6]}]}
+```
+
+或者经过明确检查后的负例：
+
+```json
+{"status":"negative","objects":[]}
+```
+
+完成后填写不同的 `annotator`、`reviewer` 以及 UTC `reviewed_at_utc`，再原子导出：
+
+```powershell
+python scripts/replay_annotation_workspace.py finalize `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  artifacts\replay-sets\fire-smoke-field-v1-reviewed
+
+python scripts/replay_annotation_workspace.py verify `
+  artifacts\replay-sets\fire-smoke-field-v1-reviewed
+```
+
+finalize 会从 intake 重推 assignment，不信任编辑文件自报的 frame/image hash；任何 unannotated 帧、同一人
+同时标注与复核、非法类别/bbox 或输入漂移都会失败。输出包含六份 `ground-truth.jsonl`、
+`annotation-workspace.reviewed.json`、`annotation-review.receipt.json` 和 `replay-set.manifest.json`，但仍明确
+`predictions_complete=false`、`accuracy_validated=false`、`release_ready=false`。
+
+再由固定模型生成 predictions 并执行 evaluator/readiness。采集或标注尚未完成时也可以生成一个
 明确的 pending 清单：
 
 ```powershell

@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v107 工作树）
+最后更新：2026-09-06（v108 工作树）
+
+## v108 本轮已收口
+
+- 从 v107 hash-bound intake 生成逐帧 annotation workspace；每帧默认 `unannotated/objects=null`，未处理帧
+  不能自动成为负例；
+- positive 强制至少一个 class-bound、有限且归一化的正面积 bbox，negative 强制空对象；未知字段、重复 key、
+  NaN/Infinity、类别越界和非法 bbox 均 fail-closed；
+- assignment hash 绑定 intake/dataset/classes/frame/image，但 finalizer 还会从 intake 重新推导并逐项比较，
+  因此修改 frame ID、stratum、image path/hash/尺寸后重算自报 hash 也不能通过；
+- finalize 要求 annotator/reviewer 分离和 UTC review timestamp，在 sibling temporary 原子导出六份 truth、
+  reviewed workspace、review receipt 与 deployment replay manifest；verify 重开 raw/intake/workspace/truth/manifest
+  并做语义和逐字节对账；
+- create/inspect/finalize/verify CLI、installed entry point、两份 closed schema 与 4 项回归已落库；所有输出继续
+  `predictions_complete=false`、`accuracy_validated=false`、`release_ready=false`，不替代模型回放和精度评审；
+- 全量回归 3,506 tests：`3505 passed, 1 skipped, 0 failed, 0 errors`，耗时 177.668 秒；JUnit
+  511,437 bytes、SHA-256 `445FFF48AC1B2A99051EF6490C96D6FCECD96130870A12414992D50ACD5ABE99`；
+  全仓 Ruff 与 compileall 通过。
 
 ## v107 本轮已收口
 
@@ -933,8 +950,8 @@ reported-position 路径；v63 又完成每机型双重复与三故障 fail-clos
 
 ### P2：部署域模型和 replay-set
 
-使用 v107 intake 显式导入 day/night/haze/reflection/smoke-only/no-fire 真实录像，完成独立人工标注、固定模型
-predictions、fire/smoke 与 person/vehicle 安全模型，
+使用 v107 intake 显式导入 day/night/haze/reflection/smoke-only/no-fire 真实录像，再用 v108 workspace 完成
+独立人工标注与 review receipt；随后运行固定模型 predictions、fire/smoke 与 person/vehicle 安全模型，
 测量 per-class precision/recall/false alarms/misses/latency，完成独立评审后再改变 model status。
 
 ### P3：真实硬件与室外定位

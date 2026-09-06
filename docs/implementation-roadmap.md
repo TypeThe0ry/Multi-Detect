@@ -1,5 +1,17 @@
 # Implementation roadmap
 
+## replay-set 独立人工标注工作区（v108）
+
+- [x] 从 verified intake 推导逐帧、逐图像 immutable assignment；
+- [x] 默认 `unannotated + objects=null`，禁止漏标自动降级为 negative；
+- [x] positive/negative 显式 disposition 与 class/bbox 强校验；
+- [x] annotator/reviewer 身份分离、UTC review timestamp 和全帧完成门；
+- [x] 原子导出六份 truth、reviewed workspace、review receipt 与 replay manifest；
+- [x] 独立 verify 重开并对账 raw/intake/workspace/truth/manifest 全链；
+- [x] create/inspect/finalize/verify CLI、installed command、closed schemas 与回归；
+- [ ] 使用真实 v107 field intake 完成人工双人标注和 review receipt；
+- [ ] 固定候选模型生成全帧 predictions，执行 evaluator/readiness/threshold 独立评审。
+
 ## 部署 replay-set 不可变 intake（v107）
 
 - [x] 六个 canonical strata 使用显式 `STRATUM=SOURCE` 绑定，拒绝缺失、额外和重复源；

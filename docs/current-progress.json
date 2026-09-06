@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T01:57:18Z",
+  "updated_at_utc": "2026-09-06T02:14:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "336875613fdda249c094ce0bfcbdc9337ac6af1b",
-    "commit_subject": "feat(replay): add immutable deployment intake",
-    "commits_ahead_of_origin_main": 102
+    "commit": "54915cb9ebccb861cf08e74b552e7c94bb5daec5",
+    "commit_subject": "feat(replay): add reviewed annotation workspace",
+    "commits_ahead_of_origin_main": 104
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v107",
+  "working_iteration": "v108",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v107-final.xml",
-      "tests": 3502,
-      "passed": 3501,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v108-final.xml",
+      "tests": 3506,
+      "passed": 3505,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 176.837,
-      "junit_local_path": "tmp/current-progress-regression-v107-final.xml",
-      "junit_file_bytes": 510892,
-      "junit_file_sha256": "452ac95871e4746943edd900a60da9b545e3403193dc75fae96988d194ec57a8",
+      "duration_seconds": 177.668,
+      "junit_local_path": "tmp/current-progress-regression-v108-final.xml",
+      "junit_file_bytes": 511437,
+      "junit_file_sha256": "445fff48ac1b2a99051ef6490c96d6fcecd96130870a12414992d50acd5abe99",
       "distributed_in_git": false
     },
     "ruff": {
@@ -727,6 +727,22 @@
       "predictions_copied_from_source": false,
       "release_claim": "not_claimed",
       "field_receipt": "pending_physical_capture"
+    },
+    "replay_annotation_workspace": {
+      "implementation": "src/multidetect/replay_annotation_workspace.py",
+      "installed_command": "multidetect-replay-annotations",
+      "repository_wrapper": "scripts/replay_annotation_workspace.py",
+      "workspace_schema": "configs/schemas/replay-annotation-workspace.schema.json",
+      "review_receipt_schema": "configs/schemas/replay-annotation-review-receipt.schema.json",
+      "commands": ["create", "inspect", "finalize", "verify"],
+      "unannotated_is_not_negative": true,
+      "annotator_reviewer_distinct_required": true,
+      "atomic_truth_export": true,
+      "assignment_recomputed_from_intake": true,
+      "predictions_complete": false,
+      "accuracy_validated": false,
+      "release_claim": "not_claimed",
+      "field_review_receipt": "pending_physical_annotation"
     },
     "release_gate_report": {
       "local_path": "artifacts/evaluation/terminal-continuation-v106/wrapper-default-final/release-gate-pre.8-current-20260906T014323Z-v6-bound-report.json",
