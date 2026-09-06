@@ -312,9 +312,7 @@ def verify_target_observation_diagnostics(
 ) -> dict[str, object]:
     """Verify one saved QGC diagnostics file and return a stable audit record."""
 
-    resolved = _resolved_input(path)
-    document = _json_object(resolved, name="target-observation diagnostics", strict=True)
-    validate_target_observation_diagnostics(document)
+    resolved, document = load_target_observation_diagnostics(path)
     readiness = _mapping(document["readiness"], name="readiness")
     locatable = readiness.get("locatable") is True
     diagnostic_reasons = list(readiness.get("reasons", []))
@@ -340,7 +338,18 @@ def verify_target_observation_diagnostics(
     }
 
 
-def _write_json_atomic(path: Path, document: Mapping[str, object]) -> None:
+def load_target_observation_diagnostics(
+    path: str | Path,
+) -> tuple[Path, dict[str, Any]]:
+    """Open and validate one diagnostics snapshot without weakening file checks."""
+
+    resolved = _resolved_input(path)
+    document = _json_object(resolved, name="target-observation diagnostics", strict=True)
+    validate_target_observation_diagnostics(document)
+    return resolved, document
+
+
+def write_json_atomic(path: Path, document: Mapping[str, object]) -> None:
     path = path.expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -387,7 +396,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reasons": [str(exc)],
         }
     if args.out is not None:
-        _write_json_atomic(args.out, report)
+        write_json_atomic(args.out, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     return 0 if report["gate_passed"] is True else 1
 
@@ -402,6 +411,8 @@ __all__ = [
     "SCHEMA_PATH",
     "TargetObservationDiagnosticsError",
     "main",
+    "load_target_observation_diagnostics",
     "validate_target_observation_diagnostics",
     "verify_target_observation_diagnostics",
+    "write_json_atomic",
 ]

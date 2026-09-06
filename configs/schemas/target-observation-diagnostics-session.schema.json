@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-observation-diagnostics-session.schema.json",
+  "title": "Multi-Detect target observation diagnostics session v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "session_started_at_utc",
+    "session_ended_at_utc",
+    "sample_count",
+    "locatable_count",
+    "non_locatable_count",
+    "locatable_rate",
+    "longest_non_locatable_run",
+    "epoch_transition_count",
+    "observed_epochs",
+    "reason_counts",
+    "range_validity_counts",
+    "gnss_reason_counts",
+    "requirements",
+    "samples",
+    "advisory_only",
+    "flight_control_enabled",
+    "physical_release_enabled",
+    "gate_passed",
+    "reasons"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.target-observation-diagnostics-session.v1"},
+    "schema_version": {"const": 1},
+    "session_started_at_utc": {"type": "string", "format": "date-time"},
+    "session_ended_at_utc": {"type": "string", "format": "date-time"},
+    "sample_count": {"type": "integer", "minimum": 1},
+    "locatable_count": {"type": "integer", "minimum": 0},
+    "non_locatable_count": {"type": "integer", "minimum": 0},
+    "locatable_rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "longest_non_locatable_run": {"type": "integer", "minimum": 0},
+    "epoch_transition_count": {"type": "integer", "minimum": 0},
+    "observed_epochs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "reason_counts": {"$ref": "#/$defs/countMap"},
+    "range_validity_counts": {"$ref": "#/$defs/countMap"},
+    "gnss_reason_counts": {"$ref": "#/$defs/countMap"},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_samples", "minimum_locatable_rate"],
+      "properties": {
+        "minimum_samples": {"type": "integer", "minimum": 1},
+        "minimum_locatable_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sample"}
+    },
+    "advisory_only": {"const": true},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false},
+    "gate_passed": {"type": "boolean"},
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "countMap": {
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "path",
+        "bytes",
+        "sha256",
+        "generated_at_utc",
+        "local_now_ms",
+        "locatable",
+        "diagnostic_reasons",
+        "atomic_identity_matched",
+        "producer_epoch",
+        "sequence",
+        "sent_at_ms",
+        "range_validity",
+        "gnss_qualified",
+        "gnss_reason"
+      ],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "generated_at_utc": {"type": "string", "format": "date-time"},
+        "local_now_ms": {"type": "integer", "minimum": 0},
+        "locatable": {"type": "boolean"},
+        "diagnostic_reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "atomic_identity_matched": {"type": "boolean"},
+        "producer_epoch": {"type": ["integer", "null"], "minimum": 1},
+        "sequence": {"type": ["integer", "null"], "minimum": 0},
+        "sent_at_ms": {"type": ["integer", "null"], "minimum": 0},
+        "range_validity": {"type": ["string", "null"]},
+        "gnss_qualified": {"type": ["boolean", "null"]},
+        "gnss_reason": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
