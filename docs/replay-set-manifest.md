@@ -674,6 +674,13 @@ scripts\deploy_jetson_evidence_capture.ps1 -PackageOnly `
   -DeploymentId v125-field-tools
 ```
 
+上传前用独立消费方再次验证 package receipt 与相邻 tar：
+
+```powershell
+python scripts\verify_jetson_evidence_capture_package.py `
+  build\jetson-evidence-deploy\multidetect-evidence-tools-v125-14b1010.package.json
+```
+
 接入 `192.168.144.0/24` 后去掉 `-PackageOnly` 并传入 `-HostAlias 192.168.144.20`；部署只写独立
 `Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。必须保留输出的 package receipt 和远端
 `JETSON_EVIDENCE_TOOLS_READY`，后者尚未取得时不能声明 Jetson 安装完成。

@@ -1,6 +1,19 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v125 工作树）
+最后更新：2026-09-06（v126 工作树）
+
+## v126 本轮已收口
+
+- 新增 `multidetect-jetson-evidence-package-verify`、clean-checkout wrapper、Python strict verifier 与 closed JSON
+  Schema；接收方不依赖 PowerShell 生成器的自报结果，直接重开 package receipt 和相邻 tar；
+- verifier 流式复核 archive bytes/SHA、source manifest SHA、全部登记源文件 SHA 和闭合文件集合，拒绝绝对/
+  `..` 路径、重复/大小写冲突、symlink、hardlink、device/special entry、额外/缺失文件和安全声明提升；
+- 正式 v125 包独立通过：240 tar members、229 个受保护源文件、6,668,784 源字节，路径/闭合集合/全部 hash
+  均为 true；仍明确 `remote_install_verified=false`、hardware/release false；
+- 全量回归 3,552 tests：`3550 passed, 2 skipped, 0 failed, 0 errors`，耗时 260.93 秒；JUnit
+  518,004 bytes、SHA-256 `6872C45E81708A11619387F10F2446DE31EC6FE1A968ED796814D2DA741B0155`；
+  独立正式包验证报告 735 bytes、SHA-256 `D629E3770F4FB3581C73A78B13BCA46ABD02C923F311F706DE141ABB41F98239`；
+  Ruff、compileall、diff check 与 parity 重生成通过，QGC portable 未改变。
 
 ## v125 本轮已收口
 

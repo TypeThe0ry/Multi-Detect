@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v125：隔离 Jetson 证据工具包 |
+| 当前工程迭代 | v126：独立验证 Jetson 工具包 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,14 +82,14 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v119–v125 现场录像来源、转换与迁移绑定
+### v119–v126 现场录像来源、转换与迁移绑定
 
 现场 raw recording 通过 `deployment-recording-source.json` 绑定分层、人员、设备、地点、来源、UTC 时间窗和
 recording hash。RTSP v3 清单另绑定真实 UTC、单调时间窗、视频 bytes/SHA、全帧 probe 和 canonical hash；
 `multidetect-rtsp-to-replay` 验证原容器后自动生成不可覆盖的 camera-only raw replay。
 
-v122–v123 负责跨机复核；v124 一键完成录像、raw replay 与 inventory；v125 把工具部署到独立版本目录，
-逐文件校验且不重启生产服务。
+v122–v124 负责跨机复核与一键采集；v125 隔离部署工具且不重启服务；v126 由独立 Python verifier
+重开 tar/receipt 并逐文件验真。
 
 转换前后都会复核源身份，tracking-review 对 v3 使用同一 verifier；人员 provenance、独立 GNSS 与分层仍须
 另行确认。intake、campaign 和最终 manifest 会重开来源证明；遗漏、换层、换录像或篡改均 fail-closed。

@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v126 independent Jetson evidence package verifier（2026-09-06）
+
+- 新增 installed/clean-checkout 独立 verifier 与 receipt Schema；从 tar 流复核 archive、source manifest、
+  逐文件 SHA 和闭合集合，并拒绝 traversal、case collision、link/special、增删、篡改及 release 提升；
+- 正式 v125 包通过 240 members/229 files/6,668,784 source bytes 独立验证，仍不声明远端安装；
+  全量 3,552 tests：`3550 passed, 2 skipped`，Ruff/compileall/diff/parity 通过。
+
 ### v0.3.0-pre.8 v125 isolated Jetson evidence tooling deployment（2026-09-06）
 
 - 新增 package-only/SSH 双模式部署器，将证据采集工具以完整源码、Git 状态、逐文件 SHA manifest 和 archive

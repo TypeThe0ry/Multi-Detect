@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## 独立 Jetson evidence package verifier（v126）
+
+- [x] receipt closed schema、archive identity、source manifest 与逐文件流式 SHA 复核；
+- [x] path traversal、case collision、link/special entry、增删/篡改和安全声明提升负测；
+- [x] installed CLI、clean-checkout wrapper、正式 v125 package 独立复验与全量回归；
+- [ ] 飞机网段恢复后对上传前包再次运行 verifier，并将结果与远端安装回执共同归档。
+
 ## 隔离 Jetson evidence tool deployment（v125）
 
 - [x] 完整 Python source + product version + recorder 的 hash manifest/package/receipt；

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T07:13:56Z",
+  "updated_at_utc": "2026-09-06T07:25:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
-    "commit_subject": "feat(jetson): package isolated evidence tooling",
-    "commits_ahead_of_origin_main": 138
+    "commit": "abec5e02cc6a62c7d85d5fdfd6cdb4e16841f814",
+    "commit_subject": "feat(jetson): independently verify evidence packages",
+    "commits_ahead_of_origin_main": 140
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v125",
+  "working_iteration": "v126",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v125-final.xml",
-      "tests": 3545,
-      "passed": 3543,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v126-final.xml",
+      "tests": 3552,
+      "passed": 3550,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 273.15,
-      "junit_local_path": "tmp/current-progress-regression-v125-final.xml",
-      "junit_file_bytes": 517008,
-      "junit_file_sha256": "2c60726d0f2ac2eb14d3a1be7c5889cdb6b300cb386e7cb4855ba0ae67dea096",
+      "duration_seconds": 260.93,
+      "junit_local_path": "tmp/current-progress-regression-v126-final.xml",
+      "junit_file_bytes": 518004,
+      "junit_file_sha256": "6872c45e81708a11619387f10f2446de31ec6fe1a968ed796814d2da741b0155",
       "distributed_in_git": false
     },
     "ruff": {
@@ -76,6 +76,10 @@
   "evidence": {
     "jetson_evidence_tools_deployment": {
       "implementation": "scripts/deploy_jetson_evidence_capture.ps1",
+      "independent_verifier": "src/multidetect/jetson_evidence_package.py",
+      "installed_verifier_command": "multidetect-jetson-evidence-package-verify",
+      "verifier_wrapper": "scripts/verify_jetson_evidence_capture_package.py",
+      "receipt_schema": "configs/schemas/jetson-evidence-tools-package.schema.json",
       "source_git_head": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
       "source_dirty": false,
       "package_local_path": "build/jetson-evidence-deploy/multidetect-evidence-tools-v125-14b1010.tar",
@@ -84,6 +88,14 @@
       "package_receipt_sha256": "7e414b96ee39ed6f15dd2b78142e1a074188a776f8f0e849ba431354023bc106",
       "packaged_file_count": 229,
       "package_self_verified": true,
+      "independent_verification_passed": true,
+      "tar_member_count": 240,
+      "verified_source_bytes": 6668784,
+      "path_safety_verified": true,
+      "closed_inventory_verified": true,
+      "all_source_hashes_verified": true,
+      "independent_verification_local_path": "tmp/jetson-evidence-package-verification-v126.json",
+      "independent_verification_sha256": "d629e3770f4fb3581c73a78b13bca46abd02c923f311f706de141abb41f98239",
       "remote_install_isolated": true,
       "sudo_used": false,
       "service_restart_requested": false,

@@ -1,5 +1,12 @@
 # 统一仓库架构
 
+## v126 independent package verification（2026-09-06，`v0.3.0-pre.8`）
+
+`src/multidetect/jetson_evidence_package.py` 是与 PowerShell producer 独立的消费边界；installed CLI 为
+`multidetect-jetson-evidence-package-verify`，wrapper 为 `scripts/verify_jetson_evidence_capture_package.py`，
+receipt contract 位于 `configs/schemas/jetson-evidence-tools-package.schema.json`。它用 `tarfile` 只读流式验证，
+不把 archive 解压到目标目录；通过结果仍区分 package integrity 与尚未发生的 remote/hardware acceptance。
+
 ## v125 isolated Jetson evidence deployment（2026-09-06，`v0.3.0-pre.8`）
 
 `scripts/deploy_jetson_evidence_capture.ps1` 把完整 Python package、`configs/product-version.json` 和 recorder
