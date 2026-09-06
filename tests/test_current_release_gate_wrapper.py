@@ -103,15 +103,16 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "simulator-safety-acceptance-latest.json",
         "actuator-safety-software-acceptance-latest.json",
         "simulator-scenario-matrix-20260903-portable-paths-pre8.json",
-        "combined-sim-qgc-20260902-hwnd-fallback-v4.json",
-        "simulator-external-runtime-ai-join-v65-current-parity-pre8.json",
-        "simulator-external-runtime-ai-revalidation-v65-current-parity-pre8.json",
-        "px4-reported-position-response-matrix-v65-pre8.json",
-        "px4-reported-position-response-campaign-v65-pre8.json",
+        "combined-sim-qgc-20260905T175019Z-64536\\combined-evidence.json",
+        "release-mode-sim-combined-current.json",
+        "simulator-external-runtime-ai-join-v105-current-parity-pre8.json",
+        "simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json",
+        "px4-reported-position-response-matrix-v105-current-parity-pre8.json",
+        "px4-reported-position-response-campaign-v105-current-parity-pre8.json",
         "px4-airframe-mission-transaction-acceptance-latest.json",
-        "simulator-3d-control-v56-camera-frame-vtol-pre8.json",
-        "simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json",
-        "simulator-3d-control-v56-camera-frame-multirotor-pre8.json",
+        "simulator-3d-control-v105-current-vtol-pre8.json",
+        "simulator-3d-control-v105-current-fixed-wing-pre8.json",
+        "simulator-3d-control-v105-current-multirotor-pre8.json",
         "scene-stream-fixed-wing-20260904.json",
         "scene-stream-multirotor-20260904.json",
         "scene-stream-vtol-20260904.json",
@@ -119,19 +120,25 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         assert path in text
 
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v65\\"
-        "simulator-external-runtime-ai-join-v65-current-parity-pre8.json"
+        "artifacts\\evaluation\\terminal-continuation-v105\\"
+        "simulator-external-runtime-ai-join-v105-current-parity-pre8.json"
     ) in text
     assert (
-        "artifacts\\evaluation\\terminal-continuation-v65\\"
-        "simulator-external-runtime-ai-revalidation-v65-current-parity-pre8.json"
+        "artifacts\\evaluation\\terminal-continuation-v105\\"
+        "simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json"
     ) in text
     for filename in (
-        "simulator-3d-control-v56-camera-frame-vtol-pre8.json",
-        "simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json",
-        "simulator-3d-control-v56-camera-frame-multirotor-pre8.json",
+        "simulator-3d-control-v105-current-vtol-pre8.json",
+        "simulator-3d-control-v105-current-fixed-wing-pre8.json",
+        "simulator-3d-control-v105-current-multirotor-pre8.json",
     ):
-        assert ("artifacts\\evaluation\\terminal-continuation-v56\\" + filename) in text
+        assert ("artifacts\\evaluation\\terminal-continuation-v105\\" + filename) in text
+    assert "combined-sim-qgc-20260902-hwnd-fallback-v4.json" not in text
+    assert "terminal-continuation-v65\\simulator-external-runtime-ai-join" not in text
+    assert "terminal-continuation-v65\\simulator-external-runtime-ai-revalidation" not in text
+    assert "px4-reported-position-response-matrix-v65-pre8.json" not in text
+    assert "px4-reported-position-response-campaign-v65-pre8.json" not in text
+    assert "terminal-continuation-v56\\simulator-3d-control" not in text
     assert "simulator-3d-control-v52-dem-ranging" not in text
     assert "simulator-3d-control-v54-odometry" not in text
     assert "simulator-external-runtime-ai-join-20260905-v52-dem-ranging-pre8.json" not in text
@@ -190,9 +197,10 @@ def test_current_release_gate_wrapper_keeps_explicit_inputs_and_fail_closed_defa
         "simulator-external-runtime-ai-revalidation-20260904-current-pre8.json"
     ) not in text
 
-    # The default must point at the current parity-valid v56 join/revalidation
-    # and fresh v33 field preflight. Older snapshots are historical provenance
-    # only and must not be selected by a no-argument run.
+    # The default must point at the current parity-valid v105 evidence chain
+    # and the fixed v33 field preflight. Older snapshots are historical
+    # provenance only and must not be selected by a no-argument run; the field
+    # preflight itself is expected to fail closed when it ages past policy.
     deprecated_provider_fallback = (
         "simulator-external-runtime-ai-revalidation-20260903-"
         + "current-provider-fallback-parity.json"

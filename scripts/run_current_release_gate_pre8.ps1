@@ -45,20 +45,22 @@ param(
     # it embeds checkout-specific absolute paths and must not be the canonical
     # migration/reproducibility binding.
     [string]$SimulatorScenarioMatrixEvidence = 'artifacts\evaluation\simulator-scenario-matrix-20260903-portable-paths-pre8.json',
-    [string]$SimulatorCombinedEvidence = 'artifacts\evaluation\combined-sim-qgc-20260902-hwnd-fallback-v4.json',
-    [string]$SimulatorCombinedReleaseModeEvidence = 'artifacts\evaluation\release-mode-sim-20260902-pre.8-combined-qgc-v4.json',
-    # Bind the v65 join rebuilt from the six immutable external runtime/AI
-    # source records against the current release-parity file. The prior v52
-    # summary now fails source recomputation because it records an older parity
-    # file hash, so it remains historical evidence only.
-    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v65\simulator-external-runtime-ai-join-v65-current-parity-pre8.json',
-    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v65\simulator-external-runtime-ai-revalidation-v65-current-parity-pre8.json',
+    # Bind the latest complete 900-frame QGC/PX4 combined acceptance and its
+    # current release-mode envelope. The former 2026-09-02 capture predates the
+    # required CameraInfo K/P/R/D and full-odometry semantics.
+    [string]$SimulatorCombinedEvidence = 'artifacts\evaluation\combined-sim-qgc-20260905T175019Z-64536\combined-evidence.json',
+    [string]$SimulatorCombinedReleaseModeEvidence = 'artifacts\evaluation\terminal-continuation-v105\release-mode-sim-combined-current.json',
+    # Bind summaries re-derived from the immutable external runtime/AI source
+    # records against the current release-parity file. Older summaries remain
+    # historical evidence because their recorded parity identity is stale.
+    [string]$SimulatorExternalEvidence = 'artifacts\evaluation\terminal-continuation-v105\simulator-external-runtime-ai-join-v105-current-parity-pre8.json',
+    [string]$SimulatorExternalEvidenceRevalidation = 'artifacts\evaluation\terminal-continuation-v105\simulator-external-runtime-ai-revalidation-v105-current-parity-pre8.json',
     [string]$Px4AirframeTransactionEvidence = 'artifacts\evaluation\px4-airframe-mission-transaction-acceptance-latest.json',
     # External Docker/Gazebo response from fixed-wing, multirotor and VTOL,
     # measured exclusively from PX4 GLOBAL_POSITION_INT and bound to source.
-    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v65\px4-reported-position-response-matrix-v65-pre8.json',
+    [string]$Px4ReportedPositionResponseMatrixEvidence = 'artifacts\evaluation\terminal-continuation-v105\px4-reported-position-response-matrix-v105-current-parity-pre8.json',
     # Two positive runs and three explicit fail-closed faults for each airframe.
-    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v65\px4-reported-position-response-campaign-v65-pre8.json',
+    [string]$Px4ReportedPositionResponseCampaignEvidence = 'artifacts\evaluation\terminal-continuation-v105\px4-reported-position-response-campaign-v105-current-parity-pre8.json',
     # Optional human-reviewed QGC evidence. Final release requires four
     # independently captured records in replay/sim/hil/real order. Keep this
     # empty until the operator has actually reviewed and signed each capture.
@@ -69,14 +71,13 @@ param(
     # which keeps this compact form unambiguous. Supply either zero or all six
     # HIL/REAL x fixed-wing/multirotor/VTOL combinations.
     [string[]]$Px4MissionFeedbackBinding = @(),
-    # The v56 model SDFs bind the camera include pose to base_link and keep
-    # source/wire camera rows top-to-bottom. Bind the regenerated evidence so
-    # the release gate validates the current model/stack bytes instead of
-    # accepting the historical pre-camera-frame v54 assets.
+    # Bind freshly regenerated deterministic control records so model/root
+    # hashes match the current Gazebo assets. The v56 records remain immutable
+    # provenance but no longer match the current model bytes.
     [string[]]$Simulator3dControlEvidence = @(
-        'artifacts\evaluation\terminal-continuation-v56\simulator-3d-control-v56-camera-frame-vtol-pre8.json',
-        'artifacts\evaluation\terminal-continuation-v56\simulator-3d-control-v56-camera-frame-fixed-wing-pre8.json',
-        'artifacts\evaluation\terminal-continuation-v56\simulator-3d-control-v56-camera-frame-multirotor-pre8.json'
+        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-vtol-pre8.json',
+        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-fixed-wing-pre8.json',
+        'artifacts\evaluation\terminal-continuation-v105\simulator-3d-control-v105-current-multirotor-pre8.json'
     ),
     [string[]]$SimulatorSceneStreamSetEvidence = @(
         'artifacts\evaluation\terminal-continuation-v30\scene-stream-fixed-wing-20260904.json',
