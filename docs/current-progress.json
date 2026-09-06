@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T08:04:47Z",
+  "updated_at_utc": "2026-09-06T08:26:45Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "f51c4317ee476feb5186351c3a4b10a72e6372b3",
-    "commit_subject": "feat(jetson): bind trusted SSH host keys",
-    "commits_ahead_of_origin_main": 146
+    "commit": "3fc4644246709de15529502986de12f53266b79e",
+    "commit_subject": "chore(format): establish Ruff baseline",
+    "commits_ahead_of_origin_main": 148
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v129",
+  "working_iteration": "v130",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v129-final.xml",
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v130-final.xml",
       "tests": 3572,
       "passed": 3570,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 258.54,
-      "junit_local_path": "tmp/current-progress-regression-v129-final.xml",
-      "junit_file_bytes": 520970,
-      "junit_file_sha256": "fb3d32c97f9a1d7e95dd0fc7b02c85f610042aa063d0c19221e89f2eba955c0e",
+      "duration_seconds": 220.8,
+      "junit_local_path": "tmp/current-progress-regression-v130-final.xml",
+      "junit_file_bytes": 520969,
+      "junit_file_sha256": "2e214e2d7ba697fe531bf4762047ce0bf2ad7278575c2699df2f02ed2d6ce060",
       "distributed_in_git": false
     },
     "ruff": {
@@ -47,30 +47,26 @@
       "scope": "repository"
     },
     "ruff_format": {
-      "passed": false,
+      "passed": true,
       "command": "python -m ruff format --check .",
-      "status": "preexisting_repository_hygiene_debt",
-      "unformatted_files": 412,
-      "breakdown": {
-        "ground-control": 205,
-        "src": 94,
-        "tests": 88,
-        "scripts": 25
-      },
-      "release_parity_bound_python_files_affected": 33,
-      "ci_impact": "manual validation format step remains failing until an isolated baseline migration"
+      "status": "baseline_migrated",
+      "formatted_file_count": 1523,
+      "initial_candidate_count": 433,
+      "canonical_changed_python_files": 282,
+      "formatter_version": "ruff 0.16.4",
+      "ci_impact": "manual validation format step is locally satisfied; hosted Python matrix remains to run"
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 7007,
-    "file_sha256": "be038d24ea0fc2bef05917b653a3f2a2de687b2fe67688c97522fc760d191378",
+    "file_sha256": "40f815445049c2ff3e8473620bb76b6d17a19c2b644ce0b6a7d509c76e1d1258",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
-      "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
-      "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
-      "safety_policy_hash": "d5b15bf45f8f55b484b6f43f6c624a2f9c6494245ef1a1cae55e0b1a4dfbc87e",
-      "px4_mission_path_hash": "63cc68012d31fdb9c174d4a036ae2ca8e093d01d5afbbd58fae7b8c6d99988a5"
+      "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
+      "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
+      "safety_policy_hash": "f818706d5a5aaa36ef004dbe94d5267a179caf669ae7d938da99e373cf99924a",
+      "px4_mission_path_hash": "5fa7ba3e2b60cd352c3486c713bd84bcfda4a5cf01f9a9d64751cb8e8beaf641"
     }
   },
   "evidence": {
@@ -806,10 +802,10 @@
       "e7_binding": "connected_fail_closed_pending_four_independent_human_reviews"
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v105/px4-reported-position-response-matrix-v105-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v130/px4-reported-position-response-matrix-v130-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "f78117a5240dbac89dbc1e6fbc0916cd45fb0733510a2dfb3b8855efa67ee71c",
-      "matrix_sha256": "cd958c61369678f5689ac4454fda1669c78bb593afafd8831f62ab6ec4d55a03",
+      "file_sha256": "47e9053f8345f3191dd06f51bbb410cea7d55d110903ee18c961b1ba567b50ce",
+      "matrix_sha256": "af172532ee16c9b6e0ec279f74596f64656c86163378b7e49de600af098971e1",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
@@ -822,10 +818,10 @@
       "hardware_acceptance": "not_claimed"
     },
     "px4_reported_position_response_campaign": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v105/px4-reported-position-response-campaign-v105-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v130/px4-reported-position-response-campaign-v130-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "b29098ac4fed3a1efd1bf2351dd6d3927500ffff0d92fcf257cc3cd4b349c3f5",
-      "campaign_sha256": "de56b9d7e2fe17c2e6c11e49c74d1835778f4f48d6753fa931f66d6d581567fe",
+      "file_sha256": "2b0e677104617b725808bd20a39272a6aa6fb0f0fa3e21c1fb5a6e458c0b9a99",
+      "campaign_sha256": "1d1c2b25ecff92f825fd8d7add32236998d450bf64cc9baa6b95b689ed6dbf34",
       "gate_passed": true,
       "positive_run_count": 6,
       "fault_run_count": 9,
@@ -834,10 +830,13 @@
       "hardware_acceptance": "not_claimed"
     },
     "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v105/simulator-external-runtime-ai-join-v105-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v130/simulator-external-runtime-ai-join-v130-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "3ec65637818350ac7742087efd9922f7c75e46cc3c10629ccda3347c80805707",
+      "file_sha256": "6c894cbdd1c697f623ed5a9e130a2de9ba9bfc4f906236325ce75b8680bc79be",
+      "verification_local_path": "artifacts/evaluation/terminal-continuation-v130/simulator-external-runtime-ai-revalidation-v130-current-parity-pre8.json",
+      "verification_file_sha256": "cde92f9c67929a98b40a48fc2b04de630a89a3fea7354deb4d1b641ffec6fa6d",
       "gate_passed": true,
+      "source_recomputed": true,
       "new_external_runtime_claimed": false
     },
     "replay_set_readiness_e7": {
@@ -990,9 +989,9 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "local_path": "tmp/terminal-continuation-v114/release-gate-pre.8-current-20260906T040600Z-v6-bound-report.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v130/release-gate/release-gate-pre.8-current-20260906T081826Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "ef5869d31429da80c2221452c299e700e487f97c05c8c88440d62fa78659f93e",
+      "file_sha256": "63ebb6afbe165e27841032324ceaad9dfdcd915611df4409ee435a083e4b94b5",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32
@@ -1029,7 +1028,6 @@
   "next_priorities": [
     "execute_hil_real_pixhawk_odometry_covariance_capture_with_signed_profile_and_mission_feedback",
     "execute_real_jetson_rtsp_v3_capture_conversion_attestation_and_gnss_join",
-    "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
     "complete_six_strata_deployment_replay_campaign_and_model_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",

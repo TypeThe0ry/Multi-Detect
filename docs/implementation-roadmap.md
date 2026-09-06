@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Ruff format baseline migration（v130）
+
+- [x] Ruff 0.16.4 盘点并格式化 433 个候选，形成 282 个 canonical Python 文件差异；
+- [x] 全仓 1,523 个 Python 文件通过 format check，lint、compileall、diff check 同时通过；
+- [x] 重建四组受影响 release parity 与三机型外部 join/matrix/campaign 派生证据；
+- [x] 重跑 E7 并确认 32 个真实 blocker 保持 fail-closed；
+- [ ] 保留 CI manual workflow 实际运行确认；本地闭环不冒充 GitHub-hosted 三版本 Python matrix。
+
 ## Deployment-bound SSH host key（v129）
 
 - [x] `ssh -G` 解析目标，`ssh-keygen -F` 从显式 known_hosts 提取匹配 key；

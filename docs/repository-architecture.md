@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v130 Ruff format baseline（2026-09-06，`v0.3.0-pre.8`）
+
+仓库根 `pyproject.toml` 继续作为 `ground-control/`、`scripts/`、`src/`、`tests/` 共用的 Ruff 契约；1,523 个
+Python 文件已处于同一 formatter baseline，CI 保留全仓 format gate。机械迁移独立于功能变更，并同步重建
+`configs/release-parity.json`；UI contract 不变，core/task/safety/PX4 Mission 四组只因规范化源码字节更新。
+忽略目录中的 v130 join/revalidation、reported-position matrix/campaign 和 E7 report 从不可变源重算，记录
+迁移后的证据身份，但不升级外部运行、硬件或发布声明。
+
 ## v129 deployment-bound SSH host key（2026-09-06，`v0.3.0-pre.8`）
 
 producer 不再让 scp/ssh 直接读取可变的整份用户/global known_hosts：它先解析 user/host/port，从显式输入文件

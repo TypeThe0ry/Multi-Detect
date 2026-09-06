@@ -1,6 +1,19 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v129 工作树）
+最后更新：2026-09-06（v130 工作树）
+
+## v130 本轮已收口
+
+- Ruff 0.16.4 首次扫描 433 个未格式化文件（ground-control 205、src 106、tests 98、scripts 24）；全仓
+  格式化后 282 个文件形成 canonical Git 差异，其余为换行归一。3 个 formatter 产生的 101 字符生成式已做
+  等价拆行；最终 `python -m ruff format --check .` 为 1,523/1,523，lint、compileall 和 diff check 通过；
+- `release-parity.json` 随 4 个受影响契约组重建，UI contract 未变。由六份不可变外部 runtime/AI source
+  重算三机型 join/revalidation，由既有真实 PX4/Gazebo source 重算 reported-position matrix 与 6 次正例、
+  9 次故障 campaign；四份派生证据均经独立 verifier 通过，不构成新的外部运行或硬件声明；
+- E7 使用新 parity 与 v130 派生证据重跑，仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；
+  QGC EXE/UI hash 未改变，真实 Jetson/Pixhawk/相机、人工视觉、HIL/REAL、实飞和最终发布仍待现场完成；
+- 最终全量回归 3,572 tests：`3570 passed, 2 skipped, 0 failed, 0 errors`，耗时 220.80 秒；JUnit
+  520,969 bytes、SHA-256 `2E214E2D7BA697FE531BF4762047CE0BF2AD7278575C2699DF2F02ED2D6CE060`。
 
 ## v129 本轮已收口
 
@@ -1235,11 +1248,10 @@ D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.
 
 ## 下一步优先级
 
-### 仓库维护债务：独立 Ruff format 基线迁移
+### 仓库维护：Ruff format 基线已迁移
 
-单独建立机械格式化变更，冻结功能修改，格式化并复核 410 个历史文件；随后重新生成 release parity、
-重跑受影响的定位/三机型/E7 证据和全量测试。该迁移不能与目标落图功能开发混在同一提交里，也不能
-通过删除 CI format gate 假装完成。
+v130 已用独立机械提交完成 1,523 个 Python 文件的 format baseline，并重建 parity、三机型派生证据和 E7。
+剩余验证仅是 GitHub-hosted Python 3.11/3.12/3.13 manual workflow 实际运行，不再存在本地 format backlog。
 
 ### P0：原生 QGC 目标落图与证据卡片人工签字
 

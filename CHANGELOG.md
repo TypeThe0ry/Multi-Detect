@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v130 Ruff format baseline migration（2026-09-06）
+
+- 以 Ruff 0.16.4 对全仓 1,523 个 Python 文件建立统一 format baseline；433 个候选中 282 个形成 canonical
+  源码差异，format/lint/compile/diff gate 全部通过，manual validation workflow 不再带历史 format 债务；
+- 重建四组受影响的 release parity，并从不可变外部源重算三机型 join/revalidation、reported-position matrix
+  和 6 正例/9 fail-closed 故障 campaign；E7 重跑仍为 32 blockers，未提升 hardware/HIL/REAL/release 声明；
+- 最终全量回归 `3570 passed, 2 skipped`，1,523 个 Python 文件全部通过 Ruff format/lint。
+
 ### v0.3.0-pre.8 v129 deployment-bound SSH host key（2026-09-06）
 
 - 部署器从指定 `known_hosts` 提取解析后目标的可信条目，生成每次部署专用 snapshot；scp/ssh 排除 global
