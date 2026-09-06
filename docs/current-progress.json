@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T11:43:00Z",
+  "updated_at_utc": "2026-09-06T12:11:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "a9384d4633f2191131af592cfd40019f5b7ff72b",
-    "commit_subject": "test: close annotation workbench pipes",
-    "commits_ahead_of_origin_main": 167
+    "commit": "4e97bda3fae0e26fce8e5e137de9e7bc7fd832dd",
+    "commit_subject": "feat(release): seal GR01 field sessions",
+    "commits_ahead_of_origin_main": 169
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v138",
+  "working_iteration": "v139",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,28 +74,28 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12",
-      "tests": 3608,
-      "passed_tests": 3606,
+      "tests": 3615,
+      "passed_tests": 3613,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 238.449,
+      "duration_seconds": 154.16,
       "local_artifacts_present": true,
-      "junit_local_path": "tmp/current-progress-regression-v138-py312-final.xml",
-      "junit_file_bytes": 525966,
-      "junit_file_sha256": "3ee31f54061d0cdc7f976687f87fa47b67b342907c6c38e8727d6d7513575b75",
+      "junit_local_path": "tmp/current-progress-regression-v139-py312-final-pass.xml",
+      "junit_file_bytes": 526870,
+      "junit_file_sha256": "c9f8b4adc5b826c499851dd6a69a6e27f864fc8e9756068318d71427fc84def8",
       "distributed_in_git": false
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 7454,
-    "file_sha256": "5179c34077dc61cf0a0bbeb530aa8a08a28ceb53fc327e5cadb66d70fd9a8723",
+    "bytes": 7655,
+    "file_sha256": "e138a41de32cad23de554eb0ac21ae95c4d7b004498509cb434caeef44400575",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
-      "safety_policy_hash": "aa7fb7305e5215ae61e2fb3339b000e18ea08ea3c52d3d2594a98fcf48e42649",
+      "safety_policy_hash": "ae4636175da3603c23f58500dd7fc7baff619cd533d07e60cba8222e968bb7cc",
       "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5"
     }
   },
@@ -129,6 +129,22 @@
       "freshness_required_for_final_release": true,
       "current_hardware_report_present": false,
       "hardware_claimed": false
+    },
+    "gr01_transactional_release_session": {
+      "producer": "scripts/run_gr01_release_session.ps1",
+      "independent_consumer": "src/multidetect/gr01_release_session.py",
+      "closed_schema": "configs/schemas/gr01-release-session.schema.json",
+      "bench_verified_before_manifest": true,
+      "saved_release_report_recomputed": true,
+      "source_hashes_and_freshness_recomputed": true,
+      "success_record_written_last": true,
+      "secret_values_serialized": false,
+      "safety_parity_bound": true,
+      "current_hardware_session_present": false,
+      "hardware_flight_acceptance": "not_claimed",
+      "physical_release_enabled": false,
+      "flight_control_enabled": false,
+      "payload_release_requested": false
     },
     "alert_link_runtime_source_observation": {
       "schema_version": 4,

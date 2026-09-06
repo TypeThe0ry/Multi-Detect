@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Transactional GR01 bench-to-E7 session（v139）
+
+- [x] 用单个 PowerShell producer 串联 hardware bench、strict bench verify、E7 manifest/report 与独立 session verify；
+- [x] 所有现场身份和质量阈值显式传递，HMAC/MAVLink signing secret 仅按环境变量名称引用；
+- [x] consumer 重开三份来源，重跑 GR01 verifier 与 canonical E7 evaluator，并核对 SHA/bytes/freshness/projection；
+- [x] closed schema 固定 no-flight/no-payload claims，成功 record write-new 且只在全部步骤通过后生成；
+- [x] producer/consumer/schema/entry point 纳入 `safety_policy` parity，并完成 tamper/expiry/parser 回归；
+- [ ] 在隔离飞机网段配置真实 secret 与 GR01/G20 endpoint，执行该 session 命令并由另一台机器复核记录。
+
 ## GR01 operator-link freshness and deployment identity（v138）
 
 - [x] manifest 原子绑定 GR01 bench 的 UTC 字符串、epoch 与最大允许年龄，默认 900 秒；

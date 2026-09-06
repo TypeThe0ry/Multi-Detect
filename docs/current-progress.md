@@ -1,6 +1,26 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v138 工作树）
+最后更新：2026-09-06（v139 工作树）
+
+## v139 本轮已收口
+
+- 新增 `scripts/run_gr01_release_session.ps1`：真实现场只需一个命令，即按固定顺序执行 hardware GR01 bench、
+  `--require-passed` 独立复核、freshness-bound E7 manifest/report 和 session consumer 复核；每轮输出目录及最终
+  `gr01-release-session.json` 均拒绝覆盖，任一步失败都不会出现成功记录；
+- secret 只通过两个环境变量名称传入，值不进入命令行、JSON 或日志；host、port、hardware ID、expected source
+  CIDR、样本数、丢包、P95、retry 与最大证据年龄均显式绑定，受控 release-gate 参数不能被 extra args 覆盖；
+- 新增 `gr01_release_session.py`、独立入口与 closed schema。consumer 重开 bench/manifest/saved report，重跑
+  GR01 verifier 和 canonical E7 evaluator，核对 source SHA/bytes、freshness、GR01 子门投影及 no-control/no-release
+  claims；record 被篡改或任一来源漂移都会 fail-closed；
+- producer、consumer、schema 与入口全部纳入 `safety_policy` parity。canonical parity 为 7,655 bytes、SHA-256
+  `E138A41DE32CAD23DE554EB0AC21AE95C4D7B004498509CB434CAEEF44400575`；仅 safety hash 更新为
+  `AE4636175DA3603C23F58500DD7FC7BAFF619CD533D07E60CBA8222E968BB7CC`，其余四组不变；
+- 新 parity 下三机型 external join/revalidation、reported-position matrix、6 正例/9 故障 campaign 均独立通过。
+  E7 重算仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 仍
+  `present=false/passed=false`；没有运行真实 session、没有硬件/飞行声明；
+- 最终全量回归 3,615 tests：`3613 passed, 2 skipped, 0 failed, 0 errors`，耗时 154.16 秒；JUnit
+  526,870 bytes、SHA-256 `C9F8B4ADC5B826C499851DD6A69A6E27F864FC8E9756068318D71427FC84DEF8`。
+  全仓 Ruff format/lint、仓库源码 compileall 与 diff check 全部通过。本轮未改 C++/QML，portable EXE 不重建。
 
 ## v138 本轮已收口
 

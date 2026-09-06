@@ -53,6 +53,22 @@ reports, while every later E7 evaluation recomputes age from its canonical `eval
 Hardware ID, remote endpoint, declared aircraft CIDR, actual sender source address and observation
 time therefore form one deployment evidence identity rather than a reusable Boolean pass.
 
+For the field handoff, use the transactional wrapper instead of manually copying an isolated pass:
+
+```powershell
+$env:MULTIDETECT_OPERATOR_HMAC_KEY = '<FIELD-SECRET>'
+$env:MULTIDETECT_MAVLINK_SIGNING_KEY_HEX = '<64-HEX-FIELD-KEY>'
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 `
+  -ExpectedSourceCidr 192.168.144.0/24
+```
+
+The wrapper writes the success record only after independently reverifying the bench and recomputing
+the saved E7 report. Secret values are read from the named environment variables and are never stored
+in the record. This session proves only the GR01 E7 binding; it does not claim flight acceptance or
+enable flight/payload control.
+
 ## Local loopback HIL
 
 Use a random key with at least 32 bytes. Keep it in the process environment or a mode-0600 service

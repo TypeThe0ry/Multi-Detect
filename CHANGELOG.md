@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v139 transactional GR01 release session（2026-09-06）
+
+- 新增 `run_gr01_release_session.ps1`，用一个 write-new 会话目录依次执行真实 GR01 selection/ACK bench、独立
+  strict verifier、freshness-bound E7 manifest/report 与最终独立重算；任一步失败都不会生成成功 session record；
+- 新增 closed session schema、Python consumer/CLI 与 installed-tree-independent verifier，重新打开 bench、manifest、
+  saved report，复算 source SHA/bytes、canonical E7 结果与 evidence age，并固定 no-flight/no-payload claims；密钥值
+  不进入参数、记录或日志；全部生产/消费路径进入 `safety_policy` parity；
+- 新 parity 的 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 已独立通过；
+  E7 保持 `false / false / 32 blockers` 且 GR01 `present=false`。最终全量回归
+  `3613 passed, 2 skipped`；本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v138 GR01 evidence freshness（2026-09-06）
 
 - GR01 E7 记录新增 source UTC、epoch 和 max-age 原子绑定，writer 默认拒绝超过 900 秒或 materially future 的

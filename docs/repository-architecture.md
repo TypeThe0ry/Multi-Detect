@@ -1,5 +1,16 @@
 # 统一仓库架构
 
+## v139 transactional GR01 release session（2026-09-06，`v0.3.0-pre.8`）
+
+- `scripts/run_gr01_release_session.ps1`：现场 producer；创建唯一目录并依次运行 bench、bench verifier、E7 与
+  session consumer，显式拒绝 extra args 覆盖受控路径、时间和 GR01 freshness 参数；
+- `src/multidetect/gr01_release_session.py`：独立 consumer；重新打开三份来源、重跑 canonical verifier/evaluator，
+  对账 source projection 后才原子写入 success record；
+- `scripts/verify_gr01_release_session.py` / console entry：源码树和安装环境共用的 create/verify 入口；
+- `configs/schemas/gr01-release-session.schema.json`：closed evidence contract，固定 GR01 pass 与全部 no-control claim；
+- 上述四项加入 `release_parity.py` 的 `safety_policy` 集合，因此改变事务顺序、复核语义或 record contract 都会
+  使旧安全身份失效。它们不属于飞控 adapter，也不发送 Mission/actuator/payload 指令。
+
 ## v138 GR01 freshness-bound E7 identity（2026-09-06，`v0.3.0-pre.8`）
 
 - `release_gate_manifest.py`：解析 source `observed_at_utc`，在创建时执行默认 900 秒 freshness 与未来时钟容差，

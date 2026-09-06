@@ -1,5 +1,32 @@
 # v0.3.0 E7 发布门
 
+## v139 transactional GR01 bench-to-E7 session（2026-09-06，`v0.3.0-pre.8`）
+
+现场不再需要手工拼接“bench 文件 → E7 参数 → report”三步。新 wrapper 在唯一 write-new 目录中完成：
+
+```powershell
+$env:MULTIDETECT_OPERATOR_HMAC_KEY = '<FIELD-SECRET>'
+$env:MULTIDETECT_MAVLINK_SIGNING_KEY_HEX = '<64-HEX-FIELD-KEY>'
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 `
+  -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 `
+  -ExpectedSourceCidr 192.168.144.0/24 `
+  -MinimumRoundTrips 100 `
+  -MaximumPacketLossRate 0.01 `
+  -MaximumAckLatencyP95Milliseconds 500 `
+  -MaximumEvidenceAgeSeconds 900
+```
+
+执行顺序固定为 hardware bench、`verify_gr01_link_bench.py --require-passed`、current E7 wrapper、
+`gr01_release_session.py create`、同 consumer 的 `verify`。consumer 不信任 saved report：它使用 report 内的
+`evaluated_at_utc` 重新运行 canonical evaluator，并逐项核对 bench/manifest/report 的 SHA、bytes、GR01 子门和
+freshness。最终 `gr01-release-session.json` 只在全部步骤通过后原子生成且拒绝覆盖。
+
+两个 secret 的值只从环境读取，不进入命令参数和记录；session record 固定
+`hardware_flight_acceptance=not_claimed` 且 flight/payload/physical-release 全为 false。它只封闭 GR01 E7 子门，
+不能把整体 `release_allowed`、HIL/REAL、实飞或载荷状态自动升级。当前没有执行真实现场 session。
+
 ## v138 REAL GR01 evidence freshness（2026-09-06，`v0.3.0-pre.8`）
 
 GR01 选择/ACK 台架报告不能作为永久凭证。新 manifest 同时绑定源报告的 `observed_at_utc`、等价
