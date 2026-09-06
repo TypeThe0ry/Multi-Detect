@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v132 authenticated ACK source-route binding（2026-09-06）
+
+- alert-link hardware bench 升级为 v2：必须声明 expected source CIDR，并在任何探测包发送前绑定 OS 选择的
+  local UDP source address；错网卡/错网段时 0 transmission fail-closed，失败报告仍可被独立 verifier 重算；
+- release manifest writer 只接受 route-bound v2 REAL report，并完整绑定 source CIDR/address/result；历史 v1
+  报告仍可离线复核。alert transport/bench/schema 加入 safety parity；全量回归 `3575 passed, 2 skipped`，
+  现场 GR01/V6X/G20 门保持未完成。
+- 新 parity 下重算的三机型 external join/revalidation、reported-position matrix、6 正例/9 故障 campaign 均通过
+  独立 verifier；E7 重跑仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，未提升硬件/现场声明。
+
 ### v0.3.0-pre.8 v131 clean-checkout validation recovery（2026-09-06）
 
 - 新增 `.gitattributes`，强制 Python/typing stub 在 Windows 新检出时保持 LF；从 Git 对象创建的独立

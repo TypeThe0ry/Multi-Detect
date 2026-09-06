@@ -82,11 +82,14 @@ python scripts/run_alert_link_bench.py `
   --maximum-packet-loss-rate 0.01 `
   --maximum-ack-latency-p95-ms 500 `
   --hardware-mode --hardware-id GR01-ALERT-<SERIAL> `
+  --expected-source-cidr 192.168.144.0/24 `
   --out artifacts/evaluation/alert-link-bench-<DATE>.json
 ```
 
 `--hardware-mode` 是现场操作员对端点和设备编号的显式声明；解析器会拒绝回环、无法解析
-的主机名以及非认证 UDP transport，所以本机回环只能作为 software baseline。报告结构由
+的主机名以及非认证 UDP transport，所以本机回环只能作为 software baseline。v2 还会在第一个告警发送前
+通过 UDP route selection（不发送数据）记录 `local_source_address`；该地址必须属于
+`--expected-source-cidr`，否则 ACK 循环不会启动且 `transmission_attempts=0`。报告结构由
 [`configs/schemas/alert-link-bench.schema.json`](../configs/schemas/alert-link-bench.schema.json)
 约束。即使 bench 通过，也只关闭“认证 ACK/时延/丢包”这一条数据链路子门；GR01 型号、
 天线/射频稳定性、断链恢复、时钟同步和完整现场 `HIL/REAL` 仍需独立证据复核。

@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v132 authenticated ACK source-route contract（2026-09-06，`v0.3.0-pre.8`）
+
+`src/multidetect/alert_link_bench.py` 在构造 REAL ACK 样本前先对明确 IP endpoint 执行无发包 UDP route
+selection，并把 canonical `expected_source_cidr`、`local_source_address`、`source_route_verified` 写入 v2
+报告。source route 不合格时 round-trip loop 根本不会启动；独立 verifier 将这种状态识别为可验证的失败，而非
+损坏报告。`src/multidetect/release_gate_manifest.py` 只把通过的 v2 报告写入新 manifest；release evaluator
+仍可重开历史 v1 记录，但 v2 的三个 route 字段会逐项与源文件对账。
+
+`src/multidetect/alerts.py`、bench 和 schema 同时进入 `release_parity.py` 的 `safety_policy` 源集合。因此
+REPLAY/SIM/HIL/REAL 不能在不改变 parity identity 的情况下替换 ACK 认证、重试或源路由边界。该层不选择
+GR01 direct IP 与 V6X fallback，也不声称真实无线链路已经连通。
+
 ## v131 clean-checkout validation contract（2026-09-06，`v0.3.0-pre.8`）
 
 根目录新增 `.gitattributes`，将 `*.py`/`*.pyi` 的工作树 EOL 固定为 LF；这使 Ruff baseline 不再依赖创建

@@ -672,6 +672,8 @@ feedback sources and finish in `return_requested` with physical control disabled
 - [x] Prove restart recovery with the real UDP adapter: ground offline leaves the original alert pending; the next run retransmits the same alert ID before new frames and clears it only after authenticated ACK.
 - [x] Add a bounded authenticated alert-link bench that emits new alert IDs, retry/missing-ACK accounting and ACK P50/P95 metrics; loopback output is explicitly software baseline and cannot satisfy a hardware gate.
 - [x] Hash-bind a passing REAL authenticated alert-link bench into the E7 manifest; re-open and re-verify its source report on every evaluation while keeping prerelease manifests backward-compatible.
+- [x] Bind hardware-mode ACK evidence to the OS-selected local UDP source address and an explicit
+  expected source CIDR before transmitting; wrong-interface reports stop at zero transmissions.
 - [ ] Implement and validate the authenticated ACK transport on the selected real data link.
 
 ### 4. Model and replay validation

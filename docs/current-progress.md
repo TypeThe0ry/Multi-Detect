@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v131 工作树）
+最后更新：2026-09-06（v132 工作树）
+
+## v132 本轮已收口
+
+- authenticated alert-link bench 升级为 schema v2；`--hardware-mode` 除 non-loopback endpoint 和 hardware ID
+  外，必须显式提供 `--expected-source-cidr`，报告保存 canonical CIDR、OS-selected local source address 与
+  `source_route_verified`；
+- route selection 使用未发送数据的 UDP connect/getsockname，在第一个认证告警前完成。源地址缺失、无法解析或
+  不属于指定网段时不进入 ACK 循环，`transmission_attempts=0`，但失败报告仍能由 strict verifier 重算；
+- 当前控制机负测实际得到 `local_source_address=192.168.1.13`，不属于 `192.168.144.0/24`；bench 退出 1、
+  离线 verifier 退出 0（合法失败）、0 transmission。它只证明 fail-closed，不是 GR01 实链证据；
+- release manifest writer 只接收 v2 REAL bench，并 hash-bind source CIDR/address/result；evaluator 继续读取历史 v1
+  记录。alert transport、bench 与 schema 新增到 `safety_policy` parity；全量回归 3,577 tests 为
+  `3575 passed, 2 skipped, 0 failed, 0 errors`，耗时 264.26 秒。现场 ACK/GR01/V6X/G20 仍未通过。
+- 新 safety/PX4 parity 下已从既有不可变 source 重算三机型 external join/revalidation、reported-position matrix
+  与 6 正例/9 故障 campaign，四项 verifier 均通过；E7 manifest/report 随后重跑，仍明确为
+  `gate_passed=false`、`release_allowed=false`、`release_blocked_reasons=32`，没有把软件派生证据提升为现场验收。
 
 ## v131 本轮已收口
 
