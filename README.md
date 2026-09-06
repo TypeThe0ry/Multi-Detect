@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v104：E7 显式投影并重验 REAL field-link 地址来源状态 |
+| 当前工程迭代 | v105：刷新并锁定可执行的当前 E7 默认证据链 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v105 当前 E7 默认证据链
+
+`scripts/run_current_release_gate_pre8.ps1` 的固定默认输入已从过期的 SIM/PX4 摘要切换到当前可复算链：
+900 帧 combined QGC/PX4 source 及其 release-mode envelope、三机型 external runtime/AI join 与
+revalidation、`GLOBAL_POSITION_INT` response matrix/campaign，以及按当前 Gazebo model/root 字节重新生成的
+三机型 deterministic 3-D control records。无参数运行（可只指定新输出目录与时间戳）现在可以完整生成
+E7 manifest/report，不会因旧 release-parity 或 model SHA 中断。
+
+最新 report-only 复算仍为 `gate_passed=false`、`release_allowed=false` 和 32 个阻断项；这些阻断来自
+replay-set 部署域/精度评审、过期且未 ready 的真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件、
+引用失败证据以及最终版本通道，而不是 SIM 证据漂移。本轮未修改 C++/QML，因此 portable EXE 不重建。
 
 ### v104 E7 地址来源投影
 

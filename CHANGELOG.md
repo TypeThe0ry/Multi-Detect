@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v105 current release-gate evidence chain（2026-09-06）
+
+- 将 Windows current release-gate wrapper 从旧 combined SIM、v65 parity 摘要和 v56 3-D model 绑定切换到
+  当前 900 帧 combined source/release envelope、v105 external join/revalidation、PX4 response
+  matrix/campaign 和按当前 Gazebo 资产重建的三机型 3-D records；
+- 所有派生摘要均从既有不可变原始证据重算并由独立 verifier 通过；未重跑或伪造外部硬件/飞行接受；
+- 默认 report-only 链现可完整执行并保持 32 个真实 blocker，现场证据过期仍 fail-closed。新增默认路径
+  防回退断言；全量回归 3,497 tests：`3496 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v104 E7 field-address provenance projection（2026-09-06）
 
 - release manifest writer 从 field-link canonical verifier 生成 `address_state_bound`，不接受调用方自报；

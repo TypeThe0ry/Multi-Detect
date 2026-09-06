@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 当前 E7 默认证据链恢复（v105）
+
+- [x] 将 combined SIM/QGC 默认源切换到具备 CameraInfo K/P/R/D 与完整 odometry 的 900 帧记录；
+- [x] 为该 combined source 生成当前 release-mode envelope；
+- [x] 从六份不可变 source 重算 external runtime/AI join 与 source revalidation；
+- [x] 从三机型正向、重复与故障源重算 reported-position matrix/campaign；
+- [x] 按当前 Gazebo model/root 字节重建三机型 deterministic 3-D control evidence；
+- [x] wrapper 默认执行可生成 report-only E7 输出，不再因旧 parity/model hash 中断；
+- [x] 回归锁定固定路径、排除 v56/v65/旧 combined 默认，禁止按 mtime 或通配符漂移；
+- [ ] 现场重新采集 ready field-link、四模式人工视觉/Mission、HIL/REAL 和最终版本证据，关闭 32 blockers。
+
 ## E7 REAL field-link 地址来源投影（v104）
 
 - [x] writer 从 canonical verifier 结果投影 `address_state_bound`，禁止调用方自报；

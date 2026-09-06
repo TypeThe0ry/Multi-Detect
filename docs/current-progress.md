@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v104 工作树）
+最后更新：2026-09-06（v105 工作树）
+
+## v105 本轮已收口
+
+- 修复 `run_current_release_gate_pre8.ps1` 固定默认链的历史漂移：将缺少 CameraInfo K/P/R/D 与完整
+  odometry 语义的旧 combined source 换为当前 900 帧 acceptance，并绑定当前 release-mode envelope；
+- 从六份不可变 external runtime/AI 原始记录重算 join/revalidation，从三机型正向源重算 reported-position
+  matrix，并从 6 次正向与 9 次故障注入源重算 campaign；全部绑定当前 release parity 且独立 verifier 通过；
+- 按当前 Gazebo model/root 字节重新生成 fixed-wing、multirotor、VTOL deterministic 3-D control records，
+  清除 v56 model SHA 漂移；不宣称外部 3-D、人工视觉、硬件或实飞验收；
+- wrapper 仅指定新输出目录/时间戳即可生成 E7 manifest/report，结果为 32 个真实 blocker，且不再因旧
+  parity/model hash 异常退出；默认仍固定路径、拒绝 mtime/通配选择，现场报告过期时继续 fail-closed；
+- 本轮不改 release parity，也不改 C++/QML，因此不重建 portable EXE；全量回归 3,497 tests：
+  `3496 passed, 1 skipped, 0 failed, 0 errors`，耗时 145.857 秒；JUnit 510,223 bytes、SHA-256
+  `69A47ECAA68596D342876978CB22C2C60E35F71C4178F0CAC199476D1EC39F06`；全仓 Ruff 与 compileall 通过。
 
 ## v104 本轮已收口
 
@@ -814,16 +828,16 @@ v59 矩阵内部摘要为：
 
 ## 当前共享契约身份
 
-`configs/release-parity.json`：5,972 bytes，文件 SHA-256
-`CE3E86AC96C0C08FBD1AE0A38E3EA355B0A3C876EBBA1B2CD002A85B8A1E94E1`。
+`configs/release-parity.json`：7,007 bytes，文件 SHA-256
+`4824DA3149980A24CF4A14D785E6708E65AAAE27E55CEE2079DC3C67B96A1E57`。
 
 | 契约组 | 当前哈希 |
 |---|---|
 | UI contract | `e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66` |
 | Core algorithm | `ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f` |
 | Task contract | `89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad` |
-| Safety policy | `daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a` |
-| PX4 Mission path | `3d3a77f61dd4fa1c134acdff83e07afb020b947ed808c2df0ae17a974ca52c95` |
+| Safety policy | `d5b15bf45f8f55b484b6f43f6c624a2f9c6494245ef1a1cae55e0b1a4dfbc87e` |
+| PX4 Mission path | `7cd5cd2b0599c81d14fa9fd6fba6c978645cde4ec38ce4f8bbd20e4c6b32402f` |
 
 ## 功能成熟度矩阵
 
@@ -849,9 +863,9 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,576,640` bytes
-- SHA-256：`62F832239C375998E8431985DA02BB063ABEBA69BDB551E46527D2EFD97F747F`
-- v61 已从当前 C++/QML 源码完成 Release 与 portable 重建，两份主 EXE 字节一致。
+- 大小：`46,579,712` bytes
+- SHA-256：`FFCC4FCF45EAE6E7A52ED6B2585BCCF29E5F36776D03D2EFA7F6527D1A96255B`
+- 当前 portable 已包含 v61 之后的 QGC C++/QML 变更；v105 没有界面源码变化，因此没有重复构建。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类
