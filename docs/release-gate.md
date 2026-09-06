@@ -1,5 +1,15 @@
 # v0.3.0 E7 发布门
 
+## v159 producer epoch 诊断导出后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
+
+producer epoch 事件时间线和诊断 JSON 使 UI parity 更新为
+`049B1A6B1C26F80D2627DA7DB9DE2A8D733EDE1B3E4DAC972F27D411065505F4`。v159 已重新生成 external
+join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读 field-link 和 E7。当前报告为
+`release-gate-pre.8-current-20260906T212800Z-v6-bound-report.json`，SHA-256
+`A99A24E3FF6FC1F2D0DD51192CCA08E9B2A7E60D4C42C563B2231C1902131CCA`，结果仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers。诊断导出固定 advisory-only，不提升人工视觉、
+室外 GNSS、field link、HIL/REAL、真实硬件或实飞门。
+
 ## v158 producer epoch 健康审计后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
 
 producer epoch 健康分级和 target evidence v6 使 UI parity 更新。v158 已重新生成 external

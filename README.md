@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v158：producer epoch 健康分级与 evidence v6 审计 |
+| 当前工程迭代 | v159：producer epoch 事件时间线与诊断 JSON 导出 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,17 +82,19 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v158 producer epoch 健康分级与 evidence v6 审计
+### v159 producer epoch 事件时间线与诊断导出
 
 原生 QGC 的“室外测距质量”面板现在把 producer epoch 状态锁存为 `WAITING / HEALTHY / NOTICE /
 WARNING / CRITICAL`，并配合当前 epoch、重启数、旧包拒绝数、切换拒绝数、最近切换与最近事故时间显示。
-现场人员无需翻日志即可区分尚无会话、正常、发生过重启、拒绝过退休旧包，以及退休容量耗尽。
+v159 进一步保留最多 64 条初始化、重启、退休旧包拒绝和切换容量耗尽事件；总数、保留数和丢弃数
+分开记录，历史截断不会被隐藏。“目标落图”卡片可一键复制
+`multidetect.producer-epoch-diagnostics.v1` JSON，即使尚无首个事件也会导出 `WAITING` 摘要。
 
 `MultiDetectObservationEpoch` 的退休集合改为固定 32 项且绝不淘汰。第 33 次 session 切换会保持当前
 epoch 并 fail-closed，要求重启 QGC 后再建立新会话；这样有限内存不会以重新接受极晚旧包为代价。
 目标证据升级为 `multidetect.target-evidence.v6`，保存健康级别/原因、三类计数、切换时间和事故时间；
-v1-v5 继续只读兼容。该改动仍只影响认证观测的显示、诊断与证据，不增加飞控或物理输出权限。
-v158 parity、外部 SIM 派生证据、只读 field-link 与 E7 已重算；E7 仍为 `false / false / 31 blockers`。
+v1-v5 继续只读兼容。诊断 JSON 明示 `advisory_only=true`、飞控和物理释放均为 `false`。
+v159 parity、外部 SIM 派生证据、只读 field-link 与 E7 已重算；E7 仍为 `false / false / 31 blockers`。
 
 ### v152 独立 GNSS 质量状态
 

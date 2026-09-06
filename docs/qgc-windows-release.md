@@ -12,7 +12,19 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-### v158 当前 portable、producer epoch 健康分级与 evidence v6（2026-09-07）
+### v159 当前 portable 与 producer epoch 诊断导出（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,659,072` bytes，SHA-256
+`7DA7F882ECB51EEA4DDF1D79FF5F9EBB52E8BD3B77F0DBEEAC1B23EFFB95E375`。producer epoch 初始化、重启、
+退休旧包拒绝和切换容量耗尽现在进入最多 64 条的有界事件时间线；总事件数、保留数和丢弃数均可审计。
+“目标落图”卡片可一键复制 `multidetect.producer-epoch-diagnostics.v1` JSON，零事件等待状态也可导出。
+
+三项关键 native self-test 退出 0；portable offscreen simple boot 退出 0，stdout 0 bytes、stderr 879 bytes，
+且没有 QML 初始化错误；全量回归为 `3660 passed, 2 skipped, 0 failed`。该 JSON 固定为 advisory-only
+并明确飞控/物理释放关闭；人工 Fly View、室外
+GNSS、HIL/REAL、硬件和实飞门不因此变化。
+
+### v158 producer epoch 健康分级与 evidence v6（历史，2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,650,880` bytes，SHA-256
 `8EBAB7D38113418582AAC12A226BBDFAF988EF30D3E7FCC927222B58E2332A69`。“室外测距质量”面板把 epoch

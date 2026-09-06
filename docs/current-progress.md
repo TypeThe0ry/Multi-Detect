@@ -1,6 +1,27 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v158 工作树）
+最后更新：2026-09-07（v159 工作树）
+
+## v159 本轮已收口
+
+- QGC controller 新增 producer epoch 生命周期/事故时间线：初始化、生产者重启、退休旧包拒绝和切换容量
+  耗尽均记录事件索引、发生时间、incoming/previous/active epoch、健康级别/原因与累计事故计数。
+- 时间线最多保留 64 条，并分开记录 total/retained/dropped；诊断环形淘汰不影响 32 项 retired epoch 的
+  绝不淘汰安全状态机。“目标落图”卡片可一键复制 `multidetect.producer-epoch-diagnostics.v1`，零事件
+  `WAITING` 状态也可以导出；JSON 固定声明 advisory-only、飞控关闭和物理释放关闭。
+- focused QGC/parity 回归 45 项、Ruff lint/format、三项关键 native self-test 和 portable offscreen
+  simple boot 均通过。Release/portable 主 EXE 为 46,659,072 bytes，SHA-256
+  `7DA7F882ECB51EEA4DDF1D79FF5F9EBB52E8BD3B77F0DBEEAC1B23EFFB95E375`；功能提交为
+  `1e95d6eadcb06dadb5970682dcd442a0a2c9c03f`。
+- `release-parity.json` 为 8,815 bytes、SHA-256
+  `2FB2AE51AD9E5D5011D51C9F27379936F811C3A371EA76D82334B735B8024CAE`；UI contract 更新为
+  `049B1A6B1C26F80D2627DA7DB9DE2A8D733EDE1B3E4DAC972F27D411065505F4`，core/task/safety/PX4 identity 未变。
+- v159 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读 field-link 与 E7
+  已按当前 parity 重算。控制机仍从 `192.168.1.13/24` 错路由，Jetson/GR01/RTSP 3/3 超时；E7 保持
+  `gate_passed=false`、`release_allowed=false`、31 blockers，未修改网络、飞控、载荷或受保护服务。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 342.548 秒；JUnit
+  533,635 bytes、SHA-256 `C96C2069787576D8A2118A8C16A1D691E54AC6259A14E76ABEB7A6DCF1B2A139`。
+  人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞仍未通过。
 
 ## v158 本轮已收口
 
@@ -1761,8 +1782,8 @@ v59 矩阵内部摘要为：
 | 感知与模型治理 | ONNX provider、manifest、raw/post-NMS、候选隔离、延迟/精度工具 | v56 COCO car 仅 quarantined SIM candidate | 部署域 fire/smoke/safety 模型、数据集、评审和阈值 |
 | 多目标跟踪 | 多目标池、短时恢复、ReID、遮挡/丢失/重获、TRK/LCK/TGT | 自动化与软件/SITL | 真实复杂场景身份精度与 G20/QGC 触控验收 |
 | 测距 | metric depth、相机地面射线、多源融合、DEM/GNSS、时间/运动/残差不确定性 | v59 实际 Gazebo 像素；三档坡高/距离；advisory-only | 真实外参与 outdoor survey |
-| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、v4 单包原子 GNSS-bound 本地证据 | v1/v2/v3 可读；v4 只保存 type 26 原子 range/geolocation/GNSS；三正场景 15/15 落图、近地平线 0/5 假点 | 人工视觉签字与真实 GNSS |
-| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | v155 portable/simple boot/native evidence store 通过；机器截图历史证据通过 | 四模式人工视觉对等与 E7 绑定 |
+| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、v6 GNSS-bound 本地证据与 epoch 诊断 JSON | v1-v5 只读兼容；v6 保存原子观测健康审计；三正场景 15/15 落图、近地平线 0/5 假点 | 人工视觉签字与真实 GNSS |
+| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | v159 portable/simple boot/native self-test 通过；最多 64 条 producer epoch 诊断事件 | 四模式人工视觉对等与 E7 绑定 |
 | 数字孪生 | PX4/Gazebo、三机型、场景/地图/DEM、wire v3 covariance、故障、watchdog | 三机型外部 wire-v3 实采；x500 position response；三档定位 | estimator 非零 covariance；fixed-wing/VTOL 对等动态响应 |
 | 任务与控制 | 平台无关 planner、PX4 Mission 编译/反馈、Mode 3 动态权限 | 测试/SIM/HIL 框架；物理输出默认锁定 | 六份 HIL/REAL×三机型 feedback 与真实飞控验收 |
 | Jetson/Pixhawk/链路 | Jetson profile、RTSP bench、只读 MAVLink、V6X 参数备份、G20/GR01 认证协议 | 软件/localhost 与部分只读现场快照 | 实机 Jetson provider、相机、GR01、V6X 同时在线验收 |
@@ -1777,9 +1798,9 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,633,984` bytes
-- SHA-256：`788E82B4BF8198EFC8ECD720E2E1A883899D7ADD65DE1276A0221FD61D35AC8F`
-- 当前 portable 已包含 v155 的 type 26 单包原子目标观测、evidence v4 与全部此前 QGC C++/QML 变更。
+- 大小：`46,659,072` bytes
+- SHA-256：`7DA7F882ECB51EEA4DDF1D79FF5F9EBB52E8BD3B77F0DBEEAC1B23EFFB95E375`
+- 当前 portable 已包含 v159 的 producer epoch 事件时间线、诊断 JSON 导出、evidence v6 与全部此前 QGC C++/QML 变更。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类

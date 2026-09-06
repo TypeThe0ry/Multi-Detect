@@ -5,6 +5,22 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v159 producer-epoch event timeline and diagnostics export（2026-09-07）
+
+- QGC controller 新增进程内 producer epoch 事件时间线，记录 `epoch_initialized`、`producer_restart`、
+  `retired_epoch_rejected` 和 `transition_capacity_exhausted`；最多保留 64 条，并分开暴露总数、保留数与
+  丢弃数，避免环形截断被误认为完整历史；
+- “目标落图”卡片新增“复制诊断”，零事件 `WAITING` 状态同样可以导出。JSON schema 为
+  `multidetect.producer-epoch-diagnostics.v1`，包含健康摘要、事件计数/时间/epoch、事故计数及明确的
+  advisory-only、飞控关闭、物理释放关闭边界；toolbar 同步显示事件数与丢弃数；
+- Release/portable EXE 为 46,659,072 bytes，SHA-256
+  `7DA7F882ECB51EEA4DDF1D79FF5F9EBB52E8BD3B77F0DBEEAC1B23EFFB95E375`；三项关键 native self-test、
+  focused QGC/parity 回归、Ruff lint/format 和 portable offscreen simple boot 均通过；最终全量回归为
+  `3660 passed, 2 skipped, 0 failed`；
+- 当前 parity 的 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读
+  field-link 与 E7 已重算。E7 仍为 `gate_passed=false`、`release_allowed=false`、31 blockers；现场
+  网卡仍走 `192.168.1.13/24`，人工视觉、室外 GNSS、真实硬件、HIL/REAL 和实飞均未声明通过。
+
 ### v0.3.0-pre.8 v158 producer-epoch health severity and evidence v6 audit（2026-09-07）
 
 - producer epoch 健康状态新增锁存分级：无会话为 `WAITING`，正常为 `HEALTHY`，发生生产者重启为

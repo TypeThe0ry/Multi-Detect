@@ -1,5 +1,25 @@
 # 统一仓库架构
 
+## v159 producer epoch 事件与诊断导出链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+type 26 epoch observe
+  -> epoch_initialized / producer_restart / retired_epoch_rejected /
+     transition_capacity_exhausted
+  -> controller 有界事件表（retained 64）+ total/dropped 计数
+  -> MultiDetectState QML 投影 -> toolbar 事件状态
+  -> Fly View “复制诊断”
+  -> multidetect.producer-epoch-diagnostics.v1 JSON
+     advisory_only=true / flight_control_enabled=false /
+     physical_release_enabled=false
+```
+
+- 每个事件绑定单调事件索引、发生时刻、incoming/previous/active epoch、当时健康级别/原因和三类累计计数；
+- 容量到达 64 后只淘汰诊断时间线最旧项，并增加 `dropped_event_count`；这不改变 32 项 retired epoch
+  的绝不淘汰安全状态机，两种容量的含义严格分离；
+- 零事件时仍可导出 `WAITING` 摘要，现场人员可区分“尚未收到原子观测”和“按钮不可用”；整个链只用于
+  operator 诊断与证据复制，不进入 PX4 Mission、飞控或载荷路径。
+
 ## v158 producer epoch 健康分级与 evidence v6 审计链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

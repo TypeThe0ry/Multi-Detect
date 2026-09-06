@@ -57,6 +57,14 @@ retired set keeps at most 32 epochs without eviction; after that capacity is rea
 rejected while the current session remains active until QGC is restarted. This bounded fail-closed rule
 prevents very late traffic from becoming eligible again merely because an older epoch was discarded.
 
+The controller also retains the latest 64 epoch lifecycle/incident events while separately counting
+all events and evicted diagnostic entries. The Fly target card's `复制诊断` action copies an indented
+`multidetect.producer-epoch-diagnostics.v1` JSON document with event indices, timestamps, epoch
+transitions, health state and incident counters. It remains available before the first event so a
+`WAITING` state is diagnosable. This diagnostic ring does not weaken the separate non-evicting retired
+epoch set, and the exported document explicitly records `advisory_only=true`, flight control disabled
+and physical release disabled.
+
 When Jetson reports a qualified target WGS84 coordinate, **Fly** projects the current matching target
 onto the main map as a red marker with a yellow horizontal `1σ` uncertainty circle. The accompanying
 "目标落图 · 只读" card shows the coordinate, target class, fused distance, relative bearing,
