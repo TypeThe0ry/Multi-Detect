@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T20:17:00Z",
+  "updated_at_utc": "2026-09-06T20:29:47Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "cc0e3f0412b64c6b4450f1496bb1a4f71654f30d",
-    "commit_subject": "feat(operator): bind observations to producer epochs",
-    "commits_ahead_of_origin_main": 204
+    "commit": "31bdd2c1e056d1403f286078d284b7e077cb7225",
+    "commit_subject": "feat(operator): expose producer epoch health",
+    "commits_ahead_of_origin_main": 207
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v156",
+  "working_iteration": "v157",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 310.24,
+      "duration_seconds": 274.955,
       "local_artifacts_present": true,
-      "junit_local_path": "tmp/current-progress-regression-v156-py312-final.xml",
+      "junit_local_path": "tmp/current-progress-regression-v157-py312-final.xml",
       "junit_file_bytes": 533660,
-      "junit_file_sha256": "79a05cf85681a6964998a77b04f7aee0b6b0e193d18ffa5a595ff8286ade9445",
+      "junit_file_sha256": "a424ee8a398bc37f5e9ede1a87cc75ead303ebc14bd399e59780e2a66a3c6bbc",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -156,14 +156,35 @@
       "portable_simple_boot_qml_initialization_errors": 0,
       "ruff": "passed",
       "git_diff_check": "passed"
+    },
+    "v157_producer_epoch_health_selected_regression": {
+      "passed": true,
+      "tests": 133,
+      "failed": 0,
+      "scope": "qgc_producer_epoch_health_visibility_and_fail_closed_retirement_capacity",
+      "wire_message_type": 26,
+      "application_payload_bytes": 128,
+      "retired_epoch_capacity": 32,
+      "retired_epochs_never_evicted": true,
+      "capacity_exhaustion_keeps_current_epoch": true,
+      "native_observation_epoch_capacity_self_test": "passed",
+      "native_target_evidence_store_self_test": "passed",
+      "native_operator_protocol_self_test": "passed",
+      "native_replay_rtsp_wire_self_test": "passed",
+      "portable_exe_deployed": true,
+      "portable_simple_boot": "passed",
+      "portable_simple_boot_stderr_bytes": 1009,
+      "portable_simple_boot_stderr_sha256": "a770d77adc91a759de326542ea102507bf5e8c341414ddb594dd42c866290150",
+      "portable_simple_boot_qml_initialization_errors": 0,
+      "git_diff_check": "passed"
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 8815,
-    "file_sha256": "ceb14c70d5fb37085534b62c703dd76c305f4a9c866bd855250932056ff44bb1",
+    "file_sha256": "276f81f14184b1ee5817b61a9c57287cefd1a7283698e6d2e9d0ee0e49d3a99c",
     "hashes": {
-      "ui_contract_hash": "431e8279302c88283718c7722fcc71bafc9500af0a5730b290efbdef55f62d54",
+      "ui_contract_hash": "3c863718c78c4f8424f4636375f3926f2cb178a2523e0100036d59dc5b732cde",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
@@ -191,13 +212,20 @@
       "range_geolocation_gnss_producer_epoch_equal_required": true,
       "new_epoch_clears_old_observation_and_replay_state": true,
       "retired_epoch_reactivation_rejected": true,
+      "producer_epoch_health_visible_in_qgc": true,
+      "producer_epoch_restart_count_visible": true,
+      "retired_epoch_reject_count_visible": true,
+      "epoch_transition_reject_count_visible": true,
+      "retired_epoch_capacity": 32,
+      "retired_epochs_never_evicted": true,
+      "epoch_capacity_exhaustion_fail_closed": true,
       "single_authenticated_message_atomicity_required": true,
       "range_geolocation_gnss_sequence_and_sent_at_equal_required": true,
       "three_message_transport_atomicity_claimed": false,
       "native_store_self_test": "passed",
       "portable_simple_boot": "passed",
-      "exe_bytes": 46639616,
-      "exe_sha256": "8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5",
+      "exe_bytes": 46641152,
+      "exe_sha256": "65AF88C1B55E7F570FF9A9A3D401CF6BA55E8BE5652C715823A6E4F2B8163BD4",
       "flight_control_enabled": false,
       "physical_release_enabled": false,
       "hardware_claimed": false,
@@ -831,13 +859,13 @@
       }
     },
     "field_link_read_only_current_probe": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v156/field-link-preflight-live-v156-current.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v157/field-link-preflight-live-v157-current.json",
       "distributed_in_git": false,
-      "file_bytes": 15777,
-      "file_sha256": "fe782e46396a28e8e15dcf6983b2c1c36eea4c28f91f393809bba88fede87b57",
-      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v156/field-link-interface-diagnostic-v156-current.json",
-      "interface_diagnostic_file_bytes": 4403,
-      "interface_diagnostic_file_sha256": "b49a492fd9cfcda39bdebd39decb4d5a0c230897867c1ee02e83f0fc6603aca1",
+      "file_bytes": 15778,
+      "file_sha256": "49c25699a416a266c83362798049f9c8feaf3d9a0c9bf57a8ee364d962dc053b",
+      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v157/field-link-interface-diagnostic-v157-current.json",
+      "interface_diagnostic_file_bytes": 2513,
+      "interface_diagnostic_file_sha256": "1e06412fb5cc7d40812f205183495f571da3c359f3715a3f26f565d6f20cc18e",
       "address_state_schema": "multidetect.field-link-address-state/v1",
       "address_state_schema_path": "configs/schemas/field-link-address-state.schema.json",
       "address_state_verifier": "multidetect.field_link_address_state.verify_field_link_address_state",
@@ -1257,10 +1285,10 @@
       "e7_binding": "connected_fail_closed_pending_four_independent_human_reviews"
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v156/px4-reported-position-response-matrix-v156-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v157/px4-reported-position-response-matrix-v157-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "9a4aa992e64735e0401b5768d4e6759c24001ad8a017c77a66cca85db2518610",
-      "matrix_sha256": "9ba209bde9e58c0792647894c2399669c0d14385e66f3a50e64244863b7e95c6",
+      "file_sha256": "0670435a201876dd75a0dcf51e3cf0c29e8bfd65091f929b614c6ea02e8f7cce",
+      "matrix_sha256": "c45b3eb5314eae1607b03369b7674e90279232007e22c036f222617f94cddb16",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
@@ -1273,10 +1301,10 @@
       "hardware_acceptance": "not_claimed"
     },
     "px4_reported_position_response_campaign": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v156/px4-reported-position-response-campaign-v156-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v157/px4-reported-position-response-campaign-v157-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "fe96fc6051570bef85270d538a650cd9b61ebb2b72515cbe1563eac7cfd5cae9",
-      "campaign_sha256": "f2af683d30654eae151f80bc53312138003bb65fcc96bf36f87c354bca2632ee",
+      "file_sha256": "334c7c4131740c8869f97459f43f6bc93fe2c8c03b636a092078a8ed584e84f2",
+      "campaign_sha256": "c4da27d54403510733a09283eb71df42a590f4d4ccade73083c9de8456226004",
       "gate_passed": true,
       "positive_run_count": 6,
       "fault_run_count": 9,
@@ -1285,11 +1313,11 @@
       "hardware_acceptance": "not_claimed"
     },
     "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v156/simulator-external-runtime-ai-join-v156-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v157/simulator-external-runtime-ai-join-v157-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "6da1c013a78616b3fce433145e8f1a86b785f8e7af8f6443430df05a0a2e0743",
-      "verification_local_path": "artifacts/evaluation/terminal-continuation-v156/simulator-external-runtime-ai-revalidation-v156-current-parity-pre8.json",
-      "verification_file_sha256": "8bb904b6510197f3d2d0e6a303673a6adabaa93424695fcc2f0eb7d248ef6a97",
+      "file_sha256": "e293377814a455f03841110d7f51349775cefdfacfacf83ff30a0d5ba76edc7b",
+      "verification_local_path": "artifacts/evaluation/terminal-continuation-v157/simulator-external-runtime-ai-revalidation-v157-current-parity-pre8.json",
+      "verification_file_sha256": "08eb4762c8c0133ca5903dbf8766e62c55829e3e605e45d401a5a182cb58554e",
       "gate_passed": true,
       "source_recomputed": true,
       "new_external_runtime_claimed": false
@@ -1444,18 +1472,18 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v156/release-gate/release-gate-pre.8-current-20260906T201700Z-v6-bound.json",
-      "manifest_file_bytes": 23609,
-      "manifest_file_sha256": "1396bb9257e11cbddf007b957c73210d788db53696d90dee2ede77b3492bc20b",
-      "local_path": "artifacts/evaluation/terminal-continuation-v156/release-gate/release-gate-pre.8-current-20260906T201700Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v157/release-gate/release-gate-pre.8-current-20260906T202947Z-v6-bound.json",
+      "manifest_file_bytes": 23610,
+      "manifest_file_sha256": "b3e24db3916964dcc7571938682db7161d8bb8e6da79e499a2c10fd9ac42a414",
+      "local_path": "artifacts/evaluation/terminal-continuation-v157/release-gate/release-gate-pre.8-current-20260906T202947Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_bytes": 73538,
-      "file_sha256": "2e69421f6446d6064b692ad0580b43c5d9cf3bcea3af8944c918cb2ca1d0c543",
+      "file_bytes": 73540,
+      "file_sha256": "ab4e9adec704735281f6aca7cdb99824aa586f0aba98c77020984ebfc033e3e3",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 31,
       "current_release_parity_bound": true,
-      "status": "current_v156_report_only_blocked"
+      "status": "current_v157_report_only_blocked"
     }
   },
   "model_status": {

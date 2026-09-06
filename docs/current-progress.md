@@ -1,6 +1,29 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v156 工作树）
+最后更新：2026-09-07（v157 工作树）
+
+## v157 本轮已收口
+
+- QGC controller 新增 producer epoch 运行统计：当前 epoch、已接受重启数、retired epoch 拒绝数、切换
+  拒绝数和最近切换时间；`MultiDetectState.qml` 将其投影到“室外测距质量”的“观测生产者”行。
+- `MultiDetectObservationEpoch` 的 retired 集合改为固定 32 项且不淘汰。容量耗尽时返回
+  `CapacityExhausted`，不切换 active epoch；原生测试覆盖填满容量、第 33 次切换 fail-closed，以及最早
+  retired epoch 仍不能复活。该保护要求 QGC 重启后才能接受更多 session 切换。
+- focused Python 回归 133 项通过；operator protocol、target evidence store、replay RTSP wire 三项关键
+  native self-test 均退出 0。Windows Release/portable 主 EXE 均为 46,641,152 bytes，SHA-256
+  `65AF88C1B55E7F570FF9A9A3D401CF6BA55E8BE5652C715823A6E4F2B8163BD4`；功能提交为
+  `31bdd2c1e056d1403f286078d284b7e077cb7225`。
+- portable hidden/offscreen simple boot 退出 0；stderr 1,009 bytes、SHA-256
+  `A770D77ADC91A759DE326542EA102507BF5E8C341414DDB594DD42C866290150`，无 QML 初始化错误。
+- `release-parity.json` 为 8,815 bytes、SHA-256
+  `276F81F14184B1EE5817B61A9C57287CEFD1A7283698E6D2E9D0EE0E49D3A99C`；UI contract 更新为
+  `3C863718C78C4F8424F4636375F3926F2CB178A2523E0100036D59DC5B732CDE`，core/task/safety/PX4 identity 未变。
+- v157 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 与 E7 已按当前 parity
+  重算。只读现场探测仍从 `192.168.1.13/24` 路由，Jetson/GR01/RTSP 3/3 超时；E7 仍为
+  `gate_passed=false`、`release_allowed=false`、31 blockers。未修改网络、飞控、载荷或受保护服务。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 274.955 秒；JUnit
+  533,660 bytes、SHA-256 `A424EE8A398BC37F5E9EDE1A87CC75EAD303EBC14BD399E59780E2A66A3C6BBC`。
+  人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞均未通过。
 
 ## v156 本轮已收口
 
@@ -1687,6 +1710,11 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 | `px4-reported-position-response-matrix-v156-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `9A4AA992E64735E0401B5768D4E6759C24001AD8A017C77A66CCA85DB2518610` |
 | `px4-reported-position-response-campaign-v156-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `FE96FC6051570BEF85270D538A650CD9B61EBB2B72515CBE1563EAC7CFD5CAE9` |
 | `release-gate-pre.8-current-20260906T201700Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers；当前 v156 parity | `2E69421F6446D6064B692AD0580B43C5D9CF3BCEA3AF8944C918CB2CA1D0C543` |
+| `field-link-preflight-live-v157-current.json` | 结构复验通过；`hardware_link_ready=false` | 3/3 Jetson/GR01/RTSP 超时；路由源仍为 `192.168.1.13` | `49C25699A416A266C83362798049F9C8FEAF3D9A0C9BF57A8EE364D962DC053B` |
+| `simulator-external-runtime-ai-join-v157-current-parity-pre8.json` | `gate_passed=true` | 三机型历史外部 source 按 v157 parity 重算 | `E293377814A455F03841110D7F51349775CEFDFACFACF83FF30A0D5BA76EDC7B` |
+| `px4-reported-position-response-matrix-v157-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `0670435A201876DD75A0DCF51E3CF0C29E8BFD65091F929B614C6EA02E8F7CCE` |
+| `px4-reported-position-response-campaign-v157-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `334C7C4131740C8869F97459F43F6BC93FE2C8C03B636A092078A8ED584E84F2` |
+| `release-gate-pre.8-current-20260906T202947Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers；当前 v157 parity | `AB4E9ADEC704735281F6ACA7CDB99824AA586F0ABA98C77020984EBFC033E3E3` |
 
 正向 evidence 内部摘要为：
 

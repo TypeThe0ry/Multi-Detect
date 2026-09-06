@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v156：目标观测 producer epoch 与重启后原子重同步 |
+| 当前工程迭代 | v157：producer epoch 健康可视化与退休集合 fail-closed 上限 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,6 +82,17 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v157 producer epoch 健康可视化与容量门
+
+原生 QGC 的“室外测距质量”面板现在直接显示当前 producer epoch、已接受的生产者重启次数、
+retired 旧包拒绝次数、epoch 切换拒绝次数和最近切换时间。现场人员无需翻日志即可判断 Jetson/operator
+bridge 是否重启、旧进程数据是否仍在到达，以及接收端是否已经进入保护状态。
+
+`MultiDetectObservationEpoch` 的退休集合改为固定 32 项且绝不淘汰。第 33 次 session 切换会保持当前
+epoch 并 fail-closed，要求重启 QGC 后再建立新会话；这样有限内存不会以重新接受极晚旧包为代价。
+该改动仍只影响认证观测的显示、诊断与拒绝逻辑，不增加飞控或物理输出权限。v157 parity、外部 SIM
+派生证据、只读 field-link 与 E7 已重算；E7 仍为 `false / false / 31 blockers`。
+
 ### v156 producer epoch 与重启后原子重同步
 
 operator protocol 类型 `26` 现在在恰好 128-byte 的 MAVLink `TUNNEL` application payload 中携带
@@ -95,18 +106,6 @@ QML 的地图落点与保存门同时要求三个状态的 epoch、sequence 和 
 epoch-bound 新记录。该链仍为 advisory/display-only，不增加飞控、载荷或物理输出权限。external
 join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 与 E7 现已按 v156 parity 重算；
 结果仍是 `gate_passed=false`、`release_allowed=false`、31 blockers。
-
-### v155 单包原子目标观测
-
-Jetson operator bridge 现在把 range、target geolocation 与 `GNSS_STATUS` 编码为一个认证的
-operator protocol 类型 `26`。当时的紧凑载荷为 124 bytes，可完整装入单个 MAVLink `TUNNEL`；三个状态共享
-同一 envelope sequence、发送时刻和生产帧，任一对象缺失、错帧、身份不一致、坐标质量矛盾或发送失败都
-整包 fail-closed，不会让 QGC 看到半组状态。无目标时的独立 GNSS 诊断和仅测距兼容路径仍保留。
-
-QGC 仅在 HMAC、重放、sequence、来源时效和类型 26 内部不变量全部通过后，一次性采纳三个嵌套状态。
-新证据使用 `multidetect.target-evidence.v4`，要求三者 sequence/`sentAtMs` 相同且来自原子观测；
-v1/v2/v3 只读兼容，不能伪装成 v4。该链仍为 advisory-only，不增加飞控、
-载荷或物理输出权限，也不替代室外 GNSS、人工 Fly View、真实硬件、HIL/REAL 或实飞验收。
 
 ### v152 独立 GNSS 质量状态
 

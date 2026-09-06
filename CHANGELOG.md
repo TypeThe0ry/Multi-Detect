@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v157 producer-epoch health and fail-closed retirement capacity（2026-09-07）
+
+- QGC controller 暴露当前 producer epoch、生产者重启次数、retired 旧包拒绝次数、epoch 切换拒绝次数和
+  最近切换时间；“室外测距质量”面板新增“观测生产者”行，运行人员可直接识别 bridge 重启与旧包重放；
+- `MultiDetectObservationEpoch` 不再淘汰最旧 retired epoch。退休集合固定为 32 项，容量耗尽后拒绝新的
+  epoch、保持当前会话，并要求重启 QGC；原生回归覆盖填满容量、拒绝第 33 次切换以及最早 epoch 仍被拒绝；
+- Release/portable EXE 为 46,641,152 bytes，SHA-256
+  `65AF88C1B55E7F570FF9A9A3D401CF6BA55E8BE5652C715823A6E4F2B8163BD4`；三项关键 native self-test 与
+  portable simple boot 通过，后者 stderr 1,009 bytes、SHA-256
+  `A770D77ADC91A759DE326542EA102507BF5E8C341414DDB594DD42C866290150`，无 QML 初始化错误；
+- 当前 parity 的 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读
+  field-link 与 E7 已重算。E7 保持 `false / false / 31 blockers`；该软件诊断改进不替代人工视觉、室外
+  GNSS、真实硬件、HIL/REAL 或实飞验收；最终全量回归为 `3660 passed, 2 skipped, 0 failed`。
+
 ### v0.3.0-pre.8 v156 producer-epoch observation resynchronization（2026-09-07）
 
 - operator protocol 类型 `26` 新增必填非零 `producer_epoch`，application payload 从 124 bytes 扩展到

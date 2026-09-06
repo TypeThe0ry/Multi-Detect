@@ -12,6 +12,17 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v157 当前 portable 与 producer epoch 健康面板（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,641,152` bytes，SHA-256
+`65AF88C1B55E7F570FF9A9A3D401CF6BA55E8BE5652C715823A6E4F2B8163BD4`。“室外测距质量”面板新增
+当前 epoch、重启数、旧包拒绝数、切换拒绝数和最近切换时间。退休 epoch 集合固定为 32 项且不淘汰；
+第 33 次 session 切换 fail-closed 并保持当前 epoch，需重启 QGC 后再建立新会话。
+
+三项关键 native self-test 退出 0；hidden/offscreen simple boot 退出 0，stderr 1,009 bytes、SHA-256
+`A770D77ADC91A759DE326542EA102507BF5E8C341414DDB594DD42C866290150`，没有 QML 初始化错误。这仍是
+software/build 证据，不替代人工 Fly View、室外 GNSS、HIL/REAL、硬件或实飞验收。
+
 ### v156 当前 portable 与 producer epoch 重同步（2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,639,616` bytes，SHA-256

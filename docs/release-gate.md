@@ -1,5 +1,14 @@
 # v0.3.0 E7 发布门
 
+## v157 producer epoch 健康变更后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
+
+producer epoch 统计与退休容量 fail-closed 逻辑使 UI parity 更新。v157 已重新生成 external
+join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读 field-link 和 E7。当前报告为
+`release-gate-pre.8-current-20260906T202947Z-v6-bound-report.json`，SHA-256
+`AB4E9ADEC704735281F6ACA7CDB99824AA586F0ABA98C77020984EBFC033E3E3`，结果仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers。该状态面板不提升人工视觉、室外 GNSS、
+field link、HIL/REAL、真实硬件或实飞门。
+
 ## v156 producer epoch 变更后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
 
 type 26 新增 producer epoch 后，共享 UI/task parity 已变化。v155 派生文件继续保留为历史记录；v156 已重新

@@ -50,6 +50,11 @@ session and atomically clears its visible range/geolocation/GNSS values plus rep
 before the new triple is adopted. Packets from a retired epoch remain rejected, so delayed traffic from
 a restarted Jetson process cannot revive an old target. New snapshots use
 `multidetect.target-evidence.v5` and persist the epoch; v1-v4 records remain read-only compatible.
+The outdoor ranging-quality panel also shows the current epoch, accepted producer restart count,
+retired-packet rejection count, epoch-transition rejection count and the latest transition time. The
+retired set keeps at most 32 epochs without eviction; after that capacity is reached, a new epoch is
+rejected while the current session remains active until QGC is restarted. This bounded fail-closed rule
+prevents very late traffic from becoming eligible again merely because an older epoch was discarded.
 
 When Jetson reports a qualified target WGS84 coordinate, **Fly** projects the current matching target
 onto the main map as a red marker with a yellow horizontal `1σ` uncertainty circle. The accompanying

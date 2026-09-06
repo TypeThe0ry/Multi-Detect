@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v157 producer epoch 健康与退休容量链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+type 26 producer_epoch
+  -> MultiDetectObservationEpoch
+       Current / Advanced / Retired / CapacityExhausted
+       retired[32] 固定保存、绝不淘汰
+  -> MultiDetectOperatorController 统计与拒绝原因
+  -> MultiDetectState QML 投影
+  -> 室外测距质量：epoch / 重启 / 旧包拒绝 / 切换拒绝 / 时间
+```
+
+- `MultiDetectObservationEpoch.h` 在有限内存下保留全部已退休 epoch；容量耗尽后保持 active epoch 并拒绝
+  新会话，防止 FIFO 淘汰使极晚旧包重新变成“全新”生产者；
+- `MultiDetectOperatorController.*` 只在成功推进全新 epoch 后增加重启计数和更新时间；retired 包与容量
+  拒绝分别计数，QML 只读显示；
+- 这条链是 operator observation 诊断与 fail-closed 状态管理，不向 PX4 Mission、飞控或载荷路径新增权限。
+
 ## v156 producer epoch 原子重同步链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
