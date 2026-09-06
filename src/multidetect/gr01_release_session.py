@@ -2,10 +2,10 @@
 
 The producer runs the existing hardware bench and current release-gate wrapper.
 This module is the independent consumer: it reopens the source-bound execution
-plan, bench, manifest and evaluation report, reruns the canonical verifiers,
-and writes a success record only when the planned configuration is the one that
-reached the GR01 and E7 evidence.  The record does not upgrade the overall
-release gate or any physical-flight claim.
+plan, target-machine handoff, bench, manifest and evaluation report, reruns the
+canonical verifiers, and writes a success record only when the target-verified
+portable plan is the configuration that reached the GR01 and E7 evidence.  The
+record does not upgrade the overall release gate or any physical-flight claim.
 """
 
 from __future__ import annotations
@@ -24,14 +24,18 @@ from uuid import uuid4
 
 from .autonomy.serialization import strict_json_loads
 from .gr01_bench import verify_gr01_link_bench_report
+from .gr01_release_handoff import (
+    HANDOFF_SCHEMA,
+    HANDOFF_SCHEMA_VERSION,
+    verify_gr01_release_session_handoff,
+)
 from .gr01_release_plan import (
     PLAN_SCHEMA,
     PLAN_SCHEMA_VERSION,
-    verify_gr01_release_session_plan,
 )
 from .release_gate import evaluate_release_gate
 
-SESSION_SCHEMA_VERSION = 2
+SESSION_SCHEMA_VERSION = 3
 SESSION_EVENT = "multidetect_gr01_release_session_verified"
 
 
@@ -101,6 +105,7 @@ def _require_timestamp(value: object, *, name: str) -> str:
 
 def _validate_sources(
     release_plan: str | Path,
+    release_handoff: str | Path,
     bench_report: str | Path,
     release_manifest: str | Path,
     release_report: str | Path,
@@ -109,19 +114,44 @@ def _validate_sources(
     version_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     plan_path = _source(release_plan, name="GR01 release-session plan")
+    handoff_path = _source(release_handoff, name="GR01 release-session handoff")
     bench_path = _source(bench_report, name="GR01 bench report")
     manifest_path = _source(release_manifest, name="release manifest")
     report_path = _source(release_report, name="release evaluation report")
-    if len({plan_path, bench_path, manifest_path, report_path}) != 4:
+    if len({plan_path, handoff_path, bench_path, manifest_path, report_path}) != 5:
         raise Gr01ReleaseSessionError(
-            "plan, bench, manifest and evaluation report must be distinct files"
+            "plan, handoff, bench, manifest and evaluation report must be distinct files"
         )
 
     plan = _load_object(plan_path, name="GR01 release-session plan")
-    plan_verification = verify_gr01_release_session_plan(plan_path, require_ready=True)
-    if plan_verification.get("gate_passed") is not True:
-        detail = "; ".join(str(item) for item in plan_verification.get("reasons", []))
-        raise Gr01ReleaseSessionError(f"GR01 release-session plan verification failed: {detail}")
+    handoff = _load_object(handoff_path, name="GR01 release-session handoff")
+    handoff_verification = verify_gr01_release_session_handoff(
+        handoff_path,
+        check_environment=True,
+        require_ready=True,
+    )
+    if handoff_verification.get("gate_passed") is not True:
+        detail = "; ".join(str(item) for item in handoff_verification.get("reasons", []))
+        raise Gr01ReleaseSessionError(f"GR01 release-session handoff verification failed: {detail}")
+    handoff_plan = handoff.get("source_plan")
+    target_identity = handoff.get("target_identity")
+    target_paths = handoff.get("target_paths")
+    if not all(isinstance(item, Mapping) for item in (handoff_plan, target_identity, target_paths)):
+        raise Gr01ReleaseSessionError("GR01 release-session handoff identity is incomplete")
+    handoff_plan_path = _resolve_record_path(
+        handoff_plan.get("path"),
+        directory=handoff_path.parent,
+        name="handoff source_plan",
+    )
+    if handoff_plan_path != plan_path:
+        raise Gr01ReleaseSessionError("GR01 handoff is bound to a different release plan")
+    if (
+        handoff_plan.get("sha256") != _sha256(plan_path)
+        or handoff_plan.get("bytes") != plan_path.stat().st_size
+    ):
+        raise Gr01ReleaseSessionError("GR01 handoff release-plan identity does not match")
+    if handoff.get("source_equivalent") is not True or handoff.get("ready_to_execute") is not True:
+        raise Gr01ReleaseSessionError("GR01 release-session handoff is not ready")
 
     bench = _load_object(bench_path, name="GR01 bench report")
     bench_verification = verify_gr01_link_bench_report(bench, require_passed=True)
@@ -186,6 +216,16 @@ def _validate_sources(
         isinstance(item, Mapping) for item in (thresholds, repository_identity, parity_identity)
     ):
         raise Gr01ReleaseSessionError("GR01 release-session plan identity is incomplete")
+    target_parity = target_identity.get("release_parity")
+    if not isinstance(target_parity, Mapping):
+        raise Gr01ReleaseSessionError("GR01 handoff target parity identity is incomplete")
+    if (
+        handoff_plan.get("git_head") != repository_identity.get("git_head")
+        or target_identity.get("git_head") != repository_identity.get("git_head")
+        or target_parity.get("release_label") != parity_identity.get("release_label")
+        or target_parity.get("safety_policy_hash") != parity_identity.get("safety_policy_hash")
+    ):
+        raise Gr01ReleaseSessionError("GR01 handoff identity does not match the release plan")
     expected_configuration = {
         "host_address": bench.get("remote_host"),
         "port": bench.get("remote_port"),
@@ -227,6 +267,23 @@ def _validate_sources(
             "ready_to_execute": plan.get("ready_to_execute"),
             "configuration_matches_bench_and_e7": True,
         },
+        "release_handoff": {
+            "path": _relative(handoff_path, directory=record_directory),
+            "sha256": _sha256(handoff_path),
+            "bytes": handoff_path.stat().st_size,
+            "schema": HANDOFF_SCHEMA,
+            "schema_version": HANDOFF_SCHEMA_VERSION,
+            "host_id": handoff.get("host_id"),
+            "configuration_sha256": handoff_plan.get("configuration_sha256"),
+            "git_head": target_identity.get("git_head"),
+            "repository_root": target_paths.get("repository_root"),
+            "python": target_paths.get("python"),
+            "output_root": target_paths.get("output_root"),
+            "source_equivalent": True,
+            "ready_to_execute": True,
+            "environment_reverified": True,
+            "configuration_matches_plan_bench_and_e7": True,
+        },
         "bench_report": {
             "path": _relative(bench_path, directory=record_directory),
             "sha256": bench_sha,
@@ -257,6 +314,7 @@ def _validate_sources(
         },
         "claims": {
             "gr01_binding_verified": True,
+            "handoff_binding_verified": True,
             "overall_release_allowed": recomputed.get("release_allowed") is True,
             "hardware_flight_acceptance": "not_claimed",
             "physical_release_enabled": False,
@@ -270,6 +328,7 @@ def create_gr01_release_session_record(
     output: str | Path,
     *,
     release_plan: str | Path,
+    release_handoff: str | Path,
     bench_report: str | Path,
     release_manifest: str | Path,
     release_report: str | Path,
@@ -282,6 +341,7 @@ def create_gr01_release_session_record(
     destination.parent.mkdir(parents=True, exist_ok=True)
     sources = _validate_sources(
         release_plan,
+        release_handoff,
         bench_report,
         release_manifest,
         release_report,
@@ -331,6 +391,7 @@ def verify_gr01_release_session_record(
             "session_id",
             "created_at_utc",
             "release_plan",
+            "release_handoff",
             "bench_report",
             "release_manifest",
             "release_report",
@@ -360,6 +421,11 @@ def verify_gr01_release_session_record(
             directory=directory,
             name="release_plan",
         )
+        handoff = _resolve_record_path(
+            document.get("release_handoff", {}).get("path"),
+            directory=directory,
+            name="release_handoff",
+        )
         bench = _resolve_record_path(
             document.get("bench_report", {}).get("path"),
             directory=directory,
@@ -377,6 +443,7 @@ def verify_gr01_release_session_record(
         )
         recomputed = _validate_sources(
             plan,
+            handoff,
             bench,
             manifest,
             report,
@@ -385,6 +452,7 @@ def verify_gr01_release_session_record(
         )
         for field in (
             "release_plan",
+            "release_handoff",
             "bench_report",
             "release_manifest",
             "release_report",
@@ -409,6 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create", help="write a verified success record")
     create.add_argument("--plan", required=True, type=Path)
+    create.add_argument("--handoff", required=True, type=Path)
     create.add_argument("--bench", required=True, type=Path)
     create.add_argument("--manifest", required=True, type=Path)
     create.add_argument("--report", required=True, type=Path)
@@ -428,6 +497,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             document = create_gr01_release_session_record(
                 args.out,
                 release_plan=args.plan,
+                release_handoff=args.handoff,
                 bench_report=args.bench,
                 release_manifest=args.manifest,
                 release_report=args.report,

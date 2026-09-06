@@ -43,6 +43,7 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "[string]$HostAddress",
         "[string]$HardwareId",
         "[string]$ExpectedSourceCidr",
+        "[string]$TargetHostId",
         "[switch]$PlanOnly",
         "[string]$PlanOutput",
         "MULTIDETECT_OPERATOR_HMAC_KEY",
@@ -60,6 +61,7 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "InvariantCulture",
         "cannot override controlled parameter",
         "verify_gr01_release_session_plan.py",
+        "verify_gr01_release_session_handoff.py",
         "--check-environment",
         "--require-ready",
         "This record verifies the GR01 E7 binding only",
@@ -68,7 +70,9 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
 
     assert text.index("'gr01-link-bench.json'") < text.index("'gr01-release-session.json'")
     assert text.index("'gr01-release-session-plan.json'") < text.index("'gr01-link-bench.json'")
+    assert text.index("'gr01-release-session-handoff.json'") < text.index("'gr01-link-bench.json'")
     assert "'--plan', $planPath" in text
+    assert "'--handoff', $handoffPath" in text
     assert text.index("'create'") < text.index("'verify'")
     assert "MULTIDETECT_OPERATOR_HMAC_KEY=" not in text
     assert "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX=" not in text

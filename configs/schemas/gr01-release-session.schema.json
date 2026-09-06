@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session.schema.json",
-  "title": "Multi-Detect GR01 release session",
+  "title": "Multi-Detect GR01 release session v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,6 +10,7 @@
     "session_id",
     "created_at_utc",
     "release_plan",
+    "release_handoff",
     "bench_report",
     "release_manifest",
     "release_report",
@@ -18,7 +19,7 @@
     "reasons"
   ],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "event": {"const": "multidetect_gr01_release_session_verified"},
     "session_id": {"type": "string", "minLength": 1},
     "created_at_utc": {"type": "string", "format": "date-time"},
@@ -48,8 +49,46 @@
         "release_label": {"type": "string", "minLength": 1},
         "safety_policy_hash": {"$ref": "#/$defs/sha256"},
         "source_verified": {"const": true},
-        "ready_to_execute": {"const": true},
+        "ready_to_execute": {"type": "boolean"},
         "configuration_matches_bench_and_e7": {"const": true}
+      }
+    },
+    "release_handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "schema",
+        "schema_version",
+        "host_id",
+        "configuration_sha256",
+        "git_head",
+        "repository_root",
+        "python",
+        "output_root",
+        "source_equivalent",
+        "ready_to_execute",
+        "environment_reverified",
+        "configuration_matches_plan_bench_and_e7"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "multidetect.gr01-release-session-handoff/v1"},
+        "schema_version": {"const": 1},
+        "host_id": {"type": "string", "minLength": 1},
+        "configuration_sha256": {"$ref": "#/$defs/sha256"},
+        "git_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "repository_root": {"type": "string", "minLength": 1},
+        "python": {"type": "string", "minLength": 1},
+        "output_root": {"type": "string", "minLength": 1},
+        "source_equivalent": {"const": true},
+        "ready_to_execute": {"const": true},
+        "environment_reverified": {"const": true},
+        "configuration_matches_plan_bench_and_e7": {"const": true}
       }
     },
     "bench_report": {
@@ -112,6 +151,7 @@
       "additionalProperties": false,
       "required": [
         "gr01_binding_verified",
+        "handoff_binding_verified",
         "overall_release_allowed",
         "hardware_flight_acceptance",
         "physical_release_enabled",
@@ -120,6 +160,7 @@
       ],
       "properties": {
         "gr01_binding_verified": {"const": true},
+        "handoff_binding_verified": {"const": true},
         "overall_release_allowed": {"type": "boolean"},
         "hardware_flight_acceptance": {"const": "not_claimed"},
         "physical_release_enabled": {"const": false},

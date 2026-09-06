@@ -8,6 +8,7 @@ param(
     [string]$HardwareId,
     [Parameter(Mandatory = $true)]
     [string]$ExpectedSourceCidr,
+    [string]$TargetHostId = [Environment]::MachineName,
     [string]$OperatorHmacKeyEnvironment = 'MULTIDETECT_OPERATOR_HMAC_KEY',
     [string]$MavlinkSigningKeyEnvironment = 'MULTIDETECT_MAVLINK_SIGNING_KEY_HEX',
     [ValidateRange(1, 10000)]
@@ -134,6 +135,9 @@ foreach ($secret in @(
 if ([string]::IsNullOrWhiteSpace($HardwareId)) {
     throw 'HardwareId must not be empty.'
 }
+if ([string]::IsNullOrWhiteSpace($TargetHostId) -or $TargetHostId -match '[\x00-\x1f]') {
+    throw 'TargetHostId must be a non-empty printable string.'
+}
 if ([string]::IsNullOrWhiteSpace($Stamp)) {
     $Stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture)
 }
@@ -215,6 +219,21 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
     $planTool, 'verify', $planPath, '--check-environment', '--require-ready'
 ) -Label 'GR01 release-session execution preflight verification'
 
+$handoffPath = Join-Path $sessionRoot 'gr01-release-session-handoff.json'
+$handoffTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_handoff.py'
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $handoffTool, 'create',
+    '--source-plan', $planPath,
+    '--repository-root', $root,
+    '--python', $pythonPath,
+    '--output-root', $outputRoot,
+    '--host-id', $TargetHostId,
+    '--out', $handoffPath
+) -Label 'GR01 release-session target handoff creation'
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $handoffTool, 'verify', $handoffPath, '--check-environment', '--require-ready'
+) -Label 'GR01 release-session target handoff verification'
+
 $benchPath = Join-Path $sessionRoot 'gr01-link-bench.json'
 $benchArguments = @(
     $multiDetectCli, 'gr01-link-bench',
@@ -274,6 +293,7 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
     $recordTool,
     'create',
     '--plan', $planPath,
+    '--handoff', $handoffPath,
     '--bench', $benchPath,
     '--manifest', $manifestFiles[0].FullName,
     '--report', $reportFiles[0].FullName,
