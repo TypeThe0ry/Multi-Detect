@@ -4,6 +4,7 @@ param(
     [string]$RemoteUser = "jetson",
     [ValidateRange(1, 65535)]
     [int]$SshPort = 22,
+    [string]$KnownHostsFile = (Join-Path $env:USERPROFILE ".ssh/known_hosts"),
     [string]$RemoteToolsRoot = "/home/jetson/Multi-Detect-evidence-tools",
     [string]$RuntimePython = "/home/jetson/Multi-Detect/.venv/bin/python",
     [string]$DeploymentId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"),
@@ -44,11 +45,13 @@ $archivePath = Join-Path $outputRoot $archiveName
 $receiptPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.package.json"
 $installReceiptPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.install.json"
 $remoteOutputPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.remote-output.txt"
+$hostKeySnapshotPath = Join-Path $outputRoot "multidetect-evidence-tools-$DeploymentId.ssh-host-keys"
 if ((Test-Path -LiteralPath $archivePath) -or (Test-Path -LiteralPath $receiptPath)) {
     throw "Deployment package output already exists for DeploymentId '$DeploymentId'."
 }
 if ((Test-Path -LiteralPath $installReceiptPath) -or
-    (Test-Path -LiteralPath $remoteOutputPath)) {
+    (Test-Path -LiteralPath $remoteOutputPath) -or
+    (-not $PackageOnly -and (Test-Path -LiteralPath $hostKeySnapshotPath))) {
     throw "Deployment installation output already exists for DeploymentId '$DeploymentId'."
 }
 
@@ -210,8 +213,81 @@ try {
 
     $ssh = Get-Command ssh.exe -ErrorAction Stop
     $scp = Get-Command scp.exe -ErrorAction Stop
+    $sshKeygen = Get-Command ssh-keygen.exe -ErrorAction Stop
+    $resolvedKnownHosts = (Resolve-Path -LiteralPath $KnownHostsFile -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $resolvedKnownHosts -PathType Leaf)) {
+        throw "KnownHostsFile must be an existing regular file."
+    }
+    $sshConfig = @(
+        & $ssh.Source -G -l $RemoteUser -p $SshPort $HostAlias 2>&1 |
+            ForEach-Object { $_.ToString() }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Resolving the SSH destination failed: $LASTEXITCODE"
+    }
+    $resolvedHostLines = @($sshConfig | Where-Object { $_ -match '^hostname\s+(.+)$' })
+    $resolvedUserLines = @($sshConfig | Where-Object { $_ -match '^user\s+(.+)$' })
+    $resolvedPortLines = @($sshConfig | Where-Object { $_ -match '^port\s+([0-9]+)$' })
+    if ($resolvedHostLines.Count -ne 1 -or
+        $resolvedUserLines.Count -ne 1 -or
+        $resolvedPortLines.Count -ne 1) {
+        throw "The resolved SSH destination is incomplete or ambiguous."
+    }
+    $resolvedHost = ($resolvedHostLines[0] -replace '^hostname\s+', '').Trim()
+    $resolvedUser = ($resolvedUserLines[0] -replace '^user\s+', '').Trim()
+    $resolvedPort = [int](($resolvedPortLines[0] -replace '^port\s+', '').Trim())
+    if ($resolvedHost -notmatch '^[A-Za-z0-9._:-]+$' -or
+        $resolvedUser -ne $RemoteUser -or
+        $resolvedPort -ne $SshPort) {
+        throw "The resolved SSH destination differs from the requested identity."
+    }
+    $knownHostLookup = if ($resolvedPort -eq 22) {
+        $resolvedHost
+    } else {
+        "[$resolvedHost]:$resolvedPort"
+    }
+    $knownHostSearch = @(
+        & $sshKeygen.Source -F $knownHostLookup -f $resolvedKnownHosts 2>$null |
+            ForEach-Object { $_.ToString() }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "No trusted host key exists for '$knownHostLookup' in KnownHostsFile."
+    }
+    $knownHostEntries = @(
+        $knownHostSearch |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and -not $_.StartsWith('#') }
+    )
+    if ($knownHostEntries.Count -eq 0) {
+        throw "No usable trusted host key exists for '$knownHostLookup'."
+    }
+    [System.IO.File]::WriteAllText(
+        $hostKeySnapshotPath,
+        (($knownHostEntries -join "`n") + "`n"),
+        [System.Text.Encoding]::ASCII
+    )
+    $hostKeySnapshotHash = (
+        Get-FileHash -LiteralPath $hostKeySnapshotPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    $fingerprintOutput = @(
+        & $sshKeygen.Source -lf $hostKeySnapshotPath -E sha256 2>&1 |
+            ForEach-Object { $_.ToString() }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Computing the pinned SSH host-key fingerprints failed."
+    }
+    $hostKeyFingerprints = @(
+        $fingerprintOutput |
+            ForEach-Object {
+                if ($_ -match 'SHA256:[A-Za-z0-9+/]{43}') { $Matches[0] }
+            } |
+            Sort-Object -Unique
+    )
+    if ($hostKeyFingerprints.Count -eq 0) {
+        throw "The pinned SSH host-key snapshot has no SHA-256 fingerprint."
+    }
     $sshDestination = "$RemoteUser@$HostAlias"
     & $scp.Source -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no `
+        -o "UserKnownHostsFile=$hostKeySnapshotPath" -o GlobalKnownHostsFile=NUL `
         -o ConnectTimeout=15 -o ConnectionAttempts=1 -P $SshPort `
         $archivePath "${sshDestination}:/tmp/$archiveName"
     if ($LASTEXITCODE -ne 0) {
@@ -251,6 +327,7 @@ printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/sc
 "@
     $remoteOutput = @(
         & $ssh.Source -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no `
+            -o "UserKnownHostsFile=$hostKeySnapshotPath" -o GlobalKnownHostsFile=NUL `
             -o ConnectTimeout=20 -o ConnectionAttempts=1 -p $SshPort `
             $sshDestination $remoteScript 2>&1 |
             ForEach-Object { $_.ToString() }
@@ -288,13 +365,20 @@ printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/sc
     $remoteOutputItem = Get-Item -LiteralPath $remoteOutputPath
     $packageReceiptItem = Get-Item -LiteralPath $receiptPath
     $installReceipt = [ordered]@{
-        schema_version = 2
+        schema_version = 3
         event = "jetson_evidence_tools_installed"
         installed_at_utc = (Get-Date).ToUniversalTime().ToString("o")
         deployment_id = $DeploymentId
         host_alias = $HostAlias
         remote_user = $RemoteUser
         ssh_port = $SshPort
+        resolved_host = $resolvedHost
+        ssh_host_keys = [ordered]@{
+            file_name = (Get-Item -LiteralPath $hostKeySnapshotPath).Name
+            file_bytes = (Get-Item -LiteralPath $hostKeySnapshotPath).Length
+            file_sha256 = $hostKeySnapshotHash
+        }
+        ssh_host_key_fingerprints = $hostKeyFingerprints
         remote_target = $expectedTarget
         runtime_python = $RuntimePython
         source_git_head = $sourceHead
@@ -334,7 +418,15 @@ printf 'JETSON_EVIDENCE_RUN=MULTIDETECT_ROOT=%s MULTIDETECT_PYTHON=%s bash %s/sc
         (($installReceipt | ConvertTo-Json -Depth 8) + "`n"),
         [System.Text.UTF8Encoding]::new($false)
     )
+    $hostKeySnapshotHashAfter = (
+        Get-FileHash -LiteralPath $hostKeySnapshotPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($hostKeySnapshotHashAfter -ne $hostKeySnapshotHash) {
+        Remove-Item -LiteralPath $installReceiptPath -Force
+        throw "The pinned SSH host-key snapshot changed during deployment."
+    }
     Write-Output "JETSON_EVIDENCE_PACKAGE_RECEIPT=$receiptPath"
+    Write-Output "JETSON_EVIDENCE_SSH_HOST_KEYS=$hostKeySnapshotPath"
     Write-Output "JETSON_EVIDENCE_INSTALL_RECEIPT=$installReceiptPath"
 } finally {
     $tempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())

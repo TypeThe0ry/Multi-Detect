@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
+import hmac
 import json
 import re
 import tarfile
@@ -17,6 +20,7 @@ from .autonomy.serialization import (
     require_int,
     require_schema_version,
     require_sha256,
+    require_string_array,
     require_text,
     strict_json_loads,
     strict_object,
@@ -26,6 +30,12 @@ from .jetson_evidence_package import verify_jetson_evidence_package
 _DEPLOYMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _GIT_HEAD = re.compile(r"^[0-9a-f]{40}$")
 _REMOTE_USER = re.compile(r"^[A-Za-z_][A-Za-z0-9._-]{0,31}$")
+_HOST_KEY_FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+_HOST_KEY_TYPE = re.compile(
+    r"^(?:(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521))"
+    r"(?:-cert-v01@openssh\.com)?|(?:sk-ssh-ed25519|sk-ecdsa-sha2-nistp256)"
+    r"(?:-cert-v01)?@openssh\.com)$"
+)
 
 
 def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
@@ -43,6 +53,9 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
             "host_alias",
             "remote_user",
             "ssh_port",
+            "resolved_host",
+            "ssh_host_keys",
+            "ssh_host_key_fingerprints",
             "remote_target",
             "runtime_python",
             "source_git_head",
@@ -58,7 +71,7 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
         }
     )
     document = strict_object(raw, name="JetsonEvidenceToolsInstallation", required=required)
-    require_schema_version(document["schema_version"], expected=2)
+    require_schema_version(document["schema_version"], expected=3)
     if document["event"] != "jetson_evidence_tools_installed":
         raise AutonomyContractError("Jetson evidence install receipt event is invalid")
     _require_timestamp(document["installed_at_utc"])
@@ -72,6 +85,23 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
     if _REMOTE_USER.fullmatch(remote_user) is None:
         raise AutonomyContractError("Jetson evidence install remote user is invalid")
     ssh_port = require_int(document["ssh_port"], "ssh_port", minimum=1, maximum=65535)
+    resolved_host = require_text(document["resolved_host"], "resolved_host")
+    if re.fullmatch(r"[A-Za-z0-9._:-]+", resolved_host) is None:
+        raise AutonomyContractError("Jetson evidence install resolved host is invalid")
+    host_key_ref = _artifact_reference(document["ssh_host_keys"], "ssh_host_keys")
+    host_key_path = _regular_file(
+        receipt_path.parent / host_key_ref["file_name"], "bound SSH host-key snapshot"
+    )
+    _verify_bound_file(host_key_path, host_key_ref, "SSH host-key snapshot")
+    known_host_lookup = resolved_host if ssh_port == 22 else f"[{resolved_host}]:{ssh_port}"
+    computed_fingerprints = _verify_host_key_snapshot(host_key_path, known_host_lookup)
+    claimed_fingerprints = require_string_array(
+        document["ssh_host_key_fingerprints"], "ssh_host_key_fingerprints"
+    )
+    if any(_HOST_KEY_FINGERPRINT.fullmatch(value) is None for value in claimed_fingerprints):
+        raise AutonomyContractError("SSH host-key fingerprint format is invalid")
+    if tuple(claimed_fingerprints) != computed_fingerprints:
+        raise AutonomyContractError("SSH host-key fingerprints differ from the bound snapshot")
     remote_target = _require_posix_absolute(document["remote_target"], "remote_target")
     runtime_python = _require_posix_absolute(document["runtime_python"], "runtime_python")
     source_head = require_text(document["source_git_head"], "source_git_head")
@@ -158,6 +188,9 @@ def verify_jetson_evidence_installation(receipt: str | Path) -> dict[str, Any]:
         "host_alias": host_alias,
         "remote_user": remote_user,
         "ssh_port": ssh_port,
+        "resolved_host": resolved_host,
+        "ssh_host_keys_sha256": host_key_ref["file_sha256"],
+        "ssh_host_key_fingerprints": list(computed_fingerprints),
         "remote_target": remote_target,
         "source_git_head": source_head,
         "package_receipt_sha256": package_ref["file_sha256"],
@@ -229,6 +262,60 @@ def _sha256_file(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _verify_host_key_snapshot(path: Path, lookup: str) -> tuple[str, ...]:
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except UnicodeDecodeError as exc:
+        raise AutonomyContractError("SSH host-key snapshot must be ASCII") from exc
+    if not lines:
+        raise AutonomyContractError("SSH host-key snapshot must not be empty")
+    fingerprints: set[str] = set()
+    for index, line in enumerate(lines, start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            raise AutonomyContractError("SSH host-key snapshot must contain only key entries")
+        fields = line.split()
+        offset = 0
+        if fields and fields[0].startswith("@"):
+            if fields[0] == "@revoked":
+                raise AutonomyContractError("SSH host-key snapshot contains a revoked key")
+            if fields[0] != "@cert-authority":
+                raise AutonomyContractError("SSH host-key snapshot contains an unsupported marker")
+            offset = 1
+        if len(fields) < offset + 3:
+            raise AutonomyContractError(f"SSH host-key entry {index} is incomplete")
+        hosts, key_type, encoded_key = fields[offset : offset + 3]
+        if not any(_known_host_token_matches(token, lookup) for token in hosts.split(",")):
+            raise AutonomyContractError(f"SSH host-key entry {index} does not match resolved host")
+        if _HOST_KEY_TYPE.fullmatch(key_type) is None:
+            raise AutonomyContractError(f"SSH host-key entry {index} has an unsupported key type")
+        try:
+            key_bytes = base64.b64decode(encoded_key, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise AutonomyContractError(
+                f"SSH host-key entry {index} has invalid base64 key data"
+            ) from exc
+        if not key_bytes or len(key_bytes) > 16384:
+            raise AutonomyContractError(f"SSH host-key entry {index} has invalid key data")
+        digest = base64.b64encode(hashlib.sha256(key_bytes).digest()).decode("ascii").rstrip("=")
+        fingerprints.add(f"SHA256:{digest}")
+    return tuple(sorted(fingerprints))
+
+
+def _known_host_token_matches(token: str, lookup: str) -> bool:
+    if token.startswith("|1|"):
+        parts = token.split("|")
+        if len(parts) != 4 or parts[1] != "1":
+            return False
+        try:
+            salt = base64.b64decode(parts[2], validate=True)
+            claimed = base64.b64decode(parts[3], validate=True)
+        except (binascii.Error, ValueError):
+            return False
+        computed = hmac.new(salt, lookup.encode("utf-8"), hashlib.sha1).digest()
+        return hmac.compare_digest(claimed, computed)
+    return token.casefold() == lookup.casefold()
 
 
 def main(argv: list[str] | None = None) -> int:

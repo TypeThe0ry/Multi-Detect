@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import subprocess
 import sys
@@ -49,14 +51,30 @@ def _installation(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         "MULTIDETECT_PYTHON=/venv/python bash /installed/record.sh\n",
         encoding="utf-8",
     )
+    host_key_bytes = b"multidetect-v129-test-host-key"
+    encoded_host_key = base64.b64encode(host_key_bytes).decode("ascii")
+    host_key_snapshot = tmp_path / "tools.ssh-host-keys"
+    host_key_snapshot.write_text(
+        f"multidetect-jetson ssh-ed25519 {encoded_host_key}\n", encoding="ascii"
+    )
+    host_key_fingerprint = "SHA256:" + base64.b64encode(
+        hashlib.sha256(host_key_bytes).digest()
+    ).decode("ascii").rstrip("=")
     document: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "event": "jetson_evidence_tools_installed",
         "installed_at_utc": "2026-09-06T09:00:00Z",
         "deployment_id": DEPLOYMENT_ID,
         "host_alias": "multidetect-jetson",
         "remote_user": "jetson",
         "ssh_port": 22,
+        "resolved_host": "multidetect-jetson",
+        "ssh_host_keys": {
+            "file_name": host_key_snapshot.name,
+            "file_bytes": host_key_snapshot.stat().st_size,
+            "file_sha256": _sha256(host_key_snapshot),
+        },
+        "ssh_host_key_fingerprints": [host_key_fingerprint],
         "remote_target": REMOTE_TARGET,
         "runtime_python": RUNTIME_PYTHON,
         "source_git_head": SOURCE_HEAD,
@@ -146,6 +164,83 @@ def test_install_verifier_rejects_bound_remote_output_tampering(
     )
     with pytest.raises(ValueError, match="byte count changed|SHA-256 changed"):
         verify_jetson_evidence_installation(receipt)
+
+
+@pytest.mark.parametrize(
+    "failure", ["tamper", "wrong_host", "wrong_fingerprint", "duplicate_fingerprint", "revoked"]
+)
+def test_install_verifier_rejects_invalid_host_key_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    receipt, document = _installation(tmp_path)
+    host_key_path = tmp_path / "tools.ssh-host-keys"
+    if failure == "tamper":
+        host_key_path.write_text("changed\n", encoding="ascii")
+    elif failure == "wrong_host":
+        host_key_path.write_text(
+            host_key_path.read_text(encoding="ascii").replace(
+                "multidetect-jetson", "different-host"
+            ),
+            encoding="ascii",
+        )
+    elif failure == "wrong_fingerprint":
+        document["ssh_host_key_fingerprints"] = ["SHA256:" + "A" * 43]
+    elif failure == "duplicate_fingerprint":
+        fingerprints = document["ssh_host_key_fingerprints"]
+        assert isinstance(fingerprints, list)
+        document["ssh_host_key_fingerprints"] = fingerprints * 2
+    else:
+        host_key_path.write_text(
+            "@revoked " + host_key_path.read_text(encoding="ascii"), encoding="ascii"
+        )
+    if failure in {"wrong_host", "revoked"}:
+        host_key_ref = document["ssh_host_keys"]
+        assert isinstance(host_key_ref, dict)
+        host_key_ref["file_bytes"] = host_key_path.stat().st_size
+        host_key_ref["file_sha256"] = _sha256(host_key_path)
+    _rewrite(receipt, document)
+    monkeypatch.setattr(
+        install_module, "verify_jetson_evidence_package", lambda _: _package_result()
+    )
+    patterns = {
+        "tamper": "byte count changed|SHA-256 changed",
+        "wrong_host": "does not match resolved host",
+        "wrong_fingerprint": "fingerprints differ",
+        "duplicate_fingerprint": "fingerprints differ",
+        "revoked": "revoked key",
+    }
+    with pytest.raises(ValueError, match=patterns[failure]):
+        verify_jetson_evidence_installation(receipt)
+
+
+def test_install_verifier_accepts_hashed_known_host_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    receipt, document = _installation(tmp_path)
+    host_key_path = tmp_path / "tools.ssh-host-keys"
+    fields = host_key_path.read_text(encoding="ascii").split()
+    salt = b"multidetect-v129-known-host-salt"
+    digest = hmac.new(salt, b"multidetect-jetson", hashlib.sha1).digest()
+    hashed_host = "|1|{}|{}".format(
+        base64.b64encode(salt).decode("ascii"),
+        base64.b64encode(digest).decode("ascii"),
+    )
+    host_key_path.write_text(
+        f"{hashed_host} {fields[1]} {fields[2]}\n", encoding="ascii"
+    )
+    host_key_ref = document["ssh_host_keys"]
+    assert isinstance(host_key_ref, dict)
+    host_key_ref["file_bytes"] = host_key_path.stat().st_size
+    host_key_ref["file_sha256"] = _sha256(host_key_path)
+    _rewrite(receipt, document)
+    monkeypatch.setattr(
+        install_module, "verify_jetson_evidence_package", lambda _: _package_result()
+    )
+
+    result = verify_jetson_evidence_installation(receipt)
+
+    assert result["remote_install_verified"] is True
+    assert result["ssh_host_keys_sha256"] == _sha256(host_key_path)
 
 
 @pytest.mark.parametrize("failure", ["duplicate_ready", "missing_run", "failed_check"])
