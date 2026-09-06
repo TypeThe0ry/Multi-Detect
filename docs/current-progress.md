@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v115 工作树）
+最后更新：2026-09-06（v116 工作树）
+
+## v116 本轮已收口
+
+- 标注安装入口和 clean-checkout wrapper 新增 `annotate`、`review` 命令：frame ID 精确寻址，positive
+  接受一个或多个 `LABEL:X1:Y1:X2:Y2`，negative 明确无目标，全部修改均做 intake/assignment 复验、
+  annotator 锁定、并发内容检查和同目录原子替换；
+- inspect 新增下一未标帧的 stratum/frame/image 身份；campaign 的 `next_argv` 直接指向该帧，全部标完后
+  切换成 review 命令，不再要求人工裸改 reviewer 字段；
+- workspace schema v2 新增 `review_content_hash`，绑定 assignment、全帧 annotation、annotator、reviewer
+  和 UTC timestamp；复核后实际改标会撤销 review，文件外篡改或 reviewer 换人会被 fresh inspect 拒绝；
+- v1 reviewed workspace 继续保持历史可读/finalize；新 campaign 强制 v2 + review binding，拒绝把 v2 降级成
+  无内容绑定的 v1 后继续自动流水线；
+- 全量回归 3,518 tests：`3517 passed, 1 skipped, 0 failed, 0 errors`，耗时 235.59 秒；JUnit
+  513,092 bytes、SHA-256 `D8ECBFD450D0B168F22533CA57D72BF562675117B091318D1E34EADA2948B7DC`；
+  全仓 Ruff 通过。共享 parity、QGC C++/QML、portable EXE 和当前 E7 32 blockers 均未改变。
 
 ## v115 本轮已收口
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T04:25:05Z",
+  "updated_at_utc": "2026-09-06T04:45:39Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "5900ab820768fb7c32c79af9c8bca874e4e95db3",
-    "commit_subject": "feat(replay): orchestrate field evidence campaign",
-    "commits_ahead_of_origin_main": 118
+    "commit": "ad9057162debf185375800a3dedd968f310e6608",
+    "commit_subject": "feat(replay): bind human annotation review",
+    "commits_ahead_of_origin_main": 120
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v115",
+  "working_iteration": "v116",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v115-final.xml",
-      "tests": 3515,
-      "passed": 3514,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v116-final.xml",
+      "tests": 3518,
+      "passed": 3517,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 208.81,
-      "junit_local_path": "tmp/current-progress-regression-v115-final.xml",
-      "junit_file_bytes": 512680,
-      "junit_file_sha256": "7484ecd43da22a8b2e903df539efddeeafdaecaeb65673658dc568ba227e0d50",
+      "duration_seconds": 235.59,
+      "junit_local_path": "tmp/current-progress-regression-v116-final.xml",
+      "junit_file_bytes": 513092,
+      "junit_file_sha256": "d8ecbfd450d0b168f22533ca57d72bf562675117b091318d1e34eada2948b7dc",
       "distributed_in_git": false
     },
     "ruff": {
@@ -747,9 +747,14 @@
       "repository_wrapper": "scripts/replay_annotation_workspace.py",
       "workspace_schema": "configs/schemas/replay-annotation-workspace.schema.json",
       "review_receipt_schema": "configs/schemas/replay-annotation-review-receipt.schema.json",
-      "commands": ["create", "inspect", "finalize", "verify"],
+      "commands": ["create", "inspect", "annotate", "review", "finalize", "verify"],
+      "workspace_schema_version": 2,
       "unannotated_is_not_negative": true,
       "annotator_reviewer_distinct_required": true,
+      "review_content_hash_bound": true,
+      "post_review_change_invalidates_review": true,
+      "legacy_v1_read_compatible": true,
+      "campaign_requires_v2_binding": true,
       "atomic_truth_export": true,
       "assignment_recomputed_from_intake": true,
       "predictions_complete": false,

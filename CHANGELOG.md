@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v116 annotation review-content binding（2026-09-06）
+
+- `multidetect-replay-annotations` 新增 `annotate`/`review`：按 frame ID 原子写入 positive/negative、
+  多 bbox、annotator 与 UTC reviewer，状态直接给出下一未标帧；复核后改标会自动撤销旧 review；
+- annotation workspace 升级 schema v2，`review_content_hash` 绑定 assignment、全部 disposition/bbox、
+  annotator、reviewer 和时间；review 后直接篡改 JSON 会 fail-closed，reviewer 也不能静默换人；
+- legacy v1 仍可读取/finalize，但 v115+ campaign 必须使用 v2 且 hash-bound 才会继续。全量 3,518 tests：
+  `3517 passed, 1 skipped`；共享 parity、E7 32 blockers 与 QGC EXE 未变。
+
 ### v0.3.0-pre.8 v115 resumable field replay campaign（2026-09-06）
 
 - 新增 `multidetect-field-replay-campaign`、仓库 wrapper 与 closed plan schema，把六分层 field intake、

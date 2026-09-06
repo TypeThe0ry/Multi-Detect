@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 人工标注 review-content 绑定（v116）
+
+- [x] 逐帧 positive/negative、多目标 bbox 和 annotator CLI；
+- [x] 独立 reviewer/UTC review CLI 与下一未标帧提示；
+- [x] workspace schema v2 将 review 绑定到全部标注内容；
+- [x] 改标撤销 review，外部篡改、并发改写、换 reviewer 均 fail-closed；
+- [x] legacy v1 可读，campaign 禁止 v2→v1 降级绕过；
+- [x] installed/wrapper CLI、schema、campaign、原子写入和端到端回归；
+- [ ] 在真实六分层 campaign 由两名独立人员实际执行 annotate/review。
+
 ## 现场六分层回放 campaign（v115）
 
 - [x] 不可变计划绑定六层来源、固定模型、阈值和 canonical hash；

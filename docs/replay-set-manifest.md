@@ -72,19 +72,49 @@ python scripts/replay_annotation_workspace.py inspect `
   artifacts\replay-sets\fire-smoke-field-v1.annotations.json
 ```
 
-标注文件里每帧初始为 `{"status":"unannotated","objects":null}`。标注者必须逐帧改成：
+标注文件里每帧初始为 `{"status":"unannotated","objects":null}`。使用 CLI 明确写入正例：
+
+```powershell
+python scripts/replay_annotation_workspace.py annotate `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  day-frame-0001 --annotator annotator-a `
+  --object flame:0.1:0.2:0.4:0.6
+```
+
+多个目标可重复 `--object`。经过明确检查的负例使用：
+
+```powershell
+python scripts/replay_annotation_workspace.py annotate `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  no-fire-frame-0001 --annotator annotator-a --negative
+```
+
+底层保存格式分别是：
 
 ```json
 {"status":"positive","objects":[{"label":"flame","bbox":[0.1,0.2,0.4,0.6]}]}
 ```
 
-或者经过明确检查后的负例：
+负例：
 
 ```json
 {"status":"negative","objects":[]}
 ```
 
-完成后填写不同的 `annotator`、`reviewer` 以及 UTC `reviewed_at_utc`，再原子导出：
+全部完成后由另一人执行 review，再原子导出：
+
+```powershell
+python scripts/replay_annotation_workspace.py review `
+  artifacts\replay-sets\fire-smoke-field-v1 `
+  artifacts\replay-sets\fire-smoke-field-v1.annotations.json `
+  --reviewer annotation-reviewer-b
+```
+
+CLI 自动记录 UTC 时间。workspace schema v2 的 `review_content_hash` 会把 assignment、全部 disposition/bbox、
+annotator、reviewer 和时间绑定；复核后改标会清除旧 review，直接改文件或换 reviewer 会在 inspect/finalize
+时失败。旧 schema v1 reviewed workspace 只保留历史兼容，新 campaign 不接受其作为新的审核证据。
 
 ```powershell
 python scripts/replay_annotation_workspace.py finalize `
@@ -327,8 +357,9 @@ python scripts/run_field_replay_campaign.py create artifacts\field-campaigns\fir
 python scripts/run_field_replay_campaign.py advance artifacts\field-campaigns\fire-smoke-v1
 ```
 
-首次 `advance` 自动完成 intake 和标注工作区创建，然后停在 `annotation_required`。人工编辑
-`annotations.json`，填写所有帧的 positive/negative、annotator、独立 annotation reviewer 和 UTC 时间后：
+首次 `advance` 自动完成 intake 和标注工作区创建，然后停在 `annotation_required`。按照其
+`next_argv` 逐帧执行下文的 `annotate`，全部完成后用独立身份执行 `review`；状态返回
+`review_content_bound=true` 后再继续：
 
 ```powershell
 python scripts/run_field_replay_campaign.py advance artifacts\field-campaigns\fire-smoke-v1 `
