@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/replay-prediction-run-receipt.schema.json",
+  "title": "Replay Prediction Run Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "generated_at_utc",
+    "annotation_source",
+    "model",
+    "inference",
+    "runtime",
+    "prediction_artifacts",
+    "latency",
+    "replay_manifest_sha256",
+    "replay_manifest_canonical_hash",
+    "claims",
+    "canonical_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "const": "replay_predictions_materialized" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "annotation_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_receipt_canonical_hash",
+        "manifest_path",
+        "manifest_sha256",
+        "manifest_canonical_hash"
+      ],
+      "properties": {
+        "review_receipt_canonical_hash": { "$ref": "#/$defs/sha256" },
+        "manifest_path": { "const": "annotation-source.replay-set.manifest.json" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_canonical_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_bytes",
+        "manifest_path",
+        "manifest_sha256",
+        "model_id",
+        "model_version",
+        "status",
+        "production_approved",
+        "synthetic_hil_only",
+        "model_role",
+        "intended_use",
+        "class_names",
+        "output_coordinates",
+        "output_format",
+        "native_output_format"
+      ],
+      "properties": {
+        "artifact_path": { "$ref": "#/$defs/relativePath" },
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "artifact_bytes": { "type": "integer", "minimum": 1 },
+        "manifest_path": { "const": "model/manifest.json" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "model_id": { "$ref": "#/$defs/nonEmptyString" },
+        "model_version": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "$ref": "#/$defs/nonEmptyString" },
+        "production_approved": { "type": "boolean" },
+        "synthetic_hil_only": { "type": "boolean" },
+        "model_role": { "$ref": "#/$defs/nonEmptyString" },
+        "intended_use": { "$ref": "#/$defs/nonEmptyString" },
+        "class_names": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "output_coordinates": {
+          "enum": ["letterbox_xyxy_px", "normalized_xyxy"]
+        },
+        "output_format": { "const": "N_x_6" },
+        "native_output_format": {
+          "enum": ["post_nms_N_x_6", "ultralytics_raw_xywh_class_scores"]
+        }
+      }
+    },
+    "inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_format",
+        "input_width",
+        "input_height",
+        "confidence_threshold",
+        "host_nms_applied",
+        "iou_threshold",
+        "maximum_detections",
+        "warmup_iterations",
+        "requested_providers",
+        "active_providers",
+        "provider_selection",
+        "shared_runtime_pipeline",
+        "test_double_used"
+      ],
+      "properties": {
+        "model_format": { "enum": ["post_nms_nx6", "ultralytics_raw"] },
+        "input_width": { "type": "integer", "minimum": 1 },
+        "input_height": { "type": "integer", "minimum": 1 },
+        "confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "host_nms_applied": { "type": "boolean" },
+        "iou_threshold": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maximum_detections": { "type": ["integer", "null"], "minimum": 1 },
+        "warmup_iterations": { "type": "integer", "minimum": 0 },
+        "requested_providers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "active_providers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "provider_selection": { "type": ["object", "null"] },
+        "shared_runtime_pipeline": { "const": true },
+        "test_double_used": { "type": "boolean" }
+      }
+    },
+    "runtime": { "type": "object" },
+    "prediction_artifacts": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/predictionArtifact" }
+    },
+    "latency": { "$ref": "#/$defs/latency" },
+    "replay_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "replay_manifest_canonical_hash": { "$ref": "#/$defs/sha256" },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotations_reviewed",
+        "predictions_complete",
+        "runtime_inference_executed",
+        "accuracy_validated",
+        "release_ready"
+      ],
+      "properties": {
+        "annotations_reviewed": { "const": true },
+        "predictions_complete": { "const": true },
+        "runtime_inference_executed": { "type": "boolean" },
+        "accuracy_validated": { "const": false },
+        "release_ready": { "const": false }
+      }
+    },
+    "canonical_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_count", "p50_ms", "p95_ms", "maximum_ms", "total_ms"],
+      "properties": {
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "p50_ms": { "type": "number", "minimum": 0 },
+        "p95_ms": { "type": "number", "minimum": 0 },
+        "maximum_ms": { "type": "number", "minimum": 0 },
+        "total_ms": { "type": "number", "minimum": 0 }
+      }
+    },
+    "predictionArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stratum", "path", "sha256", "bytes", "frame_count", "latency"],
+      "properties": {
+        "stratum": {
+          "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+        },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "frame_count": { "type": "integer", "minimum": 1 },
+        "latency": { "$ref": "#/$defs/latency" }
+      }
+    }
+  }
+}

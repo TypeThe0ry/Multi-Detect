@@ -63,6 +63,7 @@ multidetect-gazebo-geolocation-matrix = "multidetect.gazebo_geolocation_regime_m
 multidetect-qgc-visual-review = "multidetect.qgc_visual_acceptance:main"
 multidetect-replay-set-intake = "multidetect.replay_set_intake_cli:main"
 multidetect-replay-annotations = "multidetect.replay_annotation_cli:main"
+multidetect-replay-predictions = "multidetect.replay_prediction_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -108,6 +108,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".replay_annotation_workspace",
         "verify_finalized_replay_annotations",
     ),
+    "run_replay_predictions": (
+        ".replay_prediction_run",
+        "run_replay_predictions",
+    ),
+    "verify_replay_predictions": (
+        ".replay_prediction_run",
+        "verify_replay_predictions",
+    ),
     "ReplaySetCalibrationError": (
         ".replay_set_calibration",
         "ReplaySetCalibrationError",
@@ -467,6 +475,8 @@ __all__ = [
     "inspect_replay_annotation_workspace",
     "finalize_replay_annotation_workspace",
     "verify_finalized_replay_annotations",
+    "run_replay_predictions",
+    "verify_replay_predictions",
     "ReplaySetCalibrationError",
     "calibrate_replay_set_thresholds",
     "verify_replay_set_calibration_report",

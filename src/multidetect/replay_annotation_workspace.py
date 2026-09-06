@@ -193,7 +193,11 @@ def finalize_replay_annotation_workspace(
         raise
 
 
-def verify_finalized_replay_annotations(root: str | Path) -> dict[str, object]:
+def verify_finalized_replay_annotations(
+    root: str | Path,
+    *,
+    replay_manifest_name: str = "replay-set.manifest.json",
+) -> dict[str, object]:
     """Reopen every annotation input/output binding and reject a modified bundle."""
 
     requested_root = Path(root)
@@ -295,7 +299,12 @@ def verify_finalized_replay_annotations(root: str | Path) -> dict[str, object]:
             or payload != _truth_payload(rows)
         ):
             raise AutonomyContractError(f"annotation truth artifact hash mismatch: {relative}")
-    manifest_path = root_path / "replay-set.manifest.json"
+    manifest_relative = _relative_path(replay_manifest_name, "replay_manifest_name")
+    if PurePosixPath(manifest_relative).parent != PurePosixPath("."):
+        raise AutonomyContractError("replay_manifest_name must be a root-level filename")
+    manifest_path = root_path / manifest_relative
+    if manifest_path.is_symlink():
+        raise AutonomyContractError("annotation replay manifest must not be a symlink")
     manifest_bytes = manifest_path.read_bytes()
     manifest = load_replay_set_manifest(manifest_path, require_complete=True)
     if hashlib.sha256(manifest_bytes).hexdigest() != require_sha256(

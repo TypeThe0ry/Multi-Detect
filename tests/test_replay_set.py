@@ -5,19 +5,26 @@ import json
 import os
 import subprocess
 import sys
+from base64 import b64decode
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from multidetect.autonomy import AutonomyContractError
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
+from multidetect.model_manifest import (
+    create_candidate_model_manifest,
+    write_candidate_model_manifest,
+)
 from multidetect.replay_annotation_workspace import (
     create_replay_annotation_workspace,
     finalize_replay_annotation_workspace,
     inspect_replay_annotation_workspace,
     verify_finalized_replay_annotations,
 )
+from multidetect.replay_prediction_run import run_replay_predictions, verify_replay_predictions
 from multidetect.replay_set import (
     REPLAY_SET_STRATA,
     build_replay_set_manifest,
@@ -27,6 +34,7 @@ from multidetect.replay_set_intake import (
     prepare_deployment_replay_set,
     verify_deployment_replay_intake,
 )
+from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
 
 def _telemetry() -> dict[str, object]:
@@ -53,10 +61,22 @@ def _telemetry() -> dict[str, object]:
     }
 
 
-def _write_stratum(root: Path, stratum: str, *, with_predictions: bool = False) -> None:
+def _write_stratum(
+    root: Path,
+    stratum: str,
+    *,
+    with_predictions: bool = False,
+    valid_image: bool = False,
+) -> None:
     directory = root / stratum
     directory.mkdir(parents=True)
-    image_payload = f"{stratum}-image".encode()
+    image_payload = (
+        b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACklEQVQIHWMAAgAABAABDTukuQAAAABJRU5ErkJggg=="
+        )
+        if valid_image
+        else f"{stratum}-image".encode()
+    )
     (directory / "frame-0001.png").write_bytes(image_payload)
     events = [
         {
@@ -135,9 +155,9 @@ def _write_stratum(root: Path, stratum: str, *, with_predictions: bool = False) 
         )
 
 
-def _intake_sources(root: Path) -> dict[str, Path]:
+def _intake_sources(root: Path, *, valid_images: bool = False) -> dict[str, Path]:
     for stratum in REPLAY_SET_STRATA:
-        _write_stratum(root, stratum, with_predictions=True)
+        _write_stratum(root, stratum, with_predictions=True, valid_image=valid_images)
     return {stratum: root / stratum for stratum in REPLAY_SET_STRATA}
 
 
@@ -327,6 +347,54 @@ def _complete_annotations(workspace: Path) -> dict[str, object]:
     return document
 
 
+def _reviewed_annotation_fixture(tmp_path: Path) -> Path:
+    intake, workspace = _annotation_fixture(tmp_path)
+    _complete_annotations(workspace)
+    output = tmp_path / "reviewed"
+    finalize_replay_annotation_workspace(intake, workspace, output)
+    return output
+
+
+def _candidate_model_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    model = tmp_path / "candidate.onnx"
+    model.write_bytes(b"fixed-model-artifact")
+    manifest = tmp_path / "candidate.manifest.json"
+    write_candidate_model_manifest(
+        manifest,
+        create_candidate_model_manifest(
+            model,
+            model_id="fire-smoke-candidate",
+            model_version="v-test",
+            class_names=("fire", "smoke"),
+            input_width=32,
+            input_height=32,
+            output_coordinates="letterbox_xyxy_px",
+            source_description="unit-test fixture",
+            native_output_format="post_nms_N_x_6",
+        ),
+    )
+    return model, manifest
+
+
+class _EmptyDetector:
+    provider_names = ("FixtureExecutionProvider",)
+    provider_selection = None
+
+    def warmup(self, *, iterations: int) -> None:
+        assert iterations >= 0
+
+    def detect(self, image_bgr: object) -> tuple[object, ...]:
+        assert getattr(image_bgr, "shape", None) == (1, 1, 3)
+        return ()
+
+
+def _fixture_decoder(payload: bytes, reference: object) -> object:
+    import numpy as np
+
+    assert payload
+    return np.zeros((1, 1, 3), dtype=np.uint8)
+
+
 def test_replay_annotation_workspace_keeps_empty_frames_unannotated(tmp_path: Path) -> None:
     intake, workspace = _annotation_fixture(tmp_path)
     report = inspect_replay_annotation_workspace(intake, workspace)
@@ -431,6 +499,140 @@ def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path
     )
     assert verified.returncode == 0, verified.stderr
     assert json.loads(verified.stdout)["annotations_reviewed"] is True
+
+
+def test_replay_predictions_materialize_fixed_model_provenance_atomically(
+    tmp_path: Path,
+) -> None:
+    reviewed = _reviewed_annotation_fixture(tmp_path)
+    model, manifest = _candidate_model_fixture(tmp_path)
+    output = tmp_path / "predicted"
+
+    report = run_replay_predictions(
+        reviewed,
+        output,
+        model_path=model,
+        model_manifest_path=manifest,
+        detector_factory=lambda config: _EmptyDetector(),
+        image_decoder=_fixture_decoder,
+    )
+
+    assert report["frame_count"] == 6
+    assert report["predictions_complete"] is True
+    assert report["runtime_inference_executed"] is False
+    assert report["accuracy_validated"] is False
+    assert report["release_ready"] is False
+    assert (output / "annotation-source.replay-set.manifest.json").is_file()
+    replay_manifest = load_replay_set_manifest(output / "replay-set.manifest.json")
+    assert replay_manifest.claims["contains_predictions"] is True
+    receipt = json.loads((output / "prediction-run.receipt.json").read_text(encoding="utf-8"))
+    assert (
+        receipt["model"]["artifact_sha256"] == hashlib.sha256(b"fixed-model-artifact").hexdigest()
+    )
+    assert receipt["inference"]["shared_runtime_pipeline"] is True
+    assert receipt["inference"]["test_double_used"] is True
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "configs/schemas/replay-prediction-run-receipt.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(receipt)
+    assert verify_replay_predictions(output)["canonical_hash"] == report["canonical_hash"]
+
+    verified = subprocess.run(
+        [sys.executable, "scripts/run_replay_predictions.py", "verify", str(output)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stderr
+    assert json.loads(verified.stdout)["predictions_complete"] is True
+
+
+def test_replay_predictions_reject_overwrite_and_detect_tampering(tmp_path: Path) -> None:
+    reviewed = _reviewed_annotation_fixture(tmp_path)
+    model, manifest = _candidate_model_fixture(tmp_path)
+    output = tmp_path / "predicted"
+    options = {
+        "model_path": model,
+        "model_manifest_path": manifest,
+        "detector_factory": lambda config: _EmptyDetector(),
+        "image_decoder": _fixture_decoder,
+    }
+    run_replay_predictions(reviewed, output, **options)
+    with pytest.raises(AutonomyContractError, match="already exists"):
+        run_replay_predictions(reviewed, output, **options)
+
+    prediction = output / "day" / "predictions.jsonl"
+    prediction.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="artifact hash mismatch"):
+        verify_replay_predictions(output)
+
+
+def test_replay_predictions_reject_model_format_mismatch_without_partial_output(
+    tmp_path: Path,
+) -> None:
+    reviewed = _reviewed_annotation_fixture(tmp_path)
+    model, manifest = _candidate_model_fixture(tmp_path)
+    output = tmp_path / "predicted"
+    with pytest.raises(AutonomyContractError, match="does not match model manifest"):
+        run_replay_predictions(
+            reviewed,
+            output,
+            model_path=model,
+            model_manifest_path=manifest,
+            model_format="ultralytics_raw",
+            detector_factory=lambda config: _EmptyDetector(),
+            image_decoder=_fixture_decoder,
+        )
+    assert not output.exists()
+
+
+def test_replay_predictions_execute_shared_onnx_runtime_pipeline(tmp_path: Path) -> None:
+    pytest.importorskip("cv2")
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    intake = tmp_path / "intake"
+    prepare_deployment_replay_set(
+        _intake_sources(tmp_path / "sources", valid_images=True),
+        intake,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    workspace = tmp_path / "annotations.json"
+    create_replay_annotation_workspace(intake, workspace)
+    _complete_annotations(workspace)
+    reviewed = tmp_path / "reviewed"
+    finalize_replay_annotation_workspace(intake, workspace, reviewed)
+    model, manifest = create_synthetic_hil_model_bundle(
+        tmp_path / "model", input_width=32, input_height=32
+    )
+
+    report = run_replay_predictions(
+        reviewed,
+        tmp_path / "predicted",
+        model_path=model,
+        model_manifest_path=manifest,
+    )
+
+    assert report["frame_count"] == 6
+    assert report["runtime_inference_executed"] is True
+    assert report["accuracy_validated"] is False
+    receipt = json.loads(
+        (tmp_path / "predicted" / "prediction-run.receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt["model"]["synthetic_hil_only"] is True
+    assert receipt["claims"]["release_ready"] is False
+    predictions = [
+        json.loads(line)
+        for line in (tmp_path / "predicted" / "day" / "predictions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert predictions[0]["detections"][0]["label"] == "flame"
 
 
 def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(
