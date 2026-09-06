@@ -32,6 +32,7 @@ Item {
     property double _pendingExecutionStartedAtMs: 0
     property var _targetEvidenceHistoryDialog: null
     property var _producerEpochDiagnosticsDialog: null
+    property var _targetObservationDiagnosticsDialog: null
     property var _payloadActionDialog: null
     property var _approachActionDialog: null
     property var _authorizationDialog: null
@@ -391,6 +392,37 @@ Item {
         _setTargetEvidenceFeedback(qsTr("定位诊断已保存（%1）：%2").arg(state).arg(savedPath), false);
     }
 
+    function _localizationReasonText(reason) {
+        const translations = {
+            "range_status_missing": qsTr("缺少测距状态"),
+            "target_geolocation_status_missing": qsTr("缺少目标定位状态"),
+            "gnss_status_missing": qsTr("缺少 GNSS 状态"),
+            "range_not_qualified": qsTr("测距质量不合格"),
+            "target_geolocation_unavailable": qsTr("目标定位不可用"),
+            "gnss_not_qualified": qsTr("GNSS 质量不合格"),
+            "atomic_observation_required": qsTr("三路状态不是同一原子观测"),
+            "atomic_identity_invalid": qsTr("原子观测身份字段无效"),
+            "atomic_identity_mismatch": qsTr("epoch / sequence / 发送时间不一致"),
+            "target_id_mismatch": qsTr("目标 ID 不一致"),
+            "source_frame_id_mismatch": qsTr("源帧 ID 不一致"),
+            "range_source_age_invalid": qsTr("测距源年龄无效"),
+            "range_source_stale": qsTr("测距源数据过期"),
+            "target_geolocation_source_age_invalid": qsTr("目标定位源年龄无效"),
+            "target_geolocation_source_stale": qsTr("目标定位源数据过期"),
+            "gnss_source_age_invalid": qsTr("GNSS 源年龄无效"),
+            "gnss_source_stale": qsTr("GNSS 源数据过期"),
+            "range_local_receive_invalid": qsTr("测距本地接收时间无效"),
+            "range_local_receive_stale": qsTr("测距本地接收已过期"),
+            "target_geolocation_local_receive_invalid": qsTr("目标定位本地接收时间无效"),
+            "target_geolocation_local_receive_stale": qsTr("目标定位本地接收已过期"),
+            "gnss_local_receive_invalid": qsTr("GNSS 本地接收时间无效"),
+            "gnss_local_receive_stale": qsTr("GNSS 本地接收已过期"),
+            "coordinates_invalid": qsTr("坐标或 1σ 无效"),
+            "diagnostics_json_invalid": qsTr("诊断 JSON 无法解析")
+        };
+        return translations[reason] || String(reason || qsTr("未知原因"));
+    }
+
     function _wgs84MetersPerDegree(latitudeDeg) {
         if (!Number.isFinite(latitudeDeg) || latitudeDeg <= -90.0 || latitudeDeg >= 90.0)
             return null;
@@ -520,6 +552,16 @@ Item {
     function _closeProducerEpochDiagnosticsDialog() {
         if (_producerEpochDiagnosticsDialog !== null)
             _producerEpochDiagnosticsDialog.close();
+    }
+
+    function _openTargetObservationDiagnosticsDialog() {
+        if (_targetObservationDiagnosticsDialog === null)
+            _targetObservationDiagnosticsDialog = targetObservationDiagnosticsDialogFactory.open();
+    }
+
+    function _closeTargetObservationDiagnosticsDialog() {
+        if (_targetObservationDiagnosticsDialog !== null)
+            _targetObservationDiagnosticsDialog.close();
     }
 
     function _openPayloadActionDialog() {
@@ -940,6 +982,12 @@ Item {
 
                 QGCButton {
                     Layout.fillWidth: true
+                    text: qsTr("查看定位诊断")
+                    onClicked: root._openTargetObservationDiagnosticsDialog()
+                }
+
+                QGCButton {
+                    Layout.fillWidth: true
                     text: qsTr("保存定位诊断")
                     onClicked: root._saveTargetObservationDiagnostics()
                 }
@@ -958,6 +1006,206 @@ Item {
                 color: qgcPal.warningText
                 text: qsTr("仅显示与记录；不产生飞控指令")
                 wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    QGCPopupDialogFactory {
+        id: targetObservationDiagnosticsDialogFactory
+
+        dialogComponent: targetObservationDiagnosticsDialogComponent
+    }
+
+    Component {
+        id: targetObservationDiagnosticsDialogComponent
+
+        QGCPopupDialog {
+            id: targetObservationDiagnosticsDialog
+
+            property var snapshot: ({})
+            readonly property var readiness: snapshot.readiness || ({})
+            readonly property var rangeStatus: snapshot.range_status || ({})
+            readonly property var geolocationStatus: snapshot.target_geolocation_status || ({})
+            readonly property var gnssStatus: snapshot.gnss_status || ({})
+            readonly property var localReceive: snapshot.local_receive || ({})
+            readonly property var reasons: Array.isArray(readiness.reasons) ? readiness.reasons : []
+
+            function valueOrDash(value) {
+                return value === undefined || value === null || value === "" ? "--" : String(value);
+            }
+
+            function receiveAge(channel) {
+                const entry = localReceive[channel] || ({});
+                return entry.age_ms === undefined || entry.age_ms === null ? "--" :
+                       qsTr("%1 ms").arg(Math.round(Number(entry.age_ms)));
+            }
+
+            buttons: Dialog.Close
+            title: qsTr("目标定位诊断 · 只读")
+
+            Component.onCompleted: {
+                const payload = MultiDetectState.targetObservationDiagnosticsJson();
+                if (payload !== "") {
+                    try {
+                        snapshot = JSON.parse(payload);
+                    } catch (error) {
+                        snapshot = ({
+                            "readiness": {
+                                "locatable": false,
+                                "reasons": ["diagnostics_json_invalid"]
+                            }
+                        });
+                    }
+                }
+            }
+            Component.onDestruction: root._targetObservationDiagnosticsDialog = null
+
+            ScrollView {
+                height: Math.min(targetObservationDiagnosticsDialog.maxContentAvailableHeight,
+                                 ScreenTools.defaultFontPixelHeight * 29)
+                width: Math.min(targetObservationDiagnosticsDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 64)
+
+                ColumnLayout {
+                    spacing: root._margin * 0.38
+                    width: parent.width
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        color: targetObservationDiagnosticsDialog.readiness.locatable === true ?
+                                   qgcPal.colorGreen : qgcPal.warningText
+                        font.bold: true
+                        font.pointSize: ScreenTools.mediumFontPointSize
+                        text: targetObservationDiagnosticsDialog.readiness.locatable === true ?
+                                  qsTr("可定位 · 坐标已纳入快照") :
+                                  qsTr("不可定位 · 坐标已强制省略")
+                        wrapMode: Text.WordWrap
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text: targetObservationDiagnosticsDialog.reasons.length === 0 ? qsTr("失败原因：无") :
+                              qsTr("失败原因：%1").arg(
+                                  targetObservationDiagnosticsDialog.reasons.map(
+                                      reason => root._localizationReasonText(reason)).join("；"))
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: qgcPal.windowShade
+                        implicitHeight: identityColumn.implicitHeight + root._margin
+                        radius: ScreenTools.defaultBorderRadius
+
+                        ColumnLayout {
+                            id: identityColumn
+                            anchors.fill: parent
+                            anchors.margins: root._margin * 0.5
+
+                            QGCLabel {
+                                font.bold: true
+                                text: qsTr("原子观测身份")
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("匹配：%1 · epoch %2 · sequence %3 · sentAt %4")
+                                      .arg(targetObservationDiagnosticsDialog.readiness.atomic_identity_matched === true ?
+                                               qsTr("是") : qsTr("否"))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.rangeStatus.producerEpoch))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.rangeStatus.sequence))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.rangeStatus.sentAtMs))
+                                wrapMode: Text.WordWrap
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("目标 %1 · 源帧 %2 · 最大年龄 %3 ms")
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.rangeStatus.targetId))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.rangeStatus.sourceFrameId))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.snapshot.maximum_age_ms))
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        font.bold: true
+                        text: qsTr("测距")
+                    }
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text: qsTr("质量 %1 · 斜距 %2 m · 地距 %3 m · 方位 %4° · 源年龄 %5 ms · 接收年龄 %6")
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.rangeStatus.validity))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.rangeStatus.slantRangeM))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.rangeStatus.groundRangeM))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.rangeStatus.absoluteBearingDeg))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.rangeStatus.sourceAgeMs))
+                              .arg(targetObservationDiagnosticsDialog.receiveAge("range"))
+                        wrapMode: Text.WordWrap
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        font.bold: true
+                        text: qsTr("GNSS")
+                    }
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text: qsTr("合格 %1 · 原因 %2 · fix %3 · 卫星 %4 · HAcc %5 m · VAcc %6 m · 源年龄 %7 ms · 接收年龄 %8")
+                              .arg(targetObservationDiagnosticsDialog.gnssStatus.qualified === true ? qsTr("是") : qsTr("否"))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.reason))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.fixType))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.satellitesVisible))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.horizontalAccuracyM))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.verticalAccuracyM))
+                              .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.gnssStatus.sourceAgeMs))
+                              .arg(targetObservationDiagnosticsDialog.receiveAge("gnss"))
+                        wrapMode: Text.WordWrap
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        font.bold: true
+                        text: qsTr("目标坐标")
+                    }
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text: targetObservationDiagnosticsDialog.readiness.coordinates_included === true ?
+                                  qsTr("纬度 %1 · 经度 %2 · 1σ %3 m · 接收年龄 %4")
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.geolocationStatus.latitudeDeg))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.geolocationStatus.longitudeDeg))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(targetObservationDiagnosticsDialog.geolocationStatus.horizontalSigmaM))
+                                      .arg(targetObservationDiagnosticsDialog.receiveAge("target_geolocation")) :
+                                  qsTr("定位门未全部通过；本诊断不含经纬度或 1σ")
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.alignment: Qt.AlignRight
+
+                        QGCButton {
+                            text: qsTr("复制 JSON")
+                            onClicked: root._copyTargetObservationDiagnostics()
+                        }
+                        QGCButton {
+                            text: qsTr("保存 JSON")
+                            onClicked: root._saveTargetObservationDiagnostics()
+                        }
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        color: qgcPal.warningText
+                        text: qsTr("诊断只用于定位排错与证据记录；不会发送飞控指令或启用物理释放")
+                        wrapMode: Text.WordWrap
+                    }
+                }
             }
         }
     }

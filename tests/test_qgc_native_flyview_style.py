@@ -854,7 +854,13 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "function _copyTargetObservationDiagnostics()" in layer
     assert "function _saveTargetObservationDiagnostics()" in layer
     assert 'text: qsTr("复制定位诊断")' in layer
+    assert 'text: qsTr("查看定位诊断")' in layer
     assert 'text: qsTr("保存定位诊断")' in layer
+    assert 'title: qsTr("目标定位诊断 · 只读")' in layer
+    assert "JSON.parse(payload)" in layer
+    assert 'qsTr("不可定位 · 坐标已强制省略")' in layer
+    assert 'qsTr("定位门未全部通过；本诊断不含经纬度或 1σ")' in layer
+    assert 'qsTr("诊断只用于定位排错与证据记录；不会发送飞控指令或启用物理释放")' in layer
     assert 'QStringLiteral("multidetect.target-observation-diagnostics.v1")' in target_diagnostics
     assert 'readiness.insert(QStringLiteral("locatable"), locatable)' in target_diagnostics
     assert (

@@ -4,7 +4,7 @@
     "px4_mission_path_hash": "df1cab8dd37c203cd8a86c6cee714cdc8650c3cd626376b2584d322ef2b6f4bf",
     "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
     "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
-    "ui_contract_hash": "3bc3c5b2e983a0d25f385ffaaedea163c83640d750684deaa0f3853c7d282db1"
+    "ui_contract_hash": "c230725f927941b102ac3fee6a24d7a2a6d1e1a00117a8b5b86eca4ab4ae8829"
   },
   "product": "Multi-Detect",
   "release_label": "0.3.0-pre.8",
