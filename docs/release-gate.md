@@ -1,5 +1,28 @@
 # v0.3.0 E7 发布门
 
+## v143 portable GR01 plan handoff（2026-09-06，`v0.3.0-pre.8`）
+
+source plan 可以随部署包复制到另一台 Windows 现场机；目标机 checkout、Python 和 output 的绝对路径允许变化，
+但 Git HEAD、tracked-clean、canonical release parity 及 plan/producer/verifier/CLI 工具身份必须完全一致：
+
+```powershell
+python .\scripts\verify_gr01_release_session_handoff.py create `
+  --source-plan D:\handoff\gr01-release-session-plan.json `
+  --repository-root D:\Projects\Multi-Detect `
+  --python D:\Projects\Multi-Detect\ground-control\MultiDetectGCS\.venv\Scripts\python.exe `
+  --output-root D:\Projects\Multi-Detect\artifacts\evaluation `
+  --host-id FIELD-GCS-01 `
+  --out D:\handoff\gr01-release-session-handoff.json
+
+python .\scripts\verify_gr01_release_session_handoff.py verify `
+  D:\handoff\gr01-release-session-handoff.json --check-environment --require-ready
+```
+
+`create` 总能保存可诊断回执；只有来源完全等价且两个现场 secret 当前存在时 `ready_to_execute=true`。
+第二条严格命令才是执行前门，non-ready 时 exit 1；结构/来源非法时 exit 2。回执只记录 secret 名称和 presence，
+不保存值。当前 clean smoke 是 source-equivalent 但 non-ready/no-network；handoff 尚未纳入 final session 五源绑定，
+更不构成 GR01、E7、硬件或飞行通过。
+
 ## v142 execution-plan-bound GR01 session（2026-09-06，`v0.3.0-pre.8`）
 
 最终 `gr01-release-session.json` schema v2 现在绑定四份来源：source-bound plan、hardware bench、E7 manifest、

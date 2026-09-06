@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v143 portable GR01 deployment handoff（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/gr01_release_handoff.py`：读取 plan v2 的 portable 配置/来源身份，忽略 origin 的 repo、Python、
+  output 绝对执行路径，并在目标 checkout 重算 Git、tracked-clean、release parity 与 tool identity；
+- `scripts/verify_gr01_release_session_handoff.py` / console entry：提供 `create/verify`，可选择复核当前环境和强制 ready；
+- `configs/schemas/gr01-release-session-handoff.schema.json`：封闭 source plan、target paths/identity、secret presence、
+  source-equivalence 与 no-I/O/no-control claim；
+- handoff 实现、wrapper 与 schema 均进入 `safety_policy` parity，修改交接语义会使旧来源身份失效。
+
+该层解决“开发机和现场机 checkout 绝对路径不同”的部署交接问题；它还没有进入 final session record，且
+diagnostic receipt 不构成 GR01 网络、硬件、E7 或飞行验收。
+
 ## v142 execution-plan-bound GR01 final session（2026-09-06，`v0.3.0-pre.8`）
 
 - `gr01_release_session.py` / session schema v2：把 plan、bench、E7 manifest、E7 report 作为四个独立来源；

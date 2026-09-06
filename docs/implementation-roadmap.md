@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## Portable GR01 plan deployment handoff（v143）
+
+- [x] source plan 的配置、操作序列、来源身份与 claim 边界可在忽略 origin absolute execution paths 后验证；
+- [x] 目标机重算 tracked-clean、Git HEAD、canonical parity、tool identity 与 parity source verification；
+- [x] handoff receipt 绑定 target repo/Python/output、host ID、source plan hash 与目标 secret presence，不保存值；
+- [x] checkout 路径搬迁、target source mismatch、environment drift、source plan tamper、path escape 与覆盖均有回归；
+- [x] source repository/parity/tool identity 深层字段非法时在 receipt 写入前直接拒绝；
+- [x] clean commit 上完成 no-network diagnostic smoke，source equivalent 但缺 secret，因此严格门保持关闭；
+- [ ] 把 source plan 与目标机 receipt 一起交给现场机，注入真实 secret 后生成 ready receipt，再执行真实 session；
+- [ ] 后续将通过的 handoff receipt 纳入 final session 五源绑定，避免现场执行记录与交接记录分叉。
+
 ## Execution-plan-bound GR01 final session（v142）
 
 - [x] session record v2 hash-bind source-bound plan，并投影 Git/parity/ready 身份；

@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v143 portable GR01 plan handoff（2026-09-06）
+
+- 新增 handoff producer/verifier、repository wrapper 与 closed schema；目标机允许不同绝对部署路径，但必须重新证明
+  tracked-clean、Git HEAD、canonical parity、tool identity 与 parity source verification 全部等价；
+- receipt 绑定 source plan hash、portable configuration digest、target paths/host 和 secret presence，secret 值不落盘；
+  path escape、覆盖、source/tool/plan/environment drift 全部 fail-closed；malformed source identity 在写入前拒绝；
+- clean commit 无网络 smoke 为 source-equivalent/structurally valid，但因现场 secret 缺失保持 non-ready；新 parity 的四份
+  派生证据通过，E7 仍为 `false / false / 32 blockers`、GR01 `present=false`；全量回归
+  `3627 passed, 2 skipped`。未改 QGC 或构建 EXE。
+
 ### v0.3.0-pre.8 v142 execution-plan-bound GR01 session（2026-09-06）
 
 - final GR01 session schema v2 新增 source-bound plan 来源投影；consumer 重开 plan 并验证 ready/source identity，

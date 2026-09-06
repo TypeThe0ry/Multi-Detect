@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v142 工作树）
+最后更新：2026-09-06（v143 工作树）
+
+## v143 本轮已收口
+
+- 新增 `gr01_release_handoff.py`、repository wrapper 与 closed schema，把 source plan 转换成目标机专属、
+  write-new 的 portable handoff receipt；来源 plan 可保留另一台机器的绝对执行路径，不再要求两机 checkout 同路径；
+- handoff 在目标机重算 tracked-clean、Git HEAD、canonical release parity、四个执行工具身份和 parity source
+  verification；只允许目标 output 位于目标 repository 内，源码或工具不同即 `source_equivalent=false`；
+- source plan repository/parity/tool identity 现在逐字段闭合验证；非法 Git/SHA/path/bytes/type 在写 receipt 前直接拒绝；
+- receipt 绑定 source plan 的相对路径/bytes/SHA、portable configuration digest、目标 repo/Python/output 路径、
+  host ID 和两个 secret 的名称/present；不序列化 secret 值，固定 no-network/no-hardware/no-control claims；
+- clean commit `67846f08346e3042aea475ab5c7a25f1caf60bf8` 的无网络 smoke 得到
+  `source_equivalent=true`、结构复验 exit 0；两个现场 secret 缺失使 `ready_to_execute=false`，严格复验 exit 1。
+  plan SHA-256 `06B72193717299907E50A438C9294371DD23EB7D0254A300AB1FE73F3AEF44A3`，handoff SHA-256
+  `BC4EDB4B97FC0F7E03A0FE5CF85ED96ECFAA5106DA3EF08197C32857447DCD6D`；未接触网络或硬件；
+- 新 parity 下 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 均独立通过。
+  E7 继续 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
+  最终全量回归 3,629 tests：`3627 passed, 2 skipped, 0 failed, 0 errors`，耗时 193.41 秒；JUnit
+  528,740 bytes、SHA-256 `67BF126A28787ABCD3D0D9CBD962731B491A1CC629AD0D4E428FF4D1C4CFA4A7`。
+  本轮不改 C++/QML，不重建 portable EXE，不产生硬件、射频、飞行或最终发布声明。
 
 ## v142 本轮已收口
 
