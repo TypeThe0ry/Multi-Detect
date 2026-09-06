@@ -1,5 +1,15 @@
 # 统一仓库架构
 
+## v142 execution-plan-bound GR01 final session（2026-09-06，`v0.3.0-pre.8`）
+
+- `gr01_release_session.py` / session schema v2：把 plan、bench、E7 manifest、E7 report 作为四个独立来源；
+- final record 投影 plan 的 bytes/SHA、Git HEAD、release/safety identity、ready/source_verified，并固定
+  `configuration_matches_bench_and_e7=true`；
+- consumer 重新验证 plan 后，对账 endpoint、GR01 ID、source CIDR、round-trip/loss/P95/retry 及 E7 max-age；
+- PowerShell producer 的 record create 显式传入同一 `$planPath`。四源任一漂移或配置分叉都会 fail-closed。
+
+该层闭合“通过预检的计划是否真被执行”的审计链，但当前尚无 ready plan 或真实 GR01 session。
+
 ## v141 source-bound GR01 session plan（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/gr01_release_plan.py`：plan v2 producer/consumer，规范化参数，重算 canonical parity，并绑定

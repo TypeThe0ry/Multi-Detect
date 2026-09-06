@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Execution-plan-bound GR01 final session（v142）
+
+- [x] session record v2 hash-bind source-bound plan，并投影 Git/parity/ready 身份；
+- [x] consumer 重跑 plan verifier，再核对 plan 与 bench/E7 endpoint、身份、CIDR、阈值及 freshness；
+- [x] producer 在最终 record create 时显式传入 bench 前通过的同一 plan；
+- [x] plan source/config tamper、缺 plan 与四源非唯一性均 fail-closed；
+- [ ] 在真实隔离网段执行 ready plan → GR01 bench → E7 → final session，并离线复核四份来源。
+
 ## Source-bound GR01 field-session plan（v141）
 
 - [x] plan v2 绑定 Git HEAD、tracked-clean、canonical parity 来源验证及四个执行工具身份；

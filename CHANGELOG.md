@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v142 execution-plan-bound GR01 session（2026-09-06）
+
+- final GR01 session schema v2 新增 source-bound plan 来源投影；consumer 重开 plan 并验证 ready/source identity，
+  再对账 plan 与实际 bench/E7 的 endpoint、hardware、CIDR、质量阈值和 freshness；
+- PowerShell producer 显式将 bench 前通过的 plan 传给 final record creator；plan/source/config 漂移均 fail-closed；
+- 新 safety parity 的四份派生证据独立通过，E7 保持 `false / false / 32 blockers`、GR01 `present=false`。
+  最终全量回归 `3621 passed, 2 skipped`；本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v141 source-bound GR01 session plan（2026-09-06）
 
 - GR01 plan schema v2 绑定 Git HEAD/tracked-clean、canonical parity 来源复算和四个执行工具的 bytes/SHA-256；

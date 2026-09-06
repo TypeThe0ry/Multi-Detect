@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v141 工作树）
+最后更新：2026-09-06（v142 工作树）
+
+## v142 本轮已收口
+
+- GR01 final session 升级为 schema v2，并将 bench 前通过的 `gr01-release-session-plan.json` 作为第四份
+  write-new 来源绑定；record 保存 plan 相对路径、bytes/SHA-256、Git HEAD、release label、safety hash 和 ready/source 状态；
+- session consumer 重开 plan 并运行 canonical verifier，要求 source-bound plan 本身 ready；随后逐项对比 plan 与实际
+  bench/E7 的 host、port、hardware ID、source CIDR、round trips、loss、P95、retry 和 evidence max-age；
+- PowerShell producer 在创建最终 record 时显式传入 `--plan`；plan、bench、manifest、report 任一漂移，或计划参数与
+  实际证据不一致，都不能生成/复核成功 session；新增 configuration-drift 回归；
+- 干净提交 `46845165b0d6fc870399406bcd1614defc4d71fb` 无网络 smoke 的 Git/parity/tool 来源均通过，两个
+  secret 缺失使 `ready_to_execute=false`；plan 为 3,021 bytes、SHA-256
+  `0C6520FB0CB71B579141BBEEE4B62044A7FEC43EDCF5090945BAA96230E3CAB5`，未接触网络或硬件；
+- canonical parity 为 7,857 bytes、SHA-256
+  `70FB339ACF17BB1FF61008C4B323422278F6F606C0CD2698B54982E38E1FC87D`，safety hash 为
+  `0F797612E61B2ECBB798849BCD8CAE5A00EDAFDDA1936193C27B37B1039B1F51`；四份派生证据独立通过。
+  E7 继续 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
+  最终全量回归 3,623 tests：`3621 passed, 2 skipped, 0 failed, 0 errors`，耗时 159.54 秒；JUnit
+  527,922 bytes、SHA-256 `1FA7FCD5F6320B819F7AAA1C0A3E833FFB99D2C5AE4BF0D0035E953B46B88C46`。
+  本轮不改 C++/QML，不重建 portable EXE，不产生硬件、射频、飞行或最终发布声明。
 
 ## v141 本轮已收口
 

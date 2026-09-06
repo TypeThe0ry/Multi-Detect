@@ -1,5 +1,15 @@
 # v0.3.0 E7 发布门
 
+## v142 execution-plan-bound GR01 session（2026-09-06，`v0.3.0-pre.8`）
+
+最终 `gr01-release-session.json` schema v2 现在绑定四份来源：source-bound plan、hardware bench、E7 manifest、
+E7 report。consumer 不只比较 plan 文件 SHA，还会重新运行 plan verifier，并逐项证明计划中的 endpoint、GR01
+hardware ID、source CIDR、minimum round trips、loss/P95/retry 门限和 evidence max-age 与实际 bench/E7 相同。
+
+producer 在 bench 前创建并严格验证 plan，最终 record create 又显式传入同一 `$planPath`；因此换 plan、改工具、
+修改 plan 参数、替换 bench 或 E7 来源都会失败。当前无现场 secret，干净源码 smoke 仍是 non-ready/no-network，
+所以 E7 保持 `false / false / 32 blockers` 且 `real_gr01_operator_link.present=false/passed=false`。
+
 ## v141 source-bound GR01 plan gate（2026-09-06，`v0.3.0-pre.8`）
 
 plan schema v2 不再只证明“参数看起来有效”，还绑定执行源码：Git HEAD、tracked-clean、canonical
