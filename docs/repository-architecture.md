@@ -1,5 +1,27 @@
 # 统一仓库架构
 
+## v155 原子目标观测链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+LiveMissionRunner
+  -> OperatorBridge：同一 produced_at_s 的 range + geolocation + GNSS
+  -> TargetObservationStatusMessage
+  -> operator protocol type 26 / HMAC / 124-byte application payload
+  -> MAVLink TUNNEL 或 authenticated UDP session
+  -> QGC C++ decoder/controller：一次性采纳三个嵌套状态
+  -> MultiDetectState：同 sequence + sentAtMs + atomic 标志
+  -> target-evidence.v4（只读兼容 v1/v2/v3）
+```
+
+- Python 生产/传输层位于 `operator_link.py`、`operator_protocol.py`、`operator_mavlink.py`、
+  `operator_udp.py` 与 `operator_bridge.py`；类型 26 的 compact body 为 88 bytes，加协议 header/HMAC 后为
+  124 bytes，不发生 MAVLink `TUNNEL` 应用层拆包；
+- 原生消费层位于 `MultiDetectOperatorProtocol.*`、`MultiDetectOperatorController.cc`、
+  `MultiDetectState.qml`、`FlyViewCustomLayer.qml` 与 `MultiDetectTargetEvidenceStore.cc`；认证、重放、sequence、
+  freshness、target/frame/capture identity、range/coordinate/GNSS 质量任一失败均不会部分更新 UI；
+- `target-evidence.v4` 只接受原子三元组；旧 v1/v2/v3 仍可读取，但保持原历史语义。这条数据流固定
+  advisory/display-only，不进入飞控、载荷或物理释放路径。
+
 ## v150 hash-anchored GR01 review trust registry（2026-09-07，`v0.3.0-pre.8`）
 
 - `src/multidetect/gr01_review_trust_registry.py`：创建/验证 closed registry，并按 role、identity、key ID、公钥、有效期、

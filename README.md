@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v154：目标坐标与 GNSS 质量绑定同一生产帧 |
+| 当前工程迭代 | v155：测距、目标坐标与 GNSS 质量单包原子观测 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,6 +82,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
+### v155 单包原子目标观测
+
+Jetson operator bridge 现在把 range、target geolocation 与 `GNSS_STATUS` 编码为一个认证的
+operator protocol 类型 `26`。紧凑载荷为 124 bytes，可完整装入单个 MAVLink `TUNNEL`；三个状态共享
+同一 envelope sequence、发送时刻和生产帧，任一对象缺失、错帧、身份不一致、坐标质量矛盾或发送失败都
+整包 fail-closed，不会让 QGC 看到半组状态。无目标时的独立 GNSS 诊断和仅测距兼容路径仍保留。
+
+QGC 仅在 HMAC、重放、sequence、来源时效和类型 26 内部不变量全部通过后，一次性采纳三个嵌套状态。
+新证据使用 `multidetect.target-evidence.v4`，要求三者 sequence/`sentAtMs` 相同且来自原子观测；
+v1/v2/v3 只读兼容，不能伪装成 v4。该链仍为 advisory-only，不增加飞控、
+载荷或物理输出权限，也不替代室外 GNSS、人工 Fly View、真实硬件、HIL/REAL 或实飞验收。
+
 ### v154 目标坐标与 GNSS 质量同帧绑定
 
 Jetson operator bridge 在需要发布目标定位时，先要求 `GNSS_STATUS`、range 与 target geolocation
@@ -92,7 +104,7 @@ Jetson operator bridge 在需要发布目标定位时，先要求 `GNSS_STATUS`�
 QGC 在认证、重放与 sequence 门之后，把 target geolocation 自身的 envelope sequence/`sentAtMs`
 写入状态；保存按钮要求目标定位与 GNSS 的 `sentAtMs` 精确相等。新记录使用
 `multidetect.target-evidence.v3` 并持久化两侧 provenance；v1/v2 保持只读兼容，历史卡片明确区分
-“原子绑定”和旧版仅同时间质量证据。Release/portable 与 native self-test 已通过；该变化仍是
+“同生产帧绑定”和旧版仅同时间质量证据。Release/portable 与 native self-test 已通过；该变化仍是
 advisory-only 证据链，不增加飞控、载荷或物理输出权限，也不替代室外 GNSS、人工 Fly View、硬件、
 HIL/REAL 或实飞验收。最终全量回归为 `3657 passed, 2 skipped, 0 failed`。
 
@@ -165,33 +177,18 @@ revalidation、`GLOBAL_POSITION_INT` response matrix/campaign，以及按当前 
 三机型 deterministic 3-D control records。无参数运行（可只指定新输出目录与时间戳）现在可以完整生成
 E7 manifest/report，不会因旧 release-parity 或 model SHA 中断。
 
-当前 v154 report-only 复算为 `gate_passed=false`、`release_allowed=false` 和 31 个阻断项；这些阻断来自
+当前 v155 report-only 复算为 `gate_passed=false`、`release_allowed=false` 和 31 个阻断项；这些阻断来自
 replay-set 部署域/精度评审、未 ready 的真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件、引用失败
 证据以及最终版本通道，而不是 SIM 证据漂移。
 
 v102–v104 的地址状态 schema、apply 回执、预检绑定和 E7 投影细节见
 [当前进度](docs/current-progress.md)、[现场部署](docs/field-bringup.md) 与 [E7 发布门](docs/release-gate.md)。
 
-### v101 地址变更后置条件
+### v100–v101 可审计的外场网络准备
 
-外场地址 helper 现在只在 `New-NetIPAddress` / `Remove-NetIPAddress` 真正执行后设置 `changed=true`。
-`-WhatIf` 可在非管理员会话运行，输出 `mode=what-if`、`changed=false`、
-`postcondition_checked=false`，不会被误记为实际修改。
-
-正常 apply/remove 完成后会重新读取目标地址：添加必须精确存在一条匹配地址且
-`SkipAsSource=true`，移除必须不存在匹配地址。最终状态和 postcondition 先写入审计输出；条件不满足时
-命令以失败结束，不能留下“命令返回即成功”的假记录。
-
-### v100 可审计的外场网络准备
-
-`scripts/prepare_field_link.ps1` 现在支持 `-PlanOnly` 和 write-new `-Output`。非管理员可先生成包含
-拟执行动作、是否需要提权、目标地址、`SkipAsSource`、明确不改网关/DNS/静态路由及精确回滚命令的
-JSON 计划；`-VerifyOnly` 也可保存同格式的只读状态。输出拒绝覆盖，实际添加或移除
-`192.168.144.250/24` 仍要求显式 `-Elevate`。
-
-外场接口盘点、地址准备、预检 wrapper/CLI、canonical verifier 与 Python 聚合实现已全部进入
-`safety_policy` parity。任一现场链路权威变更都会使旧的 HIL/REAL 安全身份失效。本轮没有提升硬件、
-HIL、REAL 或实飞声明。
+`scripts/prepare_field_link.ps1` 提供 plan/verify/apply/remove、write-new 回执与明确回滚；只有真实修改且
+重读后置条件通过才记录 `changed=true`，`-WhatIf` 不会冒充应用成功。详细命令与安全边界见
+[现场部署](docs/field-bringup.md) 和 [当前进度](docs/current-progress.md)。
 
 ### v99 可验证、可回滚的 index 发布
 

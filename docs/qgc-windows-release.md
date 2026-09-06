@@ -12,6 +12,18 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v155 当前 portable 与单包原子目标观测（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,633,984` bytes，SHA-256
+`788E82B4BF8198EFC8ECD720E2E1A883899D7ADD65DE1276A0221FD61D35AC8F`。它已包含 operator protocol
+type 26：range、target geolocation 和 GNSS quality 共用一个认证 envelope，QGC 只会整组三状态采纳；
+证据新写入为 `multidetect.target-evidence.v4`，旧 v1/v2/v3 只读兼容。
+
+构建后四项原生 self-test 全部退出 0；portable 使用
+`--offline --simple-boot-test --allow-multiple --no-windows-assert-ui --log-output` 退出 0。启动 stderr 为
+1,001 bytes，SHA-256 `131508B6705306BD09D6F8889CEDE9B30DCDB37B1526BD742EA2CF1DFB3EC220`，没有 QML
+初始化错误。该记录是 software/build 证据，不替代人工 Fly View、室外 GNSS、HIL/REAL、硬件或实飞验收。
+
 ### v71 干净 HEAD Combined 复验（2026-09-06）
 
 在 `73429e505d33ca5c645be3d3d0b6cda667f33c5f`、`dirty=false` 的工作树上，使用下述同一 portable

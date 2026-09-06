@@ -1,5 +1,14 @@
 # v0.3.0 E7 发布门
 
+## v155 当前原子观测重绑定（2026-09-07，`v0.3.0-pre.8`）
+
+type 26 原子目标观测与 evidence v4 更新后，`release-parity.json`、external join/revalidation、三机型
+`GLOBAL_POSITION_INT` response matrix 和 6 正例/9 故障 campaign 均按当前源重新派生。当前 E7 report 为
+`release-gate-pre.8-current-20260906T192400Z-v6-bound-report.json`，SHA-256
+`996F595DE8E07EB41F63A1EDB887637DC8ABB0B5ACD6A5197D597C549E93CCEF`；结果仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers。软件原子传输改进不会替代 replay-set 部署域精度、
+真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件或最终 release channel 门。
+
 ## v150 hash-anchored GR01 trust registry（2026-09-07，`v0.3.0-pre.8`）
 
 先在受控机器准备 `principals.json`，其中至少各有一个 `source_operator` 与 `reviewer`；每项必须包含唯一的

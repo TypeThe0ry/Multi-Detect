@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v155 atomic target observation envelope（2026-09-07）
+
+- 新增认证 operator protocol 类型 `26`，在单个 124-byte application payload / MAVLink `TUNNEL` 中
+  原子携带 range、target geolocation 与 GNSS quality；生产帧、目标/帧身份与定位质量任一不一致即整包拒绝，
+  发布失败不推进指纹并保留重试；无目标独立 GNSS 与 range-only 兼容路径保持不变；
+- QGC C++ 仅在 HMAC、replay、sequence、freshness 和内部不变量全部通过后，一次采纳三类状态；QML 要求
+  三者 atomic 标志及 envelope sequence/`sentAtMs` 完全一致，避免界面或证据层观察到半组更新；
+- 新证据升级为 `multidetect.target-evidence.v4`，只有类型 26 原子三元组可新写入；v1/v2/v3 保持只读兼容；
+  观测仍为 advisory/display-only，不增加飞控或物理释放权限；
+- Release/portable EXE 为 46,633,984 bytes，SHA-256
+  `788E82B4BF8198EFC8ECD720E2E1A883899D7ADD65DE1276A0221FD61D35AC8F`；四项原生自测、Ruff、format、
+  compileall、portable simple boot 与当前 parity 派生证据均通过。E7 仍为
+  `false / false / 31 blockers`；最终全量回归为 `3660 passed, 2 skipped, 0 failed`。人工视觉、室外
+  GNSS、真实硬件、HIL/REAL 与实飞继续未验收。
+
 ### v0.3.0-pre.8 v154 same-producer-frame GNSS evidence binding（2026-09-07）
 
 - Jetson operator bridge 将需要目标定位的 GNSS、range、target geolocation 收口为同一生产帧组：三者
