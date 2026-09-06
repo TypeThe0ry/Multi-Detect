@@ -112,6 +112,96 @@ def _timestamp(value: object, *, name: str) -> str:
     return value
 
 
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and value == value.lower()
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _file_identity(value: object, *, name: str, expected_path: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"path", "sha256", "bytes"}:
+        raise Gr01ReleaseHandoffError(f"{name} fields do not match the file contract")
+    size = value.get("bytes")
+    if (
+        value.get("path") != expected_path
+        or not _is_sha256(value.get("sha256"))
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size < 1
+    ):
+        raise Gr01ReleaseHandoffError(f"{name} identity is invalid")
+    return dict(value)
+
+
+def _portable_source_identity(
+    repository: Mapping[str, Any],
+    parity: Mapping[str, Any],
+    tools: Mapping[str, Any],
+) -> dict[str, Any]:
+    if set(repository) != {"root", "git_head", "tracked_dirty"}:
+        raise Gr01ReleaseHandoffError("source plan repository fields do not match")
+    root = repository.get("root")
+    git_head = repository.get("git_head")
+    tracked_dirty = repository.get("tracked_dirty")
+    if (
+        not isinstance(root, str)
+        or not root.strip()
+        or not isinstance(git_head, str)
+        or len(git_head) != 40
+        or git_head != git_head.lower()
+        or any(character not in "0123456789abcdef" for character in git_head)
+        or not isinstance(tracked_dirty, bool)
+    ):
+        raise Gr01ReleaseHandoffError("source plan repository identity is invalid")
+    parity_keys = {
+        "path",
+        "sha256",
+        "bytes",
+        "release_label",
+        "safety_policy_hash",
+        "source_verified",
+    }
+    if set(parity) != parity_keys:
+        raise Gr01ReleaseHandoffError("source plan release parity fields do not match")
+    parity_file = _file_identity(
+        {key: parity.get(key) for key in ("path", "sha256", "bytes")},
+        name="source plan release parity",
+        expected_path="configs/release-parity.json",
+    )
+    release_label = parity.get("release_label")
+    if (
+        not isinstance(release_label, str)
+        or not release_label.startswith("0.3.0-pre.")
+        or not release_label.removeprefix("0.3.0-pre.").isdigit()
+        or not _is_sha256(parity.get("safety_policy_hash"))
+        or not isinstance(parity.get("source_verified"), bool)
+    ):
+        raise Gr01ReleaseHandoffError("source plan release parity identity is invalid")
+    expected_tools = {
+        path.replace("/", "_").replace(".", "_"): path for path in plan_module.TOOL_PATHS
+    }
+    if set(tools) != set(expected_tools):
+        raise Gr01ReleaseHandoffError("source plan tool fields do not match")
+    tool_identity = {
+        key: _file_identity(tools[key], name=f"source plan tool {key}", expected_path=path)
+        for key, path in expected_tools.items()
+    }
+    return {
+        "git_head": git_head,
+        "origin_tracked_dirty": tracked_dirty,
+        "release_parity": {
+            **parity_file,
+            "release_label": release_label,
+            "safety_policy_hash": parity["safety_policy_hash"],
+            "source_verified": parity["source_verified"],
+        },
+        "tools": tool_identity,
+    }
+
+
 def _plan_projection(document: Mapping[str, Any]) -> dict[str, Any]:
     expected_keys = {
         "schema",
@@ -182,12 +272,7 @@ def _plan_projection(document: Mapping[str, Any]) -> dict[str, Any]:
         "configuration": configuration,
         "secret_names": secret_names,
         "operations": list(plan_module.OPERATIONS),
-        "source_identity": {
-            "git_head": repository.get("git_head"),
-            "origin_tracked_dirty": repository.get("tracked_dirty"),
-            "release_parity": dict(parity),
-            "tools": dict(tools),
-        },
+        "source_identity": _portable_source_identity(repository, parity, tools),
     }
 
 

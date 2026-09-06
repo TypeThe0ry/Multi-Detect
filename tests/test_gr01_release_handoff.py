@@ -148,6 +148,45 @@ def test_handoff_reports_target_source_mismatch_fail_closed(
         assert "handoff is not ready to execute" in verification["reasons"]
 
 
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda document: document["source_identity"]["repository"].update(git_head="BAD"),
+            "repository identity",
+        ),
+        (
+            lambda document: document["source_identity"]["tools"][
+                "scripts_run_gr01_release_session_ps1"
+            ].update(bytes=True),
+            "tool scripts_run_gr01_release_session_ps1 identity",
+        ),
+    ],
+)
+def test_handoff_rejects_malformed_source_identity_before_writing(
+    monkeypatch: pytest.MonkeyPatch,
+    mutate: object,
+    message: str,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="gr01-handoff-invalid-", dir=ROOT / "tmp") as name:
+        directory = Path(name)
+        plan, _identity = _source_plan(directory, monkeypatch)
+        plan_document = json.loads(plan.read_text(encoding="utf-8"))
+        mutate(plan_document)
+        plan.write_text(json.dumps(plan_document) + "\n", encoding="utf-8")
+        receipt = directory / "handoff.json"
+        with pytest.raises(Gr01ReleaseHandoffError, match=message):
+            create_gr01_release_session_handoff(
+                receipt,
+                source_plan=plan,
+                target_repository_root=ROOT,
+                target_python=sys.executable,
+                target_output_root=ROOT / "tmp",
+                host_id="FIELD-GCS-INVALID",
+            )
+        assert not receipt.exists()
+
+
 def test_handoff_detects_source_plan_and_environment_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
