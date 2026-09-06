@@ -1895,9 +1895,10 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,665,216` bytes
-- SHA-256：`DE323538B410D6264825B071A083620471A4D726921FD25F10CB859476DB1BAE`
-- 当前 portable 已包含 v160 的原生 producer epoch 诊断弹窗、复制/原子保存 JSON、evidence v6 与全部此前 QGC C++/QML 变更。
+- 大小：`46,704,640` bytes
+- SHA-256：`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`
+- 当前 portable 已包含 v162 的目标定位诊断弹窗、中文 fail-closed 原因、复制/原子保存 JSON、
+  producer epoch 诊断、evidence v6 与全部此前 QGC C++/QML 变更。v163 只新增离线 verifier，未重链 EXE。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类
