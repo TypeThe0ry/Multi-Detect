@@ -31,6 +31,21 @@ computers need a trustworthy time source. Production ground operation should ena
 deduplication database and the downstream ground application should still treat `alert_id` as its
 idempotency key.
 
+## E7 separates alert ACK from GR01 operator ACK
+
+The final release gate treats the fire-alert link and the GR01 target-selection link as separate
+evidence domains:
+
+- `real_alert_link` proves authenticated fire-alert delivery and a correlated receiver ACK;
+- `real_gr01_operator_link` proves the signed target-selection command/ACK round trip over a real
+  non-loopback GR01 path whose sender source address belongs to the declared aircraft CIDR.
+
+Passing one never satisfies the other. The GR01 record is accepted only from a strict
+`gr01-link-bench` report and is reverified from its hash-bound source during every E7 evaluation.
+Use `-RealGr01OperatorLinkBench <report.json>` with `run_current_release_gate_pre8.ps1`; omitting it
+keeps prerelease diagnostics available but leaves final `0.3.0` blocked. Neither record enables
+flight control or physical payload release.
+
 ## Local loopback HIL
 
 Use a random key with at least 32 bytes. Keep it in the process environment or a mode-0600 service

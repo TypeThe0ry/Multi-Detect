@@ -1,6 +1,26 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v136 工作树）
+最后更新：2026-09-06（v137 工作树）
+
+## v137 本轮已收口
+
+- E7 新增独立 `real_gr01_operator_link` 顶层记录；manifest writer 只接受通过 strict verifier 的
+  `gr01_bench_passed` 硬件报告，并绑定报告相对路径、SHA-256、字节数、GR01 身份、non-loopback endpoint、
+  expected source CIDR、实际 source address、ACK/timeout/attempt 守恒、时延/丢包、HMAC、MAVLink2 签名、
+  双向确认与全部 no-control 位；
+- evaluator 每次从 manifest 重新打开源报告、复核哈希/字节数、重跑 canonical verifier，并逐字段对账；未知
+  字段、投影篡改、源文件漂移和软件 loopback 冒充 REAL 都 fail-closed；最终 `0.3.0` release channel 要求该门
+  单独存在且通过，不能由 `real_alert_link` 告警 ACK bench 替代；
+- `run_current_release_gate_pre8.ps1` 新增可选 `-RealGr01OperatorLinkBench`；当前没有真实 GR01 bench，因此
+  current manifest 明确 `present=false/passed=false`，没有生成硬件通过声明；该要求只在最终 release channel
+  强制，当前 prerelease E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；
+- release-gate schema 进入 PX4 Mission parity，当前 parity 文件 7,454 bytes、SHA-256
+  `74854DE43D5BF772AAAFE9DA4B7359603BA9FC7F20B37F9612772EE1D9CCCC09`，PX4 hash 为
+  `AA38DB69E111FB429DABCE57CF4585D9069F172FBE3759321EF843F5F45808A7`；三机型 external
+  join/revalidation、reported-position matrix 与 6 正例/9 故障 campaign 已按新 parity 重算并独立通过；
+- 最终全量回归 3,604 tests：`3602 passed, 2 skipped, 0 failed, 0 errors`，JUnit 时间 240.937 秒、
+  525,403 bytes、SHA-256 `669E08AE1821BEB602B45651558DFB101B83F2D3BB9A2EADA3315C2C4600E86A`；
+  全仓 Ruff format/lint、compileall、schema 和 diff check 通过。本轮未改 C++/QML，portable EXE 不重建。
 
 ## v136 本轮已收口
 

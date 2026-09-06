@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v137 GR01 operator-link final release gate（2026-09-06）
+
+- E7 新增独立 `real_gr01_operator_link`：writer hash-bind 并严格复核真实 GR01 selection/ACK bench，evaluator
+  重开源报告、重跑 verifier、逐字段对账，软件 loopback、投影篡改和源文件漂移均 fail-closed；
+- 最终 `0.3.0` 必须分别通过 GR01 operator link 与 fire-alert link，二者不能互相替代；当前无真实 GR01 报告，
+  prerelease E7 保持 32 blockers。PX4 parity 及其派生 evidence 已重算，最终全量回归
+  `3602 passed, 2 skipped`；本轮不改 QGC C++/QML，不重建 EXE。
+
 ### v0.3.0-pre.8 v136 GR01 physical-source bench verification（2026-09-06）
 
 - `gr01-link-bench --hardware-mode` 现在要求 expected source CIDR，先解析 OS route 再把同一 IPv4 bind 到实际

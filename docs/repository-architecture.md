@@ -1,5 +1,17 @@
 # 统一仓库架构
 
+## v137 GR01 operator-link E7 binding（2026-09-06，`v0.3.0-pre.8`）
+
+- `src/multidetect/release_gate_manifest.py`：将通过的 strict GR01 bench 规范化为 hash-bound
+  `real_gr01_operator_link`，并在 CLI 暴露 `--real-gr01-operator-link-bench`；
+- `src/multidetect/release_gate.py`：重开源报告、重跑 verifier、逐字段复算并把该门作为最终 release 必需项；
+- `configs/schemas/release-gate-manifest.schema.json`：为硬件 GR01 identity、non-loopback endpoint、source
+  route、ACK 守恒、HMAC/MAVLink2、threshold/checks 与 no-control 建 closed record；
+- `scripts/run_current_release_gate_pre8.ps1`：可选接收真实 bench，不从目录扫描或 mtime 猜证据；
+- `tests/test_release_gate_manifest.py`：覆盖 schema/CLI、hash/source tamper、software baseline 拒绝和最终通道缺失。
+
+该层把“bench 工具已实现”与“真实 GR01 bench 已发生”分开。当前 E7 只显示缺失状态，不产生硬件验收。
+
 ## v136 GR01 physical-source bench contract（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/operator_udp.py`：持续 G20/Jetson UDP session 支持 explicit IPv4 source bind，并暴露实际

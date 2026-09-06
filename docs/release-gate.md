@@ -1,5 +1,31 @@
 # v0.3.0 E7 发布门
 
+## v137 REAL GR01 operator-link 独立门（2026-09-06，`v0.3.0-pre.8`）
+
+目标选择/ACK 与 fire-alert 是两条用途不同的数据链。新 manifest 顶层键
+`real_gr01_operator_link` 只接受 canonical `gr01-link-bench` verifier 已确认通过的硬件报告；writer 固定
+要求 `event=gr01_bench_passed`、GR01、non-loopback endpoint、source route、双向 ACK、application HMAC、
+MAVLink2 signature 全部为真，四个控制/投放位全部为假，并保存源报告 SHA-256 与字节数。
+
+evaluator 不信任 manifest 中的布尔投影：它重新打开源 JSON、核对 hash/bytes、重跑 verifier，再逐项比较
+endpoint、source CIDR/address、round-trip/timeout/attempt、丢包、时延、checks、thresholds、签名和 no-control
+字段。未知字段、源文件替换、manifest 投影篡改或 software baseline 都会阻断。最终 release channel 缺该记录时
+明确报告 `final release requires a hash-bound REAL GR01 operator selection/ACK bench`；已有
+`real_alert_link` 也不能抵消这一阻断。
+
+当前 wrapper 用法：
+
+```powershell
+.\scripts\run_current_release_gate_pre8.ps1 `
+  -RealGr01OperatorLinkBench D:\FieldEvidence\gr01-link-bench.json `
+  -OutputDirectory D:\FieldEvidence\release-gate `
+  -Stamp 20260906T120000Z
+```
+
+输入为空时 prerelease report 仍可生成并明确显示 `present=false/passed=false`；只有切换到最终 `0.3.0`
+release channel 时该缺失项才成为新增 final-only blocker。当前 v137 report 因既有现场/人工门保持 32 blockers，
+并未形成 GR01、HIL、REAL、射频或实飞通过声明。
+
 ## v94 sealed single-leaf field session（2026-09-06，`v0.3.0-pre.8`）
 
 现场每叶统一入口：

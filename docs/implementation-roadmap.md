@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## GR01 operator-link final release binding（v137）
+
+- [x] release manifest 写入独立 `real_gr01_operator_link` 并绑定 strict bench 文件身份；
+- [x] evaluator 重开源报告、重跑 verifier、逐字段复核 endpoint/source/计数/时延/签名/no-control；
+- [x] final release 将 GR01 selection/ACK 与 fire-alert ACK 设为两个不可互相替代的门；
+- [x] Windows current-gate wrapper 支持显式 `-RealGr01OperatorLinkBench`；
+- [x] schema、CLI、tamper/software-baseline/final-channel 回归及 current-parity E7 复算通过；
+- [ ] 在飞机网段以真实 GR01/G20、真实 source route 和签名配置执行 bench，并将通过报告绑定到 E7。
+
 ## Clean-checkout manual validation recovery（v131）
 
 - [x] 用独立 detached worktree 复现 Windows 新检出 CRLF 导致的 Ruff format failure；
