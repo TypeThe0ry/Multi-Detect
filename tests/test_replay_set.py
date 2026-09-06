@@ -24,9 +24,11 @@ from multidetect.release_gate_manifest import (
     write_release_gate_manifest,
 )
 from multidetect.replay_annotation_workspace import (
+    annotate_replay_frame,
     create_replay_annotation_workspace,
     finalize_replay_annotation_workspace,
     inspect_replay_annotation_workspace,
+    review_replay_annotation_workspace,
     verify_finalized_replay_annotations,
 )
 from multidetect.replay_prediction_run import run_replay_predictions, verify_replay_predictions
@@ -349,8 +351,8 @@ def _complete_annotations(
 ) -> dict[str, object]:
     document = json.loads(workspace.read_text(encoding="utf-8"))
     document["annotator"] = "annotator-a"
-    document["reviewer"] = "reviewer-b"
-    document["reviewed_at_utc"] = "2026-09-06T02:00:00Z"
+    document["reviewer"] = None
+    document["reviewed_at_utc"] = None
     for index, frame in enumerate(document["frames"]):
         if index == 0 or (
             positive_all_detection_strata and frame["stratum"] != "no_fire"
@@ -362,7 +364,13 @@ def _complete_annotations(
         else:
             frame["annotation"] = {"status": "negative", "objects": []}
     workspace.write_text(json.dumps(document), encoding="utf-8")
-    return document
+    review_replay_annotation_workspace(
+        workspace.parent / "intake",
+        workspace,
+        reviewer="reviewer-b",
+        reviewed_at_utc="2026-09-06T02:00:00Z",
+    )
+    return json.loads(workspace.read_text(encoding="utf-8"))
 
 
 def _reviewed_annotation_fixture(tmp_path: Path) -> Path:
@@ -415,6 +423,14 @@ def _fixture_decoder(payload: bytes, reference: object) -> object:
 
 def test_replay_annotation_workspace_keeps_empty_frames_unannotated(tmp_path: Path) -> None:
     intake, workspace = _annotation_fixture(tmp_path)
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "configs/schemas/replay-annotation-workspace.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(
+        json.loads(workspace.read_text(encoding="utf-8"))
+    )
     report = inspect_replay_annotation_workspace(intake, workspace)
     assert report["frame_count"] == 6
     assert report["status_counts"] == {"unannotated": 6, "positive": 0, "negative": 0}
@@ -424,6 +440,93 @@ def test_replay_annotation_workspace_keeps_empty_frames_unannotated(tmp_path: Pa
     with pytest.raises(AutonomyContractError, match="explicitly positive or negative"):
         finalize_replay_annotation_workspace(intake, workspace, output)
     assert not output.exists()
+
+
+def test_replay_annotation_commands_atomically_assign_annotate_and_review(
+    tmp_path: Path,
+) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    document = json.loads(workspace.read_text(encoding="utf-8"))
+    frames = document["frames"]
+
+    with pytest.raises(AutonomyContractError, match="every frame must be annotated"):
+        review_replay_annotation_workspace(intake, workspace, reviewer="reviewer-b")
+
+    first = annotate_replay_frame(
+        intake,
+        workspace,
+        frame_id=frames[0]["frame_id"],
+        annotator="annotator-a",
+        status="positive",
+        objects=({"label": "fire", "bbox": [0.1, 0.2, 0.4, 0.6]},),
+    )
+    assert first["status_counts"] == {"unannotated": 5, "positive": 1, "negative": 0}
+    assert first["next_unannotated"]["frame_id"] == frames[1]["frame_id"]
+
+    with pytest.raises(AutonomyContractError, match="another annotator"):
+        annotate_replay_frame(
+            intake,
+            workspace,
+            frame_id=frames[1]["frame_id"],
+            annotator="annotator-x",
+            status="negative",
+        )
+
+    for frame in frames[1:]:
+        annotate_replay_frame(
+            intake,
+            workspace,
+            frame_id=frame["frame_id"],
+            annotator="annotator-a",
+            status="negative",
+        )
+    with pytest.raises(AutonomyContractError, match="present and distinct"):
+        review_replay_annotation_workspace(
+            intake,
+            workspace,
+            reviewer="ANNOTATOR-A",
+            reviewed_at_utc="2026-09-06T02:00:00Z",
+        )
+
+    reviewed = review_replay_annotation_workspace(
+        intake,
+        workspace,
+        reviewer="reviewer-b",
+        reviewed_at_utc="2026-09-06T02:00:00Z",
+    )
+    assert reviewed["all_frames_annotated"] is True
+    assert reviewed["next_unannotated"] is None
+    assert reviewed["finalization_ready"] is True
+    assert reviewed["workspace_schema_version"] == 2
+    assert reviewed["review_content_bound"] is True
+    with pytest.raises(AutonomyContractError, match="another reviewer"):
+        review_replay_annotation_workspace(
+            intake,
+            workspace,
+            reviewer="reviewer-c",
+            reviewed_at_utc="2026-09-06T03:00:00Z",
+        )
+
+    unchanged = annotate_replay_frame(
+        intake,
+        workspace,
+        frame_id=frames[0]["frame_id"],
+        annotator="annotator-a",
+        status="positive",
+        objects=({"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]},),
+    )
+    assert unchanged["finalization_ready"] is True
+
+    changed = annotate_replay_frame(
+        intake,
+        workspace,
+        frame_id=frames[0]["frame_id"],
+        annotator="annotator-a",
+        status="negative",
+    )
+    assert changed["all_frames_annotated"] is True
+    assert changed["annotator_reviewer_distinct"] is False
+    assert changed["finalization_ready"] is False
 
 
 def test_replay_annotation_workspace_finalizes_reviewed_truth_atomically(
@@ -470,6 +573,42 @@ def test_replay_annotation_workspace_rejects_same_reviewer_and_assignment_tamper
         finalize_replay_annotation_workspace(intake, workspace, tmp_path / "tampered")
 
 
+def test_replay_annotation_workspace_v2_binds_review_to_annotation_content(
+    tmp_path: Path,
+) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    document = _complete_annotations(workspace)
+    document["frames"][0]["annotation"] = {"status": "negative", "objects": []}
+    workspace.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(AutonomyContractError, match="review content hash mismatch"):
+        inspect_replay_annotation_workspace(intake, workspace)
+
+
+def test_replay_annotation_workspace_keeps_v1_reviewed_workspace_compatible(
+    tmp_path: Path,
+) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    document = _complete_annotations(workspace)
+    document["schema_version"] = 1
+    document.pop("review_content_hash")
+    workspace.write_text(json.dumps(document), encoding="utf-8")
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "configs/schemas/replay-annotation-workspace.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(document)
+
+    status = inspect_replay_annotation_workspace(intake, workspace)
+    assert status["workspace_schema_version"] == 1
+    assert status["review_content_bound"] is False
+    assert status["finalization_ready"] is True
+    assert finalize_replay_annotation_workspace(
+        intake, workspace, tmp_path / "legacy-finalized"
+    )["annotations_reviewed"] is True
+
+
 def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path: Path) -> None:
     intake = tmp_path / "intake"
     prepare_deployment_replay_set(
@@ -498,7 +637,48 @@ def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path
     )
     assert pending.returncode == 2
     assert json.loads(pending.stdout)["finalization_ready"] is False
-    _complete_annotations(workspace)
+    annotation = json.loads(workspace.read_text(encoding="utf-8"))
+    for index, frame in enumerate(annotation["frames"]):
+        command = [
+            sys.executable,
+            script,
+            "annotate",
+            str(intake),
+            str(workspace),
+            frame["frame_id"],
+            "--annotator",
+            "annotator-a",
+        ]
+        command.extend(
+            ["--object", "flame:0.1:0.2:0.4:0.6"] if index == 0 else ["--negative"]
+        )
+        annotated = subprocess.run(
+            command,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert annotated.returncode == 0, annotated.stderr
+    reviewed = subprocess.run(
+        [
+            sys.executable,
+            script,
+            "review",
+            str(intake),
+            str(workspace),
+            "--reviewer",
+            "reviewer-b",
+            "--reviewed-at-utc",
+            "2026-09-06T02:00:00Z",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert reviewed.returncode == 0, reviewed.stderr
+    assert json.loads(reviewed.stdout)["finalization_ready"] is True
     output = tmp_path / "final"
     finalized = subprocess.run(
         [sys.executable, script, "finalize", str(intake), str(workspace), str(output)],

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create, inspect, or finalize a deployment replay annotation workspace."""
+"""Create, annotate, review, inspect, or finalize a replay annotation workspace."""
 
 from __future__ import annotations
 

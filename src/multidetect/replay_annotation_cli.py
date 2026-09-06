@@ -7,11 +7,25 @@ import json
 from pathlib import Path
 
 from .replay_annotation_workspace import (
+    annotate_replay_frame,
     create_replay_annotation_workspace,
     finalize_replay_annotation_workspace,
     inspect_replay_annotation_workspace,
+    review_replay_annotation_workspace,
     verify_finalized_replay_annotations,
 )
+
+
+def _object(value: str) -> dict[str, object]:
+    parts = value.split(":")
+    if len(parts) != 5:
+        raise argparse.ArgumentTypeError("object must use LABEL:X1:Y1:X2:Y2")
+    label, *coordinates = parts
+    try:
+        bbox = [float(item) for item in coordinates]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("bbox coordinates must be numbers") from exc
+    return {"label": label, "bbox": bbox}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,6 +38,19 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = commands.add_parser("inspect")
     inspect.add_argument("intake", type=Path)
     inspect.add_argument("workspace", type=Path)
+    annotate = commands.add_parser("annotate")
+    annotate.add_argument("intake", type=Path)
+    annotate.add_argument("workspace", type=Path)
+    annotate.add_argument("frame_id")
+    annotate.add_argument("--annotator", required=True)
+    disposition = annotate.add_mutually_exclusive_group(required=True)
+    disposition.add_argument("--negative", action="store_true")
+    disposition.add_argument("--object", action="append", type=_object, default=[])
+    review = commands.add_parser("review")
+    review.add_argument("intake", type=Path)
+    review.add_argument("workspace", type=Path)
+    review.add_argument("--reviewer", required=True)
+    review.add_argument("--reviewed-at-utc")
     finalize = commands.add_parser("finalize")
     finalize.add_argument("intake", type=Path)
     finalize.add_argument("workspace", type=Path)
@@ -42,6 +69,22 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.command == "inspect":
         report = inspect_replay_annotation_workspace(args.intake, args.workspace)
+    elif args.command == "annotate":
+        report = annotate_replay_frame(
+            args.intake,
+            args.workspace,
+            frame_id=args.frame_id,
+            annotator=args.annotator,
+            status="negative" if args.negative else "positive",
+            objects=args.object,
+        )
+    elif args.command == "review":
+        report = review_replay_annotation_workspace(
+            args.intake,
+            args.workspace,
+            reviewer=args.reviewer,
+            reviewed_at_utc=args.reviewed_at_utc,
+        )
     elif args.command == "finalize":
         report = finalize_replay_annotation_workspace(args.intake, args.workspace, args.output)
     else:

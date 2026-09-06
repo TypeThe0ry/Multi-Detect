@@ -24,7 +24,7 @@ from .domain import BoundingBox
 from .replay_set import REPLAY_SET_STRATA, build_replay_set_manifest, load_replay_set_manifest
 from .replay_set_intake import INTAKE_RECEIPT_NAME, verify_deployment_replay_intake
 
-ANNOTATION_WORKSPACE_SCHEMA_VERSION = 1
+ANNOTATION_WORKSPACE_SCHEMA_VERSION = 2
 
 
 def create_replay_annotation_workspace(
@@ -52,6 +52,7 @@ def create_replay_annotation_workspace(
         "annotator": None,
         "reviewer": None,
         "reviewed_at_utc": None,
+        "review_content_hash": None,
         "frames": frames,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,18 +82,137 @@ def inspect_replay_annotation_workspace(
     identities_distinct = bool(parsed["annotator"] and parsed["reviewer"]) and (
         str(parsed["annotator"]).casefold() != str(parsed["reviewer"]).casefold()
     )
+    next_unannotated = next(
+        (
+            {
+                "stratum": frame["stratum"],
+                "frame_id": frame["frame_id"],
+                "image": frame["image"],
+            }
+            for frame in parsed["frames"]
+            if frame["annotation"]["status"] == "unannotated"
+        ),
+        None,
+    )
     return {
         "event": "replay_annotation_workspace_inspected",
+        "workspace_schema_version": parsed["schema_version"],
         "assignment_hash": parsed["assignment_hash"],
         "frame_count": len(parsed["frames"]),
         "status_counts": status_counts,
         "all_frames_annotated": complete,
         "annotator_reviewer_distinct": identities_distinct,
+        "review_content_bound": parsed["review_content_hash"] is not None,
+        "next_unannotated": next_unannotated,
         "finalization_ready": complete
         and identities_distinct
         and parsed["reviewed_at_utc"] is not None,
         "release_ready": False,
     }
+
+
+def annotate_replay_frame(
+    intake_root: str | Path,
+    workspace: str | Path,
+    *,
+    frame_id: str,
+    annotator: str,
+    status: str,
+    objects: Sequence[Mapping[str, object]] = (),
+) -> dict[str, object]:
+    """Atomically record one human frame disposition in the editable workspace."""
+
+    source, original_payload, document, intake_report, expected_frames = (
+        _load_mutable_workspace(intake_root, workspace)
+    )
+    identity = require_text(annotator, "annotator")
+    existing_identity = _optional_text(document["annotator"], "annotator")
+    if existing_identity is not None and existing_identity.casefold() != identity.casefold():
+        raise AutonomyContractError("annotation workspace is already assigned to another annotator")
+    disposition = require_text(status, "annotation status").lower()
+    if disposition not in {"positive", "negative"}:
+        raise AutonomyContractError("annotation status must be positive or negative")
+    target_id = require_text(frame_id, "frame_id")
+    matches = [
+        (index, frame)
+        for index, frame in enumerate(document["frames"])
+        if frame.get("frame_id") == target_id
+    ]
+    if len(matches) != 1:
+        raise AutonomyContractError("frame_id must match exactly one assigned frame")
+    index, frame = matches[0]
+    normalized_objects = _objects(list(objects), document["class_names"], index=index)
+    if disposition == "positive" and not normalized_objects:
+        raise AutonomyContractError("positive frames require at least one object")
+    if disposition == "negative" and normalized_objects:
+        raise AutonomyContractError("negative frames must have an empty objects array")
+    replacement = {"status": disposition, "objects": normalized_objects}
+    if frame["annotation"] != replacement:
+        frame["annotation"] = replacement
+        document["annotator"] = identity
+        document["reviewer"] = None
+        document["reviewed_at_utc"] = None
+        if document["schema_version"] == 2:
+            document["review_content_hash"] = None
+        _validate_workspace(
+            document,
+            intake_report=intake_report,
+            expected_frames=expected_frames,
+            require_complete=False,
+        )
+        _replace_json_atomic(source, document, expected_payload=original_payload)
+    return inspect_replay_annotation_workspace(intake_root, source)
+
+
+def review_replay_annotation_workspace(
+    intake_root: str | Path,
+    workspace: str | Path,
+    *,
+    reviewer: str,
+    reviewed_at_utc: str | None = None,
+) -> dict[str, object]:
+    """Atomically acknowledge a complete workspace as an independent reviewer."""
+
+    source, original_payload, document, intake_report, expected_frames = (
+        _load_mutable_workspace(intake_root, workspace)
+    )
+    parsed = _validate_workspace(
+        document,
+        intake_report=intake_report,
+        expected_frames=expected_frames,
+        require_complete=False,
+    )
+    if any(frame["annotation"]["status"] == "unannotated" for frame in parsed["frames"]):
+        raise AutonomyContractError("every frame must be annotated before review")
+    annotator = _optional_text(document["annotator"], "annotator")
+    identity = require_text(reviewer, "reviewer")
+    if annotator is None or annotator.casefold() == identity.casefold():
+        raise AutonomyContractError("annotator and reviewer must be present and distinct")
+    existing_reviewer = _optional_text(document["reviewer"], "reviewer")
+    if existing_reviewer is not None:
+        if existing_reviewer.casefold() != identity.casefold():
+            raise AutonomyContractError(
+                "annotation workspace is already bound to another reviewer"
+            )
+        return inspect_replay_annotation_workspace(intake_root, source)
+    timestamp = _reviewed_at(
+        reviewed_at_utc
+        or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    document["reviewer"] = identity
+    document["reviewed_at_utc"] = timestamp
+    if document["schema_version"] == 2:
+        document["frames"] = parsed["frames"]
+        document["class_names"] = list(parsed["class_names"])
+        document["review_content_hash"] = _review_content_hash(document)
+    _validate_workspace(
+        document,
+        intake_report=intake_report,
+        expected_frames=expected_frames,
+        require_complete=True,
+    )
+    _replace_json_atomic(source, document, expected_payload=original_payload)
+    return inspect_replay_annotation_workspace(intake_root, source)
 
 
 def finalize_replay_annotation_workspace(
@@ -345,7 +465,10 @@ def _validate_workspace(
         "reviewed_at_utc",
         "frames",
     }
-    if set(document) != required or document["schema_version"] != 1:
+    schema_version = document.get("schema_version")
+    if schema_version == 2:
+        required.add("review_content_hash")
+    if set(document) != required or schema_version not in {1, 2}:
         raise AutonomyContractError("annotation workspace has unknown/missing fields or schema")
     if document["intake_canonical_hash"] != intake_report["canonical_hash"]:
         raise AutonomyContractError("annotation workspace intake binding mismatch")
@@ -416,6 +539,28 @@ def _validate_workspace(
             raise AutonomyContractError("annotator and reviewer must be present and distinct")
         if reviewed_at is None:
             raise AutonomyContractError("reviewed_at_utc is required for finalization")
+    review_content_hash = None
+    if schema_version == 2:
+        raw_review_hash = document["review_content_hash"]
+        if reviewer is None and reviewed_at is None:
+            if raw_review_hash is not None:
+                raise AutonomyContractError("unreviewed workspace must not contain review hash")
+        elif reviewer is None or reviewed_at is None:
+            raise AutonomyContractError("reviewer and reviewed_at_utc must be set together")
+        else:
+            review_content_hash = require_sha256(raw_review_hash, "review_content_hash")
+            expected_review_hash = _review_content_hash(
+                {
+                    **document,
+                    "class_names": list(classes),
+                    "frames": frames,
+                    "annotator": annotator,
+                    "reviewer": reviewer,
+                    "reviewed_at_utc": reviewed_at,
+                }
+            )
+            if review_content_hash != expected_review_hash:
+                raise AutonomyContractError("annotation review content hash mismatch")
     return {
         **document,
         "class_names": classes,
@@ -423,6 +568,7 @@ def _validate_workspace(
         "annotator": annotator,
         "reviewer": reviewer,
         "reviewed_at_utc": reviewed_at,
+        "review_content_hash": review_content_hash,
         "assignment_hash": assignment_hash,
     }
 
@@ -464,6 +610,29 @@ def _assignment_hash(
             "dataset_version": intake["dataset_version"],
             "class_names": list(classes),
             "frames": identities,
+        }
+    )
+
+
+def _review_content_hash(document: Mapping[str, object]) -> str:
+    frames = document["frames"]
+    if not isinstance(frames, Sequence) or isinstance(frames, (str, bytes, bytearray)):
+        raise AutonomyContractError("annotation workspace frames must be an array")
+    return canonical_sha256(
+        {
+            "schema_version": 2,
+            "assignment_hash": document["assignment_hash"],
+            "annotator": document["annotator"],
+            "reviewer": document["reviewer"],
+            "reviewed_at_utc": document["reviewed_at_utc"],
+            "annotations": [
+                {
+                    "stratum": frame["stratum"],
+                    "frame_id": frame["frame_id"],
+                    "annotation": frame["annotation"],
+                }
+                for frame in frames
+            ],
         }
     )
 
@@ -578,6 +747,62 @@ def _load_json(path: str | Path, name: str) -> dict[str, object]:
     return value
 
 
+def _load_mutable_workspace(
+    intake_root: str | Path,
+    workspace: str | Path,
+) -> tuple[
+    Path,
+    bytes,
+    dict[str, object],
+    Mapping[str, object],
+    Sequence[Mapping[str, object]],
+]:
+    intake = Path(intake_root).resolve(strict=True)
+    intake_report = verify_deployment_replay_intake(intake)
+    requested = Path(workspace)
+    if requested.is_symlink():
+        raise AutonomyContractError("annotation workspace must not be a symlink")
+    source = requested.resolve(strict=True)
+    if not source.is_file():
+        raise AutonomyContractError("annotation workspace must be a regular file")
+    original_payload = source.read_bytes()
+    document = _load_json(source, "annotation workspace")
+    expected_frames = _expected_frames(intake)
+    _validate_workspace(
+        document,
+        intake_report=intake_report,
+        expected_frames=expected_frames,
+        require_complete=False,
+    )
+    return source, original_payload, document, intake_report, expected_frames
+
+
+def _replace_json_atomic(
+    path: Path,
+    document: Mapping[str, object],
+    *,
+    expected_payload: bytes,
+) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(
+                document, handle, ensure_ascii=False, allow_nan=False, indent=2, sort_keys=True
+            )
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.is_symlink() or path.read_bytes() != expected_payload:
+            raise AutonomyContractError("annotation workspace changed concurrently")
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def _write_json_atomic(path: Path, document: Mapping[str, object]) -> None:
     if path.exists() or path.is_symlink():
         raise AutonomyContractError(f"output already exists: {path}")
@@ -602,8 +827,10 @@ def _write_json_atomic(path: Path, document: Mapping[str, object]) -> None:
 
 
 __all__ = [
+    "annotate_replay_frame",
     "create_replay_annotation_workspace",
     "inspect_replay_annotation_workspace",
+    "review_replay_annotation_workspace",
     "finalize_replay_annotation_workspace",
     "verify_finalized_replay_annotations",
 ]

@@ -186,7 +186,11 @@ def inspect_field_replay_campaign(workspace: str | Path) -> dict[str, Any]:
         return _finish(base, stage="annotation_workspace_ready")
     annotation_status = inspect_replay_annotation_workspace(intake, annotations)
     base["artifacts"]["annotations"] = annotation_status
-    if annotation_status["finalization_ready"] is not True:
+    if not (
+        annotation_status["finalization_ready"] is True
+        and annotation_status["workspace_schema_version"] == 2
+        and annotation_status["review_content_bound"] is True
+    ):
         return _finish(
             base,
             stage="annotation_required",
@@ -557,13 +561,29 @@ def _finish(
         ]
     )
     if stage == "annotation_required":
-        status["next_argv"] = [
-            "python",
-            "scripts/replay_annotation_workspace.py",
-            "inspect",
-            status["paths"]["intake"],
-            status["paths"]["annotations"],
-        ]
+        annotation = status["artifacts"].get("annotations", {})
+        pending = annotation.get("next_unannotated")
+        if pending is not None:
+            status["next_argv"] = [
+                "python",
+                "scripts/replay_annotation_workspace.py",
+                "annotate",
+                status["paths"]["intake"],
+                status["paths"]["annotations"],
+                pending["frame_id"],
+                "--annotator",
+                "<annotator>",
+            ]
+        else:
+            status["next_argv"] = [
+                "python",
+                "scripts/replay_annotation_workspace.py",
+                "review",
+                status["paths"]["intake"],
+                status["paths"]["annotations"],
+                "--reviewer",
+                "<independent-reviewer>",
+            ]
     elif stage == "accuracy_review_required":
         status["next_argv"].extend(["--accuracy-reviewer", "<independent-reviewer>"])
     elif stage == "calibration_review_required":

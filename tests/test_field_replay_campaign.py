@@ -18,6 +18,7 @@ from multidetect.field_replay_campaign import (
     create_field_replay_campaign,
     inspect_field_replay_campaign,
 )
+from multidetect.replay_annotation_workspace import review_replay_annotation_workspace
 from multidetect.replay_set import REPLAY_SET_STRATA
 from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
@@ -157,8 +158,6 @@ def _create(
 def _complete_annotations(path: Path) -> None:
     document = json.loads(path.read_text(encoding="utf-8"))
     document["annotator"] = "annotator-a"
-    document["reviewer"] = "reviewer-b"
-    document["reviewed_at_utc"] = "2026-09-06T01:00:00Z"
     for frame in document["frames"]:
         if frame["stratum"] == "no_fire":
             frame["annotation"] = {"status": "negative", "objects": []}
@@ -170,6 +169,12 @@ def _complete_annotations(path: Path) -> None:
                 ],
             }
     path.write_text(json.dumps(document), encoding="utf-8")
+    review_replay_annotation_workspace(
+        path.parent / "intake",
+        path,
+        reviewer="reviewer-b",
+        reviewed_at_utc="2026-09-06T01:00:00Z",
+    )
 
 
 def test_campaign_plan_is_strict_hash_bound_and_waits_for_real_sources(
@@ -222,11 +227,23 @@ def test_campaign_advances_intake_and_stops_at_human_annotation(
         "annotation_workspace_ready",
     ]
     assert Path(status["paths"]["annotations"]).is_file()
+    assert status["next_argv"][2:4] == ["annotate", status["paths"]["intake"]]
+    assert status["next_argv"][5] == "day-frame-0001"
     assert status["artifacts"]["annotations"]["status_counts"] == {
         "unannotated": 6,
         "positive": 0,
         "negative": 0,
     }
+
+    _complete_annotations(workspace / "annotations.json")
+    legacy = json.loads((workspace / "annotations.json").read_text(encoding="utf-8"))
+    legacy["schema_version"] = 1
+    legacy.pop("review_content_hash")
+    (workspace / "annotations.json").write_text(json.dumps(legacy), encoding="utf-8")
+    downgraded = inspect_field_replay_campaign(workspace)
+    assert downgraded["stage"] == "annotation_required"
+    assert downgraded["artifacts"]["annotations"]["workspace_schema_version"] == 1
+    assert not (workspace / "reviewed").exists()
 
     help_run = subprocess.run(
         [sys.executable, "scripts/run_field_replay_campaign.py", "--help"],
