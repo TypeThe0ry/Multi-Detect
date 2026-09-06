@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v127 工作树）
+最后更新：2026-09-06（v128 工作树）
+
+## v128 本轮已收口
+
+- `scripts/deploy_jetson_evidence_capture.ps1` 新增显式 `RemoteUser`（默认 `jetson`）和 `SshPort`（默认 `22`）；
+  scp/ssh 使用同一精确 `user@host` 与端口，修复直接传 IP 时 OpenSSH 误用 Windows 本机用户名的问题；
+- 两段 OpenSSH 调用均强制 BatchMode、`StrictHostKeyChecking=yes`、`UpdateHostKeys=no`，因此未预置可信
+  host key、身份变化或需要密码交互时直接失败，不会静默接受或改写主机密钥；任何凭据均不进入源码/回执；
+- installation receipt/Schema 升级为 v2，新增 `remote_user` 与 `ssh_port` 严格绑定；独立 verifier 拒绝非法用户名、
+  布尔/越界端口。真实 PowerShell `-PackageOnly` 开发烟测生成 6,905,344-byte tar，SHA-256
+  `6AF0FE9EDED3B9132C75945718670A77E79C283A8953FA9A28B8D1721A7174A6`，独立复核 242 members、231 files，
+  并实证 `INSTALL_RECEIPT_EXISTS=False`；该包 `source_dirty=true`，仅作开发烟测，不是正式部署证据；
+- 全量回归 3,566 tests：`3564 passed, 2 skipped, 0 failed, 0 errors`，耗时 271.65 秒；JUnit
+  520,094 bytes、SHA-256 `8B5B93EF1F70641AA16100E35B81BD7484CC968AEA9278F401EA891563B8A905`；
+  Ruff、compileall、PowerShell parse、Git Bash syntax、diff check 与 parity 通过；五组共享哈希/QGC EXE 未改变，
+  真实 Jetson 安装、hardware、HIL/REAL、外场和 release 仍未通过，E7 仍有 32 blockers。
 
 ## v127 本轮已收口
 

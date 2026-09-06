@@ -681,7 +681,17 @@ python scripts\verify_jetson_evidence_capture_package.py `
   build\jetson-evidence-deploy\multidetect-evidence-tools-v125-14b1010.package.json
 ```
 
-接入 `192.168.144.0/24` 后去掉 `-PackageOnly` 并传入 `-HostAlias 192.168.144.20`；部署只写独立
+接入 `192.168.144.0/24`、通过可信通道核对并预置 Jetson host key、配置非交互 SSH key 后，去掉
+`-PackageOnly` 并显式传入登录身份：
+
+```powershell
+scripts\deploy_jetson_evidence_capture.ps1 `
+  -HostAlias 192.168.144.20 -RemoteUser jetson -SshPort 22 `
+  -DeploymentId <unique-deployment-id>
+```
+
+部署器固定 BatchMode、`StrictHostKeyChecking=yes` 和 `UpdateHostKeys=no`；不会提示或保存密码，也不会自动接受/
+替换 host key。部署只写独立
 `Multi-Detect-evidence-tools/<deployment-id>`，不重启生产服务。成功时必须一起保留 `.package.json`、
 `.remote-output.txt` 和 `.install.json`；SSH 失败只产生 `.failed-remote-output.txt`，`-PackageOnly` 不产生
 `.install.json`。用独立消费方重开三件套：

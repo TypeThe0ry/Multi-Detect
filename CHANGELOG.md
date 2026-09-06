@@ -5,6 +5,13 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v128 explicit Jetson SSH identity（2026-09-06）
+
+- Jetson 部署新增显式 `RemoteUser`/`SshPort`，scp/ssh 共用精确 `user@host:port`，并强制
+  `StrictHostKeyChecking=yes`、`UpdateHostKeys=no` 和 BatchMode，避免 Windows 本机用户名或首连交互被误用；
+- installation receipt 升级 v2 并绑定 remote user/SSH port；非法用户/端口 fail-closed。真实 package-only 烟测
+  复核 242 members/231 files 且无 install receipt；全量 3,566 tests：`3564 passed, 2 skipped`，E7 仍阻断。
+
 ### v0.3.0-pre.8 v127 source-bound Jetson installation receipt（2026-09-06）
 
 - SSH 远端安装只有在退出码为 0 且唯一 READY/RUN marker 完整匹配后才写 installation receipt；回执绑定

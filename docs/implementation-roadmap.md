@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## Jetson explicit SSH identity（v128）
+
+- [x] 显式 remote user/SSH port，scp 与 ssh 共用相同 destination；
+- [x] BatchMode + strict known-host checking + 禁止 UpdateHostKeys，身份或认证异常 fail-closed；
+- [x] installation receipt v2/Schema/verifier 绑定 user/port，并覆盖非法用户名与端口负测；
+- [x] 真实 package-only 打包/独立复核/无 install receipt 烟测；
+- [ ] 由操作员通过可信通道核对 Jetson host-key fingerprint，预置 known_hosts/SSH key 后执行真实部署。
+
 ## Jetson remote installation receipt（v127）
 
 - [x] SSH stdout/stderr 持久化，并以退出码 0、唯一 exact READY marker、唯一 RUN marker 共同授权回执；

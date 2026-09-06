@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v128 explicit SSH login identity（2026-09-06，`v0.3.0-pre.8`）
+
+Jetson deploy producer 将远端登录身份拆成 `HostAlias`、`RemoteUser` 和 `SshPort`，scp/ssh 始终复用同一个
+`user@host:port`。OpenSSH 固定 BatchMode、严格 known-host 检查且禁止自动更新主机密钥；因此登录名漂移、未知/
+变化的 host key 或交互式密码需求均在产生 install receipt 前失败。installation contract 升级为 v2，消费方同时
+验证 remote user/port；密钥、密码和 known_hosts 内容均不序列化。该约束不改变 package-only 内容身份，也不提升
+远端安装、硬件或 release 状态。
+
 ## v127 source-bound remote installation receipt（2026-09-06，`v0.3.0-pre.8`）
 
 `src/multidetect/jetson_evidence_install.py` 是远端安装后的独立消费边界；installed CLI 为

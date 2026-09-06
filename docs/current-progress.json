@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T07:39:11Z",
+  "updated_at_utc": "2026-09-06T07:51:23Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "43b4377efaf9dcf90019b5ff34557527500215b2",
-    "commit_subject": "feat(jetson): bind remote evidence installations",
-    "commits_ahead_of_origin_main": 142
+    "commit": "09e4b152991e07012efe76347f9977318a5f4240",
+    "commit_subject": "feat(jetson): pin remote SSH login inputs",
+    "commits_ahead_of_origin_main": 144
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v127",
+  "working_iteration": "v128",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v127-final.xml",
-      "tests": 3563,
-      "passed": 3561,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v128-final.xml",
+      "tests": 3566,
+      "passed": 3564,
       "skipped": 2,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 269.32,
-      "junit_local_path": "tmp/current-progress-regression-v127-final.xml",
-      "junit_file_bytes": 519572,
-      "junit_file_sha256": "a86dafae06f727cd2c62ac3adc5e188e5c7c77ebda19cf628584dd5f23301ec7",
+      "duration_seconds": 271.65,
+      "junit_local_path": "tmp/current-progress-regression-v128-final.xml",
+      "junit_file_bytes": 520094,
+      "junit_file_sha256": "8b5b93ef1f70641aa16100e35b81bd7484cc968aea9278f401ea891563b8a905",
       "distributed_in_git": false
     },
     "ruff": {
@@ -84,12 +84,35 @@
       "installation_verifier_command": "multidetect-jetson-evidence-install-verify",
       "installation_verifier_wrapper": "scripts/verify_jetson_evidence_installation.py",
       "installation_receipt_schema": "configs/schemas/jetson-evidence-tools-installation.schema.json",
+      "installation_receipt_schema_version": 2,
+      "installation_receipt_schema_bytes": 3622,
+      "installation_receipt_schema_sha256": "8ef907926707b35616188a430522c896a9aef44ac378203d66e256000c7ba857",
       "installation_receipt_requires_ssh_exit_zero": true,
       "installation_receipt_requires_unique_exact_ready_and_run_markers": true,
       "installation_receipt_binds_package_and_remote_output": true,
       "package_only_writes_installation_receipt": false,
       "failed_ssh_writes_installation_receipt": false,
       "real_installation_receipt_collected": false,
+      "ssh_remote_user_explicit": true,
+      "ssh_port_explicit": true,
+      "ssh_batch_mode": true,
+      "ssh_strict_host_key_checking": true,
+      "ssh_update_host_keys": false,
+      "credentials_serialized": false,
+      "package_only_development_smoke": {
+        "local_path": "tmp/v128-package-smoke-708e791458da40d0ba01e00678eedc9a",
+        "distributed_in_git": false,
+        "source_dirty": true,
+        "archive_bytes": 6905344,
+        "archive_sha256": "6af0fe9eded3b9132c75945718670a77e79c283a8953fa9a28b8d1721a7174a6",
+        "package_receipt_bytes": 892,
+        "package_receipt_sha256": "2ae1f3de2ad4aa6553abfe26f5f1221ffd47e6cc9918e7540edb828ce1a1baa9",
+        "tar_member_count": 242,
+        "verified_source_file_count": 231,
+        "package_verified": true,
+        "installation_receipt_created": false,
+        "formal_deployment_evidence": false
+      },
       "source_git_head": "14b1010d2b6ab2ebb7648d456de35e2a8bf6e102",
       "source_dirty": false,
       "package_local_path": "build/jetson-evidence-deploy/multidetect-evidence-tools-v125-14b1010.tar",
