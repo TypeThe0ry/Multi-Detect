@@ -40,7 +40,7 @@ from .gr01_release_session import (
     verify_gr01_release_session_record,
 )
 
-REVIEW_SCHEMA_VERSION = 1
+REVIEW_SCHEMA_VERSION = 2
 REVIEW_EVENT = "multidetect_gr01_release_session_portable_reviewed"
 INVENTORY_NAME = "gr01-release-session-transfer-inventory.json"
 RECORD_NAME = "gr01-release-session.json"
@@ -356,8 +356,10 @@ def review_gr01_release_session_bundle(
     destination_root: str | Path,
     transfer_receipt_out: str | Path,
     review_out: str | Path,
+    *,
+    expected_inventory_sha256: str,
 ) -> dict[str, Any]:
-    """Verify a byte-exact copy and save a portable semantic review receipt."""
+    """Verify a hash-anchored copy and save a portable semantic review receipt."""
 
     root = _regular_directory(destination_root, name="destination GR01 session root")
     review_path = Path(review_out).expanduser().resolve()
@@ -371,10 +373,16 @@ def review_gr01_release_session_bundle(
             pass
         else:
             raise Gr01ReleaseReviewError(f"{name} must remain outside the copied bundle")
+    expected_inventory_hash = require_sha256(
+        expected_inventory_sha256,
+        "expected_inventory_sha256",
+    )
+    verified_inventory = verify_evidence_transfer_inventory(inventory)
+    if verified_inventory["file_sha256"] != expected_inventory_hash:
+        raise Gr01ReleaseReviewError("transfer inventory SHA-256 does not match trusted value")
     transfer = verify_evidence_bundle_transfer(inventory, root, transfer_path)
     verify_evidence_bundle_transfer_receipt(transfer_path)
     semantic = _portable_session_review(root)
-    verified_inventory = verify_evidence_transfer_inventory(inventory)
     document: dict[str, Any] = {
         "event": REVIEW_EVENT,
         "schema_version": REVIEW_SCHEMA_VERSION,
@@ -383,8 +391,10 @@ def review_gr01_release_session_bundle(
         .replace("+00:00", "Z"),
         "bundle_id": transfer["bundle_id"],
         "transfer": {
+            "expected_inventory_file_sha256": expected_inventory_hash,
             "inventory_file_bytes": verified_inventory["file_bytes"],
             "inventory_file_sha256": verified_inventory["file_sha256"],
+            "inventory_hash_matches_expected": True,
             "inventory_canonical_hash": verified_inventory["document"]["canonical_hash"],
             "transfer_receipt_file_bytes": transfer_path.stat().st_size,
             "transfer_receipt_file_sha256": _sha256(transfer_path),
@@ -453,6 +463,8 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
             {
                 "inventory_file_bytes",
                 "inventory_file_sha256",
+                "expected_inventory_file_sha256",
+                "inventory_hash_matches_expected",
                 "inventory_canonical_hash",
                 "transfer_receipt_file_bytes",
                 "transfer_receipt_file_sha256",
@@ -465,6 +477,7 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
     for name in ("inventory_file_bytes", "transfer_receipt_file_bytes"):
         require_int(transfer[name], f"transfer.{name}", minimum=1)
     for name in (
+        "expected_inventory_file_sha256",
         "inventory_file_sha256",
         "inventory_canonical_hash",
         "transfer_receipt_file_sha256",
@@ -472,6 +485,15 @@ def verify_gr01_release_session_review_receipt(receipt: str | Path) -> dict[str,
         "bundle_content_hash",
     ):
         require_sha256(transfer[name], f"transfer.{name}")
+    if (
+        transfer["expected_inventory_file_sha256"] != transfer["inventory_file_sha256"]
+        or require_bool(
+            transfer["inventory_hash_matches_expected"],
+            "transfer.inventory_hash_matches_expected",
+        )
+        is not True
+    ):
+        raise Gr01ReleaseReviewError("portable review inventory trust anchor does not match")
     if require_bool(transfer["byte_exact_copy"], "transfer.byte_exact_copy") is not True:
         raise Gr01ReleaseReviewError("portable review requires a byte-exact copy")
     session = strict_object(
@@ -588,6 +610,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--bundle-id")
     review = subparsers.add_parser("review", help="review a copied session on another machine")
     review.add_argument("--inventory", required=True, type=Path)
+    review.add_argument("--expected-inventory-sha256", required=True)
     review.add_argument("--destination-root", required=True, type=Path)
     review.add_argument("--transfer-receipt-out", required=True, type=Path)
     review.add_argument("--out", required=True, type=Path)
@@ -612,6 +635,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.destination_root,
                 args.transfer_receipt_out,
                 args.out,
+                expected_inventory_sha256=args.expected_inventory_sha256,
             )
         else:
             document = verify_gr01_release_session_review_receipt(args.receipt)

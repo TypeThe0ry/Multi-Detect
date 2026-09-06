@@ -361,7 +361,9 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
     '--inventory-out', $transferInventoryPath,
     '--version-manifest', (Resolve-RepositoryPath -Requested 'configs\product-version.json')
 ) -Label 'GR01 release-session portable review snapshot'
+$transferInventorySha256 = (Get-FileHash -LiteralPath $transferInventoryPath -Algorithm SHA256).Hash
 
 Write-Output "GR01 release session passed: $recordPath"
 Write-Output "Portable review inventory written: $transferInventoryPath"
+Write-Output "Portable review trusted inventory SHA-256: $transferInventorySha256"
 Write-Output 'This record verifies the GR01 E7 binding only; inspect release_allowed separately.'

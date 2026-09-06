@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -451,6 +452,7 @@ def test_field_snapshot_and_second_machine_portable_review(
         destination,
         transfer_receipt,
         review_receipt,
+        expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest().upper(),
     )
 
     schema = json.loads(REVIEW_SCHEMA.read_text(encoding="utf-8"))
@@ -461,6 +463,11 @@ def test_field_snapshot_and_second_machine_portable_review(
     ).validate(review)
     assert snapshot["file_count"] == 6
     assert review["transfer"]["byte_exact_copy"] is True
+    assert review["transfer"]["inventory_hash_matches_expected"] is True
+    assert (
+        review["transfer"]["expected_inventory_file_sha256"]
+        == review["transfer"]["inventory_file_sha256"]
+    )
     assert review["session"]["source_count"] == 5
     assert review["session"]["five_source_hashes_verified"] is True
     assert review["session"]["bench_recomputed"] is True
@@ -511,6 +518,9 @@ def test_portable_review_rejects_changed_copy(
             destination,
             tmp_path / "changed-transfer.json",
             tmp_path / "changed-review.json",
+            expected_inventory_sha256=hashlib.sha256(
+                (destination / INVENTORY_NAME).read_bytes()
+            ).hexdigest(),
         )
     assert not (tmp_path / "changed-review.json").exists()
 
@@ -544,7 +554,47 @@ def test_portable_semantic_review_rejects_reinventoried_record_tampering(
             destination,
             tmp_path / "reinventoried-transfer.json",
             tmp_path / "reinventoried-review.json",
+            expected_inventory_sha256=hashlib.sha256(
+                (destination / INVENTORY_NAME).read_bytes()
+            ).hexdigest(),
         )
+
+
+def test_portable_review_requires_matching_out_of_band_inventory_hash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, handoff, bench, manifest, report = _sources(tmp_path, monkeypatch)
+    source_root = tmp_path / "session"
+    create_gr01_release_session_record(
+        source_root / "gr01-release-session.json",
+        release_plan=plan,
+        release_handoff=handoff,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    snapshot_gr01_release_session_bundle(
+        source_root,
+        source_root / INVENTORY_NAME,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    destination = tmp_path / "wrong-anchor-copy"
+    shutil.copytree(source_root, destination)
+    transfer_receipt = tmp_path / "wrong-anchor-transfer.json"
+    review_receipt = tmp_path / "wrong-anchor-review.json"
+
+    with pytest.raises(ValueError, match="does not match trusted value"):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            destination,
+            transfer_receipt,
+            review_receipt,
+            expected_inventory_sha256="0" * 64,
+        )
+    assert not transfer_receipt.exists()
+    assert not review_receipt.exists()
 
 
 def test_portable_review_repository_entry_point_has_all_modes() -> None:
@@ -560,3 +610,18 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
     assert "snapshot" in completed.stdout
     assert "review" in completed.stdout
     assert "verify" in completed.stdout
+    review_help = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/verify_gr01_release_session_review.py"),
+            "review",
+            "--help",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert review_help.returncode == 0, review_help.stderr
+    assert "--expected-inventory-sha256" in review_help.stdout

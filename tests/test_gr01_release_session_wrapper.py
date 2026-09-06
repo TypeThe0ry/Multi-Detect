@@ -67,6 +67,8 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "'snapshot'",
         "'gr01-release-session-transfer-inventory.json'",
         "portable review snapshot",
+        "Portable review trusted inventory SHA-256",
+        "Get-FileHash -LiteralPath $transferInventoryPath -Algorithm SHA256",
         "SourcePlan cannot be combined with PlanOnly",
         "Imported source plan hash does not match",
         "SourcePlan must be a regular non-reparse file",

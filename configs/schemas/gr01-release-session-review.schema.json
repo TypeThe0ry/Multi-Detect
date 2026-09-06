@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session-review.schema.json",
-  "title": "Multi-Detect portable GR01 release-session review v1",
+  "title": "Multi-Detect portable GR01 release-session review v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,20 +10,23 @@
   ],
   "properties": {
     "event": {"const": "multidetect_gr01_release_session_portable_reviewed"},
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "reviewed_at_utc": {"type": "string", "format": "date-time"},
     "bundle_id": {"type": "string", "format": "uuid"},
     "transfer": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "inventory_file_bytes", "inventory_file_sha256", "inventory_canonical_hash",
+        "expected_inventory_file_sha256", "inventory_file_bytes", "inventory_file_sha256",
+        "inventory_hash_matches_expected", "inventory_canonical_hash",
         "transfer_receipt_file_bytes", "transfer_receipt_file_sha256",
         "transfer_receipt_canonical_hash", "bundle_content_hash", "byte_exact_copy"
       ],
       "properties": {
+        "expected_inventory_file_sha256": {"$ref": "#/$defs/sha256"},
         "inventory_file_bytes": {"type": "integer", "minimum": 1},
         "inventory_file_sha256": {"$ref": "#/$defs/sha256"},
+        "inventory_hash_matches_expected": {"const": true},
         "inventory_canonical_hash": {"$ref": "#/$defs/sha256"},
         "transfer_receipt_file_bytes": {"type": "integer", "minimum": 1},
         "transfer_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
