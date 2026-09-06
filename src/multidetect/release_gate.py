@@ -231,6 +231,8 @@ _REAL_ALERT_LINK_KEYS = frozenset(
         "expected_source_cidr",
         "local_source_address",
         "source_route_verified",
+        "transport_source_address",
+        "transport_source_address_bound",
         "hardware_id",
         "requested_round_trips",
         "round_trip_samples",
@@ -275,6 +277,10 @@ _REAL_ALERT_LINK_V2_BOUND_FIELDS = (
     "expected_source_cidr",
     "local_source_address",
     "source_route_verified",
+)
+_REAL_ALERT_LINK_V3_BOUND_FIELDS = (
+    "transport_source_address",
+    "transport_source_address_bound",
 )
 _REAL_TARGET_ACCURACY_KEYS = frozenset(
     {
@@ -1743,9 +1749,11 @@ def _real_alert_link_result(
     # this explicit makes hand-written or truncated records fail closed before
     # any comparison with the source report.
     schema_version = raw_record.get("schema_version")
-    bound_fields = _REAL_ALERT_LINK_BOUND_FIELDS + (
-        _REAL_ALERT_LINK_V2_BOUND_FIELDS if schema_version == 2 else ()
-    )
+    bound_fields = _REAL_ALERT_LINK_BOUND_FIELDS
+    if schema_version in {2, 3}:
+        bound_fields += _REAL_ALERT_LINK_V2_BOUND_FIELDS
+    if schema_version == 3:
+        bound_fields += _REAL_ALERT_LINK_V3_BOUND_FIELDS
     for field in bound_fields:
         if field not in raw_record:
             reasons.append(f"real_alert_link.{field} is missing")
@@ -1781,8 +1789,8 @@ def _real_alert_link_result(
         "correlated_ack_verified": True,
         "authenticated_ack_verified": True,
     }
-    if schema_version not in {1, 2}:
-        reasons.append("real_alert_link.schema_version must be 1 or 2")
+    if schema_version not in {1, 2, 3}:
+        reasons.append("real_alert_link.schema_version must be 1, 2 or 3")
     for field, expected in expected_contract.items():
         actual = raw_record.get(field)
         if type(actual) is not type(expected) or actual != expected:

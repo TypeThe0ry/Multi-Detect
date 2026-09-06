@@ -211,6 +211,7 @@ def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
             hmac_key=key,
             sender_id="aircraft-1",
             receiver_id="ground-1",
+            source_host="127.0.0.1",
             acknowledgement_timeout_seconds=2.0,
         )
 
@@ -220,9 +221,23 @@ def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
     assert worker.is_alive() is False
     assert receipt.alert_id == "alert-1"
     assert receipt.receiver_id == "ground-1"
+    assert transport.source_host == "127.0.0.1"
     assert len(received) == 1
     assert received[0].document["target_id"] == "track-1"
     assert received[0].duplicate is False
+
+
+@pytest.mark.parametrize("source_host", ["", "not-an-ip", "::1"])
+def test_authenticated_udp_transport_rejects_invalid_source_host(source_host: str) -> None:
+    with pytest.raises(ValueError, match="source host"):
+        UdpAcknowledgedAlertTransport(
+            host="127.0.0.1",
+            port=14_600,
+            hmac_key=b"test-only-alert-key-material-32-bytes-minimum",
+            sender_id="aircraft-1",
+            receiver_id="ground-1",
+            source_host=source_host,
+        )
 
 
 @pytest.mark.parametrize(

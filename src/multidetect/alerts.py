@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import math
 import secrets
@@ -264,6 +265,7 @@ class UdpAcknowledgedAlertTransport:
         hmac_key: bytes,
         sender_id: str,
         receiver_id: str,
+        source_host: str | None = None,
         acknowledgement_timeout_seconds: float = 1.0,
         maximum_clock_skew_seconds: float = 30.0,
     ) -> None:
@@ -273,6 +275,16 @@ class UdpAcknowledgedAlertTransport:
             raise ValueError("UDP port must be between 1 and 65535")
         if len(hmac_key) < 32:
             raise ValueError("alert HMAC key must contain at least 32 bytes")
+        if source_host is not None:
+            if not isinstance(source_host, str) or not source_host.strip():
+                raise ValueError("UDP source host must be a non-empty IPv4 address or null")
+            try:
+                parsed_source = ipaddress.ip_address(source_host.strip())
+            except ValueError as exc:
+                raise ValueError("UDP source host must be a concrete IPv4 address") from exc
+            if parsed_source.version != 4:
+                raise ValueError("UDP source host must be an IPv4 address")
+            source_host = str(parsed_source)
         if (
             not math.isfinite(acknowledgement_timeout_seconds)
             or acknowledgement_timeout_seconds <= 0
@@ -285,6 +297,7 @@ class UdpAcknowledgedAlertTransport:
         self.hmac_key = hmac_key
         self.sender_id = sender_id
         self.receiver_id = receiver_id
+        self.source_host = source_host
         self.acknowledgement_timeout_seconds = acknowledgement_timeout_seconds
         self.maximum_clock_skew_seconds = maximum_clock_skew_seconds
 
@@ -314,6 +327,8 @@ class UdpAcknowledgedAlertTransport:
             raise ValueError("encoded UDP alert exceeds the protocol packet limit")
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as channel:
             channel.settimeout(self.acknowledgement_timeout_seconds)
+            if self.source_host is not None:
+                channel.bind((self.source_host, 0))
             channel.connect((self.host, self.port))
             channel.send(encoded)
             acknowledgement = _verify_signed_document(

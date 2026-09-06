@@ -88,7 +88,7 @@ def test_alert_link_software_baseline_reports_correlated_round_trips() -> None:
         observed_at=lambda: NOW,
     )
 
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert result["event"] == "alert_link_software_baseline_bench_passed"
     assert result["passed"] is True
     assert result["simulation_only"] is True
@@ -187,11 +187,14 @@ def test_alert_link_hardware_mode_binds_and_checks_selected_source_route() -> No
         source_address_resolver=lambda _host, _port: "192.168.1.13",
     )
 
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert result["expected_source_cidr"] == "192.168.144.0/24"
     assert result["local_source_address"] == "192.168.1.13"
     assert result["source_route_verified"] is False
     assert result["checks"]["source_route"] is False
+    assert result["transport_source_address"] is None
+    assert result["transport_source_address_bound"] is False
+    assert result["checks"]["transport_source_binding"] is False
     assert result["passed"] is False
     assert result["transmission_attempts"] == 0
     assert transport.calls == 0
@@ -200,6 +203,49 @@ def test_alert_link_hardware_mode_binds_and_checks_selected_source_route() -> No
     verified = verify_alert_link_bench_report(result)
     assert verified["gate_passed"] is True
     assert verified["recomputed_passed"] is False
+
+
+def test_alert_link_hardware_mode_requires_transport_pinned_to_selected_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = UdpAcknowledgedAlertTransport(
+        host="192.168.144.11",
+        port=14_600,
+        hmac_key=b"test-only-alert-key-material-32-bytes-minimum",
+        sender_id="aircraft-1",
+        receiver_id="ground-station-1",
+        source_host="192.168.144.20",
+    )
+    calls = 0
+
+    def acknowledge(document: dict[str, object]) -> AlertDeliveryReceipt:
+        nonlocal calls
+        calls += 1
+        return AlertDeliveryReceipt(str(document["alert_id"]), "ground-station-1", 10.001)
+
+    monkeypatch.setattr(transport, "send", acknowledge)
+    monotonic_values = iter((10.0, 10.001))
+    result = run_alert_link_bench(
+        transport,
+        _config(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-ALERT-001",
+            expected_source_cidr="192.168.144.0/24",
+        ),
+        wall_clock=lambda: 100.0,
+        monotonic_clock=lambda: next(monotonic_values),
+        observed_at=lambda: NOW,
+        source_address_resolver=lambda _host, _port: "192.168.144.20",
+    )
+
+    assert calls == 1
+    assert result["passed"] is True
+    assert result["source_route_verified"] is True
+    assert result["transport_source_address"] == "192.168.144.20"
+    assert result["transport_source_address_bound"] is True
+    assert result["checks"]["transport_source_binding"] is True
+    assert verify_alert_link_bench_report(result, require_passed=True)["gate_passed"] is True
 
 
 def test_authenticated_udp_alert_link_bench_exercises_real_loopback_socket() -> None:
@@ -245,6 +291,9 @@ def test_authenticated_udp_alert_link_bench_exercises_real_loopback_socket() -> 
     assert result["local_source_address"] is None
     assert result["source_route_verified"] is False
     assert result["checks"]["source_route"] is True
+    assert result["transport_source_address"] is None
+    assert result["transport_source_address_bound"] is False
+    assert result["checks"]["transport_source_binding"] is True
 
 
 def test_alert_link_bench_verifier_recomputes_report_and_rejects_tampering(tmp_path) -> None:
@@ -290,14 +339,40 @@ def test_alert_link_bench_verifier_keeps_legacy_v1_reports_readable() -> None:
     legacy = dict(report)
     legacy["schema_version"] = 1
     legacy["checks"] = {
-        key: value for key, value in report["checks"].items() if key != "source_route"
+        key: value
+        for key, value in report["checks"].items()
+        if key not in {"source_route", "transport_source_binding"}
     }
     for field in (
         "expected_source_cidr",
         "local_source_address",
         "source_route_verified",
+        "transport_source_address",
+        "transport_source_address_bound",
     ):
         legacy.pop(field)
+
+    verified = verify_alert_link_bench_report(legacy, require_passed=True)
+    assert verified["gate_passed"] is True
+    assert verified["recomputed_passed"] is True
+
+
+def test_alert_link_bench_verifier_keeps_route_bound_v2_reports_readable() -> None:
+    transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
+    report = run_alert_link_bench(
+        transport,
+        _config(minimum_round_trips=1),
+        wall_clock=lambda: 100.0,
+        monotonic_clock=lambda: 10.0,
+        observed_at=lambda: NOW,
+    )
+    legacy = dict(report)
+    legacy["schema_version"] = 2
+    legacy["checks"] = {
+        key: value for key, value in report["checks"].items() if key != "transport_source_binding"
+    }
+    legacy.pop("transport_source_address")
+    legacy.pop("transport_source_address_bound")
 
     verified = verify_alert_link_bench_report(legacy, require_passed=True)
     assert verified["gate_passed"] is True

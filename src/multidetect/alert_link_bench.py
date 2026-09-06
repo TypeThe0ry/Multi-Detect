@@ -33,8 +33,8 @@ from .autonomy.serialization import strict_json_loads
 from .compat import UTC
 from .domain import BoundingBox, FireAlert
 
-ALERT_LINK_BENCH_SCHEMA_VERSION = 2
-SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2})
+ALERT_LINK_BENCH_SCHEMA_VERSION = 3
+SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 DEFAULT_MINIMUM_ROUND_TRIPS = 20
 DEFAULT_MAXIMUM_ATTEMPTS = 3
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
@@ -150,6 +150,10 @@ def run_alert_link_bench(
     expected_source_cidr = _canonical_network(config.expected_source_cidr)
     local_source_address: str | None = None
     source_route_verified = False
+    transport_source_address = (
+        transport.source_host if isinstance(transport, UdpAcknowledgedAlertTransport) else None
+    )
+    transport_source_address_bound = False
     if (
         config.hardware_mode
         and remote_host is not None
@@ -162,7 +166,15 @@ def run_alert_link_bench(
             source_route_verified = _address_in_network(local_source_address, expected_source_cidr)
         except (OSError, TypeError, ValueError):
             local_source_address = None
-    route_blocked = config.hardware_mode and not source_route_verified
+    if config.hardware_mode:
+        transport_source_address_bound = (
+            source_route_verified
+            and transport_source_address is not None
+            and transport_source_address == local_source_address
+        )
+    route_blocked = config.hardware_mode and (
+        not source_route_verified or not transport_source_address_bound
+    )
     publisher = RetryingAcknowledgedAlertPublisher(
         transport,
         maximum_attempts=config.maximum_attempts,
@@ -257,6 +269,7 @@ def run_alert_link_bench(
         ),
         "mode_boundary": mode_boundary_verified,
         "source_route": source_route_verified or not config.hardware_mode,
+        "transport_source_binding": transport_source_address_bound or not config.hardware_mode,
         "correlated_ack": correlated_ack_verified,
         "authenticated_transport": authenticated_ack_verified or not config.hardware_mode,
     }
@@ -271,6 +284,8 @@ def run_alert_link_bench(
         reasons.append("alert-link hardware mode cannot target a loopback or unresolved address")
     if config.hardware_mode and not checks["source_route"]:
         reasons.append("alert-link local source address is outside the expected source CIDR")
+    if config.hardware_mode and not checks["transport_source_binding"]:
+        reasons.append("alert-link transport socket is not bound to the selected source address")
     if not checks["correlated_ack"]:
         reasons.append("correlated alert acknowledgement is not verified")
     if config.hardware_mode and not checks["authenticated_transport"]:
@@ -299,6 +314,8 @@ def run_alert_link_bench(
         "expected_source_cidr": expected_source_cidr,
         "local_source_address": local_source_address,
         "source_route_verified": source_route_verified,
+        "transport_source_address": transport_source_address,
+        "transport_source_address_bound": transport_source_address_bound,
         "hardware_id": config.hardware_id.strip() if config.hardware_id else None,
         "requested_round_trips": config.minimum_round_trips,
         "round_trip_samples": accepted_round_trips,
@@ -350,8 +367,9 @@ def verify_alert_link_bench_report(
 
     schema_version = document.get("schema_version")
     if schema_version not in SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS:
-        reasons.append("schema_version must be 1 or 2")
-    is_route_bound = schema_version == 2
+        reasons.append("schema_version must be 1, 2 or 3")
+    is_route_bound = schema_version in {2, 3}
+    is_transport_bound = schema_version == 3
     event = document.get("event")
     if isinstance(event, str):
         hardware_event = event in {
@@ -446,6 +464,8 @@ def verify_alert_link_bench_report(
     expected_source_cidr: str | None = None
     local_source_address: str | None = None
     source_route_verified = False
+    transport_source_address: str | None = None
+    transport_source_address_bound = False
     if is_route_bound:
         raw_source_cidr = document.get("expected_source_cidr")
         raw_source_address = document.get("local_source_address")
@@ -499,6 +519,44 @@ def verify_alert_link_bench_report(
         ):
             if field in document:
                 reasons.append(f"schema v1 report cannot contain {field}")
+    if is_transport_bound:
+        raw_transport_source = document.get("transport_source_address")
+        if raw_transport_source is not None and (
+            not isinstance(raw_transport_source, str) or not raw_transport_source.strip()
+        ):
+            reasons.append("transport_source_address must be a non-empty string or null")
+        elif isinstance(raw_transport_source, str):
+            try:
+                transport_source_address = str(ipaddress.ip_address(raw_transport_source.strip()))
+            except ValueError:
+                reasons.append("transport_source_address must be a concrete IP address")
+            else:
+                if raw_transport_source.strip() != transport_source_address:
+                    reasons.append("transport_source_address must use canonical IP notation")
+        declared_transport_binding = document.get("transport_source_address_bound")
+        if type(declared_transport_binding) is not bool:
+            reasons.append("transport_source_address_bound must be a boolean")
+        transport_source_address_bound = (
+            hardware_event
+            and source_route_verified
+            and transport_source_address is not None
+            and transport_source_address == local_source_address
+        )
+        if (
+            type(declared_transport_binding) is bool
+            and declared_transport_binding is not transport_source_address_bound
+        ):
+            reasons.append(
+                "transport_source_address_bound does not match the selected source address"
+            )
+        if software_event and raw_transport_source is not None:
+            reasons.append("software baseline cannot bind a transport source address")
+        if software_event and declared_transport_binding is not False:
+            reasons.append("software baseline transport_source_address_bound must be false")
+    else:
+        for field in ("transport_source_address", "transport_source_address_bound"):
+            if field in document:
+                reasons.append(f"schema v1/v2 report cannot contain {field}")
     expected_hardware_observed = (
         hardware_event and endpoint_is_concrete_ip and endpoint_port_valid and not endpoint_loopback
     )
@@ -571,7 +629,13 @@ def verify_alert_link_bench_report(
         reasons.append("thresholds.maximum_attempts is invalid")
         maximum_attempts = 1
 
-    route_preflight_blocked = is_route_bound and hardware_event and not source_route_verified
+    route_preflight_blocked = (
+        is_route_bound
+        and hardware_event
+        and (
+            not source_route_verified or (is_transport_bound and not transport_source_address_bound)
+        )
+    )
     if requested is not None and samples is not None and failed is not None:
         if route_preflight_blocked and (samples != 0 or failed != 0):
             reasons.append("source-route-blocked report cannot contain round-trip outcomes")
@@ -646,6 +710,9 @@ def verify_alert_link_bench_report(
         and isinstance(hardware_id, str)
     )
     source_route = (not hardware_event) or (not is_route_bound) or source_route_verified
+    transport_source_binding = (
+        (not hardware_event) or (not is_transport_bound) or transport_source_address_bound
+    )
     required_round_trips = requested is not None and samples == requested
     packet_loss_limit = packet_loss is not None and float(packet_loss) <= float(maximum_loss)
     ack_latency_limit = p95_value is not None and p95_value <= float(maximum_p95)
@@ -655,6 +722,7 @@ def verify_alert_link_bench_report(
         "ack_latency_limit": ack_latency_limit,
         "mode_boundary": mode_boundary,
         **({"source_route": source_route} if is_route_bound else {}),
+        **({"transport_source_binding": transport_source_binding} if is_transport_bound else {}),
         "correlated_ack": correlated_ack,
         "authenticated_transport": authenticated_ack or not hardware_event,
     }
@@ -684,6 +752,10 @@ def verify_alert_link_bench_report(
     if hardware_event and is_route_bound and not source_route:
         computed_reasons.append(
             "alert-link local source address is outside the expected source CIDR"
+        )
+    if hardware_event and is_transport_bound and not transport_source_binding:
+        computed_reasons.append(
+            "alert-link transport socket is not bound to the selected source address"
         )
     if not correlated_ack:
         computed_reasons.append("correlated alert acknowledgement is not verified")
@@ -851,14 +923,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    transport = UdpAcknowledgedAlertTransport(
-        host=args.host,
-        port=args.port,
-        hmac_key=_key_from_environment(args.hmac_key_env),
-        sender_id=args.sender_id,
-        receiver_id=args.receiver_id,
-        acknowledgement_timeout_seconds=args.ack_timeout_seconds,
-    )
     config = AlertLinkBenchConfig(
         minimum_round_trips=args.minimum_round_trips,
         maximum_attempts=args.maximum_attempts,
@@ -869,6 +933,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         hardware_mode=args.hardware_mode,
         hardware_id=args.hardware_id,
         expected_source_cidr=args.expected_source_cidr,
+    )
+    source_host: str | None = None
+    if config.hardware_mode:
+        try:
+            source_host = _resolve_local_source_address(args.host, args.port)
+        except (OSError, TypeError, ValueError):
+            # ``run_alert_link_bench`` repeats the preflight and emits a
+            # verifiable zero-transmission failure report. Do not hide the
+            # route failure behind an argparse/process exception.
+            source_host = None
+    transport = UdpAcknowledgedAlertTransport(
+        host=args.host,
+        port=args.port,
+        hmac_key=_key_from_environment(args.hmac_key_env),
+        sender_id=args.sender_id,
+        receiver_id=args.receiver_id,
+        source_host=source_host,
+        acknowledgement_timeout_seconds=args.ack_timeout_seconds,
     )
     report = run_alert_link_bench(transport, config)
     encoded = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

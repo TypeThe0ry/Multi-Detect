@@ -39,7 +39,7 @@
   ],
   "allOf": [
     {
-      "if": {"properties": {"schema_version": {"const": 2}}},
+      "if": {"properties": {"schema_version": {"enum": [2, 3]}}},
       "then": {
         "required": [
           "expected_source_cidr",
@@ -48,10 +48,20 @@
         ],
         "properties": {"checks": {"required": ["source_route"]}}
       }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": 3}}},
+      "then": {
+        "required": [
+          "transport_source_address",
+          "transport_source_address_bound"
+        ],
+        "properties": {"checks": {"required": ["transport_source_binding"]}}
+      }
     }
   ],
   "properties": {
-    "schema_version": {"enum": [1, 2]},
+    "schema_version": {"enum": [1, 2, 3]},
     "event": {
       "enum": [
         "alert_link_bench_passed",
@@ -82,6 +92,7 @@
         "ack_latency_limit": {"type": "boolean"},
         "mode_boundary": {"type": "boolean"},
         "source_route": {"type": "boolean"},
+        "transport_source_binding": {"type": "boolean"},
         "correlated_ack": {"type": "boolean"},
         "authenticated_transport": {"type": "boolean"}
       }
@@ -93,6 +104,8 @@
     "expected_source_cidr": {"type": ["string", "null"]},
     "local_source_address": {"type": ["string", "null"]},
     "source_route_verified": {"type": "boolean"},
+    "transport_source_address": {"type": ["string", "null"]},
+    "transport_source_address_bound": {"type": "boolean"},
     "hardware_id": {"type": ["string", "null"]},
     "requested_round_trips": {"type": "integer", "minimum": 1},
     "round_trip_samples": {"type": "integer", "minimum": 0},
