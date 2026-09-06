@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v146 工作树）
+最后更新：2026-09-06（v147 工作树）
+
+## v147 本轮已收口
+
+- portable review schema 升级到 v2，`review` 必须显式接收独立渠道保存的 inventory SHA-256；实际 inventory
+  哈希在任何 transfer/review receipt 写入前核对，mismatch 时零输出并 fail-closed；
+- receipt 绑定 expected/actual inventory SHA-256 与 `inventory_hash_matches_expected=true`，独立 verifier 重算；
+  现场 producer 在 snapshot 后打印可信哈希，必须与 session 复制介质分开保存才构成包外信任锚；
+- 该 SHA-256 不等于数字签名或操作者身份认证，也不重验目标环境、完整 E7 传递来源、网络或硬件。clean commit
+  `089028559e827e63dbb2008536920ccf0c2c6a2c` 的软件 smoke `2 passed`；JUnit 498 bytes、SHA-256
+  `94231E01A2881164580802F3BC6BD95E68D8185C19B891EA007A5E3FB1C4F39B`；
+- safety parity 更新为 `8BA76D61...ADBD4A0D`；external join/revalidation、三机型 matrix 与 6 正例/9 故障 campaign
+  均重算并独立通过。E7 保持 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,643 tests：`3641 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  272.363 秒；JUnit 530,841 bytes、SHA-256 `8DA38949FA44806ABE294DBA2FC051500557DBD75CB83A3B9A09CE7B19DC903E`。
+  真实 GR01 session、独立渠道哈希传递、第二机 review/签字仍待现场完成。
 
 ## v146 本轮已收口
 

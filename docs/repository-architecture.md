@@ -1,5 +1,14 @@
 # 统一仓库架构
 
+## v147 trusted GR01 inventory anchor（2026-09-06，`v0.3.0-pre.8`）
+
+- `gr01_release_review.py review` 新增必填 `expected_inventory_sha256`，在创建任何 receipt 前核对实际 inventory 文件；
+- review schema v2 绑定 expected/actual inventory SHA-256 与 match 结果，consumer 重算并要求全部一致；
+- `run_gr01_release_session.ps1` 在 snapshot 后打印可信 inventory SHA-256，操作者必须通过与 session 媒体不同的渠道保存；
+- mismatch 回归证明 transfer/review 输出均不会生成；软件 smoke 不访问网络或硬件。
+
+该 SHA-256 是脱离复制介质的完整性锚，不是数字签名、操作者身份认证、目标环境重验或完整 E7 来源复核。
+
 ## v146 portable GR01 final-session review（2026-09-06，`v0.3.0-pre.8`）
 
 - `src/multidetect/gr01_release_review.py`：现场强验证后 snapshot，以及第二机 byte-exact + portable semantic review；

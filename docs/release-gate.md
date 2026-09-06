@@ -1,5 +1,23 @@
 # v0.3.0 E7 发布门
 
+## v147 trusted transfer-inventory anchor（2026-09-06，`v0.3.0-pre.8`）
+
+v146 的复制目录和 inventory 若一起被替换，单靠包内清单无法建立包外信任。v147 因此要求现场 snapshot 后把脚本打印的
+`Portable review trusted inventory SHA-256` 通过与 session 媒体不同的渠道保存；第二机 review 必须显式提供该值：
+
+```powershell
+python .\scripts\verify_gr01_release_session_review.py review `
+  --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
+  --expected-inventory-sha256 <独立渠道保存的64位SHA-256> `
+  --destination-root D:\review\gr01-session `
+  --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
+  --out D:\review\receipts\gr01-portable-review.json
+```
+
+实际 inventory 文件哈希必须先匹配 expected 值；不匹配时两个输出均不创建。review receipt schema v2 绑定
+expected/actual hash 与 match，`verify` 再重算。该锚必须独立保存才有意义；它本身不是签名或身份认证，也不重验现场
+target environment、全部 E7 传递来源、网络或硬件。
+
 ## v146 portable final-session review（2026-09-06，`v0.3.0-pre.8`）
 
 现场 `run_gr01_release_session.ps1` 在 final record 独立复核之后自动创建：
@@ -13,6 +31,7 @@ gr01-release-session-transfer-inventory.json
 ```powershell
 python .\scripts\verify_gr01_release_session_review.py review `
   --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
+  --expected-inventory-sha256 <独立渠道保存的64位SHA-256> `
   --destination-root D:\review\gr01-session `
   --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
   --out D:\review\receipts\gr01-portable-review.json

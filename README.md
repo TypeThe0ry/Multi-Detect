@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v146：GR01 final session 跨机离线复核 |
+| 当前工程迭代 | v147：GR01 跨机 inventory 独立哈希锚 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,11 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132–v146 认证 ACK 实链源、计划与事务化 E7 绑定
+### v132–v147 GR01 计划、事务化 E7 与跨机复核
 
-ACK bench 已绑定 route/socket source 与 GR01 选择/ACK；v137–v145 完成 E7、source-bound plan、portable handoff、
-五源 session 和 plan 导入。v146 自动生成 6 文件 transfer inventory，供第二机重算五源语义与 GR01/E7 绑定；
-receipt 不声称重验目标环境、完整 E7 或硬件飞行。GR01 实链仍未验收，详见 [E7 发布门](docs/release-gate.md)。
+ACK bench 已绑定 route/socket source 与 GR01 选择/ACK；v137–v146 完成 E7、source-bound plan、portable handoff、
+五源 session、plan 导入及 6 文件跨机复核。v147 要求 review 使用独立渠道保存的 inventory SHA-256；receipt 仍不声称
+重验目标环境、完整 E7 或硬件飞行。GR01 实链未验收，详见 [E7 发布门](docs/release-gate.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定
 

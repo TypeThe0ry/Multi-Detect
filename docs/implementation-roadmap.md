@@ -1,12 +1,20 @@
 # Implementation roadmap
 
+## Trusted GR01 transfer-inventory anchor（v147）
+
+- [x] portable review 必须显式接收独立保存的 inventory SHA-256；
+- [x] 在任何 transfer/review receipt 写入前核对 inventory 文件哈希，mismatch 零输出并 fail-closed；
+- [x] review schema v2 绑定 expected/actual hash 与 match，consumer 重新计算；
+- [x] 现场 producer 输出需经独立渠道记录的 inventory SHA-256；
+- [ ] 真实现场 session 通过独立渠道传递哈希，并在真实第二台机器执行 `review/verify` 后归档签字。
+
 ## Portable GR01 final-session review（v146）
 
 - [x] 现场 final record 强验证成功后自动生成 6 文件 byte-exact transfer inventory；
 - [x] 第二机离线重算五源 file identity、portable handoff、GR01 bench、配置与 manifest/report GR01 绑定；
 - [x] closed review receipt 明确 target environment/full E7 transitive sources 未重验，保持 no-control/no-flight claims；
 - [x] 复制篡改、record 投影篡改、重造 inventory、receipt claim/canonical hash 篡改均 fail-closed；
-- [ ] 对真实 GR01 session 包在真实第二台机器运行 `review/verify`，归档 operator/reviewer 签字和 inventory 外部校验值。
+- [ ] 对真实 GR01 session 包在真实第二台机器运行 `review/verify`，归档 operator/reviewer 签字和独立渠道哈希。
 
 ## Imported source-plan pre-network binding（v145）
 

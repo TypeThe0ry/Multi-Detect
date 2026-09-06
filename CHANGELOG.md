@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v147 trusted GR01 inventory anchor（2026-09-06）
+
+- portable review schema 升级到 v2；`review` 必须接收独立渠道保存的 inventory SHA-256，并在创建 transfer/review
+  receipt 前核对实际 inventory 文件，哈希不符时零输出、fail-closed；
+- receipt 同时绑定 expected/actual inventory hash 与 match 结果，独立 verifier 重算三者；现场 producer 明确打印需
+  另行保存的可信哈希。它不是签名或操作者身份认证，也不重验目标环境、完整 E7 来源或硬件；
+- safety parity 及四份派生证据已重算，E7 仍为 `false / false / 32 blockers`、GR01 `present=false/passed=false`。
+  软件锚点 smoke `2 passed`；最终全量回归 `3641 passed, 2 skipped`。真实 session、第二台机器和独立传递哈希
+  仍待现场验收。
+
 ### v0.3.0-pre.8 v146 portable GR01 final-session review（2026-09-06）
 
 - 现场 final session 独立验证成功后自动生成 6 文件 transfer inventory；目标机环境、secret 与 canonical source
