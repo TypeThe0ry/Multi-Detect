@@ -352,5 +352,16 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
     '--version-manifest', (Resolve-RepositoryPath -Requested 'configs\product-version.json')
 ) -Label 'GR01 release-session independent verification'
 
+$reviewTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_review.py'
+$transferInventoryPath = Join-Path $sessionRoot 'gr01-release-session-transfer-inventory.json'
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $reviewTool,
+    'snapshot',
+    '--session-root', $sessionRoot,
+    '--inventory-out', $transferInventoryPath,
+    '--version-manifest', (Resolve-RepositoryPath -Requested 'configs\product-version.json')
+) -Label 'GR01 release-session portable review snapshot'
+
 Write-Output "GR01 release session passed: $recordPath"
+Write-Output "Portable review inventory written: $transferInventoryPath"
 Write-Output 'This record verifies the GR01 E7 binding only; inspect release_allowed separately.'

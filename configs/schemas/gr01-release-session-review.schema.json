@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-release-session-review.schema.json",
+  "title": "Multi-Detect portable GR01 release-session review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event", "schema_version", "reviewed_at_utc", "bundle_id", "transfer",
+    "session", "claims", "gate_passed", "reasons", "canonical_hash"
+  ],
+  "properties": {
+    "event": {"const": "multidetect_gr01_release_session_portable_reviewed"},
+    "schema_version": {"const": 1},
+    "reviewed_at_utc": {"type": "string", "format": "date-time"},
+    "bundle_id": {"type": "string", "format": "uuid"},
+    "transfer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_file_bytes", "inventory_file_sha256", "inventory_canonical_hash",
+        "transfer_receipt_file_bytes", "transfer_receipt_file_sha256",
+        "transfer_receipt_canonical_hash", "bundle_content_hash", "byte_exact_copy"
+      ],
+      "properties": {
+        "inventory_file_bytes": {"type": "integer", "minimum": 1},
+        "inventory_file_sha256": {"$ref": "#/$defs/sha256"},
+        "inventory_canonical_hash": {"$ref": "#/$defs/sha256"},
+        "transfer_receipt_file_bytes": {"type": "integer", "minimum": 1},
+        "transfer_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "transfer_receipt_canonical_hash": {"$ref": "#/$defs/sha256"},
+        "bundle_content_hash": {"$ref": "#/$defs/sha256"},
+        "byte_exact_copy": {"const": true}
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_path", "record_bytes", "record_sha256", "session_id",
+        "session_schema_version", "source_count", "five_source_hashes_verified",
+        "portable_handoff_verified", "bench_recomputed",
+        "configuration_matches_plan_bench_and_e7",
+        "release_manifest_gr01_binding_matched", "stored_release_gate_passed",
+        "stored_release_allowed", "stored_release_blocker_count"
+      ],
+      "properties": {
+        "record_path": {"const": "gr01-release-session.json"},
+        "record_bytes": {"type": "integer", "minimum": 1},
+        "record_sha256": {"$ref": "#/$defs/sha256"},
+        "session_id": {"type": "string", "minLength": 1},
+        "session_schema_version": {"const": 3},
+        "source_count": {"const": 5},
+        "five_source_hashes_verified": {"const": true},
+        "portable_handoff_verified": {"const": true},
+        "bench_recomputed": {"const": true},
+        "configuration_matches_plan_bench_and_e7": {"const": true},
+        "release_manifest_gr01_binding_matched": {"const": true},
+        "stored_release_gate_passed": {"type": "boolean"},
+        "stored_release_allowed": {"type": "boolean"},
+        "stored_release_blocker_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "portable_session_integrity_verified", "target_environment_reverified",
+        "canonical_e7_sources_recomputed", "hardware_flight_acceptance",
+        "physical_release_enabled", "flight_control_enabled", "payload_release_requested"
+      ],
+      "properties": {
+        "portable_session_integrity_verified": {"const": true},
+        "target_environment_reverified": {"const": false},
+        "canonical_e7_sources_recomputed": {"const": false},
+        "hardware_flight_acceptance": {"const": "not_claimed"},
+        "physical_release_enabled": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "payload_release_requested": {"const": false}
+      }
+    },
+    "gate_passed": {"const": true},
+    "reasons": {"type": "array", "maxItems": 0},
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

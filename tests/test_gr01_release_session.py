@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,9 +12,16 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from multidetect import gr01_release_plan as plan_module
+from multidetect.evidence_bundle_transfer import create_evidence_transfer_inventory
 from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
 from multidetect.gr01_release_handoff import create_gr01_release_session_handoff
 from multidetect.gr01_release_plan import create_gr01_release_session_plan
+from multidetect.gr01_release_review import (
+    INVENTORY_NAME,
+    review_gr01_release_session_bundle,
+    snapshot_gr01_release_session_bundle,
+    verify_gr01_release_session_review_receipt,
+)
 from multidetect.gr01_release_session import (
     Gr01ReleaseSessionError,
     create_gr01_release_session_record,
@@ -27,6 +36,7 @@ from multidetect.release_gate_manifest import create_release_gate_manifest
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_MANIFEST = ROOT / "configs" / "product-version.json"
 SESSION_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session.schema.json"
+REVIEW_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-review.schema.json"
 MODES = ("replay", "sim", "hil", "real")
 PARITY = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
 
@@ -402,3 +412,151 @@ def test_creator_is_write_new_and_cli_reports_failure(
         )
     assert main(["verify", str(record)]) == 1
     assert "gate_passed" in capsys.readouterr().out
+
+
+def test_field_snapshot_and_second_machine_portable_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, handoff, bench, manifest, report = _sources(
+        tmp_path,
+        monkeypatch,
+        relocated_origin_plan=True,
+    )
+    source_root = tmp_path / "session"
+    record = source_root / "gr01-release-session.json"
+    create_gr01_release_session_record(
+        record,
+        release_plan=plan,
+        release_handoff=handoff,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+        session_id="gr01-portable-review-test",
+    )
+    inventory = source_root / INVENTORY_NAME
+    snapshot = snapshot_gr01_release_session_bundle(
+        source_root,
+        inventory,
+        version_manifest_path=VERSION_MANIFEST,
+        bundle_id="12345678-1234-5678-9234-567812345678",
+    )
+    destination = tmp_path / "second-machine-session"
+    shutil.copytree(source_root, destination)
+    transfer_receipt = tmp_path / "transfer-receipt.json"
+    review_receipt = tmp_path / "portable-review.json"
+    review = review_gr01_release_session_bundle(
+        destination / INVENTORY_NAME,
+        destination,
+        transfer_receipt,
+        review_receipt,
+    )
+
+    schema = json.loads(REVIEW_SCHEMA.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(
+        schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    ).validate(review)
+    assert snapshot["file_count"] == 6
+    assert review["transfer"]["byte_exact_copy"] is True
+    assert review["session"]["source_count"] == 5
+    assert review["session"]["five_source_hashes_verified"] is True
+    assert review["session"]["bench_recomputed"] is True
+    assert review["claims"] == {
+        "portable_session_integrity_verified": True,
+        "target_environment_reverified": False,
+        "canonical_e7_sources_recomputed": False,
+        "hardware_flight_acceptance": "not_claimed",
+        "physical_release_enabled": False,
+        "flight_control_enabled": False,
+        "payload_release_requested": False,
+    }
+    assert verify_gr01_release_session_review_receipt(review_receipt) == review
+    changed = json.loads(review_receipt.read_text(encoding="utf-8"))
+    changed["claims"]["target_environment_reverified"] = True
+    review_receipt.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="claim boundary"):
+        verify_gr01_release_session_review_receipt(review_receipt)
+
+
+def test_portable_review_rejects_changed_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, handoff, bench, manifest, report = _sources(tmp_path, monkeypatch)
+    source_root = tmp_path / "session"
+    create_gr01_release_session_record(
+        source_root / "gr01-release-session.json",
+        release_plan=plan,
+        release_handoff=handoff,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    snapshot_gr01_release_session_bundle(
+        source_root,
+        source_root / INVENTORY_NAME,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    destination = tmp_path / "changed-copy"
+    shutil.copytree(source_root, destination)
+    (destination / "gr01-link-bench.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="changed="):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            destination,
+            tmp_path / "changed-transfer.json",
+            tmp_path / "changed-review.json",
+        )
+    assert not (tmp_path / "changed-review.json").exists()
+
+
+def test_portable_semantic_review_rejects_reinventoried_record_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, handoff, bench, manifest, report = _sources(tmp_path, monkeypatch)
+    source_root = tmp_path / "session"
+    record = source_root / "gr01-release-session.json"
+    create_gr01_release_session_record(
+        record,
+        release_plan=plan,
+        release_handoff=handoff,
+        bench_report=bench,
+        release_manifest=manifest,
+        release_report=report,
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    changed = json.loads(record.read_text(encoding="utf-8"))
+    changed["release_plan"]["sha256"] = "0" * 64
+    record.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+    create_evidence_transfer_inventory(source_root, source_root / INVENTORY_NAME)
+    destination = tmp_path / "reinventoried-copy"
+    shutil.copytree(source_root, destination)
+
+    with pytest.raises(ValueError, match="release_plan file identity"):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            destination,
+            tmp_path / "reinventoried-transfer.json",
+            tmp_path / "reinventoried-review.json",
+        )
+
+
+def test_portable_review_repository_entry_point_has_all_modes() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/verify_gr01_release_session_review.py"), "--help"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "snapshot" in completed.stdout
+    assert "review" in completed.stdout
+    assert "verify" in completed.stdout

@@ -16,6 +16,7 @@ from multidetect.gr01_release_handoff import (
     main,
     verify_gr01_release_session_handoff,
     verify_gr01_release_session_handoff_configuration,
+    verify_gr01_release_session_handoff_portable,
 )
 from multidetect.gr01_release_plan import create_gr01_release_session_plan
 
@@ -120,6 +121,9 @@ def test_handoff_is_path_relocated_source_bound_and_schema_valid(
         verification = verify_gr01_release_session_handoff(receipt)
         assert verification["gate_passed"] is True
         assert verification["reasons"] == []
+        portable = verify_gr01_release_session_handoff_portable(receipt)
+        assert portable["gate_passed"] is True
+        assert portable["target_environment_reverified"] is False
 
 
 def test_handoff_can_be_ready_only_with_target_secrets(
@@ -247,6 +251,26 @@ def test_handoff_detects_source_plan_and_environment_drift(
         plan.write_text(plan.read_text(encoding="utf-8") + " ", encoding="utf-8")
         source = verify_gr01_release_session_handoff(receipt)
         assert source["gate_passed"] is False
+
+
+def test_portable_handoff_recomputes_stored_target_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="gr01-handoff-portable-", dir=ROOT / "tmp") as name:
+        _plan, receipt, document = _create(
+            Path(name),
+            monkeypatch,
+            secrets_present=True,
+        )
+        document["target_identity"]["git_head"] = "f" * 40
+        document["checks"]["git_head_matches"] = True
+        receipt.write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+        verification = verify_gr01_release_session_handoff_portable(receipt)
+        assert verification["gate_passed"] is False
+        assert any(
+            "target Git" in reason or "checks" in reason for reason in verification["reasons"]
+        )
 
 
 def test_handoff_is_write_new_and_target_output_must_stay_in_repository(

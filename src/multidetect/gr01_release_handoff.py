@@ -492,6 +492,186 @@ def verify_gr01_release_session_handoff(
     }
 
 
+def verify_gr01_release_session_handoff_portable(
+    receipt: str | Path,
+) -> dict[str, Any]:
+    """Verify a copied handoff without reopening target-machine absolute paths."""
+
+    path = _source(receipt, name="GR01 release-session handoff")
+    reasons: list[str] = []
+    try:
+        document = _load_object(path, name="GR01 release-session handoff")
+        expected_keys = {
+            "schema",
+            "schema_version",
+            "event",
+            "generated_at_utc",
+            "host_id",
+            "source_plan",
+            "target_paths",
+            "target_identity",
+            "secret_environment",
+            "checks",
+            "source_equivalent",
+            "ready_to_execute",
+            "reasons",
+            "claims",
+        }
+        if set(document) != expected_keys:
+            raise Gr01ReleaseHandoffError("handoff fields do not match the v1 contract")
+        if (
+            document.get("schema") != HANDOFF_SCHEMA
+            or document.get("schema_version") != HANDOFF_SCHEMA_VERSION
+            or document.get("event") != HANDOFF_EVENT
+        ):
+            raise Gr01ReleaseHandoffError("handoff schema or event identity does not match")
+        _timestamp(document.get("generated_at_utc"), name="generated_at_utc")
+        host_id = document.get("host_id")
+        if (
+            not isinstance(host_id, str)
+            or not host_id.strip()
+            or any(ord(character) < 32 for character in host_id)
+        ):
+            raise Gr01ReleaseHandoffError("host_id must be a non-empty printable string")
+
+        source_plan = document.get("source_plan")
+        target_paths = document.get("target_paths")
+        target_identity = document.get("target_identity")
+        secrets = document.get("secret_environment")
+        checks = document.get("checks")
+        if not all(
+            isinstance(value, Mapping)
+            for value in (source_plan, target_paths, target_identity, secrets, checks)
+        ):
+            raise Gr01ReleaseHandoffError("handoff portable identity is incomplete")
+        expected_source_fields = {
+            "path",
+            "sha256",
+            "bytes",
+            "schema",
+            "schema_version",
+            "configuration_sha256",
+            "git_head",
+        }
+        if set(source_plan) != expected_source_fields:
+            raise Gr01ReleaseHandoffError("handoff source_plan fields do not match")
+        plan_path = _resolve_record_path(source_plan.get("path"), directory=path.parent)
+        portable = _plan_projection(_load_object(plan_path, name="source plan"))
+        configuration_digest = _canonical_sha256(
+            {
+                "configuration": portable["configuration"],
+                "secret_names": portable["secret_names"],
+                "operations": portable["operations"],
+            }
+        )
+        if (
+            source_plan.get("sha256") != _sha256(plan_path)
+            or source_plan.get("bytes") != plan_path.stat().st_size
+            or source_plan.get("schema") != plan_module.PLAN_SCHEMA
+            or source_plan.get("schema_version") != plan_module.PLAN_SCHEMA_VERSION
+            or source_plan.get("configuration_sha256") != configuration_digest
+            or source_plan.get("git_head") != portable["source_identity"]["git_head"]
+        ):
+            raise Gr01ReleaseHandoffError("handoff source_plan identity does not match")
+
+        if set(target_paths) != {"repository_root", "python", "output_root"} or any(
+            not isinstance(target_paths.get(name), str) or not target_paths[name].strip()
+            for name in ("repository_root", "python", "output_root")
+        ):
+            raise Gr01ReleaseHandoffError("handoff target_paths do not match")
+        if set(target_identity) != {"git_head", "tracked_dirty", "release_parity", "tools"}:
+            raise Gr01ReleaseHandoffError("handoff target_identity fields do not match")
+        target_portable = _portable_source_identity(
+            {
+                "root": target_paths["repository_root"],
+                "git_head": target_identity.get("git_head"),
+                "tracked_dirty": target_identity.get("tracked_dirty"),
+            },
+            target_identity.get("release_parity"),
+            target_identity.get("tools"),
+        )
+        if target_portable["git_head"] != portable["source_identity"]["git_head"]:
+            raise Gr01ReleaseHandoffError("handoff target Git does not match source plan")
+
+        if set(secrets) != {"operator_hmac", "mavlink_signing"}:
+            raise Gr01ReleaseHandoffError("handoff secret_environment fields do not match")
+        projected_secrets: dict[str, dict[str, Any]] = {}
+        for name in ("operator_hmac", "mavlink_signing"):
+            item = secrets.get(name)
+            if not isinstance(item, Mapping) or set(item) != {"name", "present"}:
+                raise Gr01ReleaseHandoffError(f"handoff secret {name} fields do not match")
+            if not isinstance(item.get("present"), bool):
+                raise Gr01ReleaseHandoffError(f"handoff secret {name} presence is invalid")
+            projected_secrets[name] = plan_module._secret(
+                item.get("name"),
+                present=item["present"],
+            )
+        if {name: item["name"] for name, item in projected_secrets.items()} != portable[
+            "secret_names"
+        ]:
+            raise Gr01ReleaseHandoffError("handoff secret names do not match source plan")
+
+        expected_check_names = {
+            "origin_tracked_clean",
+            "target_tracked_clean",
+            "git_head_matches",
+            "release_parity_matches",
+            "tool_identity_matches",
+            "target_parity_source_verified",
+        }
+        if set(checks) != expected_check_names or any(
+            not isinstance(checks.get(name), bool) for name in expected_check_names
+        ):
+            raise Gr01ReleaseHandoffError("handoff checks do not match")
+        origin = portable["source_identity"]
+        expected_checks = {
+            "origin_tracked_clean": origin["origin_tracked_dirty"] is False,
+            "target_tracked_clean": target_portable["origin_tracked_dirty"] is False,
+            "git_head_matches": origin["git_head"] == target_portable["git_head"],
+            "release_parity_matches": origin["release_parity"] == target_portable["release_parity"],
+            "tool_identity_matches": origin["tools"] == target_portable["tools"],
+            "target_parity_source_verified": target_portable["release_parity"].get(
+                "source_verified"
+            )
+            is True,
+        }
+        if dict(checks) != expected_checks:
+            raise Gr01ReleaseHandoffError("handoff checks do not recompute")
+        expected_reasons = [name for name, passed in checks.items() if not passed]
+        expected_reasons.extend(
+            f"required secret environment variable is not set: {item['name']}"
+            for item in projected_secrets.values()
+            if item["present"] is not True
+        )
+        if (
+            document.get("source_equivalent") != all(checks.values())
+            or document.get("ready_to_execute") != (not expected_reasons)
+            or document.get("reasons") != expected_reasons
+        ):
+            raise Gr01ReleaseHandoffError("handoff stored gate result does not recompute")
+        if document.get("claims") != {
+            "network_contacted": False,
+            "hardware_observed": False,
+            "hardware_flight_acceptance": "not_claimed",
+            "physical_release_enabled": False,
+            "flight_control_enabled": False,
+            "payload_release_requested": False,
+            "secret_values_serialized": False,
+        }:
+            raise Gr01ReleaseHandoffError("handoff claim boundary does not match")
+    except (Gr01ReleaseHandoffError, OSError, TypeError, ValueError) as exc:
+        reasons.append(str(exc))
+    return {
+        "schema_version": HANDOFF_SCHEMA_VERSION,
+        "event": "multidetect_gr01_release_session_handoff_portable_reverified",
+        "receipt_path": str(path),
+        "receipt_sha256": _sha256(path),
+        "gate_passed": not reasons,
+        "target_environment_reverified": False,
+        "reasons": reasons,
+    }
+
+
 def verify_gr01_release_session_handoff_configuration(
     receipt: str | Path,
     *,

@@ -63,6 +63,10 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "cannot override controlled parameter",
         "verify_gr01_release_session_plan.py",
         "verify_gr01_release_session_handoff.py",
+        "verify_gr01_release_session_review.py",
+        "'snapshot'",
+        "'gr01-release-session-transfer-inventory.json'",
+        "portable review snapshot",
         "SourcePlan cannot be combined with PlanOnly",
         "Imported source plan hash does not match",
         "SourcePlan must be a regular non-reparse file",
@@ -77,9 +81,13 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
     assert text.index("'gr01-release-session-plan.json'") < text.index("'gr01-link-bench.json'")
     assert text.index("'gr01-release-session-handoff.json'") < text.index("'gr01-link-bench.json'")
     assert text.index("'match', $handoffPath") < text.index("'gr01-link-bench.json'")
+    assert text.index("'gr01-release-session.json'") < text.index(
+        "'gr01-release-session-transfer-inventory.json'"
+    )
     assert "'--plan', $planPath" in text
     assert "'--handoff', $handoffPath" in text
     assert text.index("'create'") < text.index("'verify'")
+    assert text.index("'verify'") < text.index("'snapshot'")
     assert "MULTIDETECT_OPERATOR_HMAC_KEY=" not in text
     assert "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX=" not in text
 
