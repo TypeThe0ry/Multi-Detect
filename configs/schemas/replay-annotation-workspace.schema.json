@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/replay-annotation-workspace.schema.json",
+  "title": "Replay annotation workspace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intake_canonical_hash", "dataset_id", "dataset_version", "class_names", "assignment_hash", "annotator", "reviewer", "reviewed_at_utc", "frames"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "intake_canonical_hash": { "$ref": "#/$defs/sha256" },
+    "dataset_id": { "type": "string", "minLength": 1 },
+    "dataset_version": { "type": "string", "minLength": 1 },
+    "class_names": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "assignment_hash": { "$ref": "#/$defs/sha256" },
+    "annotator": { "type": ["string", "null"], "minLength": 1 },
+    "reviewer": { "type": ["string", "null"], "minLength": 1 },
+    "reviewed_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "frames": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/frame" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "image": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "width", "height"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "object": {
+      "type": "object", "additionalProperties": false,
+      "required": ["label", "bbox"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "bbox": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 1 } }
+      }
+    },
+    "annotation": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "objects"], "properties": { "status": { "const": "unannotated" }, "objects": { "type": "null" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "objects"], "properties": { "status": { "const": "positive" }, "objects": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/object" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "objects"], "properties": { "status": { "const": "negative" }, "objects": { "type": "array", "maxItems": 0 } } }
+      ]
+    },
+    "frame": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stratum", "frame_id", "image", "annotation"],
+      "properties": {
+        "stratum": { "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"] },
+        "frame_id": { "type": "string", "minLength": 1 },
+        "image": { "$ref": "#/$defs/image" },
+        "annotation": { "$ref": "#/$defs/annotation" }
+      }
+    }
+  }
+}

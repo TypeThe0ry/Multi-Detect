@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/replay-annotation-review-receipt.schema.json",
+  "title": "Replay annotation review receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event", "intake_canonical_hash", "assignment_hash", "workspace_sha256", "annotator", "reviewer", "reviewed_at_utc", "frame_count", "truth_artifacts", "replay_manifest_sha256", "replay_manifest_canonical_hash", "claims", "canonical_hash"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "const": "replay_annotations_finalized" },
+    "intake_canonical_hash": { "$ref": "#/$defs/sha256" },
+    "assignment_hash": { "$ref": "#/$defs/sha256" },
+    "workspace_sha256": { "$ref": "#/$defs/sha256" },
+    "annotator": { "type": "string", "minLength": 1 },
+    "reviewer": { "type": "string", "minLength": 1 },
+    "reviewed_at_utc": { "type": "string", "format": "date-time" },
+    "frame_count": { "type": "integer", "minimum": 1 },
+    "truth_artifacts": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "$ref": "#/$defs/artifact" } },
+    "replay_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "replay_manifest_canonical_hash": { "$ref": "#/$defs/sha256" },
+    "claims": {
+      "type": "object", "additionalProperties": false,
+      "required": ["annotations_complete", "independent_review_recorded", "predictions_complete", "accuracy_validated", "release_ready"],
+      "properties": {
+        "annotations_complete": { "const": true },
+        "independent_review_recorded": { "const": true },
+        "predictions_complete": { "const": false },
+        "accuracy_validated": { "const": false },
+        "release_ready": { "const": false }
+      }
+    },
+    "canonical_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stratum", "path", "sha256", "bytes", "frame_count"],
+      "properties": {
+        "stratum": { "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"] },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "frame_count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

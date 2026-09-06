@@ -12,6 +12,12 @@ import pytest
 from multidetect.autonomy import AutonomyContractError
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
+from multidetect.replay_annotation_workspace import (
+    create_replay_annotation_workspace,
+    finalize_replay_annotation_workspace,
+    inspect_replay_annotation_workspace,
+    verify_finalized_replay_annotations,
+)
 from multidetect.replay_set import (
     REPLAY_SET_STRATA,
     build_replay_set_manifest,
@@ -289,6 +295,142 @@ def test_prepare_deployment_replay_set_cli_round_trip(tmp_path: Path) -> None:
     )
     assert verified.returncode == 0, verified.stderr
     assert json.loads(verified.stdout)["entry_count"] == 6
+
+
+def _annotation_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    intake = tmp_path / "intake"
+    prepare_deployment_replay_set(
+        _intake_sources(tmp_path / "sources"),
+        intake,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    workspace = tmp_path / "annotations.json"
+    create_replay_annotation_workspace(intake, workspace)
+    return intake, workspace
+
+
+def _complete_annotations(workspace: Path) -> dict[str, object]:
+    document = json.loads(workspace.read_text(encoding="utf-8"))
+    document["annotator"] = "annotator-a"
+    document["reviewer"] = "reviewer-b"
+    document["reviewed_at_utc"] = "2026-09-06T02:00:00Z"
+    for index, frame in enumerate(document["frames"]):
+        if index == 0:
+            frame["annotation"] = {
+                "status": "positive",
+                "objects": [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}],
+            }
+        else:
+            frame["annotation"] = {"status": "negative", "objects": []}
+    workspace.write_text(json.dumps(document), encoding="utf-8")
+    return document
+
+
+def test_replay_annotation_workspace_keeps_empty_frames_unannotated(tmp_path: Path) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    report = inspect_replay_annotation_workspace(intake, workspace)
+    assert report["frame_count"] == 6
+    assert report["status_counts"] == {"unannotated": 6, "positive": 0, "negative": 0}
+    assert report["finalization_ready"] is False
+
+    output = tmp_path / "final"
+    with pytest.raises(AutonomyContractError, match="explicitly positive or negative"):
+        finalize_replay_annotation_workspace(intake, workspace, output)
+    assert not output.exists()
+
+
+def test_replay_annotation_workspace_finalizes_reviewed_truth_atomically(
+    tmp_path: Path,
+) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    _complete_annotations(workspace)
+    inspected = inspect_replay_annotation_workspace(intake, workspace)
+    assert inspected["finalization_ready"] is True
+
+    output = tmp_path / "final"
+    report = finalize_replay_annotation_workspace(intake, workspace, output)
+    assert report["annotations_reviewed"] is True
+    assert report["predictions_complete"] is False
+    assert report["release_ready"] is False
+    manifest = load_replay_set_manifest(output / "replay-set.manifest.json")
+    assert manifest.is_complete is True
+    assert manifest.claims["contains_predictions"] is False
+    review = json.loads((output / "annotation-review.receipt.json").read_text(encoding="utf-8"))
+    assert review["annotator"] == "annotator-a"
+    assert review["reviewer"] == "reviewer-b"
+    assert review["claims"]["accuracy_validated"] is False
+    assert verify_finalized_replay_annotations(output)["annotations_reviewed"] is True
+
+    (output / "day" / "ground-truth.jsonl").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="truth artifact hash mismatch"):
+        verify_finalized_replay_annotations(output)
+
+
+def test_replay_annotation_workspace_rejects_same_reviewer_and_assignment_tampering(
+    tmp_path: Path,
+) -> None:
+    intake, workspace = _annotation_fixture(tmp_path)
+    document = _complete_annotations(workspace)
+    document["reviewer"] = "ANNOTATOR-A"
+    workspace.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="present and distinct"):
+        finalize_replay_annotation_workspace(intake, workspace, tmp_path / "same-person")
+
+    document["reviewer"] = "reviewer-b"
+    document["frames"][0]["frame_id"] = "substituted-frame"
+    workspace.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="does not match verified intake"):
+        finalize_replay_annotation_workspace(intake, workspace, tmp_path / "tampered")
+
+
+def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path: Path) -> None:
+    intake = tmp_path / "intake"
+    prepare_deployment_replay_set(
+        _intake_sources(tmp_path / "sources"),
+        intake,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    workspace = tmp_path / "annotations.json"
+    script = "scripts/replay_annotation_workspace.py"
+    root = Path(__file__).resolve().parents[1]
+    created = subprocess.run(
+        [sys.executable, script, "create", str(intake), str(workspace)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert created.returncode == 0, created.stderr
+    pending = subprocess.run(
+        [sys.executable, script, "inspect", str(intake), str(workspace)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert pending.returncode == 2
+    assert json.loads(pending.stdout)["finalization_ready"] is False
+    _complete_annotations(workspace)
+    output = tmp_path / "final"
+    finalized = subprocess.run(
+        [sys.executable, script, "finalize", str(intake), str(workspace), str(output)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert finalized.returncode == 0, finalized.stderr
+    verified = subprocess.run(
+        [sys.executable, script, "verify", str(output)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stderr
+    assert json.loads(verified.stdout)["annotations_reviewed"] is True
 
 
 def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(
