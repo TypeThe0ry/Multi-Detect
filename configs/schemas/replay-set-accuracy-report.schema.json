@@ -89,6 +89,12 @@
         {"$ref": "#/$defs/model_binding"}
       ]
     },
+    "prediction_run_binding": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/prediction_run_binding"}
+      ]
+    },
     "thresholds": {
       "type": "object",
       "additionalProperties": false,
@@ -135,6 +141,26 @@
         "artifact_sha256": {"$ref": "#/$defs/sha256"},
         "model_id": {"type": "string", "minLength": 1},
         "model_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "prediction_run_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_path",
+        "receipt_sha256",
+        "receipt_canonical_hash",
+        "model_manifest_sha256",
+        "runtime_inference_executed",
+        "synthetic_hil_only"
+      ],
+      "properties": {
+        "receipt_path": {"type": "string", "minLength": 1},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_canonical_hash": {"$ref": "#/$defs/sha256"},
+        "model_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_inference_executed": {"type": "boolean"},
+        "synthetic_hil_only": {"type": "boolean"}
       }
     },
     "positive_coverage": {

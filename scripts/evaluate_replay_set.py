@@ -42,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model-id")
     parser.add_argument("--model-version")
+    parser.add_argument(
+        "--prediction-run-receipt",
+        type=Path,
+        help="verified v109 prediction-run.receipt.json beside the replay manifest",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--report-only", action="store_true")
     return parser
@@ -50,9 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if (
-        (args.model_id is not None or args.model_version is not None)
-        and args.model_artifact is None
-    ):
+        args.model_id is not None or args.model_version is not None
+    ) and args.model_artifact is None:
         raise ValueError("--model-artifact is required when model metadata is supplied")
     model_artifact_sha256 = None
     if args.model_artifact is not None:
@@ -73,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         model_artifact_sha256=model_artifact_sha256,
         model_id=args.model_id,
         model_version=args.model_version,
+        prediction_run_receipt=args.prediction_run_receipt,
     )
     payload = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
     if args.out is not None:

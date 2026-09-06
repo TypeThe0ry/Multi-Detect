@@ -30,10 +30,12 @@ from multidetect.replay_set import (
     build_replay_set_manifest,
     load_replay_set_manifest,
 )
+from multidetect.replay_set_evaluation import evaluate_replay_set
 from multidetect.replay_set_intake import (
     prepare_deployment_replay_set,
     verify_deployment_replay_intake,
 )
+from multidetect.replay_set_readiness import check_replay_set_readiness
 from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
 
@@ -633,6 +635,54 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(tmp_path: Path)
         .splitlines()
     ]
     assert predictions[0]["detections"][0]["label"] == "flame"
+
+    predicted_root = tmp_path / "predicted"
+    accuracy = evaluate_replay_set(
+        predicted_root / "replay-set.manifest.json",
+        prediction_run_receipt=predicted_root / "prediction-run.receipt.json",
+    )
+    assert accuracy["model_binding"]["model_id"] == "synthetic-fire-nx6-hil"
+    assert accuracy["prediction_run_binding"]["receipt_canonical_hash"] == report["canonical_hash"]
+    assert accuracy["prediction_run_binding"]["runtime_inference_executed"] is True
+    assert accuracy["prediction_run_binding"]["synthetic_hil_only"] is True
+    assert accuracy["accuracy_validated"] is False
+    accuracy_path = predicted_root / "accuracy-report.json"
+    accuracy_path.write_text(json.dumps(accuracy), encoding="utf-8")
+    readiness = check_replay_set_readiness(
+        predicted_root / "replay-set.manifest.json",
+        accuracy_report_path=accuracy_path,
+    )
+    assert readiness["accuracy_report"]["recomputed"] is True
+    assert not any(
+        "fresh evaluator recomputation" in reason for reason in readiness["blocking_reasons"]
+    )
+
+    with pytest.raises(ValueError, match="conflicts with verified prediction run receipt"):
+        evaluate_replay_set(
+            predicted_root / "replay-set.manifest.json",
+            prediction_run_receipt=predicted_root / "prediction-run.receipt.json",
+            model_id="substituted-model",
+        )
+
+    evaluated = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_replay_set.py",
+            str(predicted_root / "replay-set.manifest.json"),
+            "--prediction-run-receipt",
+            str(predicted_root / "prediction-run.receipt.json"),
+            "--report-only",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert evaluated.returncode == 0, evaluated.stderr
+    assert (
+        json.loads(evaluated.stdout)["prediction_run_binding"]["receipt_canonical_hash"]
+        == report["canonical_hash"]
+    )
 
 
 def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(

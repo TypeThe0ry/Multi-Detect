@@ -179,9 +179,7 @@ def check_replay_set_readiness(
     source_ok = bool(entries) and all(
         item["checks"]["deployment_recording_source"] for item in entries
     )
-    reviewed_ok = bool(entries) and all(
-        item["checks"]["annotations_reviewed"] for item in entries
-    )
+    reviewed_ok = bool(entries) and all(item["checks"]["annotations_reviewed"] for item in entries)
     ground_truth_ok = bool(entries) and all(
         item["checks"]["ground_truth_present"] for item in entries
     )
@@ -220,8 +218,9 @@ def check_replay_set_readiness(
         "positive_truth_by_stratum": positive_strata_truth_ok,
         "positive_prediction_by_stratum": positive_strata_predictions_ok,
         "manifest_gate_passed": manifest_gate_passed,
-        "accuracy_report_bound": bool(accuracy_report["manifest_bound"]
-                                      and accuracy_report["canonical_bound"]),
+        "accuracy_report_bound": bool(
+            accuracy_report["manifest_bound"] and accuracy_report["canonical_bound"]
+        ),
         "accuracy_report_gate_passed": accuracy_gate_passed,
     }
 
@@ -393,6 +392,8 @@ def _inspect_accuracy_report(
     thresholds = document.get("thresholds")
     reviewer = document.get("reviewer")
     model_binding = document.get("model_binding")
+    prediction_run_binding = document.get("prediction_run_binding")
+    prediction_run_receipt = None
     model_artifact_sha256 = None
     model_id = None
     model_version = None
@@ -403,6 +404,14 @@ def _inspect_accuracy_report(
             model_artifact_sha256 = model_binding.get("artifact_sha256")
             model_id = model_binding.get("model_id")
             model_version = model_binding.get("model_version")
+    if prediction_run_binding is not None:
+        if not isinstance(prediction_run_binding, Mapping):
+            reasons.append("accuracy report prediction_run_binding must be an object or null")
+        else:
+            prediction_run_receipt = prediction_run_binding.get("receipt_path")
+            if not isinstance(prediction_run_receipt, str) or not prediction_run_receipt.strip():
+                reasons.append("accuracy report prediction_run_binding receipt_path is invalid")
+                prediction_run_receipt = None
     if not isinstance(thresholds, Mapping) or any(
         field not in thresholds for field in _THRESHOLD_FIELDS
     ):
@@ -419,18 +428,15 @@ def _inspect_accuracy_report(
             confidence_threshold=thresholds["confidence_threshold"],
             minimum_precision=thresholds["minimum_precision"],
             minimum_recall=thresholds["minimum_recall"],
-            maximum_false_alarm_frame_rate=thresholds[
-                "maximum_false_alarm_frame_rate"
-            ],
-            maximum_missed_detection_frame_rate=thresholds[
-                "maximum_missed_detection_frame_rate"
-            ],
+            maximum_false_alarm_frame_rate=thresholds["maximum_false_alarm_frame_rate"],
+            maximum_missed_detection_frame_rate=thresholds["maximum_missed_detection_frame_rate"],
             maximum_latency_p95_ms=thresholds["maximum_latency_p95_ms"],
             reviewed=document["reviewed"],
             reviewer=reviewer,
             model_artifact_sha256=model_artifact_sha256,
             model_id=model_id,
             model_version=model_version,
+            prediction_run_receipt=prediction_run_receipt,
         )
     except (OSError, ValueError, RuntimeError) as exc:
         reasons.append(f"accuracy report could not be recomputed: {exc}")
@@ -457,6 +463,7 @@ def _inspect_accuracy_report(
         "reviewed",
         "reviewer",
         "model_binding",
+        "prediction_run_binding",
         "thresholds",
         "entries",
         "metrics",
@@ -467,9 +474,7 @@ def _inspect_accuracy_report(
     if any(document.get(field) != recomputed.get(field) for field in comparable_fields):
         reasons.append("accuracy report does not match a fresh evaluator recomputation")
     if not result["recomputed_gate_passed"]:
-        reasons.extend(
-            f"recomputed accuracy: {reason}" for reason in recomputed["failure_reasons"]
-        )
+        reasons.extend(f"recomputed accuracy: {reason}" for reason in recomputed["failure_reasons"])
     result["gate_passed"] = bool(
         result["manifest_bound"]
         and result["canonical_bound"]

@@ -51,6 +51,7 @@ def evaluate_replay_set(
     model_artifact_sha256: str | None = None,
     model_id: str | None = None,
     model_version: str | None = None,
+    prediction_run_receipt: str | Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate all prediction streams bound by a replay-set manifest.
 
@@ -79,14 +80,49 @@ def evaluate_replay_set(
     if type(reviewed) is not bool:
         raise ValueError("reviewed must be a boolean")
     normalized_reviewer = _normalize_reviewer(reviewer, reviewed=reviewed)
+    manifest = load_replay_set_manifest(source)
+    raw_payload = source.read_bytes()
+    prediction_run_binding: dict[str, Any] | None = None
+    if prediction_run_receipt is not None:
+        from .replay_prediction_run import verify_replay_predictions
+
+        receipt_path = Path(prediction_run_receipt).expanduser().resolve(strict=True)
+        expected_receipt = source.parent / "prediction-run.receipt.json"
+        if receipt_path != expected_receipt:
+            raise ValueError(
+                "prediction_run_receipt must be prediction-run.receipt.json "
+                "beside the replay manifest"
+            )
+        verified_run = verify_replay_predictions(source.parent)
+        derived = {
+            "model_artifact_sha256": str(verified_run["model_artifact_sha256"]),
+            "model_id": str(verified_run["model_id"]),
+            "model_version": str(verified_run["model_version"]),
+        }
+        supplied = {
+            "model_artifact_sha256": model_artifact_sha256,
+            "model_id": model_id,
+            "model_version": model_version,
+        }
+        for field, value in supplied.items():
+            if value is not None and value.strip().lower() != derived[field].lower():
+                raise ValueError(f"{field} conflicts with verified prediction run receipt")
+        model_artifact_sha256 = derived["model_artifact_sha256"]
+        model_id = derived["model_id"]
+        model_version = derived["model_version"]
+        prediction_run_binding = {
+            "receipt_path": str(receipt_path),
+            "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+            "receipt_canonical_hash": verified_run["canonical_hash"],
+            "model_manifest_sha256": verified_run["model_manifest_sha256"],
+            "runtime_inference_executed": verified_run["runtime_inference_executed"],
+            "synthetic_hil_only": verified_run["synthetic_hil_only"],
+        }
     model_binding = _normalize_model_binding(
         model_artifact_sha256=model_artifact_sha256,
         model_id=model_id,
         model_version=model_version,
     )
-
-    manifest = load_replay_set_manifest(source)
-    raw_payload = source.read_bytes()
     failure_reasons: list[str] = []
     if not manifest.is_complete:
         failure_reasons.append("replay-set deployment coverage is incomplete")
@@ -163,8 +199,7 @@ def evaluate_replay_set(
         # replay set may contain the same camera-local IDs in more than one
         # stratum; the prefix keeps the aggregate evaluator exact and unique.
         combined_truth.extend(
-            GroundTruthFrame(f"{entry.entry_id}:{frame.frame_id}", frame.objects)
-            for frame in truth
+            GroundTruthFrame(f"{entry.entry_id}:{frame.frame_id}", frame.objects) for frame in truth
         )
         combined_predictions.extend(
             PredictionFrame(
@@ -185,14 +220,10 @@ def evaluate_replay_set(
         prediction_count = coverage["positive_prediction_count"]
         if truth_count <= 0:
             positive_strata_coverage_passed = False
-            failure_reasons.append(
-                f"{stratum} stratum contains no positive ground-truth object"
-            )
+            failure_reasons.append(f"{stratum} stratum contains no positive ground-truth object")
         if prediction_count <= 0:
             positive_strata_coverage_passed = False
-            failure_reasons.append(
-                f"{stratum} stratum contains no detector positive prediction"
-            )
+            failure_reasons.append(f"{stratum} stratum contains no detector positive prediction")
     if predictions_complete and combined_truth and combined_predictions:
         aggregate_report = evaluate_detections(
             tuple(combined_truth),
@@ -249,6 +280,7 @@ def evaluate_replay_set(
         "reviewed": reviewed,
         "reviewer": normalized_reviewer,
         "model_binding": model_binding,
+        "prediction_run_binding": prediction_run_binding,
         "thresholds": {
             "iou_threshold": iou_threshold,
             "confidence_threshold": confidence_threshold,
@@ -432,9 +464,7 @@ def _metric_failure_reasons(
     return failures
 
 
-def _check_minimum(
-    failures: list[str], name: str, observed: object, minimum: float | None
-) -> None:
+def _check_minimum(failures: list[str], name: str, observed: object, minimum: float | None) -> None:
     if minimum is None:
         return
     if not _finite_number(observed) or float(observed) < minimum:
@@ -471,10 +501,7 @@ def accuracy_metrics_are_defined(metrics: object) -> bool:
     overall = metrics.get("overall")
     if not isinstance(overall, Mapping):
         return False
-    return all(
-        _finite_probability(overall.get(name))
-        for name in ("precision", "recall")
-    )
+    return all(_finite_probability(overall.get(name)) for name in ("precision", "recall"))
 
 
 def _finite_probability(value: object) -> bool:
