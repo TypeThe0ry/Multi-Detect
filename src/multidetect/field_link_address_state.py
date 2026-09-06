@@ -32,7 +32,10 @@ def _load_document(
 ) -> tuple[object, str | None, int, str | None]:
     if isinstance(source, Mapping):
         return dict(source), None, 0, None
-    path = Path(source).expanduser().resolve(strict=False)
+    requested = Path(source).expanduser()
+    if requested.is_symlink():
+        raise ValueError("field-link address state must not be a symbolic link")
+    path = requested.resolve(strict=False)
     raw = path.read_bytes()
     document = json.loads(
         raw.decode("utf-8-sig"),
@@ -422,6 +425,11 @@ def verify_field_link_address_state(
         "report_sha256": report_sha256,
         "mode": mode,
         "operation": operation,
+        "document_schema": document.get("schema"),
+        "generated_at_utc": document.get("generated_at_utc"),
+        "interface_alias": document.get("interface_alias"),
+        "requested_address": requested_address,
+        "requested_prefix_length": requested_prefix,
     }
 
 

@@ -21,6 +21,10 @@ def test_windows_field_link_wrapper_is_read_only_and_verifies_saved_report() -> 
         "CameraHost",
         "InterfaceDiagnostic",
         "GenerateInterfaceDiagnostic",
+        "AddressState",
+        "AddressStateMaxAgeSeconds",
+        "ExpectedFieldAddress",
+        "ExpectedFieldPrefixLength",
         "JetsonPort",
         "Gr01Port",
         "RtspPort",
@@ -31,6 +35,10 @@ def test_windows_field_link_wrapper_is_read_only_and_verifies_saved_report() -> 
         "--camera-host",
         "--interface-diagnostic",
         "--interface-alias",
+        "--address-state",
+        "--address-state-max-age-s",
+        "--expected-field-address",
+        "--expected-field-prefix-length",
         "--jetson-port",
         "--gr01-port",
         "--rtsp-port",
@@ -63,6 +71,7 @@ def test_windows_field_link_wrapper_is_read_only_and_verifies_saved_report() -> 
     assert "if ($GenerateInterfaceDiagnostic)" in text
     assert "Generated read-only interface diagnostic" in text
     assert "-ExpectedSourceCidr $ExpectedSourceCidr" in text
+    assert "plan/verify/what-if records are rejected" in text
 
     # Address changes belong exclusively to prepare_field_link.ps1.  This
     # orchestration wrapper must never mutate the workstation network state.

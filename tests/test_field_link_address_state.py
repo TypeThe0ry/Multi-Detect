@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from multidetect.field_link_address_state import (
@@ -232,6 +233,22 @@ def test_verifier_rejects_unknown_duplicate_and_nonfinite_json(tmp_path: Path) -
     nonfinite_json = tmp_path / "nonfinite.json"
     nonfinite_json.write_text('{"value": NaN}', encoding="utf-8")
     assert verify_field_link_address_state(nonfinite_json)["gate_passed"] is False
+
+
+def test_verifier_rejects_symbolic_link_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link = tmp_path / "link.json"
+    path_type = type(link)
+    original_is_symlink = path_type.is_symlink
+    monkeypatch.setattr(
+        path_type,
+        "is_symlink",
+        lambda self: self == link or original_is_symlink(self),
+    )
+    result = verify_field_link_address_state(link)
+    assert result["gate_passed"] is False
+    assert "must not be a symbolic link" in " ".join(result["reasons"])
 
 
 def test_verifier_hashes_file_and_enforces_freshness(tmp_path: Path) -> None:

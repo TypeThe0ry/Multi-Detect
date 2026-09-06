@@ -11,8 +11,11 @@ import socket
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .field_link_address_state import verify_field_link_address_state
 
 FIELD_LINK_REPORT_SCHEMA_VERSION = 1
 FIELD_LINK_DISCOVERY_SCHEMA_VERSION = 1
@@ -20,6 +23,7 @@ FIELD_LINK_INTERFACE_DIAGNOSTIC_SCHEMA_VERSION = 1
 DEFAULT_DISCOVERY_MAX_HOSTS = 256
 DEFAULT_DISCOVERY_WORKERS = 32
 DEFAULT_FIELD_LINK_MAX_AGE_S = 900.0
+MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S = 300.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -984,6 +988,161 @@ def verify_field_link_report(
                     if binding.get("candidate_aliases") != selection.get("candidate_aliases"):
                         reasons.append(
                             "field-link interface_diagnostic.candidate_aliases do not match source"
+                        )
+
+    # A workstation address receipt is optional because an aircraft network
+    # may be provisioned outside this helper.  When present, however, it must
+    # be a successful apply document: plan/verify/what-if records cannot be
+    # promoted into link-readiness provenance.  Freshness is evaluated at the
+    # parent preflight observation time, so archived verification remains
+    # reproducible while still proving that address setup preceded the probe
+    # by only the bounded interval recorded here.
+    if "address_state" in raw:
+        binding = raw.get("address_state")
+        address_result: dict[str, Any] | None = None
+        binding_keys = {
+            "required",
+            "report_path",
+            "report_sha256",
+            "report_bytes",
+            "schema",
+            "schema_version",
+            "interface_alias",
+            "requested_address",
+            "requested_prefix_length",
+            "mode",
+            "application_succeeded",
+            "max_age_s_at_preflight",
+            "verified",
+        }
+        if not isinstance(binding, Mapping) or set(binding) != binding_keys:
+            reasons.append("field-link address_state binding must use the closed v1 shape")
+            checks["address_state"] = {"gate_passed": False, "reasons": reasons[-1:]}
+        else:
+            binding_path_value = binding.get("report_path")
+            expected_alias = binding.get("interface_alias")
+            expected_address = binding.get("requested_address")
+            expected_prefix = binding.get("requested_prefix_length")
+            binding_max_age = binding.get("max_age_s_at_preflight")
+            binding_values_valid = (
+                isinstance(binding_path_value, str)
+                and bool(binding_path_value.strip())
+                and isinstance(expected_alias, str)
+                and bool(expected_alias.strip())
+                and isinstance(expected_address, str)
+                and bool(expected_address.strip())
+                and type(expected_prefix) is int
+                and 1 <= expected_prefix <= 32
+                and isinstance(binding_max_age, (int, float))
+                and not isinstance(binding_max_age, bool)
+                and math.isfinite(float(binding_max_age))
+                and 0.0 <= float(binding_max_age) <= MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S
+            )
+            if not binding_values_valid:
+                reasons.append("field-link address_state binding values are invalid")
+                checks["address_state"] = {
+                    "gate_passed": False,
+                    "reasons": reasons[-1:],
+                }
+            else:
+                binding_path = Path(binding_path_value).expanduser()
+                if not binding_path.is_absolute():
+                    binding_path = report_path.parent / binding_path
+                if binding_path.resolve(strict=False) == report_path.resolve(strict=False):
+                    reasons.append("field-link address_state must not reference its parent report")
+                timestamp_key = (
+                    "finished_at_epoch_s" if mode == "watch" else "generated_at_epoch_s"
+                )
+                parent_timestamp = raw.get(timestamp_key)
+                reference_time: datetime | None = None
+                if _is_finite_number(parent_timestamp):
+                    try:
+                        reference_time = datetime.fromtimestamp(
+                            float(parent_timestamp), tz=timezone.utc
+                        )
+                    except (OverflowError, OSError, ValueError):
+                        reference_time = None
+                if reference_time is None:
+                    reasons.append(
+                        "field-link preflight timestamp is required for address_state binding"
+                    )
+                try:
+                    address_result = verify_field_link_address_state(
+                        binding_path,
+                        require_applied=True,
+                        expected_interface_alias=expected_alias,
+                        expected_address=expected_address,
+                        expected_prefix_length=expected_prefix,
+                        max_age_s=float(binding_max_age),
+                        now_utc=reference_time,
+                    )
+                except ValueError as exc:
+                    address_result = {
+                        "gate_passed": False,
+                        "reasons": [str(exc)],
+                    }
+                checks["address_state"] = address_result
+                if not address_result.get("gate_passed"):
+                    reasons.extend(
+                        f"address_state: {reason}"
+                        for reason in address_result.get("reasons", [])
+                    )
+                if binding.get("required") is not True:
+                    reasons.append("field-link address_state.required must be true")
+                if binding.get("verified") is not True:
+                    reasons.append("field-link address_state.verified must be true")
+                if binding.get("mode") != "apply":
+                    reasons.append("field-link address_state.mode must be apply")
+                if binding.get("application_succeeded") is not True:
+                    reasons.append(
+                        "field-link address_state.application_succeeded must be true"
+                    )
+                for binding_key, result_key in (
+                    ("report_sha256", "report_sha256"),
+                    ("report_bytes", "report_bytes"),
+                    ("schema", "document_schema"),
+                    ("schema_version", "schema_version"),
+                    ("interface_alias", "interface_alias"),
+                    ("requested_address", "requested_address"),
+                    ("requested_prefix_length", "requested_prefix_length"),
+                    ("mode", "mode"),
+                    ("application_succeeded", "application_succeeded"),
+                ):
+                    if binding.get(binding_key) != address_result.get(result_key):
+                        reasons.append(
+                            f"field-link address_state.{binding_key} does not match source"
+                        )
+                target = raw.get("target")
+                expected_cidr = (
+                    target.get("expected_source_cidr")
+                    if isinstance(target, Mapping)
+                    else None
+                )
+                if isinstance(expected_cidr, str):
+                    try:
+                        if ipaddress.ip_address(expected_address) not in ipaddress.ip_network(
+                            expected_cidr, strict=False
+                        ):
+                            reasons.append(
+                                "field-link address_state requested address is outside the "
+                                "preflight expected source CIDR"
+                            )
+                    except ValueError:
+                        reasons.append(
+                            "field-link address_state cannot be matched to the expected source CIDR"
+                        )
+                else:
+                    reasons.append(
+                        "field-link address_state requires a parent expected source CIDR"
+                    )
+                if "interface_diagnostic" in raw:
+                    interface_binding = raw.get("interface_diagnostic")
+                    if (
+                        isinstance(interface_binding, Mapping)
+                        and interface_binding.get("interface_alias") != expected_alias
+                    ):
+                        reasons.append(
+                            "field-link address_state and interface_diagnostic aliases differ"
                         )
 
     # A bounded watch that stops on its first failure deliberately leaves the
@@ -2184,10 +2343,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--interface-alias",
         help=(
-            "explicit interface alias used for the preflight; when supplied with "
-            "--interface-diagnostic it must match a ready/ambiguous candidate"
+            "explicit interface alias used for the preflight; it binds an optional "
+            "interface diagnostic and is required with --address-state"
         ),
     )
+    parser.add_argument(
+        "--address-state",
+        type=Path,
+        help=(
+            "optional successful prepare_field_link.ps1 apply JSON to hash-bind; "
+            "plan/verify/what-if documents are rejected"
+        ),
+    )
+    parser.add_argument(
+        "--address-state-max-age-s",
+        type=float,
+        default=300.0,
+        help=(
+            "maximum age of --address-state at the preflight observation time "
+            f"(maximum/default: {MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S:g})"
+        ),
+    )
+    parser.add_argument("--expected-field-address", default="192.168.144.250")
+    parser.add_argument("--expected-field-prefix-length", type=int, default=24)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--require-all", action="store_true")
     args = parser.parse_args(argv)
@@ -2206,8 +2384,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if not math.isfinite(discover_timeout_s) or discover_timeout_s <= 0.0:
         parser.error("--discover-timeout-s must be finite and greater than zero")
-    if args.interface_alias is not None and args.interface_diagnostic is None:
-        parser.error("--interface-alias requires --interface-diagnostic")
+    if args.interface_alias is not None and (
+        args.interface_diagnostic is None and args.address_state is None
+    ):
+        parser.error("--interface-alias requires --interface-diagnostic or --address-state")
+    if args.address_state is not None and args.interface_alias is None:
+        parser.error("--address-state requires --interface-alias")
+    if args.address_state is not None and args.expected_source_cidr is None:
+        parser.error("--address-state requires --expected-source-cidr")
+    if (
+        not math.isfinite(args.address_state_max_age_s)
+        or not (
+            0.0
+            <= args.address_state_max_age_s
+            <= MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S
+        )
+    ):
+        parser.error(
+            "--address-state-max-age-s must be finite and in "
+            f"[0, {MAX_FIELD_LINK_ADDRESS_BINDING_AGE_S:g}]"
+        )
+    if not 1 <= args.expected_field_prefix_length <= 32:
+        parser.error("--expected-field-prefix-length must be in [1, 32]")
     report = (
         build_field_link_report(
             jetson_host=args.jetson_host,
@@ -2295,6 +2493,72 @@ def main(argv: Sequence[str] | None = None) -> int:
         report.setdefault("notes", []).append(
             "The read-only workstation interface diagnostic is hash-bound; it describes "
             "adapter selection only and never upgrades hardware_link_ready."
+        )
+    if args.address_state is not None:
+        address_requested_path = args.address_state.expanduser()
+        address_path = address_requested_path.resolve(strict=False)
+        if args.out is not None and address_path == args.out.expanduser().resolve(strict=False):
+            parser.error("--address-state and --out must refer to different files")
+        report_mode = report.get("mode")
+        timestamp_key = (
+            "finished_at_epoch_s" if report_mode == "watch" else "generated_at_epoch_s"
+        )
+        report_timestamp = report.get(timestamp_key)
+        if not _is_finite_number(report_timestamp):
+            parser.error(
+                "field-link report has no valid observation timestamp for --address-state"
+            )
+        try:
+            reference_time = datetime.fromtimestamp(
+                float(report_timestamp), tz=timezone.utc
+            )
+        except (OverflowError, OSError, ValueError):
+            parser.error("field-link report observation timestamp is out of range")
+        try:
+            address_result = verify_field_link_address_state(
+                address_requested_path,
+                require_applied=True,
+                expected_interface_alias=args.interface_alias,
+                expected_address=args.expected_field_address,
+                expected_prefix_length=args.expected_field_prefix_length,
+                max_age_s=args.address_state_max_age_s,
+                now_utc=reference_time,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        if not address_result.get("gate_passed"):
+            detail = "; ".join(
+                str(reason) for reason in address_result.get("reasons", [])
+            )
+            parser.error(f"field-link address state verification failed: {detail}")
+        if args.expected_source_cidr is not None:
+            try:
+                if ipaddress.ip_address(args.expected_field_address) not in ipaddress.ip_network(
+                    args.expected_source_cidr, strict=False
+                ):
+                    parser.error(
+                        "--expected-field-address is outside --expected-source-cidr"
+                    )
+            except ValueError as exc:
+                parser.error(f"invalid field address/source CIDR binding: {exc}")
+        report["address_state"] = {
+            "required": True,
+            "report_path": address_result["report_path"],
+            "report_sha256": address_result["report_sha256"],
+            "report_bytes": address_result["report_bytes"],
+            "schema": address_result["document_schema"],
+            "schema_version": address_result["schema_version"],
+            "interface_alias": address_result["interface_alias"],
+            "requested_address": address_result["requested_address"],
+            "requested_prefix_length": address_result["requested_prefix_length"],
+            "mode": address_result["mode"],
+            "application_succeeded": address_result["application_succeeded"],
+            "max_age_s_at_preflight": args.address_state_max_age_s,
+            "verified": True,
+        }
+        report.setdefault("notes", []).append(
+            "The successful field-link address apply receipt is hash-bound and was "
+            "fresh at the preflight observation time; it cannot replace endpoint probes."
         )
     encoded = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out is not None:

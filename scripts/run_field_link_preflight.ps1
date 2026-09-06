@@ -11,6 +11,12 @@ param(
     [string]$CameraHost = '192.168.144.108',
     [string]$InterfaceDiagnostic = '',
     [switch]$GenerateInterfaceDiagnostic,
+    [string]$AddressState = '',
+    [ValidateRange(0, 300)]
+    [double]$AddressStateMaxAgeSeconds = 300.0,
+    [string]$ExpectedFieldAddress = '192.168.144.250',
+    [ValidateRange(1, 32)]
+    [int]$ExpectedFieldPrefixLength = 24,
     [ValidateRange(1, 65535)]
     [int]$JetsonPort = 22,
     [ValidateRange(1, 65535)]
@@ -60,6 +66,10 @@ foreach ($number in @($IntervalSeconds, $TimeoutSeconds)) {
     if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) {
         throw 'IntervalSeconds and TimeoutSeconds must be finite numbers'
     }
+}
+if ([double]::IsNaN($AddressStateMaxAgeSeconds) -or
+    [double]::IsInfinity($AddressStateMaxAgeSeconds)) {
+    throw 'AddressStateMaxAgeSeconds must be a finite number'
 }
 
 if ([double]::IsNaN($DiscoverTimeoutSeconds) -or [double]::IsInfinity($DiscoverTimeoutSeconds)) {
@@ -242,6 +252,22 @@ elseif (-not [string]::IsNullOrWhiteSpace($InterfaceDiagnostic)) {
     Write-Output ('Interface diagnostic: {0}' -f $resolvedInterfaceDiagnostic)
 }
 
+$resolvedAddressState = $null
+if (-not [string]::IsNullOrWhiteSpace($AddressState)) {
+    $resolvedAddressState = Resolve-RepositoryPath -Requested $AddressState
+    if (-not (Test-Path -LiteralPath $resolvedAddressState -PathType Leaf)) {
+        throw "Field-link address state does not exist: $resolvedAddressState"
+    }
+    if ($resolvedAddressState -eq $resolvedOutput) {
+        throw 'Address state and field-link preflight output must refer to different files'
+    }
+    if ($null -ne $resolvedInterfaceDiagnostic -and
+        $resolvedAddressState -eq $resolvedInterfaceDiagnostic) {
+        throw 'Address state and interface diagnostic must refer to different files'
+    }
+    Write-Output ('Field-link address state: {0}' -f $resolvedAddressState)
+}
+
 $preflightArguments = [System.Collections.Generic.List[string]]::new()
 $preflightArguments.Add($preflightScript)
 $preflightArguments.Add('--timeout-s')
@@ -287,8 +313,23 @@ if ($null -ne $resolvedInterfaceDiagnostic) {
     # mutates adapter addresses, routes or DNS settings.
     $preflightArguments.Add('--interface-diagnostic')
     $preflightArguments.Add($resolvedInterfaceDiagnostic)
+}
+if ($null -ne $resolvedInterfaceDiagnostic -or $null -ne $resolvedAddressState) {
     $preflightArguments.Add('--interface-alias')
     $preflightArguments.Add([string]$state.interface_alias)
+}
+if ($null -ne $resolvedAddressState) {
+    # A supplied receipt must be a fresh, successful apply record.  Python
+    # reopens and verifies it before probing, then hash-binds it into the
+    # saved report; plan/verify/what-if records are rejected.
+    $preflightArguments.Add('--address-state')
+    $preflightArguments.Add($resolvedAddressState)
+    $preflightArguments.Add('--address-state-max-age-s')
+    $preflightArguments.Add(([string]$AddressStateMaxAgeSeconds))
+    $preflightArguments.Add('--expected-field-address')
+    $preflightArguments.Add($ExpectedFieldAddress)
+    $preflightArguments.Add('--expected-field-prefix-length')
+    $preflightArguments.Add(([string]$ExpectedFieldPrefixLength))
 }
 if ($RequireRoute) {
     $preflightArguments.Add('--require-route')
