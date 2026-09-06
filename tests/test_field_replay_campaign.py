@@ -361,7 +361,11 @@ def test_campaign_annotation_ui_runs_bound_loopback_workbench(tmp_path: Path) ->
         assert "Multi-Detect 标注工作台" in page
     finally:
         process.terminate()
-        process.wait(timeout=10.0)
+        try:
+            process.communicate(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=10.0)
 
     advance_field_replay_campaign(workspace)
     _complete_annotations(workspace / "annotations.json")
