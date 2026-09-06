@@ -719,6 +719,10 @@ def _real_field_link_record(
         "max_age_s": max_age_s,
         "report_timestamp_epoch_s": verification.get("report_timestamp_epoch_s"),
         "hardware_link_ready": bool(verification.get("hardware_link_ready")),
+        "address_state_bound": (
+            isinstance(verification.get("checks"), Mapping)
+            and "address_state" in verification["checks"]
+        ),
         "gate_passed": bool(verification.get("gate_passed")),
     }
     summary = verification.get("summary")

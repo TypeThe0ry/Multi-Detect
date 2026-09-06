@@ -211,6 +211,7 @@
         "route_checks_requested": {"type": "boolean"},
         "route_checks_passed": {"type": ["boolean", "null"]},
         "route_source_cidr": {"type": ["string", "null"]},
+        "address_state_bound": {"type": "boolean"},
         "gate_passed": {"type": "boolean"},
         "reasons": {
           "type": "array",

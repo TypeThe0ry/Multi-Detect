@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,81 @@ def _field_link_report(
         encoding="utf-8",
     )
     return path
+
+
+def _address_bound_field_link_report(tmp_path: Path) -> tuple[Path, Path]:
+    address_path = tmp_path / "field-link" / "address-state.json"
+    address_path.parent.mkdir(parents=True, exist_ok=True)
+    observed_epoch_s = time.time() - 2.0
+    address_document = {
+        "schema": "multidetect.field-link-address-state/v1",
+        "schema_version": 1,
+        "generated_at_utc": datetime.fromtimestamp(
+            observed_epoch_s, tz=timezone.utc
+        ).isoformat(),
+        "computer_name": "FIELD-LAPTOP",
+        "interface_alias": "Ethernet",
+        "interface_index": 7,
+        "interface_status": "Up",
+        "link_speed": "1 Gbps",
+        "addresses": [
+            {
+                "ip_address": "192.168.1.13",
+                "prefix_length": 24,
+                "address_state": "Preferred",
+                "skip_as_source": False,
+            },
+            {
+                "ip_address": "192.168.144.250",
+                "prefix_length": 24,
+                "address_state": "Preferred",
+                "skip_as_source": True,
+            },
+        ],
+        "aircraft_route": [],
+        "execution": {
+            "mode": "apply",
+            "operation": "add-secondary-address",
+            "changed": True,
+            "requested_address": "192.168.144.250",
+            "requested_prefix_length": 24,
+            "postcondition_checked": True,
+            "postcondition_passed": True,
+            "output": None,
+        },
+    }
+    address_path.write_text(json.dumps(address_document), encoding="utf-8")
+    report_path = tmp_path / "field-link" / "address-bound-ready.json"
+    report = {
+        "schema_version": 1,
+        "generated_at_epoch_s": observed_epoch_s + 1.0,
+        "target": {"expected_source_cidr": "192.168.144.0/24"},
+        "probes": [{"name": "jetson", "ok": True}],
+        "summary": {
+            "all_passed": True,
+            "hardware_link_ready": True,
+            "route_checks_requested": False,
+            "route_checks_passed": None,
+            "route_source_cidr": "192.168.144.0/24",
+        },
+        "address_state": {
+            "required": True,
+            "report_path": str(address_path),
+            "report_sha256": sha256_file(address_path),
+            "report_bytes": address_path.stat().st_size,
+            "schema": "multidetect.field-link-address-state/v1",
+            "schema_version": 1,
+            "interface_alias": "Ethernet",
+            "requested_address": "192.168.144.250",
+            "requested_prefix_length": 24,
+            "mode": "apply",
+            "application_succeeded": True,
+            "max_age_s_at_preflight": 300.0,
+            "verified": True,
+        },
+    }
+    report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+    return address_path, report_path
 
 
 def _real_alert_link_report(tmp_path: Path) -> Path:
@@ -494,6 +570,7 @@ def test_real_field_link_binding_is_hash_bound_and_rechecked(tmp_path: Path) -> 
     assert binding["max_age_s"] == 900.0
     assert binding["report_timestamp_epoch_s"] is not None
     assert binding["hardware_link_ready"] is True
+    assert binding["address_state_bound"] is False
     assert binding["gate_passed"] is True
 
     report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
@@ -517,6 +594,52 @@ def test_real_field_link_binding_is_hash_bound_and_rechecked(tmp_path: Path) -> 
     assert any(
         "real_field_link report SHA-256 does not match" in reason
         for reason in changed["release_blocked_reasons"]
+    )
+
+
+def test_real_field_link_projects_and_rechecks_address_state_binding(
+    tmp_path: Path,
+) -> None:
+    evidence = _evidence(tmp_path)
+    address_state, link = _address_bound_field_link_report(tmp_path)
+    output = tmp_path / "manifests" / "release-gate-address-bound.json"
+
+    document = create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+        real_field_link_preflight=link,
+    )
+
+    assert document["real_field_link"]["address_state_bound"] is True
+    report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert report["real_field_link"]["passed"] is True
+    assert report["real_field_link"]["report"]["address_state_bound"] is True
+
+    tampered = json.loads(output.read_text(encoding="utf-8"))
+    tampered["real_field_link"]["address_state_bound"] = False
+    output.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
+    changed = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert changed["real_field_link"]["passed"] is False
+    assert any(
+        "real_field_link address_state_bound does not match report" in reason
+        for reason in changed["real_field_link"]["reasons"]
+    )
+
+    output.write_text(json.dumps(document) + "\n", encoding="utf-8")
+    changed_address = json.loads(address_state.read_text(encoding="utf-8"))
+    changed_address["computer_name"] = "REPLACED-LAPTOP"
+    address_state.write_text(json.dumps(changed_address), encoding="utf-8")
+    changed = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert changed["real_field_link"]["passed"] is False
+    assert any(
+        "address_state.report_sha256 does not match source" in reason
+        for reason in changed["real_field_link"]["reasons"]
     )
 
 
@@ -695,6 +818,18 @@ def test_final_release_requires_route_bound_real_field_link(tmp_path: Path) -> N
     assert any(
         "final release requires freshness-bound REAL field-link provenance" in reason
         for reason in old_report["release_blocked_reasons"]
+    )
+
+    missing_projection = json.loads(json.dumps(document))
+    del missing_projection["real_field_link"]["address_state_bound"]
+    output.write_text(json.dumps(missing_projection) + "\n", encoding="utf-8")
+    projection_report = evaluate_release_gate(
+        output, version_manifest_path=final_version_path
+    )
+    assert any(
+        "final release requires an explicit REAL field-link address-state binding projection"
+        in reason
+        for reason in projection_report["release_blocked_reasons"]
     )
 
 
@@ -1916,6 +2051,7 @@ def test_release_gate_schema_declares_real_field_link_binding() -> None:
     assert definition["properties"]["route_checks_requested"]["type"] == "boolean"
     assert definition["properties"]["route_checks_passed"]["type"] == ["boolean", "null"]
     assert definition["properties"]["route_source_cidr"]["type"] == ["string", "null"]
+    assert definition["properties"]["address_state_bound"]["type"] == "boolean"
     assert definition["properties"]["max_age_s"]["minimum"] == 0
     assert definition["properties"]["report_timestamp_epoch_s"]["type"] == [
         "number",

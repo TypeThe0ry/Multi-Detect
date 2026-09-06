@@ -208,6 +208,7 @@ _REAL_FIELD_LINK_KEYS = frozenset(
         "route_checks_requested",
         "route_checks_passed",
         "route_source_cidr",
+        "address_state_bound",
         "gate_passed",
         "reasons",
     }
@@ -1467,6 +1468,9 @@ def _real_field_link_result(
     expected_ready = raw_record.get("hardware_link_ready")
     if type(expected_ready) is not bool:
         reasons.append("real_field_link.hardware_link_ready must be a boolean")
+    expected_address_state_bound = raw_record.get("address_state_bound")
+    if expected_address_state_bound is not None and type(expected_address_state_bound) is not bool:
+        reasons.append("real_field_link.address_state_bound must be a boolean")
     route_requested = raw_record.get("route_checks_requested")
     route_passed = raw_record.get("route_checks_passed")
     route_cidr = raw_record.get("route_source_cidr")
@@ -1551,6 +1555,19 @@ def _real_field_link_result(
                         "checks": verification.get("checks"),
                     }
                 )
+                verification_checks = verification.get("checks")
+                address_state_bound = (
+                    isinstance(verification_checks, Mapping)
+                    and "address_state" in verification_checks
+                )
+                report_info["address_state_bound"] = address_state_bound
+                if (
+                    expected_address_state_bound is not None
+                    and expected_address_state_bound is not address_state_bound
+                ):
+                    reasons.append(
+                        "real_field_link address_state_bound does not match report"
+                    )
                 if freshness_bound:
                     verified_max_age = verification.get("max_age_s")
                     if (
@@ -5313,6 +5330,14 @@ def evaluate_release_gate(
                 release_reasons.append(
                     "final release requires freshness-bound REAL field-link provenance "
                     "(max_age_s and report_timestamp_epoch_s)"
+                )
+            if real_field_link_result["present"] and (
+                not isinstance(raw_real_field_link, Mapping)
+                or "address_state_bound" not in raw_real_field_link
+            ):
+                release_reasons.append(
+                    "final release requires an explicit REAL field-link address-state "
+                    "binding projection (address_state_bound)"
                 )
             if not real_alert_link_result["present"]:
                 release_reasons.append(
