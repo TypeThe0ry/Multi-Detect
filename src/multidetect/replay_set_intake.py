@@ -26,6 +26,10 @@ from .autonomy.serialization import (
     strict_object,
 )
 from .backends.raw_replay import RawSensorReplayRecording
+from .deployment_recording_attestation import (
+    ATTESTATION_NAME,
+    verify_deployment_recording_attestation,
+)
 from .replay_set import REPLAY_SET_STRATA
 
 INTAKE_RECEIPT_NAME = "intake.receipt.json"
@@ -68,6 +72,9 @@ def prepare_deployment_replay_set(
             manifest_path = source_root / "recording.manifest.json"
             _require_regular_without_symlinks(source_root, manifest_path, stratum=stratum)
             recording = RawSensorReplayRecording.from_manifest(manifest_path)
+            source_attestation = verify_deployment_recording_attestation(
+                source_root, expected_stratum=stratum
+            )
             if recording.recording_hash in seen_recording_hashes:
                 raise AutonomyContractError("each stratum must use a distinct recording")
             seen_recording_hashes.add(recording.recording_hash)
@@ -77,7 +84,11 @@ def prepare_deployment_replay_set(
                 raise AutonomyContractError(f"stratum {stratum} manifest events must be an object")
             event_relative = _relative_path(events.get("path"), f"{stratum} events.path")
 
-            relative_files = {"recording.manifest.json", event_relative}
+            relative_files = {
+                "recording.manifest.json",
+                ATTESTATION_NAME,
+                event_relative,
+            }
             relative_files.update(frame.image.relative_path for frame in recording.frames)
             destination_root = temporary / stratum
             artifacts: list[dict[str, object]] = []
@@ -106,6 +117,16 @@ def prepare_deployment_replay_set(
                     "recording_id": recording.recording_id,
                     "recording_hash": recording.recording_hash,
                     "frame_count": len(recording.frames),
+                    "source_attestation": {
+                        "path": f"{stratum}/{ATTESTATION_NAME}",
+                        "canonical_hash": source_attestation["canonical_hash"],
+                        "captured_by": source_attestation["captured_by"],
+                        "capture_device_id": source_attestation["capture_device_id"],
+                        "capture_site": source_attestation["capture_site"],
+                        "source_type": source_attestation["source_type"],
+                        "started_at_utc": source_attestation["started_at_utc"],
+                        "ended_at_utc": source_attestation["ended_at_utc"],
+                    },
                     "artifacts": artifacts,
                     "annotation_state": "pending",
                     "prediction_state": "pending",
@@ -205,6 +226,7 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
                     "recording_id",
                     "recording_hash",
                     "frame_count",
+                    "source_attestation",
                     "artifacts",
                     "annotation_state",
                     "prediction_state",
@@ -217,6 +239,26 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
         expected_recording_hash = require_sha256(
             entry["recording_hash"], f"entries[{index}].recording_hash"
         )
+        source_attestation = strict_object(
+            entry["source_attestation"],
+            name=f"entries[{index}].source_attestation",
+            required=frozenset(
+                {
+                    "path",
+                    "canonical_hash",
+                    "captured_by",
+                    "capture_device_id",
+                    "capture_site",
+                    "source_type",
+                    "started_at_utc",
+                    "ended_at_utc",
+                }
+            ),
+        )
+        if source_attestation["path"] != f"{stratum}/{ATTESTATION_NAME}":
+            raise AutonomyContractError(
+                f"stratum {stratum} source attestation path is invalid"
+            )
         frame_count = require_int(entry["frame_count"], f"entries[{index}].frame_count", minimum=1)
         if entry["annotation_state"] != "pending" or entry["prediction_state"] != "pending":
             raise AutonomyContractError(
@@ -251,6 +293,22 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
         recording = RawSensorReplayRecording.from_manifest(
             root_path / stratum / "recording.manifest.json"
         )
+        verified_attestation = verify_deployment_recording_attestation(
+            root_path / stratum, expected_stratum=stratum
+        )
+        for field in (
+            "canonical_hash",
+            "captured_by",
+            "capture_device_id",
+            "capture_site",
+            "source_type",
+            "started_at_utc",
+            "ended_at_utc",
+        ):
+            if source_attestation[field] != verified_attestation[field]:
+                raise AutonomyContractError(
+                    f"stratum {stratum} source attestation {field} mismatch"
+                )
         recording_document = _load_json_object(
             root_path / stratum / "recording.manifest.json",
             name=f"{stratum} recording manifest",
@@ -261,6 +319,7 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
         event_relative = _relative_path(events.get("path"), f"{stratum} events.path")
         expected_paths = {
             f"{stratum}/recording.manifest.json",
+            f"{stratum}/{ATTESTATION_NAME}",
             f"{stratum}/{event_relative}",
             *(f"{stratum}/{frame.image.relative_path}" for frame in recording.frames),
         }
@@ -289,6 +348,7 @@ def verify_deployment_replay_intake(root: str | Path) -> dict[str, object]:
         "canonical_hash": expected_canonical,
         "annotation_state": "pending",
         "prediction_state": "pending",
+        "deployment_sources_attested": True,
         "release_ready": False,
         "next_command": next_command,
     }

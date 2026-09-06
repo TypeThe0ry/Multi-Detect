@@ -17,6 +17,10 @@ from jsonschema import Draft202012Validator
 from multidetect.autonomy import AutonomyContractError
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
+from multidetect.deployment_recording_attestation import (
+    ATTESTATION_NAME,
+    write_deployment_recording_attestation,
+)
 from multidetect.model_manifest import (
     create_candidate_model_manifest,
     write_candidate_model_manifest,
@@ -148,6 +152,16 @@ def _write_stratum(
         json.dumps(recording_manifest, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",
     )
+    write_deployment_recording_attestation(
+        directory,
+        stratum=stratum,
+        captured_by="capture-operator",
+        capture_device_id="field-camera-01",
+        capture_site="test-field-site",
+        source_type="local_camera",
+        started_at_utc="2026-08-25T00:00:00Z",
+        ended_at_utc="2026-08-25T00:00:01Z",
+    )
     (directory / "ground-truth.jsonl").write_text(
         json.dumps(
             {"frame_id": f"{stratum}-frame-0001", "objects": []},
@@ -194,11 +208,24 @@ def test_deployment_replay_intake_stages_raw_recordings_without_claims(tmp_path:
     assert report["frame_count"] == 6
     assert report["annotation_state"] == "pending"
     assert report["prediction_state"] == "pending"
+    assert report["deployment_sources_attested"] is True
     assert report["release_ready"] is False
-    assert (output / "intake.receipt.json").is_file()
+    receipt_path = output / "intake.receipt.json"
+    assert receipt_path.is_file()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "configs/schemas/replay-set-intake-receipt.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(receipt_schema)
+    Draft202012Validator(receipt_schema).validate(receipt)
+    assert all(entry["source_attestation"]["canonical_hash"] for entry in receipt["entries"])
     for stratum in REPLAY_SET_STRATA:
         assert (output / stratum / "recording.manifest.json").is_file()
         assert (output / stratum / "events.jsonl").is_file()
+        assert (output / stratum / ATTESTATION_NAME).is_file()
         assert (output / stratum / "frame-0001.png").is_file()
         assert not (output / stratum / "ground-truth.jsonl").exists()
         assert not (output / stratum / "predictions.jsonl").exists()
@@ -264,6 +291,23 @@ def test_deployment_replay_intake_rejects_reused_recording_and_rolls_back(
     assert not list(tmp_path.glob(".broken.*"))
 
 
+def test_deployment_replay_intake_requires_bound_physical_source_attestation(
+    tmp_path: Path,
+) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    (sources["night"] / ATTESTATION_NAME).unlink()
+
+    with pytest.raises(AutonomyContractError, match="requires deployment-recording-source"):
+        prepare_deployment_replay_set(
+            sources,
+            tmp_path / "intake",
+            dataset_id="field-2026",
+            dataset_version="v1",
+        )
+
+    assert not (tmp_path / "intake").exists()
+
+
 def test_deployment_replay_intake_verifier_detects_artifact_and_receipt_tampering(
     tmp_path: Path,
 ) -> None:
@@ -292,6 +336,20 @@ def test_deployment_replay_intake_verifier_detects_artifact_and_receipt_tamperin
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     with pytest.raises(AutonomyContractError, match="must not assert"):
         verify_deployment_replay_intake(second)
+
+    third = tmp_path / "third"
+    prepare_deployment_replay_set(
+        sources,
+        third,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    attestation_path = third / "day" / ATTESTATION_NAME
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    attestation["capture_site"] = "tampered-field-site"
+    attestation_path.write_text(json.dumps(attestation), encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="artifact hash mismatch"):
+        verify_deployment_replay_intake(third)
 
 
 def test_prepare_deployment_replay_set_cli_round_trip(tmp_path: Path) -> None:
@@ -1189,10 +1247,67 @@ def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(
     assert manifest.claims["contains_predictions"] is False
     assert manifest.claims["accuracy_validated"] is False
     assert manifest.coverage()["night"] == {"entry_count": 1, "frame_count": 1}
+    serialized = json.loads(
+        (tmp_path / "replay-set.manifest.json").read_text(encoding="utf-8")
+    )
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "configs/schemas/replay-set-manifest.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(serialized)
+    assert all(
+        entry["source_attestation"]["path"]
+        == f"{entry['entry_id']}/{ATTESTATION_NAME}"
+        for entry in serialized["entries"]
+    )
     assert (
         manifest.canonical_hash
         == load_replay_set_manifest(tmp_path / "replay-set.manifest.json").canonical_hash
     )
+
+
+def test_deployment_replay_manifest_requires_and_reopens_bound_source_attestation(
+    tmp_path: Path,
+) -> None:
+    _write_stratum(tmp_path, "day")
+    attestation_path = tmp_path / "day" / ATTESTATION_NAME
+    attestation_payload = attestation_path.read_bytes()
+    attestation_path.unlink()
+    with pytest.raises(AutonomyContractError, match="requires deployment-recording-source"):
+        build_replay_set_manifest(
+            tmp_path,
+            tmp_path / "missing-attestation.manifest.json",
+            dataset_id="field",
+            dataset_version="v1",
+            required_strata=("day",),
+            source_kind="deployment_recording",
+            annotations_reviewed=True,
+        )
+
+    attestation_path.write_bytes(attestation_payload)
+    manifest_path = tmp_path / "bound.manifest.json"
+    build_replay_set_manifest(
+        tmp_path,
+        manifest_path,
+        dataset_id="field",
+        dataset_version="v1",
+        required_strata=("day",),
+        source_kind="deployment_recording",
+        annotations_reviewed=True,
+    )
+    attestation_path.write_bytes(attestation_payload + b"\n")
+    with pytest.raises(AutonomyContractError, match="source_attestation .* mismatch"):
+        load_replay_set_manifest(manifest_path)
+
+    attestation_path.write_bytes(attestation_payload)
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw["entries"][0].pop("source_attestation")
+    manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="requires source_attestation"):
+        load_replay_set_manifest(manifest_path)
 
 
 def test_replay_set_allows_pending_collection_but_require_complete_fails(

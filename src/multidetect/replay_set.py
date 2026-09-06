@@ -168,6 +168,7 @@ class ReplaySetEntry:
     source_kind: str
     annotations_reviewed: bool
     predictions: ReplaySetArtifactReference | None = None
+    source_attestation: ReplaySetArtifactReference | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "entry_id", require_text(self.entry_id, "entry_id"))
@@ -204,6 +205,25 @@ class ReplaySetEntry:
                 f"entry.source_kind must be one of: {', '.join(REPLAY_SET_SOURCE_KINDS)}"
             )
         object.__setattr__(self, "source_kind", source_kind)
+        if self.source_attestation is not None and not isinstance(
+            self.source_attestation, ReplaySetArtifactReference
+        ):
+            raise AutonomyContractError(
+                "entry.source_attestation must be an artifact reference or null"
+            )
+        if source_kind == "deployment_recording":
+            if self.source_attestation is None:
+                raise AutonomyContractError(
+                    "deployment_recording entry requires source_attestation"
+                )
+            if len(self.strata) != 1:
+                raise AutonomyContractError(
+                    "deployment_recording entry must identify exactly one stratum"
+                )
+        elif self.source_attestation is not None:
+            raise AutonomyContractError(
+                "source_attestation is only valid for deployment_recording entries"
+            )
         object.__setattr__(
             self,
             "annotations_reviewed",
@@ -230,7 +250,7 @@ class ReplaySetEntry:
                     "annotations_reviewed",
                 }
             ),
-            optional=frozenset({"predictions"}),
+            optional=frozenset({"predictions", "source_attestation"}),
         )
         strata = require_string_array(value["strata"], f"{name}.strata")
         return cls(
@@ -254,6 +274,13 @@ class ReplaySetEntry:
                 if "predictions" in value
                 else None
             ),
+            source_attestation=(
+                ReplaySetArtifactReference.from_mapping(
+                    value["source_attestation"], name=f"{name}.source_attestation"
+                )
+                if "source_attestation" in value
+                else None
+            ),
         )
 
     def to_mapping(self) -> dict[str, object]:
@@ -268,6 +295,8 @@ class ReplaySetEntry:
         }
         if self.predictions is not None:
             result["predictions"] = self.predictions.to_mapping()
+        if self.source_attestation is not None:
+            result["source_attestation"] = self.source_attestation.to_mapping()
         return result
 
 
@@ -424,6 +453,28 @@ class ReplaySetManifest:
                 root, name=f"entry {entry.entry_id} recording_manifest"
             )
             recording = RawSensorReplayRecording.from_manifest(recording_manifest_path)
+            if entry.source_kind == "deployment_recording":
+                # Keep this import local: the attestation module imports the
+                # canonical replay strata from this module.
+                from .deployment_recording_attestation import (
+                    ATTESTATION_NAME,
+                    verify_deployment_recording_attestation,
+                )
+
+                assert entry.source_attestation is not None
+                attestation_path = entry.source_attestation.verify(
+                    root, name=f"entry {entry.entry_id} source_attestation"
+                )
+                expected_attestation = recording_manifest_path.parent / ATTESTATION_NAME
+                if attestation_path != expected_attestation.resolve(strict=True):
+                    raise AutonomyContractError(
+                        f"entry {entry.entry_id} source_attestation must be beside "
+                        "its recording manifest"
+                    )
+                verify_deployment_recording_attestation(
+                    recording_manifest_path.parent,
+                    expected_stratum=entry.strata[0],
+                )
             ground_truth_path = entry.ground_truth.verify(
                 root, name=f"entry {entry.entry_id} ground_truth"
             )
@@ -594,6 +645,21 @@ def build_replay_set_manifest(
         recording_ref = ReplaySetArtifactReference.from_file(recording_path, root=root_path)
         truth_ref = ReplaySetArtifactReference.from_file(truth_path, root=root_path)
         recording = RawSensorReplayRecording.from_manifest(recording_path)
+        source_attestation_ref: ReplaySetArtifactReference | None = None
+        if normalized_source == "deployment_recording":
+            from .deployment_recording_attestation import (
+                ATTESTATION_NAME,
+                verify_deployment_recording_attestation,
+            )
+
+            verify_deployment_recording_attestation(
+                directory,
+                expected_stratum=stratum,
+            )
+            source_attestation_ref = ReplaySetArtifactReference.from_file(
+                directory / ATTESTATION_NAME,
+                root=root_path,
+            )
         truth = load_ground_truth_jsonl(truth_path)
         frame_ids = tuple(frame.frame_id for frame in recording.frames)
         if tuple(frame.frame_id for frame in truth) != frame_ids:
@@ -617,6 +683,7 @@ def build_replay_set_manifest(
                 source_kind=normalized_source,
                 annotations_reviewed=reviewed,
                 predictions=prediction_ref,
+                source_attestation=source_attestation_ref,
             )
         )
     if missing and not allow_incomplete:

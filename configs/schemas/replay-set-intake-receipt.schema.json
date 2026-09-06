@@ -54,7 +54,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "stratum", "recording_id", "recording_hash", "frame_count", "artifacts",
+        "stratum", "recording_id", "recording_hash", "frame_count", "source_attestation", "artifacts",
         "annotation_state", "prediction_state"
       ],
       "properties": {
@@ -62,6 +62,24 @@
         "recording_id": { "type": "string", "minLength": 1 },
         "recording_hash": { "$ref": "#/$defs/sha256" },
         "frame_count": { "type": "integer", "minimum": 1 },
+        "source_attestation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path", "canonical_hash", "captured_by", "capture_device_id", "capture_site",
+            "source_type", "started_at_utc", "ended_at_utc"
+          ],
+          "properties": {
+            "path": {"type": "string", "pattern": "^[^\\\\:]+/deployment-recording-source\\.json$"},
+            "canonical_hash": {"$ref": "#/$defs/sha256"},
+            "captured_by": {"type": "string", "minLength": 1},
+            "capture_device_id": {"type": "string", "minLength": 1},
+            "capture_site": {"type": "string", "minLength": 1},
+            "source_type": {"enum": ["local_camera", "rtsp_camera"]},
+            "started_at_utc": {"type": "string", "format": "date-time"},
+            "ended_at_utc": {"type": "string", "format": "date-time"}
+          }
+        },
         "artifacts": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/artifact" } },
         "annotation_state": { "const": "pending" },
         "prediction_state": { "const": "pending" }

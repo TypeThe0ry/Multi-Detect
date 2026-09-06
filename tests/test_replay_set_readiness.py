@@ -9,6 +9,9 @@ from pathlib import Path
 
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
+from multidetect.deployment_recording_attestation import (
+    write_deployment_recording_attestation,
+)
 from multidetect.replay_set import REPLAY_SET_STRATA, build_replay_set_manifest
 from multidetect.replay_set_evaluation import evaluate_replay_set
 from multidetect.replay_set_readiness import check_replay_set_readiness
@@ -109,6 +112,16 @@ def _write_stratum(
             separators=(",", ":"),
         ),
         encoding="utf-8",
+    )
+    write_deployment_recording_attestation(
+        directory,
+        stratum=stratum,
+        captured_by="fixture-operator",
+        capture_device_id="fixture-camera",
+        capture_site="fixture-field",
+        source_type="local_camera",
+        started_at_utc="2026-08-25T00:00:00Z",
+        ended_at_utc="2026-08-25T00:00:01Z",
     )
     objects = [{"label": "flame", "bbox": [0.1, 0.1, 0.8, 0.8]}] if positive else []
     (directory / "ground-truth.jsonl").write_text(

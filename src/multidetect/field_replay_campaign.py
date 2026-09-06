@@ -28,6 +28,7 @@ from .autonomy.serialization import (
     strict_json_loads,
     strict_object,
 )
+from .deployment_recording_attestation import verify_deployment_recording_attestation
 from .replay_annotation_workbench import main as replay_annotation_workbench_main
 from .replay_annotation_workspace import (
     create_replay_annotation_workspace,
@@ -178,6 +179,21 @@ def inspect_field_replay_campaign(workspace: str | Path) -> dict[str, Any]:
                 stage="awaiting_sources",
                 blocker="six explicit field recording directories are required",
                 missing=missing,
+            )
+        attestation_errors: list[str] = []
+        for stratum in REPLAY_SET_STRATA:
+            try:
+                verify_deployment_recording_attestation(
+                    plan["sources"][stratum], expected_stratum=stratum
+                )
+            except (AutonomyContractError, OSError) as exc:
+                attestation_errors.append(f"{stratum}: {exc}")
+        if attestation_errors:
+            return _finish(
+                base,
+                stage="awaiting_source_attestations",
+                blocker="all six physical field recording attestations are required",
+                missing=attestation_errors,
             )
         return _finish(base, stage="intake_ready")
     base["artifacts"]["intake"] = verify_deployment_replay_intake(intake)

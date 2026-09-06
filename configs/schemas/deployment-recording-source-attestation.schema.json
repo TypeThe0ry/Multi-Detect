@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/deployment-recording-source-attestation.schema.json",
+  "title": "Physical-field deployment recording source attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event", "stratum", "capture_origin", "source_type",
+    "captured_by", "capture_device_id", "capture_site", "started_at_utc",
+    "ended_at_utc", "recording_manifest", "claims", "canonical_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "deployment_recording_source_attested"},
+    "stratum": {"enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]},
+    "capture_origin": {"const": "physical_field"},
+    "source_type": {"enum": ["local_camera", "rtsp_camera"]},
+    "captured_by": {"type": "string", "minLength": 1},
+    "capture_device_id": {"type": "string", "minLength": 1},
+    "capture_site": {"type": "string", "minLength": 1},
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "ended_at_utc": {"type": "string", "format": "date-time"},
+    "recording_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "recording_hash"],
+      "properties": {
+        "path": {"const": "recording.manifest.json"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "recording_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "claims": {
+      "const": {
+        "hardware_observed": true,
+        "synthetic": false,
+        "simulation": false,
+        "screen_replay": false,
+        "deployment_source_attested": true,
+        "release_ready": false
+      }
+    },
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

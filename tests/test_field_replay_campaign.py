@@ -13,6 +13,10 @@ from jsonschema import Draft202012Validator
 
 from multidetect.autonomy import AutonomyContractError
 from multidetect.backends import RawSensorReplayRecording
+from multidetect.deployment_recording_attestation import (
+    ATTESTATION_NAME,
+    write_deployment_recording_attestation,
+)
 from multidetect.field_replay_campaign import (
     PLAN_NAME,
     advance_field_replay_campaign,
@@ -113,6 +117,16 @@ def _write_recording(directory: Path, stratum: str) -> None:
         ),
         encoding="utf-8",
     )
+    write_deployment_recording_attestation(
+        directory,
+        stratum=stratum,
+        captured_by="capture-operator",
+        capture_device_id="field-camera-01",
+        capture_site="test-field-site",
+        source_type="local_camera",
+        started_at_utc="2026-09-06T00:00:00Z",
+        ended_at_utc="2026-09-06T00:00:01Z",
+    )
 
 
 def _sources(root: Path, *, create: bool) -> dict[str, Path]:
@@ -207,6 +221,21 @@ def test_campaign_plan_is_strict_hash_bound_and_waits_for_real_sources(
     model.write_bytes(b"tampered-model!")
     with pytest.raises(AutonomyContractError, match="SHA-256 changed"):
         inspect_field_replay_campaign(workspace)
+
+
+def test_campaign_waits_for_all_physical_source_attestations(tmp_path: Path) -> None:
+    model, manifest = _placeholder_model(tmp_path / "model")
+    sources = _sources(tmp_path / "sources", create=True)
+    (sources["haze"] / ATTESTATION_NAME).unlink()
+
+    status = _create(tmp_path / "campaign", sources, model, manifest)
+
+    assert status["stage"] == "awaiting_source_attestations"
+    assert status["complete"] is False
+    assert status["release_ready"] is False
+    assert len(status["missing"]) == 1
+    assert status["missing"][0].startswith("haze:")
+    assert "deployment-recording-source.json" in status["missing"][0]
 
 
 def test_campaign_advances_intake_and_stops_at_human_annotation(

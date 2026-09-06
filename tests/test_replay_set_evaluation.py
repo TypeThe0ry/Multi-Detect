@@ -11,6 +11,9 @@ import pytest
 
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
+from multidetect.deployment_recording_attestation import (
+    write_deployment_recording_attestation,
+)
 from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
 from multidetect.release_gate_manifest import (
     build_release_gate_manifest,
@@ -112,6 +115,16 @@ def _write_stratum(
             separators=(",", ":"),
         ),
         encoding="utf-8",
+    )
+    write_deployment_recording_attestation(
+        directory,
+        stratum=stratum,
+        captured_by="fixture-operator",
+        capture_device_id="fixture-camera",
+        capture_site="fixture-field",
+        source_type="local_camera",
+        started_at_utc="2026-08-25T00:00:00Z",
+        ended_at_utc="2026-08-25T00:00:01Z",
     )
     objects = (
         []

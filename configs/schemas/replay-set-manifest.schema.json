@@ -97,12 +97,23 @@
         "recording_manifest": {"$ref": "#/$defs/artifact"},
         "ground_truth": {"$ref": "#/$defs/artifact"},
         "predictions": {"$ref": "#/$defs/artifact"},
+        "source_attestation": {"$ref": "#/$defs/artifact"},
         "frame_count": {"type": "integer", "minimum": 1},
         "source_kind": {
           "enum": ["deployment_recording", "lab_recording", "synthetic_demo"]
         },
         "annotations_reviewed": {"type": "boolean"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"source_kind": {"const": "deployment_recording"}},
+            "required": ["source_kind"]
+          },
+          "then": {"required": ["source_attestation"]},
+          "else": {"not": {"required": ["source_attestation"]}}
+        }
+      ]
     }
   }
 }
