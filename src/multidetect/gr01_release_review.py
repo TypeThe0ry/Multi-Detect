@@ -41,9 +41,12 @@ from .gr01_release_session import (
     verify_gr01_release_session_record,
 )
 
-REVIEW_SCHEMA_VERSION = 3
+REVIEW_SCHEMA_VERSION = 4
 REVIEW_EVENT = "multidetect_gr01_release_session_portable_reviewed"
+SOURCE_ATTESTATION_SCHEMA_VERSION = 1
+SOURCE_ATTESTATION_EVENT = "multidetect_gr01_release_session_source_attested"
 INVENTORY_NAME = "gr01-release-session-transfer-inventory.json"
+SOURCE_ATTESTATION_NAME = "gr01-release-session-source-attestation.json"
 RECORD_NAME = "gr01-release-session.json"
 SIGNATURE_ALGORITHM = "Ed25519"
 
@@ -103,13 +106,11 @@ def _signing_types() -> tuple[Any, Any, type[Exception]]:
     return SigningKey, VerifyKey, BadSignatureError
 
 
-def _signing_key_from_environment(variable_name: str) -> Any:
-    name = require_text(variable_name, "reviewer_signing_key_environment")
+def _signing_key_from_environment(variable_name: str, *, role: str) -> Any:
+    name = require_text(variable_name, f"{role}_signing_key_environment")
     value = os.environ.get(name)
     if value is None:
-        raise Gr01ReleaseReviewError(
-            f"reviewer signing key environment variable is missing: {name}"
-        )
+        raise Gr01ReleaseReviewError(f"{role} signing key environment variable is missing: {name}")
     seed_hex = _require_hex_32(value, f"environment variable {name}")
     signing_key_type, _, _ = _signing_types()
     return signing_key_type(bytes.fromhex(seed_hex))
@@ -184,6 +185,235 @@ def snapshot_gr01_release_session_bundle(
         output,
         bundle_id=bundle_id,
     )
+
+
+def create_gr01_release_session_source_attestation(
+    inventory: str | Path,
+    attestation_out: str | Path,
+    *,
+    operator: str,
+    operator_key_id: str,
+    operator_signing_key_environment: str,
+) -> dict[str, Any]:
+    """Sign the canonical field inventory with a source-operator key."""
+
+    output = Path(attestation_out).expanduser().resolve()
+    if output.exists() or output.is_symlink():
+        raise Gr01ReleaseReviewError("source attestation output already exists")
+    verified_inventory = verify_evidence_transfer_inventory(inventory)
+    try:
+        output.relative_to(verified_inventory["path"].parent)
+    except ValueError:
+        pass
+    else:
+        raise Gr01ReleaseReviewError(
+            "source attestation output must remain outside the inventoried session bundle"
+        )
+    operator_name = require_text(operator, "operator")
+    key_id = require_text(operator_key_id, "operator_key_id")
+    signing_key = _signing_key_from_environment(
+        operator_signing_key_environment,
+        role="operator",
+    )
+    public_key_hex = bytes(signing_key.verify_key).hex()
+    document: dict[str, Any] = {
+        "event": SOURCE_ATTESTATION_EVENT,
+        "schema_version": SOURCE_ATTESTATION_SCHEMA_VERSION,
+        "attested_at_utc": datetime.now(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z"),
+        "bundle_id": verified_inventory["document"]["bundle_id"],
+        "operator": {
+            "identity": operator_name,
+            "key_id": key_id,
+            "public_key_ed25519_hex": public_key_hex,
+        },
+        "inventory": {
+            "name": INVENTORY_NAME,
+            "file_bytes": verified_inventory["file_bytes"],
+            "file_sha256": verified_inventory["file_sha256"],
+            "canonical_hash": verified_inventory["document"]["canonical_hash"],
+            "bundle_content_hash": verified_inventory["document"]["bundle_content_hash"],
+        },
+        "claims": {
+            "inventory_integrity_attested": True,
+            "operator_key_possession_verified": True,
+            "operator_human_identity_verified": False,
+            "attestation_network_contacted": False,
+            "hardware_flight_acceptance": "not_claimed",
+            "physical_release_enabled": False,
+            "flight_control_enabled": False,
+            "payload_release_requested": False,
+        },
+    }
+    signed_payload = _signed_payload_bytes(document)
+    document["signature"] = {
+        "algorithm": SIGNATURE_ALGORITHM,
+        "signed_payload_sha256": hashlib.sha256(signed_payload).hexdigest(),
+        "signature_ed25519_hex": signing_key.sign(signed_payload).signature.hex(),
+    }
+    document["canonical_hash"] = canonical_sha256(document)
+    _atomic_write(output, document)
+    verify_gr01_release_session_source_attestation(
+        output,
+        inventory,
+        expected_operator_public_key_hex=public_key_hex,
+    )
+    return document
+
+
+def verify_gr01_release_session_source_attestation(
+    attestation: str | Path,
+    inventory: str | Path,
+    *,
+    expected_operator_public_key_hex: str,
+) -> dict[str, Any]:
+    """Verify source signature and bind it to the supplied inventory bytes."""
+
+    path = _regular_file(attestation, name="GR01 source attestation")
+    document = strict_object(
+        strict_json_loads(path.read_bytes(), name="GR01 source attestation"),
+        name="Gr01ReleaseSessionSourceAttestation",
+        required=frozenset(
+            {
+                "event",
+                "schema_version",
+                "attested_at_utc",
+                "bundle_id",
+                "operator",
+                "inventory",
+                "claims",
+                "signature",
+                "canonical_hash",
+            }
+        ),
+    )
+    if (
+        document["event"] != SOURCE_ATTESTATION_EVENT
+        or document["schema_version"] != SOURCE_ATTESTATION_SCHEMA_VERSION
+    ):
+        raise Gr01ReleaseReviewError("GR01 source attestation schema identity is invalid")
+    attested_at = require_text(document["attested_at_utc"], "attested_at_utc")
+    try:
+        parsed = datetime.fromisoformat(attested_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("attested_at_utc is not an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise Gr01ReleaseReviewError("attested_at_utc must include a timezone")
+    bundle_id = require_text(document["bundle_id"], "bundle_id")
+    try:
+        if str(UUID(bundle_id)) != bundle_id:
+            raise ValueError
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("bundle_id must be a canonical UUID") from exc
+    operator_projection = strict_object(
+        document["operator"],
+        name="operator",
+        required=frozenset({"identity", "key_id", "public_key_ed25519_hex"}),
+    )
+    require_text(operator_projection["identity"], "operator.identity")
+    require_text(operator_projection["key_id"], "operator.key_id")
+    public_key_hex = _require_hex_32(
+        operator_projection["public_key_ed25519_hex"],
+        "operator.public_key_ed25519_hex",
+    )
+    expected_public_key_hex = _require_hex_32(
+        expected_operator_public_key_hex,
+        "expected_operator_public_key_hex",
+    )
+    if public_key_hex != expected_public_key_hex:
+        raise Gr01ReleaseReviewError("source attestation operator public key is not trusted")
+    verified_inventory = verify_evidence_transfer_inventory(inventory)
+    inventory_projection = strict_object(
+        document["inventory"],
+        name="inventory",
+        required=frozenset(
+            {"name", "file_bytes", "file_sha256", "canonical_hash", "bundle_content_hash"}
+        ),
+    )
+    expected_inventory = {
+        "name": INVENTORY_NAME,
+        "file_bytes": verified_inventory["file_bytes"],
+        "file_sha256": verified_inventory["file_sha256"],
+        "canonical_hash": verified_inventory["document"]["canonical_hash"],
+        "bundle_content_hash": verified_inventory["document"]["bundle_content_hash"],
+    }
+    if (
+        inventory_projection != expected_inventory
+        or bundle_id != verified_inventory["document"]["bundle_id"]
+    ):
+        raise Gr01ReleaseReviewError("source attestation does not bind the supplied inventory")
+    claims = strict_object(
+        document["claims"],
+        name="claims",
+        required=frozenset(
+            {
+                "inventory_integrity_attested",
+                "operator_key_possession_verified",
+                "operator_human_identity_verified",
+                "attestation_network_contacted",
+                "hardware_flight_acceptance",
+                "physical_release_enabled",
+                "flight_control_enabled",
+                "payload_release_requested",
+            }
+        ),
+    )
+    if (
+        claims["inventory_integrity_attested"] is not True
+        or claims["operator_key_possession_verified"] is not True
+        or claims["operator_human_identity_verified"] is not False
+        or claims["attestation_network_contacted"] is not False
+        or claims["hardware_flight_acceptance"] != "not_claimed"
+        or any(
+            claims[name] is not False
+            for name in (
+                "physical_release_enabled",
+                "flight_control_enabled",
+                "payload_release_requested",
+            )
+        )
+    ):
+        raise Gr01ReleaseReviewError("source attestation claim boundary is invalid")
+    signature = strict_object(
+        document["signature"],
+        name="signature",
+        required=frozenset({"algorithm", "signed_payload_sha256", "signature_ed25519_hex"}),
+    )
+    if signature["algorithm"] != SIGNATURE_ALGORITHM:
+        raise Gr01ReleaseReviewError("source attestation signature algorithm is invalid")
+    signed_document = dict(document)
+    signed_document.pop("signature")
+    signed_document.pop("canonical_hash")
+    signed_payload = _signed_payload_bytes(signed_document)
+    if (
+        require_sha256(signature["signed_payload_sha256"], "signature.signed_payload_sha256")
+        != hashlib.sha256(signed_payload).hexdigest()
+    ):
+        raise Gr01ReleaseReviewError("source attestation signed payload hash does not match")
+    signature_hex = require_text(
+        signature["signature_ed25519_hex"], "signature.signature_ed25519_hex"
+    ).lower()
+    try:
+        signature_bytes = bytes.fromhex(signature_hex)
+    except ValueError as exc:
+        raise Gr01ReleaseReviewError("source attestation signature is not hexadecimal") from exc
+    if len(signature_hex) != 128 or len(signature_bytes) != 64:
+        raise Gr01ReleaseReviewError("source attestation signature must contain 64 bytes")
+    _, verify_key_type, bad_signature_error = _signing_types()
+    try:
+        verify_key_type(bytes.fromhex(expected_public_key_hex)).verify(
+            signed_payload,
+            signature_bytes,
+        )
+    except bad_signature_error as exc:
+        raise Gr01ReleaseReviewError("source attestation Ed25519 signature is invalid") from exc
+    claimed_hash = require_sha256(document["canonical_hash"], "canonical_hash")
+    unhashed = dict(document)
+    unhashed.pop("canonical_hash")
+    if claimed_hash != canonical_sha256(unhashed):
+        raise Gr01ReleaseReviewError("source attestation canonical hash does not match")
+    return document
 
 
 def _portable_session_review(root: Path) -> dict[str, Any]:
@@ -393,11 +623,13 @@ def _portable_session_review(root: Path) -> dict[str, Any]:
 
 def review_gr01_release_session_bundle(
     inventory: str | Path,
+    source_attestation: str | Path,
     destination_root: str | Path,
     transfer_receipt_out: str | Path,
     review_out: str | Path,
     *,
     expected_inventory_sha256: str,
+    expected_operator_public_key_hex: str,
     reviewer: str,
     reviewer_key_id: str,
     reviewer_signing_key_environment: str,
@@ -425,8 +657,24 @@ def review_gr01_release_session_bundle(
         raise Gr01ReleaseReviewError("transfer inventory SHA-256 does not match trusted value")
     reviewer_name = require_text(reviewer, "reviewer")
     key_id = require_text(reviewer_key_id, "reviewer_key_id")
-    signing_key = _signing_key_from_environment(reviewer_signing_key_environment)
+    source_path = _regular_file(source_attestation, name="GR01 source attestation")
+    source = verify_gr01_release_session_source_attestation(
+        source_path,
+        inventory,
+        expected_operator_public_key_hex=expected_operator_public_key_hex,
+    )
+    signing_key = _signing_key_from_environment(
+        reviewer_signing_key_environment,
+        role="reviewer",
+    )
     public_key_hex = bytes(signing_key.verify_key).hex()
+    source_operator = source["operator"]
+    if (
+        reviewer_name == source_operator["identity"]
+        or key_id == source_operator["key_id"]
+        or public_key_hex == source_operator["public_key_ed25519_hex"]
+    ):
+        raise Gr01ReleaseReviewError("source operator and reviewer roles and keys must be distinct")
     transfer = verify_evidence_bundle_transfer(inventory, root, transfer_path)
     verify_evidence_bundle_transfer_receipt(transfer_path)
     semantic = _portable_session_review(root)
@@ -441,6 +689,15 @@ def review_gr01_release_session_bundle(
             "identity": reviewer_name,
             "key_id": key_id,
             "public_key_ed25519_hex": public_key_hex,
+        },
+        "source_attestation": {
+            "file_bytes": source_path.stat().st_size,
+            "file_sha256": _sha256(source_path),
+            "canonical_hash": source["canonical_hash"],
+            "operator_identity": source_operator["identity"],
+            "operator_key_id": source_operator["key_id"],
+            "operator_public_key_ed25519_hex": source_operator["public_key_ed25519_hex"],
+            "inventory_signature_verified": True,
         },
         "transfer": {
             "expected_inventory_file_sha256": expected_inventory_hash,
@@ -457,6 +714,10 @@ def review_gr01_release_session_bundle(
         "session": semantic,
         "claims": {
             "portable_session_integrity_verified": True,
+            "source_inventory_signature_verified": True,
+            "operator_key_possession_verified": True,
+            "operator_human_identity_verified": False,
+            "operator_reviewer_separation_verified": True,
             "review_signature_verified": True,
             "reviewer_key_possession_verified": True,
             "reviewer_human_identity_verified": False,
@@ -501,6 +762,7 @@ def verify_gr01_release_session_review_receipt(
                 "reviewed_at_utc",
                 "bundle_id",
                 "reviewer",
+                "source_attestation",
                 "transfer",
                 "session",
                 "claims",
@@ -543,6 +805,48 @@ def verify_gr01_release_session_review_receipt(
     )
     if public_key_hex != expected_public_key_hex:
         raise Gr01ReleaseReviewError("portable review reviewer public key is not trusted")
+    source_attestation = strict_object(
+        document["source_attestation"],
+        name="source_attestation",
+        required=frozenset(
+            {
+                "file_bytes",
+                "file_sha256",
+                "canonical_hash",
+                "operator_identity",
+                "operator_key_id",
+                "operator_public_key_ed25519_hex",
+                "inventory_signature_verified",
+            }
+        ),
+    )
+    require_int(source_attestation["file_bytes"], "source_attestation.file_bytes", minimum=1)
+    for name in ("file_sha256", "canonical_hash"):
+        require_sha256(source_attestation[name], f"source_attestation.{name}")
+    operator_identity = require_text(
+        source_attestation["operator_identity"], "source_attestation.operator_identity"
+    )
+    operator_key_id = require_text(
+        source_attestation["operator_key_id"], "source_attestation.operator_key_id"
+    )
+    operator_public_key = _require_hex_32(
+        source_attestation["operator_public_key_ed25519_hex"],
+        "source_attestation.operator_public_key_ed25519_hex",
+    )
+    if (
+        require_bool(
+            source_attestation["inventory_signature_verified"],
+            "source_attestation.inventory_signature_verified",
+        )
+        is not True
+    ):
+        raise Gr01ReleaseReviewError("portable review source signature claim must be true")
+    if (
+        operator_identity == reviewer["identity"]
+        or operator_key_id == reviewer["key_id"]
+        or operator_public_key == public_key_hex
+    ):
+        raise Gr01ReleaseReviewError("portable review operator and reviewer separation is invalid")
     transfer = strict_object(
         document["transfer"],
         name="transfer",
@@ -634,6 +938,10 @@ def verify_gr01_release_session_review_receipt(
         required=frozenset(
             {
                 "portable_session_integrity_verified",
+                "source_inventory_signature_verified",
+                "operator_key_possession_verified",
+                "operator_human_identity_verified",
+                "operator_reviewer_separation_verified",
                 "review_signature_verified",
                 "reviewer_key_possession_verified",
                 "reviewer_human_identity_verified",
@@ -648,6 +956,10 @@ def verify_gr01_release_session_review_receipt(
     )
     if (
         claims["portable_session_integrity_verified"] is not True
+        or claims["source_inventory_signature_verified"] is not True
+        or claims["operator_key_possession_verified"] is not True
+        or claims["operator_human_identity_verified"] is not False
+        or claims["operator_reviewer_separation_verified"] is not True
         or claims["review_signature_verified"] is not True
         or claims["reviewer_key_possession_verified"] is not True
         or claims["reviewer_human_identity_verified"] is not False
@@ -736,9 +1048,17 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--inventory-out", required=True, type=Path)
     snapshot.add_argument("--version-manifest", type=Path)
     snapshot.add_argument("--bundle-id")
+    attest = subparsers.add_parser("attest-source", help="sign a field inventory at source")
+    attest.add_argument("--inventory", required=True, type=Path)
+    attest.add_argument("--operator", required=True)
+    attest.add_argument("--operator-key-id", required=True)
+    attest.add_argument("--operator-signing-key-env", required=True)
+    attest.add_argument("--out", required=True, type=Path)
     review = subparsers.add_parser("review", help="review a copied session on another machine")
     review.add_argument("--inventory", required=True, type=Path)
     review.add_argument("--expected-inventory-sha256", required=True)
+    review.add_argument("--source-attestation", required=True, type=Path)
+    review.add_argument("--expected-operator-public-key-hex", required=True)
     review.add_argument("--reviewer", required=True)
     review.add_argument("--reviewer-key-id", required=True)
     review.add_argument("--reviewer-signing-key-env", required=True)
@@ -761,13 +1081,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 version_manifest_path=args.version_manifest,
                 bundle_id=args.bundle_id,
             )
+        elif args.command == "attest-source":
+            document = create_gr01_release_session_source_attestation(
+                args.inventory,
+                args.out,
+                operator=args.operator,
+                operator_key_id=args.operator_key_id,
+                operator_signing_key_environment=args.operator_signing_key_env,
+            )
         elif args.command == "review":
             document = review_gr01_release_session_bundle(
                 args.inventory,
+                args.source_attestation,
                 args.destination_root,
                 args.transfer_receipt_out,
                 args.out,
                 expected_inventory_sha256=args.expected_inventory_sha256,
+                expected_operator_public_key_hex=args.expected_operator_public_key_hex,
                 reviewer=args.reviewer,
                 reviewer_key_id=args.reviewer_key_id,
                 reviewer_signing_key_environment=args.reviewer_signing_key_env,

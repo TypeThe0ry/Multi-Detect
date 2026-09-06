@@ -19,9 +19,11 @@ from multidetect.gr01_release_handoff import create_gr01_release_session_handoff
 from multidetect.gr01_release_plan import create_gr01_release_session_plan
 from multidetect.gr01_release_review import (
     INVENTORY_NAME,
+    create_gr01_release_session_source_attestation,
     review_gr01_release_session_bundle,
     snapshot_gr01_release_session_bundle,
     verify_gr01_release_session_review_receipt,
+    verify_gr01_release_session_source_attestation,
 )
 from multidetect.gr01_release_session import (
     Gr01ReleaseSessionError,
@@ -38,10 +40,15 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_MANIFEST = ROOT / "configs" / "product-version.json"
 SESSION_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session.schema.json"
 REVIEW_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-review.schema.json"
+SOURCE_ATTESTATION_SCHEMA = (
+    ROOT / "configs" / "schemas" / "gr01-release-session-source-attestation.schema.json"
+)
 MODES = ("replay", "sim", "hil", "real")
 PARITY = {field: f"{index + 1:064x}" for index, field in enumerate(PARITY_FIELDS)}
 REVIEW_SIGNING_KEY_ENV = "MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX_TEST"
 REVIEW_SIGNING_KEY_HEX = "11" * 32
+OPERATOR_SIGNING_KEY_ENV = "MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX_TEST"
+OPERATOR_SIGNING_KEY_HEX = "22" * 32
 
 
 def _review_signing(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
@@ -51,6 +58,21 @@ def _review_signing(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "reviewer_key_id": "field-reviewer-b-2026",
         "reviewer_signing_key_environment": REVIEW_SIGNING_KEY_ENV,
     }
+
+
+def _source_attestation(
+    inventory: Path,
+    output: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    monkeypatch.setenv(OPERATOR_SIGNING_KEY_ENV, OPERATOR_SIGNING_KEY_HEX)
+    return create_gr01_release_session_source_attestation(
+        inventory,
+        output,
+        operator="operator-a",
+        operator_key_id="field-operator-a-2026",
+        operator_signing_key_environment=OPERATOR_SIGNING_KEY_ENV,
+    )
 
 
 class _PassingSession:
@@ -454,16 +476,81 @@ def test_field_snapshot_and_second_machine_portable_review(
         version_manifest_path=VERSION_MANIFEST,
         bundle_id="12345678-1234-5678-9234-567812345678",
     )
+    source_attestation_path = tmp_path / "source-attestation.json"
+    source_attestation = _source_attestation(inventory, source_attestation_path, monkeypatch)
+    source_schema = json.loads(SOURCE_ATTESTATION_SCHEMA.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(source_schema)
+    Draft202012Validator(
+        source_schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    ).validate(source_attestation)
+    operator_public_key = source_attestation["operator"]["public_key_ed25519_hex"]
+    assert (
+        verify_gr01_release_session_source_attestation(
+            source_attestation_path,
+            inventory,
+            expected_operator_public_key_hex=operator_public_key,
+        )
+        == source_attestation
+    )
+    with pytest.raises(ValueError, match="operator public key is not trusted"):
+        verify_gr01_release_session_source_attestation(
+            source_attestation_path,
+            inventory,
+            expected_operator_public_key_hex="00" * 32,
+        )
+    tampered_source_path = tmp_path / "tampered-source-attestation.json"
+    tampered_source = json.loads(source_attestation_path.read_text(encoding="utf-8"))
+    tampered_source["signature"]["signature_ed25519_hex"] = "00" * 64
+    tampered_source_path.write_text(json.dumps(tampered_source) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Ed25519 signature is invalid"):
+        verify_gr01_release_session_source_attestation(
+            tampered_source_path,
+            inventory,
+            expected_operator_public_key_hex=operator_public_key,
+        )
     destination = tmp_path / "second-machine-session"
     shutil.copytree(source_root, destination)
+    monkeypatch.setenv(REVIEW_SIGNING_KEY_ENV, REVIEW_SIGNING_KEY_HEX)
+    with pytest.raises(ValueError, match="roles and keys must be distinct"):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            source_attestation_path,
+            destination,
+            tmp_path / "same-identity-transfer.json",
+            tmp_path / "same-identity-review.json",
+            expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
+            expected_operator_public_key_hex=operator_public_key,
+            reviewer="operator-a",
+            reviewer_key_id="field-reviewer-b-2026",
+            reviewer_signing_key_environment=REVIEW_SIGNING_KEY_ENV,
+        )
+    assert not (tmp_path / "same-identity-transfer.json").exists()
+    monkeypatch.setenv(REVIEW_SIGNING_KEY_ENV, OPERATOR_SIGNING_KEY_HEX)
+    with pytest.raises(ValueError, match="roles and keys must be distinct"):
+        review_gr01_release_session_bundle(
+            destination / INVENTORY_NAME,
+            source_attestation_path,
+            destination,
+            tmp_path / "same-key-transfer.json",
+            tmp_path / "same-key-review.json",
+            expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
+            expected_operator_public_key_hex=operator_public_key,
+            reviewer="reviewer-b",
+            reviewer_key_id="field-reviewer-b-2026",
+            reviewer_signing_key_environment=REVIEW_SIGNING_KEY_ENV,
+        )
+    assert not (tmp_path / "same-key-transfer.json").exists()
     transfer_receipt = tmp_path / "transfer-receipt.json"
     review_receipt = tmp_path / "portable-review.json"
     review = review_gr01_release_session_bundle(
         destination / INVENTORY_NAME,
+        source_attestation_path,
         destination,
         transfer_receipt,
         review_receipt,
         expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest().upper(),
+        expected_operator_public_key_hex=operator_public_key,
         **_review_signing(monkeypatch),
     )
 
@@ -484,9 +571,14 @@ def test_field_snapshot_and_second_machine_portable_review(
     assert review["session"]["five_source_hashes_verified"] is True
     assert review["session"]["bench_recomputed"] is True
     assert review["reviewer"]["identity"] == "reviewer-b"
+    assert review["source_attestation"]["operator_identity"] == "operator-a"
     assert review["signature"]["algorithm"] == "Ed25519"
     assert review["claims"] == {
         "portable_session_integrity_verified": True,
+        "source_inventory_signature_verified": True,
+        "operator_key_possession_verified": True,
+        "operator_human_identity_verified": False,
+        "operator_reviewer_separation_verified": True,
         "review_signature_verified": True,
         "reviewer_key_possession_verified": True,
         "reviewer_human_identity_verified": False,
@@ -549,6 +641,10 @@ def test_portable_review_rejects_changed_copy(
         source_root / INVENTORY_NAME,
         version_manifest_path=VERSION_MANIFEST,
     )
+    source_attestation_path = tmp_path / "changed-source-attestation.json"
+    source_attestation = _source_attestation(
+        source_root / INVENTORY_NAME, source_attestation_path, monkeypatch
+    )
     destination = tmp_path / "changed-copy"
     shutil.copytree(source_root, destination)
     (destination / "gr01-link-bench.json").write_text("{}\n", encoding="utf-8")
@@ -556,12 +652,16 @@ def test_portable_review_rejects_changed_copy(
     with pytest.raises(ValueError, match="changed="):
         review_gr01_release_session_bundle(
             destination / INVENTORY_NAME,
+            source_attestation_path,
             destination,
             tmp_path / "changed-transfer.json",
             tmp_path / "changed-review.json",
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
+            expected_operator_public_key_hex=source_attestation["operator"][
+                "public_key_ed25519_hex"
+            ],
             **_review_signing(monkeypatch),
         )
     assert not (tmp_path / "changed-review.json").exists()
@@ -587,18 +687,26 @@ def test_portable_semantic_review_rejects_reinventoried_record_tampering(
     changed["release_plan"]["sha256"] = "0" * 64
     record.write_text(json.dumps(changed) + "\n", encoding="utf-8")
     create_evidence_transfer_inventory(source_root, source_root / INVENTORY_NAME)
+    source_attestation_path = tmp_path / "reinventoried-source-attestation.json"
+    source_attestation = _source_attestation(
+        source_root / INVENTORY_NAME, source_attestation_path, monkeypatch
+    )
     destination = tmp_path / "reinventoried-copy"
     shutil.copytree(source_root, destination)
 
     with pytest.raises(ValueError, match="release_plan file identity"):
         review_gr01_release_session_bundle(
             destination / INVENTORY_NAME,
+            source_attestation_path,
             destination,
             tmp_path / "reinventoried-transfer.json",
             tmp_path / "reinventoried-review.json",
             expected_inventory_sha256=hashlib.sha256(
                 (destination / INVENTORY_NAME).read_bytes()
             ).hexdigest(),
+            expected_operator_public_key_hex=source_attestation["operator"][
+                "public_key_ed25519_hex"
+            ],
             **_review_signing(monkeypatch),
         )
 
@@ -623,6 +731,9 @@ def test_portable_review_requires_matching_out_of_band_inventory_hash(
         source_root / INVENTORY_NAME,
         version_manifest_path=VERSION_MANIFEST,
     )
+    inventory = source_root / INVENTORY_NAME
+    source_attestation_path = tmp_path / "wrong-anchor-source-attestation.json"
+    source_attestation = _source_attestation(inventory, source_attestation_path, monkeypatch)
     destination = tmp_path / "wrong-anchor-copy"
     shutil.copytree(source_root, destination)
     transfer_receipt = tmp_path / "wrong-anchor-transfer.json"
@@ -631,10 +742,14 @@ def test_portable_review_requires_matching_out_of_band_inventory_hash(
     with pytest.raises(ValueError, match="does not match trusted value"):
         review_gr01_release_session_bundle(
             destination / INVENTORY_NAME,
+            source_attestation_path,
             destination,
             transfer_receipt,
             review_receipt,
             expected_inventory_sha256="0" * 64,
+            expected_operator_public_key_hex=source_attestation["operator"][
+                "public_key_ed25519_hex"
+            ],
             **_review_signing(monkeypatch),
         )
     assert not transfer_receipt.exists()
@@ -668,6 +783,8 @@ def test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs(
         inventory,
         version_manifest_path=VERSION_MANIFEST,
     )
+    source_attestation_path = tmp_path / "unsigned-source-attestation.json"
+    source_attestation = _source_attestation(inventory, source_attestation_path, monkeypatch)
     destination = tmp_path / "unsigned-copy"
     shutil.copytree(source_root, destination)
     key_environment = "MULTIDETECT_MISSING_OR_INVALID_REVIEW_KEY_TEST"
@@ -680,10 +797,14 @@ def test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs(
     with pytest.raises(ValueError, match=message):
         review_gr01_release_session_bundle(
             destination / INVENTORY_NAME,
+            source_attestation_path,
             destination,
             transfer_receipt,
             review_receipt,
             expected_inventory_sha256=hashlib.sha256(inventory.read_bytes()).hexdigest(),
+            expected_operator_public_key_hex=source_attestation["operator"][
+                "public_key_ed25519_hex"
+            ],
             reviewer="reviewer-b",
             reviewer_key_id="field-reviewer-b-2026",
             reviewer_signing_key_environment=key_environment,
@@ -703,6 +824,7 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert "snapshot" in completed.stdout
+    assert "attest-source" in completed.stdout
     assert "review" in completed.stdout
     assert "verify" in completed.stdout
     review_help = subprocess.run(
@@ -720,6 +842,8 @@ def test_portable_review_repository_entry_point_has_all_modes() -> None:
     )
     assert review_help.returncode == 0, review_help.stderr
     assert "--expected-inventory-sha256" in review_help.stdout
+    assert "--source-attestation" in review_help.stdout
+    assert "--expected-operator-public-key-hex" in review_help.stdout
     assert "--reviewer" in review_help.stdout
     assert "--reviewer-key-id" in review_help.stdout
     assert "--reviewer-signing-key-env" in review_help.stdout

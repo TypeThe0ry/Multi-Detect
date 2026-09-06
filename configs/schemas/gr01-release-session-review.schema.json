@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://multi-detect.local/schemas/gr01-release-session-review.schema.json",
-  "title": "Multi-Detect portable GR01 release-session review v3",
+  "title": "Multi-Detect portable GR01 release-session review v4",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "event", "schema_version", "reviewed_at_utc", "bundle_id", "reviewer",
+    "event", "schema_version", "reviewed_at_utc", "bundle_id", "reviewer", "source_attestation",
     "transfer", "session", "claims", "gate_passed", "reasons", "signature",
     "canonical_hash"
   ],
   "properties": {
     "event": {"const": "multidetect_gr01_release_session_portable_reviewed"},
-    "schema_version": {"const": 3},
+    "schema_version": {"const": 4},
     "reviewed_at_utc": {"type": "string", "format": "date-time"},
     "bundle_id": {"type": "string", "format": "uuid"},
     "reviewer": {
@@ -22,6 +22,23 @@
         "identity": {"type": "string", "minLength": 1},
         "key_id": {"type": "string", "minLength": 1},
         "public_key_ed25519_hex": {"$ref": "#/$defs/hex32"}
+      }
+    },
+    "source_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_bytes", "file_sha256", "canonical_hash", "operator_identity",
+        "operator_key_id", "operator_public_key_ed25519_hex", "inventory_signature_verified"
+      ],
+      "properties": {
+        "file_bytes": {"type": "integer", "minimum": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_hash": {"$ref": "#/$defs/sha256"},
+        "operator_identity": {"type": "string", "minLength": 1},
+        "operator_key_id": {"type": "string", "minLength": 1},
+        "operator_public_key_ed25519_hex": {"$ref": "#/$defs/hex32"},
+        "inventory_signature_verified": {"const": true}
       }
     },
     "transfer": {
@@ -78,13 +95,19 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "portable_session_integrity_verified", "review_signature_verified",
+        "portable_session_integrity_verified", "source_inventory_signature_verified",
+        "operator_key_possession_verified", "operator_human_identity_verified",
+        "operator_reviewer_separation_verified", "review_signature_verified",
         "reviewer_key_possession_verified", "reviewer_human_identity_verified",
         "target_environment_reverified", "canonical_e7_sources_recomputed", "hardware_flight_acceptance",
         "physical_release_enabled", "flight_control_enabled", "payload_release_requested"
       ],
       "properties": {
         "portable_session_integrity_verified": {"const": true},
+        "source_inventory_signature_verified": {"const": true},
+        "operator_key_possession_verified": {"const": true},
+        "operator_human_identity_verified": {"const": false},
+        "operator_reviewer_separation_verified": {"const": true},
         "review_signature_verified": {"const": true},
         "reviewer_key_possession_verified": {"const": true},
         "reviewer_human_identity_verified": {"const": false},

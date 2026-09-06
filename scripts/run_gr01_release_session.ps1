@@ -11,6 +11,9 @@ param(
     [string]$TargetHostId = [Environment]::MachineName,
     [string]$OperatorHmacKeyEnvironment = 'MULTIDETECT_OPERATOR_HMAC_KEY',
     [string]$MavlinkSigningKeyEnvironment = 'MULTIDETECT_MAVLINK_SIGNING_KEY_HEX',
+    [string]$SourceOperator = [Environment]::UserName,
+    [string]$SourceOperatorKeyId = 'gr01-field-operator',
+    [string]$SourceOperatorSigningKeyEnvironment = 'MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX',
     [ValidateRange(1, 10000)]
     [int]$MinimumRoundTrips = 100,
     [ValidateRange(0.0, 1.0)]
@@ -139,6 +142,9 @@ if ([string]::IsNullOrWhiteSpace($HardwareId)) {
 if ([string]::IsNullOrWhiteSpace($TargetHostId) -or $TargetHostId -match '[\x00-\x1f]') {
     throw 'TargetHostId must be a non-empty printable string.'
 }
+if ([string]::IsNullOrWhiteSpace($SourceOperator) -or [string]::IsNullOrWhiteSpace($SourceOperatorKeyId)) {
+    throw 'SourceOperator and SourceOperatorKeyId must not be empty.'
+}
 if ($PlanOnly -and -not [string]::IsNullOrWhiteSpace($SourcePlan)) {
     throw 'SourcePlan cannot be combined with PlanOnly.'
 }
@@ -209,6 +215,16 @@ if ($PlanOnly) {
     ) -Label 'GR01 release-session plan verification'
     Write-Output "GR01 release session plan written: $planPath"
     return
+}
+$sourceOperatorSigningSeed = [Environment]::GetEnvironmentVariable(
+    $SourceOperatorSigningKeyEnvironment,
+    [EnvironmentVariableTarget]::Process
+)
+if ([string]::IsNullOrWhiteSpace($sourceOperatorSigningSeed)) {
+    throw "Source operator signing key environment variable is missing: $SourceOperatorSigningKeyEnvironment"
+}
+if ($sourceOperatorSigningSeed -notmatch '^[0-9a-fA-F]{64}$') {
+    throw "Source operator signing key environment variable must contain a 32-byte hexadecimal seed: $SourceOperatorSigningKeyEnvironment"
 }
 $sessionRoot = Join-Path $outputRoot ("gr01-release-session-" + $Stamp)
 if (Test-Path -LiteralPath $sessionRoot) {
@@ -362,8 +378,21 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
     '--version-manifest', (Resolve-RepositoryPath -Requested 'configs\product-version.json')
 ) -Label 'GR01 release-session portable review snapshot'
 $transferInventorySha256 = (Get-FileHash -LiteralPath $transferInventoryPath -Algorithm SHA256).Hash
+$sourceAttestationPath = Join-Path $outputRoot (
+    "gr01-release-session-source-attestation-" + $Stamp + '.json'
+)
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $reviewTool,
+    'attest-source',
+    '--inventory', $transferInventoryPath,
+    '--operator', $SourceOperator,
+    '--operator-key-id', $SourceOperatorKeyId,
+    '--operator-signing-key-env', $SourceOperatorSigningKeyEnvironment,
+    '--out', $sourceAttestationPath
+) -Label 'GR01 release-session source inventory attestation'
 
 Write-Output "GR01 release session passed: $recordPath"
 Write-Output "Portable review inventory written: $transferInventoryPath"
 Write-Output "Portable review trusted inventory SHA-256: $transferInventorySha256"
+Write-Output "Portable review source attestation written: $sourceAttestationPath"
 Write-Output 'This record verifies the GR01 E7 binding only; inspect release_allowed separately.'

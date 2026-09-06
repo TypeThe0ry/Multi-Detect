@@ -49,6 +49,10 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "[string]$SourcePlan",
         "MULTIDETECT_OPERATOR_HMAC_KEY",
         "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX",
+        "MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX",
+        "[string]$SourceOperator",
+        "[string]$SourceOperatorKeyId",
+        "[string]$SourceOperatorSigningKeyEnvironment",
         "--hardware-mode",
         "--require-passed",
         "-RealGr01OperatorLinkBench",
@@ -65,6 +69,9 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "verify_gr01_release_session_handoff.py",
         "verify_gr01_release_session_review.py",
         "'snapshot'",
+        "'attest-source'",
+        "'--operator-signing-key-env', $SourceOperatorSigningKeyEnvironment",
+        "Portable review source attestation written",
         "'gr01-release-session-transfer-inventory.json'",
         "portable review snapshot",
         "Portable review trusted inventory SHA-256",
@@ -86,12 +93,14 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
     assert text.index("'gr01-release-session.json'") < text.index(
         "'gr01-release-session-transfer-inventory.json'"
     )
+    assert text.index("'snapshot'") < text.index("'attest-source'")
     assert "'--plan', $planPath" in text
     assert "'--handoff', $handoffPath" in text
     assert text.index("'create'") < text.index("'verify'")
     assert text.index("'verify'") < text.index("'snapshot'")
     assert "MULTIDETECT_OPERATOR_HMAC_KEY=" not in text
     assert "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX=" not in text
+    assert "MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX=" not in text
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable")

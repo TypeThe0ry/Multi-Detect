@@ -141,6 +141,7 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "configs/schemas/evidence-bundle-transfer-verification.schema.json",
         "configs/schemas/gr01-release-session-plan.schema.json",
         "configs/schemas/gr01-release-session-handoff.schema.json",
+        "configs/schemas/gr01-release-session-source-attestation.schema.json",
         "configs/schemas/gr01-release-session-review.schema.json",
         "configs/schemas/gr01-release-session.schema.json",
         "src/multidetect/gr01_release_handoff.py",

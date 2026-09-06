@@ -223,6 +223,7 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "configs/schemas/evidence-bundle-transfer-verification.schema.json",
         "configs/schemas/gr01-release-session-plan.schema.json",
         "configs/schemas/gr01-release-session-handoff.schema.json",
+        "configs/schemas/gr01-release-session-source-attestation.schema.json",
         "configs/schemas/gr01-release-session-review.schema.json",
         "configs/schemas/gr01-release-session.schema.json",
         "src/multidetect/gr01_release_handoff.py",
