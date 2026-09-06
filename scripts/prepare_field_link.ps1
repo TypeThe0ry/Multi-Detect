@@ -30,6 +30,7 @@ function Show-FieldLinkState {
     $routes = @(Get-NetRoute -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 -DestinationPrefix '192.168.144.0/24' -ErrorAction SilentlyContinue)
 
     [pscustomobject]@{
+        schema = 'multidetect.field-link-address-state/v1'
         schema_version = 1
         generated_at_utc = (Get-Date).ToUniversalTime().ToString('o')
         computer_name = [string]$env:COMPUTERNAME

@@ -179,11 +179,14 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # planner/applicator, wrapper, CLI shims and canonical verifier so a
         # link-readiness change invalidates stale field evidence everywhere.
         "scripts/prepare_field_link.ps1",
+        "scripts/verify_field_link_address_state.py",
         "scripts/inspect_field_link_interfaces.ps1",
         "scripts/run_field_link_preflight.ps1",
         "scripts/run_field_link_preflight.py",
         "scripts/verify_field_link_preflight.py",
         "src/multidetect/field_link_preflight.py",
+        "src/multidetect/field_link_address_state.py",
+        "configs/schemas/field-link-address-state.schema.json",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",
         "src/multidetect/simulator/control_gateway.py",

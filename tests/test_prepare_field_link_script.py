@@ -32,6 +32,7 @@ def test_field_link_setup_is_parameterized_and_secondary_only() -> None:
     assert "Write-FieldLinkState" in source
     assert "[System.IO.FileMode]::CreateNew" in source
     assert "schema_version = 1" in source
+    assert "schema = 'multidetect.field-link-address-state/v1'" in source
     assert "generated_at_utc" in source
     assert "computer_name" in source
     assert "secondary_address_only = $true" in source

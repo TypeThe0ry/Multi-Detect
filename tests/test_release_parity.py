@@ -117,11 +117,14 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     assert "src/multidetect/simulator/stack.py" in document["source_files"]["safety_policy"]
     assert {
         "scripts/prepare_field_link.ps1",
+        "scripts/verify_field_link_address_state.py",
         "scripts/inspect_field_link_interfaces.ps1",
         "scripts/run_field_link_preflight.ps1",
         "scripts/run_field_link_preflight.py",
         "scripts/verify_field_link_preflight.py",
         "src/multidetect/field_link_preflight.py",
+        "src/multidetect/field_link_address_state.py",
+        "configs/schemas/field-link-address-state.schema.json",
     } <= set(document["source_files"]["safety_policy"])
     for paths in document["source_files"].values():
         assert paths == sorted(paths)

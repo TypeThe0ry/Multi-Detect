@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/field-link-address-state.schema.json",
+  "title": "Multi-Detect field-link address state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at_utc",
+    "computer_name",
+    "interface_alias",
+    "interface_index",
+    "interface_status",
+    "link_speed",
+    "addresses",
+    "aircraft_route",
+    "execution"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.field-link-address-state/v1"},
+    "schema_version": {"const": 1},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "computer_name": {"type": "string", "minLength": 1},
+    "interface_alias": {"type": "string", "minLength": 1},
+    "interface_index": {"type": "integer", "minimum": 1},
+    "interface_status": {"type": "string", "minLength": 1},
+    "link_speed": {"type": "string", "minLength": 1},
+    "addresses": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/address"}
+    },
+    "aircraft_route": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/route"}
+    },
+    "execution": {
+      "oneOf": [
+        {"$ref": "#/$defs/verifyExecution"},
+        {"$ref": "#/$defs/planExecution"},
+        {"$ref": "#/$defs/resultExecution"}
+      ]
+    }
+  },
+  "$defs": {
+    "nullableOutput": {
+      "type": ["string", "null"]
+    },
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ip_address", "prefix_length", "address_state", "skip_as_source"],
+      "properties": {
+        "ip_address": {"type": "string", "format": "ipv4"},
+        "prefix_length": {"type": "integer", "minimum": 0, "maximum": 32},
+        "address_state": {"type": "string", "minLength": 1},
+        "skip_as_source": {"type": "boolean"}
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination_prefix", "next_hop", "route_metric", "policy_store"],
+      "properties": {
+        "destination_prefix": {"type": "string", "minLength": 1},
+        "next_hop": {"type": "string", "format": "ipv4"},
+        "route_metric": {"type": "integer", "minimum": 0},
+        "policy_store": {"type": "string", "minLength": 1}
+      }
+    },
+    "verifyExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "changed", "output"],
+      "properties": {
+        "mode": {"const": "verify"},
+        "changed": {"const": false},
+        "output": {"$ref": "#/$defs/nullableOutput"}
+      }
+    },
+    "planExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "operation",
+        "would_change",
+        "requires_elevation",
+        "requested_address",
+        "requested_prefix_length",
+        "secondary_address_only",
+        "skip_as_source",
+        "default_gateway_change",
+        "dns_change",
+        "explicit_route_change",
+        "rollback_operation",
+        "rollback_command",
+        "output"
+      ],
+      "properties": {
+        "mode": {"const": "plan"},
+        "operation": {"enum": ["add-secondary-address", "remove-secondary-address"]},
+        "would_change": {"type": "boolean"},
+        "requires_elevation": {"type": "boolean"},
+        "requested_address": {"type": "string", "format": "ipv4"},
+        "requested_prefix_length": {"type": "integer", "minimum": 1, "maximum": 32},
+        "secondary_address_only": {"const": true},
+        "skip_as_source": {"const": true},
+        "default_gateway_change": {"const": false},
+        "dns_change": {"const": false},
+        "explicit_route_change": {"const": false},
+        "rollback_operation": {"enum": ["add-secondary-address", "remove-secondary-address"]},
+        "rollback_command": {"type": "string", "minLength": 1},
+        "output": {"$ref": "#/$defs/nullableOutput"}
+      }
+    },
+    "resultExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "operation",
+        "changed",
+        "requested_address",
+        "requested_prefix_length",
+        "postcondition_checked",
+        "postcondition_passed",
+        "output"
+      ],
+      "properties": {
+        "mode": {"enum": ["apply", "what-if"]},
+        "operation": {"enum": ["add-secondary-address", "remove-secondary-address"]},
+        "changed": {"type": "boolean"},
+        "requested_address": {"type": "string", "format": "ipv4"},
+        "requested_prefix_length": {"type": "integer", "minimum": 1, "maximum": 32},
+        "postcondition_checked": {"type": "boolean"},
+        "postcondition_passed": {"type": ["boolean", "null"]},
+        "output": {"$ref": "#/$defs/nullableOutput"}
+      }
+    }
+  }
+}

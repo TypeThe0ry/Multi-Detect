@@ -121,6 +121,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "verify_field_link_interface_diagnostic",
     ),
     "verify_field_link_report": (".field_link_preflight", "verify_field_link_report"),
+    "verify_field_link_address_state": (
+        ".field_link_address_state",
+        "verify_field_link_address_state",
+    ),
     "GeolocationSurveyResult": (".geolocation_survey", "GeolocationSurveyResult"),
     "build_accuracy_report_from_target_event_replay": (
         ".geolocation_survey",
@@ -443,6 +447,7 @@ __all__ = [
     "verify_field_link_discovery",
     "verify_field_link_interface_diagnostic",
     "verify_field_link_report",
+    "verify_field_link_address_state",
     "GeolocationSurveyResult",
     "build_accuracy_report_from_target_event_replay",
     "load_survey_truth",
