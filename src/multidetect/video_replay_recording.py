@@ -25,6 +25,10 @@ from typing import Any
 from .autonomy.serialization import require_sha256
 from .backends import RawSensorReplayRecording
 from .compat import UTC
+from .deployment_recording_attestation import (
+    PLACEHOLDER_START_TIME_UTC,
+    derive_deployment_recording_time_window,
+)
 from .product_version import load_product_version
 
 DEFAULT_AIRFRAME_PROFILE_HASH = "0" * 64
@@ -219,6 +223,7 @@ def create_video_replay_recording(
     verified = RawSensorReplayRecording.from_manifest(manifest_path)
     if verified.recording_hash != recording.recording_hash:
         raise RuntimeError("video replay manifest changed the verified recording identity")
+    attestation_window = derive_deployment_recording_time_window(temporary_path)
 
     product = load_product_version()
     source_video_sha256, source_video_bytes = _sha256_file(video_path)
@@ -257,6 +262,28 @@ def create_video_replay_recording(
         "deployment_domain_evidence_complete": False,
         "accuracy_validated": False,
         "gate_passed": False,
+        "source_attestation_handoff": {
+            "status": "operator_confirmation_required",
+            "attestation_created": False,
+            "recording_root": str(output_path),
+            "started_at_utc": attestation_window["started_at_utc"],
+            "minimum_ended_at_utc": attestation_window["minimum_ended_at_utc"],
+            "latest_event_at_s": attestation_window["latest_event_at_s"],
+            "time_anchor_is_placeholder": (
+                attestation_window["started_at_utc"] == PLACEHOLDER_START_TIME_UTC
+            ),
+            "attestation_time_eligible": (
+                attestation_window["started_at_utc"] != PLACEHOLDER_START_TIME_UTC
+            ),
+            "derive_times_flag": "--derive-times-from-recording",
+            "required_operator_fields": [
+                "stratum",
+                "captured_by",
+                "capture_device_id",
+                "capture_site",
+                "source_type",
+            ],
+        },
         "notes": [
             "Video pixels are hash-bound raw replay input; no detector output is embedded.",
             (

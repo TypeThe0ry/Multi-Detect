@@ -27,6 +27,7 @@ from .replay_set import REPLAY_SET_STRATA
 ATTESTATION_NAME = "deployment-recording-source.json"
 SCHEMA_VERSION = 1
 SOURCE_TYPES = ("local_camera", "rtsp_camera")
+PLACEHOLDER_START_TIME_UTC = "1970-01-01T00:00:00Z"
 
 
 def create_deployment_recording_attestation(
@@ -51,6 +52,7 @@ def create_deployment_recording_attestation(
         )
     started = _utc(started_at_utc, "started_at_utc")
     ended = _utc(ended_at_utc, "ended_at_utc")
+    _require_non_placeholder_start(started)
     if ended <= started:
         raise AutonomyContractError("ended_at_utc must be later than started_at_utc")
 
@@ -128,6 +130,29 @@ def write_deployment_recording_attestation(
     return verify_deployment_recording_attestation(root, expected_stratum=values["stratum"])
 
 
+def derive_deployment_recording_time_window(
+    recording_root: str | Path,
+) -> dict[str, object]:
+    """Derive the exact manifest start and minimum valid end without asserting provenance."""
+
+    root = _recording_root(recording_root)
+    manifest = root / "recording.manifest.json"
+    if manifest.is_symlink() or not manifest.is_file():
+        raise AutonomyContractError("recording.manifest.json must be a regular non-symlink file")
+    recording = RawSensorReplayRecording.from_manifest(manifest)
+    latest_event_at_s = _latest_event_at_s(recording)
+    return {
+        "event": "deployment_recording_time_window_derived",
+        "started_at_utc": _format_utc(recording.started_at_utc),
+        "minimum_ended_at_utc": _format_utc(
+            recording.started_at_utc + timedelta(seconds=latest_event_at_s)
+        ),
+        "latest_event_at_s": latest_event_at_s,
+        "provenance_attested": False,
+        "operator_confirmation_required": True,
+    }
+
+
 def verify_deployment_recording_attestation(
     recording_root: str | Path,
     *,
@@ -179,6 +204,7 @@ def verify_deployment_recording_attestation(
     capture_site = require_text(value["capture_site"], "capture_site")
     started = _utc(value["started_at_utc"], "started_at_utc")
     ended = _utc(value["ended_at_utc"], "ended_at_utc")
+    _require_non_placeholder_start(started)
     if ended <= started:
         raise AutonomyContractError("ended_at_utc must be later than started_at_utc")
 
@@ -281,6 +307,14 @@ def _latest_event_at_s(recording: RawSensorReplayRecording) -> float:
     )
 
 
+def _require_non_placeholder_start(value: datetime) -> None:
+    if _format_utc(value) == PLACEHOLDER_START_TIME_UTC:
+        raise AutonomyContractError(
+            "deployment recording attestation rejects the placeholder 1970 UTC start; "
+            "recreate the recording with its actual capture UTC"
+        )
+
+
 def _stratum(value: object) -> str:
     normalized = require_text(value, "stratum").lower()
     if normalized not in REPLAY_SET_STRATA:
@@ -308,9 +342,11 @@ def _format_utc(value: datetime) -> str:
 
 __all__ = [
     "ATTESTATION_NAME",
+    "PLACEHOLDER_START_TIME_UTC",
     "SCHEMA_VERSION",
     "SOURCE_TYPES",
     "create_deployment_recording_attestation",
+    "derive_deployment_recording_time_window",
     "verify_deployment_recording_attestation",
     "write_deployment_recording_attestation",
 ]

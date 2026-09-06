@@ -102,6 +102,24 @@ def test_video_conversion_writes_verified_raw_recording_and_unknown_gps(
     assert summary["position_healthy"] is False
     assert summary["gps_bound"] is False
     assert summary["gate_passed"] is False
+    assert summary["source_attestation_handoff"] == {
+        "status": "operator_confirmation_required",
+        "attestation_created": False,
+        "recording_root": str(output),
+        "started_at_utc": "2026-09-02T03:00:00Z",
+        "minimum_ended_at_utc": "2026-09-02T03:00:00.400000Z",
+        "latest_event_at_s": pytest.approx(0.4),
+        "time_anchor_is_placeholder": False,
+        "attestation_time_eligible": True,
+        "derive_times_flag": "--derive-times-from-recording",
+        "required_operator_fields": [
+            "stratum",
+            "captured_by",
+            "capture_device_id",
+            "capture_site",
+            "source_type",
+        ],
+    }
     assert output.is_dir()
     assert not tuple(tmp_path.glob(".recording.*"))
 
@@ -154,6 +172,8 @@ def test_video_conversion_supports_fps_override_and_selected_frame_limit(
     assert summary["decoded_frame_count"] == 3
     assert summary["fps"] == pytest.approx(4.0)
     assert summary["fps_source"] == "override"
+    assert summary["source_attestation_handoff"]["time_anchor_is_placeholder"] is True
+    assert summary["source_attestation_handoff"]["attestation_time_eligible"] is False
 
 
 def test_video_conversion_reads_a_real_opencv_container(tmp_path: Path) -> None:

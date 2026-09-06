@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .deployment_recording_attestation import (
     SOURCE_TYPES,
+    derive_deployment_recording_time_window,
     verify_deployment_recording_attestation,
     write_deployment_recording_attestation,
 )
@@ -25,6 +26,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-type", choices=SOURCE_TYPES)
     parser.add_argument("--started-at-utc")
     parser.add_argument("--ended-at-utc")
+    parser.add_argument(
+        "--derive-times-from-recording",
+        action="store_true",
+        help=(
+            "derive manifest start and minimum valid end; this does not infer or attest "
+            "physical provenance"
+        ),
+    )
     return parser
 
 
@@ -42,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.source_type,
                     args.started_at_utc,
                     args.ended_at_utc,
+                    True if args.derive_times_from_recording else None,
                 )
             ):
                 parser.error("--verify only accepts the optional --stratum constraint")
@@ -49,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.recording_root, expected_stratum=args.stratum
             )
         else:
+            if args.derive_times_from_recording:
+                if args.started_at_utc is not None or args.ended_at_utc is not None:
+                    parser.error(
+                        "--derive-times-from-recording cannot be combined with explicit times"
+                    )
+                derived = derive_deployment_recording_time_window(args.recording_root)
+                args.started_at_utc = derived["started_at_utc"]
+                args.ended_at_utc = derived["minimum_ended_at_utc"]
             required = {
                 "--stratum": args.stratum,
                 "--captured-by": args.captured_by,
