@@ -136,6 +136,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".rtsp_evidence_replay",
         "create_rtsp_evidence_replay_recording",
     ),
+    "create_evidence_transfer_inventory": (
+        ".evidence_bundle_transfer",
+        "create_evidence_transfer_inventory",
+    ),
+    "verify_evidence_bundle_transfer": (
+        ".evidence_bundle_transfer",
+        "verify_evidence_bundle_transfer",
+    ),
     "join_raw_replay_telemetry": (
         ".replay_telemetry_join",
         "join_raw_replay_telemetry",
