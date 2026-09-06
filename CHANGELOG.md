@@ -5,6 +5,32 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v97 recovered session lease reconciliation（2026-09-06）
+
+- journal index 现在严格支持 released/recovered 两类互斥 lease 审计源，关闭成功 session 已落盘、但进程
+  在正常 release 前崩溃后无法入册的窗口；
+- recovered archive 必须同时具备有效 `lease.json` 与 `recovery.json`，并重新核对文件 SHA、canonical
+  digest、lease ID、lease digest、完整 receipt 和 session 内嵌 lease；双归档、无归档及重新计算 digest
+  后的错绑均 fail-closed；
+- index schema 增加 archive kind 及 lease/recovery path/hash 条件约束，`lease-status` 增加 recovered 计数；
+  PX4 Mission parity 更新为 `72cbc380...6fb4`，其余四组不变；全量回归 3,474 tests：
+  `3473 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。产品保持 `v0.3.0-pre.8`。
+
+### v0.3.0-pre.8 v96 crash-atomic covariance capture leases（2026-09-06）
+
+- lease 先在非阻断 candidate 中 write-new/fsync，再原子发布完整 active 目录；release 原子移出 active path
+  并保留 released audit，消除空 active 目录与先删身份文件的断电窗口；
+- interrupted recovery 只允许同一 lease ID/reason 精确续跑，managed lifecycle 目录拒绝 symlink；
+- journal index 重开 released lease 并与 session 内嵌内容逐字核对；全量回归 3,468 tests：
+  `3467 passed, 1 skipped`，全仓 Ruff 通过。产品保持 `v0.3.0-pre.8`。
+
+### v0.3.0-pre.8 v95 exclusive covariance field journal（2026-09-06）
+
+- 新增 receipt/workspace 专属 capture lease，串行化 online probe、capture 与成功 session seal；
+- `lease-status/recover-lease` 实现同机只读 PID 生存判定、精确死亡 owner 恢复和 lease/recovery 审计保留；
+- journal index 对账连续 session 前缀、campaign reports 与 blocked probes；全量回归 3,464 tests：
+  `3463 passed, 1 skipped`，全仓 Ruff 通过。产品保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v94 sealed single-leaf covariance sessions（2026-09-06）
 
 - 新增 `field_covariance_session run-next/verify-record`：每次从 v93 接收回执锁定唯一下一叶，将 receipt、

@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v96 工作树）
+最后更新：2026-09-06（v97 工作树）
+
+## v97 本轮已收口
+
+- 关闭“成功 session 已 write-new，但进程在 lease 正常 release 前崩溃”的审计断链：死亡 owner 的 active
+  lease 经精确 recovery 后，成功 session 仍可由 journal index 入册；
+- 每份 session 必须恰有一个 lease 审计源：正常路径为 `released-leases/<lease-id>`，异常恢复路径为
+  `recovered-leases/<lease-id>`；两者同时存在或均不存在都 fail-closed；
+- recovered 路径会独立重开并验证 `lease.json` 与 `recovery.json`，重算文件 SHA 和 canonical digest，核对
+  lease ID、lease digest、完整 receipt 及 session 内嵌 lease；缺失、替换、篡改或重新签 digest 后的错误
+  receipt/lease/hash 均拒绝；
+- index record 的 closed schema 记录 archive kind、lease path/hash 和可空 recovery path/hash，并用条件约束
+  强制 released 记录无 recovery、recovered 记录必须具备 recovery；`lease-status` 增加 recovered 数量；
+- `px4_mission_path_hash=72CBC380...6FB4`，其余四组 parity 未变化。全量回归 3,474 tests：
+  `3473 passed, 1 skipped, 0 failed, 0 errors`，耗时 100.000 秒；JUnit 507,101 bytes、SHA-256
+  `2B0494192B80F67E859E18153FC5DE2D490737DCB192F73B6F2D60DB10803466`；全仓 Ruff 与 compileall 通过。
+  本轮没有 QGC C++/QML 变化，因此没有无意义重建 EXE；真实现场断电/HIL/REAL/flight 门仍未通过。
 
 ## v96 本轮已收口
 

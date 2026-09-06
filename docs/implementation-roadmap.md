@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 恢复租约与成功 session 对账（v97）
+
+- [x] 支持 session write-new 后、正常 lease release 前崩溃的 recovery→index 闭环；
+- [x] 每个成功 session 强制 released/recovered 两类 archive 恰好存在一个；
+- [x] recovered archive 重开 recovery 文档并重算 digest、lease 文件 SHA、lease/receipt 绑定；
+- [x] index closed schema 记录 archive kind 及可审计 lease/recovery path/hash，并约束两类字段组合；
+- [x] 覆盖双归档、无归档、缺失 recovery、直接篡改和重新计算 digest 后的错绑攻击；
+- [ ] 在现场机器强杀真实 capture 进程，按 death proof 恢复并由第二人复验 session/index。
+
 ## 断电安全 lease 发布/释放（v96）
 
 - [x] 在非阻断 candidate 目录完成 lease write-new/fsync，再原子发布完整 active 目录；

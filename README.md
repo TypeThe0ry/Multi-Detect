@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v96：capture lease 候选预写后原子发布、释放原子移出 active path、恢复可续跑，并保留 released lease 审计链 |
+| 当前工程迭代 | v97：成功 session 可严格对账 released/recovered 两类互斥 lease 审计源，覆盖 record 落盘后进程崩溃窗口 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,23 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v97 恢复租约与成功 session 的严格对账
+
+成功 `.session.json` 已 write-new 落盘、但进程在退出 capture lease 上下文前异常终止时，active lease 不会
+被误当成正常释放。操作员按既有死亡 owner 门恢复后，lease 与 `recovery.json` 会进入
+`recovered-leases/<lease-id>`；journal index 现在接受且只接受以下两种互斥审计来源之一：
+
+```text
+released-leases/<lease-id>/lease.json
+recovered-leases/<lease-id>/{lease.json,recovery.json}
+```
+
+index 会重开归档文件，核对 lease 文件 SHA、lease digest、receipt、session 内嵌 lease；recovered 路径还会
+重算 recovery digest，并核对 recovery 中的 lease ID、lease 文件 SHA、lease digest 和完整 receipt。两类
+归档同时存在、均不存在、recovery 缺失/篡改，或攻击者修改字段后重新计算 digest，全部 fail-closed。
+`lease-status` 也分别报告 released/recovered 归档数量。该修复只补强现场证据事务，不提升任何 HIL、REAL、
+hardware、flight 或最终发布声明。
 
 ### v96 断电安全的 lease 生命周期
 

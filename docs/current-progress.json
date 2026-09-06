@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-05T23:50:16Z",
+  "updated_at_utc": "2026-09-06T00:02:18Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "11b7777f4d4cf09d4815842d0cc3f9c099e8b053",
-    "commit_subject": "fix(evidence): make capture lease lifecycle crash-atomic",
-    "commits_ahead_of_origin_main": 80
+    "commit": "6ceef2aedf122fb1f83b5df659a350f3d3cf93f4",
+    "commit_subject": "fix(evidence): reconcile recovered session leases",
+    "commits_ahead_of_origin_main": 82
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v96",
+  "working_iteration": "v97",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v96-final.xml",
-      "tests": 3468,
-      "passed": 3467,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v97-final.xml",
+      "tests": 3474,
+      "passed": 3473,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 99.785,
-      "junit_local_path": "tmp/current-progress-regression-v96-final.xml",
-      "junit_file_bytes": 506030,
-      "junit_file_sha256": "85cbaa7d6890737943a6a5a93cad06e51c920941ee1b62552a2ec51ceceb7d15",
+      "duration_seconds": 100.0,
+      "junit_local_path": "tmp/current-progress-regression-v97-final.xml",
+      "junit_file_bytes": 507101,
+      "junit_file_sha256": "2b0494192b80f67e859e18153fc5de2d490737dcb192f73b6f2d60db10803466",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 6561,
-    "file_sha256": "279156ffc701b68ecf81a62cc1d33971268fc8bb343a62943805125ec1edfcea",
+    "file_sha256": "7eb4ea15a557bed8788e6993eadf95c5e64c3a16922795418e4398f7233118f4",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "fd77eac99d3b72b4c1e158f144d32d6a7b420888bb2cdcf83f078f85520bbdbc"
+      "px4_mission_path_hash": "72cbc380270dd98dc3284e1a372a702797c0624dd364bca26940fab9818c6fb4"
     }
   },
   "evidence": {
@@ -197,8 +197,8 @@
         "multidetect.pixhawk-covariance-field-journal-index/v1"
       ],
       "schema_path": "configs/schemas/pixhawk-covariance-field-journal.schema.json",
-      "schema_file_bytes": 6270,
-      "schema_file_sha256": "7d8e67753240d5f0575a071250a9b2d8a4d07293ab67ec2ffda5e9ddbb16cfbb",
+      "schema_file_bytes": 7349,
+      "schema_file_sha256": "623837a68e25daad503ea70f8e98398c07c65cc312789a66fbe5d91308206456",
       "module": "multidetect.field_covariance_journal",
       "commands": ["journal-status", "lease-status", "recover-lease", "verify-index"],
       "capture_lease_atomic_directory": true,
@@ -207,6 +207,10 @@
       "release_unblocks_by_atomic_directory_move": true,
       "released_lease_audit_preserved": true,
       "released_lease_reconciled_by_index": true,
+      "recovered_lease_reconciled_by_index": true,
+      "released_or_recovered_archive_exactly_one_required": true,
+      "recovery_digest_receipt_and_lease_binding_reverified": true,
+      "crash_after_session_commit_recoverable": true,
       "capture_lease_scoped_by_workspace_sha256": true,
       "second_process_capture_blocked": true,
       "silent_stale_lock_deletion": false,
