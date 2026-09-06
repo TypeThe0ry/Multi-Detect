@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T01:26:24Z",
+  "updated_at_utc": "2026-09-06T01:43:27Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "b31fa690650444ad53fcfe303c089fc858e7c46c",
-    "commit_subject": "fix(release): refresh current evidence defaults",
-    "commits_ahead_of_origin_main": 98
+    "commit": "641e8cd1f3c0925c05063ba692730383c6ffc483",
+    "commit_subject": "feat(release): embed replay readiness diagnostics",
+    "commits_ahead_of_origin_main": 100
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v105",
+  "working_iteration": "v106",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v105-final.xml",
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v106-final.xml",
       "tests": 3497,
       "passed": 3496,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 145.857,
-      "junit_local_path": "tmp/current-progress-regression-v105-final.xml",
+      "duration_seconds": 323.705,
+      "junit_local_path": "tmp/current-progress-regression-v106-final.xml",
       "junit_file_bytes": 510223,
-      "junit_file_sha256": "69a47ecaa68596d342876978cb22c2c60e35f71c4178f0cac199476d1ec39f06",
+      "junit_file_sha256": "fe6a5e094765bf4a5e46ea29a2013d1773e7d2e1631018548e8362f91bc0c4e7",
       "distributed_in_git": false
     },
     "ruff": {
@@ -694,10 +694,30 @@
       "gate_passed": true,
       "new_external_runtime_claimed": false
     },
+    "replay_set_readiness_e7": {
+      "source_manifest": "artifacts/evaluation/terminal-continuation-v34/replay-set-sim-gazebo-2026/replay-set.manifest.json",
+      "source_accuracy_report": "artifacts/evaluation/terminal-continuation-v34/replay-set-sim-gazebo-2026/accuracy-report-20260904-pre8.json",
+      "embedded_in_release_gate_report": true,
+      "gate_passed": false,
+      "entry_count": 6,
+      "strata_count": 6,
+      "synthetic_entry_count": 6,
+      "reviewed_entry_count": 0,
+      "positive_truth_strata_complete": false,
+      "positive_prediction_strata_complete": false,
+      "blocking_reason_count": 37,
+      "next_action_count": 7,
+      "diagnostic_only_preserves_calibration_alternative": true,
+      "claims": {
+        "software_readiness_recomputation": "passed",
+        "deployment_domain_accuracy": "not_claimed",
+        "independent_annotation_review": "not_claimed"
+      }
+    },
     "release_gate_report": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v105/wrapper-default-final/release-gate-pre.8-current-20260906T012233Z-v6-bound-report.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v106/wrapper-default-final/release-gate-pre.8-current-20260906T014323Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "b4272b077a20a36710a116fdedbd7c37cc3d228cb525595b63c62712348b76d0",
+      "file_sha256": "ab53ebfd99ef68fafdc4543aaf0e834235c19a2ffa2f32ba7263cdf56298ed8d",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32

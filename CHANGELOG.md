@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v106 embedded replay-set readiness（2026-09-06）
+
+- E7 evaluator 从绑定 replay manifest/accuracy report 实时重算 canonical readiness，并在报告内给出逐
+  entry/stratum 的来源、标注、真值、预测、binding、阻断原因和下一步动作；
+- readiness 保持诊断语义，不会错误否决独立 threshold-calibration；读取或复算异常仍 fail-closed；
+- 当前 SIM fixture 精确显示 6/6 synthetic、6/6 未复核、五个正向 strata 无正真值/正预测，顶层仍为
+  32 blockers。全量回归 3,497 tests：`3496 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v105 current release-gate evidence chain（2026-09-06）
 
 - 将 Windows current release-gate wrapper 从旧 combined SIM、v65 parity 摘要和 v56 3-D model 绑定切换到

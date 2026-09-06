@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v105：刷新并锁定可执行的当前 E7 默认证据链 |
+| 当前工程迭代 | v106：E7 内嵌可复算的 replay-set readiness 诊断 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,17 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v106 replay-set readiness 进入 E7
+
+E7 evaluator 现在会在重新打开 replay-set manifest 与 accuracy report 后调用同一套 canonical readiness
+复算器，并把逐 entry、逐 stratum 的真实来源、标注复核、真值对象、模型预测、hash binding、accuracy
+重算结果和下一步动作放入 `report.replay_set.readiness`。该对象是诊断投影，不改变既有 accuracy 或独立
+threshold-calibration 的发布语义。
+
+当前 v34 SIM fixture 的诊断明确证明：六个 strata 名称和文件流都存在，但 6/6 来源仍为
+`synthetic_demo`、6/6 标注未人工复核、五个正向 strata 都没有正真值和正预测。E7 顶层仍为 32 个
+blocker；readiness 内部给出 37 条具体原因和 7 个采集/复核动作，不能靠改布尔声明冒充真实部署数据。
 
 ### v105 当前 E7 默认证据链
 

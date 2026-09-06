@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v105 工作树）
+最后更新：2026-09-06（v106 工作树）
+
+## v106 本轮已收口
+
+- E7 replay-set evaluator 现在从已绑定 manifest/accuracy report 调用 canonical readiness checker，输出
+  hash-bound、fresh-recomputed 的逐 entry/stratum 统计、检查、原因和下一步动作；
+- readiness 是嵌套诊断投影：不以自身缺少 accuracy report 否决已经通过的独立 threshold calibration，
+  同时在读取/重算异常时仍 fail-closed；专项回归覆盖 pending manifest 和 calibration-only 兼容路径；
+- 当前 SIM fixture 复算为 6 entries、6 strata，文件和 prediction streams 完整，但 6/6 为
+  `synthetic_demo`、6/6 `annotations_reviewed=false`，正向 strata 没有正真值/正预测；readiness 记录
+  37 条原因与 7 个下一步，顶层 E7 保持 32 个真实 blockers；
+- 五组 release parity 未改变，QGC C++/QML 未改变，因此不重绑 SIM 摘要、不重建 portable EXE；
+  全量回归 3,497 tests：`3496 passed, 1 skipped, 0 failed, 0 errors`，耗时 323.705 秒；JUnit
+  510,223 bytes、SHA-256 `FE6A5E094765BF4A5E46EA29A2013D1773E7D2E1631018548E8362F91BC0C4E7`；
+  全仓 Ruff 与 compileall 通过。
 
 ## v105 本轮已收口
 

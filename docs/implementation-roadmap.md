@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## E7 replay-set 可执行 readiness 诊断（v106）
+
+- [x] E7 每次从绑定 manifest 和 accuracy report 重算 readiness，不信任静态声明；
+- [x] 输出逐 entry/stratum 来源、标注、真值、预测、hash binding 与下一步动作；
+- [x] pending 数据保持 fail-closed，篡改或无法重算继续成为证据错误；
+- [x] readiness 只作诊断，不破坏独立 threshold-calibration 的合法替代路径；
+- [x] 当前 SIM fixture 明确识别为 6/6 synthetic、6/6 未复核、五个正向 strata 无正例；
+- [ ] 采集真实 deployment recordings，完成独立标注复核并运行固定模型生成每帧 predictions；
+- [ ] 每个正向 stratum 至少有真实正真值和模型正预测，再进行独立 accuracy/threshold 评审。
+
 ## 当前 E7 默认证据链恢复（v105）
 
 - [x] 将 combined SIM/QGC 默认源切换到具备 CameraInfo K/P/R/D 与完整 odometry 的 900 帧记录；
