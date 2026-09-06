@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## RTSP evidence container → raw replay（v121）
+
+- [x] RTSP 清单 v3 同时绑定系统 UTC 与单调采集时间窗、视频 bytes/SHA-256、全帧 probe 和 canonical hash；
+- [x] URI/凭据不落盘，stream-copy/EOS/无飞控/无物理 release 声明 fail-closed；
+- [x] 单命令从已验证 RTSP 清单自动取视频身份与 UTC，原子生成不可覆盖 camera-only raw replay；
+- [x] 解码前后源身份复核，输出后重开 source/summary/raw manifest/events/images 全链；
+- [x] tracking-review 支持 v3 严格入口并保留 v2 历史读取；真实 OpenCV 容器和篡改负例回归完成；
+- [ ] 在 Jetson 对真实 H.265 RTSP 录像运行 v3 采集/转换，并由操作员补人员、设备、地点和分层证明；
+- [ ] 为同一时轴连接独立合格 GNSS/raw telemetry；本功能本身不产生定位或 release claim。
+
 ## 现场证明时间自动交接（v120）
 
 - [x] video→raw replay summary 输出结构化证明时间窗与待确认 provenance 字段；

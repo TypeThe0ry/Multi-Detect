@@ -1,5 +1,25 @@
 # 统一仓库架构
 
+## v121 RTSP evidence → raw replay（2026-09-06，`v0.3.0-pre.8`）
+
+```text
+H.265 RTSP --stream-copy--> Matroska + v3 manifest
+  manifest = UTC/monotonic window + video bytes/SHA + full probe + canonical hash
+  -> strict source reload (credentials never serialized)
+  -> multidetect-rtsp-to-replay
+  -> camera-only raw manifest/events/PNG + canonical source binding
+  -> full source + output reload
+  -> operator attestation / independent GNSS join remain separate
+```
+
+采集/复核位于 `src/multidetect/rtsp_evidence_recording.py`，转换/全链复核位于
+`src/multidetect/rtsp_evidence_replay.py`，clean-checkout wrapper 为
+`scripts/create_rtsp_evidence_replay_recording.py`，closed schema 为
+`configs/schemas/rtsp-evidence-recording.schema.json`。新转换复用 `video_replay_recording.py` 与
+`RawSensorReplayRecording`，不创建第二套 frame/telemetry contract；`tracking_review.py` 的 v2 仅作历史兼容，
+v3 必须走严格 source verifier。该链证明容器身份和记录的系统 UTC，不证明现场人员/设备/地点、可信时间戳、
+GNSS、目标定位、HIL/REAL 或最终 release。
+
 ## v120 video→attestation 时间交接（2026-09-06，`v0.3.0-pre.8`）
 
 `video_replay_recording.py` 在写出 raw manifest 后重新加载它，并将 start、最后事件相对时间和 minimum end 写进

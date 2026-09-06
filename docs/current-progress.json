@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T06:03:44Z",
+  "updated_at_utc": "2026-09-06T06:28:31Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "cbf3d22ed0dafb2784836bfbebbf211e6173983c",
-    "commit_subject": "feat(replay): derive field attestation timestamps",
-    "commits_ahead_of_origin_main": 128
+    "commit": "cc149243cd48142be838360928fba8e0318b1da3",
+    "commit_subject": "feat(replay): bind RTSP evidence conversion",
+    "commits_ahead_of_origin_main": 130
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v120",
+  "working_iteration": "v121",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v120-final.xml",
-      "tests": 3530,
-      "passed": 3529,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v121-final.xml",
+      "tests": 3537,
+      "passed": 3536,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 271.99,
-      "junit_local_path": "tmp/current-progress-regression-v120-final.xml",
-      "junit_file_bytes": 514802,
-      "junit_file_sha256": "79ebc8b57c6471afc2efe3458258a34489f8e1baedd2ee2d4726a6964b8b82c0",
+      "duration_seconds": 254.10,
+      "junit_local_path": "tmp/current-progress-regression-v121-final.xml",
+      "junit_file_bytes": 515775,
+      "junit_file_sha256": "bd7d0b2718e1584685019dcd7d8bfa807dda16ad239481f5252651681385e1ad",
       "distributed_in_git": false
     },
     "ruff": {
@@ -74,6 +74,28 @@
     }
   },
   "evidence": {
+    "rtsp_evidence_replay_conversion": {
+      "recording_implementation": "src/multidetect/rtsp_evidence_recording.py",
+      "conversion_implementation": "src/multidetect/rtsp_evidence_replay.py",
+      "installed_command": "multidetect-rtsp-to-replay",
+      "repository_wrapper": "scripts/create_rtsp_evidence_replay_recording.py",
+      "schema": "configs/schemas/rtsp-evidence-recording.schema.json",
+      "rtsp_manifest_schema_version": 3,
+      "utc_window_bound": true,
+      "monotonic_window_bound": true,
+      "source_container_bytes_and_sha256_bound": true,
+      "full_frame_probe_reverified": true,
+      "source_uri_recorded": false,
+      "atomic_non_overwriting_raw_output": true,
+      "source_identity_checked_before_and_after_decode": true,
+      "output_chain_reverified": ["source_manifest", "source_video", "summary", "raw_manifest", "events", "images"],
+      "tracking_review_v2_read_compatible": true,
+      "tracking_review_v3_strict": true,
+      "operator_field_provenance_attested": false,
+      "navigation_bound": false,
+      "release_claim": "not_claimed",
+      "real_jetson_rtsp_conversion": "pending_physical_capture"
+    },
     "field_replay_campaign": {
       "schema": "field-replay-campaign-plan/v1",
       "schema_path": "configs/schemas/field-replay-campaign-plan.schema.json",
@@ -901,9 +923,10 @@
   },
   "next_priorities": [
     "execute_hil_real_pixhawk_odometry_covariance_capture_with_signed_profile_and_mission_feedback",
+    "execute_real_jetson_rtsp_v3_capture_conversion_attestation_and_gnss_join",
     "isolated_ruff_format_baseline_migration_with_parity_and_evidence_regeneration",
     "complete_native_qgc_geolocation_checklist_then_bind_verified_review_to_e7",
-    "deployment_domain_model_and_replay_set_review",
+    "complete_six_strata_deployment_replay_campaign_and_model_review",
     "jetson_camera_pixhawk_gr01_real_link_acceptance",
     "outdoor_gnss_rtk_and_measured_camera_extrinsics_survey",
     "hil_real_three_airframe_px4_mission_feedback_matrix"

@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v121 RTSP evidence container → raw replay（2026-09-06）
+
+- RTSP recorder 清单升级为 closed-schema v3，固定记录包围 stream-copy 的 UTC 起止、单调时间窗、
+  container bytes/SHA-256、全帧 probe 与 canonical hash；URI/凭据继续不落盘；
+- 新增 `multidetect-rtsp-to-replay` / clean-checkout wrapper：只接受复核一致的 v3 清单和原容器，自动继承
+  capture start UTC，逐帧生成不可覆盖 camera-only raw replay，并再次重开 source、summary、raw manifest/events/images；
+- video converter 新增源文件预解码/后解码双重身份检查；tracking-review 保持 v2 历史读取并对 v3 使用严格 verifier。
+  结果不推断人员/设备/地点/GNSS，也不提升 deployment/HIL/REAL/release；全量 3,537 tests：
+  `3536 passed, 1 skipped`。
+
 ### v0.3.0-pre.8 v120 field attestation timestamp handoff（2026-09-06）
 
 - video→raw replay 摘要新增结构化 `source_attestation_handoff`，从已验证 recording 自动给出 UTC 起点、

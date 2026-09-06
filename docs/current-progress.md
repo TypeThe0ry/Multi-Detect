@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v120 工作树）
+最后更新：2026-09-06（v121 工作树）
+
+## v121 本轮已收口
+
+- `record-rtsp-evidence` 清单由 v2 升级为 closed-schema v3：采集调用前后取真实 UTC、保留单调时间窗，
+  将视频 bytes/SHA-256、全帧媒体 probe、stream-copy/EOS/无控制声明纳入 canonical hash；输出路径规范为绝对路径，
+  URI 和凭据仍不写入文件；
+- 新增 `multidetect-rtsp-to-replay`、`src/multidetect/rtsp_evidence_replay.py` 和 clean-checkout wrapper；命令先
+  严格重开 v3 清单及原视频，再把清单的 capture start 自动作为 raw replay UTC 起点，输出目录已有时拒绝覆盖；
+- video converter 在解码前后各计算一次源 bytes/SHA-256，拒绝证据不符或转换途中改变；summary 绑定 source
+  manifest/file/capture window 并带 canonical hash，转换完成后 verifier 再重开 RTSP source、summary、raw manifest、
+  event stream 和全部 PNG；
+- tracking-review 对 v2 保持历史兼容，新 v3 必须通过同一严格 verifier。真实 OpenCV 容器端到端及篡改负例已覆盖。
+  camera-only 输出仍固定未知 GPS/位置、未证明人员/设备/地点、`release_ready=false`；E7 32 blockers 未改变。
+- 全量回归 3,537 tests：`3536 passed, 1 skipped, 0 failed, 0 errors`，耗时 254.10 秒；JUnit
+  515,775 bytes、SHA-256 `BD7D0B2718E1584685019DCD7D8BFA807DDA16AD239481F5252651681385E1AD`；
+  全仓 Ruff、compileall、schema parse 与 parity 重生成通过，parity 字节未变化。
 
 ## v120 本轮已收口
 

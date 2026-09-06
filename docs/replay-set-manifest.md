@@ -61,8 +61,8 @@ python scripts\attest_deployment_recording.py D:\captures\day `
 `--derive-times-from-recording` 只从已验证 manifest 读取 start，并用最后 frame/telemetry 相对时间计算 minimum
 end；它不会推断人员、设备、地点、来源或“是否真的在现场”。需要保存更晚的真实停止时间时，可以不使用该
 开关，改为显式提供 `--started-at-utc ... --ended-at-utc ...`，两种模式不能混用。由视频转换器默认生成的
-`1970-01-01T00:00:00Z` 是 deterministic camera-only 占位锚，证明 writer/verifier 会拒绝；现场转换必须在
-创建 raw recording 时通过 `--started-at-utc` 写入实际 UTC。
+`1970-01-01T00:00:00Z` 是 deterministic camera-only 占位锚，证明 writer/verifier 会拒绝；普通现场视频
+必须通过 `--started-at-utc` 写入实际 UTC，RTSP v3 转换则从已验证采集清单自动继承。
 
 证明采用 closed schema，固定 `capture_origin=physical_field`、`synthetic=false`、`simulation=false`、
 `screen_replay=false`，并绑定 manifest bytes/SHA-256/recording hash。它保证“声明内容与这份录像没有被静默
@@ -666,6 +666,24 @@ detector 的预测，再以 `source_kind=deployment_recording` 重建清单；�
 合成空帧填充缺失分层。
 
 ## 录制视频转换为 raw replay
+
+Jetson 的 `scripts/record_jetson_rtsp_evidence.sh` 现在生成 RTSP evidence schema v3：清单同时绑定包围
+stream-copy 的系统 UTC 起止、单调时间窗、原 Matroska 容器 bytes/SHA-256、完整解码 probe 与 canonical hash，
+且不会保存 RTSP URI/凭据。优先使用一条命令从清单转换，避免再次手抄视频路径、hash 或开始时间：
+
+```powershell
+cd D:\Projects\Multi-Detect
+python scripts\create_rtsp_evidence_replay_recording.py `
+  D:\captures\jetson-rtsp-20260906T060000Z.manifest.json `
+  D:\captures\day-raw `
+  --recording-id field-day-001 `
+  --frame-stride 1
+```
+
+安装环境的等价入口是 `multidetect-rtsp-to-replay`。它只接受 passed v3：先严格重开清单、原容器、
+bytes/SHA-256 和全帧 probe，自动使用 `started_at_utc`，解码前后再次比较源身份，写出后再验证 source manifest、
+summary canonical hash、raw manifest、events 和全部 PNG。输出目录采用 write-new，不支持覆盖。v2 清单只保留给
+历史 tracking-review 读取，不能进入该转换路径。
 
 现场接线尚未完成时，普通录像也可以先接入同一套 raw replay / 感知回放管线。使用
 `scripts/create_video_replay_recording.py` 将视频逐帧解码为 PNG，并生成带图像哈希、严格
