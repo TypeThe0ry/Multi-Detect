@@ -120,6 +120,7 @@ QtObject {
     property real jetsonFps: 0.0
     property real jetsonTemperatureC: 0.0
     readonly property string metadataLinkState: _operator !== null ? _operator.linkState : "UNAVAILABLE"
+    readonly property string operatorLastError: _operator !== null ? String(_operator.lastError) : ""
     readonly property real targetObservationProducerEpoch: _operator !== null ?
                                                                Number(_operator.targetObservationProducerEpoch) : 0
     readonly property real targetObservationProducerRestartCount: _operator !== null ?
@@ -146,6 +147,10 @@ QtObject {
 
     function producerEpochDiagnosticsJson() {
         return _operator !== null ? String(_operator.targetObservationEpochDiagnosticsJson()) : "";
+    }
+
+    function saveProducerEpochDiagnostics() {
+        return _operator !== null ? String(_operator.saveTargetObservationEpochDiagnostics()) : "";
     }
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is

@@ -25,6 +25,9 @@ OPERATOR_CONTROLLER_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorControlle
 OPERATOR_PROTOCOL_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.cc"
 OPERATOR_PROTOCOL_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.h"
 TARGET_EVIDENCE_STORE_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectTargetEvidenceStore.cc"
+PRODUCER_EPOCH_DIAGNOSTICS_SOURCE = (
+    CUSTOM_ROOT / "src" / "MultiDetectProducerEpochDiagnostics.cc"
+)
 
 
 def _read(path: Path) -> str:
@@ -695,6 +698,7 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     protocol = _read(OPERATOR_PROTOCOL_SOURCE)
     controller_header = _read(OPERATOR_CONTROLLER_HEADER)
     controller = _read(OPERATOR_CONTROLLER_SOURCE)
+    diagnostics = _read(PRODUCER_EPOCH_DIAGNOSTICS_SOURCE)
     state = _qml_code(MULTIDETECT_STATE)
     indicator = _qml_code(TOOLBAR_INDICATOR)
     layer = _read(FLY_VIEW_LAYER)
@@ -815,20 +819,30 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
         in controller_header
     )
     assert "targetObservationEpochDiagnosticsJson() const" in controller_header
-    assert "kMaximumTargetObservationEpochEvents = 64" in controller
+    assert "maximumEvents() { return 64; }" in _read(
+        CUSTOM_ROOT / "src/MultiDetectProducerEpochDiagnostics.h"
+    )
     assert 'QStringLiteral("epoch_initialized")' in controller
     assert 'QStringLiteral("producer_restart")' in controller
     assert 'QStringLiteral("retired_epoch_rejected")' in controller
     assert 'QStringLiteral("transition_capacity_exhausted")' in controller
-    assert 'QStringLiteral("multidetect.producer-epoch-diagnostics.v1")' in controller
-    assert 'document.insert(QStringLiteral("advisory_only"), true)' in controller
-    assert 'document.insert(QStringLiteral("flight_control_enabled"), false)' in controller
-    assert 'document.insert(QStringLiteral("physical_release_enabled"), false)' in controller
-    assert 'summary.insert(QStringLiteral("retained_event_count")' in controller
-    assert 'summary.insert(QStringLiteral("dropped_event_count")' in controller
+    assert 'QStringLiteral("multidetect.producer-epoch-diagnostics.v1")' in diagnostics
+    assert 'document.insert(QStringLiteral("advisory_only"), true)' in diagnostics
+    assert 'document.insert(QStringLiteral("flight_control_enabled"), false)' in diagnostics
+    assert 'document.insert(QStringLiteral("physical_release_enabled"), false)' in diagnostics
+    assert 'summary.insert(QStringLiteral("retained_event_count")' in diagnostics
+    assert 'summary.insert(QStringLiteral("dropped_event_count")' in diagnostics
+    assert "QSaveFile file(outputPath)" in diagnostics
+    assert "saveTargetObservationEpochDiagnostics()" in controller_header
     assert "function producerEpochDiagnosticsJson()" in state
+    assert "function saveProducerEpochDiagnostics()" in state
     assert "function _copyProducerEpochDiagnostics()" in layer
+    assert "function _saveProducerEpochDiagnostics()" in layer
+    assert 'text: qsTr("诊断事件")' in layer
     assert 'text: qsTr("复制诊断")' in layer
+    assert 'text: qsTr("保存诊断")' in layer
+    assert 'title: qsTr("生产者 epoch 诊断 · 只读")' in layer
+    assert "MultiDetectState.targetObservationEpochEvents.length -" in layer
     assert "enabled: MultiDetectState.targetObservationEpochEventCount > 0" not in layer
     assert "MultiDetectState.targetObservationEpochDroppedEventCount" in indicator
 

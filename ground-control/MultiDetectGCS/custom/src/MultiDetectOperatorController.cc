@@ -2,9 +2,9 @@
 
 #include <QtCore/QBuffer>
 #include <QtCore/QDateTime>
-#include <QtCore/QJsonDocument>
 #include <QtCore/QSet>
 #include <QtCore/QSettings>
+#include <QtCore/QStandardPaths>
 #include <QtCore/QUuid>
 #include <QtGui/QColor>
 #include <QtGui/QImage>
@@ -40,8 +40,6 @@ static_assert(MULTIDETECT_PHYSICAL_RELEASE == 0, "Operator metadata transport mu
 QGC_LOGGING_CATEGORY(MultiDetectOperatorLog, "MultiDetect.Operator")
 
 namespace {
-
-constexpr qsizetype kMaximumTargetObservationEpochEvents = 64;
 
 QString environmentValue(const char* name, const QString& fallback = {})
 {
@@ -1792,31 +1790,14 @@ QString MultiDetectOperatorController::targetObservationEpochHealthReason() cons
 void MultiDetectOperatorController::_recordTargetObservationEpochEvent(
     const QString& kind, quint32 incomingEpoch, quint32 previousEpoch, qulonglong occurredAtMs)
 {
-    ++_targetObservationEpochEventCount;
-    if (_targetObservationEpochEvents.size() >= kMaximumTargetObservationEpochEvents) {
-        _targetObservationEpochEvents.removeFirst();
-        ++_targetObservationEpochDroppedEventCount;
-    }
-
-    QVariantMap event;
-    event.insert(QStringLiteral("event_index"), QVariant::fromValue(_targetObservationEpochEventCount));
-    event.insert(QStringLiteral("occurred_at_ms"), QVariant::fromValue(occurredAtMs));
-    event.insert(QStringLiteral("kind"), kind);
-    event.insert(QStringLiteral("health_level"), targetObservationEpochHealthLevel());
-    event.insert(QStringLiteral("health_reason"), targetObservationEpochHealthReason());
-    event.insert(QStringLiteral("incoming_epoch"), incomingEpoch);
-    event.insert(QStringLiteral("previous_epoch"), previousEpoch);
-    event.insert(QStringLiteral("active_epoch"), _targetObservationEpoch.activeEpoch());
-    event.insert(QStringLiteral("producer_restart_count"),
-                 QVariant::fromValue(_targetObservationProducerRestartCount));
-    event.insert(QStringLiteral("retired_epoch_reject_count"),
-                 QVariant::fromValue(_targetObservationRetiredEpochRejectCount));
-    event.insert(QStringLiteral("epoch_transition_reject_count"),
-                 QVariant::fromValue(_targetObservationEpochTransitionRejectCount));
-    _targetObservationEpochEvents.append(event);
+    _targetObservationEpochDiagnostics.record(
+        kind, incomingEpoch, previousEpoch, _targetObservationEpoch.activeEpoch(),
+        targetObservationEpochHealthLevel(), targetObservationEpochHealthReason(),
+        _targetObservationProducerRestartCount, _targetObservationRetiredEpochRejectCount,
+        _targetObservationEpochTransitionRejectCount, occurredAtMs);
 }
 
-QString MultiDetectOperatorController::targetObservationEpochDiagnosticsJson() const
+QVariantMap MultiDetectOperatorController::_targetObservationEpochSummary() const
 {
     QVariantMap summary;
     summary.insert(QStringLiteral("active_epoch"), _targetObservationEpoch.activeEpoch());
@@ -1832,23 +1813,29 @@ QString MultiDetectOperatorController::targetObservationEpochDiagnosticsJson() c
                    QVariant::fromValue(_targetObservationEpochChangedAtMs));
     summary.insert(QStringLiteral("epoch_last_incident_at_ms"),
                    QVariant::fromValue(_targetObservationEpochLastIncidentAtMs));
-    summary.insert(QStringLiteral("event_count"), QVariant::fromValue(_targetObservationEpochEventCount));
-    summary.insert(QStringLiteral("retained_event_count"), _targetObservationEpochEvents.size());
-    summary.insert(QStringLiteral("dropped_event_count"),
-                   QVariant::fromValue(_targetObservationEpochDroppedEventCount));
+    return summary;
+}
 
-    QVariantMap document;
-    document.insert(QStringLiteral("schema"), QStringLiteral("multidetect.producer-epoch-diagnostics.v1"));
-    document.insert(QStringLiteral("schema_version"), 1);
-    document.insert(QStringLiteral("generated_at_utc"),
-                    QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
-    document.insert(QStringLiteral("event_capacity"), kMaximumTargetObservationEpochEvents);
-    document.insert(QStringLiteral("summary"), summary);
-    document.insert(QStringLiteral("events"), _targetObservationEpochEvents);
-    document.insert(QStringLiteral("advisory_only"), true);
-    document.insert(QStringLiteral("flight_control_enabled"), false);
-    document.insert(QStringLiteral("physical_release_enabled"), false);
-    return QString::fromUtf8(QJsonDocument::fromVariant(document).toJson(QJsonDocument::Indented));
+QString MultiDetectOperatorController::targetObservationEpochDiagnosticsJson() const
+{
+    return QString::fromUtf8(_targetObservationEpochDiagnostics.json(
+        _targetObservationEpochSummary(), QDateTime::currentDateTimeUtc()));
+}
+
+QString MultiDetectOperatorController::saveTargetObservationEpochDiagnostics()
+{
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                              + QStringLiteral("/diagnostics");
+    QString savedPath;
+    QString error;
+    if (!_targetObservationEpochDiagnostics.save(directory, _targetObservationEpochSummary(),
+                                                  QDateTime::currentDateTimeUtc(), &savedPath,
+                                                  &error)) {
+        _setLastError(error);
+        return {};
+    }
+    _setLastError(QString());
+    return savedPath;
 }
 
 bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,

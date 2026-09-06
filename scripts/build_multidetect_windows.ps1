@@ -372,6 +372,7 @@ if ($BuildSelfTests) {
     $buildTargets += @(
         'MultiDetectOperatorProtocolSelfTest',
         'MultiDetectTargetEvidenceStoreSelfTest',
+        'MultiDetectProducerEpochDiagnosticsSelfTest',
         'MultiDetectDepthGridProtocolSelfTest',
         'MultiDetectReplayRtspWireSelfTest'
     )

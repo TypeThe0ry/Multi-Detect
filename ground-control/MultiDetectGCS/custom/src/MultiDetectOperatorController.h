@@ -11,6 +11,7 @@
 #include "MultiDetectDepthGridProtocol.h"
 #include "MultiDetectObservationEpoch.h"
 #include "MultiDetectOperatorProtocol.h"
+#include "MultiDetectProducerEpochDiagnostics.h"
 #include "QGCMAVLink.h"
 
 class LinkInterface;
@@ -115,9 +116,12 @@ public:
     qulonglong targetObservationEpochLastIncidentAtMs() const { return _targetObservationEpochLastIncidentAtMs; }
     QString targetObservationEpochHealthLevel() const;
     QString targetObservationEpochHealthReason() const;
-    QVariantList targetObservationEpochEvents() const { return _targetObservationEpochEvents; }
-    qulonglong targetObservationEpochEventCount() const { return _targetObservationEpochEventCount; }
-    qulonglong targetObservationEpochDroppedEventCount() const { return _targetObservationEpochDroppedEventCount; }
+    QVariantList targetObservationEpochEvents() const { return _targetObservationEpochDiagnostics.events(); }
+    qulonglong targetObservationEpochEventCount() const { return _targetObservationEpochDiagnostics.eventCount(); }
+    qulonglong targetObservationEpochDroppedEventCount() const
+    {
+        return _targetObservationEpochDiagnostics.droppedEventCount();
+    }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -167,6 +171,7 @@ public:
                                                         bool continuous);
     Q_INVOKABLE double depthAtNormalized(double x, double y) const;
     Q_INVOKABLE QString targetObservationEpochDiagnosticsJson() const;
+    Q_INVOKABLE QString saveTargetObservationEpochDiagnostics();
 
 signals:
     void linkStateChanged();
@@ -294,6 +299,7 @@ private:
     bool _acceptTargetObservationEpoch(const QVariantMap& fields);
     void _recordTargetObservationEpochEvent(const QString& kind, quint32 incomingEpoch,
                                             quint32 previousEpoch, qulonglong occurredAtMs);
+    QVariantMap _targetObservationEpochSummary() const;
     bool _acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs, quint64 receivedAtMs);
     void _clearTargetGeolocationSourceState();
     quint64 _operatorWireNowMs(quint64 localNowMs) const;
@@ -355,9 +361,7 @@ private:
     qulonglong _targetObservationEpochTransitionRejectCount = 0;
     qulonglong _targetObservationEpochChangedAtMs = 0;
     qulonglong _targetObservationEpochLastIncidentAtMs = 0;
-    QVariantList _targetObservationEpochEvents;
-    qulonglong _targetObservationEpochEventCount = 0;
-    qulonglong _targetObservationEpochDroppedEventCount = 0;
+    MultiDetectProducerEpochDiagnostics _targetObservationEpochDiagnostics;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

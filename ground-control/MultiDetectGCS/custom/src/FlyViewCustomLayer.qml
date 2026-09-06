@@ -31,6 +31,7 @@ Item {
     property string _pendingExecutionPopup: ""
     property double _pendingExecutionStartedAtMs: 0
     property var _targetEvidenceHistoryDialog: null
+    property var _producerEpochDiagnosticsDialog: null
     property var _payloadActionDialog: null
     property var _approachActionDialog: null
     property var _authorizationDialog: null
@@ -353,6 +354,17 @@ Item {
                 Math.round(MultiDetectState.targetObservationEpochEventCount)), false);
     }
 
+    function _saveProducerEpochDiagnostics() {
+        const savedPath = MultiDetectState.saveProducerEpochDiagnostics();
+        if (savedPath === "") {
+            const detail = MultiDetectState.operatorLastError !== "" ?
+                               ": " + MultiDetectState.operatorLastError : "";
+            _setTargetEvidenceFeedback(qsTr("生产者诊断保存失败") + detail, true);
+            return;
+        }
+        _setTargetEvidenceFeedback(qsTr("生产者诊断已保存：%1").arg(savedPath), false);
+    }
+
     function _wgs84MetersPerDegree(latitudeDeg) {
         if (!Number.isFinite(latitudeDeg) || latitudeDeg <= -90.0 || latitudeDeg >= 90.0)
             return null;
@@ -472,6 +484,16 @@ Item {
     function _closeTargetEvidenceHistoryDialog() {
         if (_targetEvidenceHistoryDialog !== null)
             _targetEvidenceHistoryDialog.close();
+    }
+
+    function _openProducerEpochDiagnosticsDialog() {
+        if (_producerEpochDiagnosticsDialog === null)
+            _producerEpochDiagnosticsDialog = producerEpochDiagnosticsDialogFactory.open();
+    }
+
+    function _closeProducerEpochDiagnosticsDialog() {
+        if (_producerEpochDiagnosticsDialog !== null)
+            _producerEpochDiagnosticsDialog.close();
     }
 
     function _openPayloadActionDialog() {
@@ -858,8 +880,25 @@ Item {
                 }
 
                 QGCButton {
+                    text: qsTr("诊断事件")
+                    onClicked: root._openProducerEpochDiagnosticsDialog()
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root._margin * 0.35
+
+                QGCButton {
+                    Layout.fillWidth: true
                     text: qsTr("复制诊断")
                     onClicked: root._copyProducerEpochDiagnostics()
+                }
+
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: qsTr("保存诊断")
+                    onClicked: root._saveProducerEpochDiagnostics()
                 }
             }
 
@@ -876,6 +915,145 @@ Item {
                 color: qgcPal.warningText
                 text: qsTr("仅显示与记录；不产生飞控指令")
                 wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    QGCPopupDialogFactory {
+        id: producerEpochDiagnosticsDialogFactory
+
+        dialogComponent: producerEpochDiagnosticsDialogComponent
+    }
+
+    Component {
+        id: producerEpochDiagnosticsDialogComponent
+
+        QGCPopupDialog {
+            id: producerEpochDiagnosticsDialog
+
+            buttons: Dialog.Close
+            title: qsTr("生产者 epoch 诊断 · 只读")
+
+            Component.onDestruction: root._producerEpochDiagnosticsDialog = null
+
+            ColumnLayout {
+                height: Math.min(producerEpochDiagnosticsDialog.maxContentAvailableHeight,
+                                 ScreenTools.defaultFontPixelHeight * 27)
+                spacing: root._margin * 0.35
+                width: Math.min(producerEpochDiagnosticsDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 58)
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    font.bold: true
+                    text: qsTr("%1 · epoch %2 · 事件 %3 · 丢弃 %4").arg(
+                              MultiDetectState.targetObservationEpochHealthLevel).arg(
+                              Math.round(MultiDetectState.targetObservationProducerEpoch)).arg(
+                              Math.round(MultiDetectState.targetObservationEpochEventCount)).arg(
+                              Math.round(MultiDetectState.targetObservationEpochDroppedEventCount))
+                    wrapMode: Text.WordWrap
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.text
+                    text: qsTr("原因：%1 · 最新事件优先 · 最多保留 64 条").arg(
+                              MultiDetectState.targetObservationEpochHealthReason)
+                    wrapMode: Text.WordWrap
+                }
+
+                ListView {
+                    id: producerEpochDiagnosticsList
+
+                    Layout.fillHeight: true
+                    Layout.fillWidth: true
+                    clip: true
+                    model: MultiDetectState.targetObservationEpochEvents.length
+                    spacing: root._margin * 0.35
+
+                    delegate: Rectangle {
+                        required property int index
+                        readonly property var entry: MultiDetectState.targetObservationEpochEvents[
+                                                         MultiDetectState.targetObservationEpochEvents.length -
+                                                         index - 1]
+
+                        border.color: qgcPal.button
+                        border.width: 1
+                        color: qgcPal.windowShade
+                        height: producerEpochEventColumn.implicitHeight + root._margin
+                        radius: ScreenTools.defaultBorderRadius
+                        width: producerEpochDiagnosticsList.width
+
+                        ColumnLayout {
+                            id: producerEpochEventColumn
+
+                            anchors.fill: parent
+                            anchors.margins: root._margin * 0.5
+                            spacing: root._margin * 0.16
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                font.bold: true
+                                text: qsTr("#%1 · %2 · %3").arg(
+                                          Math.round(parent.parent.entry.event_index)).arg(
+                                          String(parent.parent.entry.kind || "--")).arg(
+                                          Qt.formatDateTime(
+                                              new Date(Number(parent.parent.entry.occurred_at_ms)),
+                                              "yyyy-MM-dd hh:mm:ss.zzz"))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("epoch：%1 → %2 · 当前 %3").arg(
+                                          Math.round(parent.parent.entry.previous_epoch)).arg(
+                                          Math.round(parent.parent.entry.incoming_epoch)).arg(
+                                          Math.round(parent.parent.entry.active_epoch))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("%1/%2 · 重启 %3 · 旧包拒绝 %4 · 切换拒绝 %5").arg(
+                                          String(parent.parent.entry.health_level || "--")).arg(
+                                          String(parent.parent.entry.health_reason || "--")).arg(
+                                          Math.round(parent.parent.entry.producer_restart_count)).arg(
+                                          Math.round(parent.parent.entry.retired_epoch_reject_count)).arg(
+                                          Math.round(parent.parent.entry.epoch_transition_reject_count))
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+
+                    QGCLabel {
+                        anchors.centerIn: parent
+                        color: qgcPal.text
+                        text: qsTr("尚无生产者 epoch 事件")
+                        visible: producerEpochDiagnosticsList.count === 0
+                    }
+                }
+
+                RowLayout {
+                    Layout.alignment: Qt.AlignRight
+                    spacing: root._margin * 0.35
+
+                    QGCButton {
+                        text: qsTr("复制 JSON")
+                        onClicked: root._copyProducerEpochDiagnostics()
+                    }
+
+                    QGCButton {
+                        text: qsTr("保存 JSON")
+                        onClicked: root._saveProducerEpochDiagnostics()
+                    }
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.warningText
+                    text: qsTr("诊断只用于态势核对；不会发送飞控指令或启用物理释放")
+                    wrapMode: Text.WordWrap
+                }
             }
         }
     }
