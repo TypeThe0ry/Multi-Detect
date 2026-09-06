@@ -49,9 +49,10 @@ one 128-byte MAVLink `TUNNEL` application payload. A newly observed epoch retire
 session and atomically clears its visible range/geolocation/GNSS values plus replay/sequence guards
 before the new triple is adopted. Packets from a retired epoch remain rejected, so delayed traffic from
 a restarted Jetson process cannot revive an old target. New snapshots use
-`multidetect.target-evidence.v5` and persist the epoch; v1-v4 records remain read-only compatible.
-The outdoor ranging-quality panel also shows the current epoch, accepted producer restart count,
-retired-packet rejection count, epoch-transition rejection count and the latest transition time. The
+`multidetect.target-evidence.v6` and persist epoch health level/reason, restart/rejection counters,
+the latest transition and the latest incident time; v1-v5 records remain read-only compatible.
+The outdoor ranging-quality panel latches and color-codes `WAITING`, `HEALTHY`, `NOTICE`, `WARNING`
+and `CRITICAL`, alongside the current epoch and counters. The
 retired set keeps at most 32 epochs without eviction; after that capacity is reached, a new epoch is
 rejected while the current session remains active until QGC is restarted. This bounded fail-closed rule
 prevents very late traffic from becoming eligible again merely because an older epoch was discarded.

@@ -1,28 +1,29 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v157 工作树）
+最后更新：2026-09-07（v158 工作树）
 
-## v157 本轮已收口
+## v158 本轮已收口
 
-- QGC controller 新增 producer epoch 运行统计：当前 epoch、已接受重启数、retired epoch 拒绝数、切换
-  拒绝数和最近切换时间；`MultiDetectState.qml` 将其投影到“室外测距质量”的“观测生产者”行。
+- QGC controller 将 producer epoch 健康锁存为 `WAITING / HEALTHY / NOTICE / WARNING / CRITICAL`；
+  `MultiDetectState.qml` 投影健康级别、原因和最近事故时间，“室外测距质量”以中文和颜色直接区分状态。
 - `MultiDetectObservationEpoch` 的 retired 集合改为固定 32 项且不淘汰。容量耗尽时返回
   `CapacityExhausted`，不切换 active epoch；原生测试覆盖填满容量、第 33 次切换 fail-closed，以及最早
   retired epoch 仍不能复活。该保护要求 QGC 重启后才能接受更多 session 切换。
-- focused Python 回归 133 项通过；operator protocol、target evidence store、replay RTSP wire 三项关键
-  native self-test 均退出 0。Windows Release/portable 主 EXE 均为 46,641,152 bytes，SHA-256
-  `65AF88C1B55E7F570FF9A9A3D401CF6BA55E8BE5652C715823A6E4F2B8163BD4`；功能提交为
-  `31bdd2c1e056d1403f286078d284b7e077cb7225`。
-- portable hidden/offscreen simple boot 退出 0；stderr 1,009 bytes、SHA-256
-  `A770D77ADC91A759DE326542EA102507BF5E8C341414DDB594DD42C866290150`，无 QML 初始化错误。
+- 目标证据升级为 `multidetect.target-evidence.v6`，持久化健康级别/原因、三类计数、切换与事故时间；
+  v1-v5 只读兼容，字段类型或级别/计数/时间不一致的 v6 记录 fail-closed。
+- focused Python 回归 144 项通过；operator protocol、target evidence store、replay RTSP wire 三项关键
+  native self-test 均退出 0。Windows Release/portable 主 EXE 均为 46,650,880 bytes，SHA-256
+  `8EBAB7D38113418582AAC12A226BBDFAF988EF30D3E7FCC927222B58E2332A69`；功能提交为
+  `3c04724d91ca40a7ce287d214a32995fbbedc8b2`。
+- portable hidden/offscreen simple boot 退出 0；stdout/stderr 均为 0 bytes，无 QML 初始化错误。
 - `release-parity.json` 为 8,815 bytes、SHA-256
-  `276F81F14184B1EE5817B61A9C57287CEFD1A7283698E6D2E9D0EE0E49D3A99C`；UI contract 更新为
-  `3C863718C78C4F8424F4636375F3926F2CB178A2523E0100036D59DC5B732CDE`，core/task/safety/PX4 identity 未变。
-- v157 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 与 E7 已按当前 parity
+  `DAD414BDEF9B25EBF770A0CC9FF1EF4068914916DF2D8FD496282629BB8F2D37`；UI contract 更新为
+  `74F616ABFC39A52AAF189A5030F2215F955EF426765C219E3CB5EF28CE46AFD3`，core/task/safety/PX4 identity 未变。
+- v158 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 与 E7 已按当前 parity
   重算。只读现场探测仍从 `192.168.1.13/24` 路由，Jetson/GR01/RTSP 3/3 超时；E7 仍为
   `gate_passed=false`、`release_allowed=false`、31 blockers。未修改网络、飞控、载荷或受保护服务。
-- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 274.955 秒；JUnit
-  533,660 bytes、SHA-256 `A424EE8A398BC37F5E9EDE1A87CC75EAD303EBC14BD399E59780E2A66A3C6BBC`。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 264.284 秒；JUnit
+  533,660 bytes、SHA-256 `331FD13D6E928168856ACB7C2C0D31EC0CAF56F49A733AEFB4ABFAEE6A7AAAE9`。
   人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞均未通过。
 
 ## v156 本轮已收口
@@ -1715,6 +1716,11 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 | `px4-reported-position-response-matrix-v157-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `0670435A201876DD75A0DCF51E3CF0C29E8BFD65091F929B614C6EA02E8F7CCE` |
 | `px4-reported-position-response-campaign-v157-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `334C7C4131740C8869F97459F43F6BC93FE2C8C03B636A092078A8ED584E84F2` |
 | `release-gate-pre.8-current-20260906T202947Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers；当前 v157 parity | `AB4E9ADEC704735281F6ACA7CDB99824AA586F0ABA98C77020984EBFC033E3E3` |
+| `field-link-preflight-live-v158-current.json` | 结构复验通过；`hardware_link_ready=false` | 3/3 Jetson/GR01/RTSP 超时；路由源仍为 `192.168.1.13` | `E23786D4725F2B1923D69FA5A138B19E18AD495A776ADD1D2AA1C8D905E12B3A` |
+| `simulator-external-runtime-ai-join-v158-current-parity-pre8.json` | `gate_passed=true` | 三机型历史外部 source 按 v158 parity 重算 | `6882A353E480CA0CAA9982044C8FBAC4404489AA149BCE853F87EA681A43E652` |
+| `px4-reported-position-response-matrix-v158-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `AC9CF24B004F6F8EE9517B49EEAF3EB4CD3D2BA8864FDA729705850FD5806EE7` |
+| `px4-reported-position-response-campaign-v158-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `AD0B3D53B80FCED8683453A249DEB746C9E4E6EC6D5062EFE0890D2757732E76` |
+| `release-gate-pre.8-current-20260906T205843Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers；当前 v158 parity | `55644F69519C1B17C55F1AC446C11EDBA1F63D86C0D8871802E57B2B931F7E4E` |
 
 正向 evidence 内部摘要为：
 

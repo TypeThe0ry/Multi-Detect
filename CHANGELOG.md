@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v158 producer-epoch health severity and evidence v6 audit（2026-09-07）
+
+- producer epoch 健康状态新增锁存分级：无会话为 `WAITING`，正常为 `HEALTHY`，发生生产者重启为
+  `NOTICE`，拒绝退休 epoch 旧包为 `WARNING`，切换容量耗尽为 `CRITICAL`；面板用明确中文和颜色显示；
+- `multidetect.target-evidence.v6` 持久化健康级别/原因、重启/退休拒绝/切换拒绝计数、最近切换与最近事故
+  时间，并严格复核字段间一致性；v1-v5 继续只读兼容，矛盾或错误类型的 v6 记录 fail-closed；
+- Release/portable EXE 为 46,650,880 bytes，SHA-256
+  `8EBAB7D38113418582AAC12A226BBDFAF988EF30D3E7FCC927222B58E2332A69`；三项关键 native self-test 与
+  portable offscreen simple boot 通过，启动 stdout/stderr 均为 0 bytes；
+- 当前 parity 的 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读
+  field-link 与 E7 已重算。E7 保持 `false / false / 31 blockers`；人工视觉、室外 GNSS、真实硬件、
+  HIL/REAL 和实飞均未声明通过。
+
 ### v0.3.0-pre.8 v157 producer-epoch health and fail-closed retirement capacity（2026-09-07）
 
 - QGC controller 暴露当前 producer epoch、生产者重启次数、retired 旧包拒绝次数、epoch 切换拒绝次数和

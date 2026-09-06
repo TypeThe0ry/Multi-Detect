@@ -1,21 +1,23 @@
 # 统一仓库架构
 
-## v157 producer epoch 健康与退休容量链（2026-09-07，`v0.3.0-pre.8`）
+## v158 producer epoch 健康分级与 evidence v6 审计链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
 type 26 producer_epoch
   -> MultiDetectObservationEpoch
        Current / Advanced / Retired / CapacityExhausted
        retired[32] 固定保存、绝不淘汰
-  -> MultiDetectOperatorController 统计与拒绝原因
+  -> MultiDetectOperatorController 锁存 HEALTHY/NOTICE/WARNING/CRITICAL
   -> MultiDetectState QML 投影
-  -> 室外测距质量：epoch / 重启 / 旧包拒绝 / 切换拒绝 / 时间
+  -> 室外测距质量：健康级别/原因 + epoch/计数/切换与事故时间
+  -> target-evidence.v6（只读兼容 v1-v5）
 ```
 
 - `MultiDetectObservationEpoch.h` 在有限内存下保留全部已退休 epoch；容量耗尽后保持 active epoch 并拒绝
   新会话，防止 FIFO 淘汰使极晚旧包重新变成“全新”生产者；
-- `MultiDetectOperatorController.*` 只在成功推进全新 epoch 后增加重启计数和更新时间；retired 包与容量
-  拒绝分别计数，QML 只读显示；
+- `MultiDetectOperatorController.*` 只在成功推进全新 epoch 后增加重启计数；retired 包与容量拒绝分别
+  计数并设置事故时间。严重性在进程内锁存，现场不能因后续正常包误以为事故消失；
+- `MultiDetectTargetEvidenceStore.cc` 对 v6 健康字段进行严格类型与交叉一致性校验；v1-v5 仅保留历史读取；
 - 这条链是 operator observation 诊断与 fail-closed 状态管理，不向 PX4 Mission、飞控或载荷路径新增权限。
 
 ## v156 producer epoch 原子重同步链（2026-09-07，`v0.3.0-pre.8`）
