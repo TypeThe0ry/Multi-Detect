@@ -105,6 +105,8 @@ def test_acknowledged_publisher_retries_with_bounded_backoff() -> None:
     publisher.publish(fire_alert())
 
     assert publisher.last_attempt_count == 3
+    assert publisher.last_receipt is not None
+    assert publisher.last_receipt.alert_id == "alert-1"
     assert transport.attempt_count == 3
     assert delays == [0.1, 0.2]
 
@@ -124,6 +126,7 @@ def test_acknowledged_publisher_rejects_mismatched_receipt() -> None:
         publisher.publish(fire_alert())
 
     assert publisher.last_attempt_count == 2
+    assert publisher.last_receipt is None
 
 
 def test_acknowledged_publisher_caps_backoff_delay() -> None:
@@ -221,6 +224,7 @@ def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
     assert worker.is_alive() is False
     assert receipt.alert_id == "alert-1"
     assert receipt.receiver_id == "ground-1"
+    assert receipt.source_address == "127.0.0.1"
     assert transport.source_host == "127.0.0.1"
     assert len(received) == 1
     assert received[0].document["target_id"] == "track-1"

@@ -783,7 +783,7 @@ def _real_alert_link_record(
 
     expected_contract: dict[str, object] = {
         "event": "alert_link_bench_passed",
-        "schema_version": 3,
+        "schema_version": 4,
         "hardware_observed": True,
         "simulation_only": False,
         "remote_is_loopback": False,
@@ -824,6 +824,9 @@ def _real_alert_link_record(
         "source_route_verified",
         "transport_source_address",
         "transport_source_address_bound",
+        "observed_transport_source_addresses",
+        "transport_source_observation_count",
+        "transport_source_observations_complete",
         "hardware_id",
         "requested_round_trips",
         "round_trip_samples",

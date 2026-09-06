@@ -39,7 +39,7 @@
   ],
   "allOf": [
     {
-      "if": {"properties": {"schema_version": {"enum": [2, 3]}}},
+      "if": {"properties": {"schema_version": {"enum": [2, 3, 4]}}},
       "then": {
         "required": [
           "expected_source_cidr",
@@ -50,7 +50,7 @@
       }
     },
     {
-      "if": {"properties": {"schema_version": {"const": 3}}},
+      "if": {"properties": {"schema_version": {"enum": [3, 4]}}},
       "then": {
         "required": [
           "transport_source_address",
@@ -58,10 +58,21 @@
         ],
         "properties": {"checks": {"required": ["transport_source_binding"]}}
       }
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": 4}}},
+      "then": {
+        "required": [
+          "observed_transport_source_addresses",
+          "transport_source_observation_count",
+          "transport_source_observations_complete"
+        ],
+        "properties": {"checks": {"required": ["transport_source_observations"]}}
+      }
     }
   ],
   "properties": {
-    "schema_version": {"enum": [1, 2, 3]},
+    "schema_version": {"enum": [1, 2, 3, 4]},
     "event": {
       "enum": [
         "alert_link_bench_passed",
@@ -93,6 +104,7 @@
         "mode_boundary": {"type": "boolean"},
         "source_route": {"type": "boolean"},
         "transport_source_binding": {"type": "boolean"},
+        "transport_source_observations": {"type": "boolean"},
         "correlated_ack": {"type": "boolean"},
         "authenticated_transport": {"type": "boolean"}
       }
@@ -106,6 +118,12 @@
     "source_route_verified": {"type": "boolean"},
     "transport_source_address": {"type": ["string", "null"]},
     "transport_source_address_bound": {"type": "boolean"},
+    "observed_transport_source_addresses": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "transport_source_observation_count": {"type": "integer", "minimum": 0},
+    "transport_source_observations_complete": {"type": "boolean"},
     "hardware_id": {"type": ["string", "null"]},
     "requested_round_trips": {"type": "integer", "minimum": 1},
     "round_trip_samples": {"type": "integer", "minimum": 0},

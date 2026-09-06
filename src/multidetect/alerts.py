@@ -35,6 +35,7 @@ class AlertDeliveryReceipt:
     alert_id: str
     receiver_id: str
     acknowledged_at_s: float
+    source_address: str | None = None
 
 
 class AcknowledgedAlertTransport(Protocol):
@@ -330,6 +331,9 @@ class UdpAcknowledgedAlertTransport:
             if self.source_host is not None:
                 channel.bind((self.source_host, 0))
             channel.connect((self.host, self.port))
+            source_address = str(ipaddress.ip_address(channel.getsockname()[0]))
+            if self.source_host is not None and source_address != self.source_host:
+                raise OSError("UDP sender source address differs from the configured binding")
             channel.send(encoded)
             acknowledgement = _verify_signed_document(
                 _decode_udp_document(channel.recv(_MAX_UDP_PACKET_BYTES + 1)), self.hmac_key
@@ -348,6 +352,7 @@ class UdpAcknowledgedAlertTransport:
             alert_id=alert_id,
             receiver_id=self.receiver_id,
             acknowledged_at_s=time.monotonic(),
+            source_address=source_address,
         )
 
 
@@ -511,11 +516,13 @@ class RetryingAcknowledgedAlertPublisher:
         self.maximum_backoff_seconds = maximum_backoff_seconds
         self.sleep_fn = sleep_fn
         self.last_attempt_count = 0
+        self.last_receipt: AlertDeliveryReceipt | None = None
 
     def publish(self, alert: FireAlert) -> None:
         document = alert_document(alert)
         last_error: Exception | None = None
         self.last_attempt_count = 0
+        self.last_receipt = None
         delay = min(self.initial_backoff_seconds, self.maximum_backoff_seconds)
         for attempt in range(1, self.maximum_attempts + 1):
             self.last_attempt_count = attempt
@@ -532,6 +539,7 @@ class RetryingAcknowledgedAlertPublisher:
                         delay * self.backoff_multiplier,
                     )
                 continue
+            self.last_receipt = receipt
             return
         error_type = type(last_error).__name__ if last_error is not None else "UnknownError"
         raise AlertAcknowledgementError(
@@ -594,6 +602,18 @@ def _validate_receipt(receipt: AlertDeliveryReceipt, *, expected_alert_id: str) 
         raise AlertAcknowledgementError("receiver acknowledgement identity is empty")
     if not math.isfinite(receipt.acknowledged_at_s) or receipt.acknowledged_at_s < 0:
         raise AlertAcknowledgementError("receiver acknowledgement timestamp is invalid")
+    if receipt.source_address is not None:
+        if not isinstance(receipt.source_address, str) or not receipt.source_address.strip():
+            raise AlertAcknowledgementError("sender source address is invalid")
+        try:
+            canonical_source = str(ipaddress.ip_address(receipt.source_address.strip()))
+        except ValueError as exc:
+            raise AlertAcknowledgementError("sender source address is invalid") from exc
+        if (
+            canonical_source != receipt.source_address
+            or ipaddress.ip_address(canonical_source).version != 4
+        ):
+            raise AlertAcknowledgementError("sender source address must be canonical IPv4")
 
 
 @dataclass(slots=True)

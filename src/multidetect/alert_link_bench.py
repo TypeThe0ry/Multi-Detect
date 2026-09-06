@@ -33,8 +33,8 @@ from .autonomy.serialization import strict_json_loads
 from .compat import UTC
 from .domain import BoundingBox, FireAlert
 
-ALERT_LINK_BENCH_SCHEMA_VERSION = 3
-SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+ALERT_LINK_BENCH_SCHEMA_VERSION = 4
+SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4})
 DEFAULT_MINIMUM_ROUND_TRIPS = 20
 DEFAULT_MAXIMUM_ATTEMPTS = 3
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
@@ -186,6 +186,7 @@ def run_alert_link_bench(
     transmission_attempts = 0
     missing_ack_attempts = 0
     latencies_ms: list[float] = []
+    observed_transport_source_addresses: list[str] = []
     errors: list[str] = []
     attempt_counts: list[int] = []
     successful_samples: list[bool] = []
@@ -222,6 +223,9 @@ def run_alert_link_bench(
                 raise ValueError("alert-link bench monotonic clock moved backwards")
             accepted_round_trips += 1
             latencies_ms.append(elapsed_ms)
+            receipt = publisher.last_receipt
+            if receipt is not None and receipt.source_address is not None:
+                observed_transport_source_addresses.append(receipt.source_address)
             succeeded = True
         attempts = publisher.last_attempt_count
         if (
@@ -256,6 +260,13 @@ def run_alert_link_bench(
     authenticated_ack_verified = (
         correlated_ack_verified and transport_protocol == "authenticated_udp"
     )
+    transport_source_observations_complete = not config.hardware_mode or (
+        accepted_round_trips == config.minimum_round_trips
+        and len(observed_transport_source_addresses) == accepted_round_trips
+        and all(
+            address == transport_source_address for address in observed_transport_source_addresses
+        )
+    )
     mode_boundary_verified = not config.hardware_mode or (
         not remote_is_loopback
         and isinstance(config.hardware_id, str)
@@ -270,6 +281,7 @@ def run_alert_link_bench(
         "mode_boundary": mode_boundary_verified,
         "source_route": source_route_verified or not config.hardware_mode,
         "transport_source_binding": transport_source_address_bound or not config.hardware_mode,
+        "transport_source_observations": transport_source_observations_complete,
         "correlated_ack": correlated_ack_verified,
         "authenticated_transport": authenticated_ack_verified or not config.hardware_mode,
     }
@@ -286,6 +298,8 @@ def run_alert_link_bench(
         reasons.append("alert-link local source address is outside the expected source CIDR")
     if config.hardware_mode and not checks["transport_source_binding"]:
         reasons.append("alert-link transport socket is not bound to the selected source address")
+    if config.hardware_mode and not checks["transport_source_observations"]:
+        reasons.append("alert-link ACK samples do not prove the bound sender source address")
     if not checks["correlated_ack"]:
         reasons.append("correlated alert acknowledgement is not verified")
     if config.hardware_mode and not checks["authenticated_transport"]:
@@ -316,6 +330,9 @@ def run_alert_link_bench(
         "source_route_verified": source_route_verified,
         "transport_source_address": transport_source_address,
         "transport_source_address_bound": transport_source_address_bound,
+        "observed_transport_source_addresses": observed_transport_source_addresses,
+        "transport_source_observation_count": len(observed_transport_source_addresses),
+        "transport_source_observations_complete": transport_source_observations_complete,
         "hardware_id": config.hardware_id.strip() if config.hardware_id else None,
         "requested_round_trips": config.minimum_round_trips,
         "round_trip_samples": accepted_round_trips,
@@ -367,9 +384,10 @@ def verify_alert_link_bench_report(
 
     schema_version = document.get("schema_version")
     if schema_version not in SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS:
-        reasons.append("schema_version must be 1, 2 or 3")
-    is_route_bound = schema_version in {2, 3}
-    is_transport_bound = schema_version == 3
+        reasons.append("schema_version must be 1, 2, 3 or 4")
+    is_route_bound = schema_version in {2, 3, 4}
+    is_transport_bound = schema_version in {3, 4}
+    has_transport_observations = schema_version == 4
     event = document.get("event")
     if isinstance(event, str):
         hardware_event = event in {
@@ -575,6 +593,50 @@ def verify_alert_link_bench_report(
     failed = _nonnegative_int("failed_round_trips")
     transmissions = _nonnegative_int("transmission_attempts")
     missing = _nonnegative_int("missing_ack_attempts")
+    observed_transport_source_addresses: list[str] = []
+    transport_source_observation_count: int | None = None
+    declared_transport_source_observations_complete = False
+    if has_transport_observations:
+        raw_observed_sources = document.get("observed_transport_source_addresses")
+        if not isinstance(raw_observed_sources, list):
+            reasons.append("observed_transport_source_addresses must be a list")
+        else:
+            for raw_address in raw_observed_sources:
+                if not isinstance(raw_address, str) or not raw_address.strip():
+                    reasons.append(
+                        "observed_transport_source_addresses must contain non-empty strings"
+                    )
+                    continue
+                try:
+                    canonical_address = str(ipaddress.ip_address(raw_address.strip()))
+                except ValueError:
+                    reasons.append(
+                        "observed_transport_source_addresses must contain concrete IP addresses"
+                    )
+                    continue
+                if (
+                    canonical_address != raw_address
+                    or ipaddress.ip_address(canonical_address).version != 4
+                ):
+                    reasons.append(
+                        "observed_transport_source_addresses must contain canonical IPv4 addresses"
+                    )
+                    continue
+                observed_transport_source_addresses.append(canonical_address)
+        transport_source_observation_count = _nonnegative_int("transport_source_observation_count")
+        raw_observations_complete = document.get("transport_source_observations_complete")
+        if type(raw_observations_complete) is not bool:
+            reasons.append("transport_source_observations_complete must be a boolean")
+        else:
+            declared_transport_source_observations_complete = raw_observations_complete
+    else:
+        for field in (
+            "observed_transport_source_addresses",
+            "transport_source_observation_count",
+            "transport_source_observations_complete",
+        ):
+            if field in document:
+                reasons.append(f"schema v1/v2/v3 report cannot contain {field}")
     hardware_id = document.get("hardware_id")
     if hardware_event:
         if not isinstance(hardware_id, str) or not hardware_id.strip():
@@ -713,6 +775,29 @@ def verify_alert_link_bench_report(
     transport_source_binding = (
         (not hardware_event) or (not is_transport_bound) or transport_source_address_bound
     )
+    transport_source_observations = (
+        (not hardware_event)
+        or (not has_transport_observations)
+        or (
+            samples is not None
+            and samples == requested
+            and transport_source_observation_count == samples
+            and len(observed_transport_source_addresses) == samples
+            and all(
+                address == transport_source_address
+                for address in observed_transport_source_addresses
+            )
+        )
+    )
+    if has_transport_observations:
+        if transport_source_observation_count != len(observed_transport_source_addresses):
+            reasons.append(
+                "transport_source_observation_count does not match observed source addresses"
+            )
+        if declared_transport_source_observations_complete is not transport_source_observations:
+            reasons.append(
+                "transport_source_observations_complete does not match ACK sample observations"
+            )
     required_round_trips = requested is not None and samples == requested
     packet_loss_limit = packet_loss is not None and float(packet_loss) <= float(maximum_loss)
     ack_latency_limit = p95_value is not None and p95_value <= float(maximum_p95)
@@ -723,6 +808,11 @@ def verify_alert_link_bench_report(
         "mode_boundary": mode_boundary,
         **({"source_route": source_route} if is_route_bound else {}),
         **({"transport_source_binding": transport_source_binding} if is_transport_bound else {}),
+        **(
+            {"transport_source_observations": transport_source_observations}
+            if has_transport_observations
+            else {}
+        ),
         "correlated_ack": correlated_ack,
         "authenticated_transport": authenticated_ack or not hardware_event,
     }
@@ -756,6 +846,10 @@ def verify_alert_link_bench_report(
     if hardware_event and is_transport_bound and not transport_source_binding:
         computed_reasons.append(
             "alert-link transport socket is not bound to the selected source address"
+        )
+    if hardware_event and has_transport_observations and not transport_source_observations:
+        computed_reasons.append(
+            "alert-link ACK samples do not prove the bound sender source address"
         )
     if not correlated_ack:
         computed_reasons.append("correlated alert acknowledgement is not verified")

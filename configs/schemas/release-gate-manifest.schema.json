@@ -259,7 +259,7 @@
       ],
       "allOf": [
         {
-          "if": {"properties": {"schema_version": {"enum": [2, 3]}}},
+          "if": {"properties": {"schema_version": {"enum": [2, 3, 4]}}},
           "then": {
             "required": [
               "expected_source_cidr",
@@ -270,13 +270,24 @@
           }
         },
         {
-          "if": {"properties": {"schema_version": {"const": 3}}},
+          "if": {"properties": {"schema_version": {"enum": [3, 4]}}},
           "then": {
             "required": [
               "transport_source_address",
               "transport_source_address_bound"
             ],
             "properties": {"checks": {"required": ["transport_source_binding"]}}
+          }
+        },
+        {
+          "if": {"properties": {"schema_version": {"const": 4}}},
+          "then": {
+            "required": [
+              "observed_transport_source_addresses",
+              "transport_source_observation_count",
+              "transport_source_observations_complete"
+            ],
+            "properties": {"checks": {"required": ["transport_source_observations"]}}
           }
         }
       ],
@@ -285,7 +296,7 @@
         "report_sha256": {"$ref": "#/$defs/sha256"},
         "report_bytes": {"type": "integer", "minimum": 0},
         "event": {"const": "alert_link_bench_passed"},
-        "schema_version": {"enum": [1, 2, 3]},
+        "schema_version": {"enum": [1, 2, 3, 4]},
         "hardware_observed": {"const": true},
         "simulation_only": {"const": false},
         "remote_host": {"type": "string", "minLength": 1},
@@ -296,6 +307,13 @@
         "source_route_verified": {"const": true},
         "transport_source_address": {"type": "string", "minLength": 1},
         "transport_source_address_bound": {"const": true},
+        "observed_transport_source_addresses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "transport_source_observation_count": {"type": "integer", "minimum": 1},
+        "transport_source_observations_complete": {"const": true},
         "hardware_id": {"type": "string", "minLength": 1},
         "requested_round_trips": {"type": "integer", "minimum": 1},
         "round_trip_samples": {"type": "integer", "minimum": 0},
@@ -325,6 +343,7 @@
             "mode_boundary": {"const": true},
             "source_route": {"const": true},
             "transport_source_binding": {"const": true},
+            "transport_source_observations": {"const": true},
             "correlated_ack": {"const": true},
             "authenticated_transport": {"const": true}
           }
