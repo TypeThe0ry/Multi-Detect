@@ -1,5 +1,18 @@
 # 统一仓库架构
 
+## v149 dual-signed GR01 source/review chain（2026-09-06，`v0.3.0-pre.8`）
+
+- `gr01_release_review.py` 新增 `attest-source`：现场 operator 签署 inventory，第二机 `review` 先用包外固定 operator
+  公钥验签，再用另一把 reviewer key 签 review；
+- `gr01-release-session-source-attestation.schema.json` 固定 source signature、inventory identity 和不扩大验收范围的 claims；
+- review schema v4 绑定 attestation 文件/canonical identity、operator identity/key ID/public key 与已验签结论；
+- `run_gr01_release_session.ps1` 在任何网络操作前检查 operator seed 格式，强 session 成功后把 detached attestation 写到
+  session 目录外；source/reviewer identity、key ID 或公钥复用均 fail-closed；
+- 两份 schema、实现、wrapper 与负向回归均进入 `safety_policy` parity。
+
+这层建立的是两把预登记公钥之间的密码学职责分离；它不自动证明两个人的现实身份，不重验 target environment、完整 E7、
+硬件、HIL/REAL 或飞行事实。
+
 ## v148 reviewer-signed GR01 review（2026-09-06，`v0.3.0-pre.8`）
 
 - `gr01_release_review.py`：review receipt v3 新增 reviewer/key ID/public key 和 Ed25519 signature；签名覆盖除 signature/

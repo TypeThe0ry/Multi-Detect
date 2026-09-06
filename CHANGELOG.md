@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v149 dual-signed GR01 source/review chain（2026-09-06）
+
+- 新增 detached source-attestation schema v1：现场 operator 使用仅来自环境的 32-byte Ed25519 seed 签署完整 transfer
+  inventory identity；attestation 必须位于 inventoried session 目录外，避免循环清单或破坏 byte-exact copy；
+- portable review schema 升级到 v4；第二机必须用包外预登记 operator 公钥先验 source signature，再由独立 reviewer
+  签署 review。operator/reviewer 的 identity、key ID、公钥任一复用均在 transfer/review 输出前 fail-closed；
+- wrong operator key、source signature tamper、相同身份/密钥、错误 inventory anchor 均有负向回归。双签名 smoke `6 passed`；
+  新 safety parity 派生证据全部通过，E7 仍为 `false / false / 32 blockers`，不提升硬件、HIL、REAL 或飞行声明。
+
 ### v0.3.0-pre.8 v148 reviewer-signed GR01 portable review（2026-09-06）
 
 - portable review schema 升级到 v3；第二机 review 必须从环境读取 32-byte Ed25519 seed，绑定 reviewer/key ID/public key，

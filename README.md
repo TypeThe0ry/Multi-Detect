@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v148：GR01 第二机 review Ed25519 签名 |
+| 当前工程迭代 | v149：GR01 operator/reviewer 双端 Ed25519 信任链 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,11 +82,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v132–v148 GR01 计划、事务化 E7 与签名复核
+### v132–v149 GR01 计划、事务化 E7 与双端签名复核
 
-ACK bench 已绑定 route/socket source 与 GR01 选择/ACK；v137–v146 完成 E7、source-bound plan、portable handoff、
-五源 session、plan 导入及跨机复核。v147 用包外 inventory SHA-256 锚定复制包；v148 再由指定 reviewer Ed25519
-密钥签署 review，独立 verifier 要求包外固定公钥。它仍不声称重验完整 E7 或硬件飞行；详见 [E7 发布门](docs/release-gate.md)。
+v137–v146 完成 E7、source-bound plan、portable handoff、五源 session 与跨机复核；v147 用包外 inventory SHA-256
+锚定复制包，v148 签署 review，v149 再由 operator 签 inventory。第二机须用预登记 operator 公钥验源，再由独立
+reviewer 签署 review；两类身份/key 必须分离。这仍不代表完整 E7 或硬件飞行通过，详见 [E7 发布门](docs/release-gate.md)。
 
 ### v119–v129 现场录像来源、转换与迁移绑定
 

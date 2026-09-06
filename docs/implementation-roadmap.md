@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Dual-signed GR01 source/review trust chain（v149）
+
+- [x] source operator 使用独立 Ed25519 key 签署 inventory identity，seed 只从环境读取；
+- [x] detached attestation 位于 inventoried session 目录外，并绑定 bundle ID、inventory bytes/hash 与 bundle hash；
+- [x] 第二机必须使用包外预登记 operator 公钥验证 source attestation，不信任内嵌公钥；
+- [x] review schema v4 绑定 source attestation，并强制 operator/reviewer identity、key ID、公钥全部分离；
+- [x] wrong key、signature tamper、role/key reuse 均在 transfer/review 输出前 fail-closed；
+- [ ] 预登记真实 operator/reviewer 公钥，在真实第二机完成双签验证并归档组织身份映射。
+
 ## Reviewer-signed GR01 portable review（v148）
 
 - [x] review receipt v3 使用 Ed25519 签署完整 canonical payload，私钥仅从环境读取；

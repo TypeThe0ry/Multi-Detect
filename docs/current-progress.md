@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v148 工作树）
+最后更新：2026-09-06（v149 工作树）
+
+## v149 本轮已收口
+
+- 新增 source attestation schema v1：现场 operator 用独立 Ed25519 key 签署 inventory 的 bytes/SHA-256/canonical hash、
+  bundle ID 与 bundle-content hash；seed 只从环境读取，detached attestation 强制写在 inventoried session 目录外；
+- portable review schema 升级到 v4：第二机必须用包外预登记 operator 公钥验源，再由 reviewer key 签署 review；operator/
+  reviewer 的 identity、key ID、公钥三项必须全部分离，错误 operator 公钥、source signature 篡改和角色复用均零输出失败；
+- claims 只证明两把指定 key 的 possession、source inventory 和 review receipt 完整性；两个人的现实身份仍固定为未验证，
+  target environment、完整 E7、网络、硬件、HIL/REAL 与飞行验收均未被软件 fixture 提升；
+- clean feature commit `4e3585c74857a2f156e1baab3f797418218cb95f` 的双签名软件 smoke `6 passed`；JUnit 1,127 bytes、
+  SHA-256 `7CFE1EFE6F145665422C548A01BF4FBF3AF983BDF51D90705995821DE61A324F`；
+- safety parity 更新为 `B900403A...936B6F35`；external join/revalidation、三机型 matrix 与 6 正例/9 故障 campaign
+  已按当前 parity 重算并独立通过。E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,645 tests：`3643 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  287.945 秒；JUnit 531,218 bytes、SHA-256 `931052CC4487CBD16DD9CFE9C8676D6271761ABD2CA0CE350BAB485823E61050`。
+  真实 operator/reviewer 公钥登记、真实第二机双签和现场 GR01 session 仍待完成。
 
 ## v148 本轮已收口
 

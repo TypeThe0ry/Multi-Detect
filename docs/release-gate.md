@@ -1,5 +1,39 @@
 # v0.3.0 E7 发布门
 
+## v149 dual-signed source/review chain（2026-09-06，`v0.3.0-pre.8`）
+
+现场机与第二机必须使用不同身份、不同 key ID、不同 Ed25519 key。两把公钥都要在接收各自回执前通过独立渠道登记；
+任何一端都不能把待验证文件里自带的公钥当信任根。现场执行前设置 operator seed：
+
+```powershell
+python -m pip install -e ".[security]"
+$env:MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX = '<64位operator私钥seed hex>'
+.\scripts\run_gr01_release_session.ps1 `
+  -HostAddress 192.168.144.20 -Port 14580 `
+  -HardwareId GR01-OPERATOR-001 -ExpectedSourceCidr 192.168.144.0/24 `
+  -SourceOperator 'operator-a' -SourceOperatorKeyId 'field-operator-a-2026'
+```
+
+成功后，脚本在 session 目录外生成 `gr01-release-session-source-attestation-<stamp>.json`。复制 session 目录和这份
+detached sidecar 到第二机，并保留原有独立 inventory SHA-256 锚：
+
+```powershell
+$env:MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX = '<另一把64位reviewer私钥seed hex>'
+python .\scripts\verify_gr01_release_session_review.py review `
+  --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
+  --source-attestation D:\review\sidecars\gr01-source-attestation.json `
+  --expected-inventory-sha256 <独立渠道保存的inventory SHA-256> `
+  --expected-operator-public-key-hex <预登记的operator公钥hex> `
+  --reviewer 'reviewer-b' --reviewer-key-id 'field-reviewer-b-2026' `
+  --reviewer-signing-key-env MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX `
+  --destination-root D:\review\gr01-session `
+  --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
+  --out D:\review\receipts\gr01-portable-review.json
+```
+
+`operator_key_possession_verified` 与 `reviewer_key_possession_verified` 不等于真人身份认证；两端 human identity claims
+固定为 false。真实组织仍需保存 key-to-person 登记、现场 session 与第二机输出，且继续完成其余 E7/HIL/REAL/实飞门。
+
 ## v148 reviewer-signed portable review（2026-09-06，`v0.3.0-pre.8`）
 
 第二台机器必须安装 security extra，并在执行 review 前使用预登记的 reviewer Ed25519 key。seed 是 32-byte hex，
