@@ -717,8 +717,9 @@ def write_field_covariance_journal_index(
     receipt_path: str | Path,
     journal_directory: str | Path,
     output: str | Path,
+    *,
+    indexed_at: datetime | None = None,
 ) -> dict[str, object]:
-    index = build_field_covariance_journal_index(receipt_path, journal_directory)
     destination = Path(output).expanduser().resolve(strict=False)
     receipt = verify_field_covariance_workspace_receipt(receipt_path)
     workspace = Path(str(receipt["destination_workspace_root"])).resolve(strict=True)
@@ -731,8 +732,27 @@ def write_field_covariance_journal_index(
     if destination.is_symlink() or destination.exists():
         raise FieldCovarianceJournalError("journal index output already exists")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    _write_new(destination, index)
-    return {**index, "index_path": str(destination), "gate_passed": True}
+    snapshot_time, _ = _timestamp(indexed_at)
+    index = build_field_covariance_journal_index(
+        receipt_path, journal_directory, indexed_at=snapshot_time
+    )
+    created = False
+    try:
+        _write_new(destination, index)
+        created = True
+        verified = verify_field_covariance_journal_index(destination)
+        rebuilt = build_field_covariance_journal_index(
+            receipt_path, journal_directory, indexed_at=snapshot_time
+        )
+        if rebuilt != index:
+            raise FieldCovarianceJournalError(
+                "journal changed between index build and durable verification"
+            )
+    except BaseException:
+        if created:
+            destination.unlink(missing_ok=True)
+        raise
+    return verified
 
 
 def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]:

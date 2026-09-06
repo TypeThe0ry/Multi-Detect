@@ -650,6 +650,55 @@ def test_journal_index_rejects_probe_change_during_snapshot(
         journal.build_field_covariance_journal_index(receipt_path, journal_path)
 
 
+def test_journal_index_write_rolls_back_source_drift_after_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    output = tmp_path / "journal-index.json"
+    blocked = journal_path / "blocked.online-preflight.json"
+    real_write_new = journal._write_new
+
+    def write_then_tamper(path: Path, document: dict[str, object]) -> None:
+        real_write_new(path, document)
+        blocked.write_text('{"changed-after-build":true}', encoding="utf-8")
+
+    monkeypatch.setattr(journal, "_write_new", write_then_tamper)
+    with pytest.raises(journal.FieldCovarianceJournalError, match="identity changed"):
+        journal.write_field_covariance_journal_index(
+            receipt_path,
+            journal_path,
+            output,
+            indexed_at=datetime(2026, 9, 6, 5, 6, 7, tzinfo=UTC),
+        )
+    assert not output.exists()
+
+
+def test_journal_index_write_rolls_back_new_artifact_after_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    output = tmp_path / "journal-index.json"
+    real_write_new = journal._write_new
+
+    def write_then_add_probe(path: Path, document: dict[str, object]) -> None:
+        real_write_new(path, document)
+        (journal_path / "late.online-preflight.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(journal, "_write_new", write_then_add_probe)
+    with pytest.raises(journal.FieldCovarianceJournalError, match="durable verification"):
+        journal.write_field_covariance_journal_index(
+            receipt_path,
+            journal_path,
+            output,
+            indexed_at=datetime(2026, 9, 6, 5, 6, 7, tzinfo=UTC),
+        )
+    assert not output.exists()
+
+
 def test_journal_index_cannot_be_written_inside_received_workspace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
