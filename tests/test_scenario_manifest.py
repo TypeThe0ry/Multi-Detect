@@ -176,6 +176,7 @@ def test_all_new_schemas_are_valid_strict_json_objects() -> None:
         "raw-sensor-replay-manifest.schema.json",
         "replay-set-manifest.schema.json",
         "replay-set-calibration-report.schema.json",
+        "field-replay-campaign-plan.schema.json",
         "scenario-manifest.schema.json",
         "scenario-runtime-input.schema.json",
         "scenario-truth.schema.json",

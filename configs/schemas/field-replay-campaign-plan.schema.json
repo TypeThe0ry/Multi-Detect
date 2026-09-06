@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/field-replay-campaign-plan.schema.json",
+  "title": "Multi-Detect field replay campaign plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "campaign_id",
+    "dataset_id",
+    "dataset_version",
+    "class_names",
+    "sources",
+    "model",
+    "accuracy",
+    "calibration",
+    "outputs",
+    "claims",
+    "canonical_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "field_replay_campaign_planned"},
+    "campaign_id": {"type": "string", "minLength": 1},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "class_names": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"],
+      "properties": {
+        "day": {"type": "string", "minLength": 1},
+        "night": {"type": "string", "minLength": 1},
+        "haze": {"type": "string", "minLength": 1},
+        "reflection": {"type": "string", "minLength": 1},
+        "smoke_only": {"type": "string", "minLength": 1},
+        "no_fire": {"type": "string", "minLength": 1}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "manifest",
+        "format",
+        "providers",
+        "confidence_threshold",
+        "iou_threshold",
+        "maximum_detections",
+        "warmup_iterations"
+      ],
+      "properties": {
+        "artifact": {"$ref": "#/$defs/fileBinding"},
+        "manifest": {"$ref": "#/$defs/fileBinding"},
+        "format": {"enum": ["auto", "post_nms_nx6", "ultralytics_raw"]},
+        "providers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "iou_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "maximum_detections": {"type": "integer", "minimum": 1},
+        "warmup_iterations": {"type": "integer", "minimum": 0}
+      }
+    },
+    "accuracy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iou_threshold",
+        "minimum_precision",
+        "minimum_recall",
+        "maximum_false_alarm_frame_rate",
+        "maximum_missed_detection_frame_rate",
+        "maximum_latency_p95_ms"
+      ],
+      "properties": {
+        "iou_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "minimum_precision": {"$ref": "#/$defs/ratio"},
+        "minimum_recall": {"$ref": "#/$defs/ratio"},
+        "maximum_false_alarm_frame_rate": {"$ref": "#/$defs/ratio"},
+        "maximum_missed_detection_frame_rate": {"$ref": "#/$defs/ratio"},
+        "maximum_latency_p95_ms": {"type": "number", "minimum": 0}
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thresholds", "beta", "minimum_recall", "stability_tolerance"],
+      "properties": {
+        "thresholds": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/ratio"}
+        },
+        "beta": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_recall": {"$ref": "#/$defs/ratio"},
+        "stability_tolerance": {"$ref": "#/$defs/ratio"}
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intake",
+        "annotations",
+        "reviewed",
+        "predicted",
+        "accuracy_report",
+        "calibration_report",
+        "calibration_verification"
+      ],
+      "properties": {
+        "intake": {"const": "intake"},
+        "annotations": {"const": "annotations.json"},
+        "reviewed": {"const": "reviewed"},
+        "predicted": {"const": "predicted"},
+        "accuracy_report": {"const": "predicted/accuracy-report.json"},
+        "calibration_report": {"const": "predicted/threshold-calibration.json"},
+        "calibration_verification": {
+          "const": "predicted/threshold-calibration-verification.json"
+        }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_data_collected",
+        "annotations_reviewed",
+        "runtime_inference_executed",
+        "accuracy_validated",
+        "calibration_promotion_ready",
+        "release_ready"
+      ],
+      "properties": {
+        "field_data_collected": {"const": false},
+        "annotations_reviewed": {"const": false},
+        "runtime_inference_executed": {"const": false},
+        "accuracy_validated": {"const": false},
+        "calibration_promotion_ready": {"const": false},
+        "release_ready": {"const": false}
+      }
+    },
+    "canonical_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ratio": {"type": "number", "minimum": 0, "maximum": 1},
+    "fileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}
