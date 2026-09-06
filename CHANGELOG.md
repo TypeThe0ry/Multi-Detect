@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v154 same-producer-frame GNSS evidence binding（2026-09-07）
+
+- Jetson operator bridge 将需要目标定位的 GNSS、range、target geolocation 收口为同一生产帧组：三者
+  `produced_at_s` 必须精确相等，可用目标定位还必须对应合格 GNSS；缺失、错帧或质量矛盾均零发布目标组；
+  发送顺序固定为 GNSS → range → target geolocation，只有整组成功才推进指纹，部分失败会重试；
+- QGC controller 在认证/replay/sequence 门后为 target geolocation 注入自身 envelope sequence/`sentAtMs`；
+  保存门要求目标定位与 GNSS 的 `sentAtMs` 精确相等。新证据升级为 `multidetect.target-evidence.v3`，保存
+  两侧 provenance；v1/v2 继续只读兼容，旧记录在卡片中明确标为缺少原子 envelope 绑定；
+- native target-evidence/operator-protocol/depth-grid/replay-RTSP self-test、focused 119 项回归、Release 构建和
+  portable hidden simple boot 均通过。EXE 为 46,603,264 bytes，SHA-256
+  `02522C5661803381FD3B8E4E54267CC6BCD17B9769C1C8E2BE00894EBB470CB2`；
+- 当前 parity 和 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 已重算通过。
+  E7 仍为 `false / false / 31 blockers`；三消息传输不声称原子事务，人工视觉、室外 GNSS、真实硬件、
+  HIL/REAL 与实飞仍未验收；最终全量回归为 `3657 passed, 2 skipped, 0 failed`。
+
 ### v0.3.0-pre.8 v153 GNSS-bound target evidence snapshots（2026-09-07）
 
 - QGC controller 在认证、重放与 sequence 门后将 `GNSS_STATUS` envelope sequence/发送时刻交给 QML；

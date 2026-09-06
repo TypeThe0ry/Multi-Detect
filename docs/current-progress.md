@@ -1,6 +1,34 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v153 工作树）
+最后更新：2026-09-07（v154 工作树）
+
+## v154 本轮已收口
+
+- Jetson operator bridge 在目标定位到期时把 `GNSS_STATUS`、range 与 target geolocation 作为同一生产帧组
+  校验：三者必须存在且 `produced_at_s` 精确相同，可用目标定位还必须配合 qualified GNSS；缺失、错帧或
+  质量矛盾均 fail-closed。发送顺序固定为 GNSS → range → target geolocation，只有三条全部成功才推进
+  指纹，部分发送失败会保留整组重试。独立 GNSS 在无目标定位或绑定错误时仍按 cadence 发布。
+- QGC controller 仅在认证、重放和 sequence 门通过后，把 target geolocation 自己的 envelope sequence 与
+  `sentAtMs` 注入状态。保存门要求 target 与 GNSS 的 `sentAtMs` 精确相等；新 JSONL 使用
+  `multidetect.target-evidence.v3`，同时保存两侧 provenance。v1/v2 保持只读兼容，历史卡片分别标明无质量
+  证据、仅同时间质量证据或 v3 同帧绑定。三消息 transport 本身仍明确不声称原子事务。
+- focused 回归 `119 passed`，Ruff 与 `git diff --check` 通过；native operator protocol、target evidence store、
+  depth-grid 44-fragment Python→C++ HMAC roundtrip、replay RTSP wire self-test 全部退出 0。
+- 最终全量回归 3,659 tests：`3657 passed, 2 skipped, 0 failed, 0 errors`，耗时 287.23 秒；JUnit
+  533,204 bytes、SHA-256 `A0A328B7814B21C22ECFDCB8530BF097B2CBB00F2BCDD53CF3EBAB68F2132DEC`。
+- Windows Release/portable EXE 为 46,603,264 bytes，SHA-256
+  `02522C5661803381FD3B8E4E54267CC6BCD17B9769C1C8E2BE00894EBB470CB2`；hidden simple boot 退出 0，
+  日志只有既有 Qt FFmpeg 与 point/pixel-size warning，没有 QML 初始化错误。
+- `release-parity.json` 为 8,735 bytes，SHA-256
+  `83B6B8202924C97A650E8F91253E4CF7020355C6ADAC770B39D6B314A21AA1EE`；UI/task contract 分别更新为
+  `AE570E81FE7A31E695D3659869B6B77621CD3052306B260ADC855F55A4BFB1C1` /
+  `DA902E0E0E4011545C02C04043369BB02E576AF524CEAD77D2D7858BF82C3CDC`，其余三组身份未变。
+- 当前 parity 的 external join/revalidation、三机型 response matrix 与 6 正例/9 故障 campaign 已重算通过；
+  新鲜 field-link 仍是 `192.168.1.13/24` 错路由且 Jetson/GR01/RTSP 3/3 超时。E7 manifest/report SHA-256
+  分别为 `E2BB25233C8FA77D9945718670FBA3E8CD72E1B7EDD41474FD897E4EC5DF6E8E` /
+  `73FE81647CA63AB67DF04F360630D0EE8646AE13B7287E13DF73EE1E3EF0A075`，结果保持
+  `gate_passed=false`、`release_allowed=false`、31 blockers。没有修改网络、受保护服务、飞控或载荷；
+  室外 GNSS、人工视觉、真实硬件、HIL/REAL 与实飞均未声明通过。
 
 ## v153 本轮已收口
 
@@ -1593,11 +1621,11 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 | `px4-sitl-qgc-geolocation-operator-acceptance-v60-pre8-v2.json` | `gate_passed=true` | QGC 认证 40 包；type 10/22 各 1；PX4 heartbeat 6；写入/物理输出 0；14550 不变 | `9E40159EEC767CD8F1AEF106BCC7E48ED9C00BC0DDFC7C1E4CECC7D2A060D053` |
 | `simulator-external-runtime-ai-join-v57-current-parity-pre8.json` | `gate_passed=true` | 三机型六份历史不可变 source 在当前 parity 下重算 | `BAF6FC33DB0E39C758420B2DE3573EAB9A2751721476D25CACF5EBC2D2199D3B` |
 | `simulator-external-runtime-ai-revalidation-v57-current-parity-pre8.json` | `gate_passed=true` | `source_recomputed=true` | `3706D8BE96F4AB74BB68679C6C2640848908769D03F01A07BE5D8B4701444CCE` |
-| `field-link-preflight-live-20260907-current.json`（v153） | 结构复验通过；`hardware_link_ready=false` | 3/3 Jetson/GR01/RTSP 超时；三条路由源均为 `192.168.1.13`，不在飞机网段 | `48DB9A57295AF0BE387013966492A5A3C8B5651D7F4260C01399A0405DAC0986` |
-| `simulator-external-runtime-ai-join-v153-current-parity-pre8.json` | `gate_passed=true` | 三机型历史外部 source 按 v153 parity 重算 | `4AB3DFF71EF635306FF5D5999AA1558B6707C56D0C69871C4AF4DC032D1404BD` |
-| `px4-reported-position-response-matrix-v153-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `503A31B4D85A2A990DEDC95AEA9DF905C176A1FE320A3294F2EAFDF1E9DC0D2E` |
-| `px4-reported-position-response-campaign-v153-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `3C7604BF119473724D28835D5CB31967AEA60EAFD2E1D01F72EA81F4637DE181` |
-| `release-gate-pre.8-current-20260906T174120Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers | `B05C4C5BECE818BEF9DDBD66C389C32059A9695E09DD951E7559886DF99195A9` |
+| `field-link-preflight-live-20260907-v154-current.json` | 结构复验通过；`hardware_link_ready=false` | 3/3 Jetson/GR01/RTSP 超时；三条路由源均为 `192.168.1.13`，不在飞机网段 | `0E387F9FA2F9B82C8E82F6C8D8A1D02B9BE842DF90F209EFE719A9508DF16FBB` |
+| `simulator-external-runtime-ai-join-v154-current-parity-pre8.json` | `gate_passed=true` | 三机型历史外部 source 按 v154 parity 重算 | `A5888FF24BD9A02A4A96C1DDA7914CABE456C162D05FF2360E576F39B124413A` |
+| `px4-reported-position-response-matrix-v154-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `5CAA0E62BBA2795AFCD04F5DBD9821B54CDE99E07D30DB612DA47BECB85F479A` |
+| `px4-reported-position-response-campaign-v154-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `06894C33EF3A6839AEF95A1DE8CB3513A0E470D60CBA1BAD26A232F579FD94C3` |
+| `release-gate-pre.8-current-20260906T184700Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers | `73FE81647CA63AB67DF04F360630D0EE8646AE13B7287E13DF73EE1E3EF0A075` |
 
 正向 evidence 内部摘要为：
 
@@ -1619,14 +1647,14 @@ v59 矩阵内部摘要为：
 
 ## 当前共享契约身份
 
-`configs/release-parity.json`：8,691 bytes，文件 SHA-256
-`F3FAD899D77681B721D22A35ABCE9DDBDF5575B66435D03B7BBEBF2B3B27467A`。
+`configs/release-parity.json`：8,735 bytes，文件 SHA-256
+`83B6B8202924C97A650E8F91253E4CF7020355C6ADAC770B39D6B314A21AA1EE`。
 
 | 契约组 | 当前哈希 |
 |---|---|
-| UI contract | `6230337df9585b90b256ae64ad016b2397a9f51ddacbaf1bae99acac1c66d14e` |
+| UI contract | `ae570e81fe7a31e695d3659869b6b77621cd3052306b260adc855f55a4bfb1c1` |
 | Core algorithm | `1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e` |
-| Task contract | `579e6190da26fd28c82b28ee4069fea755dc5d29973b5ec15e64522b3c9ce8ad` |
+| Task contract | `da902e0e0e4011545c02c04043369bb02e576af524cead77d2d7858bf82c3cdc` |
 | Safety policy | `e17cc6288da39f65390b4e51cad232bc81f3f6343d144d9360dd99fe2b165f0a` |
 | PX4 Mission path | `4c852fec73594739e6cf22e56e553aa8230a7fa249b8c4cd1881fff2a0cd8184` |
 
@@ -1638,8 +1666,8 @@ v59 矩阵内部摘要为：
 | 感知与模型治理 | ONNX provider、manifest、raw/post-NMS、候选隔离、延迟/精度工具 | v56 COCO car 仅 quarantined SIM candidate | 部署域 fire/smoke/safety 模型、数据集、评审和阈值 |
 | 多目标跟踪 | 多目标池、短时恢复、ReID、遮挡/丢失/重获、TRK/LCK/TGT | 自动化与软件/SITL | 真实复杂场景身份精度与 G20/QGC 触控验收 |
 | 测距 | metric depth、相机地面射线、多源融合、DEM/GNSS、时间/运动/残差不确定性 | v59 实际 Gazebo 像素；三档坡高/距离；advisory-only | 真实外参与 outdoor survey |
-| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、v2 GNSS-bound 本地证据 | v1 可读；v2 保存需新鲜合格 GNSS；三正场景 15/15 落图、近地平线 0/5 假点 | 人工视觉签字与真实 GNSS |
-| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | v153 portable/simple boot/native evidence store 通过；机器截图历史证据通过 | 四模式人工视觉对等与 E7 绑定 |
+| 目标落图 | WGS-84、1σ 圆、GPS/RANGE fail-closed、v3 同生产帧 GNSS-bound 本地证据 | v1/v2 可读；v3 保存需 target/GNSS `sentAtMs` 精确相等；三正场景 15/15 落图、近地平线 0/5 假点 | 人工视觉签字与真实 GNSS |
+| MultiDetectGCS | 原生 Fly View 覆盖、状态、目标地图、operator protocol、portable build | v154 portable/simple boot/native evidence store 通过；机器截图历史证据通过 | 四模式人工视觉对等与 E7 绑定 |
 | 数字孪生 | PX4/Gazebo、三机型、场景/地图/DEM、wire v3 covariance、故障、watchdog | 三机型外部 wire-v3 实采；x500 position response；三档定位 | estimator 非零 covariance；fixed-wing/VTOL 对等动态响应 |
 | 任务与控制 | 平台无关 planner、PX4 Mission 编译/反馈、Mode 3 动态权限 | 测试/SIM/HIL 框架；物理输出默认锁定 | 六份 HIL/REAL×三机型 feedback 与真实飞控验收 |
 | Jetson/Pixhawk/链路 | Jetson profile、RTSP bench、只读 MAVLink、V6X 参数备份、G20/GR01 认证协议 | 软件/localhost 与部分只读现场快照 | 实机 Jetson provider、相机、GR01、V6X 同时在线验收 |
@@ -1654,9 +1682,9 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,600,192` bytes
-- SHA-256：`8225BF9F41426E473F23BC74BF038E576A88EA3556E1A7DD883F1B6C036909BB`
-- 当前 portable 已包含 v153 的 GNSS-bound evidence snapshot 与全部此前 QGC C++/QML 变更。
+- 大小：`46,603,264` bytes
+- SHA-256：`02522C5661803381FD3B8E4E54267CC6BCD17B9769C1C8E2BE00894EBB470CB2`
+- 当前 portable 已包含 v154 的 same-producer-frame GNSS evidence binding 与全部此前 QGC C++/QML 变更。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类
