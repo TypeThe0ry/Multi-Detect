@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.cli import main as cli_main
 from multidetect.deployment_recording_attestation import (
@@ -25,6 +27,11 @@ SIM_MANIFEST = (
     / "replay-set-sim-gazebo-2026"
     / "replay-set.manifest.json"
 )
+
+
+def _require_local_sim_manifest() -> None:
+    if not SIM_MANIFEST.is_file():
+        pytest.skip("local synthetic replay evidence is not stored in Git")
 
 
 def _write_stratum(
@@ -171,6 +178,7 @@ def _build_complete_fixture(
 
 
 def test_sim_fixture_is_reported_pending_with_actionable_reasons() -> None:
+    _require_local_sim_manifest()
     report = check_replay_set_readiness(SIM_MANIFEST)
 
     assert report["checks"]["required_strata"] is True
@@ -287,6 +295,7 @@ def test_readiness_rejects_duplicate_and_nonfinite_accuracy_report_json(
 
 
 def test_readiness_cli_report_only_and_clean_checkout_wrapper() -> None:
+    _require_local_sim_manifest()
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     completed = subprocess.run(

@@ -13,4 +13,4 @@ def test_python_sources_are_checked_out_with_lf_line_endings() -> None:
 def test_manual_validation_installs_the_full_test_dependency_set() -> None:
     workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
 
-    assert 'python -m pip install -e ".[dev,vision,pixhawk,security]"' in workflow
+    assert 'python -m pip install -e ".[dev,vision,pixhawk,security,model-tools]"' in workflow

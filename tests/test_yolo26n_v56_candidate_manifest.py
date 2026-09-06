@@ -17,6 +17,10 @@ MANIFEST = (
 )
 DEPLOYMENT_DESCRIPTOR = ROOT / "configs" / "models" / "ultralytics_yolo26n_coco80_trt86_raw.json"
 PINNED_MODEL_SHA256 = "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410"
+pytestmark = pytest.mark.skipif(
+    not MODEL.is_file(),
+    reason="quarantined local ONNX candidate is not stored in Git",
+)
 COCO80_CLASS_NAMES = tuple(
     "person,bicycle,car,motorcycle,airplane,bus,train,truck,boat,traffic light,fire hydrant,"
     "stop sign,parking meter,bench,bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe,"

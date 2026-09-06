@@ -10,6 +10,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "artifacts" / "models" / "coco-yolo26n-traditional" / "yolo26n-traditional.onnx"
 PINNED_MODEL_SHA256 = "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410"
+pytestmark = pytest.mark.skipif(
+    not MODEL.is_file(),
+    reason="quarantined local ONNX candidate is not stored in Git",
+)
 
 
 def _sha256(path: Path) -> str:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,8 @@ def test_multiclient_bench_schema_accepts_latest_evidence() -> None:
         / "evaluation"
         / "replay-rtsp-multiclient-20260903-pre.8-v9-portable-4clients-shared.json"
     )
+    if not artifact_path.is_file():
+        pytest.skip("local RTSP multi-client evidence is not stored in Git")
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
 
     errors = sorted(

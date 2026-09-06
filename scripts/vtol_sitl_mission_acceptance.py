@@ -1250,13 +1250,17 @@ def observe_mission_flight(
                 "longitude_deg": float(collector.last_position["longitude_deg"]),
                 "relative_altitude_m": float(collector.last_position["relative_altitude_m"]),
             }
-            flight_capture_ready_monotonic_s = time.monotonic()
+            # The external capture process can only bind to the timestamp
+            # serialized in the ready marker. Keep the in-memory comparison
+            # value identical to that six-decimal contract value; otherwise a
+            # round-down by less than one microsecond can reject an exact echo.
+            flight_capture_ready_monotonic_s = round(time.monotonic(), 6)
             flight_capture_payload = {
                 "schema": "multidetect.px4-vtol-flight-capture-ready",
                 "schema_version": 1,
                 "generated_at_utc": _utc_now(),
                 "captured_at_clock": "host_monotonic",
-                "captured_at_monotonic_s": round(flight_capture_ready_monotonic_s, 6),
+                "captured_at_monotonic_s": flight_capture_ready_monotonic_s,
                 "container": {
                     "id": container_id,
                     "exact_id_bound": True,

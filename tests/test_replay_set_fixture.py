@@ -20,6 +20,10 @@ SIM_REPLAY_ROOT = (
     / "terminal-continuation-v34"
     / "replay-set-sim-gazebo-2026"
 )
+pytestmark = pytest.mark.skipif(
+    not SIM_REPLAY_ROOT.is_dir(),
+    reason="local synthetic replay evidence is not stored in Git",
+)
 
 
 def test_positive_fixture_exercises_iou_and_keeps_deployment_gate_closed(tmp_path: Path) -> None:
