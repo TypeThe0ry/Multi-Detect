@@ -24,6 +24,8 @@ param(
     [string]$Python = '',
     [string]$OutputDirectory = 'artifacts\evaluation',
     [string]$Stamp = '',
+    [switch]$PlanOnly,
+    [string]$PlanOutput = '',
     [string[]]$ReleaseGateExtraArguments = @()
 )
 
@@ -88,12 +90,79 @@ function Invoke-Checked {
     }
 }
 
-foreach ($environmentName in @($OperatorHmacKeyEnvironment, $MavlinkSigningKeyEnvironment)) {
+function Write-NewJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Document
+    )
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    $payload = $Document | ConvertTo-Json -Depth 8
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    $bytes = $encoding.GetBytes($payload + [Environment]::NewLine)
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None
+    )
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+try {
+    $remoteAddress = [System.Net.IPAddress]::Parse($HostAddress)
+}
+catch {
+    throw "HostAddress must be a literal IPv4 address: $HostAddress"
+}
+if ($remoteAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork -or
+    [System.Net.IPAddress]::IsLoopback($remoteAddress)) {
+    throw "HostAddress must be a non-loopback IPv4 address: $HostAddress"
+}
+$cidrParts = $ExpectedSourceCidr.Split('/', 2)
+$cidrPrefix = 0
+try {
+    $cidrAddress = [System.Net.IPAddress]::Parse($cidrParts[0])
+}
+catch {
+    throw "ExpectedSourceCidr must be an IPv4 CIDR: $ExpectedSourceCidr"
+}
+if ($cidrParts.Count -ne 2 -or
+    $cidrAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork -or
+    -not [int]::TryParse($cidrParts[1], [ref]$cidrPrefix) -or
+    $cidrPrefix -lt 0 -or $cidrPrefix -gt 32) {
+    throw "ExpectedSourceCidr must be an IPv4 CIDR: $ExpectedSourceCidr"
+}
+
+$secretEnvironment = [ordered]@{}
+$missingSecretEnvironment = [System.Collections.Generic.List[string]]::new()
+foreach ($secret in @(
+        @{ key = 'operator_hmac'; name = $OperatorHmacKeyEnvironment },
+        @{ key = 'mavlink_signing'; name = $MavlinkSigningKeyEnvironment }
+    )) {
+    $environmentName = [string]$secret.name
     if ($environmentName -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
         throw "Invalid environment variable name: $environmentName"
     }
     $environmentValue = Get-Item -LiteralPath ("Env:" + $environmentName) -ErrorAction SilentlyContinue
-    if ($null -eq $environmentValue -or [string]::IsNullOrWhiteSpace([string]$environmentValue.Value)) {
+    $present = $null -ne $environmentValue -and
+        -not [string]::IsNullOrWhiteSpace([string]$environmentValue.Value)
+    $secretEnvironment[[string]$secret.key] = [ordered]@{
+        name = $environmentName
+        present = [bool]$present
+    }
+    if (-not $present) {
+        $missingSecretEnvironment.Add($environmentName)
+    }
+    if (-not $PlanOnly -and -not $present) {
         throw "Required secret environment variable is not set: $environmentName"
     }
 }
@@ -120,9 +189,60 @@ foreach ($argument in $ReleaseGateExtraArguments) {
 }
 
 $pythonPath = Resolve-Python
-Invoke-Checked -Executable $pythonPath -Arguments @('-c', 'import multidetect') -Label 'Python package preflight'
+$multiDetectCli = Resolve-RepositoryPath -Requested 'scripts\run_multidetect_cli.py'
+Invoke-Checked -Executable $pythonPath -Arguments @($multiDetectCli, '--help') -Label 'Python package preflight'
 $outputRoot = Resolve-RepositoryPath -Requested $OutputDirectory
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+if ($PlanOnly) {
+    $planPath = if ([string]::IsNullOrWhiteSpace($PlanOutput)) {
+        Join-Path $outputRoot ("gr01-release-session-plan-" + $Stamp + '.json')
+    } else {
+        Resolve-RepositoryPath -Requested $PlanOutput
+    }
+    $plan = [ordered]@{
+        schema = 'multidetect.gr01-release-session-plan/v1'
+        schema_version = 1
+        generated_at_utc = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+        host_address = $remoteAddress.ToString()
+        port = $Port
+        hardware_id = $HardwareId
+        expected_source_cidr = $ExpectedSourceCidr
+        secret_environment = $secretEnvironment
+        thresholds = [ordered]@{
+            minimum_round_trips = $MinimumRoundTrips
+            maximum_packet_loss_rate = $MaximumPacketLossRate
+            maximum_ack_latency_p95_ms = $MaximumAckLatencyP95Milliseconds
+            maximum_attempts = $MaximumAttempts
+            maximum_evidence_age_s = $MaximumEvidenceAgeSeconds
+        }
+        paths = [ordered]@{
+            repository_root = $root
+            python = $pythonPath
+            output_root = $outputRoot
+        }
+        operations = @(
+            'gr01_hardware_bench',
+            'independent_bench_verification',
+            'freshness_bound_e7_evaluation',
+            'independent_release_session_verification'
+        )
+        ready_to_execute = $missingSecretEnvironment.Count -eq 0
+        reasons = @($missingSecretEnvironment | ForEach-Object {
+                "required secret environment variable is not set: $_"
+            })
+        claims = [ordered]@{
+            network_contacted = $false
+            hardware_observed = $false
+            hardware_flight_acceptance = 'not_claimed'
+            physical_release_enabled = $false
+            flight_control_enabled = $false
+            payload_release_requested = $false
+        }
+    }
+    Write-NewJson -Path $planPath -Document $plan
+    Write-Output "GR01 release session plan written: $planPath"
+    return
+}
 $sessionRoot = Join-Path $outputRoot ("gr01-release-session-" + $Stamp)
 if (Test-Path -LiteralPath $sessionRoot) {
     throw "Session output already exists: $sessionRoot"
@@ -131,7 +251,7 @@ New-Item -ItemType Directory -Path $sessionRoot | Out-Null
 
 $benchPath = Join-Path $sessionRoot 'gr01-link-bench.json'
 $benchArguments = @(
-    '-m', 'multidetect', 'gr01-link-bench',
+    $multiDetectCli, 'gr01-link-bench',
     '--host', $HostAddress,
     '--port', [string]$Port,
     '--operator-hmac-key-env', $OperatorHmacKeyEnvironment,

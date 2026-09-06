@@ -2,7 +2,7 @@
   "parity": {
     "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
     "px4_mission_path_hash": "91cfd7816000a26bf04bea11703247dded3a4b07aac7797cebc9bd5161e746e5",
-    "safety_policy_hash": "ae4636175da3603c23f58500dd7fc7baff619cd533d07e60cba8222e968bb7cc",
+    "safety_policy_hash": "c3f6d82749779d8ad1e7484ac237dc2e92078c396f75288bab476c7969afd059",
     "task_contract_hash": "fcbdb43950a84fbc001329a6801ae92fff49653d38c673fba05f780221fa3d69",
     "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
   },
@@ -78,6 +78,7 @@
       "configs/schemas/autonomy-operator-grant.schema.json",
       "configs/schemas/field-link-address-state.schema.json",
       "configs/schemas/gr01-link-bench.schema.json",
+      "configs/schemas/gr01-release-session-plan.schema.json",
       "configs/schemas/gr01-release-session.schema.json",
       "configs/schemas/local-dem-grid.schema.json",
       "scripts/inspect_field_link_interfaces.ps1",
@@ -85,6 +86,7 @@
       "scripts/run_field_link_preflight.ps1",
       "scripts/run_field_link_preflight.py",
       "scripts/run_gr01_release_session.ps1",
+      "scripts/run_multidetect_cli.py",
       "scripts/verify_field_link_address_state.py",
       "scripts/verify_field_link_preflight.py",
       "scripts/verify_gr01_link_bench.py",

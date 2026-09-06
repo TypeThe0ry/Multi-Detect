@@ -208,7 +208,9 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # both sides of that transaction plus its closed record contract.
         "src/multidetect/gr01_release_session.py",
         "scripts/run_gr01_release_session.ps1",
+        "scripts/run_multidetect_cli.py",
         "scripts/verify_gr01_release_session.py",
+        "configs/schemas/gr01-release-session-plan.schema.json",
         "configs/schemas/gr01-release-session.schema.json",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",

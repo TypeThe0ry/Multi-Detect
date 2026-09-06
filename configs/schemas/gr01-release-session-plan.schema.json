@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-release-session-plan.schema.json",
+  "title": "Multi-Detect GR01 release session plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at_utc",
+    "host_address",
+    "port",
+    "hardware_id",
+    "expected_source_cidr",
+    "secret_environment",
+    "thresholds",
+    "paths",
+    "operations",
+    "ready_to_execute",
+    "reasons",
+    "claims"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.gr01-release-session-plan/v1"},
+    "schema_version": {"const": 1},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "host_address": {"type": "string", "format": "ipv4", "not": {"const": "127.0.0.1"}},
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "hardware_id": {"type": "string", "minLength": 1},
+    "expected_source_cidr": {"type": "string", "minLength": 1},
+    "secret_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator_hmac", "mavlink_signing"],
+      "properties": {
+        "operator_hmac": {"$ref": "#/$defs/secret"},
+        "mavlink_signing": {"$ref": "#/$defs/secret"}
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_round_trips",
+        "maximum_packet_loss_rate",
+        "maximum_ack_latency_p95_ms",
+        "maximum_attempts",
+        "maximum_evidence_age_s"
+      ],
+      "properties": {
+        "minimum_round_trips": {"type": "integer", "minimum": 1},
+        "maximum_packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "maximum_ack_latency_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_attempts": {"type": "integer", "minimum": 1},
+        "maximum_evidence_age_s": {"type": "number", "minimum": 0}
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_root", "python", "output_root"],
+      "properties": {
+        "repository_root": {"type": "string", "minLength": 1},
+        "python": {"type": "string", "minLength": 1},
+        "output_root": {"type": "string", "minLength": 1}
+      }
+    },
+    "operations": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "gr01_hardware_bench"},
+        {"const": "independent_bench_verification"},
+        {"const": "freshness_bound_e7_evaluation"},
+        {"const": "independent_release_session_verification"}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "ready_to_execute": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "network_contacted",
+        "hardware_observed",
+        "hardware_flight_acceptance",
+        "physical_release_enabled",
+        "flight_control_enabled",
+        "payload_release_requested"
+      ],
+      "properties": {
+        "network_contacted": {"const": false},
+        "hardware_observed": {"const": false},
+        "hardware_flight_acceptance": {"const": "not_claimed"},
+        "physical_release_enabled": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "payload_release_requested": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "present"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "present": {"type": "boolean"}
+      }
+    }
+  }
+}

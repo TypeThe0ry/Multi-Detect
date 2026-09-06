@@ -129,7 +129,9 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
     assert {
         "src/multidetect/gr01_release_session.py",
         "scripts/run_gr01_release_session.ps1",
+        "scripts/run_multidetect_cli.py",
         "scripts/verify_gr01_release_session.py",
+        "configs/schemas/gr01-release-session-plan.schema.json",
         "configs/schemas/gr01-release-session.schema.json",
     } <= set(document["source_files"]["safety_policy"])
     for paths in document["source_files"].values():
