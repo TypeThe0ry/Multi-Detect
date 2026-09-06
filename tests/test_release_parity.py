@@ -126,6 +126,12 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "src/multidetect/field_link_address_state.py",
         "configs/schemas/field-link-address-state.schema.json",
     } <= set(document["source_files"]["safety_policy"])
+    assert {
+        "src/multidetect/gr01_release_session.py",
+        "scripts/run_gr01_release_session.ps1",
+        "scripts/verify_gr01_release_session.py",
+        "configs/schemas/gr01-release-session.schema.json",
+    } <= set(document["source_files"]["safety_policy"])
     for paths in document["source_files"].values():
         assert paths == sorted(paths)
         assert all(not path.startswith(("artifacts/", "build/")) for path in paths)

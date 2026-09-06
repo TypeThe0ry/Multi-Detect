@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/gr01-release-session.schema.json",
+  "title": "Multi-Detect GR01 release session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "session_id",
+    "created_at_utc",
+    "bench_report",
+    "release_manifest",
+    "release_report",
+    "claims",
+    "gate_passed",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {"const": "multidetect_gr01_release_session_verified"},
+    "session_id": {"type": "string", "minLength": 1},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "bench_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "observed_at_utc",
+        "hardware_id",
+        "remote_host",
+        "remote_port",
+        "expected_source_cidr",
+        "local_source_address"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "observed_at_utc": {"type": "string", "format": "date-time"},
+        "hardware_id": {"type": "string", "minLength": 1},
+        "remote_host": {"type": "string", "minLength": 1},
+        "remote_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "expected_source_cidr": {"type": "string", "minLength": 1},
+        "local_source_address": {"type": "string", "minLength": 1}
+      }
+    },
+    "release_manifest": {"$ref": "#/$defs/file"},
+    "release_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "evaluated_at_utc",
+        "gate_passed",
+        "release_allowed",
+        "blocker_count",
+        "real_gr01_operator_link_passed",
+        "age_s",
+        "max_age_s"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "evaluated_at_utc": {"type": "string", "format": "date-time"},
+        "gate_passed": {"type": "boolean"},
+        "release_allowed": {"type": "boolean"},
+        "blocker_count": {"type": "integer", "minimum": 0},
+        "real_gr01_operator_link_passed": {"const": true},
+        "age_s": {"type": "number", "minimum": -5},
+        "max_age_s": {"type": "number", "minimum": 0}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gr01_binding_verified",
+        "overall_release_allowed",
+        "hardware_flight_acceptance",
+        "physical_release_enabled",
+        "flight_control_enabled",
+        "payload_release_requested"
+      ],
+      "properties": {
+        "gr01_binding_verified": {"const": true},
+        "overall_release_allowed": {"type": "boolean"},
+        "hardware_flight_acceptance": {"const": "not_claimed"},
+        "physical_release_enabled": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "payload_release_requested": {"const": false}
+      }
+    },
+    "gate_passed": {"const": true},
+    "reasons": {"type": "array", "maxItems": 0}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

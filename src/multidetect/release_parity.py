@@ -203,6 +203,13 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/cli.py",
         "scripts/verify_gr01_link_bench.py",
         "configs/schemas/gr01-link-bench.schema.json",
+        # A field pass is publishable only after the bench, manifest and E7
+        # report are independently reopened and freshness-recomputed. Bind
+        # both sides of that transaction plus its closed record contract.
+        "src/multidetect/gr01_release_session.py",
+        "scripts/run_gr01_release_session.ps1",
+        "scripts/verify_gr01_release_session.py",
+        "configs/schemas/gr01-release-session.schema.json",
         "src/multidetect/safety.py",
         "src/multidetect/simulator/control.py",
         "src/multidetect/simulator/control_gateway.py",
