@@ -1,0 +1,5 @@
+# Ruff's formatter requires stable line endings across platforms. Keep every
+# Python source in LF form in both the Git index and fresh working trees, even
+# when a contributor has core.autocrlf=true.
+*.py text eol=lf
+*.pyi text eol=lf
