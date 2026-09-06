@@ -1600,6 +1600,13 @@ def test_release_gate_binds_pending_replay_set_and_keeps_it_closed(tmp_path: Pat
     report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
     assert report["replay_set"]["present"] is True
     assert report["replay_set"]["passed"] is False
+    readiness = report["replay_set"]["readiness"]
+    assert readiness["event"] == "replay_set_readiness_checked"
+    assert readiness["manifest_sha256"] == sha256_file(replay_manifest)
+    assert readiness["checks"]["required_strata"] is False
+    assert readiness["checks"]["deployment_recording_source"] is False
+    assert readiness["gate_passed"] is False
+    assert any("missing deployment strata" in action for action in readiness["next_actions"])
     assert report["gate_passed"] is False
     assert any("replay_set" in reason for reason in report["release_blocked_reasons"])
 

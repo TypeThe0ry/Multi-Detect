@@ -90,6 +90,7 @@ from .replay_set_evaluation import (
     accuracy_metrics_are_defined,
     positive_strata_coverage_is_complete,
 )
+from .replay_set_readiness import check_replay_set_readiness
 from .runtime import RuntimeMode
 from .simulator.safety_evidence import verify_file as verify_simulator_safety_file
 from .simulator.scenario_matrix import (
@@ -1150,6 +1151,7 @@ def _replay_set_result(
         "passed": False,
         "reasons": [],
         "manifest": None,
+        "readiness": None,
     }
     reasons: list[str] = result["reasons"]
     if raw_record is None:
@@ -1197,6 +1199,7 @@ def _replay_set_result(
         reasons.append("replay_set.accuracy_validated must remain false until IoU review")
 
     accuracy_evidence_value = raw_record.get("accuracy_evidence")
+    accuracy_path: Path | None = None
     accuracy_evidence_info: dict[str, Any] | None = None
     if accuracy_evidence_value is not None:
         if not isinstance(accuracy_evidence_value, Mapping):
@@ -1210,7 +1213,6 @@ def _replay_set_result(
                     f"unknown replay_set accuracy_evidence field(s): {unknown_accuracy!r}"
                 )
             accuracy_path_value = accuracy_evidence_value.get("path")
-            accuracy_path: Path | None = None
             if not isinstance(accuracy_path_value, str) or not accuracy_path_value.strip():
                 reasons.append("replay_set.accuracy_evidence.path is missing or empty")
             else:
@@ -1366,6 +1368,21 @@ def _replay_set_result(
                 if not replay_set.is_complete:
                     reasons.append("replay_set deployment coverage is incomplete")
         result["manifest"] = manifest_info
+
+    if manifest_path is not None and manifest_path.is_file():
+        try:
+            readiness = check_replay_set_readiness(
+                manifest_path,
+                accuracy_report_path=(
+                    accuracy_path
+                    if accuracy_path is not None and accuracy_path.is_file()
+                    else None
+                ),
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            reasons.append(f"replay_set readiness could not be recomputed: {exc}")
+        else:
+            result["readiness"] = readiness
 
     calibration_verification = _replay_set_calibration_verification_result(
         raw_record.get("calibration_verification"),
