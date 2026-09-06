@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/jetson-evidence-tools-package.schema.json",
+  "title": "Multi-Detect Jetson Evidence Tools Package v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event", "deployment_id", "created_at_utc", "source_git_head",
+    "source_dirty", "archive_name", "archive_bytes", "archive_sha256", "file_count",
+    "source_manifest_sha256", "package_self_verified", "verified_file_count",
+    "remote_tools_root", "runtime_python", "package_only", "service_restart_requested",
+    "sudo_used", "release_ready"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "const": "jetson_evidence_capture_package_created" },
+    "deployment_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$" },
+    "created_at_utc": { "type": "string", "format": "date-time" },
+    "source_git_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "source_dirty": { "type": "boolean" },
+    "archive_name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.tar$" },
+    "archive_bytes": { "type": "integer", "minimum": 1 },
+    "archive_sha256": { "$ref": "#/$defs/sha256" },
+    "file_count": { "type": "integer", "minimum": 1 },
+    "source_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "package_self_verified": { "const": true },
+    "verified_file_count": { "type": "integer", "minimum": 1 },
+    "remote_tools_root": { "$ref": "#/$defs/absolutePosixPath" },
+    "runtime_python": { "$ref": "#/$defs/absolutePosixPath" },
+    "package_only": { "type": "boolean" },
+    "service_restart_requested": { "const": false },
+    "sudo_used": { "const": false },
+    "release_ready": { "const": false }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "absolutePosixPath": {
+      "type": "string",
+      "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+    }
+  }
+}
