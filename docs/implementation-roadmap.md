@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 可审计的外场网络准备（v100）
+
+- [x] 非管理员先用 `-PlanOnly` 生成无副作用的精确变更计划；
+- [x] 计划明确 secondary-only、`SkipAsSource`，且不改默认网关、DNS 或显式路由；
+- [x] `-PlanOnly` / `-VerifyOnly` 支持 UTF-8 write-new JSON 证据并拒绝覆盖；
+- [x] 提权 child 精确继承输出路径，实际 apply/remove 保持显式提权；
+- [x] 将全部 field-link 权威纳入 `safety_policy` release parity；
+- [x] 当前桌面只读计划、verify 和 3-sample preflight 均完成，未错误提升硬件声明；
+- [ ] 操作员在现场确认网线与设备上电后执行提权 apply，再重新采集 ready field-link 证据。
+
 ## 可验证、可回滚的 index 发布（v99）
 
 - [x] index write-new 后立即从磁盘执行完整 verifier；

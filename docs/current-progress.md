@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v99 工作树）
+最后更新：2026-09-06（v100 工作树）
+
+## v100 本轮已收口
+
+- `prepare_field_link.ps1` 新增非提权 `-PlanOnly`：在修改网卡前输出拟执行动作、是否需要提权、目标
+  IPv4/prefix、secondary-only/`SkipAsSource` 约束、明确不变更 gateway/DNS/explicit route 以及精确
+  rollback 命令；`-VerifyOnly` 同样可生成结构化只读状态；
+- `-Output` 使用 UTF-8、write-new、flush-to-disk 语义保存审计 JSON，拒绝覆盖已有文件；输出路径会被
+  精确传递给提权子进程。实际 apply/remove 仍要求管理员权限，本轮没有触发 UAC 或改变主机网络；
+- 当前机器计划证据确认 Ethernet 仍为 `192.168.1.13/24`，拟添加的是
+  `192.168.144.250/24` secondary address，`would_change=true`；只读 verify 与 3-sample field preflight
+  继续显示飞机网段无可用 source route，Jetson/GR01/RTSP 均未就绪，`hardware_link_ready=false`；
+- 将 field-link 接口诊断、地址准备、PowerShell/Python runner、canonical verifier 和聚合实现全部纳入
+  `safety_policy` parity。安全 hash 更新为 `792296E8...C7B74`；其余四组 hash 不变。本轮没有 QGC
+  C++/QML 变化，因此不重建 EXE，也不提升 HIL/REAL/hardware/flight 声明；全量回归 3,480 tests：
+  `3479 passed, 1 skipped, 0 failed, 0 errors`，耗时 157.868 秒；JUnit 507,924 bytes、SHA-256
+  `E04959F235BA971BDF7A66F654ADAD99DA9E0DD65C32947EE250FEE33CDF7FA9`，全仓 Ruff 与 compileall 通过。
 
 ## v99 本轮已收口
 

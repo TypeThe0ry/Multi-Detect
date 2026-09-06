@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v100 auditable field network preparation（2026-09-06）
+
+- `prepare_field_link.ps1` 新增无副作用 `-PlanOnly` 与 write-new `-Output`：计划记录拟执行变更、提权需求、
+  secondary-only/`SkipAsSource` 约束、不变更 gateway/DNS/explicit route 的保证及精确 rollback 命令；
+- `-VerifyOnly` 可保存同源只读状态，输出拒绝覆盖，提权 child 精确继承输出路径；实际网卡 apply/remove
+  仍要求显式管理员权限，本轮未修改主机网络；
+- 全部 field-link 诊断、准备、runner/verifier 与聚合代码纳入 `safety_policy` parity，hash 更新为
+  `792296e8...c7b74`。当前 3-sample 预检仍为 `hardware_link_ready=false`，产品保持
+  `v0.3.0-pre.8`，未产生 HIL/REAL/hardware/flight acceptance；全量回归 3,480 tests：
+  `3479 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v99 verified journal index publication（2026-09-06）
 
 - `journal-status --out` 在 write-new 后从磁盘运行完整 verifier，成功返回不再来自未落盘内存对象；

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v99：index write-new 后从磁盘复验并以同一时间戳重建快照，跨写盘漂移自动回滚 |
+| 当前工程迭代 | v100：外场网卡地址变更先生成可审计计划，并将全部 field-link 权威纳入统一安全 parity |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,17 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v100 可审计的外场网络准备
+
+`scripts/prepare_field_link.ps1` 现在支持 `-PlanOnly` 和 write-new `-Output`。非管理员可先生成包含
+拟执行动作、是否需要提权、目标地址、`SkipAsSource`、明确不改网关/DNS/静态路由及精确回滚命令的
+JSON 计划；`-VerifyOnly` 也可保存同格式的只读状态。输出拒绝覆盖，实际添加或移除
+`192.168.144.250/24` 仍要求显式 `-Elevate`。
+
+外场接口盘点、地址准备、预检 wrapper/CLI、canonical verifier 与 Python 聚合实现已全部进入
+`safety_policy` parity。任一现场链路权威变更都会使旧的 HIL/REAL 安全身份失效。本轮没有提升硬件、
+HIL、REAL 或实飞声明。
 
 ### v99 可验证、可回滚的 index 发布
 
