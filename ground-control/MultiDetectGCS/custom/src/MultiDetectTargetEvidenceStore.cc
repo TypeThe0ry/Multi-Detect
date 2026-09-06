@@ -45,6 +45,38 @@ bool validRangeValidity(const QString& validity)
            validity == QStringLiteral("UNAVAILABLE");
 }
 
+bool validEpochHealth(
+    const QString& level,
+    const QString& reason,
+    double restartCount,
+    double retiredRejectCount,
+    double transitionRejectCount,
+    double changedAtMs,
+    double lastIncidentAtMs)
+{
+    if (changedAtMs < 1.0) {
+        return false;
+    }
+    const bool hasIncident = retiredRejectCount > 0.0 || transitionRejectCount > 0.0;
+    if ((hasIncident && lastIncidentAtMs < 1.0) || (!hasIncident && lastIncidentAtMs != 0.0)) {
+        return false;
+    }
+    if (transitionRejectCount > 0.0) {
+        return level == QStringLiteral("CRITICAL") &&
+               reason == QStringLiteral("epoch_transition_capacity_exhausted");
+    }
+    if (retiredRejectCount > 0.0) {
+        return level == QStringLiteral("WARNING") &&
+               reason == QStringLiteral("retired_epoch_packet_rejected");
+    }
+    if (restartCount > 0.0) {
+        return level == QStringLiteral("NOTICE") &&
+               reason == QStringLiteral("producer_restart_observed");
+    }
+    return level == QStringLiteral("HEALTHY") &&
+           reason == QStringLiteral("producer_epoch_stable");
+}
+
 bool validJsonText(
     const QJsonObject& record,
     const QString& key,
@@ -96,7 +128,9 @@ bool validSnapshotRecord(const QJsonObject& record)
     const bool boundV3 = schema == QStringLiteral("multidetect.target-evidence.v3");
     const bool atomicV4 = schema == QStringLiteral("multidetect.target-evidence.v4");
     const bool epochBoundV5 = schema == QStringLiteral("multidetect.target-evidence.v5");
-    if (!legacyV1 && !gnssV2 && !boundV3 && !atomicV4 && !epochBoundV5) {
+    const bool epochHealthV6 = schema == QStringLiteral("multidetect.target-evidence.v6");
+    const bool epochBound = epochBoundV5 || epochHealthV6;
+    if (!legacyV1 && !gnssV2 && !boundV3 && !atomicV4 && !epochBound) {
         return false;
     }
     if (!validJsonText(record, QStringLiteral("target_id"), kMaximumTargetIdLength, true) ||
@@ -149,7 +183,7 @@ bool validSnapshotRecord(const QJsonObject& record)
         return false;
     }
 
-    if (gnssV2 || boundV3 || atomicV4 || epochBoundV5) {
+    if (gnssV2 || boundV3 || atomicV4 || epochBound) {
         bool gnssPresent = false;
         double gnssValue = 0.0;
         const auto validInteger = [&record, &gnssPresent, &gnssValue](
@@ -178,7 +212,7 @@ bool validSnapshotRecord(const QJsonObject& record)
             record.value(QStringLiteral("gnss_reason")).toString() != QStringLiteral("gps_qualified")) {
             return false;
         }
-        if (boundV3 || atomicV4 || epochBoundV5) {
+        if (boundV3 || atomicV4 || epochBound) {
             double targetSequence = 0.0;
             double targetSentAtMs = 0.0;
             double gnssSentAtMs = 0.0;
@@ -194,7 +228,7 @@ bool validSnapshotRecord(const QJsonObject& record)
                 return false;
             }
         }
-        if (atomicV4 || epochBoundV5) {
+        if (atomicV4 || epochBound) {
             double rangeSequence = 0.0;
             double rangeSentAtMs = 0.0;
             double targetSequence = 0.0;
@@ -222,11 +256,46 @@ bool validSnapshotRecord(const QJsonObject& record)
                 return false;
             }
         }
-        if (epochBoundV5) {
+        if (epochBound) {
             double producerEpoch = 0.0;
             if (!finiteJsonNumber(record, QStringLiteral("producer_epoch"), 1.0,
                                   kMaximumGnssSequence, true, &gnssPresent, &producerEpoch) ||
                 std::floor(producerEpoch) != producerEpoch) {
+                return false;
+            }
+        }
+        if (epochHealthV6) {
+            const QString level = record.value(QStringLiteral("producer_epoch_health_level"))
+                                      .toString()
+                                      .trimmed()
+                                      .toUpper();
+            const QString reason =
+                record.value(QStringLiteral("producer_epoch_health_reason")).toString().trimmed();
+            if (!validJsonText(record, QStringLiteral("producer_epoch_health_level"), 16, true) ||
+                !validJsonText(record, QStringLiteral("producer_epoch_health_reason"), 64, true)) {
+                return false;
+            }
+            double restartCount = 0.0;
+            double retiredRejectCount = 0.0;
+            double transitionRejectCount = 0.0;
+            double changedAtMs = 0.0;
+            double lastIncidentAtMs = 0.0;
+            const auto validEpochInteger = [&record, &gnssPresent](const QString& key, double minimum,
+                                                                   double* result) {
+                return finiteJsonNumber(record, key, minimum, kMaximumExactJsonInteger, true,
+                                        &gnssPresent, result) &&
+                       std::floor(*result) == *result;
+            };
+            if (!validEpochInteger(QStringLiteral("producer_restart_count"), 0.0, &restartCount) ||
+                !validEpochInteger(QStringLiteral("retired_epoch_reject_count"), 0.0,
+                                   &retiredRejectCount) ||
+                !validEpochInteger(QStringLiteral("epoch_transition_reject_count"), 0.0,
+                                   &transitionRejectCount) ||
+                !validEpochInteger(QStringLiteral("epoch_changed_at_ms"), 1.0, &changedAtMs) ||
+                !validEpochInteger(QStringLiteral("epoch_last_incident_at_ms"), 0.0,
+                                   &lastIncidentAtMs) ||
+                !validEpochHealth(level, reason, restartCount, retiredRejectCount,
+                                  transitionRejectCount, changedAtMs, lastIncidentAtMs)) {
                 return false;
             }
         }
@@ -360,7 +429,16 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     double gnssVerticalAccuracyM = 0.0;
     double gnssSourceAgeMs = 0.0;
     double producerEpoch = 0.0;
+    double producerRestartCount = 0.0;
+    double retiredEpochRejectCount = 0.0;
+    double epochTransitionRejectCount = 0.0;
+    double epochChangedAtMs = 0.0;
+    double epochLastIncidentAtMs = 0.0;
     const QString gnssReason = boundedText(snapshot, "gnss_reason", 64);
+    const QVariant healthLevelValue = snapshot.value(QStringLiteral("producer_epoch_health_level"));
+    const QVariant healthReasonValue = snapshot.value(QStringLiteral("producer_epoch_health_reason"));
+    const QString epochHealthLevel = healthLevelValue.toString().trimmed().toUpper();
+    const QString epochHealthReason = healthReasonValue.toString().trimmed();
     if (!requiredBoolean("atomic_observation", &atomicObservation) || !atomicObservation ||
         !requiredBoolean("gnss_qualified", &gnssQualified) || !gnssQualified ||
         !requiredBoolean("gnss_position_healthy", &gnssPositionHealthy) || !gnssPositionHealthy ||
@@ -374,6 +452,21 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         !requiredInteger("gnss_status_sequence", 0.0, kMaximumGnssSequence, &gnssSequence) ||
         !requiredInteger("gnss_sent_at_ms", 0.0, kMaximumExactJsonInteger, &gnssSentAtMs) ||
         !requiredInteger("producer_epoch", 1.0, kMaximumGnssSequence, &producerEpoch) ||
+        !requiredInteger("producer_restart_count", 0.0, kMaximumExactJsonInteger,
+                         &producerRestartCount) ||
+        !requiredInteger("retired_epoch_reject_count", 0.0, kMaximumExactJsonInteger,
+                         &retiredEpochRejectCount) ||
+        !requiredInteger("epoch_transition_reject_count", 0.0, kMaximumExactJsonInteger,
+                         &epochTransitionRejectCount) ||
+        !requiredInteger("epoch_changed_at_ms", 1.0, kMaximumExactJsonInteger,
+                         &epochChangedAtMs) ||
+        !requiredInteger("epoch_last_incident_at_ms", 0.0, kMaximumExactJsonInteger,
+                         &epochLastIncidentAtMs) ||
+        healthLevelValue.metaType().id() != QMetaType::QString ||
+        healthReasonValue.metaType().id() != QMetaType::QString ||
+        !validEpochHealth(epochHealthLevel, epochHealthReason, producerRestartCount,
+                          retiredEpochRejectCount, epochTransitionRejectCount, epochChangedAtMs,
+                          epochLastIncidentAtMs) ||
         !requiredInteger("gnss_fix_type", 3.0, 8.0, &gnssFixType) ||
         !requiredInteger("gnss_satellites_visible", 6.0, 255.0, &gnssSatellitesVisible) ||
         !finiteNumber(snapshot.value(QStringLiteral("gnss_horizontal_accuracy_m")),
@@ -384,7 +477,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
         gnssVerticalAccuracyM > 10.0 ||
         !finiteNumber(snapshot.value(QStringLiteral("gnss_source_age_ms")), &gnssSourceAgeMs) ||
         gnssSourceAgeMs < 0.0 || gnssSourceAgeMs > 1500.0) {
-        _setLastError(tr("One producer-epoch-bound atomic range, geolocation, and GNSS observation is required for a v5 snapshot."));
+        _setLastError(tr("One health-audited, producer-epoch-bound atomic range, geolocation, and GNSS observation is required for a v6 snapshot."));
         return false;
     }
     if (rangeSequence != targetGeolocationSequence || targetGeolocationSequence != gnssSequence ||
@@ -400,7 +493,7 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
 
     QJsonObject record;
-    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v5"));
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v6"));
     record.insert(QStringLiteral("saved_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     record.insert(QStringLiteral("target_id"), targetId);
     record.insert(QStringLiteral("target_label"), boundedText(snapshot, "target_label", kMaximumTargetLabelLength));
@@ -420,6 +513,13 @@ bool MultiDetectTargetEvidenceStore::saveSnapshot(const QVariantMap& snapshot)
     }
     record.insert(QStringLiteral("atomic_observation"), atomicObservation);
     record.insert(QStringLiteral("producer_epoch"), producerEpoch);
+    record.insert(QStringLiteral("producer_epoch_health_level"), epochHealthLevel);
+    record.insert(QStringLiteral("producer_epoch_health_reason"), epochHealthReason);
+    record.insert(QStringLiteral("producer_restart_count"), producerRestartCount);
+    record.insert(QStringLiteral("retired_epoch_reject_count"), retiredEpochRejectCount);
+    record.insert(QStringLiteral("epoch_transition_reject_count"), epochTransitionRejectCount);
+    record.insert(QStringLiteral("epoch_changed_at_ms"), epochChangedAtMs);
+    record.insert(QStringLiteral("epoch_last_incident_at_ms"), epochLastIncidentAtMs);
     record.insert(QStringLiteral("range_status_sequence"), rangeSequence);
     record.insert(QStringLiteral("range_sent_at_ms"), rangeSentAtMs);
     record.insert(QStringLiteral("target_geolocation_sequence"), targetGeolocationSequence);

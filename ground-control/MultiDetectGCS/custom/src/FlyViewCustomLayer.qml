@@ -244,7 +244,14 @@ Item {
             "gnss_satellites_visible": MultiDetectState.gnssSatellitesVisible,
             "gnss_horizontal_accuracy_m": MultiDetectState.gnssHorizontalAccuracyM,
             "gnss_vertical_accuracy_m": MultiDetectState.gnssVerticalAccuracyM,
-            "gnss_source_age_ms": MultiDetectState.gnssSourceAgeMs
+            "gnss_source_age_ms": MultiDetectState.gnssSourceAgeMs,
+            "producer_epoch_health_level": MultiDetectState.targetObservationEpochHealthLevel,
+            "producer_epoch_health_reason": MultiDetectState.targetObservationEpochHealthReason,
+            "producer_restart_count": MultiDetectState.targetObservationProducerRestartCount,
+            "retired_epoch_reject_count": MultiDetectState.targetObservationRetiredEpochRejectCount,
+            "epoch_transition_reject_count": MultiDetectState.targetObservationEpochTransitionRejectCount,
+            "epoch_changed_at_ms": MultiDetectState.targetObservationEpochChangedAtMs,
+            "epoch_last_incident_at_ms": MultiDetectState.targetObservationEpochLastIncidentAtMs
         });
         if (saved) {
             _setTargetEvidenceFeedback(
@@ -946,7 +953,15 @@ Item {
 
                             QGCLabel {
                                 Layout.fillWidth: true
-                                text: parent.parent.entry.schema === "multidetect.target-evidence.v5" ?
+                                text: parent.parent.entry.schema === "multidetect.target-evidence.v6" ?
+                                          qsTr("GNSS：v6 epoch %1 · %2/%3 · 重启 %4 · 旧包拒绝 %5 · 切换拒绝 %6").arg(
+                                              root._optionalNumberText(parent.parent.entry.producer_epoch, 0, ""),
+                                              String(parent.parent.entry.producer_epoch_health_level || "--"),
+                                              String(parent.parent.entry.producer_epoch_health_reason || "--"),
+                                              root._optionalNumberText(parent.parent.entry.producer_restart_count, 0, ""),
+                                              root._optionalNumberText(parent.parent.entry.retired_epoch_reject_count, 0, ""),
+                                              root._optionalNumberText(parent.parent.entry.epoch_transition_reject_count, 0, "")) :
+                                      parent.parent.entry.schema === "multidetect.target-evidence.v5" ?
                                           qsTr("GNSS：代际绑定原子观测 · epoch %1 · fix %2 · 星 %3 · H/V %4/%5 m · age %6 ms · seq %7").arg(
                                               root._optionalNumberText(parent.parent.entry.producer_epoch, 0, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_fix_type, 0, ""),

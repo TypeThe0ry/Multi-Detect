@@ -1683,12 +1683,16 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
     }
     if (result == MultiDetectObservationEpoch::Result::Retired) {
         ++_targetObservationRetiredEpochRejectCount;
+        _targetObservationEpochLastIncidentAtMs =
+            static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
         emit targetObservationEpochStatsChanged();
         _reject(QStringLiteral("atomic target observation belongs to a retired producer epoch"));
         return false;
     }
     if (result == MultiDetectObservationEpoch::Result::CapacityExhausted) {
         ++_targetObservationEpochTransitionRejectCount;
+        _targetObservationEpochLastIncidentAtMs =
+            static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
         emit targetObservationEpochStatsChanged();
         _reject(QStringLiteral("atomic target observation producer epoch transition capacity is exhausted"));
         return false;
@@ -1738,6 +1742,40 @@ bool MultiDetectOperatorController::_acceptTargetObservationEpoch(const QVariant
         << "adopting target observation producer epoch=" << incomingEpoch
         << " retired_count=" << _targetObservationEpoch.retiredCount();
     return true;
+}
+
+QString MultiDetectOperatorController::targetObservationEpochHealthLevel() const
+{
+    if (_targetObservationEpoch.activeEpoch() == 0) {
+        return QStringLiteral("WAITING");
+    }
+    if (_targetObservationEpochTransitionRejectCount > 0) {
+        return QStringLiteral("CRITICAL");
+    }
+    if (_targetObservationRetiredEpochRejectCount > 0) {
+        return QStringLiteral("WARNING");
+    }
+    if (_targetObservationProducerRestartCount > 0) {
+        return QStringLiteral("NOTICE");
+    }
+    return QStringLiteral("HEALTHY");
+}
+
+QString MultiDetectOperatorController::targetObservationEpochHealthReason() const
+{
+    if (_targetObservationEpoch.activeEpoch() == 0) {
+        return QStringLiteral("waiting_for_atomic_observation");
+    }
+    if (_targetObservationEpochTransitionRejectCount > 0) {
+        return QStringLiteral("epoch_transition_capacity_exhausted");
+    }
+    if (_targetObservationRetiredEpochRejectCount > 0) {
+        return QStringLiteral("retired_epoch_packet_rejected");
+    }
+    if (_targetObservationProducerRestartCount > 0) {
+        return QStringLiteral("producer_restart_observed");
+    }
+    return QStringLiteral("producer_epoch_stable");
 }
 
 bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,

@@ -42,6 +42,9 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(qulonglong targetObservationRetiredEpochRejectCount READ targetObservationRetiredEpochRejectCount NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(qulonglong targetObservationEpochTransitionRejectCount READ targetObservationEpochTransitionRejectCount NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(qulonglong targetObservationEpochChangedAtMs READ targetObservationEpochChangedAtMs NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(qulonglong targetObservationEpochLastIncidentAtMs READ targetObservationEpochLastIncidentAtMs NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(QString targetObservationEpochHealthLevel READ targetObservationEpochHealthLevel NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(QString targetObservationEpochHealthReason READ targetObservationEpochHealthReason NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -106,6 +109,9 @@ public:
     qulonglong targetObservationRetiredEpochRejectCount() const { return _targetObservationRetiredEpochRejectCount; }
     qulonglong targetObservationEpochTransitionRejectCount() const { return _targetObservationEpochTransitionRejectCount; }
     qulonglong targetObservationEpochChangedAtMs() const { return _targetObservationEpochChangedAtMs; }
+    qulonglong targetObservationEpochLastIncidentAtMs() const { return _targetObservationEpochLastIncidentAtMs; }
+    QString targetObservationEpochHealthLevel() const;
+    QString targetObservationEpochHealthReason() const;
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -339,6 +345,7 @@ private:
     qulonglong _targetObservationRetiredEpochRejectCount = 0;
     qulonglong _targetObservationEpochTransitionRejectCount = 0;
     qulonglong _targetObservationEpochChangedAtMs = 0;
+    qulonglong _targetObservationEpochLastIncidentAtMs = 0;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

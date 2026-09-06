@@ -19,7 +19,7 @@ int check(bool condition, const char* message)
     return 1;
 }
 
-QVariantMap validV4Snapshot()
+QVariantMap validV6Snapshot()
 {
     return {
         {QStringLiteral("target_id"), QStringLiteral("target-17")},
@@ -48,7 +48,27 @@ QVariantMap validV4Snapshot()
         {QStringLiteral("gnss_horizontal_accuracy_m"), 1.8},
         {QStringLiteral("gnss_vertical_accuracy_m"), 3.1},
         {QStringLiteral("gnss_source_age_ms"), 120.0},
+        {QStringLiteral("producer_epoch_health_level"), QStringLiteral("HEALTHY")},
+        {QStringLiteral("producer_epoch_health_reason"), QStringLiteral("producer_epoch_stable")},
+        {QStringLiteral("producer_restart_count"), 0.0},
+        {QStringLiteral("retired_epoch_reject_count"), 0.0},
+        {QStringLiteral("epoch_transition_reject_count"), 0.0},
+        {QStringLiteral("epoch_changed_at_ms"), 1774468800100.0},
+        {QStringLiteral("epoch_last_incident_at_ms"), 0.0},
     };
+}
+
+void removeEpochHealthFields(QJsonObject* record)
+{
+    for (const auto& key : {QStringLiteral("producer_epoch_health_level"),
+                            QStringLiteral("producer_epoch_health_reason"),
+                            QStringLiteral("producer_restart_count"),
+                            QStringLiteral("retired_epoch_reject_count"),
+                            QStringLiteral("epoch_transition_reject_count"),
+                            QStringLiteral("epoch_changed_at_ms"),
+                            QStringLiteral("epoch_last_incident_at_ms")}) {
+        record->remove(key);
+    }
 }
 
 QJsonObject legacyV1Record()
@@ -68,7 +88,8 @@ QJsonObject legacyV1Record()
 
 QJsonObject legacyV2Record()
 {
-    QJsonObject record = QJsonObject::fromVariantMap(validV4Snapshot());
+    QJsonObject record = QJsonObject::fromVariantMap(validV6Snapshot());
+    removeEpochHealthFields(&record);
     record.remove(QStringLiteral("atomic_observation"));
     record.remove(QStringLiteral("range_status_sequence"));
     record.remove(QStringLiteral("range_sent_at_ms"));
@@ -82,7 +103,8 @@ QJsonObject legacyV2Record()
 
 QJsonObject legacyV3Record()
 {
-    QJsonObject record = QJsonObject::fromVariantMap(validV4Snapshot());
+    QJsonObject record = QJsonObject::fromVariantMap(validV6Snapshot());
+    removeEpochHealthFields(&record);
     record.remove(QStringLiteral("atomic_observation"));
     record.remove(QStringLiteral("range_status_sequence"));
     record.remove(QStringLiteral("range_sent_at_ms"));
@@ -94,11 +116,22 @@ QJsonObject legacyV3Record()
 
 QJsonObject legacyV4Record()
 {
-    QJsonObject record = QJsonObject::fromVariantMap(validV4Snapshot());
+    QJsonObject record = QJsonObject::fromVariantMap(validV6Snapshot());
+    removeEpochHealthFields(&record);
     record.remove(QStringLiteral("producer_epoch"));
     record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v4"));
     record.insert(QStringLiteral("saved_at_utc"), QStringLiteral("2026-07-24T10:03:00.000Z"));
     record.insert(QStringLiteral("target_id"), QStringLiteral("legacy-v4-target"));
+    return record;
+}
+
+QJsonObject legacyV5Record()
+{
+    QJsonObject record = QJsonObject::fromVariantMap(validV6Snapshot());
+    removeEpochHealthFields(&record);
+    record.insert(QStringLiteral("schema"), QStringLiteral("multidetect.target-evidence.v5"));
+    record.insert(QStringLiteral("saved_at_utc"), QStringLiteral("2026-07-24T10:04:00.000Z"));
+    record.insert(QStringLiteral("target_id"), QStringLiteral("legacy-v5-target"));
     return record;
 }
 
@@ -126,40 +159,52 @@ int main(int argc, char* argv[])
             seed.write("\n");
             seed.write(QJsonDocument(legacyV4Record()).toJson(QJsonDocument::Compact));
             seed.write("\n");
+            seed.write(QJsonDocument(legacyV5Record()).toJson(QJsonDocument::Compact));
+            seed.write("\n");
         }
     }
 
     MultiDetectTargetEvidenceStore store(storagePath);
-    failures += check(store.snapshotCount() == 4, "legacy v1, v2, v3, and v4 records must remain readable");
+    failures += check(store.snapshotCount() == 5,
+                      "legacy v1, v2, v3, v4, and v5 records must remain readable");
 
-    QVariantMap weakGnss = validV4Snapshot();
+    QVariantMap weakGnss = validV6Snapshot();
     weakGnss.insert(QStringLiteral("gnss_horizontal_accuracy_m"), 6.1);
     failures += check(!store.saveSnapshot(weakGnss), "weak GNSS evidence must be rejected");
-    failures += check(store.snapshotCount() == 4, "rejected evidence must not change count");
+    failures += check(store.snapshotCount() == 5, "rejected evidence must not change count");
 
-    QVariantMap mistypedGnss = validV4Snapshot();
+    QVariantMap mistypedGnss = validV6Snapshot();
     mistypedGnss.insert(QStringLiteral("gnss_qualified"), QStringLiteral("true"));
     failures += check(!store.saveSnapshot(mistypedGnss), "GNSS booleans must remain typed");
-    failures += check(store.snapshotCount() == 4, "mistyped evidence must not change count");
+    failures += check(store.snapshotCount() == 5, "mistyped evidence must not change count");
 
-    QVariantMap mismatchedFrame = validV4Snapshot();
+    QVariantMap mismatchedFrame = validV6Snapshot();
     mismatchedFrame.insert(QStringLiteral("target_geolocation_sent_at_ms"), 1774468800122.0);
     failures += check(!store.saveSnapshot(mismatchedFrame),
                       "mismatched target and GNSS producer frames must be rejected");
-    failures += check(store.snapshotCount() == 4, "frame mismatch must not change count");
+    failures += check(store.snapshotCount() == 5, "frame mismatch must not change count");
 
-    QVariantMap nonAtomic = validV4Snapshot();
+    QVariantMap nonAtomic = validV6Snapshot();
     nonAtomic.insert(QStringLiteral("atomic_observation"), false);
     failures += check(!store.saveSnapshot(nonAtomic), "non-atomic evidence must be rejected");
-    failures += check(store.snapshotCount() == 4, "non-atomic evidence must not change count");
+    failures += check(store.snapshotCount() == 5, "non-atomic evidence must not change count");
 
-    QVariantMap missingEpoch = validV4Snapshot();
+    QVariantMap missingEpoch = validV6Snapshot();
     missingEpoch.remove(QStringLiteral("producer_epoch"));
     failures += check(!store.saveSnapshot(missingEpoch), "missing producer epoch must be rejected");
-    failures += check(store.snapshotCount() == 4, "missing epoch must not change count");
+    failures += check(store.snapshotCount() == 5, "missing epoch must not change count");
 
-    failures += check(store.saveSnapshot(validV4Snapshot()), "qualified epoch-bound atomic v5 snapshot must save");
-    failures += check(store.snapshotCount() == 5, "qualified evidence must increment count");
+    QVariantMap inconsistentHealth = validV6Snapshot();
+    inconsistentHealth.insert(QStringLiteral("producer_epoch_health_level"),
+                              QStringLiteral("CRITICAL"));
+    failures += check(!store.saveSnapshot(inconsistentHealth),
+                      "epoch health severity must match its counters and reason");
+    failures += check(store.snapshotCount() == 5,
+                      "inconsistent epoch health must not change count");
+
+    failures += check(store.saveSnapshot(validV6Snapshot()),
+                      "qualified epoch-health-audited atomic v6 snapshot must save");
+    failures += check(store.snapshotCount() == 6, "qualified evidence must increment count");
     failures += check(store.lastError().isEmpty(), "successful save must clear error");
 
     QFile persisted(storagePath);
@@ -173,25 +218,34 @@ int main(int argc, char* argv[])
     }
     const QJsonObject savedRecord = QJsonDocument::fromJson(lastLine).object();
     failures += check(savedRecord.value(QStringLiteral("schema")).toString() ==
-                          QStringLiteral("multidetect.target-evidence.v5"),
-                      "new snapshots must use v5 schema");
+                          QStringLiteral("multidetect.target-evidence.v6"),
+                      "new snapshots must use v6 schema");
     failures += check(savedRecord.value(QStringLiteral("gnss_status_sequence")).toInt() == 912,
-                      "v5 snapshot must persist GNSS sequence provenance");
+                      "v6 snapshot must persist GNSS sequence provenance");
     failures += check(savedRecord.value(QStringLiteral("gnss_qualified")).toBool(),
-                      "v5 snapshot must persist qualified state");
+                      "v6 snapshot must persist qualified state");
     failures += check(savedRecord.value(QStringLiteral("atomic_observation")).toBool() &&
                           savedRecord.value(QStringLiteral("range_status_sequence")).toInt() == 912 &&
                           savedRecord.value(QStringLiteral("target_geolocation_sequence")).toInt() == 912,
-                      "v5 snapshot must persist one atomic observation identity");
+                      "v6 snapshot must persist one atomic observation identity");
     failures += check(savedRecord.value(QStringLiteral("producer_epoch")).toDouble() == 2712847316.0,
-                      "v5 snapshot must persist the producer epoch");
+                      "v6 snapshot must persist the producer epoch");
+    failures += check(
+        savedRecord.value(QStringLiteral("producer_epoch_health_level")).toString() ==
+                QStringLiteral("HEALTHY") &&
+            savedRecord.value(QStringLiteral("producer_epoch_health_reason")).toString() ==
+                QStringLiteral("producer_epoch_stable") &&
+            savedRecord.value(QStringLiteral("producer_restart_count")).toDouble() == 0.0 &&
+            savedRecord.value(QStringLiteral("epoch_changed_at_ms")).toDouble() ==
+                1774468800100.0,
+        "v6 snapshot must persist canonical epoch health audit fields");
     failures += check(savedRecord.value(QStringLiteral("target_geolocation_sent_at_ms")).toDouble() ==
                           savedRecord.value(QStringLiteral("gnss_sent_at_ms")).toDouble(),
-                      "v5 snapshot must persist the exact producer-frame binding");
+                      "v6 snapshot must persist the exact producer-frame binding");
 
     MultiDetectTargetEvidenceStore reloaded(storagePath);
-    failures += check(reloaded.snapshotCount() == 5, "v1 through v5 records must reload together");
-    failures += check(reloaded.recentSnapshots().size() == 5, "valid records must populate history");
+    failures += check(reloaded.snapshotCount() == 6, "v1 through v6 records must reload together");
+    failures += check(reloaded.recentSnapshots().size() == 6, "valid records must populate history");
 
     if (failures == 0) {
         std::puts("MultiDetectTargetEvidenceStoreSelfTest: PASS");

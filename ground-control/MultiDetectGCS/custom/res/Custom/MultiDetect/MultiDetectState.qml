@@ -130,6 +130,13 @@ QtObject {
                                                                            Number(_operator.targetObservationEpochTransitionRejectCount) : 0
     readonly property double targetObservationEpochChangedAtMs: _operator !== null ?
                                                                       Number(_operator.targetObservationEpochChangedAtMs) : 0
+    readonly property double targetObservationEpochLastIncidentAtMs: _operator !== null ?
+                                                                           Number(_operator.targetObservationEpochLastIncidentAtMs) : 0
+    readonly property string targetObservationEpochHealthLevel: _operator !== null ?
+                                                                        String(_operator.targetObservationEpochHealthLevel) : "WAITING"
+    readonly property string targetObservationEpochHealthReason: _operator !== null ?
+                                                                         String(_operator.targetObservationEpochHealthReason) :
+                                                                         "waiting_for_atomic_observation"
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is
     // cleared by C++ and therefore always renders UNKNOWN here.

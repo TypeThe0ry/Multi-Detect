@@ -409,8 +409,16 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
         "gnss_horizontal_accuracy_m",
         "gnss_vertical_accuracy_m",
         "gnss_source_age_ms",
+        "producer_epoch_health_level",
+        "producer_epoch_health_reason",
+        "producer_restart_count",
+        "retired_epoch_reject_count",
+        "epoch_transition_reject_count",
+        "epoch_changed_at_ms",
+        "epoch_last_incident_at_ms",
     ):
         assert f'"{field}"' in layer
+    assert "multidetect.target-evidence.v6" in card
     assert "multidetect.target-evidence.v5" in card
     assert "multidetect.target-evidence.v4" in card
     assert 'qsTr("GNSS：代际绑定原子观测' in card
@@ -423,7 +431,9 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'QStringLiteral("multidetect.target-evidence.v3")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v4")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v5")' in evidence_store
+    assert 'QStringLiteral("multidetect.target-evidence.v6")' in evidence_store
     assert 'QStringLiteral("producer_epoch")' in evidence_store
+    assert "validEpochHealth" in evidence_store
     assert "rangeSequence != targetGeolocationSequence" in evidence_store
     assert "rangeSentAtMs != targetGeolocationSentAtMs" in evidence_store
     assert "gnssHorizontalAccuracyM > 6.0" in evidence_store
@@ -768,7 +778,12 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "MultiDetectObservationEpoch::Result::CapacityExhausted" in controller
     assert "_targetObservationRetiredEpochRejectCount" in controller
     assert "_targetObservationEpochTransitionRejectCount" in controller
+    assert "_targetObservationEpochLastIncidentAtMs" in controller
     assert "targetObservationEpochStatsChanged" in controller
+    assert 'return QStringLiteral("CRITICAL")' in controller
+    assert 'return QStringLiteral("WARNING")' in controller
+    assert 'return QStringLiteral("NOTICE")' in controller
+    assert 'return QStringLiteral("HEALTHY")' in controller
     assert "kMaximumRetiredEpochs = 32" in _read(CUSTOM_ROOT / "src/MultiDetectObservationEpoch.h")
     assert "return Result::CapacityExhausted" in _read(
         CUSTOM_ROOT / "src/MultiDetectObservationEpoch.h"
@@ -780,8 +795,12 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "MultiDetectState.targetId" not in gps
     assert "targetGeolocation" not in gps
     assert 'qsTr("不可定位 · 等待 GNSS_STATUS")' in gps
-    assert 'label: qsTr("观测生产者")' in indicator
+    assert 'text: qsTr("观测生产者")' in indicator
     assert "function _producerEpochValue()" in indicator
+    assert "function _producerEpochHealthText()" in indicator
+    assert "function _producerEpochHealthColor()" in indicator
+    assert 'qsTr("严重：epoch 切换容量耗尽，重启 QGC")' in indicator
+    assert 'qsTr("警告：已拒绝退休 epoch 旧包")' in indicator
     assert "MultiDetectState.targetObservationProducerEpoch" in indicator
     assert "MultiDetectState.targetObservationProducerRestartCount" in indicator
     assert "MultiDetectState.targetObservationRetiredEpochRejectCount" in indicator

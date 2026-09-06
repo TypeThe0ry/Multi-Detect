@@ -428,11 +428,37 @@ Item {
         const changedAtMs = Number(MultiDetectState.targetObservationEpochChangedAtMs);
         const changedAt = Number.isFinite(changedAtMs) && changedAtMs > 0 ?
                 new Date(changedAtMs).toLocaleTimeString(Qt.locale(), "HH:mm:ss") : "--";
-        return qsTr("epoch %1 · 重启 %2 · 旧包拒绝 %3 · 切换拒绝 %4 · %5").arg(
-                    Math.round(epoch)).arg(
+        return qsTr("%1 · epoch %2 · 重启 %3 · 旧包拒绝 %4 · 切换拒绝 %5 · %6").arg(
+                    _producerEpochHealthText()).arg(Math.round(epoch)).arg(
                     Math.round(MultiDetectState.targetObservationProducerRestartCount)).arg(
                     Math.round(MultiDetectState.targetObservationRetiredEpochRejectCount)).arg(
                     Math.round(MultiDetectState.targetObservationEpochTransitionRejectCount)).arg(changedAt);
+    }
+
+    function _producerEpochHealthText() {
+        const level = String(MultiDetectState.targetObservationEpochHealthLevel || "WAITING").toUpperCase();
+        if (level === "CRITICAL")
+            return qsTr("严重：epoch 切换容量耗尽，重启 QGC");
+        if (level === "WARNING")
+            return qsTr("警告：已拒绝退休 epoch 旧包");
+        if (level === "NOTICE")
+            return qsTr("注意：已观察到生产者重启");
+        if (level === "HEALTHY")
+            return qsTr("正常");
+        return qsTr("等待");
+    }
+
+    function _producerEpochHealthColor() {
+        const level = String(MultiDetectState.targetObservationEpochHealthLevel || "WAITING").toUpperCase();
+        if (level === "CRITICAL")
+            return qgcPal.colorRed;
+        if (level === "WARNING")
+            return qgcPal.colorOrange;
+        if (level === "NOTICE")
+            return qgcPal.colorYellow;
+        if (level === "HEALTHY")
+            return qgcPal.colorGreen;
+        return qgcPal.text;
     }
 
     function _rangeStatusValue() {
@@ -827,9 +853,21 @@ Item {
                                 labelText: control._gnssDetailValue()
                             }
 
-                            LabelledLabel {
-                                label: qsTr("观测生产者")
-                                labelText: control._producerEpochValue()
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: ScreenTools.defaultFontPixelWidth * 2
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    text: qsTr("观测生产者")
+                                }
+
+                                QGCLabel {
+                                    color: control._producerEpochHealthColor()
+                                    font.bold: MultiDetectState.targetObservationEpochHealthLevel === "CRITICAL" ||
+                                               MultiDetectState.targetObservationEpochHealthLevel === "WARNING"
+                                    text: control._producerEpochValue()
+                                }
                             }
 
                             LabelledLabel {
