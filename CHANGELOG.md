@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v107 immutable deployment replay intake（2026-09-06）
+
+- 新增六分层 deployment recording intake、installed CLI、clean-checkout wrapper 和 closed receipt schema；
+- 只复制经 raw replay 契约验证的 manifest/events/images，在 sibling temporary 中完成逐文件 hash、recording
+  identity、frame inventory 二次回验后发布，拒绝覆盖、重复录像、symlink、路径逃逸和篡改；
+- intake 不复制旧标注/预测，强制 annotation/prediction pending 与全部发布 claims=false，不能冒充人工复核、
+  模型精度或部署批准；新增 5 项回归。全量回归 3,502 tests：`3501 passed, 1 skipped`，Ruff 与
+  compileall 通过。
+
 ### v0.3.0-pre.8 v106 embedded replay-set readiness（2026-09-06）
 
 - E7 evaluator 从绑定 replay manifest/accuracy report 实时重算 canonical readiness，并在报告内给出逐

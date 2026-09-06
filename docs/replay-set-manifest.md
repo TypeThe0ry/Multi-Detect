@@ -35,7 +35,32 @@ day / night / haze / reflection / smoke_only / no_fire
 
 ## 创建与检查
 
-先在现场采集或回放工具中生成各分层目录，再创建清单。采集尚未完成时可以生成一个
+先在现场采集六份不同的 raw recording，再使用不可覆盖 intake 把来源固定到待标注目录：
+
+```powershell
+cd D:\Projects\Multi-Detect
+python scripts/prepare_deployment_replay_set.py `
+  --output artifacts\replay-sets\fire-smoke-field-v1 `
+  --dataset-id fire-smoke-field-2026 --dataset-version v1 `
+  --source day=D:\captures\day `
+  --source night=D:\captures\night `
+  --source haze=D:\captures\haze `
+  --source reflection=D:\captures\reflection `
+  --source smoke_only=D:\captures\smoke-only `
+  --source no_fire=D:\captures\no-fire
+
+python scripts/prepare_deployment_replay_set.py `
+  --verify artifacts\replay-sets\fire-smoke-field-v1
+```
+
+intake 要求六个显式且不同的源目录/recording hash，不使用 mtime 或 glob 自动挑选。它只复制
+`recording.manifest.json`、event stream 和被引用图像；已有的 `ground-truth.jsonl` 与
+`predictions.jsonl` 不会被带入。输出 `intake.receipt.json` 对逐文件 SHA-256、字节数、recording hash、
+帧数及 inventory 做 canonical 绑定，并固定标注/预测为 pending、全部 review/accuracy/release claims 为
+false。输出目录已存在、任一 symlink/路径逃逸/hash 变化/重复录像/receipt 篡改都会失败，临时目录会清理。
+
+随后由独立标注者在每个 stratum 写入帧 ID 对齐的 ground truth，并由固定模型生成 predictions，再创建
+正式 manifest。采集或标注尚未完成时也可以生成一个
 明确的 pending 清单：
 
 ```powershell

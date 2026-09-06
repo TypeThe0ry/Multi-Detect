@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v106 工作树）
+最后更新：2026-09-06（v107 工作树）
+
+## v107 本轮已收口
+
+- 新增 deployment replay-set intake：六个 strata 必须显式绑定六个不同 raw recording，拒绝目录复用与
+  recording hash 复用，不靠目录时间或通配符猜来源；
+- staging 只复制 raw manifest、events 和被引用图像，不携带源目录中的旧 ground truth/predictions；逐文件
+  SHA-256/字节数、recording identity、frame count 和完整 artifact inventory 全部绑定到 canonical receipt；
+- 新目录采用 sibling temporary + 完整回验 + rename，拒绝覆盖、symlink、路径逃逸、重复 JSON key、NaN、
+  receipt/claim/artifact 篡改；失败会清理临时目录；
+- receipt 明确固定 annotation/prediction 为 pending，四项 review/accuracy/release claims 全为 false；后续人工
+  标注与模型输出仍须走现有 manifest/evaluator/readiness，不产生部署批准；
+- 新增源码 API、installed CLI、clean-checkout wrapper、closed JSON Schema 和 5 项回归。全量回归 3,502 tests：
+  `3501 passed, 1 skipped, 0 failed, 0 errors`，耗时 176.837 秒；JUnit 510,892 bytes、SHA-256
+  `452AC95871E4746943EDD900A60DA9B545E3403193DC75FAE96988D194EC57A8`；全仓 Ruff 与 compileall 通过。
 
 ## v106 本轮已收口
 
@@ -919,7 +933,8 @@ reported-position 路径；v63 又完成每机型双重复与三故障 fail-clos
 
 ### P2：部署域模型和 replay-set
 
-采集 day/night/haze/reflection/smoke-only/no-fire 数据，完成 fire/smoke 与 person/vehicle 安全模型，
+使用 v107 intake 显式导入 day/night/haze/reflection/smoke-only/no-fire 真实录像，完成独立人工标注、固定模型
+predictions、fire/smoke 与 person/vehicle 安全模型，
 测量 per-class precision/recall/false alarms/misses/latency，完成独立评审后再改变 model status。
 
 ### P3：真实硬件与室外定位

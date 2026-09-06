@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T01:43:27Z",
+  "updated_at_utc": "2026-09-06T01:57:18Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "641e8cd1f3c0925c05063ba692730383c6ffc483",
-    "commit_subject": "feat(release): embed replay readiness diagnostics",
-    "commits_ahead_of_origin_main": 100
+    "commit": "336875613fdda249c094ce0bfcbdc9337ac6af1b",
+    "commit_subject": "feat(replay): add immutable deployment intake",
+    "commits_ahead_of_origin_main": 102
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v106",
+  "working_iteration": "v107",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v106-final.xml",
-      "tests": 3497,
-      "passed": 3496,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v107-final.xml",
+      "tests": 3502,
+      "passed": 3501,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 323.705,
-      "junit_local_path": "tmp/current-progress-regression-v106-final.xml",
-      "junit_file_bytes": 510223,
-      "junit_file_sha256": "fe6a5e094765bf4a5e46ea29a2013d1773e7d2e1631018548e8362f91bc0c4e7",
+      "duration_seconds": 176.837,
+      "junit_local_path": "tmp/current-progress-regression-v107-final.xml",
+      "junit_file_bytes": 510892,
+      "junit_file_sha256": "452ac95871e4746943edd900a60da9b545e3403193dc75fae96988d194ec57a8",
       "distributed_in_git": false
     },
     "ruff": {
@@ -713,6 +713,20 @@
         "deployment_domain_accuracy": "not_claimed",
         "independent_annotation_review": "not_claimed"
       }
+    },
+    "deployment_replay_set_intake": {
+      "implementation": "src/multidetect/replay_set_intake.py",
+      "installed_command": "multidetect-replay-set-intake",
+      "repository_wrapper": "scripts/prepare_deployment_replay_set.py",
+      "schema": "configs/schemas/replay-set-intake-receipt.schema.json",
+      "canonical_strata_count": 6,
+      "explicit_source_binding": true,
+      "atomic_non_overwriting_staging": true,
+      "raw_artifact_hash_reverification": true,
+      "annotations_copied_from_source": false,
+      "predictions_copied_from_source": false,
+      "release_claim": "not_claimed",
+      "field_receipt": "pending_physical_capture"
     },
     "release_gate_report": {
       "local_path": "artifacts/evaluation/terminal-continuation-v106/wrapper-default-final/release-gate-pre.8-current-20260906T014323Z-v6-bound-report.json",

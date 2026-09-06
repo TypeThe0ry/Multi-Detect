@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 部署 replay-set 不可变 intake（v107）
+
+- [x] 六个 canonical strata 使用显式 `STRATUM=SOURCE` 绑定，拒绝缺失、额外和重复源；
+- [x] 重开并验证 raw recording，只复制 manifest、events 和引用图像；
+- [x] sibling temporary 内完成逐文件 hash、recording identity、frame count 和 inventory 回验后 rename；
+- [x] 拒绝覆盖、symlink、路径逃逸、重复 JSON key、非有限数和 receipt/artifact/claim 篡改；
+- [x] receipt 固定 annotation/prediction/review/accuracy/release 为 pending/false；
+- [x] 提供 installed CLI、clean-checkout wrapper、closed schema、独立 verify 与回归；
+- [ ] 现场采集六份不同 deployment recording，执行 intake 并保存真实 receipt；
+- [ ] 独立完成 ground truth 与固定模型 predictions，再生成 manifest/accuracy/readiness 证据。
+
 ## E7 replay-set 可执行 readiness 诊断（v106）
 
 - [x] E7 每次从绑定 manifest 和 accuracy report 重算 readiness，不信任静态声明；

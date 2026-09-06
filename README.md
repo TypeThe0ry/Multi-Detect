@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v106：E7 内嵌可复算的 replay-set readiness 诊断 |
+| 当前工程迭代 | v107：部署录像不可覆盖 intake 与 hash-bound 回验 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v107 部署录像进入可执行 intake
+
+新增 `multidetect-replay-set-intake` 和 `scripts/prepare_deployment_replay_set.py`。操作者必须把
+day/night/haze/reflection/smoke_only/no_fire 六个 strata 显式绑定到六个不同的 raw recording 目录；
+工具会先通过现有 `RawSensorReplayRecording` 重开源数据，只复制 manifest、event stream 与被引用图像，
+在 sibling 临时目录生成 closed-schema、canonical-hash receipt，完成二次重开/逐文件 SHA-256 校验后才原子
+发布输出目录。
+
+intake 永远写入 `annotation_state=pending`、`prediction_state=pending`、`release_ready=false`，不会复制源目录
+里可能存在的旧 ground truth/predictions，也不接受覆盖、重复录像、symlink、路径逃逸或 claims 篡改。人工标注
+和固定模型 predictions 完成后，继续由既有 replay-set manifest/evaluator/readiness 链路接管。
 
 ### v106 replay-set readiness 进入 E7
 
