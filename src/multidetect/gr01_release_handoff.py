@@ -492,6 +492,101 @@ def verify_gr01_release_session_handoff(
     }
 
 
+def verify_gr01_release_session_handoff_configuration(
+    receipt: str | Path,
+    *,
+    host_address: str,
+    port: int,
+    hardware_id: str,
+    expected_source_cidr: str,
+    operator_hmac_environment: str,
+    mavlink_signing_environment: str,
+    minimum_round_trips: int,
+    maximum_packet_loss_rate: float,
+    maximum_ack_latency_p95_ms: float,
+    maximum_attempts: int,
+    maximum_evidence_age_s: float,
+) -> dict[str, Any]:
+    """Fail closed unless a ready target handoff matches the requested run."""
+
+    path = _source(receipt, name="GR01 release-session handoff")
+    reasons: list[str] = []
+    strict = verify_gr01_release_session_handoff(
+        path,
+        check_environment=True,
+        require_ready=True,
+    )
+    if strict["gate_passed"] is not True:
+        reasons.extend(f"handoff: {reason}" for reason in strict["reasons"])
+    try:
+        document = _load_object(path, name="GR01 release-session handoff")
+        source_plan = document.get("source_plan")
+        if not isinstance(source_plan, Mapping):
+            raise Gr01ReleaseHandoffError("handoff source_plan is incomplete")
+        plan_path = _resolve_record_path(source_plan.get("path"), directory=path.parent)
+        portable = _plan_projection(_load_object(plan_path, name="source plan"))
+        expected_configuration = plan_module._normalise_configuration(
+            host_address=host_address,
+            port=port,
+            hardware_id=hardware_id,
+            expected_source_cidr=expected_source_cidr,
+            minimum_round_trips=minimum_round_trips,
+            maximum_packet_loss_rate=maximum_packet_loss_rate,
+            maximum_ack_latency_p95_ms=maximum_ack_latency_p95_ms,
+            maximum_attempts=maximum_attempts,
+            maximum_evidence_age_s=maximum_evidence_age_s,
+        )
+        expected_secret_names = {
+            "operator_hmac": plan_module._secret(
+                operator_hmac_environment,
+                present=False,
+            )["name"],
+            "mavlink_signing": plan_module._secret(
+                mavlink_signing_environment,
+                present=False,
+            )["name"],
+        }
+        if portable["configuration"] != expected_configuration:
+            reasons.append("source plan configuration does not match requested execution")
+        if portable["secret_names"] != expected_secret_names:
+            reasons.append("source plan secret names do not match requested execution")
+        expected_digest = _canonical_sha256(
+            {
+                "configuration": expected_configuration,
+                "secret_names": expected_secret_names,
+                "operations": list(plan_module.OPERATIONS),
+            }
+        )
+        if source_plan.get("configuration_sha256") != expected_digest:
+            reasons.append("handoff configuration digest does not match requested execution")
+    except (Gr01ReleaseHandoffError, OSError, TypeError, ValueError) as exc:
+        reasons.append(str(exc))
+        expected_digest = None
+    return {
+        "schema_version": HANDOFF_SCHEMA_VERSION,
+        "event": "multidetect_gr01_release_session_handoff_configuration_matched",
+        "receipt_path": str(path),
+        "receipt_sha256": _sha256(path),
+        "requested_configuration_sha256": expected_digest,
+        "gate_passed": not reasons,
+        "reasons": reasons,
+    }
+
+
+def _requested_configuration_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--host-address", required=True)
+    parser.add_argument("--port", type=int, default=14580)
+    parser.add_argument("--hardware-id", required=True)
+    parser.add_argument("--expected-source-cidr", required=True)
+    parser.add_argument("--operator-hmac-environment", required=True)
+    parser.add_argument("--mavlink-signing-environment", required=True)
+    parser.add_argument("--minimum-round-trips", type=int, default=100)
+    parser.add_argument("--maximum-packet-loss-rate", type=float, default=0.01)
+    parser.add_argument("--maximum-ack-latency-p95-ms", type=float, default=500.0)
+    parser.add_argument("--maximum-attempts", type=int, default=3)
+    parser.add_argument("--maximum-evidence-age-s", type=float, default=900.0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -506,6 +601,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("receipt", type=Path)
     verify.add_argument("--check-environment", action="store_true")
     verify.add_argument("--require-ready", action="store_true")
+    match = subparsers.add_parser(
+        "match",
+        help="require a ready handoff that matches the requested execution",
+    )
+    match.add_argument("receipt", type=Path)
+    _requested_configuration_arguments(match)
     return parser
 
 
@@ -521,11 +622,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 target_output_root=args.output_root,
                 host_id=args.host_id,
             )
-        else:
+        elif args.command == "verify":
             document = verify_gr01_release_session_handoff(
                 args.receipt,
                 check_environment=args.check_environment,
                 require_ready=args.require_ready,
+            )
+        else:
+            document = verify_gr01_release_session_handoff_configuration(
+                args.receipt,
+                host_address=args.host_address,
+                port=args.port,
+                hardware_id=args.hardware_id,
+                expected_source_cidr=args.expected_source_cidr,
+                operator_hmac_environment=args.operator_hmac_environment,
+                mavlink_signing_environment=args.mavlink_signing_environment,
+                minimum_round_trips=args.minimum_round_trips,
+                maximum_packet_loss_rate=args.maximum_packet_loss_rate,
+                maximum_ack_latency_p95_ms=args.maximum_ack_latency_p95_ms,
+                maximum_attempts=args.maximum_attempts,
+                maximum_evidence_age_s=args.maximum_evidence_age_s,
             )
     except (Gr01ReleaseHandoffError, OSError, ValueError) as exc:
         print(f"GR01 release-session handoff: {exc}")

@@ -15,6 +15,7 @@ from multidetect.gr01_release_handoff import (
     create_gr01_release_session_handoff,
     main,
     verify_gr01_release_session_handoff,
+    verify_gr01_release_session_handoff_configuration,
 )
 from multidetect.gr01_release_plan import create_gr01_release_session_plan
 
@@ -82,6 +83,24 @@ def _create(
     return plan, receipt, document
 
 
+def _match(receipt: Path, **overrides: object) -> dict[str, object]:
+    arguments: dict[str, object] = {
+        "host_address": "192.168.144.20",
+        "port": 14580,
+        "hardware_id": "GR01-OPERATOR-001",
+        "expected_source_cidr": "192.168.144.99/24",
+        "operator_hmac_environment": "MULTIDETECT_OPERATOR_HMAC_KEY",
+        "mavlink_signing_environment": "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX",
+        "minimum_round_trips": 100,
+        "maximum_packet_loss_rate": 0.01,
+        "maximum_ack_latency_p95_ms": 500.0,
+        "maximum_attempts": 3,
+        "maximum_evidence_age_s": 900.0,
+    }
+    arguments.update(overrides)
+    return verify_gr01_release_session_handoff_configuration(receipt, **arguments)
+
+
 def test_handoff_is_path_relocated_source_bound_and_schema_valid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -120,6 +139,35 @@ def test_handoff_can_be_ready_only_with_target_secrets(
             require_ready=True,
         )
         assert verification["gate_passed"] is True
+
+        match = _match(receipt)
+        assert match["gate_passed"] is True
+        assert match["reasons"] == []
+        assert len(match["requested_configuration_sha256"]) == 64
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"port": 14581}, "configuration does not match"),
+        ({"minimum_round_trips": 101}, "configuration does not match"),
+        ({"operator_hmac_environment": "DIFFERENT_KEY"}, "secret names do not match"),
+    ],
+)
+def test_handoff_requested_execution_match_fails_closed_before_network(
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: dict[str, object],
+    message: str,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="gr01-handoff-match-", dir=ROOT / "tmp") as name:
+        _plan, receipt, _document = _create(
+            Path(name),
+            monkeypatch,
+            secrets_present=True,
+        )
+        match = _match(receipt, **overrides)
+        assert match["gate_passed"] is False
+        assert any(message in reason for reason in match["reasons"])
 
 
 def test_handoff_reports_target_source_mismatch_fail_closed(

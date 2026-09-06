@@ -27,6 +27,7 @@ param(
     [string]$Stamp = '',
     [switch]$PlanOnly,
     [string]$PlanOutput = '',
+    [string]$SourcePlan = '',
     [string[]]$ReleaseGateExtraArguments = @()
 )
 
@@ -138,6 +139,9 @@ if ([string]::IsNullOrWhiteSpace($HardwareId)) {
 if ([string]::IsNullOrWhiteSpace($TargetHostId) -or $TargetHostId -match '[\x00-\x1f]') {
     throw 'TargetHostId must be a non-empty printable string.'
 }
+if ($PlanOnly -and -not [string]::IsNullOrWhiteSpace($SourcePlan)) {
+    throw 'SourcePlan cannot be combined with PlanOnly.'
+}
 if ([string]::IsNullOrWhiteSpace($Stamp)) {
     $Stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture)
 }
@@ -213,11 +217,31 @@ if (Test-Path -LiteralPath $sessionRoot) {
 New-Item -ItemType Directory -Path $sessionRoot | Out-Null
 $planPath = Join-Path $sessionRoot 'gr01-release-session-plan.json'
 $planTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_plan.py'
-Invoke-Checked -Executable $pythonPath -Arguments (Get-Gr01PlanArguments -Destination $planPath) `
-    -Label 'GR01 release-session execution preflight creation'
-Invoke-Checked -Executable $pythonPath -Arguments @(
-    $planTool, 'verify', $planPath, '--check-environment', '--require-ready'
-) -Label 'GR01 release-session execution preflight verification'
+if ([string]::IsNullOrWhiteSpace($SourcePlan)) {
+    Invoke-Checked -Executable $pythonPath -Arguments (Get-Gr01PlanArguments -Destination $planPath) `
+        -Label 'GR01 release-session execution preflight creation'
+    Invoke-Checked -Executable $pythonPath -Arguments @(
+        $planTool, 'verify', $planPath, '--check-environment', '--require-ready'
+    ) -Label 'GR01 release-session execution preflight verification'
+} else {
+    $sourcePlanPath = if ([System.IO.Path]::IsPathRooted($SourcePlan)) {
+        [System.IO.Path]::GetFullPath($SourcePlan)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $root $SourcePlan))
+    }
+    $sourcePlanItem = Get-Item -LiteralPath $sourcePlanPath -ErrorAction Stop
+    if (-not $sourcePlanItem.PSIsContainer -and
+        (($sourcePlanItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)) {
+        $sourcePlanHash = (Get-FileHash -LiteralPath $sourcePlanPath -Algorithm SHA256).Hash
+        [System.IO.File]::Copy($sourcePlanPath, $planPath, $false)
+        $importedPlanHash = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash
+        if ($sourcePlanHash -ne $importedPlanHash) {
+            throw 'Imported source plan hash does not match the supplied file.'
+        }
+    } else {
+        throw 'SourcePlan must be a regular non-reparse file.'
+    }
+}
 
 $handoffPath = Join-Path $sessionRoot 'gr01-release-session-handoff.json'
 $handoffTool = Resolve-RepositoryPath -Requested 'scripts\verify_gr01_release_session_handoff.py'
@@ -233,6 +257,26 @@ Invoke-Checked -Executable $pythonPath -Arguments @(
 Invoke-Checked -Executable $pythonPath -Arguments @(
     $handoffTool, 'verify', $handoffPath, '--check-environment', '--require-ready'
 ) -Label 'GR01 release-session target handoff verification'
+Invoke-Checked -Executable $pythonPath -Arguments @(
+    $handoffTool, 'match', $handoffPath,
+    '--host-address', $remoteAddress.ToString(),
+    '--port', [string]$Port,
+    '--hardware-id', $HardwareId,
+    '--expected-source-cidr', $ExpectedSourceCidr,
+    '--operator-hmac-environment', $OperatorHmacKeyEnvironment,
+    '--mavlink-signing-environment', $MavlinkSigningKeyEnvironment,
+    '--minimum-round-trips', [string]$MinimumRoundTrips,
+    '--maximum-packet-loss-rate', $MaximumPacketLossRate.ToString(
+        [Globalization.CultureInfo]::InvariantCulture
+    ),
+    '--maximum-ack-latency-p95-ms', $MaximumAckLatencyP95Milliseconds.ToString(
+        [Globalization.CultureInfo]::InvariantCulture
+    ),
+    '--maximum-attempts', [string]$MaximumAttempts,
+    '--maximum-evidence-age-s', $MaximumEvidenceAgeSeconds.ToString(
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+) -Label 'GR01 release-session requested configuration match'
 
 $benchPath = Join-Path $sessionRoot 'gr01-link-bench.json'
 $benchArguments = @(

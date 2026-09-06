@@ -46,6 +46,7 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "[string]$TargetHostId",
         "[switch]$PlanOnly",
         "[string]$PlanOutput",
+        "[string]$SourcePlan",
         "MULTIDETECT_OPERATOR_HMAC_KEY",
         "MULTIDETECT_MAVLINK_SIGNING_KEY_HEX",
         "--hardware-mode",
@@ -62,6 +63,10 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
         "cannot override controlled parameter",
         "verify_gr01_release_session_plan.py",
         "verify_gr01_release_session_handoff.py",
+        "SourcePlan cannot be combined with PlanOnly",
+        "Imported source plan hash does not match",
+        "SourcePlan must be a regular non-reparse file",
+        "'match', $handoffPath",
         "--check-environment",
         "--require-ready",
         "This record verifies the GR01 E7 binding only",
@@ -71,6 +76,7 @@ def test_gr01_release_session_wrapper_is_transactional_and_fail_closed() -> None
     assert text.index("'gr01-link-bench.json'") < text.index("'gr01-release-session.json'")
     assert text.index("'gr01-release-session-plan.json'") < text.index("'gr01-link-bench.json'")
     assert text.index("'gr01-release-session-handoff.json'") < text.index("'gr01-link-bench.json'")
+    assert text.index("'match', $handoffPath") < text.index("'gr01-link-bench.json'")
     assert "'--plan', $planPath" in text
     assert "'--handoff', $handoffPath" in text
     assert text.index("'create'") < text.index("'verify'")
@@ -143,3 +149,43 @@ def test_plan_only_writes_closed_no_network_receipt_without_secrets() -> None:
                 "present": False,
             },
         }
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable")
+def test_source_plan_cannot_be_combined_with_plan_only() -> None:
+    temp_root = ROOT / "tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="gr01-plan-conflict-", dir=temp_root) as directory:
+        output_root = Path(directory)
+        result = subprocess.run(
+            [
+                str(POWERSHELL),
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(SCRIPT),
+                "-HostAddress",
+                "192.168.144.20",
+                "-HardwareId",
+                "GR01-PLAN-CONFLICT",
+                "-ExpectedSourceCidr",
+                "192.168.144.0/24",
+                "-RepositoryRoot",
+                str(ROOT),
+                "-Python",
+                sys.executable,
+                "-OutputDirectory",
+                str(output_root),
+                "-PlanOnly",
+                "-SourcePlan",
+                str(output_root / "unused.json"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode != 0
+        assert "SourcePlan cannot be combined with PlanOnly" in (result.stderr + result.stdout)
+        assert list(output_root.iterdir()) == []
