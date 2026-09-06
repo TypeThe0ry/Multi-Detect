@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v159：producer epoch 事件时间线与诊断 JSON 导出 |
+| 当前工程迭代 | v160：原生 producer epoch 诊断弹窗与原子 JSON 保存 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,16 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v160 原生 producer epoch 诊断弹窗与原子保存
+
+Fly View 新增“生产者 epoch 诊断”弹窗，按最新事件优先显示最多 64 条事件和 total/retained/dropped。
+卡片与弹窗均可复制或原子保存 JSON 到 `AppLocalDataLocation/diagnostics`。journal、序列化和保存已抽为
+可独立测试的 `MultiDetectProducerEpochDiagnostics`，原生 self-test 覆盖空状态、容量、排序和文件提交。
+v160 Release/portable EXE 为 46,665,216 bytes，SHA-256
+`DE323538B410D6264825B071A083620471A4D726921FD25F10CB859476DB1BAE`；portable offscreen simple boot
+退出 0。该诊断固定 `advisory_only=true`，不进入 PX4 Mission、飞控或物理释放路径；E7 仍为
+`false / false / 31 blockers`。
 
 ### v159 producer epoch 事件时间线与诊断导出
 

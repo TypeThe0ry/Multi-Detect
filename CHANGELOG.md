@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v160 native producer-epoch diagnostics popup and atomic save（2026-09-07）
+
+- Fly View 新增原生 producer epoch 诊断弹窗，按 newest-first 展示最多 64 条事件；卡片与弹窗均支持复制
+  和保存完整诊断 JSON，保存失败进入现有 operator error 状态；
+- 新增 `MultiDetectProducerEpochDiagnostics`，集中实现 journal、摘要、稳定 JSON 与同目录临时文件 rename
+  原子提交；新增原生 self-test 覆盖零事件、容量/丢弃计数、排序、round-trip 和文件提交；
+- Release/portable EXE 为 46,665,216 bytes，SHA-256
+  `DE323538B410D6264825B071A083620471A4D726921FD25F10CB859476DB1BAE`；五项原生 self-test、45 项 focused
+  QGC/parity 回归、Ruff 和 portable offscreen simple boot 通过；最终全量回归为
+  `3660 passed, 2 skipped, 0 failed`；
+- 当前 parity 派生证据和 E7 已重算；E7 仍为 `gate_passed=false`、`release_allowed=false`、31 blockers，
+  现场链路仍错误走 `192.168.1.13`，真实硬件/HIL/REAL/实飞状态没有提升。
+
 ### v0.3.0-pre.8 v159 producer-epoch event timeline and diagnostics export（2026-09-07）
 
 - QGC controller 新增进程内 producer epoch 事件时间线，记录 `epoch_initialized`、`producer_restart`、

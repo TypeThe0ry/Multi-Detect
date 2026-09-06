@@ -12,6 +12,20 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v160 原生 epoch 诊断弹窗与原子保存（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,665,216` bytes，SHA-256
+`DE323538B410D6264825B071A083620471A4D726921FD25F10CB859476DB1BAE`。“目标落图”卡片与新的
+“生产者 epoch 诊断”弹窗均可复制或保存 `multidetect.producer-epoch-diagnostics.v1`。保存路径位于
+`AppLocalDataLocation/diagnostics`，C++ 实现使用同目录临时文件、flush/close 和 rename 原子提交。
+
+五项原生 self-test 通过，其中 depth-grid 使用 Python 生成的 44 个认证 fragment 完成 C++ 重组；portable
+offscreen simple boot 退出 0，stdout 0 bytes、stderr 220 bytes（SHA-256
+`19AD74FE74B1C4A09CB408506D7523CFF73B9B1134157A8180820CBF8AC4054F`），无 QML 初始化错误。
+最终全量回归为 `3660 passed, 2 skipped, 0 failed`，耗时 292.93 秒。
+该功能是只读 operator 诊断，固定 advisory-only，不替代人工 Fly View、室外 GNSS、HIL/REAL、硬件或
+实飞验收。
+
 ### v159 当前 portable 与 producer epoch 诊断导出（2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,659,072` bytes，SHA-256

@@ -1,5 +1,24 @@
 # 统一仓库架构
 
+## v160 原生 producer epoch 诊断弹窗与原子保存链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+MultiDetectOperatorController epoch observations
+  -> MultiDetectProducerEpochDiagnostics（journal <= 64）
+       append / summary / newest-first JSON / atomic save
+  -> MultiDetectState.saveProducerEpochDiagnostics()
+  -> Fly View card + native diagnostics popup
+       copy JSON / save JSON
+  -> AppLocalDataLocation/diagnostics/*.json
+```
+
+- `MultiDetectProducerEpochDiagnostics.{h,cc}` 负责事件有界保存、累计/丢弃计数、稳定序列化与同目录原子
+  文件提交；controller 只负责把 epoch 状态机结果映射为事件并向 QML 暴露摘要；
+- `MultiDetectProducerEpochDiagnosticsSelfTest.cc` 不依赖完整 Fly View，覆盖空 journal、容量淘汰、排序、
+  round-trip 和原子保存，因此文件 I/O 失败与 UI 展示可以分别定位；
+- 诊断链固定 `advisory_only=true`、`flight_control_enabled=false`、
+  `physical_release_enabled=false`，不进入 PX4 Mission、控制适配器或载荷协议。
+
 ## v159 producer epoch 事件与诊断导出链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
