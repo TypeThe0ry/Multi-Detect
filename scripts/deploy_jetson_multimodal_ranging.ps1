@@ -162,6 +162,7 @@ grep -Fq 'def encode_target_geolocation_status' "`$root/src/multidetect/operator
 grep -Fq 'def _target_geolocation_status_due' "`$root/src/multidetect/operator_bridge.py"
 grep -Fq 'TARGET_GEOLOCATION_STATUS = 22' "`$root/src/multidetect/operator_protocol.py"
 grep -Fq 'GNSS_STATUS = 25' "`$root/src/multidetect/operator_protocol.py"
+grep -Fq 'TARGET_OBSERVATION_STATUS = 26' "`$root/src/multidetect/operator_protocol.py"
 grep -Fq 'def encode_gnss_status' "`$root/src/multidetect/operator_mavlink.py"
 grep -Fq 'def _gnss_status_due' "`$root/src/multidetect/operator_bridge.py"
 grep -Fq 'maximum_local_position_age_s: float = 0.60' "`$root/src/multidetect/adaptive_ranging.py"

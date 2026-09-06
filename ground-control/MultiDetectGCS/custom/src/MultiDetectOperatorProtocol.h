@@ -56,6 +56,7 @@ public:
         RuntimeStatus = 23,
         RuntimeStatusAck = 24,
         GnssStatus = 25,
+        TargetObservationStatus = 26,
     };
 
     struct DecodedPacket

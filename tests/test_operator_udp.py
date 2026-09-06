@@ -26,6 +26,7 @@ from multidetect.operator_link import (
     AuthorizationDecisionCommand,
     AuthorizationDecisionCommandGuard,
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
     PayloadTargetChallengeStatusMessage,
@@ -38,6 +39,8 @@ from multidetect.operator_link import (
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
+    TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -893,6 +896,41 @@ def test_background_server_delivers_selection_and_returns_tracking_status() -> N
                 peer=peer,
             )
             range_status = client.receive_range_status(timeout_s=1.0)
+            atomic_geolocation = TargetGeolocationStatusMessage(
+                sequence=6,
+                target_id=range_status.target_id,
+                source_frame_id=range_status.source_frame_id,
+                source_captured_at_s=range_status.source_captured_at_s,
+                produced_at_s=range_status.produced_at_s,
+                available=True,
+                reason="gps_qualified",
+                latitude_deg=1.3008983,
+                longitude_deg=103.8004493,
+                horizontal_sigma_m=6.7,
+            )
+            atomic_gnss = GnssStatusMessage(
+                sequence=6,
+                produced_at_s=range_status.produced_at_s,
+                qualified=True,
+                reason="gps_qualified",
+                position_healthy=True,
+                fix_type=3,
+                satellites_visible=14,
+                horizontal_accuracy_m=1.2,
+                vertical_accuracy_m=2.6,
+                source_age_s=0.3,
+            )
+            server.publish_target_observation_status(
+                TargetObservationStatusMessage(
+                    sequence=6,
+                    produced_at_s=range_status.produced_at_s,
+                    range_status=replace(range_status, sequence=6),
+                    target_geolocation_status=atomic_geolocation,
+                    gnss_status=atomic_gnss,
+                ),
+                peer=peer,
+            )
+            target_observation = client.receive_target_observation_status(timeout_s=1.0)
 
     assert status.state is TrackingState.TRACKING
     assert status.selection_command_id == command.command_id
@@ -922,6 +960,14 @@ def test_background_server_delivers_selection_and_returns_tracking_status() -> N
     assert range_status.advisory_only is True
     assert range_status.flight_control_enabled is False
     assert range_status.physical_release_enabled is False
+    assert target_observation.sequence == 6
+    assert (
+        target_observation.range_status.target_id
+        == target_observation.target_geolocation_status.target_id
+    )
+    assert target_observation.target_geolocation_status.latitude_deg == pytest.approx(1.3008983)
+    assert target_observation.gnss_status.qualified is True
+    assert target_observation.advisory_only is True
 
 
 def test_background_server_round_trips_bound_authorization_decision() -> None:

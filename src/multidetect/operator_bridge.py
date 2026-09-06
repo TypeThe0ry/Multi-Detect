@@ -26,6 +26,7 @@ from .operator_link import (
     SceneContextStatusMessage,
     SelectionAction,
     TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackingState,
@@ -118,6 +119,13 @@ class OperatorStatusTransport(Protocol):
     def publish_gnss_status(
         self,
         status: GnssStatusMessage,
+        *,
+        peer: OperatorPeer,
+    ) -> None: ...
+
+    def publish_target_observation_status(
+        self,
+        status: TargetObservationStatusMessage,
         *,
         peer: OperatorPeer,
     ) -> None: ...
@@ -706,45 +714,35 @@ class LiveOperatorBridge:
             and (
                 self._range_status_due(range_status)
                 or self._target_geolocation_status_due(target_geolocation_status)
+                or self._gnss_status_due(gnss_status)
             )
         ):
-            # Range, WGS-84 and GNSS quality form one retained QGC evidence
-            # state even though the wire uses three authenticated message
-            # types. Publish the exact same-timestamp GNSS observation first;
-            # QGC only enables durable evidence after the geolocation envelope
-            # arrives with that timestamp. A partial failure leaves the UI
-            # fail-closed and retries the complete triple on the next frame.
-            gnss_published = self._publish_gnss_status(gnss_status, self._active_peer, errors)
-            if gnss_published:
+            # One authenticated type-26 envelope now carries the compact
+            # range, WGS-84 and GNSS evidence state.  MAVLink/UDP can no
+            # longer expose a half-delivered triple to QGC.
+            observation = TargetObservationStatusMessage(
+                sequence=target_geolocation_status.sequence,
+                produced_at_s=target_geolocation_status.produced_at_s,
+                range_status=range_status,
+                target_geolocation_status=target_geolocation_status,
+                gnss_status=gnss_status,
+            )
+            if self._publish_target_observation_status(
+                observation,
+                self._active_peer,
+                errors,
+            ):
                 published_gnss_statuses = (gnss_status,)
-                range_published = self._publish_range_status(
-                    range_status,
-                    self._active_peer,
-                    errors,
-                )
-            else:
-                range_published = False
-            if range_published:
                 published_range_statuses = (range_status,)
-                geolocation_published = self._publish_target_geolocation_status(
-                    target_geolocation_status,
-                    self._active_peer,
-                    errors,
+                published_target_geolocation_statuses = (target_geolocation_status,)
+                self._last_range_status_fingerprint = self._range_status_fingerprint(range_status)
+                self._last_range_status_at_s = range_status.produced_at_s
+                self._last_target_geolocation_status_fingerprint = (
+                    self._target_geolocation_status_fingerprint(target_geolocation_status)
                 )
-                if geolocation_published:
-                    published_target_geolocation_statuses = (target_geolocation_status,)
-                    self._last_range_status_fingerprint = self._range_status_fingerprint(
-                        range_status
-                    )
-                    self._last_range_status_at_s = range_status.produced_at_s
-                    self._last_target_geolocation_status_fingerprint = (
-                        self._target_geolocation_status_fingerprint(target_geolocation_status)
-                    )
-                    self._last_target_geolocation_status_at_s = (
-                        target_geolocation_status.produced_at_s
-                    )
-                    self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
-                    self._last_gnss_status_at_s = gnss_status.produced_at_s
+                self._last_target_geolocation_status_at_s = target_geolocation_status.produced_at_s
+                self._last_gnss_status_fingerprint = self._gnss_status_fingerprint(gnss_status)
+                self._last_gnss_status_at_s = gnss_status.produced_at_s
         elif (
             range_status is not None
             and target_geolocation_status is None
@@ -1090,6 +1088,23 @@ class LiveOperatorBridge:
     ) -> bool:
         publish = getattr(self.transport, "publish_gnss_status", None)
         if not callable(publish):
+            return False
+        try:
+            publish(status, peer=peer)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(type(exc).__name__)
+            return False
+        return True
+
+    def _publish_target_observation_status(
+        self,
+        status: TargetObservationStatusMessage,
+        peer: OperatorPeer,
+        errors: list[str],
+    ) -> bool:
+        publish = getattr(self.transport, "publish_target_observation_status", None)
+        if not callable(publish):
+            errors.append("TargetObservationTransportUnavailable")
             return False
         try:
             publish(status, peer=peer)

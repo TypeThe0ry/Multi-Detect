@@ -405,6 +405,50 @@ int main(int argc, char* argv[])
                           !packet.fields.value(QStringLiteral("physicalReleaseEnabled")).toBool(),
                       "GNSS status must remain display-only");
 
+    const QByteArray targetObservation = vector(
+        "4d44011a00000000007300000000000f433a0058e65c7f305ba849ec9b383ba6daf97c12"
+        "5a736508010f597402001000000009000004d2041c04ae04f703fd043bfb2e87ce007d0000"
+        "0400ffffff1d00017f69010100c680573ddeb10d00430032010c02030e000c001a00036bbf"
+        "ffa1cbac47ee42ba2af321ffd263");
+    failures += check(targetObservation.size() == 124,
+                      "atomic target observation vector must fit one MAVLink TUNNEL payload");
+    failures += check(protocol.decode(targetObservation, &packet, &error),
+                      "atomic target observation golden vector must decode");
+    failures += check(packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus &&
+                          packet.sequence == 115 &&
+                          packet.fields.value(QStringLiteral("atomicObservation")).toBool(),
+                      "atomic target observation envelope mismatch");
+    const QVariantMap observationRange = packet.fields.value(QStringLiteral("rangeStatus")).toMap();
+    const QVariantMap observationGeolocation =
+        packet.fields.value(QStringLiteral("targetGeolocationStatus")).toMap();
+    const QVariantMap observationGnss = packet.fields.value(QStringLiteral("gnssStatus")).toMap();
+    failures += check(observationRange.value(QStringLiteral("validity")).toString() ==
+                              QStringLiteral("DEGRADED") &&
+                          std::abs(observationRange.value(QStringLiteral("groundRangeM")).toDouble() -
+                                   105.2) < 0.001 &&
+                          observationRange.value(QStringLiteral("fusionProfile")).toString() ==
+                              QStringLiteral("atomic-observation-v1"),
+                      "atomic target observation range fields mismatch");
+    failures += check(observationGeolocation.value(QStringLiteral("available")).toBool() &&
+                          std::abs(observationGeolocation.value(QStringLiteral("latitudeDeg")).toDouble() -
+                                   1.3008983) < 0.0000001 &&
+                          std::abs(observationGeolocation.value(QStringLiteral("horizontalSigmaM")).toDouble() -
+                                   6.7) < 0.001,
+                      "atomic target observation geolocation fields mismatch");
+    failures += check(observationGnss.value(QStringLiteral("qualified")).toBool() &&
+                          observationGnss.value(QStringLiteral("satellitesVisible")).toInt() == 14 &&
+                          observationGnss.value(QStringLiteral("sourceAgeMs")).toInt() == 300,
+                      "atomic target observation GNSS fields mismatch");
+
+    const QByteArray forgedAtomicObservation = vector(
+        "4d44011a00000000007300000000000f433a0058e65c7f305ba849ec9b383ba6daf97c12"
+        "5a736508010f597402001000000009000004d2041c04ae04f703fd043bfb2e87ce007d0000"
+        "0400ffffff1d00017f69010100c680573ddeb10d00430032000c02030e000c001a0003d9c5"
+        "4cabc722f71455c1c9f434080c01");
+    failures += check(!protocol.decode(forgedAtomicObservation, &packet, &error) &&
+                          error == QStringLiteral("target-observation GNSS content is inconsistent"),
+                      "atomic observation must reject qualified coordinates bound to weak GNSS");
+
     QByteArray forgedQualifiedGnss = gnssStatus;
     forgedQualifiedGnss[24] = static_cast<char>(0x04);  // only four satellites
     forgedQualifiedGnss = resign(forgedQualifiedGnss, key);

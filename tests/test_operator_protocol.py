@@ -46,6 +46,7 @@ from multidetect.operator_link import (
     SceneContextStatusMessage,
     SelectionAction,
     TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -557,6 +558,105 @@ def test_gnss_status_round_trip_exposes_raw_quality_without_coordinates() -> Non
     assert not hasattr(message, "latitude_deg")
     assert message.advisory_only is True
     assert message.flight_control_enabled is False
+
+
+def test_target_observation_status_round_trip_is_one_authenticated_tunnel_payload() -> None:
+    produced_at_s = 1_000.25
+    range_status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=112,
+        target_id="target-fire-7",
+        calibration_id="camera-main-v2",
+        source_frame_id="jetson-frame-702",
+        source_captured_at_s=1_000.20,
+        produced_at_s=produced_at_s,
+        validity=RangeValidity.DEGRADED,
+        reasons=("single_absolute_range_method",),
+        sources=("pixhawk_agl", "camera_ground"),
+        rejected_sources=(),
+        slant_range_m=123.4,
+        ground_range_m=105.2,
+        slant_range_ci95_m=(119.8, 127.1),
+        ground_range_ci95_m=(102.1, 108.3),
+        relative_bearing_deg=-12.34,
+        absolute_bearing_deg=347.66,
+        bearing_sigma_deg=1.25,
+        north_offset_m=102.4,
+        east_offset_m=-22.7,
+        data_freshness_s=0.08,
+        sensor_consistency=0.5,
+        vehicle_profile="fixed-wing",
+        navigation_state="gps-aided",
+        motion_regime="cruise",
+    )
+    geolocation = TargetGeolocationStatusMessage(
+        sequence=113,
+        target_id=range_status.target_id,
+        source_frame_id=range_status.source_frame_id,
+        source_captured_at_s=range_status.source_captured_at_s,
+        produced_at_s=produced_at_s,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=1.3008983,
+        longitude_deg=103.8004493,
+        horizontal_sigma_m=6.71,
+    )
+    gnss = GnssStatusMessage(
+        sequence=114,
+        produced_at_s=produced_at_s,
+        qualified=True,
+        reason="gps_qualified",
+        position_healthy=True,
+        fix_type=3,
+        satellites_visible=14,
+        horizontal_accuracy_m=1.24,
+        vertical_accuracy_m=2.57,
+        source_age_s=0.34,
+    )
+    observation = TargetObservationStatusMessage(
+        sequence=115,
+        produced_at_s=produced_at_s,
+        range_status=range_status,
+        target_geolocation_status=geolocation,
+        gnss_status=gnss,
+    )
+
+    encoded = _codec().encode_target_observation_status(observation)
+    decoded = _codec().decode(encoded)
+
+    assert len(encoded) == 124
+    assert len(encoded) <= MAX_TUNNEL_PAYLOAD_BYTES
+    assert decoded.message_type is WireMessageType.TARGET_OBSERVATION_STATUS
+    message = decoded.message
+    assert isinstance(message, TargetObservationStatusMessage)
+    assert message.sequence == 115
+    assert message.range_status.ground_range_m == pytest.approx(105.2)
+    assert message.range_status.source_contributions == ()
+    assert message.target_geolocation_status.latitude_deg == pytest.approx(1.3008983)
+    assert message.target_geolocation_status.horizontal_sigma_m == pytest.approx(6.7)
+    assert message.gnss_status.qualified is True
+    assert message.gnss_status.satellites_visible == 14
+    assert (
+        message.range_status.produced_at_s
+        == message.target_geolocation_status.produced_at_s
+        == message.gnss_status.produced_at_s
+    )
+    assert message.advisory_only is True
+    assert message.flight_control_enabled is False
+    assert message.physical_release_enabled is False
+
+    with pytest.raises(ValueError, match="share one producer timestamp"):
+        replace(observation, gnss_status=replace(gnss, produced_at_s=produced_at_s + 0.1))
+    with pytest.raises(ValueError, match="requires qualified GNSS"):
+        replace(
+            observation,
+            gnss_status=replace(
+                gnss,
+                qualified=False,
+                reason="gps_fix_unqualified",
+                fix_type=2,
+            ),
+        )
 
 
 def test_gnss_status_preserves_unqualified_diagnostics_and_rejects_false_qualified() -> None:

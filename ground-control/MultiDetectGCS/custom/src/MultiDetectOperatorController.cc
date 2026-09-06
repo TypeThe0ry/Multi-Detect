@@ -911,6 +911,40 @@ void MultiDetectOperatorController::_mavlinkMessageReceived(LinkInterface* link,
         _lastGnssStatusAtMs = _lastAuthenticatedAtMs;
         emit gnssStatusChanged();
         emit gnssStatusReceived(fields);
+    } else if (packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus) {
+        QVariantMap rangeFields = fields.value(QStringLiteral("rangeStatus")).toMap();
+        QVariantMap geolocationFields = fields.value(QStringLiteral("targetGeolocationStatus")).toMap();
+        QVariantMap gnssFields = fields.value(QStringLiteral("gnssStatus")).toMap();
+        if (rangeFields.isEmpty() || geolocationFields.isEmpty() || gnssFields.isEmpty() ||
+            !_acceptTargetGeolocationSource(geolocationFields, packet.sentAtMs, _lastAuthenticatedAtMs)) {
+            _reject(QStringLiteral("atomic target observation is incomplete, stale, or regressed"));
+            return;
+        }
+        // All three maps inherit the same authenticated type-26 envelope.
+        // Observers therefore see one sequence/time identity and cannot save
+        // a coordinate with range or GNSS data from a partially delivered
+        // neighboring packet.
+        rangeFields.insert(QStringLiteral("sequence"), packet.sequence);
+        rangeFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
+        rangeFields.insert(QStringLiteral("atomicObservation"), true);
+        geolocationFields.insert(QStringLiteral("sequence"), packet.sequence);
+        geolocationFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
+        geolocationFields.insert(QStringLiteral("atomicObservation"), true);
+        gnssFields.insert(QStringLiteral("sequence"), packet.sequence);
+        gnssFields.insert(QStringLiteral("sentAtMs"), QVariant::fromValue<qulonglong>(packet.sentAtMs));
+        gnssFields.insert(QStringLiteral("atomicObservation"), true);
+        _rangeStatus = rangeFields;
+        _targetGeolocationStatus = geolocationFields;
+        _gnssStatus = gnssFields;
+        _lastRangeStatusAtMs = _lastAuthenticatedAtMs;
+        _lastTargetGeolocationStatusAtMs = _lastAuthenticatedAtMs;
+        _lastGnssStatusAtMs = _lastAuthenticatedAtMs;
+        emit rangeStatusChanged();
+        emit targetGeolocationStatusChanged();
+        emit gnssStatusChanged();
+        emit rangeStatusReceived(rangeFields);
+        emit targetGeolocationStatusReceived(geolocationFields);
+        emit gnssStatusReceived(gnssFields);
     } else if (packet.type == MultiDetectOperatorProtocol::MessageType::ReleaseStatus) {
         _releaseStatus = fields;
         _lastReleaseStatusAtMs = _lastAuthenticatedAtMs;

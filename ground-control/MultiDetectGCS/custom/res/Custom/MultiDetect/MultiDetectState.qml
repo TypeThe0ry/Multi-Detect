@@ -652,6 +652,7 @@ QtObject {
             root.gnssStatusAvailable = true;
             root.gnssSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
             root.gnssSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
+            root.gnssAtomicObservation = status.atomicObservation === true;
             root.gnssQualified = status.qualified === true;
             root.gnssReason = String(status.reason || "");
             root.gnssPositionHealthyAvailable = status.positionHealthyAvailable === true;
@@ -664,6 +665,9 @@ QtObject {
         }
 
         function onRangeStatusReceived(status) {
+            root.rangeSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
+            root.rangeSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
+            root.rangeAtomicObservation = status.atomicObservation === true;
             root.rangeTargetId = status.targetId;
             root.rangeCalibrationId = status.calibrationId;
             root.rangeSourceFrameId = String(status.sourceFrameId || "");
@@ -719,6 +723,7 @@ QtObject {
         function onTargetGeolocationStatusReceived(status) {
             root.targetGeolocationSequence = Number.isFinite(status.sequence) ? status.sequence : -1;
             root.targetGeolocationSentAtMs = Number.isFinite(status.sentAtMs) ? status.sentAtMs : NaN;
+            root.targetGeolocationAtomicObservation = status.atomicObservation === true;
             root.targetGeolocationTargetId = String(status.targetId || "");
             root.targetGeolocationSourceFrameId = String(status.sourceFrameId || "");
             root.targetGeolocationAvailable = status.available === true;
@@ -1130,6 +1135,9 @@ QtObject {
     property real rangeSlantHighM: -1.0
     property real rangeSlantLowM: -1.0
     property real rangeSlantM: -1.0
+    property real rangeSequence: -1
+    property real rangeSentAtMs: NaN
+    property bool rangeAtomicObservation: false
     property real rangeSourceAgeMs: NaN
     // A fresh transport envelope must not make an old metric range look
     // current.  This is the QML counterpart of the operator-link decoder
@@ -1151,6 +1159,7 @@ QtObject {
     property bool gnssStatusAvailable: false
     property real gnssSequence: -1
     property real gnssSentAtMs: NaN
+    property bool gnssAtomicObservation: false
     property bool gnssQualified: false
     property string gnssReason: ""
     property bool gnssPositionHealthyAvailable: false
@@ -1163,6 +1172,7 @@ QtObject {
     property bool targetGeolocationAvailable: false
     property real targetGeolocationSequence: -1
     property real targetGeolocationSentAtMs: NaN
+    property bool targetGeolocationAtomicObservation: false
     property real targetHorizontalSigmaM: -1.0
     property real targetLatitudeDeg: NaN
     property real targetLongitudeDeg: NaN
@@ -1172,7 +1182,15 @@ QtObject {
                                                                 rangeSourceFrameId !== "" &&
                                                                 targetGeolocationTargetId === rangeTargetId &&
                                                                 targetGeolocationSourceFrameId === rangeSourceFrameId
-    readonly property bool targetGeolocationGnssBindingValid: Number.isFinite(targetGeolocationSequence) &&
+    readonly property bool targetGeolocationGnssBindingValid: rangeAtomicObservation &&
+                                                               targetGeolocationAtomicObservation &&
+                                                               gnssAtomicObservation &&
+                                                               Number.isFinite(rangeSequence) &&
+                                                               rangeSequence >= 0 &&
+                                                               Math.floor(rangeSequence) === rangeSequence &&
+                                                               Number.isFinite(rangeSentAtMs) &&
+                                                               rangeSentAtMs >= 0 &&
+                                                               Number.isFinite(targetGeolocationSequence) &&
                                                                targetGeolocationSequence >= 0 &&
                                                                Math.floor(targetGeolocationSequence) === targetGeolocationSequence &&
                                                                Number.isFinite(gnssSequence) &&
@@ -1182,6 +1200,9 @@ QtObject {
                                                                targetGeolocationSentAtMs >= 0 &&
                                                                Number.isFinite(gnssSentAtMs) &&
                                                                gnssSentAtMs >= 0 &&
+                                                               rangeSequence === targetGeolocationSequence &&
+                                                               targetGeolocationSequence === gnssSequence &&
+                                                               rangeSentAtMs === targetGeolocationSentAtMs &&
                                                                targetGeolocationSentAtMs === gnssSentAtMs
     readonly property bool targetGeolocationSourceFresh: Number.isFinite(targetGeolocationSourceAgeMs) &&
                                                          targetGeolocationSourceAgeMs >= 0.0 &&
@@ -2037,6 +2058,9 @@ QtObject {
     }
 
     function _resetRangeStatus() {
+        rangeSequence = -1;
+        rangeSentAtMs = NaN;
+        rangeAtomicObservation = false;
         rangeTargetId = "";
         rangeCalibrationId = "";
         rangeValidity = "UNAVAILABLE";
@@ -2063,6 +2087,7 @@ QtObject {
         targetGeolocationAvailable = false;
         targetGeolocationSequence = -1;
         targetGeolocationSentAtMs = NaN;
+        targetGeolocationAtomicObservation = false;
         targetHorizontalSigmaM = -1.0;
         targetLatitudeDeg = NaN;
         targetLongitudeDeg = NaN;
@@ -2076,6 +2101,7 @@ QtObject {
         gnssStatusAvailable = false;
         gnssSequence = -1;
         gnssSentAtMs = NaN;
+        gnssAtomicObservation = false;
         gnssQualified = false;
         gnssReason = "";
         gnssPositionHealthyAvailable = false;

@@ -1468,6 +1468,58 @@ class GnssStatusMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetObservationStatusMessage:
+    """One authenticated range/geolocation/GNSS observation envelope.
+
+    The nested messages keep their public domain models, while this wrapper
+    makes the cross-message invariants explicit before any transport encoder
+    can emit a type-26 packet.  It is display/evidence metadata only.
+    """
+
+    sequence: int
+    produced_at_s: float
+    range_status: RangeStatusMessage
+    target_geolocation_status: TargetGeolocationStatusMessage
+    gnss_status: GnssStatusMessage
+    advisory_only: bool = True
+    flight_control_enabled: bool = False
+    physical_release_enabled: bool = False
+    protocol_version: int = OPERATOR_LINK_PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if self.protocol_version != OPERATOR_LINK_PROTOCOL_VERSION:
+            raise ValueError("unsupported operator-link protocol version")
+        if not 0 <= self.sequence <= 0xFFFFFFFF:
+            raise ValueError("sequence must fit in an unsigned 32-bit integer")
+        if not isfinite(self.produced_at_s) or self.produced_at_s < 0.0:
+            raise ValueError("target observation timestamp must be finite and non-negative")
+        if not isinstance(self.range_status, RangeStatusMessage):
+            raise ValueError("target observation range status is invalid")
+        if not isinstance(self.target_geolocation_status, TargetGeolocationStatusMessage):
+            raise ValueError("target observation geolocation status is invalid")
+        if not isinstance(self.gnss_status, GnssStatusMessage):
+            raise ValueError("target observation GNSS status is invalid")
+        range_status = self.range_status
+        geolocation = self.target_geolocation_status
+        gnss = self.gnss_status
+        if any(
+            status.produced_at_s != self.produced_at_s
+            for status in (range_status, geolocation, gnss)
+        ):
+            raise ValueError("target observation components must share one producer timestamp")
+        if (
+            range_status.target_id != geolocation.target_id
+            or range_status.source_frame_id != geolocation.source_frame_id
+            or range_status.source_captured_at_s != geolocation.source_captured_at_s
+        ):
+            raise ValueError("target observation range/geolocation identity is inconsistent")
+        if geolocation.available and not gnss.qualified:
+            raise ValueError("available target observation requires qualified GNSS")
+        if not self.advisory_only or self.flight_control_enabled or self.physical_release_enabled:
+            raise ValueError("target observation transport must remain display-only")
+
+
+@dataclass(frozen=True, slots=True)
 class ReleaseStatusMessage:
     """Authenticated Mode-2 impact advice; never an authorization or actuator command."""
 
@@ -2311,6 +2363,7 @@ __all__ = [
     "TargetPoolEntry",
     "TargetPoolStatusMessage",
     "TargetGeolocationStatusMessage",
+    "TargetObservationStatusMessage",
     "GnssStatusMessage",
     "GNSS_STATUS_REASON_IDS",
     "TARGET_GEOLOCATION_REASON_IDS",

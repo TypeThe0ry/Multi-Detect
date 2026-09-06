@@ -227,6 +227,11 @@ Item {
             "relative_bearing_deg": _snapshotBearingDeg(),
             "range_validity": _snapshotRangeValidity(),
             "source_age_ms": MultiDetectState.targetGeolocationSourceAgeMs,
+            "atomic_observation": MultiDetectState.rangeAtomicObservation &&
+                                  MultiDetectState.targetGeolocationAtomicObservation &&
+                                  MultiDetectState.gnssAtomicObservation,
+            "range_status_sequence": MultiDetectState.rangeSequence,
+            "range_sent_at_ms": MultiDetectState.rangeSentAtMs,
             "target_geolocation_sequence": MultiDetectState.targetGeolocationSequence,
             "target_geolocation_sent_at_ms": MultiDetectState.targetGeolocationSentAtMs,
             "gnss_status_sequence": MultiDetectState.gnssSequence,
@@ -940,14 +945,16 @@ Item {
 
                             QGCLabel {
                                 Layout.fillWidth: true
-                                text: parent.parent.entry.schema === "multidetect.target-evidence.v3" ?
-                                          qsTr("GNSS：原子绑定 · fix %1 · 星 %2 · H/V %3/%4 m · age %5 ms · seq %6").arg(
+                                text: parent.parent.entry.schema === "multidetect.target-evidence.v4" ?
+                                          qsTr("GNSS：单包原子观测 · fix %1 · 星 %2 · H/V %3/%4 m · age %5 ms · seq %6").arg(
                                               root._optionalNumberText(parent.parent.entry.gnss_fix_type, 0, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_satellites_visible, 0, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_horizontal_accuracy_m, 1, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_vertical_accuracy_m, 1, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_source_age_ms, 0, ""),
                                               root._optionalNumberText(parent.parent.entry.gnss_status_sequence, 0, "")) :
+                                      parent.parent.entry.schema === "multidetect.target-evidence.v3" ?
+                                          qsTr("GNSS：旧版 v3 同生产帧三消息绑定") :
                                       parent.parent.entry.schema === "multidetect.target-evidence.v2" ?
                                           qsTr("GNSS：旧版 v2 同期质量记录，无原子 envelope 绑定") :
                                           qsTr("GNSS：旧版 v1 记录，无独立质量证据")

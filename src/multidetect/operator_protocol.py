@@ -57,6 +57,7 @@ from .operator_link import (
     SceneContextStatusMessage,
     SelectionAction,
     TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetPoolEntry,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
@@ -101,6 +102,10 @@ _PAYLOAD_TARGET_STATUS = struct.Struct(">16sQIQIBHB")
 _RUNTIME_STATUS = struct.Struct(">BBBBQQQQ")
 _RUNTIME_STATUS_ACK = struct.Struct(">IQ")
 _GNSS_STATUS = struct.Struct(">BBBBBHHH")
+# Compact range + target coordinate + GNSS quality.  The authenticated frame
+# is 124 bytes total (20-byte header + 88-byte body + 16-byte HMAC), staying
+# below MAVLink TUNNEL's fixed 128-byte payload ceiling.
+_TARGET_OBSERVATION_STATUS = struct.Struct(">QQQBIHH6HhHHiiHBBBBiiHHBBBBBHHH")
 
 
 class OperatorProtocolError(ValueError):
@@ -133,6 +138,7 @@ class WireMessageType(IntEnum):
     RUNTIME_STATUS = 23
     RUNTIME_STATUS_ACK = 24
     GNSS_STATUS = 25
+    TARGET_OBSERVATION_STATUS = 26
 
 
 class SelectionAckReason(IntEnum):
@@ -708,6 +714,94 @@ class OperatorTunnelCodec:
         )
         return self._encode_frame(
             WireMessageType.GNSS_STATUS,
+            sequence=status.sequence,
+            sent_at_s=status.produced_at_s,
+            body=body,
+        )
+
+    def encode_target_observation_status(self, status: TargetObservationStatusMessage) -> bytes:
+        """Encode one atomic range/geolocation/GNSS display observation."""
+
+        range_status = status.range_status
+        geolocation = status.target_geolocation_status
+        gnss = status.gnss_status
+        validity = {
+            RangeValidity.VALID: 1,
+            RangeValidity.DEGRADED: 2,
+            RangeValidity.INVALID: 3,
+        }[range_status.validity]
+        reason_mask = _registry_mask(range_status.reasons, RANGING_REASON_IDS, "ranging reason")
+        source_mask = _registry_mask(range_status.sources, RANGING_SOURCE_IDS, "ranging source")
+        rejected_source_mask = _registry_mask(
+            range_status.rejected_sources,
+            RANGING_SOURCE_IDS,
+            "rejected ranging source",
+        )
+        source_age_s = status.produced_at_s - geolocation.source_captured_at_s
+        source_age_ms = _bounded_uint(
+            round(source_age_s * 1000.0),
+            bits=16,
+            field_name="target observation source frame age milliseconds",
+        )
+        if geolocation.available and source_age_ms > MAX_TARGET_GEOLOCATION_SOURCE_AGE_MS:
+            raise ValueError("target observation source frame is stale")
+        if range_status.validity in {RangeValidity.VALID, RangeValidity.DEGRADED}:
+            if source_age_ms > MAX_RANGE_STATUS_SOURCE_AGE_MS:
+                raise ValueError("target observation range source frame is stale")
+            if range_status.data_freshness_s is None:
+                raise ValueError("target observation valid range requires data freshness")
+            if range_status.data_freshness_s > MAX_RANGE_STATUS_SOURCE_AGE_S:
+                raise ValueError("target observation range data freshness is stale")
+        slant_ci = range_status.slant_range_ci95_m or (None, None)
+        ground_ci = range_status.ground_range_ci95_m or (None, None)
+        geolocation_reason = TARGET_GEOLOCATION_REASON_IDS.index(geolocation.reason) + 1
+        gnss_reason = GNSS_STATUS_REASON_IDS.index(gnss.reason) + 1
+        position_health = (
+            0 if gnss.position_healthy is None else (2 if gnss.position_healthy else 1)
+        )
+        body = _TARGET_OBSERVATION_STATUS.pack(
+            _hash64(range_status.target_id),
+            _hash64(range_status.source_frame_id),
+            _hash64(range_status.calibration_id),
+            validity,
+            reason_mask,
+            source_mask,
+            rejected_source_mask,
+            _encode_distance(range_status.slant_range_m),
+            _encode_distance(range_status.ground_range_m),
+            _encode_distance(slant_ci[0]),
+            _encode_distance(slant_ci[1]),
+            _encode_distance(ground_ci[0]),
+            _encode_distance(ground_ci[1]),
+            _encode_bearing(range_status.relative_bearing_deg),
+            _encode_unsigned_bearing(range_status.absolute_bearing_deg),
+            _encode_unsigned_centidegrees(range_status.bearing_sigma_deg),
+            _encode_signed_distance32(range_status.north_offset_m),
+            _encode_signed_distance32(range_status.east_offset_m),
+            _encode_duration(range_status.data_freshness_s),
+            _encode_ratio(range_status.sensor_consistency),
+            _encode_range_status_flags(
+                vehicle_profile=range_status.vehicle_profile,
+                navigation_state=range_status.navigation_state,
+                motion_regime=range_status.motion_regime,
+            ),
+            int(geolocation.available),
+            geolocation_reason,
+            _encode_coordinate_e7(geolocation.latitude_deg),
+            _encode_coordinate_e7(geolocation.longitude_deg),
+            _encode_distance(geolocation.horizontal_sigma_m),
+            source_age_ms,
+            int(gnss.qualified),
+            gnss_reason,
+            position_health,
+            0xFF if gnss.fix_type is None else gnss.fix_type,
+            0xFF if gnss.satellites_visible is None else gnss.satellites_visible,
+            _encode_distance(gnss.horizontal_accuracy_m),
+            _encode_distance(gnss.vertical_accuracy_m),
+            _encode_duration(gnss.source_age_s),
+        )
+        return self._encode_frame(
+            WireMessageType.TARGET_OBSERVATION_STATUS,
             sequence=status.sequence,
             sent_at_s=status.produced_at_s,
             body=body,
@@ -1296,6 +1390,12 @@ class OperatorTunnelCodec:
             message = self._decode_runtime_status_ack(body)
         elif message_type is WireMessageType.GNSS_STATUS:
             message = self._decode_gnss_status(
+                body,
+                sequence=sequence,
+                sent_at_s=sent_at_s,
+            )
+        elif message_type is WireMessageType.TARGET_OBSERVATION_STATUS:
+            message = self._decode_target_observation_status(
                 body,
                 sequence=sequence,
                 sent_at_s=sent_at_s,
@@ -2085,6 +2185,131 @@ class OperatorTunnelCodec:
             )
         except ValueError as exc:
             raise OperatorProtocolError(f"invalid GNSS-status content: {exc}") from exc
+
+    def _decode_target_observation_status(
+        self,
+        body: bytes,
+        *,
+        sequence: int,
+        sent_at_s: float,
+    ) -> TargetObservationStatusMessage:
+        if len(body) != _TARGET_OBSERVATION_STATUS.size:
+            raise OperatorProtocolError("target-observation-status body has an invalid size")
+        (
+            target_hash,
+            frame_hash,
+            calibration_hash,
+            validity,
+            reason_mask,
+            source_mask,
+            rejected_source_mask,
+            slant_range,
+            ground_range,
+            slant_low,
+            slant_high,
+            ground_low,
+            ground_high,
+            relative_bearing,
+            absolute_bearing,
+            bearing_sigma,
+            north_offset,
+            east_offset,
+            data_freshness,
+            consistency,
+            range_flags,
+            geolocation_available,
+            geolocation_reason,
+            latitude_e7,
+            longitude_e7,
+            horizontal_sigma,
+            frame_age_ms,
+            gnss_qualified,
+            gnss_reason,
+            position_health,
+            fix_type,
+            satellites,
+            horizontal_accuracy,
+            vertical_accuracy,
+            gnss_source_age,
+        ) = _TARGET_OBSERVATION_STATUS.unpack(body)
+        if target_hash == 0 or frame_hash == 0 or calibration_hash == 0:
+            raise OperatorProtocolError("target-observation-status identifiers are invalid")
+        zero_contribution = b"\0" * 6
+        range_body = _RANGE_STATUS.pack(
+            target_hash,
+            target_hash,
+            calibration_hash,
+            frame_hash,
+            validity,
+            range_flags,
+            reason_mask,
+            source_mask,
+            rejected_source_mask,
+            slant_range,
+            ground_range,
+            slant_low,
+            slant_high,
+            ground_low,
+            ground_high,
+            relative_bearing,
+            absolute_bearing,
+            bearing_sigma,
+            north_offset,
+            east_offset,
+            frame_age_ms,
+            data_freshness,
+            consistency,
+            zero_contribution,
+            zero_contribution,
+            zero_contribution,
+        )
+        geolocation_body = _TARGET_GEOLOCATION_STATUS.pack(
+            target_hash,
+            frame_hash,
+            geolocation_available,
+            geolocation_reason,
+            latitude_e7,
+            longitude_e7,
+            horizontal_sigma,
+            frame_age_ms,
+        )
+        gnss_body = _GNSS_STATUS.pack(
+            gnss_qualified,
+            gnss_reason,
+            position_health,
+            fix_type,
+            satellites,
+            horizontal_accuracy,
+            vertical_accuracy,
+            gnss_source_age,
+        )
+        range_status = self._decode_range_status(
+            range_body,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+        )
+        geolocation = self._decode_target_geolocation_status(
+            geolocation_body,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+        )
+        gnss = self._decode_gnss_status(
+            gnss_body,
+            sequence=sequence,
+            sent_at_s=sent_at_s,
+        )
+        try:
+            return TargetObservationStatusMessage(
+                sequence=sequence,
+                produced_at_s=sent_at_s,
+                range_status=range_status,
+                target_geolocation_status=geolocation,
+                gnss_status=gnss,
+            )
+        except ValueError as exc:
+            raise OperatorProtocolError(
+                f"invalid target-observation-status content: {exc}"
+            ) from exc
 
     def _decode_release_status(
         self,

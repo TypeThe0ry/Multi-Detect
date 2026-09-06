@@ -439,7 +439,7 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
 
     const MessageType type = static_cast<MessageType>(typeValue);
     if (typeValue < static_cast<quint8>(MessageType::TargetSelection) ||
-        typeValue > static_cast<quint8>(MessageType::GnssStatus)) {
+        typeValue > static_cast<quint8>(MessageType::TargetObservationStatus)) {
         return fail(error, QStringLiteral("operator-link message type is unknown"));
     }
 
@@ -1012,6 +1012,266 @@ bool MultiDetectOperatorProtocol::decode(const QByteArray& payload, DecodedPacke
         fields.insert(QStringLiteral("verticalAccuracyM"), verticalAvailable ? decodeDistance(verticalAccuracy) : -1.0);
         fields.insert(QStringLiteral("sourceAgeAvailable"), sourceAgeAvailable);
         fields.insert(QStringLiteral("sourceAgeMs"), sourceAgeAvailable ? static_cast<int>(sourceAge) * 100 : -1);
+        fields.insert(QStringLiteral("advisoryOnly"), true);
+        fields.insert(QStringLiteral("flightControlEnabled"), false);
+        fields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+    } else if (type == MessageType::TargetObservationStatus) {
+        quint64 targetId = 0, frameId = 0, calibrationId = 0;
+        quint8 validityValue = 0, rangeFlags = 0, consistency = 0;
+        quint32 reasonMask = 0;
+        quint16 sourceMask = 0, rejectedSourceMask = 0;
+        quint16 slantRange = 0, groundRange = 0, slantLow = 0, slantHigh = 0;
+        quint16 groundLow = 0, groundHigh = 0;
+        qint16 relativeBearing = 0;
+        quint16 absoluteBearing = 0, bearingSigma = 0;
+        qint32 northOffset = 0, eastOffset = 0;
+        quint16 dataFreshness = 0;
+        quint8 geolocationAvailableValue = 0, geolocationReasonValue = 0;
+        qint32 latitudeE7 = 0, longitudeE7 = 0;
+        quint16 horizontalSigma = 0, frameAgeMs = 0;
+        quint8 qualifiedValue = 0, gnssReasonValue = 0, positionHealthValue = 0;
+        quint8 fixTypeValue = 0, satellitesValue = 0;
+        quint16 horizontalAccuracy = 0, verticalAccuracy = 0, gnssSourceAge = 0;
+        if (!reader.readU64(&targetId) || !reader.readU64(&frameId) || !reader.readU64(&calibrationId) ||
+            !reader.readU8(&validityValue) || !reader.readU32(&reasonMask) || !reader.readU16(&sourceMask) ||
+            !reader.readU16(&rejectedSourceMask) || !reader.readU16(&slantRange) ||
+            !reader.readU16(&groundRange) || !reader.readU16(&slantLow) || !reader.readU16(&slantHigh) ||
+            !reader.readU16(&groundLow) || !reader.readU16(&groundHigh) ||
+            !reader.readI16(&relativeBearing) || !reader.readU16(&absoluteBearing) ||
+            !reader.readU16(&bearingSigma) || !reader.readI32(&northOffset) || !reader.readI32(&eastOffset) ||
+            !reader.readU16(&dataFreshness) || !reader.readU8(&consistency) || !reader.readU8(&rangeFlags) ||
+            !reader.readU8(&geolocationAvailableValue) || !reader.readU8(&geolocationReasonValue) ||
+            !reader.readI32(&latitudeE7) || !reader.readI32(&longitudeE7) ||
+            !reader.readU16(&horizontalSigma) || !reader.readU16(&frameAgeMs) ||
+            !reader.readU8(&qualifiedValue) || !reader.readU8(&gnssReasonValue) ||
+            !reader.readU8(&positionHealthValue) || !reader.readU8(&fixTypeValue) ||
+            !reader.readU8(&satellitesValue) || !reader.readU16(&horizontalAccuracy) ||
+            !reader.readU16(&verticalAccuracy) || !reader.readU16(&gnssSourceAge) || !reader.atEnd()) {
+            return fail(error, QStringLiteral("target-observation-status body has an invalid size"));
+        }
+
+        static const QStringList rangeReasonRegistry = {
+            QStringLiteral("pose_stale_or_from_future"),
+            QStringLiteral("target_image_stale_or_from_future"),
+            QStringLiteral("pose_image_time_skew_exceeded"),
+            QStringLiteral("duplicate_vertical_source"),
+            QStringLiteral("vertical_reference_unavailable_or_stale"),
+            QStringLiteral("vertical_references_inconsistent"),
+            QStringLiteral("vertical_reference_outlier_rejected"),
+            QStringLiteral("target_ray_does_not_intersect_ground_safely"),
+            QStringLiteral("camera_ground_intersection_out_of_range"),
+            QStringLiteral("duplicate_direct_range_source"),
+            QStringLiteral("laser_target_mismatch"),
+            QStringLiteral("vio_target_mismatch"),
+            QStringLiteral("laser_absolute_scale_invalid"),
+            QStringLiteral("vio_absolute_scale_invalid"),
+            QStringLiteral("laser_stale_or_from_future"),
+            QStringLiteral("vio_stale_or_from_future"),
+            QStringLiteral("laser_out_of_range"),
+            QStringLiteral("vio_out_of_range"),
+            QStringLiteral("absolute_range_sources_inconsistent"),
+            QStringLiteral("absolute_range_outlier_rejected"),
+            QStringLiteral("single_absolute_range_method"),
+            QStringLiteral("multimodal_range_consistent"),
+            QStringLiteral("primary_target_snapshot_unavailable"),
+            QStringLiteral("primary_target_not_freshly_observed"),
+            QStringLiteral("pixhawk_pose_or_timestamp_unavailable"),
+            QStringLiteral("pixhawk_agl_unavailable"),
+            QStringLiteral("attitude_position_time_skew_exceeded"),
+            QStringLiteral("target_not_freshly_observed"),
+            QStringLiteral("direct_degraded_metric_range"),
+            QStringLiteral("vertical_reference_unavailable"),
+            QStringLiteral("direct_range_unavailable"),
+            QStringLiteral("target_geometry_uncertainty_unbounded"),
+        };
+        static const QStringList sourceRegistry = {
+            QStringLiteral("pixhawk_agl"),    QStringLiteral("dem_gps"),
+            QStringLiteral("ground_plane"),   QStringLiteral("camera_ground"),
+            QStringLiteral("laser"),          QStringLiteral("vio"),
+            QStringLiteral("monocular_size"), QStringLiteral("monocular_metric"),
+            QStringLiteral("rgb_slam"),
+        };
+        static const QStringList vehicleProfiles = {
+            QStringLiteral("auto"), QStringLiteral("fixed-wing"), QStringLiteral("multirotor"),
+        };
+        static const QStringList navigationStates = {
+            QStringLiteral("unknown"),   QStringLiteral("vision-only"), QStringLiteral("gps-aided"),
+            QStringLiteral("local-ned"), QStringLiteral("airspeed-dr"),
+        };
+        static const QStringList motionRegimes = {
+            QStringLiteral("unknown"), QStringLiteral("static"),     QStringLiteral("low-speed"),
+            QStringLiteral("cruise"),  QStringLiteral("high-speed"),
+        };
+        static const QStringList geolocationReasonRegistry = {
+            QStringLiteral("gps_qualified"),
+            QStringLiteral("gps_navigation_not_qualified"),
+            QStringLiteral("target_offset_unavailable"),
+            QStringLiteral("geolocation_input_invalid"),
+            QStringLiteral("target_uncertainty_out_of_wire_range"),
+            QStringLiteral("target_range_invalid"),
+        };
+        static const QStringList gnssReasonRegistry = {
+            QStringLiteral("gps_position_unhealthy"),
+            QStringLiteral("gps_coordinates_invalid"),
+            QStringLiteral("gps_fix_unqualified"),
+            QStringLiteral("gps_satellites_insufficient"),
+            QStringLiteral("gps_horizontal_accuracy_invalid"),
+            QStringLiteral("gps_horizontal_accuracy_exceeded"),
+            QStringLiteral("gps_vertical_accuracy_invalid"),
+            QStringLiteral("gps_vertical_accuracy_exceeded"),
+            QStringLiteral("gps_timestamp_unavailable"),
+            QStringLiteral("gps_timestamp_future"),
+            QStringLiteral("gps_stale"),
+            QStringLiteral("gps_qualified"),
+        };
+        constexpr quint8 kUnavailableU8 = std::numeric_limits<quint8>::max();
+        constexpr quint16 kUnavailableU16 = std::numeric_limits<quint16>::max();
+        constexpr qint32 kCoordinateUnavailable = std::numeric_limits<qint32>::min();
+        constexpr quint16 kSourceMask = (static_cast<quint16>(1) << 9) - 1;
+        const QString validity = advisoryValidity(validityValue);
+        const quint8 vehicleCode = rangeFlags & 0x03U;
+        const quint8 navigationCode = (rangeFlags >> 2U) & 0x07U;
+        const quint8 motionCode = (rangeFlags >> 5U) & 0x07U;
+        const bool slantIntervalAvailable = slantLow != kUnavailableU16 || slantHigh != kUnavailableU16;
+        const bool groundIntervalAvailable = groundLow != kUnavailableU16 || groundHigh != kUnavailableU16;
+        const double dataFreshnessS = decodeDistance(dataFreshness);
+        if (targetId == 0 || frameId == 0 || calibrationId == 0 || validity.isEmpty() || reasonMask == 0 ||
+            vehicleCode >= vehicleProfiles.size() || navigationCode >= navigationStates.size() ||
+            motionCode >= motionRegimes.size() || (sourceMask & ~kSourceMask) ||
+            (rejectedSourceMask & ~kSourceMask) || (sourceMask & rejectedSourceMask) || consistency == 255 ||
+            sentAtMs < frameAgeMs) {
+            return fail(error, QStringLiteral("target-observation range content is invalid"));
+        }
+        if ((validity == QStringLiteral("VALID") || validity == QStringLiteral("DEGRADED")) &&
+            (frameAgeMs > kMaximumRangeStatusSourceAgeMs || !std::isfinite(dataFreshnessS) ||
+             dataFreshnessS > kMaximumRangeStatusSourceAgeMs / 1000.0)) {
+            return fail(error, QStringLiteral("target-observation range freshness is invalid"));
+        }
+        if ((slantIntervalAvailable &&
+             (slantLow == kUnavailableU16 || slantHigh == kUnavailableU16 || slantLow > slantHigh)) ||
+            (groundIntervalAvailable &&
+             (groundLow == kUnavailableU16 || groundHigh == kUnavailableU16 || groundLow > groundHigh)) ||
+            (validity == QStringLiteral("INVALID") &&
+             (slantRange != kUnavailableU16 || groundRange != kUnavailableU16 || slantIntervalAvailable ||
+              groundIntervalAvailable))) {
+            return fail(error, QStringLiteral("target-observation range values are inconsistent"));
+        }
+
+        const bool geolocationAvailable = geolocationAvailableValue == 1;
+        const bool latitudePresent = latitudeE7 != kCoordinateUnavailable;
+        const bool longitudePresent = longitudeE7 != kCoordinateUnavailable;
+        const bool coordinatesPresent = latitudePresent && longitudePresent;
+        const bool coordinatesUnavailable = !latitudePresent && !longitudePresent;
+        if (geolocationAvailableValue > 1 || geolocationReasonValue == 0 ||
+            geolocationReasonValue > geolocationReasonRegistry.size() ||
+            (!coordinatesPresent && !coordinatesUnavailable) ||
+            (coordinatesPresent &&
+             (latitudeE7 <= -900000000 || latitudeE7 >= 900000000 || longitudeE7 < -1800000000 ||
+              longitudeE7 > 1800000000)) ||
+            (geolocationAvailable &&
+             (geolocationReasonValue != 1 || !coordinatesPresent || horizontalSigma == kUnavailableU16 ||
+              frameAgeMs > kMaximumTargetGeolocationSourceAgeMs)) ||
+            (!geolocationAvailable &&
+             (geolocationReasonValue == 1 || coordinatesPresent || horizontalSigma != kUnavailableU16))) {
+            return fail(error, QStringLiteral("target-observation geolocation content is inconsistent"));
+        }
+
+        const bool qualified = qualifiedValue == 1;
+        const bool fixAvailable = fixTypeValue != kUnavailableU8;
+        const bool satellitesAvailable = satellitesValue != kUnavailableU8;
+        const bool horizontalAvailable = horizontalAccuracy != kUnavailableU16;
+        const bool verticalAvailable = verticalAccuracy != kUnavailableU16;
+        const bool sourceAgeAvailable = gnssSourceAge != kUnavailableU16;
+        if (qualifiedValue > 1 || gnssReasonValue < 1 || gnssReasonValue > gnssReasonRegistry.size() ||
+            positionHealthValue > 2 || (fixAvailable && fixTypeValue > 8) ||
+            (qualified &&
+             (gnssReasonValue != gnssReasonRegistry.size() || positionHealthValue != 2 || !fixAvailable ||
+              fixTypeValue < 3 || !satellitesAvailable || satellitesValue < 6 || !horizontalAvailable ||
+              horizontalAccuracy > 60 || !verticalAvailable || verticalAccuracy > 100 || !sourceAgeAvailable ||
+              gnssSourceAge > 15)) ||
+            (!qualified && gnssReasonValue == gnssReasonRegistry.size()) ||
+            (geolocationAvailable && !qualified)) {
+            return fail(error, QStringLiteral("target-observation GNSS content is inconsistent"));
+        }
+
+        QVariantMap rangeFields;
+        rangeFields.insert(QStringLiteral("statusId"), hashedIdentifier(targetId));
+        rangeFields.insert(QStringLiteral("targetId"), hashedIdentifier(targetId));
+        rangeFields.insert(QStringLiteral("calibrationId"), hashedIdentifier(calibrationId));
+        rangeFields.insert(QStringLiteral("sourceFrameId"), hashedIdentifier(frameId));
+        rangeFields.insert(QStringLiteral("validity"), validity);
+        rangeFields.insert(QStringLiteral("reasons"), decodeRegistryMask(reasonMask, rangeReasonRegistry));
+        rangeFields.insert(QStringLiteral("sources"), decodeRegistryMask(sourceMask, sourceRegistry));
+        rangeFields.insert(QStringLiteral("rejectedSources"),
+                           decodeRegistryMask(rejectedSourceMask, sourceRegistry));
+        rangeFields.insert(QStringLiteral("slantRangeM"), decodeDistance(slantRange));
+        rangeFields.insert(QStringLiteral("groundRangeM"), decodeDistance(groundRange));
+        rangeFields.insert(QStringLiteral("slantRangeLowM"), decodeDistance(slantLow));
+        rangeFields.insert(QStringLiteral("slantRangeHighM"), decodeDistance(slantHigh));
+        rangeFields.insert(QStringLiteral("groundRangeLowM"), decodeDistance(groundLow));
+        rangeFields.insert(QStringLiteral("groundRangeHighM"), decodeDistance(groundHigh));
+        rangeFields.insert(QStringLiteral("relativeBearingDeg"), decodeBearing(relativeBearing));
+        rangeFields.insert(QStringLiteral("absoluteBearingDeg"), decodeUnsignedBearing(absoluteBearing));
+        rangeFields.insert(QStringLiteral("bearingSigmaDeg"), decodeUnsignedCentidegrees(bearingSigma));
+        rangeFields.insert(QStringLiteral("northOffsetM"), decodeSignedDistance32(northOffset));
+        rangeFields.insert(QStringLiteral("eastOffsetM"), decodeSignedDistance32(eastOffset));
+        rangeFields.insert(QStringLiteral("sourceAgeMs"), frameAgeMs);
+        rangeFields.insert(QStringLiteral("dataFreshnessS"), dataFreshnessS);
+        rangeFields.insert(QStringLiteral("sensorConsistency"), decodeRatio(consistency));
+        rangeFields.insert(QStringLiteral("sourceContributions"), QVariantList());
+        rangeFields.insert(QStringLiteral("fusionProfile"), QStringLiteral("atomic-observation-v1"));
+        rangeFields.insert(QStringLiteral("vehicleProfile"), vehicleProfiles.at(vehicleCode));
+        rangeFields.insert(QStringLiteral("navigationState"), navigationStates.at(navigationCode));
+        rangeFields.insert(QStringLiteral("motionRegime"), motionRegimes.at(motionCode));
+        rangeFields.insert(QStringLiteral("advisoryOnly"), true);
+        rangeFields.insert(QStringLiteral("flightControlEnabled"), false);
+        rangeFields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+
+        QVariantMap geolocationFields;
+        geolocationFields.insert(QStringLiteral("targetId"), hashedIdentifier(targetId));
+        geolocationFields.insert(QStringLiteral("sourceFrameId"), hashedIdentifier(frameId));
+        geolocationFields.insert(QStringLiteral("available"), geolocationAvailable);
+        geolocationFields.insert(QStringLiteral("reason"),
+                                 geolocationReasonRegistry.at(geolocationReasonValue - 1));
+        geolocationFields.insert(QStringLiteral("sourceAgeMs"), frameAgeMs);
+        if (geolocationAvailable) {
+            geolocationFields.insert(QStringLiteral("latitudeDeg"),
+                                     static_cast<double>(latitudeE7) / 10000000.0);
+            geolocationFields.insert(QStringLiteral("longitudeDeg"),
+                                     static_cast<double>(longitudeE7) / 10000000.0);
+            geolocationFields.insert(QStringLiteral("horizontalSigmaM"),
+                                     static_cast<double>(horizontalSigma) / 10.0);
+        }
+        geolocationFields.insert(QStringLiteral("advisoryOnly"), true);
+        geolocationFields.insert(QStringLiteral("flightControlEnabled"), false);
+        geolocationFields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+
+        QVariantMap gnssFields;
+        gnssFields.insert(QStringLiteral("qualified"), qualified);
+        gnssFields.insert(QStringLiteral("reason"), gnssReasonRegistry.at(gnssReasonValue - 1));
+        gnssFields.insert(QStringLiteral("positionHealthyAvailable"), positionHealthValue != 0);
+        gnssFields.insert(QStringLiteral("positionHealthy"), positionHealthValue == 2);
+        gnssFields.insert(QStringLiteral("fixTypeAvailable"), fixAvailable);
+        gnssFields.insert(QStringLiteral("fixType"), fixAvailable ? fixTypeValue : -1);
+        gnssFields.insert(QStringLiteral("satellitesAvailable"), satellitesAvailable);
+        gnssFields.insert(QStringLiteral("satellitesVisible"), satellitesAvailable ? satellitesValue : -1);
+        gnssFields.insert(QStringLiteral("horizontalAccuracyAvailable"), horizontalAvailable);
+        gnssFields.insert(QStringLiteral("horizontalAccuracyM"),
+                          horizontalAvailable ? decodeDistance(horizontalAccuracy) : -1.0);
+        gnssFields.insert(QStringLiteral("verticalAccuracyAvailable"), verticalAvailable);
+        gnssFields.insert(QStringLiteral("verticalAccuracyM"),
+                          verticalAvailable ? decodeDistance(verticalAccuracy) : -1.0);
+        gnssFields.insert(QStringLiteral("sourceAgeAvailable"), sourceAgeAvailable);
+        gnssFields.insert(QStringLiteral("sourceAgeMs"),
+                          sourceAgeAvailable ? static_cast<int>(gnssSourceAge) * 100 : -1);
+        gnssFields.insert(QStringLiteral("advisoryOnly"), true);
+        gnssFields.insert(QStringLiteral("flightControlEnabled"), false);
+        gnssFields.insert(QStringLiteral("physicalReleaseEnabled"), false);
+
+        fields.insert(QStringLiteral("rangeStatus"), rangeFields);
+        fields.insert(QStringLiteral("targetGeolocationStatus"), geolocationFields);
+        fields.insert(QStringLiteral("gnssStatus"), gnssFields);
+        fields.insert(QStringLiteral("atomicObservation"), true);
         fields.insert(QStringLiteral("advisoryOnly"), true);
         fields.insert(QStringLiteral("flightControlEnabled"), false);
         fields.insert(QStringLiteral("physicalReleaseEnabled"), false);

@@ -35,6 +35,7 @@ from .operator_link import (
     SceneContextStatusMessage,
     SelectionCommandGuard,
     TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetPoolStatusMessage,
     TargetSelectionCommand,
     TrackStatusMessage,
@@ -543,6 +544,14 @@ class UdpOperatorSelectionServer:
     ) -> None:
         self._channel.sendto(self.mavlink.encode_gnss_status(status), peer)
 
+    def publish_target_observation_status(
+        self,
+        status: TargetObservationStatusMessage,
+        *,
+        peer: tuple[str, int],
+    ) -> None:
+        self._channel.sendto(self.mavlink.encode_target_observation_status(status), peer)
+
     def publish_release_status(
         self,
         status: ReleaseStatusMessage,
@@ -1044,6 +1053,7 @@ class UdpOperatorSessionClient:
         self._last_range_status_sequence: int | None = None
         self._last_target_geolocation_status_sequence: int | None = None
         self._last_gnss_status_sequence: int | None = None
+        self._last_target_observation_status_sequence: int | None = None
         self._last_release_status_sequence: int | None = None
         self._last_runtime_status_sequence: int | None = None
         self._runtime_status_ack_sequence = 0
@@ -1062,6 +1072,7 @@ class UdpOperatorSessionClient:
             WireMessageType.RANGE_STATUS: deque(maxlen=1),
             WireMessageType.TARGET_GEOLOCATION_STATUS: deque(maxlen=1),
             WireMessageType.GNSS_STATUS: deque(maxlen=1),
+            WireMessageType.TARGET_OBSERVATION_STATUS: deque(maxlen=1),
             WireMessageType.RELEASE_STATUS: deque(maxlen=1),
             WireMessageType.RUNTIME_STATUS: deque(maxlen=1),
             WireMessageType.APPROACH_CHALLENGE: deque(maxlen=1),
@@ -1395,6 +1406,29 @@ class UdpOperatorSessionClient:
         ):
             raise OperatorProtocolError("GNSS status sequence is not newer")
         self._last_gnss_status_sequence = status.sequence
+        return status
+
+    def receive_target_observation_status(
+        self,
+        *,
+        timeout_s: float,
+    ) -> TargetObservationStatusMessage:
+        if timeout_s <= 0.0:
+            raise ValueError("target observation status timeout must be positive")
+        if self._active_command_id is None:
+            raise RuntimeError("no accepted selection command is active")
+        status = self._receive_message(
+            WireMessageType.TARGET_OBSERVATION_STATUS,
+            timeout_s=timeout_s,
+        )
+        if not isinstance(status, TargetObservationStatusMessage):
+            raise OperatorProtocolError("decoded target observation status has the wrong type")
+        if (
+            self._last_target_observation_status_sequence is not None
+            and status.sequence <= self._last_target_observation_status_sequence
+        ):
+            raise OperatorProtocolError("target observation status sequence is not newer")
+        self._last_target_observation_status_sequence = status.sequence
         return status
 
     def receive_release_status(self, *, timeout_s: float) -> ReleaseStatusMessage:

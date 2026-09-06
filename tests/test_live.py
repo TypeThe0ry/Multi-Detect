@@ -1172,6 +1172,7 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
             self.range_published = []
             self.target_geolocation_published = []
             self.gnss_published = []
+            self.target_observation_published = []
             self.closed = False
 
         def start_background(self) -> None:
@@ -1200,6 +1201,12 @@ def test_live_runner_connects_remote_selection_to_continuous_track_status() -> N
 
         def publish_gnss_status(self, status, *, peer) -> None:
             self.gnss_published.append((status, peer))
+
+        def publish_target_observation_status(self, status, *, peer) -> None:
+            self.target_observation_published.append((status, peer))
+            self.range_published.append((status.range_status, peer))
+            self.target_geolocation_published.append((status.target_geolocation_status, peer))
+            self.gnss_published.append((status.gnss_status, peer))
 
         def close(self) -> None:
             self.closed = True

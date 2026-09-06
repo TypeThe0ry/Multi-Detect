@@ -14,16 +14,21 @@ from multidetect.domain import (
     RuleCheck,
     Verdict,
 )
+from multidetect.multimodal_ranging import RangeValidity
 from multidetect.operator_link import (
     AuthorizationDisplayState,
+    GnssStatusMessage,
     MissionStatusMessage,
     PatrolStatusMessage,
+    RangeStatusMessage,
     RuntimeBackendHealth,
     RuntimeMode,
     RuntimeStatusMessage,
     SafetyStatusMessage,
     SelectionAction,
     SelectionCommandGuard,
+    TargetGeolocationStatusMessage,
+    TargetObservationStatusMessage,
     TargetSelectionCommand,
     TrackingState,
     TrackStatusMessage,
@@ -217,6 +222,76 @@ def test_jetson_runtime_status_round_trip_uses_signed_mavlink_tunnel() -> None:
     assert decoded.message == status
     assert decoded.message.direct_pixhawk_writes is False
     assert decoded.message.physical_release_enabled is False
+
+
+def test_atomic_target_observation_fits_one_signed_mavlink_tunnel() -> None:
+    produced_at_s = 100.2
+    range_status = RangeStatusMessage(
+        status_id=STATUS_ID,
+        sequence=20,
+        target_id="track-1",
+        calibration_id="camera-main-v2",
+        source_frame_id="jetson-frame-20",
+        source_captured_at_s=100.15,
+        produced_at_s=produced_at_s,
+        validity=RangeValidity.DEGRADED,
+        reasons=("single_absolute_range_method",),
+        sources=("pixhawk_agl", "camera_ground"),
+        rejected_sources=(),
+        slant_range_m=82.0,
+        ground_range_m=75.0,
+        slant_range_ci95_m=(78.0, 86.0),
+        ground_range_ci95_m=(71.0, 79.0),
+        relative_bearing_deg=4.2,
+        absolute_bearing_deg=94.2,
+        bearing_sigma_deg=1.0,
+        north_offset_m=-5.5,
+        east_offset_m=74.8,
+        data_freshness_s=0.05,
+        sensor_consistency=0.5,
+    )
+    geolocation = TargetGeolocationStatusMessage(
+        sequence=21,
+        target_id=range_status.target_id,
+        source_frame_id=range_status.source_frame_id,
+        source_captured_at_s=range_status.source_captured_at_s,
+        produced_at_s=produced_at_s,
+        available=True,
+        reason="gps_qualified",
+        latitude_deg=1.3008983,
+        longitude_deg=103.8004493,
+        horizontal_sigma_m=6.7,
+    )
+    gnss = GnssStatusMessage(
+        sequence=22,
+        produced_at_s=produced_at_s,
+        qualified=True,
+        reason="gps_qualified",
+        position_healthy=True,
+        fix_type=3,
+        satellites_visible=14,
+        horizontal_accuracy_m=1.2,
+        vertical_accuracy_m=2.6,
+        source_age_s=0.3,
+    )
+    observation = TargetObservationStatusMessage(
+        sequence=23,
+        produced_at_s=produced_at_s,
+        range_status=range_status,
+        target_geolocation_status=geolocation,
+        gnss_status=gnss,
+    )
+
+    frame = _adapter(JETSON_ENDPOINT).encode_target_observation_status(observation)
+    decoded = _adapter(G20_ENDPOINT).decode_frame(frame)
+
+    assert frame[0] == mavlink2.PROTOCOL_MARKER_V2
+    assert frame[2] & mavlink2.MAVLINK_IFLAG_SIGNED
+    assert decoded.message_type is WireMessageType.TARGET_OBSERVATION_STATUS
+    assert isinstance(decoded.message, TargetObservationStatusMessage)
+    assert decoded.message.sequence == 23
+    assert decoded.message.gnss_status.qualified is True
+    assert decoded.message.target_geolocation_status.latitude_deg == pytest.approx(1.3008983)
 
 
 def test_qgc_runtime_status_acceptance_ack_uses_signed_mavlink_tunnel() -> None:

@@ -250,6 +250,8 @@ def test_multimodal_ranging_deployer_stages_hashes_before_service_restart() -> N
     assert "grep -Fq 'def encode_target_geolocation_status'" in deployer
     assert "grep -Fq 'def _target_geolocation_status_due'" in deployer
     assert "grep -Fq 'TARGET_GEOLOCATION_STATUS = 22'" in deployer
+    assert "grep -Fq 'GNSS_STATUS = 25'" in deployer
+    assert "grep -Fq 'TARGET_OBSERVATION_STATUS = 26'" in deployer
     assert "grep -Fq 'minimum_gps_fix_type: int = MAVLINK_QUALIFIED_FIX_TYPE_MIN'" in deployer
     assert "grep -Fq 'MAVLINK_QUALIFIED_SATELLITES_MIN'" in deployer
     assert "grep -Fq 'gps_horizontal_accuracy_m'" in deployer

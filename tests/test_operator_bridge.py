@@ -96,6 +96,7 @@ class _Transport:
         self.range_published = []
         self.target_geolocation_published = []
         self.gnss_published = []
+        self.target_observation_published = []
         self.release_published = []
         self.runtime_published = []
         self.approach_challenges = []
@@ -163,6 +164,12 @@ class _Transport:
     def publish_gnss_status(self, status, *, peer) -> None:
         self.gnss_published.append((status, peer))
 
+    def publish_target_observation_status(self, status, *, peer) -> None:
+        self.target_observation_published.append((status, peer))
+        self.range_published.append((status.range_status, peer))
+        self.target_geolocation_published.append((status.target_geolocation_status, peer))
+        self.gnss_published.append((status.gnss_status, peer))
+
     def publish_release_status(self, status, *, peer) -> None:
         self.release_published.append((status, peer))
 
@@ -205,11 +212,11 @@ class _FailFirstGeolocationTransport(_Transport):
         super().__init__()
         self.geolocation_attempt_count = 0
 
-    def publish_target_geolocation_status(self, status, *, peer) -> None:
+    def publish_target_observation_status(self, status, *, peer) -> None:
         self.geolocation_attempt_count += 1
         if self.geolocation_attempt_count == 1:
             raise OSError("synthetic geolocation transport failure")
-        super().publish_target_geolocation_status(status, peer=peer)
+        super().publish_target_observation_status(status, peer=peer)
 
 
 def _bridge(transport: _Transport) -> LiveOperatorBridge:
@@ -1385,6 +1392,60 @@ def test_bridge_range_and_geolocation_share_one_current_frame_cadence() -> None:
     )
 
 
+def test_bridge_republishes_atomic_observation_when_only_gnss_quality_changes() -> None:
+    transport = _Transport()
+    transport.commands.append((_command(), PEER))
+    bridge = _bridge(transport)
+    bridge.start()
+    tracks = (_track(BoundingBox(0.4, 0.3, 0.55, 0.6), last_seen_at_s=100.0),)
+    base_range = _range_status()
+    base_geo = _target_geolocation_status()
+
+    first = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-100",
+        captured_at_s=100.0,
+        produced_at_s=100.01,
+        range_status=base_range,
+        target_geolocation_status=base_geo,
+        gnss_status=_gnss_status(produced_at_s=100.01),
+    )
+    changed_range = replace(
+        base_range,
+        sequence=2,
+        source_frame_id="frame-101",
+        source_captured_at_s=100.02,
+        produced_at_s=100.03,
+    )
+    changed_geo = replace(
+        base_geo,
+        sequence=2,
+        source_frame_id="frame-101",
+        source_captured_at_s=100.02,
+        produced_at_s=100.03,
+    )
+    changed_gnss = replace(
+        _gnss_status(sequence=2, produced_at_s=100.03),
+        horizontal_accuracy_m=1.3,
+    )
+    changed = bridge.process_frame(
+        tracks=tracks,
+        frame_id="frame-101",
+        captured_at_s=100.02,
+        produced_at_s=100.03,
+        range_status=changed_range,
+        target_geolocation_status=changed_geo,
+        gnss_status=changed_gnss,
+    )
+    bridge.close()
+
+    assert first.published_gnss_statuses == (_gnss_status(produced_at_s=100.01),)
+    assert changed.published_gnss_statuses == (changed_gnss,)
+    assert changed.published_range_statuses == (changed_range,)
+    assert changed.published_target_geolocation_statuses == (changed_geo,)
+    assert len(transport.target_observation_published) == 2
+
+
 def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> None:
     transport = _FailFirstGeolocationTransport()
     transport.commands.append((_command(), PEER))
@@ -1449,9 +1510,9 @@ def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> 
     )
     bridge.close()
 
-    assert first.published_range_statuses == (base_range,)
+    assert first.published_range_statuses == ()
     assert first.published_target_geolocation_statuses == ()
-    assert first.published_gnss_statuses == (_gnss_status(produced_at_s=100.01),)
+    assert first.published_gnss_statuses == ()
     assert first.transport_errors[-1] == "OSError"
     assert retry.published_range_statuses == (retry_range,)
     assert retry.published_target_geolocation_statuses == (retry_geo,)
@@ -1461,7 +1522,6 @@ def test_bridge_retries_current_frame_pair_after_partial_transport_failure() -> 
     assert suppressed.published_gnss_statuses == ()
     assert transport.geolocation_attempt_count == 2
     assert [status.source_frame_id for status, _peer in transport.range_published] == [
-        "frame-100",
         "frame-101",
     ]
     assert [status.source_frame_id for status, _peer in transport.target_geolocation_published] == [

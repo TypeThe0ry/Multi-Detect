@@ -393,6 +393,9 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "root._gnssEvidenceQualified" in card
     assert 'qsTr("不可保存：当前 GNSS 质量证据不合格或已过期")' in layer
     for field in (
+        "atomic_observation",
+        "range_status_sequence",
+        "range_sent_at_ms",
         "target_geolocation_sequence",
         "target_geolocation_sent_at_ms",
         "gnss_status_sequence",
@@ -407,14 +410,18 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
         "gnss_source_age_ms",
     ):
         assert f'"{field}"' in layer
-    assert "multidetect.target-evidence.v3" in card
+    assert "multidetect.target-evidence.v4" in card
+    assert 'qsTr("GNSS：单包原子观测' in card
+    assert 'qsTr("GNSS：旧版 v3 同生产帧三消息绑定")' in card
     assert 'qsTr("GNSS：旧版 v2 同期质量记录，无原子 envelope 绑定")' in card
     assert 'qsTr("GNSS：旧版 v1 记录，无独立质量证据")' in card
     evidence_store = _read(TARGET_EVIDENCE_STORE_SOURCE)
     assert 'QStringLiteral("multidetect.target-evidence.v1")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v2")' in evidence_store
     assert 'QStringLiteral("multidetect.target-evidence.v3")' in evidence_store
-    assert "targetGeolocationSentAtMs != gnssSentAtMs" in evidence_store
+    assert 'QStringLiteral("multidetect.target-evidence.v4")' in evidence_store
+    assert "rangeSequence != targetGeolocationSequence" in evidence_store
+    assert "rangeSentAtMs != targetGeolocationSentAtMs" in evidence_store
     assert "gnssHorizontalAccuracyM > 6.0" in evidence_store
     assert "gnssVerticalAccuracyM > 10.0" in evidence_store
     assert "gnssSourceAgeMs > 1500.0" in evidence_store
@@ -679,8 +686,11 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     layer = _read(FLY_VIEW_LAYER)
 
     assert "GnssStatus = 25" in protocol_header
+    assert "TargetObservationStatus = 26" in protocol_header
     gnss_start = protocol.index("} else if (type == MessageType::GnssStatus) {")
-    gnss_end = protocol.index("} else if (type == MessageType::RuntimeStatus) {", gnss_start)
+    gnss_end = protocol.index(
+        "} else if (type == MessageType::TargetObservationStatus) {", gnss_start
+    )
     gnss = protocol[gnss_start:gnss_end]
     for gate in (
         "fixTypeValue < 3",
@@ -713,6 +723,7 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "property bool gnssStatusAvailable: false" in state
     assert "property real gnssSequence: -1" in state
     assert "property real gnssSentAtMs: NaN" in state
+    assert "property bool gnssAtomicObservation: false" in state
     assert "function _resetGnssStatus()" in state
     target_geo_start = controller.index(
         "packet.type == MultiDetectOperatorProtocol::MessageType::TargetGeolocationStatus"
@@ -726,9 +737,25 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "function onTargetGeolocationStatusReceived(status)" in state
     assert "property real targetGeolocationSequence: -1" in state
     assert "property real targetGeolocationSentAtMs: NaN" in state
+    assert "property bool targetGeolocationAtomicObservation: false" in state
+    assert "property bool rangeAtomicObservation: false" in state
     assert "readonly property bool targetGeolocationGnssBindingValid" in state
+    assert "rangeSequence === targetGeolocationSequence" in state
+    assert "targetGeolocationSequence === gnssSequence" in state
+    assert "rangeSentAtMs === targetGeolocationSentAtMs" in state
     assert "targetGeolocationSentAtMs === gnssSentAtMs" in state
     assert "MultiDetectState.targetGeolocationGnssBindingValid" in layer
+    atomic_start = controller.index(
+        "packet.type == MultiDetectOperatorProtocol::MessageType::TargetObservationStatus"
+    )
+    atomic_end = controller.index(
+        "packet.type == MultiDetectOperatorProtocol::MessageType::ReleaseStatus", atomic_start
+    )
+    atomic = controller[atomic_start:atomic_end]
+    assert 'fields.value(QStringLiteral("rangeStatus")).toMap()' in atomic
+    assert 'fields.value(QStringLiteral("targetGeolocationStatus")).toMap()' in atomic
+    assert 'fields.value(QStringLiteral("gnssStatus")).toMap()' in atomic
+    assert atomic.count('insert(QStringLiteral("atomicObservation"), true)') == 3
     gps_start = indicator.index("function _gpsQualityValue()")
     gps_end = indicator.index("function _gnssDetailValue()", gps_start)
     gps = indicator[gps_start:gps_end]
