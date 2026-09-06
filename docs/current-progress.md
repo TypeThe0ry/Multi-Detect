@@ -1,6 +1,31 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v160 工作树）
+最后更新：2026-09-07（v161 工作树）
+
+## v161 本轮已收口
+
+- 新增 `MultiDetectTargetObservationDiagnostics`：把 range、target geolocation、GNSS、producer epoch
+  摘要、三路原子 envelope 身份、源年龄和本地接收年龄汇总成
+  `multidetect.target-observation-diagnostics.v1`；Fly View 卡片可一键复制或原子保存。
+- 定位诊断严格复核三路同 `producerEpoch/sequence/sentAtMs`、同目标/源帧、合格 GNSS、合格测距、
+  有效坐标/1σ 以及 1500 ms 源/接收新鲜度。失败快照仍保留结构化原因供现场排错，但强制
+  `locatable=false`、`coordinates_included=false`，并删除经纬度与 1σ，不能形成假落点。
+- 新原生 self-test 覆盖有效原子三元组、GNSS 不合格、sequence 错配、接收过期、失败快照坐标删除和
+  原子文件保存。连同 operator protocol、target evidence、producer epoch、44-fragment depth-grid 和
+  RTSP wire，共六项原生 self-test 通过；focused QGC/parity 45 项、Ruff lint/format 通过。
+- Release/portable 主 EXE 为 46,702,592 bytes，SHA-256
+  `729BEDA95DD42E70538D854181113BD09D2414EED4D787AAA11529D1F55C05A0`；portable offscreen simple
+  boot 退出 0，stdout 0 bytes，stderr 220 bytes、SHA-256
+  `B7E0728E90A02F3FE1FF8FC9C1CB46B53BA296050981F4F8975A32C27FCA03A3`，无 QML 初始化错误。
+- `release-parity.json` 为 9,177 bytes、SHA-256
+  `72840CB9F1D3FE85A3509087B5331F4B11EDDBF131CB772919CC38CAC94471BC`；UI contract 更新为
+  `3BC3C5B2E983A0D25F385FFAAEDEA163C83640D750684DEAA0F3853C7D282DB1`，core/task/safety/PX4 未变。
+- 派生 SIM/PX4 证据与 E7 已按最终 v161 parity 重算。最新只读现场探测仍为
+  `192.168.1.13/24`，不在预期 `192.168.144.0/24`；Jetson/GR01/RTSP 三路超时，
+  `hardware_link_ready=false`。E7 正确保留 `false / false / 31 blockers`；人工 Fly View、室外 GNSS、
+  HIL/REAL、真实硬件和实飞均未通过。
+- 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 273.29 秒；JUnit
+  533,660 bytes、SHA-256 `8443ED203DC647B65EF0D7C4723FD5022BB791B02E746056D021635A756F929C`。
 
 ## v160 本轮已收口
 

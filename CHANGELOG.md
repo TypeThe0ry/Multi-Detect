@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v161 fail-closed target-observation diagnostics（2026-09-07）
+
+- 新增 `MultiDetectTargetObservationDiagnostics` 与 Fly View“复制定位诊断 / 保存定位诊断”，统一导出
+  range、target geolocation、GNSS、producer epoch、原子 envelope 身份、源年龄和本地接收年龄；
+- 只有同 epoch/sequence/`sentAtMs`、同目标/源帧、合格 GNSS/测距、有效坐标/1σ 且全部状态新鲜时才
+  输出坐标；任一门失败仍可保存原因，但强制删除经纬度与 1σ，避免失败快照成为假落点；
+- Release/portable EXE 为 46,702,592 bytes，SHA-256
+  `729BEDA95DD42E70538D854181113BD09D2414EED4D787AAA11529D1F55C05A0`；六项原生 self-test、45 项
+  focused QGC/parity、Ruff 和 portable offscreen simple boot 通过；
+- 当前 parity 与派生 E7 已重算；E7 仍为 `false / false / 31 blockers`。现场网卡仍是
+  `192.168.1.13/24`，机载目标网段仍不可达，人工视觉、室外 GNSS、HIL/REAL、硬件和实飞没有升级。
+- 最终全量回归为 `3660 passed, 2 skipped, 0 failed`，耗时 273.29 秒；JUnit SHA-256
+  `8443ED203DC647B65EF0D7C4723FD5022BB791B02E746056D021635A756F929C`。
+
 ### v0.3.0-pre.8 v160 native producer-epoch diagnostics popup and atomic save（2026-09-07）
 
 - Fly View 新增原生 producer epoch 诊断弹窗，按 newest-first 展示最多 64 条事件；卡片与弹窗均支持复制

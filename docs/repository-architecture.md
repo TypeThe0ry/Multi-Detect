@@ -1,5 +1,26 @@
 # 统一仓库架构
 
+## v161 fail-closed 目标定位诊断链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+authenticated type 26 atomic observation
+  -> controller: range + geolocation + GNSS + local receive timestamps
+  -> MultiDetectTargetObservationDiagnostics
+       identity / target-frame / quality / source-age / receive-age gates
+       locatable=true  -> include latitude/longitude/1sigma
+       locatable=false -> reasons + omit all coordinates
+  -> MultiDetectState QML projection
+  -> Fly View: copy/save localization diagnostics
+  -> AppLocalDataLocation/diagnostics/*.json (QSaveFile atomic commit)
+```
+
+- `MultiDetectTargetObservationDiagnostics.{h,cc}` 是无 Fly View 依赖的严格诊断/序列化层；未知字段不会
+  进入输出，失败输入即使错误携带坐标也会在序列化前剔除；
+- `MultiDetectTargetObservationDiagnosticsSelfTest.cc` 覆盖 valid、GNSS fail、envelope mismatch、stale、
+  coordinate omission 和原子保存；构建脚本的 `-BuildSelfTests` 已包含此目标；
+- 新类通过 `CUSTOM_LIBRARIES` 接入 QGC，且加入四模式共享 UI contract parity。输出固定
+  advisory-only、飞控关闭、物理释放关闭，不进入 PX4 Mission 或控制路径。
+
 ## v160 原生 producer epoch 诊断弹窗与原子保存链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

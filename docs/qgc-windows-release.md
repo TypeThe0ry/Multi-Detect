@@ -12,6 +12,21 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v161 fail-closed 目标定位诊断快照（2026-09-07）
+
+当前 Release/portable 主 EXE 字节一致：`46,702,592` bytes，SHA-256
+`729BEDA95DD42E70538D854181113BD09D2414EED4D787AAA11529D1F55C05A0`。目标落图卡片新增“复制定位诊断”
+和“保存定位诊断”；JSON schema 为 `multidetect.target-observation-diagnostics.v1`，保存目录仍为
+`AppLocalDataLocation/diagnostics`，由 `QSaveFile` 原子提交。
+
+诊断只有在 range/geolocation/GNSS 同原子身份、同目标/源帧、质量合格且源/本地接收均新鲜时才包含
+坐标。失败状态也能保存具体原因，但输出会删除 latitude、longitude 和 horizontal sigma。六项原生
+self-test 与 portable offscreen simple boot 均退出 0；后者 stdout 0 bytes、stderr 220 bytes，SHA-256
+`B7E0728E90A02F3FE1FF8FC9C1CB46B53BA296050981F4F8975A32C27FCA03A3`。这是只读现场诊断，不替代
+人工视觉、室外 GNSS、HIL/REAL、硬件或实飞验收。
+最终全量回归为 `3660 passed, 2 skipped, 0 failed`，耗时 273.29 秒；JUnit 为 533,660 bytes，
+SHA-256 `8443ED203DC647B65EF0D7C4723FD5022BB791B02E746056D021635A756F929C`。
+
 ### v160 原生 epoch 诊断弹窗与原子保存（2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,665,216` bytes，SHA-256

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v160：原生 producer epoch 诊断弹窗与原子 JSON 保存 |
+| 当前工程迭代 | v161：fail-closed 目标定位诊断快照与原子 JSON 保存 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,29 +82,19 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v160 原生 producer epoch 诊断弹窗与原子保存
+### v161 fail-closed 目标定位诊断快照
 
-Fly View 新增“生产者 epoch 诊断”弹窗，按最新事件优先显示最多 64 条事件和 total/retained/dropped。
-卡片与弹窗均可复制或原子保存 JSON 到 `AppLocalDataLocation/diagnostics`。journal、序列化和保存已抽为
-可独立测试的 `MultiDetectProducerEpochDiagnostics`，原生 self-test 覆盖空状态、容量、排序和文件提交。
-v160 Release/portable EXE 为 46,665,216 bytes，SHA-256
-`DE323538B410D6264825B071A083620471A4D726921FD25F10CB859476DB1BAE`；portable offscreen simple boot
-退出 0。该诊断固定 `advisory_only=true`，不进入 PX4 Mission、飞控或物理释放路径；E7 仍为
-`false / false / 31 blockers`。
+Fly View 的“目标落图”卡片新增“复制定位诊断”和“保存定位诊断”。导出的
+`multidetect.target-observation-diagnostics.v1` 同时记录 range、target geolocation、GNSS、producer
+epoch、原子 envelope 身份与本地接收年龄。只有三路同 epoch/sequence/`sentAtMs`、同目标/源帧、
+GNSS/测距合格且源/本地年龄不超过 1500 ms 时，诊断才标记 `locatable=true` 并写入经纬度与 1σ；
+任何门失败仍允许保存原因，但强制 `coordinates_included=false`，并从 JSON 中删除经纬度与 1σ。
 
-### v159 producer epoch 事件时间线与诊断导出
-
-原生 QGC 的“室外测距质量”面板现在把 producer epoch 状态锁存为 `WAITING / HEALTHY / NOTICE /
-WARNING / CRITICAL`，并配合当前 epoch、重启数、旧包拒绝数、切换拒绝数、最近切换与最近事故时间显示。
-v159 进一步保留最多 64 条初始化、重启、退休旧包拒绝和切换容量耗尽事件；总数、保留数和丢弃数
-分开记录，历史截断不会被隐藏。“目标落图”卡片可一键复制
-`multidetect.producer-epoch-diagnostics.v1` JSON，即使尚无首个事件也会导出 `WAITING` 摘要。
-
-`MultiDetectObservationEpoch` 的退休集合改为固定 32 项且绝不淘汰。第 33 次 session 切换会保持当前
-epoch 并 fail-closed，要求重启 QGC 后再建立新会话；这样有限内存不会以重新接受极晚旧包为代价。
-目标证据升级为 `multidetect.target-evidence.v6`，保存健康级别/原因、三类计数、切换时间和事故时间；
-v1-v5 继续只读兼容。诊断 JSON 明示 `advisory_only=true`、飞控和物理释放均为 `false`。
-v159 parity、外部 SIM 派生证据、只读 field-link 与 E7 已重算；E7 仍为 `false / false / 31 blockers`。
+v161 Release/portable EXE 为 46,702,592 bytes，SHA-256
+`729BEDA95DD42E70538D854181113BD09D2414EED4D787AAA11529D1F55C05A0`；六项原生 self-test 和
+portable offscreen simple boot 已通过。该功能固定为 advisory-only，不产生飞控或物理释放权限；现场网卡
+仍为 `192.168.1.13/24`，不在机载 `192.168.144.0/24` 网段，E7 仍为
+`gate_passed=false / release_allowed=false / 31 blockers`。
 
 ### v152 独立 GNSS 质量状态
 
