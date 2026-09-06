@@ -228,6 +228,9 @@ _REAL_ALERT_LINK_KEYS = frozenset(
         "remote_host",
         "remote_port",
         "remote_is_loopback",
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
         "hardware_id",
         "requested_round_trips",
         "round_trip_samples",
@@ -267,6 +270,11 @@ _REAL_ALERT_LINK_BOUND_FIELDS = (
     "checks",
     "thresholds",
     "reasons",
+)
+_REAL_ALERT_LINK_V2_BOUND_FIELDS = (
+    "expected_source_cidr",
+    "local_source_address",
+    "source_route_verified",
 )
 _REAL_TARGET_ACCURACY_KEYS = frozenset(
     {
@@ -1734,7 +1742,11 @@ def _real_alert_link_result(
     # Every source summary field is required in a generated binding.  Keeping
     # this explicit makes hand-written or truncated records fail closed before
     # any comparison with the source report.
-    for field in _REAL_ALERT_LINK_BOUND_FIELDS:
+    schema_version = raw_record.get("schema_version")
+    bound_fields = _REAL_ALERT_LINK_BOUND_FIELDS + (
+        _REAL_ALERT_LINK_V2_BOUND_FIELDS if schema_version == 2 else ()
+    )
+    for field in bound_fields:
         if field not in raw_record:
             reasons.append(f"real_alert_link.{field} is missing")
 
@@ -1763,13 +1775,14 @@ def _real_alert_link_result(
 
     expected_contract: dict[str, object] = {
         "event": "alert_link_bench_passed",
-        "schema_version": 1,
         "hardware_observed": True,
         "simulation_only": False,
         "remote_is_loopback": False,
         "correlated_ack_verified": True,
         "authenticated_ack_verified": True,
     }
+    if schema_version not in {1, 2}:
+        reasons.append("real_alert_link.schema_version must be 1 or 2")
     for field, expected in expected_contract.items():
         actual = raw_record.get(field)
         if type(actual) is not type(expected) or actual != expected:
@@ -1817,9 +1830,7 @@ def _real_alert_link_result(
                     require_passed=True,
                 )
                 result["verification"] = verification
-                report_info.update(
-                    {field: report_document.get(field) for field in _REAL_ALERT_LINK_BOUND_FIELDS}
-                )
+                report_info.update({field: report_document.get(field) for field in bound_fields})
                 report_info["transport_protocol"] = report_document.get("transport_protocol")
                 report_info["failure_types"] = report_document.get("failure_types")
                 report_info["passed"] = report_document.get("passed")
@@ -1828,7 +1839,7 @@ def _real_alert_link_result(
                 # thresholds and the ordered reasons list.  Numeric values use
                 # the same tolerance as the rest of the evaluator so JSON
                 # integer/float spelling cannot create a false mismatch.
-                for field in _REAL_ALERT_LINK_BOUND_FIELDS:
+                for field in bound_fields:
                     expected = raw_record.get(field)
                     actual = report_document.get(field)
                     if field in {

@@ -176,7 +176,7 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
     path = tmp_path / "alert-link" / "hardware.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
-        "schema_version": 1,
+        "schema_version": 2,
         "event": "alert_link_bench_passed",
         "observed_at_utc": "2026-09-03T10:00:00+00:00",
         "hardware_observed": True,
@@ -188,6 +188,7 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
             "packet_loss_limit": True,
             "ack_latency_limit": True,
             "mode_boundary": True,
+            "source_route": True,
             "correlated_ack": True,
             "authenticated_transport": True,
         },
@@ -195,6 +196,9 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
         "remote_host": "192.168.1.5",
         "remote_port": 14600,
         "remote_is_loopback": False,
+        "expected_source_cidr": "192.168.1.0/24",
+        "local_source_address": "192.168.1.13",
+        "source_route_verified": True,
         "hardware_id": "GR01-ALERT-001",
         "requested_round_trips": 20,
         "round_trip_samples": 20,
@@ -2067,6 +2071,17 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
     assert definition["properties"]["simulation_only"]["const"] is False
     assert definition["properties"]["remote_is_loopback"]["const"] is False
     assert definition["properties"]["authenticated_ack_verified"]["const"] is True
+    assert definition["properties"]["schema_version"]["enum"] == [1, 2]
+    assert definition["properties"]["source_route_verified"]["const"] is True
+    assert definition["properties"]["checks"]["properties"]["source_route"]["const"] is True
+    route_binding = definition["allOf"][0]
+    assert route_binding["if"]["properties"]["schema_version"]["const"] == 2
+    assert set(route_binding["then"]["required"]) == {
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
+    }
+    assert route_binding["then"]["properties"]["checks"]["required"] == ["source_route"]
     assert set(definition["properties"]["checks"]["required"]) == {
         "required_round_trips",
         "packet_loss_limit",

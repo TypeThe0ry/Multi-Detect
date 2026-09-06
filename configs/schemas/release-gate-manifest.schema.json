@@ -257,17 +257,33 @@
         "gate_passed",
         "reasons"
       ],
+      "allOf": [
+        {
+          "if": {"properties": {"schema_version": {"const": 2}}},
+          "then": {
+            "required": [
+              "expected_source_cidr",
+              "local_source_address",
+              "source_route_verified"
+            ],
+            "properties": {"checks": {"required": ["source_route"]}}
+          }
+        }
+      ],
       "properties": {
         "report_path": {"type": "string", "minLength": 1},
         "report_sha256": {"$ref": "#/$defs/sha256"},
         "report_bytes": {"type": "integer", "minimum": 0},
         "event": {"const": "alert_link_bench_passed"},
-        "schema_version": {"const": 1},
+        "schema_version": {"enum": [1, 2]},
         "hardware_observed": {"const": true},
         "simulation_only": {"const": false},
         "remote_host": {"type": "string", "minLength": 1},
         "remote_port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "remote_is_loopback": {"const": false},
+        "expected_source_cidr": {"type": "string", "minLength": 1},
+        "local_source_address": {"type": "string", "minLength": 1},
+        "source_route_verified": {"const": true},
         "hardware_id": {"type": "string", "minLength": 1},
         "requested_round_trips": {"type": "integer", "minimum": 1},
         "round_trip_samples": {"type": "integer", "minimum": 0},
@@ -295,6 +311,7 @@
             "packet_loss_limit": {"const": true},
             "ack_latency_limit": {"const": true},
             "mode_boundary": {"const": true},
+            "source_route": {"const": true},
             "correlated_ack": {"const": true},
             "authenticated_transport": {"const": true}
           }

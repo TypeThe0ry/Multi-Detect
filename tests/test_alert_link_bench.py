@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime
+from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from multidetect.alert_link_bench import (
     AlertLinkBenchConfig,
@@ -20,6 +22,7 @@ from multidetect.alerts import (
 from multidetect.compat import UTC
 
 NOW = datetime(2026, 9, 3, 10, 0, tzinfo=UTC)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class _ScriptedTransport:
@@ -85,7 +88,7 @@ def test_alert_link_software_baseline_reports_correlated_round_trips() -> None:
         observed_at=lambda: NOW,
     )
 
-    assert result["schema_version"] == 1
+    assert result["schema_version"] == 2
     assert result["event"] == "alert_link_software_baseline_bench_passed"
     assert result["passed"] is True
     assert result["simulation_only"] is True
@@ -97,6 +100,11 @@ def test_alert_link_software_baseline_reports_correlated_round_trips() -> None:
     assert result["authenticated_ack_verified"] is False
     assert result["flight_control_enabled"] is False
     assert transport.calls == 3
+
+    schema = json.loads(
+        (ROOT / "configs" / "schemas" / "alert-link-bench.schema.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator(schema).validate(result)
 
 
 def test_alert_link_bench_counts_retry_loss_and_fails_threshold() -> None:
@@ -132,7 +140,12 @@ def test_alert_link_hardware_mode_rejects_loopback_and_non_authenticated_transpo
     transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
     result = run_alert_link_bench(
         transport,
-        _config(minimum_round_trips=1, hardware_mode=True, hardware_id="GR01-ALERT-001"),
+        _config(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-ALERT-001",
+            expected_source_cidr="192.168.144.0/24",
+        ),
         wall_clock=lambda: 100.0,
         monotonic_clock=lambda: 10.0,
         observed_at=lambda: NOW,
@@ -144,6 +157,49 @@ def test_alert_link_hardware_mode_rejects_loopback_and_non_authenticated_transpo
     reasons = " ".join(result["reasons"])
     assert "loopback" in reasons
     assert "authenticated UDP" in reasons
+
+
+def test_alert_link_hardware_mode_requires_non_loopback_source_network() -> None:
+    with pytest.raises(ValueError, match="expected source CIDR"):
+        _config(hardware_mode=True, hardware_id="GR01-ALERT-001")
+    with pytest.raises(ValueError, match="cannot be loopback"):
+        _config(
+            hardware_mode=True,
+            hardware_id="GR01-ALERT-001",
+            expected_source_cidr="127.0.0.0/8",
+        )
+
+
+def test_alert_link_hardware_mode_binds_and_checks_selected_source_route() -> None:
+    transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
+    transport.host = "192.168.144.11"
+    result = run_alert_link_bench(
+        transport,
+        _config(
+            minimum_round_trips=1,
+            hardware_mode=True,
+            hardware_id="GR01-ALERT-001",
+            expected_source_cidr="192.168.144.0/24",
+        ),
+        wall_clock=lambda: 100.0,
+        monotonic_clock=lambda: 10.0,
+        observed_at=lambda: NOW,
+        source_address_resolver=lambda _host, _port: "192.168.1.13",
+    )
+
+    assert result["schema_version"] == 2
+    assert result["expected_source_cidr"] == "192.168.144.0/24"
+    assert result["local_source_address"] == "192.168.1.13"
+    assert result["source_route_verified"] is False
+    assert result["checks"]["source_route"] is False
+    assert result["passed"] is False
+    assert result["transmission_attempts"] == 0
+    assert transport.calls == 0
+    assert "outside the expected source CIDR" in " ".join(result["reasons"])
+
+    verified = verify_alert_link_bench_report(result)
+    assert verified["gate_passed"] is True
+    assert verified["recomputed_passed"] is False
 
 
 def test_authenticated_udp_alert_link_bench_exercises_real_loopback_socket() -> None:
@@ -185,6 +241,10 @@ def test_authenticated_udp_alert_link_bench_exercises_real_loopback_socket() -> 
     assert result["authenticated_ack_verified"] is True
     assert result["correlated_ack_verified"] is True
     assert result["remote_is_loopback"] is True
+    assert result["expected_source_cidr"] is None
+    assert result["local_source_address"] is None
+    assert result["source_route_verified"] is False
+    assert result["checks"]["source_route"] is True
 
 
 def test_alert_link_bench_verifier_recomputes_report_and_rejects_tampering(tmp_path) -> None:
@@ -216,6 +276,32 @@ def test_alert_link_bench_verifier_recomputes_report_and_rejects_tampering(tmp_p
     path = tmp_path / "alert-link-bench.json"
     path.write_bytes(b"\xef\xbb\xbf" + json.dumps(report).encode("utf-8"))
     assert verify_main([str(path), "--require-passed"]) == 0
+
+
+def test_alert_link_bench_verifier_keeps_legacy_v1_reports_readable() -> None:
+    transport = _ScriptedTransport([AlertDeliveryReceipt("placeholder", "ground-station-1", 1.0)])
+    report = run_alert_link_bench(
+        transport,
+        _config(minimum_round_trips=1),
+        wall_clock=lambda: 100.0,
+        monotonic_clock=lambda: 10.0,
+        observed_at=lambda: NOW,
+    )
+    legacy = dict(report)
+    legacy["schema_version"] = 1
+    legacy["checks"] = {
+        key: value for key, value in report["checks"].items() if key != "source_route"
+    }
+    for field in (
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
+    ):
+        legacy.pop(field)
+
+    verified = verify_alert_link_bench_report(legacy, require_passed=True)
+    assert verified["gate_passed"] is True
+    assert verified["recomputed_passed"] is True
 
 
 def test_alert_link_bench_verifier_recomputes_endpoint_and_handles_malformed_event() -> None:

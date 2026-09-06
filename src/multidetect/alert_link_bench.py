@@ -14,6 +14,7 @@ import ipaddress
 import json
 import math
 import os
+import socket
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -32,7 +33,8 @@ from .autonomy.serialization import strict_json_loads
 from .compat import UTC
 from .domain import BoundingBox, FireAlert
 
-ALERT_LINK_BENCH_SCHEMA_VERSION = 1
+ALERT_LINK_BENCH_SCHEMA_VERSION = 2
+SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS = frozenset({1, 2})
 DEFAULT_MINIMUM_ROUND_TRIPS = 20
 DEFAULT_MAXIMUM_ATTEMPTS = 3
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
@@ -64,6 +66,7 @@ class AlertLinkBenchConfig:
     maximum_ack_latency_p95_ms: float = DEFAULT_MAXIMUM_ACK_LATENCY_P95_MS
     hardware_mode: bool = False
     hardware_id: str | None = None
+    expected_source_cidr: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.hardware_mode) is not bool:
@@ -103,6 +106,21 @@ class AlertLinkBenchConfig:
             raise ValueError("alert-link hardware mode requires a non-empty hardware ID")
         if not self.hardware_mode and self.hardware_id is not None:
             raise ValueError("alert-link hardware ID requires hardware mode")
+        if self.hardware_mode and (
+            not isinstance(self.expected_source_cidr, str) or not self.expected_source_cidr.strip()
+        ):
+            raise ValueError("alert-link hardware mode requires an expected source CIDR")
+        if not self.hardware_mode and self.expected_source_cidr is not None:
+            raise ValueError("alert-link expected source CIDR requires hardware mode")
+        if self.expected_source_cidr is not None:
+            try:
+                source_network = ipaddress.ip_network(
+                    self.expected_source_cidr.strip(), strict=False
+                )
+            except ValueError as exc:
+                raise ValueError("alert-link expected source CIDR is invalid") from exc
+            if source_network.is_loopback:
+                raise ValueError("alert-link hardware source CIDR cannot be loopback")
 
 
 def run_alert_link_bench(
@@ -112,6 +130,7 @@ def run_alert_link_bench(
     wall_clock: Callable[[], float] = time.time,
     monotonic_clock: Callable[[], float] = time.monotonic,
     observed_at: Callable[[], datetime] = lambda: datetime.now(UTC),
+    source_address_resolver: Callable[[str, int], str] | None = None,
 ) -> dict[str, Any]:
     """Run bounded acknowledged alert probes through ``transport``.
 
@@ -120,10 +139,30 @@ def run_alert_link_bench(
     attempts that do not receive an acknowledgement are counted in the packet
     loss estimate; a final failed sample never satisfies the required sample
     count.  The optional ``hardware_mode`` flag is an explicit field-session
-    assertion and still rejects loopback endpoints.
+    assertion and still rejects loopback endpoints. Hardware reports also bind
+    the source address selected by the operating system to an explicit CIDR;
+    this prevents a responsive peer on the wrong interface from being promoted
+    to selected-link evidence.
     """
 
     session_id = f"alert-link-bench-{uuid4()}"
+    remote_host, remote_port, remote_is_loopback = _remote_details(transport)
+    expected_source_cidr = _canonical_network(config.expected_source_cidr)
+    local_source_address: str | None = None
+    source_route_verified = False
+    if (
+        config.hardware_mode
+        and remote_host is not None
+        and remote_port is not None
+        and not remote_is_loopback
+    ):
+        resolver = source_address_resolver or _resolve_local_source_address
+        try:
+            local_source_address = resolver(remote_host, remote_port)
+            source_route_verified = _address_in_network(local_source_address, expected_source_cidr)
+        except (OSError, TypeError, ValueError):
+            local_source_address = None
+    route_blocked = config.hardware_mode and not source_route_verified
     publisher = RetryingAcknowledgedAlertPublisher(
         transport,
         maximum_attempts=config.maximum_attempts,
@@ -139,7 +178,8 @@ def run_alert_link_bench(
     attempt_counts: list[int] = []
     successful_samples: list[bool] = []
 
-    for sequence in range(1, config.minimum_round_trips + 1):
+    sequences: Sequence[int] = () if route_blocked else range(1, config.minimum_round_trips + 1)
+    for sequence in sequences:
         observed_at_s = _finite_float(wall_clock())
         if observed_at_s is None:
             raise ValueError("alert-link bench wall clock must return a finite number")
@@ -184,12 +224,12 @@ def run_alert_link_bench(
         transmission_attempts += attempts
         missing_ack_attempts += attempts - 1 if succeeded else attempts
 
+    expected_sample_count = 0 if route_blocked else config.minimum_round_trips
     if (
-        len(attempt_counts) != config.minimum_round_trips
-        or len(successful_samples) != config.minimum_round_trips
+        len(attempt_counts) != expected_sample_count
+        or len(successful_samples) != expected_sample_count
     ):
         raise RuntimeError("alert-link bench sample accounting is incomplete")
-    remote_host, remote_port, remote_is_loopback = _remote_details(transport)
     transport_protocol = (
         "authenticated_udp"
         if isinstance(transport, UdpAcknowledgedAlertTransport)
@@ -216,6 +256,7 @@ def run_alert_link_bench(
             latency_p95_ms is not None and latency_p95_ms <= config.maximum_ack_latency_p95_ms
         ),
         "mode_boundary": mode_boundary_verified,
+        "source_route": source_route_verified or not config.hardware_mode,
         "correlated_ack": correlated_ack_verified,
         "authenticated_transport": authenticated_ack_verified or not config.hardware_mode,
     }
@@ -228,6 +269,8 @@ def run_alert_link_bench(
         reasons.append("alert-link ACK P95 latency exceeds the configured limit")
     if config.hardware_mode and not mode_boundary_verified:
         reasons.append("alert-link hardware mode cannot target a loopback or unresolved address")
+    if config.hardware_mode and not checks["source_route"]:
+        reasons.append("alert-link local source address is outside the expected source CIDR")
     if not checks["correlated_ack"]:
         reasons.append("correlated alert acknowledgement is not verified")
     if config.hardware_mode and not checks["authenticated_transport"]:
@@ -253,6 +296,9 @@ def run_alert_link_bench(
         "remote_host": remote_host,
         "remote_port": remote_port,
         "remote_is_loopback": remote_is_loopback,
+        "expected_source_cidr": expected_source_cidr,
+        "local_source_address": local_source_address,
+        "source_route_verified": source_route_verified,
         "hardware_id": config.hardware_id.strip() if config.hardware_id else None,
         "requested_round_trips": config.minimum_round_trips,
         "round_trip_samples": accepted_round_trips,
@@ -302,8 +348,10 @@ def verify_alert_link_bench_report(
             "reasons": ["alert-link bench report must be an object"],
         }
 
-    if document.get("schema_version") != ALERT_LINK_BENCH_SCHEMA_VERSION:
-        reasons.append("schema_version must be 1")
+    schema_version = document.get("schema_version")
+    if schema_version not in SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS:
+        reasons.append("schema_version must be 1 or 2")
+    is_route_bound = schema_version == 2
     event = document.get("event")
     if isinstance(event, str):
         hardware_event = event in {
@@ -395,6 +443,62 @@ def verify_alert_link_bench_report(
     )
     if remote_is_loopback is not endpoint_loopback:
         reasons.append("remote_is_loopback does not match the reported endpoint")
+    expected_source_cidr: str | None = None
+    local_source_address: str | None = None
+    source_route_verified = False
+    if is_route_bound:
+        raw_source_cidr = document.get("expected_source_cidr")
+        raw_source_address = document.get("local_source_address")
+        if raw_source_cidr is not None and (
+            not isinstance(raw_source_cidr, str) or not raw_source_cidr.strip()
+        ):
+            reasons.append("expected_source_cidr must be a non-empty string or null")
+        elif isinstance(raw_source_cidr, str):
+            try:
+                source_network = ipaddress.ip_network(raw_source_cidr.strip(), strict=False)
+            except ValueError:
+                reasons.append("expected_source_cidr must be a valid IP network")
+            else:
+                expected_source_cidr = str(source_network)
+                if raw_source_cidr.strip() != expected_source_cidr:
+                    reasons.append("expected_source_cidr must use canonical network notation")
+                if source_network.is_loopback:
+                    reasons.append("expected_source_cidr cannot be loopback in a hardware report")
+        if raw_source_address is not None and (
+            not isinstance(raw_source_address, str) or not raw_source_address.strip()
+        ):
+            reasons.append("local_source_address must be a non-empty string or null")
+        elif isinstance(raw_source_address, str):
+            try:
+                local_source_address = str(ipaddress.ip_address(raw_source_address.strip()))
+            except ValueError:
+                reasons.append("local_source_address must be a concrete IP address")
+            else:
+                if raw_source_address.strip() != local_source_address:
+                    reasons.append("local_source_address must use canonical IP notation")
+        declared_source_route = document.get("source_route_verified")
+        if type(declared_source_route) is not bool:
+            reasons.append("source_route_verified must be a boolean")
+        source_route_verified = _address_in_network(local_source_address, expected_source_cidr)
+        if (
+            type(declared_source_route) is bool
+            and declared_source_route is not source_route_verified
+        ):
+            reasons.append("source_route_verified does not match the source address and CIDR")
+        if software_event and any(
+            value is not None for value in (raw_source_cidr, raw_source_address)
+        ):
+            reasons.append("software baseline cannot claim a hardware source route")
+        if software_event and declared_source_route is not False:
+            reasons.append("software baseline source_route_verified must be false")
+    else:
+        for field in (
+            "expected_source_cidr",
+            "local_source_address",
+            "source_route_verified",
+        ):
+            if field in document:
+                reasons.append(f"schema v1 report cannot contain {field}")
     expected_hardware_observed = (
         hardware_event and endpoint_is_concrete_ip and endpoint_port_valid and not endpoint_loopback
     )
@@ -467,9 +571,16 @@ def verify_alert_link_bench_report(
         reasons.append("thresholds.maximum_attempts is invalid")
         maximum_attempts = 1
 
+    route_preflight_blocked = is_route_bound and hardware_event and not source_route_verified
     if requested is not None and samples is not None and failed is not None:
-        if samples + failed != requested:
+        if route_preflight_blocked and (samples != 0 or failed != 0):
+            reasons.append("source-route-blocked report cannot contain round-trip outcomes")
+        elif not route_preflight_blocked and samples + failed != requested:
             reasons.append("round_trip_samples plus failed_round_trips must equal requested")
+    if route_preflight_blocked and any(
+        value not in {None, 0} for value in (transmissions, missing)
+    ):
+        reasons.append("source-route-blocked report cannot contain transmission attempts")
     if samples is not None and transmissions is not None and transmissions < samples:
         reasons.append("transmission_attempts cannot be below successful samples")
     if failed is not None and transmissions is not None and transmissions < failed:
@@ -499,8 +610,6 @@ def verify_alert_link_bench_report(
             reasons.append("hardware event requires a concrete IP endpoint and valid port")
         if endpoint_loopback:
             reasons.append("hardware event cannot use a loopback or unresolved endpoint")
-        if not authenticated_ack:
-            reasons.append("hardware event requires authenticated ACK verification")
     if software_event:
         if not simulation_only:
             reasons.append("software baseline must set simulation_only=true")
@@ -536,6 +645,7 @@ def verify_alert_link_bench_report(
         and not endpoint_loopback
         and isinstance(hardware_id, str)
     )
+    source_route = (not hardware_event) or (not is_route_bound) or source_route_verified
     required_round_trips = requested is not None and samples == requested
     packet_loss_limit = packet_loss is not None and float(packet_loss) <= float(maximum_loss)
     ack_latency_limit = p95_value is not None and p95_value <= float(maximum_p95)
@@ -544,6 +654,7 @@ def verify_alert_link_bench_report(
         "packet_loss_limit": packet_loss_limit,
         "ack_latency_limit": ack_latency_limit,
         "mode_boundary": mode_boundary,
+        **({"source_route": source_route} if is_route_bound else {}),
         "correlated_ack": correlated_ack,
         "authenticated_transport": authenticated_ack or not hardware_event,
     }
@@ -569,6 +680,10 @@ def verify_alert_link_bench_report(
     if hardware_event and not mode_boundary:
         computed_reasons.append(
             "alert-link hardware mode cannot target a loopback or unresolved address"
+        )
+    if hardware_event and is_route_bound and not source_route:
+        computed_reasons.append(
+            "alert-link local source address is outside the expected source CIDR"
         )
     if not correlated_ack:
         computed_reasons.append("correlated alert acknowledgement is not verified")
@@ -618,6 +733,39 @@ def _remote_details(transport: object) -> tuple[str | None, int | None, bool]:
         # A hostname is not assumed to be physical evidence.  Hardware mode
         # requires a concrete non-loopback IPv4/IPv6 endpoint.
         return host, port, True
+
+
+def _canonical_network(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return str(ipaddress.ip_network(value.strip(), strict=False))
+
+
+def _address_in_network(address: str | None, network: str | None) -> bool:
+    if address is None or network is None:
+        return False
+    try:
+        parsed_address = ipaddress.ip_address(address)
+        parsed_network = ipaddress.ip_network(network, strict=False)
+    except ValueError:
+        return False
+    return parsed_address.version == parsed_network.version and parsed_address in parsed_network
+
+
+def _resolve_local_source_address(host: str, port: int) -> str:
+    """Ask the OS which local address would carry a UDP datagram to ``host``.
+
+    UDP ``connect`` performs route selection without transmitting a packet.
+    The returned address is bound into v2 hardware reports before the first
+    authenticated alert is sent.
+    """
+
+    remote = ipaddress.ip_address(host)
+    family = socket.AF_INET6 if remote.version == 6 else socket.AF_INET
+    with socket.socket(family, socket.SOCK_DGRAM) as channel:
+        channel.connect((str(remote), port))
+        local = channel.getsockname()[0]
+    return str(ipaddress.ip_address(local))
 
 
 def _observed_at_iso(observed_at: Callable[[], datetime]) -> str:
@@ -693,6 +841,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--hardware-mode", action="store_true")
     parser.add_argument("--hardware-id")
+    parser.add_argument(
+        "--expected-source-cidr",
+        help=(
+            "required in hardware mode; the OS-selected local UDP source address "
+            "must belong to this network"
+        ),
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -713,6 +868,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         maximum_ack_latency_p95_ms=args.maximum_ack_latency_p95_ms,
         hardware_mode=args.hardware_mode,
         hardware_id=args.hardware_id,
+        expected_source_cidr=args.expected_source_cidr,
     )
     report = run_alert_link_bench(transport, config)
     encoded = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -726,6 +882,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 __all__ = [
     "ALERT_LINK_BENCH_SCHEMA_VERSION",
+    "SUPPORTED_ALERT_LINK_BENCH_SCHEMA_VERSIONS",
     "AlertLinkBenchConfig",
     "run_alert_link_bench",
     "verify_alert_link_bench_report",

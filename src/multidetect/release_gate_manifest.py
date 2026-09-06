@@ -783,7 +783,7 @@ def _real_alert_link_record(
 
     expected_contract: dict[str, object] = {
         "event": "alert_link_bench_passed",
-        "schema_version": 1,
+        "schema_version": 2,
         "hardware_observed": True,
         "simulation_only": False,
         "remote_is_loopback": False,
@@ -819,6 +819,9 @@ def _real_alert_link_record(
         "remote_host",
         "remote_port",
         "remote_is_loopback",
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
         "hardware_id",
         "requested_round_trips",
         "round_trip_samples",
