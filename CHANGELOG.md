@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v151 现场链路只读刷新与 E7 重绑定（2026-09-07）
+
+- 在当前台式机执行 3 样本、协议级、路由级只读 field-link 预检；报告及独立接口诊断均通过结构/哈希复验，
+  但 3/3 样本实际路由源地址均为 `192.168.1.13`，不属于要求的 `192.168.144.0/24`，Jetson
+  `192.168.144.20:22`、GR01 `192.168.144.11:5760`、相机 `192.168.144.108:554` 均超时；
+- 将新鲜的现场失败报告与 v150 当前 parity 的 external join/revalidation、三机型 response matrix/campaign
+  显式重绑到 E7。新报告仍为 `gate_passed=false`、`release_allowed=false`，阻断项由 32 降为 31；该变化只关闭
+  旧 field-link 快照过期问题，`real_field_link.passed=false` 与 `hardware_link_ready=false` 保持不变；
+- 本轮未修改网卡、路由、飞控、载荷、C++ 或 QML，也未产生硬件、HIL、REAL、室外 GNSS 或飞行通过声明；
+  版本继续保持 `0.3.0-pre.8`，portable EXE 无需重建。
+
 ### v0.3.0-pre.8 v150 hash-anchored GR01 trust registry（2026-09-07）
 
 - 新增 closed trust-registry schema/CLI：用包外 registry 文件 SHA-256 锚定 `source_operator` / `reviewer` 的 principal ID、

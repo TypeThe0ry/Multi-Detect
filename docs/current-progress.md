@@ -1,6 +1,23 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v150 工作树）
+最后更新：2026-09-07（v151 工作树）
+
+## v151 本轮已收口
+
+- 对当前台式机执行 3 样本、协议级、路由级 field-link 只读预检。18,143-byte 报告 SHA-256
+  `976B0F3E17214274EC79E62F556F5BB00A8F89A37BDC02A7D088B9893269ACC3`；4,378-byte 接口诊断 SHA-256
+  `380C2B9F7C246A42A95DB14F7285B53B0B0C44233D04EB054A0508511D43BA95`；独立 verifier 以
+  `--allow-unready` 退出 `0`，证明报告结构与哈希链可读，不代表硬件 ready；
+- 3/3 样本的 Jetson SSH、GR01 MAVLink 和相机 RTSP 传输/协议探测全部超时；操作系统为三个端点选择的源地址均为
+  `192.168.1.13`，不属于要求的 `192.168.144.0/24`。因此 `route_checks_passed=false`、
+  `hardware_link_ready=false`，接口诊断也明确 `selection.status=missing` / `candidate_count=0`；
+- 用该新鲜现场失败证据和 v150 当前 parity 派生证据重绑 E7：manifest SHA-256
+  `9B5C614BE53793E15D5086FA44301BC99530E39DD791D662FFBF642FF055718D`，report SHA-256
+  `BD102087CEA1095796A188C79D0A467847BCE987347D6C945264FACC35321D5B`。E7 仍为
+  `gate_passed=false` / `release_allowed=false`，阻断项从 32 降至 31；只消除了旧现场报告过期阻断，
+  `real_field_link.passed=false` 没有提升；
+- 本轮没有修改网络配置、飞控或载荷，没有修改 C++/QML，因此无需重建 EXE。版本仍为 `0.3.0-pre.8`；硬件、
+  HIL/REAL、室外 GNSS 与飞行验收继续保持 `not_claimed`。
 
 ## v150 本轮已收口
 

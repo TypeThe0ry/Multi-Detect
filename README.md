@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v150：哈希锚定的 GR01 operator/reviewer trust registry |
+| 当前工程迭代 | v151：现场链路只读刷新与 E7 重绑定 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,14 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v151 当前现场链路状态
+
+最新 3 样本只读预检已通过报告结构和哈希复验，但三个目标端点的实际路由源地址都是
+`192.168.1.13`，并未进入要求的 `192.168.144.0/24`；Jetson SSH、GR01 MAVLink、相机 RTSP
+全部超时。因此当前结论仍是 `hardware_link_ready=false`。新鲜失败证据已重绑 E7，阻断项由
+32 降为 31；这只消除了旧报告过期问题，不代表任何硬件或外场门已通过。具体哈希和下一步见
+[当前进度](docs/current-progress.md)。
 
 ### v132–v150 GR01 计划、事务化 E7 与 trust registry 复核
 
@@ -131,58 +139,12 @@ revalidation、`GLOBAL_POSITION_INT` response matrix/campaign，以及按当前 
 三机型 deterministic 3-D control records。无参数运行（可只指定新输出目录与时间戳）现在可以完整生成
 E7 manifest/report，不会因旧 release-parity 或 model SHA 中断。
 
-最新 report-only 复算仍为 `gate_passed=false`、`release_allowed=false` 和 32 个阻断项；这些阻断来自
-replay-set 部署域/精度评审、过期且未 ready 的真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件、
-引用失败证据以及最终版本通道，而不是 SIM 证据漂移。本轮未修改 C++/QML，因此 portable EXE 不重建。
+当前 v151 report-only 复算为 `gate_passed=false`、`release_allowed=false` 和 31 个阻断项；这些阻断来自
+replay-set 部署域/精度评审、未 ready 的真实 field link、四模式人工视觉/Mission、HIL/REAL 硬件、引用失败
+证据以及最终版本通道，而不是 SIM 证据漂移。
 
-### v104 E7 地址来源投影
-
-release-gate manifest 的 `real_field_link.address_state_bound` 由 writer 从 canonical field-link verifier
-结果生成。E7 evaluator 会重开父预检及其地址回执，再把实际绑定状态与 manifest 投影对账；删除或篡改
-投影字段、替换嵌套地址回执都会阻断。历史 prerelease manifest 仍可读取，但最终 `0.3.0` 必须显式携带
-该投影。字段为 `false` 表示网卡可能由其他受控方式配置，并不自动失败；它只负责把 provenance 状态
-准确暴露给最终审核者，不能伪造为 `true`。
-
-### v103 地址 apply 回执绑定到外场预检
-
-field-link 预检 CLI 与 PowerShell wrapper 现在可接受 `--address-state` / `-AddressState`。它会在探测前
-独立重开地址证据，要求 `mode=apply`、后置条件成功、目标接口/IP/prefix 一致，并以预检观测时间执行
-最多 300 秒的新鲜度检查；随后把证据路径、字节数、SHA-256、schema 与地址身份写入预检报告。
-
-```powershell
-.\scripts\run_field_link_preflight.ps1 `
-  -InterfaceAlias Ethernet `
-  -ExpectedSourceCidr 192.168.144.0/24 `
-  -AddressState .\artifacts\evaluation\field-link-address-apply.json `
-  -AddressStateMaxAgeSeconds 300 `
-  -ProtocolChecks -RequireRoute `
-  -Output .\artifacts\evaluation\field-link-preflight-bound.json
-```
-
-canonical verifier 会再次重开被绑定回执，拒绝源文件漂移、binding 字段篡改、软链接、超过策略上限、
-地址落在父预检目标 CIDR 之外或接口诊断 alias 不一致。地址回执只证明工作站地址配置来源，不能替代
-Jetson/GR01/相机端点探测，也不会单独把 `hardware_link_ready` 提升为 true。
-
-### v102 外场地址证据独立复验
-
-`prepare_field_link.ps1` 的 plan、verify、what-if、apply 输出统一声明
-`multidetect.field-link-address-state/v1`。仓库新增 closed JSON Schema 与无网络副作用的独立 verifier，
-会重算地址/路由结构、计划是否确实需要变更、安全不变量、rollback 命令、目标接口/IP/prefix、时间新鲜度
-以及 apply 后置条件。
-
-```powershell
-python .\scripts\verify_field_link_address_state.py `
-  .\artifacts\evaluation\field-link-address-apply.json `
-  --require-applied `
-  --expected-interface-alias Ethernet `
-  --expected-address 192.168.144.250 `
-  --expected-prefix-length 24 `
-  --max-age-s 300
-```
-
-plan/verify/what-if 可以证明文档自身有效，但只有 `mode=apply` 且持久化地址状态满足 postcondition 时才能
-通过 `--require-applied`。未知字段、重复 JSON key、非有限数字、错误安全标志、错误回滚动作、地址重复、
-伪造成功和过期/未来时间全部 fail-closed。
+v102–v104 的地址状态 schema、apply 回执、预检绑定和 E7 投影细节见
+[当前进度](docs/current-progress.md)、[现场部署](docs/field-bringup.md) 与 [E7 发布门](docs/release-gate.md)。
 
 ### v101 地址变更后置条件
 

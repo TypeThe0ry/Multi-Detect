@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T16:18:16Z",
+  "updated_at_utc": "2026-09-06T16:30:44Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "fb5e8e4069a35dc53b010c48e4ee6c1bc70084f4",
-    "commit_subject": "feat(release): anchor GR01 reviews to trust registry",
-    "commits_ahead_of_origin_main": 193
+    "commit": "592268571d4c8d0ce1746160b772237a503bf71f",
+    "commit_subject": "docs(progress): record v150 GR01 trust registry",
+    "commits_ahead_of_origin_main": 194
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,12 +20,12 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v150",
+  "working_iteration": "v151",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
     "release_allowed": false,
-    "blocker_count": 32
+    "blocker_count": 31
   },
   "validation": {
     "full_regression": {
@@ -709,13 +709,13 @@
       }
     },
     "field_link_read_only_current_probe": {
-      "local_path": "tmp/field-link-preflight-v103-unbound.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v151/field-link-preflight-live-20260907-current.json",
       "distributed_in_git": false,
-      "file_bytes": 4570,
-      "file_sha256": "201e9b1b7fce1519bc2d553a6a749310a13704843b4eef7bb167069992ab4723",
-      "interface_diagnostic_local_path": "tmp/field-link-interface-v100-bound.json",
-      "interface_diagnostic_file_bytes": 4344,
-      "interface_diagnostic_file_sha256": "52d69bf31e3e5bcb0d8678508724bb4ee55e7a12f9d125975fb252030ba384c0",
+      "file_bytes": 18143,
+      "file_sha256": "976b0f3e17214274ec79e62f556f5bb00a8f89a37bdc02a7d088b9893269acc3",
+      "interface_diagnostic_local_path": "artifacts/evaluation/field-link-interface-diagnostic-20260907-002820.json",
+      "interface_diagnostic_file_bytes": 4378,
+      "interface_diagnostic_file_sha256": "380c2b9f7c246a42a95db14f7285b53b0b0c44233d04eb054a0508511d43ba95",
       "address_state_schema": "multidetect.field-link-address-state/v1",
       "address_state_schema_path": "configs/schemas/field-link-address-state.schema.json",
       "address_state_verifier": "multidetect.field_link_address_state.verify_field_link_address_state",
@@ -747,8 +747,8 @@
       "address_what_if_changed": false,
       "address_what_if_postcondition_checked": false,
       "network_configuration_changed": false,
-      "samples_requested": 1,
-      "samples_collected": 1,
+      "samples_requested": 3,
+      "samples_collected": 3,
       "hardware_link_ready": false,
       "route_checks_passed": false,
       "interface_alias": "Ethernet",
@@ -756,6 +756,13 @@
       "expected_aircraft_cidr": "192.168.144.0/24",
       "interface_selection_status": "missing",
       "offline_verification_passed": true,
+      "protocol_checks_requested": true,
+      "protocol_checks_passed": false,
+      "route_source_addresses": {
+        "jetson-ssh-route": "192.168.1.13",
+        "gr01-mavlink-route": "192.168.1.13",
+        "camera-rtsp-route": "192.168.1.13"
+      },
       "claims": {
         "read_only_diagnostic": "passed",
         "hardware_acceptance": "not_claimed",
@@ -1315,14 +1322,14 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v150/release-gate/release-gate-pre.8-current-20260906T161816Z-v6-bound.json",
-      "manifest_file_sha256": "1bc3bfbdae1006d74640c10ba1373c9ddf188ff0501b78e4d3778c3fb93541ca",
-      "local_path": "artifacts/evaluation/terminal-continuation-v150/release-gate/release-gate-pre.8-current-20260906T161816Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v151/release-gate/release-gate-pre.8-current-20260906T163044Z-v6-bound.json",
+      "manifest_file_sha256": "9b5c614be53793e15d5086fa44301bc99530e39dd791d662ffbf642ff055718d",
+      "local_path": "artifacts/evaluation/terminal-continuation-v151/release-gate/release-gate-pre.8-current-20260906T163044Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "218839e8b5dee4e9f803e5252301fb86d4d9bf88187bcbee7f5ea6b452b08e64",
+      "file_sha256": "bd102087cea1095796a188c79d0a467847bce987347d6c945264facc35321d5b",
       "gate_passed": false,
       "release_allowed": false,
-      "blocker_count": 32
+      "blocker_count": 31
     }
   },
   "model_status": {

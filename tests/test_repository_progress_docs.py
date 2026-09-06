@@ -44,7 +44,7 @@ def test_current_progress_keeps_prerelease_and_claim_boundaries_explicit() -> No
         "final_version_released": False,
         "gate_passed": False,
         "release_allowed": False,
-        "blocker_count": 32,
+        "blocker_count": 31,
     }
     assert progress["model_status"]["status"] == "quarantined"
     assert progress["model_status"]["production_approved"] is False
