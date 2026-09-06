@@ -2,11 +2,12 @@
 
 ## v156 producer epoch 变更后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
 
-type 26 新增 producer epoch 后，共享 UI/task parity 已变化。v155 的 external join/revalidation、三机型
-response matrix、故障 campaign 与 E7 manifest/report 继续保留为历史记录，但不再绑定当前 parity，不能作为
-当前发布判定。必须重新派生这些证据后才能恢复 current-parity E7 结论。最终 `v0.3.0` 仍为阻断状态；既有
-31 个未关闭门不会因本次软件协议增强而减少，人工视觉、室外 GNSS、field link、HIL/REAL、真实硬件与实飞
-仍未验收。
+type 26 新增 producer epoch 后，共享 UI/task parity 已变化。v155 派生文件继续保留为历史记录；v156 已重新
+生成 external join/revalidation、三机型 response matrix、6 正例/9 故障 campaign、只读 field-link 与 E7。
+当前报告为 `release-gate-pre.8-current-20260906T201700Z-v6-bound-report.json`，SHA-256
+`2E69421F6446D6064B692AD0580B43C5D9CF3BCEA3AF8944C918CB2CA1D0C543`，结果仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers。人工视觉、室外 GNSS、field link、HIL/REAL、
+真实硬件与实飞仍未验收。
 
 ## v155 当前原子观测重绑定（历史，2026-09-07，`v0.3.0-pre.8`）
 

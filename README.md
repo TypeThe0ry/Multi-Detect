@@ -92,8 +92,9 @@ source replay guard 与相关 sequence gate，并把旧 epoch 记为 retired。�
 
 QML 的地图落点与保存门同时要求三个状态的 epoch、sequence 和 `sentAtMs` 一致。新证据使用
 `multidetect.target-evidence.v5` 并持久化 `producer_epoch`；v1/v2/v3/v4 继续只读兼容，不能伪装成
-epoch-bound 新记录。该链仍为 advisory/display-only，不增加飞控、载荷或物理输出权限；新的 parity
-产生后，v155 的 E7 派生报告只保留为历史证据，必须按当前 parity 重新生成才能用于后续发布判定。
+epoch-bound 新记录。该链仍为 advisory/display-only，不增加飞控、载荷或物理输出权限。external
+join/revalidation、三机型 response matrix、6 正例/9 故障 campaign 与 E7 现已按 v156 parity 重算；
+结果仍是 `gate_passed=false`、`release_allowed=false`、31 blockers。
 
 ### v155 单包原子目标观测
 

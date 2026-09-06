@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T20:02:38Z",
+  "updated_at_utc": "2026-09-06T20:17:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -831,13 +831,13 @@
       }
     },
     "field_link_read_only_current_probe": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v155/field-link-preflight-live-20260907-v155-current.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v156/field-link-preflight-live-v156-current.json",
       "distributed_in_git": false,
-      "file_bytes": 18170,
-      "file_sha256": "740479b51da65f0564c5436fef9ca6c006775375aa5a20642a484a7988aec8d7",
-      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v155/field-link-interface-diagnostic-20260907-v155.json",
-      "interface_diagnostic_file_bytes": 4404,
-      "interface_diagnostic_file_sha256": "e8a1717c7595809f57099d9384c176abf5db97971b197f5ee75e31ba4bdb1a04",
+      "file_bytes": 15777,
+      "file_sha256": "fe782e46396a28e8e15dcf6983b2c1c36eea4c28f91f393809bba88fede87b57",
+      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v156/field-link-interface-diagnostic-v156-current.json",
+      "interface_diagnostic_file_bytes": 4403,
+      "interface_diagnostic_file_sha256": "b49a492fd9cfcda39bdebd39decb4d5a0c230897867c1ee02e83f0fc6603aca1",
       "address_state_schema": "multidetect.field-link-address-state/v1",
       "address_state_schema_path": "configs/schemas/field-link-address-state.schema.json",
       "address_state_verifier": "multidetect.field_link_address_state.verify_field_link_address_state",
@@ -1257,10 +1257,10 @@
       "e7_binding": "connected_fail_closed_pending_four_independent_human_reviews"
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v155/px4-reported-position-response-matrix-v155-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v156/px4-reported-position-response-matrix-v156-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "7693c40a84d39339e73ca28f49e0596c13e199a5ef01115534654f9ac900aec9",
-      "matrix_sha256": "0428edcb86a4cd3d0f8adbb982df2f5cf9a21354a0c3beee9a49763f26bde6a1",
+      "file_sha256": "9a4aa992e64735e0401b5768d4e6759c24001ad8a017c77a66cca85db2518610",
+      "matrix_sha256": "9ba209bde9e58c0792647894c2399669c0d14385e66f3a50e64244863b7e95c6",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
@@ -1273,10 +1273,10 @@
       "hardware_acceptance": "not_claimed"
     },
     "px4_reported_position_response_campaign": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v155/px4-reported-position-response-campaign-v155-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v156/px4-reported-position-response-campaign-v156-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "112ef4627a2cb1f66953eb30bd3d85dd4eb52ad0e816aaf8a6b074bf82e998e2",
-      "campaign_sha256": "5b8aaee32accfbeaf44c96be20d2b1bc2c219da33fe6cd8982a3e71900feea93",
+      "file_sha256": "fe96fc6051570bef85270d538a650cd9b61ebb2b72515cbe1563eac7cfd5cae9",
+      "campaign_sha256": "f2af683d30654eae151f80bc53312138003bb65fcc96bf36f87c354bca2632ee",
       "gate_passed": true,
       "positive_run_count": 6,
       "fault_run_count": 9,
@@ -1285,11 +1285,11 @@
       "hardware_acceptance": "not_claimed"
     },
     "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v155/simulator-external-runtime-ai-join-v155-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v156/simulator-external-runtime-ai-join-v156-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "c4f7eeecd3eb2ad1fb5ca693df09826876e480b2ab4a069dcdb15bcc15157e29",
-      "verification_local_path": "artifacts/evaluation/terminal-continuation-v155/simulator-external-runtime-ai-revalidation-v155-current-parity-pre8.json",
-      "verification_file_sha256": "b2ff7cba9c4d7d69ab2da9eb081d231d742af9efc0671d02890fb3b88d2fb082",
+      "file_sha256": "6da1c013a78616b3fce433145e8f1a86b785f8e7af8f6443430df05a0a2e0743",
+      "verification_local_path": "artifacts/evaluation/terminal-continuation-v156/simulator-external-runtime-ai-revalidation-v156-current-parity-pre8.json",
+      "verification_file_sha256": "8bb904b6510197f3d2d0e6a303673a6adabaa93424695fcc2f0eb7d248ef6a97",
       "gate_passed": true,
       "source_recomputed": true,
       "new_external_runtime_claimed": false
@@ -1444,18 +1444,18 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v155/release-gate/release-gate-pre.8-current-20260906T192400Z-v6-bound.json",
-      "manifest_file_bytes": 23619,
-      "manifest_file_sha256": "97ce95947b99f2fc0d9633b53a9347eceb237ee1467a9db052a2e7a7fdad6767",
-      "local_path": "artifacts/evaluation/terminal-continuation-v155/release-gate/release-gate-pre.8-current-20260906T192400Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v156/release-gate/release-gate-pre.8-current-20260906T201700Z-v6-bound.json",
+      "manifest_file_bytes": 23609,
+      "manifest_file_sha256": "1396bb9257e11cbddf007b957c73210d788db53696d90dee2ede77b3492bc20b",
+      "local_path": "artifacts/evaluation/terminal-continuation-v156/release-gate/release-gate-pre.8-current-20260906T201700Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_bytes": 73561,
-      "file_sha256": "996f595de8e07eb41f63a1edb887637dc8abb0b5acd6a5197d597c549e93ccef",
+      "file_bytes": 73538,
+      "file_sha256": "2e69421f6446d6064b692ad0580b43c5d9cf3bcea3af8944c918cb2ca1d0c543",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 31,
-      "current_release_parity_bound": false,
-      "status": "historical_v155_requires_v156_regeneration"
+      "current_release_parity_bound": true,
+      "status": "current_v156_report_only_blocked"
     }
   },
   "model_status": {

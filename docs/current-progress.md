@@ -21,8 +21,9 @@
   `CEB14C70D5FB37085534B62C703DD76C305F4A9C866BD855250932056FF44BB1`；UI/task contract 更新为
   `431E8279302C88283718C7722FCC71BAFC9500AF0A5730B290EFBDEF55F62D54` /
   `7F8721C1561F5CBEB7A3CC41A7CDE2FACE1B58F1EEE8B33976A5F35AEF8BCD5C`，core/safety/PX4 identity 未变。
-- parity 已变化，所以 v155 external join、response matrix、fault campaign 与 E7 report 只保留为历史证据；它们不能
-  冒充当前 parity 的发布证据。当前发布状态仍阻断；人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞均未通过。
+- v155 派生文件在 parity 变化后保留为历史证据；v156 external join/revalidation、三机型 response matrix、
+  6 正例/9 故障 campaign 与 E7 已按当前 parity 重算。最新 E7 仍为 `gate_passed=false`、
+  `release_allowed=false`、31 blockers；人工 Fly View、室外 GNSS、真实硬件、HIL/REAL 与实飞均未通过。
 - 最终全量回归 3,662 tests：`3660 passed, 2 skipped, 0 failed, 0 errors`，耗时 310.24 秒；JUnit
   533,660 bytes、SHA-256 `79A05CF85681A6964998A77B04F7AEE0B6B0E193D18FFA5A595FF8286ADE9445`。
 
@@ -1681,6 +1682,11 @@ Gazebo Harmonic 的传感器时间语义：CameraInfo 是会话级静态标定�
 | `px4-reported-position-response-matrix-v155-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `7693C40A84D39339E73CA28F49E0596C13E199A5EF01115534654F9AC900AEC9` |
 | `px4-reported-position-response-campaign-v155-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `112EF4627A2CB1F66953EB30BD3D85DD4EB52AD0E816AAF8A6B074BF82E998E2` |
 | `release-gate-pre.8-current-20260906T192400Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers | `996F595DE8E07EB41F63A1EDB887637DC8ABB0B5ACD6A5197D597C549E93CCEF` |
+| `field-link-preflight-live-v156-current.json` | 结构复验通过；`hardware_link_ready=false` | 3/3 Jetson/GR01/RTSP 超时；路由源仍为 `192.168.1.13` | `FE782E46396A28E8E15DCF6983B2C1C36EEA4C28F91F393809BBA88FEDE87B57` |
+| `simulator-external-runtime-ai-join-v156-current-parity-pre8.json` | `gate_passed=true` | 三机型历史外部 source 按 v156 parity 重算 | `6DA1C013A78616B3FCE433145E8F1A86B785F8E7AF8F6443430DF05A0A2E0743` |
+| `px4-reported-position-response-matrix-v156-current-parity-pre8.json` | `gate_passed=true` | fixed-wing/multirotor/VTOL `GLOBAL_POSITION_INT` response | `9A4AA992E64735E0401B5768D4E6759C24001AD8A017C77A66CCA85DB2518610` |
+| `px4-reported-position-response-campaign-v156-current-parity-pre8.json` | `gate_passed=true` | 6 正例、9 个 fail-closed 故障 | `FE96FC6051570BEF85270D538A650CD9B61EBB2B72515CBE1563EAC7CFD5CAE9` |
+| `release-gate-pre.8-current-20260906T201700Z-v6-bound-report.json` | `gate_passed=false` / `release_allowed=false` | 31 blockers；当前 v156 parity | `2E69421F6446D6064B692AD0580B43C5D9CF3BCEA3AF8944C918CB2CA1D0C543` |
 
 正向 evidence 内部摘要为：
 

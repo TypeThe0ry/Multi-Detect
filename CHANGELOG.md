@@ -17,8 +17,9 @@ QGroundControl 历史，不作为本产品发布记录。
   `multidetect.target-evidence.v5` 并保存 `producer_epoch`，v1/v2/v3/v4 继续只读兼容；
 - Release/portable EXE 为 46,639,616 bytes，SHA-256
   `8BDDA7ABB9DF806C5B18DA0CFDD4169CFF1A556DD062B3784F6A09D8074DACF5`。共享 parity 已更新；v155 的
-  E7 派生文件因此降为历史证据，当前 parity 的 E7 派生链仍需重跑；portable simple boot 退出 0 且无 QML
-  初始化错误；最终全量回归为 `3660 passed, 2 skipped, 0 failed`。最终 `v0.3.0`、人工视觉、室外 GNSS、
+  E7 派生文件因此降为历史证据；随后 external join/revalidation、三机型 response matrix、6 正例/9 故障
+  campaign 与 E7 已按 v156 parity 重算。portable simple boot 退出 0 且无 QML 初始化错误；最终全量回归为
+  `3660 passed, 2 skipped, 0 failed`。当前 E7 仍为 `false / false / 31 blockers`；最终 `v0.3.0`、人工视觉、室外 GNSS、
   真实硬件、HIL/REAL 与实飞均未声明通过。
 
 ### v0.3.0-pre.8 v155 atomic target observation envelope（2026-09-07）
