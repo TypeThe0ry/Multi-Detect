@@ -325,6 +325,41 @@ def test_jetson_rtsp_evidence_recorder_is_independent_redacted_stream_copy() -> 
     assert "mission_item" not in launcher.lower()
 
 
+def test_jetson_evidence_capture_deployer_is_isolated_hash_bound_and_no_restart() -> None:
+    deployer = (ROOT / "scripts/deploy_jetson_evidence_capture.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'RemoteToolsRoot = "/home/jetson/Multi-Detect-evidence-tools"' in deployer
+    assert '[switch]$PackageOnly' in deployer
+    assert '"src/multidetect"' in deployer
+    assert '"configs/product-version.json"' in deployer
+    assert '"scripts/record_jetson_rtsp_evidence.sh"' in deployer
+    assert "source-sha256.txt" in deployer
+    assert "sha256sum --check source-sha256.txt" in deployer
+    assert "source_git_head" in deployer
+    assert "source_dirty" in deployer
+    assert "archive_sha256" in deployer
+    assert "package_self_verified = $true" in deployer
+    assert "verified_file_count = $verifiedFileCount" in deployer
+    assert "Unsafe path in generated deployment archive" in deployer
+    assert "Packaged deployment file SHA-256 mismatch" in deployer
+    assert "Generated deployment package file inventory is not closed" in deployer
+    assert "bash -n scripts/record_jetson_rtsp_evidence.sh" in deployer
+    assert "import multidetect.rtsp_evidence_recording" in deployer
+    assert "test ! -e \"`$target\"" in deployer
+    assert "mv -- \"`$stage\" \"`$target\"" in deployer
+    assert "BatchMode=yes" in deployer
+    assert "systemctl" not in deployer
+    assert "sudo " not in deployer
+    assert "service_restart_requested = $false" in deployer
+    assert "sudo_used = $false" in deployer
+    assert "release_ready = $false" in deployer
+    assert 'export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"' in (
+        ROOT / "scripts/record_jetson_rtsp_evidence.sh"
+    ).read_text(encoding="utf-8")
+
+
 def test_common_object_candidate_records_contract_hash_and_coverage_gap() -> None:
     descriptor = json.loads(
         (ROOT / "configs/models/ultralytics_yolo26n_coco80.json").read_text(encoding="utf-8")

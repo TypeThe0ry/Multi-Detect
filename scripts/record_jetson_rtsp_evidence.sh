@@ -5,6 +5,7 @@ set -euo pipefail
 # the detector, or QGC, and it passes only an environment-variable name to Python.
 ROOT="${MULTIDETECT_ROOT:-/home/jetson/Multi-Detect}"
 PYTHON="${MULTIDETECT_PYTHON:-${ROOT}/.venv/bin/python}"
+export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-${ROOT}/artifacts/tracking}"
 DURATION_SECONDS="${DURATION_SECONDS:-300}"
 GSTREAMER_LATENCY_MS="${GSTREAMER_LATENCY_MS:-100}"
