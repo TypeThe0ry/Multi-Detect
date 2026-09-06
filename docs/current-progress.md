@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v111 工作树）
+最后更新：2026-09-06（v112 工作树）
+
+## v112 本轮已收口
+
+- 将 v110 prediction receipt 验证抽成 evaluator/calibration 共用函数；每次都会重开 annotation、raw、truth、
+  model/manifest、六分层 predictions、replay manifest 和 receipt，并返回同一套 model/run binding；
+- prediction binding 新增 `production_approved`，与 runtime inference 和 synthetic HIL 分开记录；候选或 synthetic
+  模型不会因为完成推理而被描述为生产批准；
+- calibration API、wrapper、安装主 CLI 新增成对的 `--prediction-run-receipt` 与 `--accuracy-report`；只给一个会
+  fail-closed，完整输入会先执行 readiness fresh recomputation，再核对 accuracy 的 model/run binding；
+- calibration report 新增 prediction receipt、accuracy 文件、manifest/canonical、model artifact 等哈希绑定及
+  `provenance_complete`；旧报告仍可重算，但该字段为 false，保持 prerelease 历史兼容；
+- verifier 可从报告恢复两条路径，也支持复制工作区时显式 override；替换一个仍能独立自洽的 accuracy report
+  也会使 calibration deterministic recomputation 不同而失败；
+- synthetic HIL ONNX 端到端测试实际完成 reviewed 六分层 truth、runtime predictions、reviewed accuracy、
+  calibration、schema validation、CLI parity、独立 verify 和 tamper rejection；
+- 全量回归 3,510 tests：`3509 passed, 1 skipped, 0 failed, 0 errors`，耗时 214.725 秒；JUnit
+  511,970 bytes、SHA-256 `E9AD6C579FD88B3953195EB9207FAB775EAED6B2E3BDCD997600AB334B8D3B49`；
+  全仓 Ruff、compileall、schema parse 与 diff check 通过。
 
 ## v111 本轮已收口
 

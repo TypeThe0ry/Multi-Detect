@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## calibration 全链 provenance（v112）
+
+- [x] evaluator 与 calibration 共用完整 prediction-run verifier/binding；
+- [x] prediction binding 分离 runtime inference、production approval 与 synthetic HIL；
+- [x] calibration 成对绑定 prediction receipt 和 fresh-recomputed reviewed accuracy；
+- [x] report/schema 固定 receipt、accuracy、manifest/canonical、model artifact hashes；
+- [x] verifier 从报告或 override 路径重开全链并拒绝 accuracy 替换；
+- [x] wrapper、安装 CLI 与 synthetic HIL ONNX 端到端回归；
+- [ ] 在真实 field bundle 上生成 `provenance_complete=true` 的 calibration 和 verification。
+
 ## prediction receipt 到 accuracy/readiness 绑定（v110）
 
 - [x] evaluator 接受并独立复验 `prediction-run.receipt.json`；

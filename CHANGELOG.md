@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v112 calibration provenance chain（2026-09-06）
+
+- 抽出 evaluator/calibration 共用的 prediction-run verifier/binding，并新增 `production_approved` 事实；
+- calibration CLI/API 可成对接收 prediction receipt 与 reviewed accuracy report：先复验完整 prediction bundle，
+  再执行 readiness fresh recomputation，并绑定模型、receipt、accuracy、manifest/canonical/file hashes；
+- calibration verifier 会用报告内或显式 override 路径重开全链，accuracy 即使仍可自洽重算，只要文件或 reviewer
+  被替换也会因 calibration binding 改变而 fail-closed；旧无绑定报告仍可读且标记 `provenance_complete=false`。
+  全量 3,510 tests：`3509 passed, 1 skipped`，Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v111 installed evaluator CLI parity（2026-09-06）
 
 - 修复主命令 `multidetect evaluate-replay-set` 未暴露 `--prediction-run-receipt` 的接口漂移；安装入口现在与

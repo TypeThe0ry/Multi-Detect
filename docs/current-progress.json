@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T03:08:55Z",
+  "updated_at_utc": "2026-09-06T03:25:03Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "164d69638406f209c1ff9414397837bcf97d1e93",
-    "commit_subject": "fix(cli): expose prediction receipt binding",
-    "commits_ahead_of_origin_main": 110
+    "commit": "44c25cd41bfcd388f5f7c27d913ea625de429a43",
+    "commit_subject": "feat(replay): bind calibration provenance chain",
+    "commits_ahead_of_origin_main": 112
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v111",
+  "working_iteration": "v112",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v111-final.xml",
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v112-final.xml",
       "tests": 3510,
       "passed": 3509,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 192.917,
-      "junit_local_path": "tmp/current-progress-regression-v111-final.xml",
+      "duration_seconds": 214.725,
+      "junit_local_path": "tmp/current-progress-regression-v112-final.xml",
       "junit_file_bytes": 511970,
-      "junit_file_sha256": "c0e68ed6656c4aa59d7feeb00d3bcf9c8328787e325fa68c527f26a1638eb637",
+      "junit_file_sha256": "e9ad6c579fd88b3953195eb9207fab775eaed6b2e3bdcd997600ab334b8d3b49",
       "distributed_in_git": false
     },
     "ruff": {
@@ -777,11 +777,27 @@
         "receipt_canonical_sha256",
         "model_manifest_sha256",
         "runtime_inference_executed",
+        "production_approved",
         "synthetic_hil_only"
       ],
       "readiness_fresh_recomputation_reverifies_receipt": true,
       "conflicting_caller_model_metadata_rejected": true,
       "field_accuracy_validated": false,
+      "release_claim": "not_claimed"
+    },
+    "threshold_calibration_provenance": {
+      "implementation": "src/multidetect/replay_set_calibration.py",
+      "paired_inputs": [
+        "prediction-run.receipt.json",
+        "reviewed accuracy report"
+      ],
+      "shared_prediction_verifier": true,
+      "accuracy_fresh_readiness_recomputation": true,
+      "model_and_prediction_binding_compared": true,
+      "calibration_report_provenance_complete_field": true,
+      "legacy_unbound_reports_readable": true,
+      "synthetic_hil_end_to_end_verified": true,
+      "field_calibration_provenance_complete": false,
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
