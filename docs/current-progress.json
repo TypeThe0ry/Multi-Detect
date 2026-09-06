@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T08:26:45Z",
+  "updated_at_utc": "2026-09-06T08:49:55Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "3fc4644246709de15529502986de12f53266b79e",
-    "commit_subject": "chore(format): establish Ruff baseline",
-    "commits_ahead_of_origin_main": 148
+    "commit": "af0c90c95e9551d65dfb3339dfc1b379ce5119c1",
+    "commit_subject": "ci(test): make clean validation self-contained",
+    "commits_ahead_of_origin_main": 152
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v130",
+  "working_iteration": "v131",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,18 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v130-final.xml",
-      "tests": 3572,
-      "passed": 3570,
-      "skipped": 2,
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v131-py313-final.xml",
+      "tests": 3574,
+      "passed": 3559,
+      "skipped": 15,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 220.8,
-      "junit_local_path": "tmp/current-progress-regression-v130-final.xml",
-      "junit_file_bytes": 520969,
-      "junit_file_sha256": "2e214e2d7ba697fe531bf4762047ce0bf2ad7278575c2699df2f02ed2d6ce060",
+      "duration_seconds": 218.17,
+      "python_version": "3.13.7",
+      "checkout_kind": "detached_clean_worktree",
+      "junit_local_path": "tmp/current-progress-regression-v131-py313-final.xml",
+      "junit_file_bytes": 524739,
+      "junit_file_sha256": "864688e1b025b104e0f281d0a329ade959c6b55bebdad5237cc12ca39b8c1790",
       "distributed_in_git": false
     },
     "ruff": {
@@ -50,11 +52,39 @@
       "passed": true,
       "command": "python -m ruff format --check .",
       "status": "baseline_migrated",
-      "formatted_file_count": 1523,
+      "formatted_file_count": 1524,
       "initial_candidate_count": 433,
       "canonical_changed_python_files": 282,
       "formatter_version": "ruff 0.16.4",
-      "ci_impact": "manual validation format step is locally satisfied; hosted Python matrix remains to run"
+      "ci_impact": "fresh Windows checkout passes locally; hosted Python matrix remains to run"
+    },
+    "clean_checkout": {
+      "passed": true,
+      "source_commit": "af0c90c95e9551d65dfb3339dfc1b379ce5119c1",
+      "python_version": "3.13.7",
+      "editable_install": ".[dev,vision,pixhawk,security,model-tools]",
+      "pip_check": "passed",
+      "compileall": "passed",
+      "ruff_lint": "passed",
+      "ruff_format": "1524 files already formatted",
+      "pytest": "3559 passed, 15 skipped",
+      "local_artifact_skips_are_explicit": true,
+      "github_hosted_matrix_run": false
+    },
+    "working_tree_full_regression": {
+      "passed": true,
+      "python_version": "3.12",
+      "tests": 3574,
+      "passed_tests": 3572,
+      "skipped": 2,
+      "failed": 0,
+      "errors": 0,
+      "duration_seconds": 239.95,
+      "local_artifacts_present": true,
+      "junit_local_path": "tmp/current-progress-regression-v131-py312-final.xml",
+      "junit_file_bytes": 521236,
+      "junit_file_sha256": "f7e7eed42c151b7d987a5554b035b17e48aba13167254bf0a1f9b9a8dd037084",
+      "distributed_in_git": false
     }
   },
   "release_parity": {

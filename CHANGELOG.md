@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v131 clean-checkout validation recovery（2026-09-06）
+
+- 新增 `.gitattributes`，强制 Python/typing stub 在 Windows 新检出时保持 LF；从 Git 对象创建的独立
+  detached worktree 已实测 1,524 个 Python 文件全部通过 Ruff format/lint 与 compileall；
+- manual validation 改为安装测试实际需要的 vision/Pixhawk/security/model-tools extras，并把 `requests` 纳入
+  dev dependency/lock；只存在于 ignored `artifacts/` 的本地 evidence/model 集成测试在干净检出中明确 skip，
+  不再以 FileNotFoundError 破坏软件回归，也不把缺失资产伪造为通过；
+- 修复 VTOL flight-capture ready marker 的 6 位小数时间与内部比较值不一致问题，避免精确回显因不足 1 微秒的
+  round-down 被随机拒绝；Windows Python 3.13.7 隔离环境按 workflow 顺序实跑 `3559 passed, 15 skipped`，
+  主工作树 Python 3.12 连同 Git 外本地资产实跑 `3572 passed, 2 skipped`；GitHub-hosted 3.11/3.12/3.13
+  手动矩阵仍待真实触发。
+
 ### v0.3.0-pre.8 v130 Ruff format baseline migration（2026-09-06）
 
 - 以 Ruff 0.16.4 对全仓 1,523 个 Python 文件建立统一 format baseline；433 个候选中 282 个形成 canonical

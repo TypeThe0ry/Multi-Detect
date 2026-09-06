@@ -1,6 +1,26 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v130 工作树）
+最后更新：2026-09-06（v131 工作树）
+
+## v131 本轮已收口
+
+- 在当前 Git 对象上创建独立 detached worktree 后发现 Windows checkout 会把 204 个 QGC Python 文件恢复为
+  CRLF，使主工作树已通过的 Ruff baseline 无法复现；新增 `.gitattributes` 对 `*.py`/`*.pyi` 强制 LF。第二个
+  全新检出实测 1,524/1,524 format check、lint、compileall 和零 diff 全部通过；
+- manual validation 原先只安装 `.[dev]`，干净环境会先缺 `pymavlink`，随后缺 OpenCV/NumPy/ONNX/requests。
+  workflow 现安装 `.[dev,vision,pixhawk,security,model-tools]`，`requests>=2.32` 已进入 dev extra 与 `uv.lock`；
+- `artifacts/` 按仓库政策不进入 Git。依赖真实本地 replay/evidence/隔离候选模型的测试现在只在对应文件存在时
+  执行；干净检出中以带原因的 skip 保留边界，既不报假 FileNotFoundError，也不把未运行的资产集成检查记作 pass；
+- VTOL capture ready marker 现在用已序列化的 6 位 monotonic 时间作为内部比较基准，消除了 exact echo 因小于
+  1 微秒 round-down 被拒绝的跨解释器不确定性；该测试在 Python 3.13.7 下连续复现失败后已修复并通过；
+- Windows Python 3.13.7 新 venv 按 manual workflow 顺序完成 editable install、`pip check`、compileall、全套
+  pytest、Ruff lint/format：3,574 tests 为 `3559 passed, 15 skipped, 0 failed, 0 errors`，耗时 218.17 秒；
+  JUnit 524,739 bytes、SHA-256 `864688E1B025B104E0F281D0A329ADE959C6B55BEBDAD5237CC12CA39B8C1790`。
+  15 个 skip 均为 Windows 能力或 Git 外本地资产边界；GitHub-hosted 3.11/3.12/3.13 仍待手动运行。
+- 主工作树 Python 3.12 保留本地 replay/evidence/quarantined ONNX candidate 后再次跑满 3,574 tests：
+  `3572 passed, 2 skipped, 0 failed, 0 errors`，耗时 239.95 秒；JUnit 521,236 bytes、SHA-256
+  `F7E7EED42C151B7D987A5554B035B17E48ABA13167254BF0A1F9B9A8DD037084`。这证明新增 skip 条件不会绕过
+  资产存在时的严格集成检查。
 
 ## v130 本轮已收口
 

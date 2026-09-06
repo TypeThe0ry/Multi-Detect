@@ -1,5 +1,18 @@
 # 统一仓库架构
 
+## v131 clean-checkout validation contract（2026-09-06，`v0.3.0-pre.8`）
+
+根目录新增 `.gitattributes`，将 `*.py`/`*.pyi` 的工作树 EOL 固定为 LF；这使 Ruff baseline 不再依赖创建
+工作树时的 Windows Git 配置。`.github/workflows/test.yml` 的手动三版本矩阵使用与 README 开发环境一致的
+vision/Pixhawk/security/model-tools extras；`pyproject.toml`/`uv.lock` 另显式闭合 downloader 测试所需 requests。
+`tests/test_repository_hygiene.py` 固定检查上述两个仓库契约。
+
+`artifacts/` 继续是非 Git 证据/模型区。引用该区真实 evidence、synthetic replay 或 quarantined ONNX candidate
+的集成测试只在精确输入存在时执行；纯 Git checkout 显式 skip 并保留原因，不会将缺失资产认作通过。VTOL
+capture producer/consumer 则共用 ready marker 实际序列化的 monotonic 值，保证跨进程 exact echo 与内部
+区间比较同源。该结构已在独立 Windows Python 3.13.7 worktree 完整执行；hosted matrix 仍是独立未完成门。
+主工作树 Python 3.12 另在本地资产全部存在的条件下完成全量回归，确认 skip 仅由输入缺失触发。
+
 ## v130 Ruff format baseline（2026-09-06，`v0.3.0-pre.8`）
 
 仓库根 `pyproject.toml` 继续作为 `ground-control/`、`scripts/`、`src/`、`tests/` 共用的 Ruff 契约；1,523 个

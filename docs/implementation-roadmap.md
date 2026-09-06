@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## Clean-checkout manual validation recovery（v131）
+
+- [x] 用独立 detached worktree 复现 Windows 新检出 CRLF 导致的 Ruff format failure；
+- [x] 通过 `.gitattributes` 固定 Python LF，并在第二个全新检出验证 1,524/1,524 format/lint/compileall；
+- [x] manual workflow 安装 vision/Pixhawk/security/model-tools 测试 extras，dev extra/lock 补齐 requests；
+- [x] Git 外本地 evidence/model 集成测试在资产缺失时显式 skip，资产存在时继续执行原严格断言；
+- [x] 消除 VTOL capture ready 序列化时间与内部比较值的小于 1 微秒舍入差异；
+- [x] Windows Python 3.13.7 隔离干净检出完成 3,574 tests：3,559 pass / 15 explicit skip；
+- [x] Windows Python 3.12 主工作树保留本地资产完成 3,574 tests：3,572 pass / 2 platform skip；
+- [ ] 从 GitHub Actions 手动触发 Python 3.11/3.12/3.13 hosted matrix，并保存 run URL/ID/commit。
+
 ## Ruff format baseline migration（v130）
 
 - [x] Ruff 0.16.4 盘点并格式化 433 个候选，形成 282 个 canonical Python 文件差异；
@@ -576,9 +587,9 @@
 - [x] 对 v61 current-code 执行全仓回归：3,257 tests 中 `3256 passed, 1 skipped, 0 failed, 0 errors`；
   JUnit 473,487 bytes / SHA-256
   `E5D307C7F4AC57A4198358FBF84CFD034B27C20F415F2D1B7BF8F49850CB0837`。
-- [ ] 以独立机械提交清理 410 个历史 Ruff format 文件；31 个 parity 绑定 Python 源会随之改变，
-  因此完成后必须重新生成 parity，并重跑定位、三机型 external join、E7 和全量回归，不能删除 format
-  gate 或复用旧 evidence 冒充完成。
+- [x] 已在 v130 独立机械提交完成 Ruff baseline；首次重扫为 433 个候选、282 个 canonical 差异，并已
+  重新生成 parity、重算定位/三机型 external 派生证据、重跑 E7 与全量回归；v131 又从 Git 对象验证
+  Windows 干净检出可直接通过 format gate。
 - [ ] 基于 v61 已通过的 exact PID/HWND 机器图，使用 v64 review contract 由操作者逐项复核 evidence
   card/地图点/1σ 圆/复制/快照并生成 accepted record；独立 verifier 通过后再接入 E7。机器截图本身
   不冒充人工签字。
