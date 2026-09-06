@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T03:25:03Z",
+  "updated_at_utc": "2026-09-06T03:54:45Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "44c25cd41bfcd388f5f7c27d913ea625de429a43",
-    "commit_subject": "feat(replay): bind calibration provenance chain",
-    "commits_ahead_of_origin_main": 112
+    "commit": "1c514832b45e020c45226d7c1387f86df0961059",
+    "commit_subject": "feat(release): require calibration provenance",
+    "commits_ahead_of_origin_main": 114
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v112",
+  "working_iteration": "v113",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v112-final.xml",
-      "tests": 3510,
-      "passed": 3509,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v113-final.xml",
+      "tests": 3511,
+      "passed": 3510,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 214.725,
-      "junit_local_path": "tmp/current-progress-regression-v112-final.xml",
-      "junit_file_bytes": 511970,
-      "junit_file_sha256": "e9ad6c579fd88b3953195eb9207fab775eaed6b2e3bdcd997600ab334b8d3b49",
+      "duration_seconds": 192.488,
+      "junit_local_path": "tmp/current-progress-regression-v113-final.xml",
+      "junit_file_bytes": 512114,
+      "junit_file_sha256": "20660335e255d76787b9797e2ebf6219392fe6c161f76c61284b53066df4dc83",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 7007,
-    "file_sha256": "4824da3149980a24cf4a14d785e6708e65aaae27e55cee2079dc3c67b96a1e57",
+    "file_sha256": "be038d24ea0fc2bef05917b653a3f2a2de687b2fe67688c97522fc760d191378",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "d5b15bf45f8f55b484b6f43f6c624a2f9c6494245ef1a1cae55e0b1a4dfbc87e",
-      "px4_mission_path_hash": "7cd5cd2b0599c81d14fa9fd6fba6c978645cde4ec38ce4f8bbd20e4c6b32402f"
+      "px4_mission_path_hash": "63cc68012d31fdb9c174d4a036ae2ca8e093d01d5afbbd58fae7b8c6d99988a5"
     }
   },
   "evidence": {
@@ -797,13 +797,16 @@
       "calibration_report_provenance_complete_field": true,
       "legacy_unbound_reports_readable": true,
       "synthetic_hil_end_to_end_verified": true,
+      "verification_report_and_recomputed_provenance_fields": true,
+      "release_gate_provenance_projection": true,
+      "final_release_requires_provenance_complete": true,
       "field_calibration_provenance_complete": false,
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v106/wrapper-default-final/release-gate-pre.8-current-20260906T014323Z-v6-bound-report.json",
+      "local_path": "tmp/terminal-continuation-v113/release-gate-pre.8-current-20260906T035900Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_sha256": "ab53ebfd99ef68fafdc4543aaf0e834235c19a2ffa2f32ba7263cdf56298ed8d",
+      "file_sha256": "b591f718c3c7c4d1d6ab634528f97a979a443fc388ab32555aec79a0bc25e995",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32

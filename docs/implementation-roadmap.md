@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## calibration provenance 进入 E7（v113）
+
+- [x] verifier 分别投影 report 与 recomputed provenance completeness；
+- [x] release manifest hash-bind 两项 provenance，E7 每次重开全链并汇总；
+- [x] prerelease 将旧 report/verification/E7 缺失字段规范化为 false；
+- [x] final release 要求 calibration verification 通过且 provenance 完整；
+- [x] synthetic HIL ONNX receipt→accuracy→calibration→E7 正向链和历史兼容回归；
+- [ ] 用真实 field-reviewed bundle 关闭该门，并保持独立 accuracy/model approval 审查。
+
 ## calibration 全链 provenance（v112）
 
 - [x] evaluator 与 calibration 共用完整 prediction-run verifier/binding；

@@ -434,9 +434,11 @@ python scripts/create_release_gate_manifest.py `
 ```
 
 writer 会在写入前重新调用校准复核器，并把验证 artifact、校准报告和 replay-set 的
-raw/canonical SHA-256 一起写入 `replay_set.calibration_verification`。聚合器每次读取
-清单都会再次重算这些哈希与确定性校准请求；验证 artifact 的 `gate_passed=true` 只
-表示完整性门通过，`report_promotion_ready` 仍可为 `false`，不会替代独立 IoU 精度门。
+raw/canonical SHA-256，以及 report/recomputed 两项 provenance completeness 一起写入
+`replay_set.calibration_verification`。聚合器每次读取都会再次重算哈希、确定性校准请求和 provenance；
+旧 artifact 缺字段时按 false 读取。验证 artifact 的 `gate_passed=true` 只表示完整性门通过，
+`report_promotion_ready` 仍可为 false，不会替代独立 IoU 精度门；最终 release 还要求两项 provenance
+都为 true，prerelease 则保持历史证据可读。
 
 当前 SIM/Gazebo 空基线的 report-only 结果已保存为
 `artifacts/replay-sets/sim-gazebo-2026/threshold-calibration-20260902-pre.8-report-only.json`

@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v112 工作树）
+最后更新：2026-09-06（v113 工作树）
+
+## v113 本轮已收口
+
+- calibration verifier 新增 `report_provenance_complete` 与 `recomputed_provenance_complete`，分别记录文件声明
+  与按当前输入重新计算后的 provenance；
+- E7 writer 将两项布尔值与 verification artifact、calibration report、replay manifest 的 raw/canonical hash
+  一起绑定，evaluator 每次重新打开并复算后输出汇总 `provenance_complete`；
+- v111 及更早的报告/verification/E7 绑定缺少新字段时仍可在 prerelease 读取，统一投影为 false，不伪造来源；
+- 最终 release channel 现在要求 calibration verification 存在、通过且 provenance 完整；该要求不替代独立
+  accuracy evidence，也不让 synthetic HIL 模型获得生产批准；
+- synthetic HIL ONNX 测试贯通 reviewed truth → runtime prediction receipt → reviewed accuracy → calibration → E7，
+  并覆盖旧 artifact 兼容、正式版阻断与篡改拒绝；共享 parity 因 release-gate schema 改动已重算。
+- 从既有不可变 runtime/AI、三机型正向与故障源重算 external join/revalidation、PX4 matrix/campaign 后，
+  当前 parity 的 E7 wrapper 完整执行，仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；
+- QGC C++/QML 与 UI parity 未变，EXE 不嵌入 E7 Schema/parity 文件，因此不重复构建 portable；旧机器证据保留，
+  新派生证据只重绑当前共享契约，不宣称重新执行 Gazebo、硬件或飞行。
+- 全量回归 3,511 tests：`3510 passed, 1 skipped, 0 failed, 0 errors`，耗时 192.488 秒；JUnit
+  512,114 bytes、SHA-256 `20660335E255D76787B9797E2EBF6219392FE6C161F76C61284B53066DF4DC83`。
 
 ## v112 本轮已收口
 

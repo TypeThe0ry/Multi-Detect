@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v112：threshold calibration 全链 provenance 绑定 |
+| 当前工程迭代 | v113：calibration provenance 进入 E7 正式发布门 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v109–v112 prediction、accuracy 与 calibration provenance 闭环
+### v109–v113 prediction、accuracy、calibration 与 E7 provenance 闭环
 
 `multidetect-replay-predictions` 对已复核六分层 replay bundle 复用正式 decoder、ONNX/TensorRT detector、
 letterbox/NMS/adapter 和 JSONL writer，原子生成逐帧 predictions 与绑定 annotation、模型、runtime、阈值、
@@ -93,7 +93,8 @@ evaluator（wrapper 与 `multidetect evaluate-replay-set`）的 `--prediction-ru
 新鲜重算也会复验同一 receipt，拒绝混入另一预测运行或模型。真实 runtime、production approval、synthetic HIL、
 accuracy 与 release 仍是彼此独立的事实；软件闭环不代表现场数据或发布门通过。
 
-calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，独立 verifier 会再次重算全链。
+calibration 还可成对绑定同一 prediction receipt 与 reviewed accuracy，独立 verifier 会再次重算全链；E7
+显式投影 report/recomputed provenance。旧证据在预发布仍可读但为 false，最终 `v0.3.0` 必须为 true。
 
 ### v108 独立人工标注闭环
 
@@ -111,14 +112,8 @@ v107 的六分层不可变 intake 命令、拒绝条件和 receipt 契约见
 
 ### v106 replay-set readiness 进入 E7
 
-E7 evaluator 现在会在重新打开 replay-set manifest 与 accuracy report 后调用同一套 canonical readiness
-复算器，并把逐 entry、逐 stratum 的真实来源、标注复核、真值对象、模型预测、hash binding、accuracy
-重算结果和下一步动作放入 `report.replay_set.readiness`。该对象是诊断投影，不改变既有 accuracy 或独立
-threshold-calibration 的发布语义。
-
-当前 v34 SIM fixture 的诊断明确证明：六个 strata 名称和文件流都存在，但 6/6 来源仍为
-`synthetic_demo`、6/6 标注未人工复核、五个正向 strata 都没有正真值和正预测。E7 顶层仍为 32 个
-blocker；readiness 内部给出 37 条具体原因和 7 个采集/复核动作，不能靠改布尔声明冒充真实部署数据。
+E7 会重开 replay-set 与 accuracy 并执行 canonical readiness；旧 SIM fixture 仍明确报告 synthetic、未复核、
+缺正真值/预测及采集动作，不能靠布尔声明冒充部署数据。
 
 ### v105 当前 E7 默认证据链
 

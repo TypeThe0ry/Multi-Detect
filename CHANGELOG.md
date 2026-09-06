@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v113 E7 calibration provenance gate（2026-09-06）
+
+- calibration verifier 新增 report/recomputed provenance 投影；E7 manifest writer 和 evaluator 将两项事实
+  重新绑定到 verification、report 与 replay-set 字节，旧 artifact 缺字段时按 false 读取；
+- prerelease 保持历史可读性，最终 `v0.3.0` 新增强制门：calibration verification 必须通过且
+  `provenance_complete=true`；synthetic HIL ONNX 回归已贯通 receipt→accuracy→calibration→E7；
+- release-gate schema 改动已重算共享 parity，并从不可变源重算 external/PX4 派生证据；当前 E7 仍为
+  32 blockers。QGC 源/UI parity 未变，不重编 portable。全量 3,511 tests：`3510 passed, 1 skipped`。
+
 ### v0.3.0-pre.8 v112 calibration provenance chain（2026-09-06）
 
 - 抽出 evaluator/calibration 共用的 prediction-run verifier/binding，并新增 `production_approved` 事实；
