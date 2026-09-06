@@ -153,13 +153,36 @@
         }
       ]
     },
+    "blockedProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "file_sha256", "evidence_sha256", "observed_at_utc",
+        "runtime_mode", "vehicle_class", "reasons"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_at_utc": {"type": "string", "format": "date-time"},
+        "runtime_mode": {"enum": ["hil", "real"]},
+        "vehicle_class": {"enum": ["fixed-wing", "multirotor", "vtol"]},
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "index": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "schema", "schema_version", "indexed_at_utc", "journal_directory",
-        "receipt", "campaign", "records", "blocked_probe_count", "passed_count",
-        "pending_count", "complete", "next_leaf", "claims", "index_sha256"
+        "receipt", "campaign", "records", "blocked_probes", "blocked_probe_count",
+        "passed_count", "pending_count", "complete", "next_leaf", "claims",
+        "index_sha256"
       ],
       "properties": {
         "schema": {"const": "multidetect.pixhawk-covariance-field-journal-index/v1"},
@@ -180,6 +203,10 @@
           "type": "array",
           "maxItems": 6,
           "items": {"$ref": "#/$defs/indexRecord"}
+        },
+        "blocked_probes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/blockedProbe"}
         },
         "blocked_probe_count": {"type": "integer", "minimum": 0},
         "passed_count": {"type": "integer", "minimum": 0, "maximum": 6},

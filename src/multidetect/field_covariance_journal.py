@@ -23,6 +23,7 @@ from .field_covariance_workspace import (
     FieldCovarianceWorkspaceError,
     verify_field_covariance_workspace_receipt,
 )
+from .online_covariance_preflight import load_online_covariance_preflight_observation
 
 LEASE_SCHEMA = "multidetect.pixhawk-covariance-field-capture-lease/v1"
 RECOVERY_SCHEMA = "multidetect.pixhawk-covariance-field-lease-recovery/v1"
@@ -540,6 +541,57 @@ def _session_lease_archive(
     }
 
 
+def _assert_capture_quiescent(journal: Path, workspace_sha256: object) -> None:
+    lease_directory = _lease_directory(journal, workspace_sha256)
+    if lease_directory.exists() or lease_directory.is_symlink():
+        raise FieldCovarianceJournalError(
+            "journal index requires a quiescent capture lease state"
+        )
+
+
+def _artifact_snapshot(journal: Path, pattern: str) -> tuple[tuple[str, str], ...]:
+    snapshot: list[tuple[str, str]] = []
+    for path in sorted(journal.glob(pattern)):
+        if path.is_symlink():
+            raise FieldCovarianceJournalError("journal artifact cannot be a symbolic link")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file() or resolved.parent != journal:
+            raise FieldCovarianceJournalError("journal artifact escaped journal directory")
+        snapshot.append((path.name, _sha256(resolved)))
+    return tuple(snapshot)
+
+
+def _blocked_probe_record(path: Path, journal: Path) -> dict[str, object]:
+    if path.is_symlink():
+        raise FieldCovarianceJournalError("blocked online preflight cannot be a symbolic link")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_file() or resolved.parent != journal:
+        raise FieldCovarianceJournalError("blocked online preflight escaped journal directory")
+    try:
+        observation = load_online_covariance_preflight_observation(
+            resolved,
+            maximum_age_seconds=None,
+            require_current_next_leaf=False,
+        )
+    except Exception as exc:
+        raise FieldCovarianceJournalError(
+            f"blocked online preflight cannot be verified: {resolved}"
+        ) from exc
+    if observation["gate_passed"] is not False:
+        raise FieldCovarianceJournalError(
+            "unreferenced online preflight is not a blocked observation"
+        )
+    return {
+        "path": str(resolved),
+        "file_sha256": _sha256(resolved),
+        "evidence_sha256": observation["evidence_sha256"],
+        "observed_at_utc": observation["observed_at_utc"],
+        "runtime_mode": observation["runtime_mode"],
+        "vehicle_class": observation["vehicle_class"],
+        "reasons": observation["reasons"],
+    }
+
+
 def build_field_covariance_journal_index(
     receipt_path: str | Path,
     journal_directory: str | Path,
@@ -558,6 +610,9 @@ def build_field_covariance_journal_index(
     ).resolve(strict=True)
     config = load_campaign_config(campaign_path)
     status = campaign_status(config)
+    _assert_capture_quiescent(journal, receipt["workspace_sha256"])
+    session_snapshot = _artifact_snapshot(journal, "*.session.json")
+    probe_snapshot = _artifact_snapshot(journal, "*.online-preflight.json")
     records: list[dict[str, object]] = []
     referenced_probes: set[Path] = set()
     _managed_directory(journal, RELEASED_DIR)
@@ -583,7 +638,12 @@ def build_field_covariance_journal_index(
                 **archive,
             }
         )
-        referenced_probes.add(Path(verified["online_preflight"]["path"]).resolve(strict=True))
+        referenced_probe = Path(verified["online_preflight"]["path"]).resolve(strict=True)
+        if referenced_probe.parent != journal:
+            raise FieldCovarianceJournalError(
+                "session online preflight escaped journal directory"
+            )
+        referenced_probes.add(referenced_probe)
     records.sort(key=lambda item: int(item["leaf_ordinal"]))
     ordinals = [int(item["leaf_ordinal"]) for item in records]
     if ordinals != list(range(1, len(records) + 1)):
@@ -598,8 +658,23 @@ def build_field_covariance_journal_index(
         raise FieldCovarianceJournalError(
             "journal session count does not match verified campaign report count"
         )
-    all_probes = {path.resolve(strict=True) for path in journal.glob("*.online-preflight.json")}
-    blocked_probes = all_probes - referenced_probes
+    all_probes = sorted(journal.glob("*.online-preflight.json"))
+    blocked_probes = [
+        _blocked_probe_record(path, journal)
+        for path in all_probes
+        if path.resolve(strict=True) not in referenced_probes
+    ]
+    if len({item["path"] for item in blocked_probes}) != len(blocked_probes):
+        raise FieldCovarianceJournalError("blocked online preflight paths are not unique")
+    _assert_capture_quiescent(journal, receipt["workspace_sha256"])
+    if (
+        campaign_status(config) != status
+        or _artifact_snapshot(journal, "*.session.json") != session_snapshot
+        or _artifact_snapshot(journal, "*.online-preflight.json") != probe_snapshot
+    ):
+        raise FieldCovarianceJournalError(
+            "journal artifacts changed while building the index snapshot"
+        )
     next_leaf = status["next_leaf"]
     next_summary = (
         None
@@ -622,6 +697,7 @@ def build_field_covariance_journal_index(
                 "file_sha256": _sha256(campaign_path),
             },
             "records": records,
+            "blocked_probes": blocked_probes,
             "blocked_probe_count": len(blocked_probes),
             "passed_count": status["passed_count"],
             "pending_count": status["pending_count"],
@@ -697,6 +773,7 @@ def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]
     )
     if (
         index["passed_count"] != record_count
+        or index["blocked_probe_count"] != len(index["blocked_probes"])
         or index["pending_count"] != len(REQUIRED_COMBINATIONS) - record_count
         or index["complete"] is not (record_count == len(REQUIRED_COMBINATIONS))
         or index["next_leaf"] != expected_next
@@ -723,6 +800,14 @@ def verify_field_covariance_journal_index(path: str | Path) -> dict[str, object]
             != REQUIRED_COMBINATIONS[ordinal - 1]
         ):
             raise FieldCovarianceJournalError("indexed session identity changed")
+    blocked_paths: set[str] = set()
+    for record in index["blocked_probes"]:
+        current = _blocked_probe_record(Path(record["path"]), journal)
+        if current != record:
+            raise FieldCovarianceJournalError("indexed blocked preflight identity changed")
+        blocked_paths.add(str(record["path"]))
+    if len(blocked_paths) != len(index["blocked_probes"]):
+        raise FieldCovarianceJournalError("indexed blocked preflight paths are not unique")
     if status["passed_count"] < index["passed_count"]:
         raise FieldCovarianceJournalError("campaign progress regressed behind journal index")
     return {**index, "index_path": str(index_path), "gate_passed": True}

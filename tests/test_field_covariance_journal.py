@@ -306,6 +306,19 @@ def _install_index_runtime(
         by_path[record_path.resolve()] = verified
     blocked = journal_path / "blocked.online-preflight.json"
     blocked.write_text("{}", encoding="utf-8")
+    blocked_observation = {
+        "evidence_sha256": "e" * 64,
+        "observed_at_utc": "2026-09-06T02:03:04Z",
+        "runtime_mode": "hil",
+        "vehicle_class": "fixed-wing",
+        "reasons": ["mode_binding:qualified_link_healthy"],
+        "gate_passed": False,
+    }
+    monkeypatch.setattr(
+        journal,
+        "load_online_covariance_preflight_observation",
+        lambda path, **kwargs: dict(blocked_observation),
+    )
     status = {
         "records": [],
         "failed_count": 0,
@@ -344,6 +357,17 @@ def test_journal_index_reconciles_contiguous_prefix_and_verifies(
     _validate_schema(index)
     assert index["passed_count"] == 2
     assert index["blocked_probe_count"] == 1
+    assert index["blocked_probes"] == [
+        {
+            "path": str((journal_path / "blocked.online-preflight.json").resolve()),
+            "file_sha256": _sha(journal_path / "blocked.online-preflight.json"),
+            "evidence_sha256": "e" * 64,
+            "observed_at_utc": "2026-09-06T02:03:04Z",
+            "runtime_mode": "hil",
+            "vehicle_class": "fixed-wing",
+            "reasons": ["mode_binding:qualified_link_healthy"],
+        }
+    ]
     assert index["next_leaf"]["leaf_ordinal"] == 3
     assert [item["record_sha256"] for item in index["records"]] == [
         item["record_sha256"] for item in records
@@ -403,7 +427,7 @@ def test_journal_index_accepts_recovered_lease_after_session_commit_crash(
     active = journal._lease_directory(journal_path, "b" * 64)
     released.rename(active)
 
-    with pytest.raises(journal.FieldCovarianceJournalError, match="exactly one"):
+    with pytest.raises(journal.FieldCovarianceJournalError, match="quiescent"):
         journal.build_field_covariance_journal_index(receipt_path, journal_path)
 
     monkeypatch.setattr(journal, "_owner_process_state", lambda owner: "dead")
@@ -537,6 +561,93 @@ def test_journal_index_rejects_snapshot_tamper_and_campaign_regression(
     monkeypatch.setattr(journal, "campaign_status", lambda current: dict(status))
     with pytest.raises(journal.FieldCovarianceJournalError, match="regressed"):
         journal.verify_field_covariance_journal_index(output)
+
+
+def test_journal_index_rejects_blocked_probe_file_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    output = tmp_path / "journal-index.json"
+    journal.write_field_covariance_journal_index(receipt_path, journal_path, output)
+    blocked = journal_path / "blocked.online-preflight.json"
+    blocked.write_text('{"tampered":true}', encoding="utf-8")
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="identity changed"):
+        journal.verify_field_covariance_journal_index(output)
+
+
+def test_journal_index_rejects_unreferenced_passing_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    monkeypatch.setattr(
+        journal,
+        "load_online_covariance_preflight_observation",
+        lambda path, **kwargs: {
+            "evidence_sha256": "e" * 64,
+            "observed_at_utc": "2026-09-06T02:03:04Z",
+            "runtime_mode": "hil",
+            "vehicle_class": "fixed-wing",
+            "reasons": [],
+            "gate_passed": True,
+        },
+    )
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="not a blocked"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+def test_journal_index_rejects_campaign_change_during_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, status = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    calls = 0
+
+    def changing_status(config: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        current = dict(status)
+        if calls > 1:
+            current["passed_count"] = 2
+        return current
+
+    monkeypatch.setattr(journal, "campaign_status", changing_status)
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="changed while building"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
+
+
+def test_journal_index_rejects_probe_change_during_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal_path, receipt_path, _, _, _ = _install_index_runtime(
+        tmp_path, monkeypatch, count=1
+    )
+    blocked = journal_path / "blocked.online-preflight.json"
+
+    def mutate_during_load(path: object, **kwargs: object) -> dict[str, object]:
+        blocked.write_text('{"changed":true}', encoding="utf-8")
+        return {
+            "evidence_sha256": "e" * 64,
+            "observed_at_utc": "2026-09-06T02:03:04Z",
+            "runtime_mode": "hil",
+            "vehicle_class": "fixed-wing",
+            "reasons": ["mode_binding:qualified_link_healthy"],
+            "gate_passed": False,
+        }
+
+    monkeypatch.setattr(
+        journal, "load_online_covariance_preflight_observation", mutate_during_load
+    )
+
+    with pytest.raises(journal.FieldCovarianceJournalError, match="changed while building"):
+        journal.build_field_covariance_journal_index(receipt_path, journal_path)
 
 
 def test_journal_index_cannot_be_written_inside_received_workspace(
