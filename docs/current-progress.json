@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T00:27:29Z",
+  "updated_at_utc": "2026-09-06T00:29:23Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "f852f73ea9f98f7416e849235caefb6ea7eadd26",
-    "commit_subject": "feat(field): add auditable network address planning",
-    "commits_ahead_of_origin_main": 88
+    "commit": "ecd73938f9d9ac9a99acbba72eab07bd3da707c9",
+    "commit_subject": "fix(field): verify address apply postconditions",
+    "commits_ahead_of_origin_main": 90
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v100",
+  "working_iteration": "v101",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v100-final.xml",
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v101-final.xml",
       "tests": 3480,
       "passed": 3479,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 157.868,
-      "junit_local_path": "tmp/current-progress-regression-v100-final.xml",
+      "duration_seconds": 115.741,
+      "junit_local_path": "tmp/current-progress-regression-v101-final.xml",
       "junit_file_bytes": 507924,
-      "junit_file_sha256": "e04959f235ba971bdf7a66f654adad99da9e0dd65c32947ee250fee33cdf7fa9",
+      "junit_file_sha256": "26bcf986e3cbfad9481bf7005227e7861e76419a55e7a47461ae802691be9307",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,12 +64,12 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 6840,
-    "file_sha256": "254b4b0a25ed9632abaef68851c51f7e7decc45e74f656cbb53b4af73463c534",
+    "file_sha256": "4f11c5f2f1f80ec166cea96f6d0c6e89dfc4b1a652d7ae10e2ff8f25cde6557b",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
-      "safety_policy_hash": "792296e8b365bc70e4715f9871927908f14509afcd9016d0cbbe104ba48c7b74",
+      "safety_policy_hash": "46324cc0f0368ab01065fe5ecff806029c17ce8c40034969f0ab5ae3cb3694af",
       "px4_mission_path_hash": "4bdefec05c4b42c045b3b8678acf196b62960ed248489f3904c3ab4170bbcc1a"
     }
   },
@@ -256,6 +256,11 @@
       "address_verify_local_path": "tmp/field-link-address-verify-v100-final.json",
       "address_verify_file_bytes": 595,
       "address_verify_file_sha256": "25275409417f4ac8e94f85fcf3c89bc6bb4529d7e25bf0d8d9d492fa0def0266",
+      "address_what_if_local_path": "tmp/field-link-address-whatif-v101-final.json",
+      "address_what_if_file_bytes": 792,
+      "address_what_if_file_sha256": "08acd59da27f9bdc5f31683f370fbeac7213f46d140f1bf858dab18f0fe58e94",
+      "address_what_if_changed": false,
+      "address_what_if_postcondition_checked": false,
       "network_configuration_changed": false,
       "samples_requested": 3,
       "samples_collected": 3,

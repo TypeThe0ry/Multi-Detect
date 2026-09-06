@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v100 工作树）
+最后更新：2026-09-06（v101 工作树）
+
+## v101 本轮已收口
+
+- 地址 helper 用 `$appliedChange` 记录 `ShouldProcess` 后实际执行的 add/remove；`-WhatIf` 明确输出
+  `mode=what-if`、`changed=false`，且无需管理员权限，不再把 dry-run 误记成主机变更；
+- 正常 apply/remove 后重新枚举精确目标地址。add postcondition 要求恰好一条匹配地址且
+  `SkipAsSource=true`；remove 要求零条。审计 JSON 记录是否检查/是否通过，失败时命令非零退出；
+- 本机真实非提权 `-WhatIf` 已验证：计划添加 Ethernet `192.168.144.250/24`，没有修改网络，审计
+  记录 792 bytes、SHA-256 `08ACD59D...58E94`；
+- 因 field-link helper 已纳入统一安全身份，`safety_policy_hash` 自动更新为
+  `46324CC0...3694AF`；UI/core/task/PX4 Mission 四组 hash 不变，仍未产生硬件/HIL/REAL/实飞接受；
+  全量回归 3,480 tests：`3479 passed, 1 skipped, 0 failed, 0 errors`，耗时 115.741 秒；JUnit
+  507,924 bytes、SHA-256 `26BCF986E3CBFAD9481BF7005227E7861E76419A55E7A47461AE802691BE9307`，
+  全仓 Ruff 与 compileall 通过。
 
 ## v100 本轮已收口
 

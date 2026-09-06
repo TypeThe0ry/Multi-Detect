@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v100：外场网卡地址变更先生成可审计计划，并将全部 field-link 权威纳入统一安全 parity |
+| 当前工程迭代 | v101：地址 apply/remove 以真实变更和落盘后置条件收口，`-WhatIf` 不再伪报已修改 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,16 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v101 地址变更后置条件
+
+外场地址 helper 现在只在 `New-NetIPAddress` / `Remove-NetIPAddress` 真正执行后设置 `changed=true`。
+`-WhatIf` 可在非管理员会话运行，输出 `mode=what-if`、`changed=false`、
+`postcondition_checked=false`，不会被误记为实际修改。
+
+正常 apply/remove 完成后会重新读取目标地址：添加必须精确存在一条匹配地址且
+`SkipAsSource=true`，移除必须不存在匹配地址。最终状态和 postcondition 先写入审计输出；条件不满足时
+命令以失败结束，不能留下“命令返回即成功”的假记录。
 
 ### v100 可审计的外场网络准备
 

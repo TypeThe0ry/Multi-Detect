@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 地址变更后置条件与 WhatIf 真值（v101）
+
+- [x] `changed` 只反映实际执行的 add/remove，不再复用预先计算的意图；
+- [x] 非管理员 `-WhatIf` 可生成审计结果且不触发 UAC；
+- [x] `-WhatIf` 明确标记未执行 postcondition，避免把模拟结果冒充 apply；
+- [x] add 后要求唯一目标地址与 `SkipAsSource=true`，remove 后要求目标地址不存在；
+- [x] 后置条件结果进入落盘 JSON，失败时命令 fail-closed；
+- [ ] 现场由操作员确认网线/设备后运行真实 apply，并以 ready preflight 完成端到端复验。
+
 ## 可审计的外场网络准备（v100）
 
 - [x] 非管理员先用 `-PlanOnly` 生成无副作用的精确变更计划；

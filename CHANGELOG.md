@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v101 field address postcondition verification（2026-09-06）
+
+- `prepare_field_link.ps1` 只在 `ShouldProcess` 后的 add/remove 真正执行时记录 `changed=true`；非管理员
+  `-WhatIf` 输出明确的模拟模式且不触发 UAC；
+- apply/remove 后重读精确地址状态：添加要求唯一匹配且 `SkipAsSource=true`，移除要求不存在；审计
+  输出记录 postcondition，条件失败时命令 fail-closed；
+- 本机非提权 `-WhatIf` 已实测且未改网络；安全 parity 更新为 `46324cc0...3694af`，其余四组不变。
+  产品仍为 `v0.3.0-pre.8`，未提升任何硬件、HIL、REAL 或实飞声明；全量回归 3,480 tests：
+  `3479 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v100 auditable field network preparation（2026-09-06）
 
 - `prepare_field_link.ps1` 新增无副作用 `-PlanOnly` 与 write-new `-Output`：计划记录拟执行变更、提权需求、
