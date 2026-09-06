@@ -315,15 +315,17 @@ if ($PlanOnly) {
     exit 0
 }
 
-if ($Elevate -and -not (Test-IsAdministrator)) {
+$whatIfRequested = [bool]$WhatIfPreference
+if ($Elevate -and -not (Test-IsAdministrator) -and -not $whatIfRequested) {
     Invoke-ElevatedSelf
     exit 0
 }
 
-if (-not (Test-IsAdministrator)) {
+if (-not (Test-IsAdministrator) -and -not $whatIfRequested) {
     throw 'Applying or removing the field-link address requires an elevated PowerShell window'
 }
 
+$appliedChange = $false
 if ($Remove) {
     if ($existing.Count -eq 0) {
         Write-Output "No matching secondary address is present: $IpAddress/$PrefixLength"
@@ -332,6 +334,7 @@ if ($Remove) {
         foreach ($address in $existing) {
             if ($PSCmdlet.ShouldProcess("$InterfaceAlias $IpAddress/$PrefixLength", 'Remove secondary field-link address')) {
                 Remove-NetIPAddress -InterfaceIndex $address.InterfaceIndex -IPAddress $address.IPAddress -Confirm:$false -ErrorAction Stop
+                $appliedChange = $true
             }
         }
     }
@@ -340,6 +343,7 @@ else {
     if ($existing.Count -eq 0) {
         if ($PSCmdlet.ShouldProcess("$InterfaceAlias $IpAddress/$PrefixLength", 'Add secondary field-link address')) {
             New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IpAddress -PrefixLength $PrefixLength -SkipAsSource $true -ErrorAction Stop | Out-Null
+            $appliedChange = $true
         }
     }
     else {
@@ -348,12 +352,27 @@ else {
 }
 
 $finalState = Show-FieldLinkState
+$finalTargetAddresses = @(Get-TargetAddress)
+$postconditionPassed = if ($whatIfRequested) {
+    $null
+}
+elseif ($Remove) {
+    $finalTargetAddresses.Count -eq 0
+}
+else {
+    $finalTargetAddresses.Count -eq 1 -and [bool]$finalTargetAddresses[0].SkipAsSource
+}
 $finalState | Add-Member -NotePropertyName execution -NotePropertyValue ([ordered]@{
-        mode = 'apply'
+        mode = $(if ($whatIfRequested) { 'what-if' } else { 'apply' })
         operation = $(if ($Remove) { 'remove-secondary-address' } else { 'add-secondary-address' })
-        changed = [bool]$changeRequired
+        changed = [bool]$appliedChange
         requested_address = $IpAddress
         requested_prefix_length = $PrefixLength
+        postcondition_checked = -not $whatIfRequested
+        postcondition_passed = $postconditionPassed
         output = $script:resolvedOutput
     })
 Write-FieldLinkState -State $finalState
+if (-not $whatIfRequested -and -not $postconditionPassed) {
+    throw "Field-link address postcondition failed for $InterfaceAlias $IpAddress/$PrefixLength"
+}

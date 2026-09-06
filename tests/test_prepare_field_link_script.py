@@ -40,6 +40,13 @@ def test_field_link_setup_is_parameterized_and_secondary_only() -> None:
     assert "dns_change = $false" in source
     assert "explicit_route_change = $false" in source
     assert "rollback_command" in source
+    assert "$appliedChange = $false" in source
+    assert "$appliedChange = $true" in source
+    assert "$whatIfRequested = [bool]$WhatIfPreference" in source
+    assert "mode = $(if ($whatIfRequested) { 'what-if' } else { 'apply' })" in source
+    assert "postcondition_checked" in source
+    assert "postcondition_passed" in source
+    assert "Field-link address postcondition failed" in source
     # The helper must never silently change the default route or resolver.
     assert "-DefaultGateway" not in source
     assert "New-NetRoute" not in source
