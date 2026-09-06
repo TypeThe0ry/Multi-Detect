@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v150 hash-anchored GR01 trust registry（2026-09-07）
+
+- 新增 closed trust-registry schema/CLI：用包外 registry 文件 SHA-256 锚定 `source_operator` / `reviewer` 的 principal ID、
+  identity、key ID、Ed25519 公钥、全局/逐 key 有效期与吊销状态；重复 principal/key/public key、过期或已吊销 key 均失败；
+- portable review schema 升级到 v5，移除 raw public-key CLI trust：review/verify 都重开同一 hash-anchored registry；operator
+  key 必须在 source attestation 与 review 两个时点有效，reviewer key 必须在 review 时点有效，未来时点 attestation 被拒绝；
+- trust-registry + portable-review 软件 smoke `22 passed`。新 safety parity 的 join/revalidation、三机型 matrix、6 正例/9 故障
+  campaign 均通过；E7 保持 `false / false / 32 blockers`、GR01 `present=false/passed=false`，不提升真人身份、硬件、HIL、
+  REAL 或飞行声明；最终全量回归 `3650 passed, 2 skipped`。
+
 ### v0.3.0-pre.8 v149 dual-signed GR01 source/review chain（2026-09-06）
 
 - 新增 detached source-attestation schema v1：现场 operator 使用仅来自环境的 32-byte Ed25519 seed 签署完整 transfer

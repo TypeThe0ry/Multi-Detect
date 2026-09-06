@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v149 工作树）
+最后更新：2026-09-07（v150 工作树）
+
+## v150 本轮已收口
+
+- 新增 GR01 review trust registry schema v1、实现与 repository wrapper；registry 用独立渠道保存的文件 SHA-256 作信任锚，
+  为 `source_operator` / `reviewer` 登记 principal ID、identity、key ID、Ed25519 公钥、全局/逐 key 有效期及吊销状态；
+- portable review schema 升级到 v5；`review` / `verify` 不再接收裸公钥作为信任根，而是重开同一 registry 并核对包外
+  SHA-256。operator key 在 source attestation 时点和 review 时点都必须有效，reviewer key 在 review 时点必须有效；
+  未来 attestation、过期/吊销 key、identity/key/public-key mismatch 以及角色复用均 fail-closed；
+- clean feature commit `fb5e8e4069a35dc53b010c48e4ee6c1bc70084f4` 的 trust-registry + review 软件 smoke
+  `22 passed`；JUnit 3,267 bytes、SHA-256 `771C2CBB3DABEF6DBE14BDBFF7DA867D2D2E4D867A6D6F202EEF0A29203369BF`；
+- safety parity 更新为 `E179F406...FE0030DE`；external join/revalidation、三机型 matrix 与 6 正例/9 故障 campaign
+  已按当前 parity 重算并通过。E7 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01
+  `present=false/passed=false`。最终全量回归 3,652 tests：`3650 passed, 2 skipped, 0 failed, 0 errors`，耗时
+  276.482 秒；JUnit 532,203 bytes、SHA-256 `213DC40ADE45E01502E96B8E284DBE1E8FB77068819D105B45A3745467FE601B`。
+  真实 registry 分发、真人身份映射、第二机复核、现场 GR01 session、HIL/REAL 与飞行验收仍待完成。
 
 ## v149 本轮已收口
 

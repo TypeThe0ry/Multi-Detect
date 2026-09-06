@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## Hash-anchored GR01 review trust registry（v150）
+
+- [x] closed registry 登记 operator/reviewer principal、identity、key ID、Ed25519 public key、有效期与吊销元数据；
+- [x] registry 文件本身必须匹配包外 SHA-256，review/verify 均重开同一锚定文件；
+- [x] operator key 在 source attestation 与 review 时点均有效，reviewer key 在 review 时点有效；
+- [x] revoked/expired/mismatched/duplicate key、未来 attestation 与角色复用 fail-closed；
+- [x] registry/review schema、实现、wrapper 和负向测试纳入 safety parity；
+- [ ] 由组织离线签发真实 registry、独立分发其 SHA-256，并在两台现场机完成真人映射和双签复核。
+
 ## Dual-signed GR01 source/review trust chain（v149）
 
 - [x] source operator 使用独立 Ed25519 key 签署 inventory identity，seed 只从环境读取；

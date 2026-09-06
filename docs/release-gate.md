@@ -1,12 +1,23 @@
 # v0.3.0 E7 发布门
 
-## v149 dual-signed source/review chain（2026-09-06，`v0.3.0-pre.8`）
+## v150 hash-anchored GR01 trust registry（2026-09-07，`v0.3.0-pre.8`）
 
-现场机与第二机必须使用不同身份、不同 key ID、不同 Ed25519 key。两把公钥都要在接收各自回执前通过独立渠道登记；
-任何一端都不能把待验证文件里自带的公钥当信任根。现场执行前设置 operator seed：
+先在受控机器准备 `principals.json`，其中至少各有一个 `source_operator` 与 `reviewer`；每项必须包含唯一的
+`principal_id`、`identity`、`key_id`、`public_key_ed25519_hex`、`valid_from_utc`、`expires_at_utc`，未吊销项固定
+`revoked=false` 且两个 revocation 字段为 `null`。创建 registry 后，必须通过与 session/review 文件不同的渠道分发其
+文件 SHA-256：
 
 ```powershell
 python -m pip install -e ".[security]"
+python .\scripts\verify_gr01_review_trust_registry.py create `
+  --principals-json D:\trust\principals.json `
+  --registry-id 12345678-1234-5678-9234-567812345678 `
+  --issued-at-utc 2026-09-07T00:00:00Z `
+  --valid-from-utc 2026-09-07T00:00:00Z `
+  --expires-at-utc 2027-09-07T00:00:00Z `
+  --out D:\trust\gr01-review-trust-registry.json
+$trustRegistrySha256 = (Get-FileHash -Algorithm SHA256 D:\trust\gr01-review-trust-registry.json).Hash.ToLowerInvariant()
+
 $env:MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX = '<64位operator私钥seed hex>'
 .\scripts\run_gr01_release_session.ps1 `
   -HostAddress 192.168.144.20 -Port 14580 `
@@ -14,8 +25,8 @@ $env:MULTIDETECT_GR01_OPERATOR_ED25519_SEED_HEX = '<64位operator私钥seed hex>
   -SourceOperator 'operator-a' -SourceOperatorKeyId 'field-operator-a-2026'
 ```
 
-成功后，脚本在 session 目录外生成 `gr01-release-session-source-attestation-<stamp>.json`。复制 session 目录和这份
-detached sidecar 到第二机，并保留原有独立 inventory SHA-256 锚：
+成功后，把 session 目录、detached source attestation 与 registry 复制到第二机；inventory SHA-256 和 registry SHA-256
+都必须保留独立渠道记录。第二机 reviewer seed 必须对应 registry 中 active/non-revoked 的 reviewer principal：
 
 ```powershell
 $env:MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX = '<另一把64位reviewer私钥seed hex>'
@@ -23,16 +34,24 @@ python .\scripts\verify_gr01_release_session_review.py review `
   --inventory D:\review\gr01-session\gr01-release-session-transfer-inventory.json `
   --source-attestation D:\review\sidecars\gr01-source-attestation.json `
   --expected-inventory-sha256 <独立渠道保存的inventory SHA-256> `
-  --expected-operator-public-key-hex <预登记的operator公钥hex> `
+  --trust-registry D:\review\trust\gr01-review-trust-registry.json `
+  --expected-trust-registry-sha256 <独立渠道保存的registry SHA-256> `
   --reviewer 'reviewer-b' --reviewer-key-id 'field-reviewer-b-2026' `
   --reviewer-signing-key-env MULTIDETECT_GR01_REVIEWER_ED25519_SEED_HEX `
   --destination-root D:\review\gr01-session `
   --transfer-receipt-out D:\review\receipts\gr01-transfer.json `
   --out D:\review\receipts\gr01-portable-review.json
+
+python .\scripts\verify_gr01_release_session_review.py verify `
+  D:\review\receipts\gr01-portable-review.json `
+  --trust-registry D:\review\trust\gr01-review-trust-registry.json `
+  --expected-trust-registry-sha256 <独立渠道保存的registry SHA-256>
 ```
 
-`operator_key_possession_verified` 与 `reviewer_key_possession_verified` 不等于真人身份认证；两端 human identity claims
-固定为 false。真实组织仍需保存 key-to-person 登记、现场 session 与第二机输出，且继续完成其余 E7/HIL/REAL/实飞门。
+review schema v5 不再接收裸 operator/reviewer 公钥作为 CLI 信任根。operator key 必须在 source attestation 和 review
+时点都有效，reviewer key 必须在 review 时点有效；registry 过期、key 过期/吊销、identity/key/public-key mismatch 或
+未来 source attestation 均拒绝。key possession 不等于真人认证；human identity claims 固定 false，且仍须完成其余
+E7/HIL/REAL/实飞门。
 
 ## v148 reviewer-signed portable review（2026-09-06，`v0.3.0-pre.8`）
 

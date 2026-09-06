@@ -1,17 +1,18 @@
 # 统一仓库架构
 
-## v149 dual-signed GR01 source/review chain（2026-09-06，`v0.3.0-pre.8`）
+## v150 hash-anchored GR01 review trust registry（2026-09-07，`v0.3.0-pre.8`）
 
-- `gr01_release_review.py` 新增 `attest-source`：现场 operator 签署 inventory，第二机 `review` 先用包外固定 operator
-  公钥验签，再用另一把 reviewer key 签 review；
-- `gr01-release-session-source-attestation.schema.json` 固定 source signature、inventory identity 和不扩大验收范围的 claims；
-- review schema v4 绑定 attestation 文件/canonical identity、operator identity/key ID/public key 与已验签结论；
-- `run_gr01_release_session.ps1` 在任何网络操作前检查 operator seed 格式，强 session 成功后把 detached attestation 写到
-  session 目录外；source/reviewer identity、key ID 或公钥复用均 fail-closed；
-- 两份 schema、实现、wrapper 与负向回归均进入 `safety_policy` parity。
+- `src/multidetect/gr01_review_trust_registry.py`：创建/验证 closed registry，并按 role、identity、key ID、公钥、有效期、
+  吊销时点选择可信 principal；
+- `scripts/verify_gr01_review_trust_registry.py`：提供 repository-source `create/verify` 入口；registry 文件 SHA-256 必须通过
+  独立渠道固定，不能从待验证 review 内取得；
+- `configs/schemas/gr01-review-trust-registry.schema.json`：固定两类 role、fail-closed policy 与 no-hardware/no-flight claims；
+- `gr01_release_review.py` / review schema v5：review 与 receipt verifier 都重开 registry；operator key 同时检查 attestation/
+  review 时点，reviewer key 检查 review 时点，并绑定 registry/principal identity；
+- registry 实现、wrapper、schema、review consumer 与负向回归均进入 `safety_policy` parity。
 
-这层建立的是两把预登记公钥之间的密码学职责分离；它不自动证明两个人的现实身份，不重验 target environment、完整 E7、
-硬件、HIL/REAL 或飞行事实。
+这层建立的是可轮换、可吊销、带时间边界的密码学信任目录；registry 的 SHA-256 分发和 principal 到真人的映射仍由现场组织
+负责，也不重验 target environment、完整 E7、硬件、HIL/REAL 或飞行事实。
 
 ## v148 reviewer-signed GR01 review（2026-09-06，`v0.3.0-pre.8`）
 
