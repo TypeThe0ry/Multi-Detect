@@ -48,6 +48,8 @@ def calibrate_replay_set_thresholds(
     stability_tolerance: float = 0.10,
     reviewed: bool = False,
     reviewer: str | None = None,
+    prediction_run_receipt: str | Path | None = None,
+    accuracy_report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Sweep thresholds over all bound predictions and report strata stability.
 
@@ -82,6 +84,60 @@ def calibrate_replay_set_thresholds(
 
     manifest = load_replay_set_manifest(source)
     raw_payload = source.read_bytes()
+    prediction_run_binding: dict[str, object] | None = None
+    accuracy_report_binding: dict[str, object] | None = None
+    if (prediction_run_receipt is None) != (accuracy_report_path is None):
+        raise ReplaySetCalibrationError(
+            "prediction_run_receipt and accuracy_report_path must be supplied together"
+        )
+    if prediction_run_receipt is not None and accuracy_report_path is not None:
+        from .replay_prediction_run import verified_prediction_run_bindings
+        from .replay_set_readiness import check_replay_set_readiness
+
+        bindings = verified_prediction_run_bindings(source, prediction_run_receipt)
+        prediction_run_binding = dict(bindings["prediction_run_binding"])
+        requested_accuracy = Path(accuracy_report_path).expanduser()
+        if requested_accuracy.is_symlink():
+            raise ReplaySetCalibrationError("accuracy_report_path must not be a symbolic link")
+        accuracy_source = requested_accuracy.resolve(strict=True)
+        readiness = check_replay_set_readiness(
+            source,
+            accuracy_report_path=accuracy_source,
+        )
+        if readiness.get("gate_passed") is not True:
+            details = "; ".join(
+                str(reason) for reason in readiness.get("blocking_reasons", [])
+            )
+            raise ReplaySetCalibrationError(
+                "accuracy report did not pass fresh readiness recomputation"
+                + (f": {details}" if details else "")
+            )
+        accuracy_payload = accuracy_source.read_bytes()
+        accuracy_document = strict_json_loads(accuracy_payload, name="accuracy report")
+        if not isinstance(accuracy_document, Mapping):
+            raise ReplaySetCalibrationError("accuracy report root must be a JSON object")
+        if accuracy_document.get("model_binding") != bindings["model_binding"]:
+            raise ReplaySetCalibrationError(
+                "accuracy report model binding does not match the verified prediction run"
+            )
+        if accuracy_document.get("prediction_run_binding") != prediction_run_binding:
+            raise ReplaySetCalibrationError(
+                "accuracy report prediction binding does not match the verified prediction run"
+            )
+        accuracy_report_binding = {
+            "path": str(accuracy_source),
+            "sha256": hashlib.sha256(accuracy_payload).hexdigest(),
+            "manifest_sha256": str(accuracy_document["manifest_sha256"]),
+            "canonical_sha256": str(accuracy_document["canonical_sha256"]),
+            "prediction_receipt_sha256": str(prediction_run_binding["receipt_sha256"]),
+            "prediction_receipt_canonical_hash": str(
+                prediction_run_binding["receipt_canonical_hash"]
+            ),
+            "model_artifact_sha256": str(bindings["model_binding"]["artifact_sha256"]),
+            "reviewed": accuracy_document.get("reviewed") is True,
+            "accuracy_validated": accuracy_document.get("accuracy_validated") is True,
+            "gate_passed": accuracy_document.get("gate_passed") is True,
+        }
     failure_reasons: list[str] = []
     if not manifest.is_complete:
         failure_reasons.append("replay-set deployment coverage is incomplete")
@@ -261,6 +317,11 @@ def calibrate_replay_set_thresholds(
         "coverage": manifest.coverage(),
         "deployment_domain_evidence_complete": manifest.is_complete,
         "predictions_complete": predictions_complete,
+        "prediction_run_binding": prediction_run_binding,
+        "accuracy_report_binding": accuracy_report_binding,
+        "provenance_complete": bool(
+            prediction_run_binding is not None and accuracy_report_binding is not None
+        ),
         "threshold_grid": list(grid),
         "iou_threshold": float(iou_threshold),
         "beta": float(beta),
@@ -283,6 +344,8 @@ def verify_replay_set_calibration_report(
     report_path: str | Path,
     *,
     manifest_path: str | Path | None = None,
+    prediction_run_receipt: str | Path | None = None,
+    accuracy_report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Independently re-compute and verify a calibration report.
 
@@ -388,6 +451,16 @@ def verify_replay_set_calibration_report(
                 )
 
             try:
+                prediction_binding = document.get("prediction_run_binding")
+                accuracy_binding = document.get("accuracy_report_binding")
+                bound_prediction_receipt: str | Path | None = prediction_run_receipt
+                bound_accuracy_report: str | Path | None = accuracy_report_path
+                if bound_prediction_receipt is None and isinstance(
+                    prediction_binding, Mapping
+                ):
+                    bound_prediction_receipt = prediction_binding.get("receipt_path")
+                if bound_accuracy_report is None and isinstance(accuracy_binding, Mapping):
+                    bound_accuracy_report = accuracy_binding.get("path")
                 recomputed = calibrate_replay_set_thresholds(
                     resolved_manifest,
                     thresholds=document.get("threshold_grid"),
@@ -398,8 +471,17 @@ def verify_replay_set_calibration_report(
                     stability_tolerance=document.get("stability_tolerance"),
                     reviewed=document.get("reviewed"),
                     reviewer=document.get("reviewer"),
+                    prediction_run_receipt=bound_prediction_receipt,
+                    accuracy_report_path=bound_accuracy_report,
                 )
-            except (ReplaySetCalibrationError, TypeError, ValueError, KeyError) as exc:
+            except (
+                OSError,
+                RuntimeError,
+                ReplaySetCalibrationError,
+                TypeError,
+                ValueError,
+                KeyError,
+            ) as exc:
                 reasons.append(f"calibration report request could not be re-computed: {exc}")
             else:
                 checks["recomputed_report_matches"] = _json_equivalent(

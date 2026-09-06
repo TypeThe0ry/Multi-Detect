@@ -30,6 +30,11 @@ from multidetect.replay_set import (
     build_replay_set_manifest,
     load_replay_set_manifest,
 )
+from multidetect.replay_set_calibration import (
+    ReplaySetCalibrationError,
+    calibrate_replay_set_thresholds,
+    verify_replay_set_calibration_report,
+)
 from multidetect.replay_set_evaluation import evaluate_replay_set
 from multidetect.replay_set_intake import (
     prepare_deployment_replay_set,
@@ -332,13 +337,19 @@ def _annotation_fixture(tmp_path: Path) -> tuple[Path, Path]:
     return intake, workspace
 
 
-def _complete_annotations(workspace: Path) -> dict[str, object]:
+def _complete_annotations(
+    workspace: Path,
+    *,
+    positive_all_detection_strata: bool = False,
+) -> dict[str, object]:
     document = json.loads(workspace.read_text(encoding="utf-8"))
     document["annotator"] = "annotator-a"
     document["reviewer"] = "reviewer-b"
     document["reviewed_at_utc"] = "2026-09-06T02:00:00Z"
     for index, frame in enumerate(document["frames"]):
-        if index == 0:
+        if index == 0 or (
+            positive_all_detection_strata and frame["stratum"] != "no_fire"
+        ):
             frame["annotation"] = {
                 "status": "positive",
                 "objects": [{"label": "flame", "bbox": [0.1, 0.2, 0.4, 0.6]}],
@@ -609,7 +620,7 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     )
     workspace = tmp_path / "annotations.json"
     create_replay_annotation_workspace(intake, workspace)
-    _complete_annotations(workspace)
+    _complete_annotations(workspace, positive_all_detection_strata=True)
     reviewed = tmp_path / "reviewed"
     finalize_replay_annotation_workspace(intake, workspace, reviewed)
     model, manifest = create_synthetic_hil_model_bundle(
@@ -631,6 +642,8 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     )
     assert receipt["model"]["synthetic_hil_only"] is True
     assert receipt["claims"]["release_ready"] is False
+    verified_prediction = verify_replay_predictions(tmp_path / "predicted")
+    assert verified_prediction["production_approved"] is False
     predictions = [
         json.loads(line)
         for line in (tmp_path / "predicted" / "day" / "predictions.jsonl")
@@ -647,6 +660,7 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     assert accuracy["model_binding"]["model_id"] == "synthetic-fire-nx6-hil"
     assert accuracy["prediction_run_binding"]["receipt_canonical_hash"] == report["canonical_hash"]
     assert accuracy["prediction_run_binding"]["runtime_inference_executed"] is True
+    assert accuracy["prediction_run_binding"]["production_approved"] is False
     assert accuracy["prediction_run_binding"]["synthetic_hil_only"] is True
     assert accuracy["accuracy_validated"] is False
     accuracy_path = predicted_root / "accuracy-report.json"
@@ -703,6 +717,80 @@ def test_replay_predictions_execute_shared_onnx_runtime_pipeline(
     assert (
         installed_cli_report["prediction_run_binding"]["receipt_canonical_hash"]
         == report["canonical_hash"]
+    )
+
+    reviewed_accuracy = evaluate_replay_set(
+        predicted_root / "replay-set.manifest.json",
+        reviewed=True,
+        reviewer="accuracy-reviewer",
+        prediction_run_receipt=predicted_root / "prediction-run.receipt.json",
+    )
+    assert reviewed_accuracy["gate_passed"] is True
+    reviewed_accuracy_path = predicted_root / "accuracy-reviewed.json"
+    reviewed_accuracy_path.write_text(json.dumps(reviewed_accuracy), encoding="utf-8")
+    calibration = calibrate_replay_set_thresholds(
+        predicted_root / "replay-set.manifest.json",
+        thresholds=(0.25, 0.50, 0.75),
+        reviewed=True,
+        reviewer="threshold-reviewer",
+        prediction_run_receipt=predicted_root / "prediction-run.receipt.json",
+        accuracy_report_path=reviewed_accuracy_path,
+    )
+    assert calibration["provenance_complete"] is True
+    assert calibration["prediction_run_binding"]["production_approved"] is False
+    assert calibration["accuracy_report_binding"]["gate_passed"] is True
+    assert (
+        calibration["accuracy_report_binding"]["prediction_receipt_canonical_hash"]
+        == report["canonical_hash"]
+    )
+    calibration_path = predicted_root / "threshold-calibration.json"
+    calibration_path.write_text(json.dumps(calibration), encoding="utf-8")
+    calibration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "configs/schemas/replay-set-calibration-report.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(calibration_schema)
+    Draft202012Validator(calibration_schema).validate(calibration)
+    assert verify_replay_set_calibration_report(calibration_path)["gate_passed"] is True
+
+    assert (
+        cli_main(
+            [
+                "calibrate-replay-set",
+                str(predicted_root / "replay-set.manifest.json"),
+                "--thresholds",
+                "0.25,0.50,0.75",
+                "--reviewed",
+                "--reviewer",
+                "threshold-reviewer",
+                "--prediction-run-receipt",
+                str(predicted_root / "prediction-run.receipt.json"),
+                "--accuracy-report",
+                str(reviewed_accuracy_path),
+                "--report-only",
+            ]
+        )
+        == 0
+    )
+    cli_calibration = json.loads(capsys.readouterr().out)
+    assert cli_calibration["accuracy_report_binding"] == calibration["accuracy_report_binding"]
+
+    with pytest.raises(ReplaySetCalibrationError, match="must be supplied together"):
+        calibrate_replay_set_thresholds(
+            predicted_root / "replay-set.manifest.json",
+            thresholds=(0.25, 0.50, 0.75),
+            prediction_run_receipt=predicted_root / "prediction-run.receipt.json",
+        )
+
+    reviewed_accuracy["reviewer"] = "tampered-reviewer"
+    reviewed_accuracy_path.write_text(json.dumps(reviewed_accuracy), encoding="utf-8")
+    tampered_verification = verify_replay_set_calibration_report(calibration_path)
+    assert tampered_verification["gate_passed"] is False
+    assert any(
+        "differs from deterministic re-computation" in reason
+        for reason in tampered_verification["reasons"]
     )
 
 

@@ -522,12 +522,50 @@ def verify_replay_predictions(root: str | Path) -> dict[str, object]:
         "model_version": verified_model.model_version,
         "model_artifact_sha256": verified_model.artifact_sha256,
         "model_manifest_sha256": require_sha256(model["manifest_sha256"], "model manifest sha256"),
+        "production_approved": verified_model.production_approved,
         "synthetic_hil_only": verified_model.synthetic_hil_only,
         "predictions_complete": True,
         "runtime_inference_executed": not test_double_used,
         "accuracy_validated": False,
         "release_ready": False,
         "canonical_hash": observed_canonical,
+    }
+
+
+def verified_prediction_run_bindings(
+    manifest_path: str | Path,
+    receipt_path: str | Path,
+) -> dict[str, dict[str, object]]:
+    """Return model/run bindings only after reopening the complete prediction bundle."""
+
+    manifest = Path(manifest_path).expanduser().resolve(strict=True)
+    expected_manifest = manifest.parent / "replay-set.manifest.json"
+    if manifest != expected_manifest:
+        raise AutonomyContractError(
+            "prediction-bound manifest must be replay-set.manifest.json in its bundle root"
+        )
+    receipt = Path(receipt_path).expanduser().resolve(strict=True)
+    expected_receipt = manifest.parent / PREDICTION_RECEIPT_NAME
+    if receipt != expected_receipt:
+        raise AutonomyContractError(
+            "prediction run receipt must be prediction-run.receipt.json beside the replay manifest"
+        )
+    verified = verify_replay_predictions(manifest.parent)
+    return {
+        "model_binding": {
+            "artifact_sha256": str(verified["model_artifact_sha256"]),
+            "model_id": str(verified["model_id"]),
+            "model_version": str(verified["model_version"]),
+        },
+        "prediction_run_binding": {
+            "receipt_path": str(receipt),
+            "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "receipt_canonical_hash": str(verified["canonical_hash"]),
+            "model_manifest_sha256": str(verified["model_manifest_sha256"]),
+            "runtime_inference_executed": verified["runtime_inference_executed"] is True,
+            "production_approved": verified["production_approved"] is True,
+            "synthetic_hil_only": verified["synthetic_hil_only"] is True,
+        },
     }
 
 

@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional replay-set manifest override when the report was copied",
     )
+    parser.add_argument("--prediction-run-receipt", type=Path)
+    parser.add_argument("--accuracy-report", type=Path)
     parser.add_argument("--out", type=Path)
     return parser
 
@@ -40,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     document = verify_replay_set_calibration_report(
         args.report,
         manifest_path=args.manifest,
+        prediction_run_receipt=args.prediction_run_receipt,
+        accuracy_report_path=args.accuracy_report,
     )
     payload = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
     if args.out is not None:

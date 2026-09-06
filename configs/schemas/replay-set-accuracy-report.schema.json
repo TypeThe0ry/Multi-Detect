@@ -152,6 +152,7 @@
         "receipt_canonical_hash",
         "model_manifest_sha256",
         "runtime_inference_executed",
+        "production_approved",
         "synthetic_hil_only"
       ],
       "properties": {
@@ -160,6 +161,7 @@
         "receipt_canonical_hash": {"$ref": "#/$defs/sha256"},
         "model_manifest_sha256": {"$ref": "#/$defs/sha256"},
         "runtime_inference_executed": {"type": "boolean"},
+        "production_approved": {"type": "boolean"},
         "synthetic_hil_only": {"type": "boolean"}
       }
     },

@@ -50,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--reviewed", action="store_true")
     parser.add_argument("--reviewer")
+    parser.add_argument(
+        "--prediction-run-receipt",
+        type=Path,
+        help="verified prediction-run.receipt.json beside the replay manifest",
+    )
+    parser.add_argument(
+        "--accuracy-report",
+        type=Path,
+        help="reviewed accuracy report freshly recomputed from the same prediction run",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--report-only",
@@ -71,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         stability_tolerance=args.stability_tolerance,
         reviewed=args.reviewed,
         reviewer=args.reviewer,
+        prediction_run_receipt=args.prediction_run_receipt,
+        accuracy_report_path=args.accuracy_report,
     )
     payload = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
     if args.out is not None:

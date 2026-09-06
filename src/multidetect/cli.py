@@ -547,6 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_set_calibration.add_argument("--reviewed", action="store_true")
     replay_set_calibration.add_argument("--reviewer")
+    replay_set_calibration.add_argument("--prediction-run-receipt", type=Path)
+    replay_set_calibration.add_argument("--accuracy-report", type=Path)
     replay_set_calibration.add_argument("--out", type=Path)
     replay_set_calibration.add_argument(
         "--report-only",
@@ -563,6 +565,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional replay-set manifest override when the report was copied",
     )
+    replay_set_calibration_verify.add_argument("--prediction-run-receipt", type=Path)
+    replay_set_calibration_verify.add_argument("--accuracy-report", type=Path)
     replay_set_calibration_verify.add_argument("--out", type=Path)
     tracking_evaluation = subparsers.add_parser(
         "evaluate-tracking",
@@ -3484,6 +3488,8 @@ def _calibrate_replay_set(args: argparse.Namespace) -> int:
         stability_tolerance=args.stability_tolerance,
         reviewed=args.reviewed,
         reviewer=args.reviewer,
+        prediction_run_receipt=args.prediction_run_receipt,
+        accuracy_report_path=args.accuracy_report,
     )
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -3499,6 +3505,8 @@ def _verify_replay_set_calibration(args: argparse.Namespace) -> int:
     document = verify_replay_set_calibration_report(
         args.report,
         manifest_path=args.manifest,
+        prediction_run_receipt=args.prediction_run_receipt,
+        accuracy_report_path=args.accuracy_report,
     )
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)

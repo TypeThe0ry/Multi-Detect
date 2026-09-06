@@ -16,6 +16,9 @@
     "coverage",
     "deployment_domain_evidence_complete",
     "predictions_complete",
+    "prediction_run_binding",
+    "accuracy_report_binding",
+    "provenance_complete",
     "threshold_grid",
     "iou_threshold",
     "beta",
@@ -60,6 +63,19 @@
     },
     "deployment_domain_evidence_complete": {"type": "boolean"},
     "predictions_complete": {"type": "boolean"},
+    "prediction_run_binding": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/prediction_run_binding"}
+      ]
+    },
+    "accuracy_report_binding": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/accuracy_report_binding"}
+      ]
+    },
+    "provenance_complete": {"type": "boolean"},
     "threshold_grid": {
       "type": "array",
       "minItems": 1,
@@ -127,6 +143,56 @@
     "failure_reasons": {"type": "array", "items": {"type": "string"}}
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "prediction_run_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_path",
+        "receipt_sha256",
+        "receipt_canonical_hash",
+        "model_manifest_sha256",
+        "runtime_inference_executed",
+        "production_approved",
+        "synthetic_hil_only"
+      ],
+      "properties": {
+        "receipt_path": {"type": "string", "minLength": 1},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_canonical_hash": {"$ref": "#/$defs/sha256"},
+        "model_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_inference_executed": {"type": "boolean"},
+        "production_approved": {"type": "boolean"},
+        "synthetic_hil_only": {"type": "boolean"}
+      }
+    },
+    "accuracy_report_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "manifest_sha256",
+        "canonical_sha256",
+        "prediction_receipt_sha256",
+        "prediction_receipt_canonical_hash",
+        "model_artifact_sha256",
+        "reviewed",
+        "accuracy_validated",
+        "gate_passed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "prediction_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "prediction_receipt_canonical_hash": {"$ref": "#/$defs/sha256"},
+        "model_artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewed": {"type": "boolean"},
+        "accuracy_validated": {"type": "boolean"},
+        "gate_passed": {"type": "boolean"}
+      }
+    }
   }
 }

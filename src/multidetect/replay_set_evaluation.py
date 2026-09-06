@@ -84,20 +84,17 @@ def evaluate_replay_set(
     raw_payload = source.read_bytes()
     prediction_run_binding: dict[str, Any] | None = None
     if prediction_run_receipt is not None:
-        from .replay_prediction_run import verify_replay_predictions
+        from .replay_prediction_run import verified_prediction_run_bindings
 
-        receipt_path = Path(prediction_run_receipt).expanduser().resolve(strict=True)
-        expected_receipt = source.parent / "prediction-run.receipt.json"
-        if receipt_path != expected_receipt:
-            raise ValueError(
-                "prediction_run_receipt must be prediction-run.receipt.json "
-                "beside the replay manifest"
-            )
-        verified_run = verify_replay_predictions(source.parent)
+        verified_bindings = verified_prediction_run_bindings(
+            source,
+            prediction_run_receipt,
+        )
+        verified_model_binding = verified_bindings["model_binding"]
         derived = {
-            "model_artifact_sha256": str(verified_run["model_artifact_sha256"]),
-            "model_id": str(verified_run["model_id"]),
-            "model_version": str(verified_run["model_version"]),
+            "model_artifact_sha256": str(verified_model_binding["artifact_sha256"]),
+            "model_id": str(verified_model_binding["model_id"]),
+            "model_version": str(verified_model_binding["model_version"]),
         }
         supplied = {
             "model_artifact_sha256": model_artifact_sha256,
@@ -110,14 +107,7 @@ def evaluate_replay_set(
         model_artifact_sha256 = derived["model_artifact_sha256"]
         model_id = derived["model_id"]
         model_version = derived["model_version"]
-        prediction_run_binding = {
-            "receipt_path": str(receipt_path),
-            "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
-            "receipt_canonical_hash": verified_run["canonical_hash"],
-            "model_manifest_sha256": verified_run["model_manifest_sha256"],
-            "runtime_inference_executed": verified_run["runtime_inference_executed"],
-            "synthetic_hil_only": verified_run["synthetic_hil_only"],
-        }
+        prediction_run_binding = dict(verified_bindings["prediction_run_binding"])
     model_binding = _normalize_model_binding(
         model_artifact_sha256=model_artifact_sha256,
         model_id=model_id,
