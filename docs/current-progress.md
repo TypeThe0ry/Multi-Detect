@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v102 工作树）
+最后更新：2026-09-06（v103 工作树）
+
+## v103 本轮已收口
+
+- field-link 预检 CLI 与 Windows wrapper 新增可选地址回执绑定：只接受成功 `apply` 证据，并要求显式
+  interface alias、目标地址/prefix、父级 expected source CIDR 与最多 300 秒的新鲜度；
+- 预检报告保存回执路径、字节数、SHA-256、schema、接口和地址身份；canonical verifier 每次重新打开
+  源回执，按父预检观测时间复验，保证归档报告仍可确定性验证；
+- 源文件变化、binding 篡改、软链接、自引用、what-if 冒充 apply、策略时限放宽、地址越界、父 CIDR
+  缺失及 interface diagnostic alias 不一致全部 fail-closed；地址回执不替代远端 endpoint probes，也不
+  单独升级 `hardware_link_ready`；
+- 当前机器只执行未绑定的只读 wrapper smoke，仍为 Ethernet `192.168.1.13/24`、飞机网段端点不可达、
+  `hardware_link_ready=false`；没有 apply 地址、触发 UAC 或生成 HIL/REAL/flight 接受声明；
+- 安全 parity 更新为 `D5B15BF4...FDBC87E`，其余四组 hash 不变；新增 7 项地址/绑定回归；全量回归
+  3,496 tests：`3495 passed, 1 skipped, 0 failed, 0 errors`，耗时 112.331 秒；JUnit 510,081 bytes、
+  SHA-256 `D6665848313861046A7C2FD496D68178C28F87A66758D81C80FBF155094C007F`；全仓 Ruff 与
+  compileall 通过。
 
 ## v102 本轮已收口
 

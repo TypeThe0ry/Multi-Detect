@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v102：外场地址证据具备 closed schema、独立 verifier、时效与 apply 真值门 |
+| 当前工程迭代 | v103：成功地址 apply 回执与 field-link 预检进行 SHA/身份/时效绑定 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,26 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v103 地址 apply 回执绑定到外场预检
+
+field-link 预检 CLI 与 PowerShell wrapper 现在可接受 `--address-state` / `-AddressState`。它会在探测前
+独立重开地址证据，要求 `mode=apply`、后置条件成功、目标接口/IP/prefix 一致，并以预检观测时间执行
+最多 300 秒的新鲜度检查；随后把证据路径、字节数、SHA-256、schema 与地址身份写入预检报告。
+
+```powershell
+.\scripts\run_field_link_preflight.ps1 `
+  -InterfaceAlias Ethernet `
+  -ExpectedSourceCidr 192.168.144.0/24 `
+  -AddressState .\artifacts\evaluation\field-link-address-apply.json `
+  -AddressStateMaxAgeSeconds 300 `
+  -ProtocolChecks -RequireRoute `
+  -Output .\artifacts\evaluation\field-link-preflight-bound.json
+```
+
+canonical verifier 会再次重开被绑定回执，拒绝源文件漂移、binding 字段篡改、软链接、超过策略上限、
+地址落在父预检目标 CIDR 之外或接口诊断 alias 不一致。地址回执只证明工作站地址配置来源，不能替代
+Jetson/GR01/相机端点探测，也不会单独把 `hardware_link_ready` 提升为 true。
 
 ### v102 外场地址证据独立复验
 

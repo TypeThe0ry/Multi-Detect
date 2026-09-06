@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 地址 apply 回执与外场预检绑定（v103）
+
+- [x] 预检 CLI/PowerShell wrapper 接受成功 apply 地址回执并独立复验；
+- [x] 将回执路径、字节数、SHA-256、schema、接口、地址/prefix 与 apply 真值闭合绑定；
+- [x] 以父预检观测时间验证最多 300 秒新鲜度，使归档验证保持确定性；
+- [x] 拒绝回执漂移、binding 篡改、软链接、自引用、what-if、时限放宽、CIDR 越界和 alias 分叉；
+- [x] 保持地址回执与 endpoint readiness 语义分离，不能单独提升 hardware gate；
+- [ ] 现场真实 apply 后立即生成 bound ready preflight，并由另一进程重开两份证据复验。
+
 ## 外场地址证据 closed schema 与独立复验（v102）
 
 - [x] 为 plan/verify/what-if/apply 输出建立统一 closed JSON Schema；

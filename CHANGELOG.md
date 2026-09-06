@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v103 bound field address receipts（2026-09-06）
+
+- field-link preflight CLI/PowerShell wrapper 可接收成功 apply 地址回执，并要求接口、地址/prefix、父级
+  source CIDR 与最多 300 秒新鲜度一致；
+- 预检报告 hash-bind 回执路径、大小、SHA-256、schema 与身份；verifier 按父报告观测时间重开源证据，
+  拒绝源漂移、字段篡改、软链接、自引用、what-if、策略放宽、CIDR 越界和接口 alias 分叉；
+- 地址证据只提供配置 provenance，不替代 Jetson/GR01/相机探测，也不单独提升 hardware readiness；
+  安全 parity 更新为 `d5b15bf4...fdbc87e`，其余四组不变。新增 7 项回归，本轮没有修改主机网络，
+  产品继续保持 `v0.3.0-pre.8`，不产生 HIL/REAL/hardware/flight acceptance；全量回归 3,496 tests：
+  `3495 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。
+
 ### v0.3.0-pre.8 v102 independently verified field address evidence（2026-09-06）
 
 - 新增 `multidetect.field-link-address-state/v1` closed schema，统一 PowerShell plan/verify/what-if/apply 输出；
