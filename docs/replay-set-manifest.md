@@ -685,6 +685,10 @@ bytes/SHA-256 和全帧 probe，自动使用 `started_at_utc`，解码前后再�
 summary canonical hash、raw manifest、events 和全部 PNG。输出目录采用 write-new，不支持覆盖。v2 清单只保留给
 历史 tracking-review 读取，不能进入该转换路径。
 
+建议把 `.manifest.json`、同名 `.mkv` 和输出 raw replay 放在同一个父目录后整体复制。v3 清单对同目录视频使用
+manifest-relative 引用，raw summary 对 source manifest/video 使用带 `path_base=recording_root` 的相对引用；
+因此 Jetson→Windows 迁移不需要改写 JSON 或 canonical hash。只复制 raw replay 而遗漏原清单/容器会按设计失败。
+
 现场接线尚未完成时，普通录像也可以先接入同一套 raw replay / 感知回放管线。使用
 `scripts/create_video_replay_recording.py` 将视频逐帧解码为 PNG，并生成带图像哈希、严格
 单调时间线和 `recording.manifest.json` 的新目录：

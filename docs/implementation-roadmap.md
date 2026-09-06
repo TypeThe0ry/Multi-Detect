@@ -1,5 +1,13 @@
 # Implementation roadmap
 
+## 可搬迁 RTSP evidence chain（v122）
+
+- [x] 同目录 RTSP 容器使用 manifest-relative 路径，迁移不改 canonical 内容；
+- [x] raw replay source binding 明确记录 `recording_root|absolute` 解析基准；
+- [x] 整个父目录迁移后重开 source manifest/video/summary/raw recording 全链；
+- [x] 迁移正例、summary 篡改负例和全量回归；
+- [ ] 将一份真实 Jetson H.265 v3 证据目录复制到 Windows，保存传输前后目录清单/hash 并人工验收。
+
 ## RTSP evidence container → raw replay（v121）
 
 - [x] RTSP 清单 v3 同时绑定系统 UTC 与单调采集时间窗、视频 bytes/SHA-256、全帧 probe 和 canonical hash；

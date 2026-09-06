@@ -1,5 +1,13 @@
 # 统一仓库架构
 
+## v122 portable RTSP evidence chain（2026-09-06，`v0.3.0-pre.8`）
+
+v3 采集清单优先以 manifest 目录为基准记录容器相对路径；raw replay 的 source binding 再明确记录
+`path_base=recording_root|absolute`。因此 Jetson 采集目录与派生 raw replay 处于同一可搬迁父目录时，可以原样
+复制到 Windows：verifier 从新 raw root 重建引用，重新验证未改变的 manifest canonical hash、容器 bytes/SHA、
+full probe 和 raw recording。summary 里的创建机绝对显示路径不作为定位权威；跨盘无法建立相对关系时仍明确
+绑定绝对路径，不伪装成 portable。迁移不改变 camera-only、未知导航、人工 provenance 待确认或 release 关闭状态。
+
 ## v121 RTSP evidence → raw replay（2026-09-06，`v0.3.0-pre.8`）
 
 ```text

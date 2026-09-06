@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T06:28:31Z",
+  "updated_at_utc": "2026-09-06T06:38:13Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "cc149243cd48142be838360928fba8e0318b1da3",
-    "commit_subject": "feat(replay): bind RTSP evidence conversion",
-    "commits_ahead_of_origin_main": 130
+    "commit": "911361326066e3fa31b0ab9bce6a7890aeaaab97",
+    "commit_subject": "feat(replay): make RTSP evidence portable",
+    "commits_ahead_of_origin_main": 132
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v121",
+  "working_iteration": "v122",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v121-final.xml",
+      "command": "python -m pytest --junitxml=tmp/current-progress-regression-v122-final.xml",
       "tests": 3537,
       "passed": 3536,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 254.10,
-      "junit_local_path": "tmp/current-progress-regression-v121-final.xml",
+      "duration_seconds": 258.60,
+      "junit_local_path": "tmp/current-progress-regression-v122-final.xml",
       "junit_file_bytes": 515775,
-      "junit_file_sha256": "bd7d0b2718e1584685019dcd7d8bfa807dda16ad239481f5252651681385e1ad",
+      "junit_file_sha256": "ea5f7a260dae01ded9f28cbefc2e534eb7c74e99027cdfece5fde8ca110112af",
       "distributed_in_git": false
     },
     "ruff": {
@@ -89,6 +89,10 @@
       "atomic_non_overwriting_raw_output": true,
       "source_identity_checked_before_and_after_decode": true,
       "output_chain_reverified": ["source_manifest", "source_video", "summary", "raw_manifest", "events", "images"],
+      "manifest_sibling_video_reference": "relative_portable",
+      "raw_source_path_bases": ["recording_root", "absolute_cross_drive_fallback"],
+      "whole_parent_directory_move_reverified": true,
+      "historical_absolute_display_paths_authoritative": false,
       "tracking_review_v2_read_compatible": true,
       "tracking_review_v3_strict": true,
       "operator_field_provenance_attested": false,

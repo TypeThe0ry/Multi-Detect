@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v122 portable RTSP evidence chain（2026-09-06）
+
+- 新 v3 RTSP 清单对同目录容器写相对引用，使原清单 canonical hash 在 Jetson→Windows 整包迁移后保持不变；
+- raw replay 的 source binding 使用显式 `recording_root|absolute` 路径基准；同一父目录移动后会从新位置重开
+  RTSP 清单/视频和 raw manifest/events/images，summary 内历史绝对显示路径不再作为定位权威；
+- 整目录迁移正例和 summary 篡改负例通过；camera/GPS/release 声明不变。全量 3,537 tests：
+  `3536 passed, 1 skipped`，Ruff/compileall/parity 重生成通过。
+
 ### v0.3.0-pre.8 v121 RTSP evidence container → raw replay（2026-09-06）
 
 - RTSP recorder 清单升级为 closed-schema v3，固定记录包围 stream-copy 的 UTC 起止、单调时间窗、

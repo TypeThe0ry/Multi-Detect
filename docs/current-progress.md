@@ -1,6 +1,18 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v121 工作树）
+最后更新：2026-09-06（v122 工作树）
+
+## v122 本轮已收口
+
+- RTSP v3 manifest 在视频位于清单目录内时写规范相对引用；清单+容器从 Jetson 复制到 Windows 后无需改 JSON，
+  原 canonical hash、container bytes/SHA 与 full probe 仍可重算；目录外视频才保留绝对引用；
+- raw replay 的 source evidence binding 为 manifest/video 各写 `path_base=recording_root|absolute`；同盘时优先
+  相对 raw root，使“RTSP 清单+容器+raw replay”整个父目录可搬迁，跨盘无法相对化时明确退回绝对绑定；
+- verifier 以搬迁后的 raw root 解析权威引用；summary 里的旧显示路径只作历史信息，raw manifest 固定从当前 root
+  打开，所有 hash/bytes/canonical/frame checks 保持。测试实际移动完整目录后再次通过全链复验，并拒绝 summary 篡改；
+- 全量回归仍为 3,537 tests：`3536 passed, 1 skipped, 0 failed, 0 errors`，耗时 258.60 秒；JUnit
+  515,775 bytes、SHA-256 `EA5F7A260DAE01DED9F28CBEFC2E534EB7C74E99027CDFECE5FDE8CA110112AF`；
+  全仓 Ruff、compileall 和 parity 重生成通过，五组共享契约与 QGC portable 未改变，E7 仍为 32 blockers。
 
 ## v121 本轮已收口
 
