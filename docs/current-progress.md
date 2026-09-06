@@ -11,14 +11,14 @@
 - source plan repository/parity/tool identity 现在逐字段闭合验证；非法 Git/SHA/path/bytes/type 在写 receipt 前直接拒绝；
 - receipt 绑定 source plan 的相对路径/bytes/SHA、portable configuration digest、目标 repo/Python/output 路径、
   host ID 和两个 secret 的名称/present；不序列化 secret 值，固定 no-network/no-hardware/no-control claims；
-- clean commit `67846f08346e3042aea475ab5c7a25f1caf60bf8` 的无网络 smoke 得到
+- clean commit `3b8a9d5ac4ab9a2f4d7206dd2f25a950c76ba2b5` 的无网络 smoke 得到
   `source_equivalent=true`、结构复验 exit 0；两个现场 secret 缺失使 `ready_to_execute=false`，严格复验 exit 1。
-  plan SHA-256 `06B72193717299907E50A438C9294371DD23EB7D0254A300AB1FE73F3AEF44A3`，handoff SHA-256
-  `BC4EDB4B97FC0F7E03A0FE5CF85ED96ECFAA5106DA3EF08197C32857447DCD6D`；未接触网络或硬件；
+  plan 3,021 bytes、SHA-256 `71FC66BC2F8614CA5021AE2CA9A636848475C5237A6A6A1D0E0E3D62DC86F58B`；handoff
+  3,288 bytes、SHA-256 `1FF368668E757747B50D2CD18F308D3CB26E4C692A3090AAF6075B8234B8E962`；未接触网络或硬件；
 - 新 parity 下 external join/revalidation、三机型 reported-position matrix 与 6 正例/9 故障 campaign 均独立通过。
   E7 继续 `gate_passed=false`、`release_allowed=false`、32 blockers，GR01 `present=false/passed=false`。
-  最终全量回归 3,629 tests：`3627 passed, 2 skipped, 0 failed, 0 errors`，耗时 193.41 秒；JUnit
-  528,740 bytes、SHA-256 `67BF126A28787ABCD3D0D9CBD962731B491A1CC629AD0D4E428FF4D1C4CFA4A7`。
+  最终全量回归 3,631 tests：`3629 passed, 2 skipped, 0 failed, 0 errors`，耗时 277.38 秒；JUnit
+  529,121 bytes、SHA-256 `B68E93EEA55B0631B6D11179F634FB25361E53C186660276329BF0C0281025D4`。
   本轮不改 C++/QML，不重建 portable EXE，不产生硬件、射频、飞行或最终发布声明。
 
 ## v142 本轮已收口

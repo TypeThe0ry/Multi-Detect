@@ -13,7 +13,7 @@ QGroundControl 历史，不作为本产品发布记录。
   path escape、覆盖、source/tool/plan/environment drift 全部 fail-closed；malformed source identity 在写入前拒绝；
 - clean commit 无网络 smoke 为 source-equivalent/structurally valid，但因现场 secret 缺失保持 non-ready；新 parity 的四份
   派生证据通过，E7 仍为 `false / false / 32 blockers`、GR01 `present=false`；全量回归
-  `3627 passed, 2 skipped`。未改 QGC 或构建 EXE。
+  `3629 passed, 2 skipped`。未改 QGC 或构建 EXE。
 
 ### v0.3.0-pre.8 v142 execution-plan-bound GR01 session（2026-09-06）
 
