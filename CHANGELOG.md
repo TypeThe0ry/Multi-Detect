@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v102 independently verified field address evidence（2026-09-06）
+
+- 新增 `multidetect.field-link-address-state/v1` closed schema，统一 PowerShell plan/verify/what-if/apply 输出；
+- 新增独立只读 verifier、CLI wrapper、console entrypoint 与根包 lazy export；重算地址/路由、plan change、
+  elevation、安全标志、rollback、目标身份、时效和 apply postcondition；
+- 未知/重复字段、重复 JSON key、NaN/Infinity、错误安全声明、伪造 apply 成功及 stale/future 证据全部
+  fail-closed；非 apply 文档不能通过 `--require-applied`；
+- producer/schema/verifier/CLI 全部进入安全 parity，`safety_policy_hash=10f115b1...de7e8a`，其余四组
+  不变。新增 9 组回归；全量回归 3,489 tests：`3488 passed, 1 skipped`，全仓 Ruff 与 compileall
+  通过。本轮未修改网卡，产品仍为 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v101 field address postcondition verification（2026-09-06）
 
 - `prepare_field_link.ps1` 只在 `ShouldProcess` 后的 add/remove 真正执行时记录 `changed=true`；非管理员

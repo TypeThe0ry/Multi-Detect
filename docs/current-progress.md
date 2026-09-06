@@ -1,6 +1,22 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v101 工作树）
+最后更新：2026-09-06（v102 工作树）
+
+## v102 本轮已收口
+
+- 新增 closed schema `field-link-address-state.schema.json`，统一 plan/verify/what-if/apply 四类 PowerShell
+  输出；`prepare_field_link.ps1` 现在写入固定 schema identity；
+- 新增 `field_link_address_state.verify_field_link_address_state`、仓库 CLI wrapper、安装后 console entrypoint
+  与根包 lazy export；复验过程只读，不接触网卡或远端设备；
+- verifier 严格拒绝未知/重复字段、重复 JSON key、NaN/Infinity、非 canonical IPv4、重复地址、非法路由、
+  错误 plan change/elevation、安全标志、rollback 动作/命令、目标接口/IP/prefix 和 stale/future 时间；
+- apply 只有持久化地址状态与 postcondition 一致且成功时才过 gate；plan/verify/what-if 可结构通过，但
+  `--require-applied` 必须失败。真实生成的三类非变更文档均已由 CLI 独立复验；本轮未修改主机网络；
+- schema、producer、verifier、CLI 与实现全部纳入安全 parity，`safety_policy_hash` 更新为
+  `10F115B1...DE7E8A`，其余四组 hash 不变；新增 9 组回归覆盖 schema、语义重算、篡改、时效与 CLI；
+  全量回归 3,489 tests：`3488 passed, 1 skipped, 0 failed, 0 errors`，耗时 174.813 秒；JUnit
+  509,138 bytes、SHA-256 `295860BFF1C36FB49C005AB2B3B2459D7F89BB26DFAC221617497E2E927A5BCE`，
+  全仓 Ruff 与 compileall 通过。
 
 ## v101 本轮已收口
 

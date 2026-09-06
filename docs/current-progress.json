@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T00:29:23Z",
+  "updated_at_utc": "2026-09-06T00:40:07Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "ecd73938f9d9ac9a99acbba72eab07bd3da707c9",
-    "commit_subject": "fix(field): verify address apply postconditions",
-    "commits_ahead_of_origin_main": 90
+    "commit": "29630c44e10c6a3290a3bbe52f5c736b964b3445",
+    "commit_subject": "feat(field): verify address state evidence",
+    "commits_ahead_of_origin_main": 92
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v101",
+  "working_iteration": "v102",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v101-final.xml",
-      "tests": 3480,
-      "passed": 3479,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v102-final.xml",
+      "tests": 3489,
+      "passed": 3488,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 115.741,
-      "junit_local_path": "tmp/current-progress-regression-v101-final.xml",
-      "junit_file_bytes": 507924,
-      "junit_file_sha256": "26bcf986e3cbfad9481bf7005227e7861e76419a55e7a47461ae802691be9307",
+      "duration_seconds": 174.813,
+      "junit_local_path": "tmp/current-progress-regression-v102-final.xml",
+      "junit_file_bytes": 509138,
+      "junit_file_sha256": "295860bff1c36fb49c005ab2b3b2459d7f89bb26dfac221617497e2e927a5bce",
       "distributed_in_git": false
     },
     "ruff": {
@@ -63,13 +63,13 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 6840,
-    "file_sha256": "4f11c5f2f1f80ec166cea96f6d0c6e89dfc4b1a652d7ae10e2ff8f25cde6557b",
+    "bytes": 7007,
+    "file_sha256": "58af437c3267b121774ea4ee76c27c19701389d54a7c4662ee59411d4e580622",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
-      "safety_policy_hash": "46324cc0f0368ab01065fe5ecff806029c17ce8c40034969f0ab5ae3cb3694af",
+      "safety_policy_hash": "10f115b10a309c5df29c5390e0fc729eaaa98a9b4dcc226c74c3194748de7e8a",
       "px4_mission_path_hash": "4bdefec05c4b42c045b3b8678acf196b62960ed248489f3904c3ab4170bbcc1a"
     }
   },
@@ -248,17 +248,23 @@
       "interface_diagnostic_local_path": "tmp/field-link-interface-v100-bound.json",
       "interface_diagnostic_file_bytes": 4344,
       "interface_diagnostic_file_sha256": "52d69bf31e3e5bcb0d8678508724bb4ee55e7a12f9d125975fb252030ba384c0",
-      "address_plan_local_path": "tmp/field-link-address-plan-v100-final.json",
-      "address_plan_file_bytes": 1212,
-      "address_plan_file_sha256": "bee51b2e8adcc77a4c60c2ac5716ab651ece295e097f709a49f4607761ceed65",
+      "address_state_schema": "multidetect.field-link-address-state/v1",
+      "address_state_schema_path": "configs/schemas/field-link-address-state.schema.json",
+      "address_state_verifier": "multidetect.field_link_address_state.verify_field_link_address_state",
+      "address_plan_local_path": "tmp/field-link-address-plan-v102-final.json",
+      "address_plan_file_bytes": 1268,
+      "address_plan_file_sha256": "3768ff6e5c053235e4164961d768e27ee733af26b2f66b7326dc40761caf5ca3",
+      "address_plan_independent_verification_passed": true,
       "address_plan_would_change": true,
       "address_plan_requires_elevation": true,
-      "address_verify_local_path": "tmp/field-link-address-verify-v100-final.json",
-      "address_verify_file_bytes": 595,
-      "address_verify_file_sha256": "25275409417f4ac8e94f85fcf3c89bc6bb4529d7e25bf0d8d9d492fa0def0266",
-      "address_what_if_local_path": "tmp/field-link-address-whatif-v101-final.json",
-      "address_what_if_file_bytes": 792,
-      "address_what_if_file_sha256": "08acd59da27f9bdc5f31683f370fbeac7213f46d140f1bf858dab18f0fe58e94",
+      "address_verify_local_path": "tmp/field-link-address-verify-v102-final.json",
+      "address_verify_file_bytes": 651,
+      "address_verify_file_sha256": "6ea89882e8a1e5ade7699aea73c752d424b19ccc3f1b68f8a8fe8e7c91ccb2c8",
+      "address_verify_independent_verification_passed": true,
+      "address_what_if_local_path": "tmp/field-link-address-whatif-v102-final.json",
+      "address_what_if_file_bytes": 848,
+      "address_what_if_file_sha256": "02754788e034a440fe0b98cfffc157683de69a65ae43e88ab3fdf945dd05ed1b",
+      "address_what_if_independent_verification_passed": true,
       "address_what_if_changed": false,
       "address_what_if_postcondition_checked": false,
       "network_configuration_changed": false,

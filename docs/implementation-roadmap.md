@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 外场地址证据 closed schema 与独立复验（v102）
+
+- [x] 为 plan/verify/what-if/apply 输出建立统一 closed JSON Schema；
+- [x] 独立 verifier 拒绝重复 key、非有限值、未知字段、非法地址/路由和地址重复；
+- [x] 从保存状态重算 plan change/elevation、安全不变量和 rollback 一致性；
+- [x] 从保存地址重算 apply postcondition，what-if/plan 不能满足 `--require-applied`；
+- [x] 支持目标接口/IP/prefix 与最大时效约束；
+- [x] producer/schema/verifier/CLI 纳入统一 `safety_policy` parity；
+- [ ] 现场真实 apply 后在另一进程使用 `--require-applied --max-age-s 300` 独立复验。
+
 ## 地址变更后置条件与 WhatIf 真值（v101）
 
 - [x] `changed` 只反映实际执行的 add/remove，不再复用预先计算的意图；

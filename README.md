@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v101：地址 apply/remove 以真实变更和落盘后置条件收口，`-WhatIf` 不再伪报已修改 |
+| 当前工程迭代 | v102：外场地址证据具备 closed schema、独立 verifier、时效与 apply 真值门 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,27 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v102 外场地址证据独立复验
+
+`prepare_field_link.ps1` 的 plan、verify、what-if、apply 输出统一声明
+`multidetect.field-link-address-state/v1`。仓库新增 closed JSON Schema 与无网络副作用的独立 verifier，
+会重算地址/路由结构、计划是否确实需要变更、安全不变量、rollback 命令、目标接口/IP/prefix、时间新鲜度
+以及 apply 后置条件。
+
+```powershell
+python .\scripts\verify_field_link_address_state.py `
+  .\artifacts\evaluation\field-link-address-apply.json `
+  --require-applied `
+  --expected-interface-alias Ethernet `
+  --expected-address 192.168.144.250 `
+  --expected-prefix-length 24 `
+  --max-age-s 300
+```
+
+plan/verify/what-if 可以证明文档自身有效，但只有 `mode=apply` 且持久化地址状态满足 postcondition 时才能
+通过 `--require-applied`。未知字段、重复 JSON key、非有限数字、错误安全标志、错误回滚动作、地址重复、
+伪造成功和过期/未来时间全部 fail-closed。
 
 ### v101 地址变更后置条件
 
