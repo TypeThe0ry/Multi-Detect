@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-06（v97 工作树）
+最后更新：2026-09-06（v98 工作树）
+
+## v98 本轮已收口
+
+- 将 `blocked_probe_count` 从裸计数升级为 closed-schema `blocked_probes[]`：逐项绑定文件路径/SHA、online
+  evidence digest、观测时间、HIL/REAL 模式、机型与失败原因；count 必须与数组长度一致；
+- 每个未被成功 session 引用的 probe 必须通过 archived online preflight 独立复验且
+  `gate_passed=false`；伪 JSON、篡改证据和未引用的 passing probe 均 fail-closed；
+- index verifier 重开 blocked probe 并重算完整记录，删除、替换或漂移后旧 index 不再通过；成功 session
+  引用的 probe 也被强制限制在同一 journal 目录；
+- index 构建前后均要求 receipt/workspace 专属 active capture lease 不存在，并双读 campaign status、session
+  文件集、probe 文件集及文件 SHA；采集中或构建中发生 report/artifact 漂移时拒绝混合快照；
+- `px4_mission_path_hash=F24E5BAE...521A0`，其余四组 parity 未变化。全量回归 3,478 tests：
+  `3477 passed, 1 skipped, 0 failed, 0 errors`，耗时 101.246 秒；JUnit 507,642 bytes、SHA-256
+  `E617EB9F2B7227635604A37F0F807B4388F9EA2952E4A4752BDAD00FC8C7A464`；全仓 Ruff 与 compileall 通过。
+  本轮无 QGC C++/QML 改动，未重建 EXE；真实现场/HIL/REAL/flight 证据仍为空。
 
 ## v97 本轮已收口
 

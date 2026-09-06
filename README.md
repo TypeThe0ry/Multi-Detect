@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v97：成功 session 可严格对账 released/recovered 两类互斥 lease 审计源，覆盖 record 落盘后进程崩溃窗口 |
+| 当前工程迭代 | v98：blocked probe 逐文件封账，index 仅在 capture 静止且 campaign/session/probe 双读稳定时生成 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,6 +81,18 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
   才能允许最终发布。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
+
+### v98 稳定 journal 快照与 blocked probe 封账
+
+`blocked_probe_count` 不再是无法复验的孤立数字。每个未被成功 session 引用的
+`*.online-preflight.json` 都必须通过 archived observation verifier、明确为 `gate_passed=false`，并在 index
+中记录文件路径/SHA、evidence digest、观测时间、HIL/REAL 模式、机型与完整失败原因。验证 index 时会重新
+打开每份失败 probe 并重算这些字段；文件被删除、替换或内容漂移后，旧 index 立即失效。未引用但实际通过
+的 probe 也会被拒绝，不能伪装成 blocked 统计。
+
+index 构建前后还会检查 capture lease 必须均为空闲，并双读 campaign status、session 文件集和 probe 文件集
+的名称与内容 SHA。采集过程中、report/session/lease 尚未完成事务，或任何文件在构建时变化，均不会输出
+混合时间点快照。这仍是证据一致性门，不是硬件或飞行接受证据。
 
 ### v97 恢复租约与成功 session 的严格对账
 

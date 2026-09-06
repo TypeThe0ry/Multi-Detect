@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v98 stable journal snapshots and sealed blocked probes（2026-09-06）
+
+- journal index 将 blocked probe 从裸计数升级为逐文件清单，绑定 path/file SHA、online evidence digest、
+  observation time、runtime/vehicle 和失败原因；verifier 会重开并重算全部字段；
+- 未引用 probe 必须通过 archived online verifier 且明确失败；伪造、篡改、删除、passing probe 冒充 blocked
+  和 session probe 路径逃逸全部 fail-closed；
+- index 构建前后要求 active capture lease 不存在，并双读 campaign status、session/probe 文件集及内容 SHA，
+  拒绝采集中或构建中变化的混合快照；PX4 Mission parity 更新为 `f24e5bae...521a0`；全量回归
+  3,478 tests：`3477 passed, 1 skipped`，全仓 Ruff 与 compileall 通过。版本保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v97 recovered session lease reconciliation（2026-09-06）
 
 - journal index 现在严格支持 released/recovered 两类互斥 lease 审计源，关闭成功 session 已落盘、但进程

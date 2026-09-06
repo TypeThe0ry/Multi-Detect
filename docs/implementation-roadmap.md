@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 稳定 journal 快照与 blocked probe 封账（v98）
+
+- [x] 用逐文件 blocked probe 记录替代不可独立复验的裸计数；
+- [x] 对每个 blocked probe 重跑 archived verifier，并要求其明确失败；
+- [x] index verifier 重开文件并复核 SHA、evidence digest、时间、模式、机型与原因；
+- [x] index 构建前后要求 capture quiescent，并双读 campaign 与 session/probe 文件内容快照；
+- [x] 覆盖 active capture、passing-or-invalid unreferenced probe、文件篡改及构建中漂移；
+- [ ] 在现场并发运行 capture 与 journal-status，确认活动窗口拒绝、事务结束后稳定 index 可复验。
+
 ## 恢复租约与成功 session 对账（v97）
 
 - [x] 支持 session write-new 后、正常 lease release 前崩溃的 recovery→index 闭环；

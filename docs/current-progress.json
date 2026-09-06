@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-06T00:02:18Z",
+  "updated_at_utc": "2026-09-06T00:09:39Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "6ceef2aedf122fb1f83b5df659a350f3d3cf93f4",
-    "commit_subject": "fix(evidence): reconcile recovered session leases",
-    "commits_ahead_of_origin_main": 82
+    "commit": "65c32361220dac65854618e752027d5be51ded38",
+    "commit_subject": "fix(evidence): seal blocked probe journal snapshots",
+    "commits_ahead_of_origin_main": 84
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v97",
+  "working_iteration": "v98",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -29,16 +29,16 @@
   },
   "validation": {
     "full_regression": {
-      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v97-final.xml",
-      "tests": 3474,
-      "passed": 3473,
+      "command": "python -m pytest -q --junitxml=tmp/current-progress-regression-v98-final.xml",
+      "tests": 3478,
+      "passed": 3477,
       "skipped": 1,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 100.0,
-      "junit_local_path": "tmp/current-progress-regression-v97-final.xml",
-      "junit_file_bytes": 507101,
-      "junit_file_sha256": "2b0494192b80f67e859e18153fc5de2d490737dcb192f73b6f2d60db10803466",
+      "duration_seconds": 101.246,
+      "junit_local_path": "tmp/current-progress-regression-v98-final.xml",
+      "junit_file_bytes": 507642,
+      "junit_file_sha256": "e617eb9f2b7227635604a37f0f807b4388f9ea2952e4a4752bdad00fc8c7a464",
       "distributed_in_git": false
     },
     "ruff": {
@@ -64,13 +64,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 6561,
-    "file_sha256": "7eb4ea15a557bed8788e6993eadf95c5e64c3a16922795418e4398f7233118f4",
+    "file_sha256": "7128022d22e7b37b2bf90f9d81769f98de92056ed098db97901f28af6d2a8b14",
     "hashes": {
       "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66",
       "core_algorithm_hash": "ed10276782f0ce5b84df09bde723737d553fe6166f8792c9c57aefa5239dc53f",
       "task_contract_hash": "89507cabbc0b6f442a3e33dfe582093b0f23a7395462d0146007cd9081d5a0ad",
       "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
-      "px4_mission_path_hash": "72cbc380270dd98dc3284e1a372a702797c0624dd364bca26940fab9818c6fb4"
+      "px4_mission_path_hash": "f24e5bae713d4645b6d903393d5978811e0f4464410934db049ebf0b0d9521a0"
     }
   },
   "evidence": {
@@ -197,8 +197,8 @@
         "multidetect.pixhawk-covariance-field-journal-index/v1"
       ],
       "schema_path": "configs/schemas/pixhawk-covariance-field-journal.schema.json",
-      "schema_file_bytes": 7349,
-      "schema_file_sha256": "623837a68e25daad503ea70f8e98398c07c65cc312789a66fbe5d91308206456",
+      "schema_file_bytes": 8282,
+      "schema_file_sha256": "b55615a3826a0d4d6c1b83136f5e81a4d9286c3377f0fd0cbbde31f440e4883f",
       "module": "multidetect.field_covariance_journal",
       "commands": ["journal-status", "lease-status", "recover-lease", "verify-index"],
       "capture_lease_atomic_directory": true,
@@ -223,6 +223,11 @@
       "journal_index_contiguous_prefix_required": true,
       "journal_index_reconciles_campaign_reports": true,
       "blocked_probes_counted": true,
+      "blocked_probe_file_hashes_and_evidence_digests_recorded": true,
+      "blocked_probes_independently_reverified": true,
+      "unreferenced_passing_probe_rejected": true,
+      "quiescent_capture_required_for_index": true,
+      "campaign_and_artifact_snapshot_double_read": true,
       "real_journal_collected": false,
       "claims": {
         "software_exclusive_journal_gate_implemented": "passed",
