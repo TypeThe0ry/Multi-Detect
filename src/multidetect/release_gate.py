@@ -81,6 +81,7 @@ from .field_evidence_bundle import verify_field_evidence_bundle_report
 from .field_link_preflight import verify_field_link_report
 from .field_session_capture import verify_field_session_capture
 from .geolocation_accuracy import verify_geolocation_accuracy_report
+from .gr01_bench import verify_gr01_link_bench_report
 from .model_review import verify_model_review_bundle
 from .product_version import ProductVersion, load_product_version
 from .qgc_visual_acceptance import verify_record as verify_qgc_visual_acceptance
@@ -297,6 +298,50 @@ _REAL_ALERT_LINK_V5_BOUND_FIELDS = (
     "topology",
     "topology_sha256",
     "topology_binding_verified",
+)
+_REAL_GR01_OPERATOR_LINK_BOUND_FIELDS = (
+    "event",
+    "schema_version",
+    "hardware_observed",
+    "simulation_only",
+    "passed",
+    "reasons",
+    "hardware_model",
+    "hardware_id",
+    "remote_host",
+    "remote_port",
+    "remote_is_loopback",
+    "expected_source_cidr",
+    "local_source_address",
+    "source_route_verified",
+    "requested_round_trips",
+    "round_trip_samples",
+    "rejected_round_trips",
+    "timed_out_round_trips",
+    "transmission_attempts",
+    "missing_ack_attempts",
+    "packet_loss_rate",
+    "ack_latency_p50_ms",
+    "ack_latency_p95_ms",
+    "bidirectional_ip_verified",
+    "signed_operator_round_trip",
+    "application_hmac_verified",
+    "mavlink2_signature_verified",
+    "checks",
+    "thresholds",
+    "payload_release_requested",
+    "flight_control_enabled",
+    "physical_release_enabled",
+    "hardware_control_enabled",
+)
+_REAL_GR01_OPERATOR_LINK_KEYS = frozenset(
+    {
+        "report_path",
+        "report_sha256",
+        "report_bytes",
+        *_REAL_GR01_OPERATOR_LINK_BOUND_FIELDS,
+        "gate_passed",
+    }
 )
 _REAL_TARGET_ACCURACY_KEYS = frozenset(
     {
@@ -624,6 +669,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "replay_set",
         "real_field_link",
         "real_alert_link",
+        "real_gr01_operator_link",
         "real_target_accuracy",
         "real_target_state_evidence",
         "field_evidence_bundle",
@@ -1894,6 +1940,146 @@ def _real_alert_link_result(
                             reasons.append(f"real_alert_link: {reason}")
             elif report_document is not None:
                 reasons.append("real_alert_link report must contain a JSON object")
+        result["report"] = report_info
+
+    result["passed"] = not reasons
+    return result
+
+
+def _real_gr01_operator_link_result(
+    raw_record: object,
+    *,
+    manifest_directory: Path,
+) -> dict[str, Any]:
+    """Re-open and independently verify the REAL GR01 selection/ACK report."""
+
+    result: dict[str, Any] = {
+        "present": raw_record is not None,
+        "passed": False,
+        "reasons": [],
+        "report": None,
+        "verification": None,
+    }
+    reasons: list[str] = result["reasons"]
+    if raw_record is None:
+        reasons.append("real_gr01_operator_link record is absent")
+        return result
+    if not isinstance(raw_record, Mapping):
+        reasons.append("real_gr01_operator_link must be an object")
+        return result
+
+    unknown = sorted(set(raw_record).difference(_REAL_GR01_OPERATOR_LINK_KEYS))
+    if unknown:
+        reasons.append(f"unknown real_gr01_operator_link field(s): {unknown!r}")
+    for field in _REAL_GR01_OPERATOR_LINK_BOUND_FIELDS:
+        if field not in raw_record:
+            reasons.append(f"real_gr01_operator_link.{field} is missing")
+
+    path_value = raw_record.get("report_path")
+    report_path: Path | None = None
+    if not isinstance(path_value, str) or not path_value.strip():
+        reasons.append("real_gr01_operator_link.report_path is missing or empty")
+    else:
+        requested_path = Path(path_value)
+        if not requested_path.is_absolute():
+            requested_path = manifest_directory / requested_path
+        if requested_path.is_symlink():
+            reasons.append("real_gr01_operator_link report must not be a symbolic link")
+        try:
+            report_path = requested_path.resolve()
+        except (OSError, RuntimeError) as exc:
+            reasons.append(f"real_gr01_operator_link report path cannot be resolved: {exc}")
+
+    expected_sha = raw_record.get("report_sha256")
+    if not _is_sha256(expected_sha):
+        reasons.append("real_gr01_operator_link.report_sha256 is missing or invalid")
+    expected_bytes = raw_record.get("report_bytes")
+    if type(expected_bytes) is not int or expected_bytes < 0:
+        reasons.append("real_gr01_operator_link.report_bytes must be a non-negative integer")
+
+    expected_contract: dict[str, object] = {
+        "event": "gr01_bench_passed",
+        "schema_version": 1,
+        "hardware_observed": True,
+        "simulation_only": False,
+        "passed": True,
+        "hardware_model": "GR01",
+        "remote_is_loopback": False,
+        "source_route_verified": True,
+        "bidirectional_ip_verified": True,
+        "signed_operator_round_trip": True,
+        "application_hmac_verified": True,
+        "mavlink2_signature_verified": True,
+        "payload_release_requested": False,
+        "flight_control_enabled": False,
+        "physical_release_enabled": False,
+        "hardware_control_enabled": False,
+    }
+    for field, expected in expected_contract.items():
+        actual = raw_record.get(field)
+        if type(actual) is not type(expected) or actual != expected:
+            reasons.append(
+                f"real_gr01_operator_link.{field} does not match hardware verifier contract"
+            )
+    if raw_record.get("gate_passed") is not True:
+        reasons.append("real_gr01_operator_link gate_passed is not true")
+
+    if report_path is not None:
+        report_info: dict[str, Any] = {"path": str(report_path)}
+        if not report_path.is_file():
+            reasons.append("real_gr01_operator_link report file does not exist")
+        else:
+            try:
+                actual_sha = _sha256(report_path)
+                actual_bytes = report_path.stat().st_size
+            except OSError as exc:
+                reasons.append(f"real_gr01_operator_link report cannot be hashed: {exc}")
+            else:
+                report_info.update({"sha256": actual_sha, "bytes": actual_bytes})
+                if (
+                    isinstance(expected_sha, str)
+                    and _is_sha256(expected_sha)
+                    and actual_sha.lower() != expected_sha.lower()
+                ):
+                    reasons.append("real_gr01_operator_link report SHA-256 does not match")
+                if type(expected_bytes) is int and actual_bytes != expected_bytes:
+                    reasons.append("real_gr01_operator_link report byte count does not match")
+            try:
+                report_document = _load_object(report_path)
+            except ValueError as exc:
+                reasons.append(f"real_gr01_operator_link report JSON is invalid: {exc}")
+                report_document = None
+            if isinstance(report_document, Mapping):
+                verification = verify_gr01_link_bench_report(
+                    report_document,
+                    require_passed=True,
+                )
+                result["verification"] = verification
+                report_info.update(
+                    {
+                        field: report_document.get(field)
+                        for field in _REAL_GR01_OPERATOR_LINK_BOUND_FIELDS
+                    }
+                )
+                for field in _REAL_GR01_OPERATOR_LINK_BOUND_FIELDS:
+                    expected = raw_record.get(field)
+                    actual = report_document.get(field)
+                    if field in {
+                        "packet_loss_rate",
+                        "ack_latency_p50_ms",
+                        "ack_latency_p95_ms",
+                    }:
+                        matches = _same_json_number_or_value(actual, expected)
+                    else:
+                        matches = actual == expected
+                    if not matches:
+                        reasons.append(f"real_gr01_operator_link {field} does not match report")
+                if verification.get("gate_passed") is not True:
+                    for reason in verification.get("reasons", []):
+                        if isinstance(reason, str) and reason:
+                            reasons.append(f"real_gr01_operator_link: {reason}")
+            elif report_document is not None:
+                reasons.append("real_gr01_operator_link report must contain a JSON object")
         result["report"] = report_info
 
     result["passed"] = not reasons
@@ -4973,6 +5159,17 @@ def evaluate_release_gate(
             f"real_alert_link: {reason}" for reason in real_alert_link_result["reasons"]
         )
 
+    raw_real_gr01_operator_link = manifest.get("real_gr01_operator_link")
+    real_gr01_operator_link_result = _real_gr01_operator_link_result(
+        raw_real_gr01_operator_link,
+        manifest_directory=path.parent,
+    )
+    if raw_real_gr01_operator_link is not None and not real_gr01_operator_link_result["passed"]:
+        top_reasons.extend(
+            f"real_gr01_operator_link: {reason}"
+            for reason in real_gr01_operator_link_result["reasons"]
+        )
+
     raw_real_target_accuracy = manifest.get("real_target_accuracy")
     real_target_accuracy_result = _real_target_accuracy_result(
         raw_real_target_accuracy,
@@ -5451,6 +5648,15 @@ def evaluate_release_gate(
                 release_reasons.extend(
                     f"real_alert_link: {reason}" for reason in real_alert_link_result["reasons"]
                 )
+            if not real_gr01_operator_link_result["present"]:
+                release_reasons.append(
+                    "final release requires a hash-bound REAL GR01 operator selection/ACK bench"
+                )
+            elif not real_gr01_operator_link_result["passed"]:
+                release_reasons.extend(
+                    f"real_gr01_operator_link: {reason}"
+                    for reason in real_gr01_operator_link_result["reasons"]
+                )
             if not real_target_accuracy_result["present"]:
                 release_reasons.append(
                     "final release requires a hash-bound REAL target geolocation accuracy report"
@@ -5627,6 +5833,8 @@ def evaluate_release_gate(
         "real_field_link_required_for_release": True,
         "real_alert_link": real_alert_link_result,
         "real_alert_link_required_for_release": True,
+        "real_gr01_operator_link": real_gr01_operator_link_result,
+        "real_gr01_operator_link_required_for_release": True,
         "real_target_accuracy": real_target_accuracy_result,
         "real_target_accuracy_required_for_release": True,
         "real_target_state_evidence": real_target_state_evidence_result,

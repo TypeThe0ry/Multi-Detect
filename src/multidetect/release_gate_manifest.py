@@ -29,6 +29,10 @@ The writer is intentionally fail-closed:
   the top-level ``real_alert_link`` record; the writer requires a completed
   non-loopback authenticated ACK bench and the final release channel requires
   the binding.
+* an optional REAL GR01 operator selection/ACK bench can be hash-bound to
+  ``real_gr01_operator_link``; it is independently reverified, must use a
+  non-loopback hardware endpoint and a source address inside the declared
+  aircraft CIDR, and is required separately from the fire-alert link.
 * an optional REAL target-geolocation accuracy report can be hash-bound to the
   top-level ``real_target_accuracy`` record; the evaluator recomputes the
   WGS-84 errors and the final release channel requires a passing binding.
@@ -116,6 +120,7 @@ from .field_link_preflight import (
 )
 from .field_session_capture import verify_field_session_capture
 from .geolocation_accuracy import verify_geolocation_accuracy_report
+from .gr01_bench import verify_gr01_link_bench_report
 from .model_review import verify_model_review_bundle
 from .product_version import ProductVersion, load_product_version
 from .qgc_visual_acceptance import verify_record as verify_qgc_visual_acceptance
@@ -855,6 +860,112 @@ def _real_alert_link_record(
     # The source verifier passed with ``require_passed=True``; expose that
     # result as the manifest-level gate bit rather than trusting a copied
     # source field.
+    record["gate_passed"] = True
+    return record
+
+
+def _real_gr01_operator_link_record(
+    bench_report: str | Path,
+    *,
+    output_identity: Path,
+    manifest_directory: Path,
+) -> dict[str, Any]:
+    """Create a hash-bound REAL GR01 operator selection/ACK record."""
+
+    requested = Path(bench_report).expanduser()
+    if requested.is_symlink():
+        raise ReleaseGateManifestError("real GR01 operator-link report must not be a symbolic link")
+    resolved = _resolve_file(bench_report, name="real_gr01_operator_link bench report")
+    if resolved == output_identity:
+        raise ReleaseGateManifestError(
+            "release-gate output cannot also be the real_gr01_operator_link report"
+        )
+    document = _load_json_object(resolved, name="real_gr01_operator_link bench report")
+    verification = verify_gr01_link_bench_report(document, require_passed=True)
+    if verification.get("gate_passed") is not True:
+        detail_reasons = [
+            str(reason)
+            for reason in verification.get("reasons", [])
+            if isinstance(reason, str) and reason
+        ]
+        detail = f": {'; '.join(detail_reasons)}" if detail_reasons else ""
+        raise ReleaseGateManifestError(
+            f"real_gr01_operator_link bench report verifier failed{detail}"
+        )
+
+    expected_contract: dict[str, object] = {
+        "event": "gr01_bench_passed",
+        "schema_version": 1,
+        "hardware_observed": True,
+        "simulation_only": False,
+        "passed": True,
+        "hardware_model": "GR01",
+        "remote_is_loopback": False,
+        "source_route_verified": True,
+        "bidirectional_ip_verified": True,
+        "signed_operator_round_trip": True,
+        "application_hmac_verified": True,
+        "mavlink2_signature_verified": True,
+        "payload_release_requested": False,
+        "flight_control_enabled": False,
+        "physical_release_enabled": False,
+        "hardware_control_enabled": False,
+    }
+    for field, expected in expected_contract.items():
+        actual = document.get(field)
+        if type(actual) is not type(expected) or actual != expected:
+            raise ReleaseGateManifestError(
+                "real_gr01_operator_link bench report "
+                f"{field} does not identify a REAL GR01 operator bench"
+            )
+
+    record: dict[str, Any] = {
+        "report_path": _relative_path(resolved, manifest_directory=manifest_directory),
+        "report_sha256": sha256_file(resolved),
+        "report_bytes": resolved.stat().st_size,
+    }
+    for field in (
+        "event",
+        "schema_version",
+        "hardware_observed",
+        "simulation_only",
+        "passed",
+        "reasons",
+        "hardware_model",
+        "hardware_id",
+        "remote_host",
+        "remote_port",
+        "remote_is_loopback",
+        "expected_source_cidr",
+        "local_source_address",
+        "source_route_verified",
+        "requested_round_trips",
+        "round_trip_samples",
+        "rejected_round_trips",
+        "timed_out_round_trips",
+        "transmission_attempts",
+        "missing_ack_attempts",
+        "packet_loss_rate",
+        "ack_latency_p50_ms",
+        "ack_latency_p95_ms",
+        "bidirectional_ip_verified",
+        "signed_operator_round_trip",
+        "application_hmac_verified",
+        "mavlink2_signature_verified",
+        "checks",
+        "thresholds",
+        "payload_release_requested",
+        "flight_control_enabled",
+        "physical_release_enabled",
+        "hardware_control_enabled",
+    ):
+        value = document.get(field)
+        if isinstance(value, Mapping):
+            record[field] = dict(value)
+        elif isinstance(value, list):
+            record[field] = list(value)
+        else:
+            record[field] = value
     record["gate_passed"] = True
     return record
 
@@ -2341,6 +2452,7 @@ def build_release_gate_manifest(
     actuator_safety_evidence: str | Path | None = None,
     field_evidence_bundle: str | Path | None = None,
     real_alert_link_bench_report: str | Path | None = None,
+    real_gr01_operator_link_bench_report: str | Path | None = None,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
 ) -> dict[str, Any]:
@@ -2488,6 +2600,16 @@ def build_release_gate_manifest(
             manifest_directory=manifest_directory,
         )
         if real_alert_link_bench_report is not None
+        else None
+    )
+
+    real_gr01_operator_link_record = (
+        _real_gr01_operator_link_record(
+            real_gr01_operator_link_bench_report,
+            output_identity=output_identity,
+            manifest_directory=manifest_directory,
+        )
+        if real_gr01_operator_link_bench_report is not None
         else None
     )
 
@@ -2698,6 +2820,8 @@ def build_release_gate_manifest(
         document["real_field_link"] = real_field_link_record
     if real_alert_link_record is not None:
         document["real_alert_link"] = real_alert_link_record
+    if real_gr01_operator_link_record is not None:
+        document["real_gr01_operator_link"] = real_gr01_operator_link_record
     if real_target_accuracy_record is not None:
         document["real_target_accuracy"] = real_target_accuracy_record
     if real_target_state_evidence_record is not None:
@@ -2806,6 +2930,7 @@ def create_release_gate_manifest(
     actuator_safety_evidence: str | Path | None = None,
     field_evidence_bundle: str | Path | None = None,
     real_alert_link_bench_report: str | Path | None = None,
+    real_gr01_operator_link_bench_report: str | Path | None = None,
     real_field_link_max_age_s: float = DEFAULT_FIELD_LINK_MAX_AGE_S,
     model_review_bundle: str | Path | None = None,
     simulator_scene_stream_set_evidence: Sequence[str | Path] | None = None,
@@ -2852,6 +2977,7 @@ def create_release_gate_manifest(
         simulator_3d_control_evidence=simulator_3d_control_evidence,
         field_evidence_bundle=field_evidence_bundle,
         real_alert_link_bench_report=real_alert_link_bench_report,
+        real_gr01_operator_link_bench_report=real_gr01_operator_link_bench_report,
         model_review_bundle=model_review_bundle,
         simulator_scene_stream_set_evidence=simulator_scene_stream_set_evidence,
     )
@@ -2998,6 +3124,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "optional hash-bound REAL authenticated alert-link bench report; "
             "it is required when evaluating a final release"
+        ),
+    )
+    parser.add_argument(
+        "--real-gr01-operator-link-bench",
+        "--real-gr01-operator-link-report",
+        dest="real_gr01_operator_link_bench_report",
+        type=Path,
+        help=(
+            "optional hash-bound REAL GR01 selection/ACK bench report; "
+            "it is required separately when evaluating a final release"
         ),
     )
     parser.add_argument(
@@ -3323,6 +3459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             real_field_link_preflight=args.real_field_link_preflight,
             real_field_link_max_age_s=args.real_field_link_max_age_s,
             real_alert_link_bench_report=args.real_alert_link_bench_report,
+            real_gr01_operator_link_bench_report=(args.real_gr01_operator_link_bench_report),
             real_target_accuracy_report=args.real_target_accuracy_report,
             real_target_state_evidence_report=args.real_target_state_evidence_report,
             simulator_safety_evidence=args.simulator_safety_evidence,
@@ -3362,6 +3499,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "replay_set",
             "real_field_link",
             "real_alert_link",
+            "real_gr01_operator_link",
             "real_target_accuracy",
             "real_target_state_evidence",
             "simulator_safety",

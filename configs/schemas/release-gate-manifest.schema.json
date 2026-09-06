@@ -29,6 +29,9 @@
     "real_alert_link": {
       "$ref": "#/$defs/realAlertLinkRecord"
     },
+    "real_gr01_operator_link": {
+      "$ref": "#/$defs/realGr01OperatorLinkRecord"
+    },
     "real_target_accuracy": {
       "$ref": "#/$defs/realTargetAccuracyRecord"
     },
@@ -390,6 +393,90 @@
           "type": "array",
           "items": {"type": "string"}
         }
+      }
+    },
+    "realGr01OperatorLinkRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_path", "report_sha256", "report_bytes", "event", "schema_version",
+        "hardware_observed", "simulation_only", "passed", "reasons", "hardware_model",
+        "hardware_id", "remote_host", "remote_port", "remote_is_loopback",
+        "expected_source_cidr", "local_source_address", "source_route_verified",
+        "requested_round_trips", "round_trip_samples", "rejected_round_trips",
+        "timed_out_round_trips", "transmission_attempts", "missing_ack_attempts",
+        "packet_loss_rate", "ack_latency_p50_ms", "ack_latency_p95_ms",
+        "bidirectional_ip_verified", "signed_operator_round_trip",
+        "application_hmac_verified", "mavlink2_signature_verified", "checks", "thresholds",
+        "payload_release_requested", "flight_control_enabled", "physical_release_enabled",
+        "hardware_control_enabled", "gate_passed"
+      ],
+      "properties": {
+        "report_path": {"type": "string", "minLength": 1},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "report_bytes": {"type": "integer", "minimum": 0},
+        "event": {"const": "gr01_bench_passed"},
+        "schema_version": {"const": 1},
+        "hardware_observed": {"const": true},
+        "simulation_only": {"const": false},
+        "passed": {"const": true},
+        "reasons": {"type": "array", "maxItems": 0},
+        "hardware_model": {"const": "GR01"},
+        "hardware_id": {"type": "string", "minLength": 1},
+        "remote_host": {"type": "string", "minLength": 1},
+        "remote_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "remote_is_loopback": {"const": false},
+        "expected_source_cidr": {"type": "string", "minLength": 1},
+        "local_source_address": {"type": "string", "minLength": 1},
+        "source_route_verified": {"const": true},
+        "requested_round_trips": {"type": "integer", "minimum": 1},
+        "round_trip_samples": {"type": "integer", "minimum": 1},
+        "rejected_round_trips": {"const": 0},
+        "timed_out_round_trips": {"const": 0},
+        "transmission_attempts": {"type": "integer", "minimum": 1},
+        "missing_ack_attempts": {"type": "integer", "minimum": 0},
+        "packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "ack_latency_p50_ms": {"type": "number", "minimum": 0},
+        "ack_latency_p95_ms": {"type": "number", "minimum": 0},
+        "bidirectional_ip_verified": {"const": true},
+        "signed_operator_round_trip": {"const": true},
+        "application_hmac_verified": {"const": true},
+        "mavlink2_signature_verified": {"const": true},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "required_round_trips", "packet_loss_limit", "ack_latency_limit",
+            "mode_boundary", "source_route", "bidirectional_ack",
+            "signed_operator_round_trip"
+          ],
+          "properties": {
+            "required_round_trips": {"const": true},
+            "packet_loss_limit": {"const": true},
+            "ack_latency_limit": {"const": true},
+            "mode_boundary": {"const": true},
+            "source_route": {"const": true},
+            "bidirectional_ack": {"const": true},
+            "signed_operator_round_trip": {"const": true}
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_packet_loss_rate", "maximum_ack_latency_p95_ms", "maximum_attempts"
+          ],
+          "properties": {
+            "maximum_packet_loss_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "maximum_ack_latency_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+            "maximum_attempts": {"type": "integer", "minimum": 1}
+          }
+        },
+        "payload_release_requested": {"const": false},
+        "flight_control_enabled": {"const": false},
+        "physical_release_enabled": {"const": false},
+        "hardware_control_enabled": {"const": false},
+        "gate_passed": {"const": true}
       }
     },
     "realTargetAccuracyRecord": {

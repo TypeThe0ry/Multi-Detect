@@ -34,6 +34,9 @@ param(
     # wrapper run binds the REAL non-loopback report into the E7 manifest;
     # leave it empty to preserve the prerelease software baseline.
     [string]$RealAlertLinkBench = '',
+    # Optional signed GR01 target-selection/ACK bench. It is a separate final
+    # gate from the authenticated fire-alert link above.
+    [string]$RealGr01OperatorLinkBench = '',
     # Optional hash-bound model-review envelope.  Keep it empty by default so
     # existing prerelease rebinding remains compatible; final release checks
     # must pass the reviewed deployment candidate explicitly.
@@ -258,6 +261,7 @@ $optionalInputMap = [ordered]@{
     '--real-target-accuracy-report' = $RealTargetAccuracyReport
     '--real-target-state-evidence-report' = $RealTargetStateEvidenceReport
     '--real-alert-link-bench' = $RealAlertLinkBench
+    '--real-gr01-operator-link-bench' = $RealGr01OperatorLinkBench
     '--model-review-bundle' = $ModelReviewBundle
 }
 $controlArguments = [System.Collections.Generic.List[string]]::new()

@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -24,6 +25,9 @@ from multidetect.geolocation_accuracy import (
     GeolocationAccuracySample,
     evaluate_geolocation_accuracy,
 )
+from multidetect.gr01_bench import Gr01BenchConfig, run_gr01_link_bench
+from multidetect.operator_link import VideoGeometry
+from multidetect.operator_protocol import SelectionAck, SelectionAckReason
 from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
 from multidetect.release_gate_manifest import (
     ReleaseGateManifestError,
@@ -250,6 +254,43 @@ def _real_alert_link_report(tmp_path: Path) -> Path:
     }
     document["topology_sha256"] = canonical_sha256(document["topology"])
     assert verify_alert_link_bench_report(document, require_passed=True)["gate_passed"] is True
+    path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def _real_gr01_operator_link_report(tmp_path: Path) -> Path:
+    class Session:
+        remote = ("192.168.144.20", 14580)
+        local_source_address = "192.168.144.10"
+        maximum_attempts = 3
+
+        @staticmethod
+        def deliver(_command: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                acknowledgement=SelectionAck(
+                    command_id="00000000-0000-4000-8000-000000000001",
+                    accepted=True,
+                    reason=SelectionAckReason.ACCEPTED,
+                    acknowledged_sequence=1,
+                ),
+                attempts=1,
+                elapsed_s=0.02,
+            )
+
+    document = run_gr01_link_bench(
+        Session(),
+        VideoGeometry("camera-main", 1280, 720),
+        Gr01BenchConfig(
+            minimum_round_trips=3,
+            hardware_mode=True,
+            hardware_id="GR01-OPERATOR-001",
+            expected_source_cidr="192.168.144.0/24",
+        ),
+        wall_clock=lambda: 1_000.0,
+        observed_at=lambda: datetime(2026, 9, 6, 11, 0, tzinfo=timezone.utc),
+    )
+    path = tmp_path / "gr01-operator-link" / "hardware.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
     return path
 
@@ -965,6 +1006,106 @@ def test_final_release_requires_real_alert_link_binding(tmp_path: Path) -> None:
     report = evaluate_release_gate(output, version_manifest_path=final_version_path)
     assert any(
         "final release requires a hash-bound REAL authenticated alert-link bench" in reason
+        for reason in report["release_blocked_reasons"]
+    )
+
+
+def test_real_gr01_operator_link_is_hash_bound_and_reverified(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    bench = _real_gr01_operator_link_report(tmp_path)
+    output = tmp_path / "manifests" / "release-gate-gr01-operator-link.json"
+    document = create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+        real_gr01_operator_link_bench_report=bench,
+    )
+
+    binding = document["real_gr01_operator_link"]
+    assert binding["report_path"] == "../gr01-operator-link/hardware.json"
+    assert binding["report_sha256"] == sha256_file(bench)
+    assert binding["event"] == "gr01_bench_passed"
+    assert binding["source_route_verified"] is True
+    assert binding["bidirectional_ip_verified"] is True
+    assert binding["gate_passed"] is True
+    release_schema = json.loads(RELEASE_GATE_SCHEMA.read_text(encoding="utf-8"))
+    Draft202012Validator(release_schema).validate(document)
+
+    report = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert report["real_gr01_operator_link"]["present"] is True
+    assert report["real_gr01_operator_link"]["passed"] is True
+
+    tampered = json.loads(output.read_text(encoding="utf-8"))
+    tampered["real_gr01_operator_link"]["local_source_address"] = "10.20.30.40"
+    output.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
+    changed = evaluate_release_gate(output, version_manifest_path=VERSION_MANIFEST)
+    assert changed["gate_passed"] is False
+    assert any(
+        "real_gr01_operator_link local_source_address does not match report" in reason
+        for reason in changed["release_blocked_reasons"]
+    )
+
+
+def test_real_gr01_operator_link_writer_rejects_software_baseline(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    bench = _real_gr01_operator_link_report(tmp_path)
+    source = json.loads(bench.read_text(encoding="utf-8"))
+    source.update(
+        {
+            "event": "gr01_software_baseline_bench_passed",
+            "hardware_observed": False,
+            "simulation_only": True,
+            "hardware_model": "software_loopback",
+            "hardware_id": None,
+            "remote_host": "127.0.0.1",
+            "remote_is_loopback": True,
+            "expected_source_cidr": None,
+            "local_source_address": "127.0.0.1",
+            "source_route_verified": False,
+        }
+    )
+    bench.write_text(json.dumps(source, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(ReleaseGateManifestError, match="real_gr01_operator_link"):
+        create_release_gate_manifest(
+            output_path=tmp_path / "manifests" / "release-gate.json",
+            replay_evidence=evidence["replay"],
+            sim_evidence=evidence["sim"],
+            hil_evidence=evidence["hil"],
+            real_evidence=evidence["real"],
+            parity=PARITY,
+            statuses=_complete_statuses(),
+            version_manifest_path=VERSION_MANIFEST,
+            real_gr01_operator_link_bench_report=bench,
+        )
+
+
+def test_final_release_requires_real_gr01_operator_link_binding(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    output = tmp_path / "manifests" / "release-gate-final-gr01.json"
+    create_release_gate_manifest(
+        output_path=output,
+        replay_evidence=evidence["replay"],
+        sim_evidence=evidence["sim"],
+        hil_evidence=evidence["hil"],
+        real_evidence=evidence["real"],
+        parity=PARITY,
+        statuses=_complete_statuses(),
+        version_manifest_path=VERSION_MANIFEST,
+    )
+    final_version = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))
+    final_version.update({"release_label": "0.3.0", "python": "0.3.0", "channel": "release"})
+    final_version_path = tmp_path / "product-version-release.json"
+    final_version_path.write_text(json.dumps(final_version), encoding="utf-8")
+
+    report = evaluate_release_gate(output, version_manifest_path=final_version_path)
+    assert any(
+        "final release requires a hash-bound REAL GR01 operator selection/ACK bench" in reason
         for reason in report["release_blocked_reasons"]
     )
 
@@ -1811,6 +1952,41 @@ def test_cli_binds_real_alert_link_bench_report(tmp_path: Path) -> None:
     assert raw["real_alert_link"]["event"] == "alert_link_bench_passed"
 
 
+def test_cli_binds_real_gr01_operator_link_bench_report(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    bench_report = _real_gr01_operator_link_report(tmp_path)
+    parity_file = tmp_path / "parity.json"
+    parity_file.write_text(json.dumps({"parity": PARITY}), encoding="utf-8")
+    output = tmp_path / "cli" / "release-gate.json"
+    arguments = [
+        "--out",
+        str(output),
+        "--parity-json",
+        str(parity_file),
+        "--real-gr01-operator-link-bench",
+        str(bench_report),
+    ]
+    for mode in MODES:
+        arguments.extend(
+            [
+                f"--{mode}",
+                str(evidence[mode]),
+                f"--{mode}-visual",
+                "passed",
+                f"--{mode}-mission",
+                "passed",
+                f"--{mode}-hardware",
+                "not_required" if mode in {"replay", "sim"} else "passed",
+                f"--{mode}-real-control",
+                "not_required" if mode in {"replay", "sim"} else "passed",
+            ]
+        )
+    assert main(arguments) == 0
+    raw = json.loads(output.read_text(encoding="utf-8"))
+    assert raw["real_gr01_operator_link"]["gate_passed"] is True
+    assert raw["real_gr01_operator_link"]["event"] == "gr01_bench_passed"
+
+
 def test_cli_binds_real_target_accuracy_report(tmp_path: Path) -> None:
     evidence = _evidence(tmp_path)
     accuracy = _target_accuracy_report(tmp_path)
@@ -2147,6 +2323,20 @@ def test_release_gate_schema_declares_real_alert_link_binding() -> None:
         "correlated_ack",
         "authenticated_transport",
     }
+
+
+def test_release_gate_schema_declares_real_gr01_operator_link_binding() -> None:
+    schema = json.loads(RELEASE_GATE_SCHEMA.read_text(encoding="utf-8"))
+    assert "real_gr01_operator_link" in schema["properties"]
+    definition = schema["$defs"]["realGr01OperatorLinkRecord"]
+    assert definition["additionalProperties"] is False
+    assert definition["properties"]["event"]["const"] == "gr01_bench_passed"
+    assert definition["properties"]["hardware_observed"]["const"] is True
+    assert definition["properties"]["simulation_only"]["const"] is False
+    assert definition["properties"]["source_route_verified"]["const"] is True
+    assert definition["properties"]["bidirectional_ip_verified"]["const"] is True
+    assert definition["properties"]["flight_control_enabled"]["const"] is False
+    assert definition["properties"]["physical_release_enabled"]["const"] is False
 
 
 def test_release_gate_schema_declares_replay_set_calibration_verification_binding() -> None:
