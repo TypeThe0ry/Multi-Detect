@@ -1,5 +1,25 @@
 # 统一仓库架构
 
+## v163 目标定位诊断的 producer/consumer 验证链（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+MultiDetectTargetObservationDiagnostics (C++)
+  -> QSaveFile JSON / self-test --emit
+  -> closed Draft 2020-12 schema
+  -> multidetect.target_observation_diagnostics (Python)
+       file identity + strict JSON
+       atomic identity / freshness / localization invariants
+       optional --require-locatable gate
+  -> hash-bound verification report
+```
+
+- `configs/schemas/target-observation-diagnostics.schema.json` 负责字段闭合、类型、范围和固定 safety 声明；
+- `src/multidetect/target_observation_diagnostics.py` 负责 JSON Schema 无法表达的跨字段重算，并由
+  `scripts/verify_target_observation_diagnostics.py` 和安装式 CLI 共用；
+- schema、verifier、wrapper 与 C++ producer 一起纳入 UI parity。跨语言测试直接消费真实 C++ 输出，
+  避免 Python fixture 掩盖字段名、时间或序列化漂移；
+- verifier 只形成审计报告，不连接 PX4 Mission、飞控适配器或物理载荷路径。
+
 ## v162 原生目标定位诊断弹窗（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

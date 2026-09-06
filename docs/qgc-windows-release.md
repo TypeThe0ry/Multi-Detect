@@ -12,6 +12,20 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v163 目标定位诊断离线 verifier（2026-09-07）
+
+本轮增加的是随 Python 包安装的
+`multidetect-target-observation-diagnostics-verify` 和仓库脚本
+`scripts/verify_target_observation_diagnostics.py`。它们严格验证 QGC 保存的诊断 JSON；加上
+`--require-locatable` 后，结构正确但当前不可定位的快照也会以非零退出。原生 self-test 通过 `--emit`
+输出实际 C++ 文档，再由两个 Python 入口跨语言复验。
+
+本轮没有修改或重链主 QGC，因此 portable EXE 仍为 v162 的 `46,704,640` bytes，SHA-256
+`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`。这项 verifier 是审计工具，
+不启用飞控或物理释放，也不替代人工 Fly View、室外 GNSS、HIL/REAL、硬件或实飞验收。最终全量
+回归为 `3676 passed, 3 skipped, 0 failed`，JUnit SHA-256
+`F9FCCF6AF34849B7BF8D24F3E1F628C1C06771241DAEF2608309C0693629B990`。
+
 ### v162 原生目标定位诊断弹窗（2026-09-07）
 
 当前 Release/portable 主 EXE 字节一致：`46,704,640` bytes，SHA-256

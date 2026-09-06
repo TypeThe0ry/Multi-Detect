@@ -1,6 +1,33 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v162 工作树）
+最后更新：2026-09-07（v163 工作树）
+
+## v163 本轮已收口
+
+- 新增闭合的 `target-observation-diagnostics.schema.json` 与严格离线 verifier；仓库 wrapper 和安装后的
+  `multidetect-target-observation-diagnostics-verify` 使用同一实现。输入限制为普通非符号链接文件、最大
+  1 MiB，并拒绝重复 JSON key、`NaN/Infinity`、指数溢出得到的非有限数和未知字段。
+- verifier 不信任 producer 的派生结论：会重算三路 `producerEpoch/sequence/sentAtMs` 原子身份、源年龄、
+  本地接收年龄、`status_fresh`、坐标省略和定位条件。结构有效的 fail-closed/启动期快照仍可留档；使用
+  `--require-locatable` 时不可定位快照返回非零，且任何失败都保持飞控和物理释放为 false。
+- C++ 原生 self-test 新增 `--emit`，从实际诊断实现原子写出 JSON。该文件为 2,164 bytes、SHA-256
+  `10CD3085B24130FA32965A063378EB49B3BFDFF02230B88F86FABB5E76A15E39`，仓库 verifier 与安装后 CLI
+  均通过 `--require-locatable`；验证报告 746 bytes、SHA-256
+  `F29C25BD3EFE969E17701ABE39D40773C42C1BF0E3B9B1D8B95FE4800E28BB61`。
+- 定向回归为 `63 passed, 1 skipped`；skip 仅为 Windows 当前权限不允许创建测试符号链接。JUnit 9,974
+  bytes、SHA-256 `7B64B69FE49432E3BF6036F965AC6F0C645E10CD64574A31F2D88E2D226AA330`；Ruff、
+  compileall 与 diff check 通过。
+- 当前 parity 为 9,362 bytes、SHA-256
+  `C5E7ACF50EE3EF1E7B7FF377F04FA767B3240CBB21A0B16E65416BC94BBD9ECC`；UI contract 为
+  `A437B8855BD6570F31C21C66AB85CF25661318CEAE62A61B58720550EF66A75A`，其余四组 hash 未变。
+- external join/revalidation、response matrix、6 正例/9 故障 campaign、只读现场探测和 E7 已按 v163
+  parity 重算。现场仍为 `192.168.1.13/24`，Jetson/GR01/RTSP 超时，`hardware_link_ready=false`；
+  E7 保持 `gate_passed=false / release_allowed=false / 31 blockers`。
+- 本轮没有修改或重链主 QGC，portable EXE 继续使用 v162 已验证的 46,704,640 bytes、SHA-256
+  `ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`。人工视觉、室外 GNSS、
+  HIL/REAL、真实硬件与实飞状态没有升级。
+- 最终全量回归 3,679 tests：`3676 passed, 3 skipped, 0 failed, 0 errors`，耗时 194.79 秒；JUnit
+  536,802 bytes、SHA-256 `F9FCCF6AF34849B7BF8D24F3E1F628C1C06771241DAEF2608309C0693629B990`。
 
 ## v162 本轮已收口
 

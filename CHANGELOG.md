@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v163 target-observation diagnostics offline verifier（2026-09-07）
+
+- 为 QGC 目标定位诊断增加闭合 JSON Schema、仓库 wrapper 和安装式 CLI；离线复核会重算原子身份、
+  freshness、定位门与坐标省略，不接受 producer 自报结论；
+- 输入 fail-closed：拒绝重复 key、未知字段、非有限数、超过 1 MiB 的文件和符号链接；结构有效但不可
+  定位的快照可留档，`--require-locatable` 会返回非零；
+- C++ self-test 从实际 producer 发出 JSON，并由 Python verifier/安装后 CLI 跨语言复验；定向回归为
+  `63 passed, 1 skipped`，Ruff、compileall 和 diff check 通过；
+- parity 与派生 E7 已重算，E7 仍为 `false / false / 31 blockers`。本轮没有重链主 EXE，portable 保持
+  v162 的 46,704,640 bytes 和既有 SHA-256；硬件、室外 GNSS、HIL/REAL、人工视觉与实飞没有升级。
+- 最终全量回归为 `3676 passed, 3 skipped, 0 failed`，耗时 194.79 秒；JUnit SHA-256
+  `F9FCCF6AF34849B7BF8D24F3E1F628C1C06771241DAEF2608309C0693629B990`。
+
 ### v0.3.0-pre.8 v162 native localization diagnostics popup（2026-09-07）
 
 - Fly View 新增“查看定位诊断”原生弹窗，在打开时冻结当前 fail-closed JSON，并以中文展示失败原因、
