@@ -25,8 +25,9 @@ OPERATOR_CONTROLLER_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorControlle
 OPERATOR_PROTOCOL_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.cc"
 OPERATOR_PROTOCOL_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.h"
 TARGET_EVIDENCE_STORE_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectTargetEvidenceStore.cc"
-PRODUCER_EPOCH_DIAGNOSTICS_SOURCE = (
-    CUSTOM_ROOT / "src" / "MultiDetectProducerEpochDiagnostics.cc"
+PRODUCER_EPOCH_DIAGNOSTICS_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectProducerEpochDiagnostics.cc"
+TARGET_OBSERVATION_DIAGNOSTICS_SOURCE = (
+    CUSTOM_ROOT / "src" / "MultiDetectTargetObservationDiagnostics.cc"
 )
 
 
@@ -699,6 +700,7 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     controller_header = _read(OPERATOR_CONTROLLER_HEADER)
     controller = _read(OPERATOR_CONTROLLER_SOURCE)
     diagnostics = _read(PRODUCER_EPOCH_DIAGNOSTICS_SOURCE)
+    target_diagnostics = _read(TARGET_OBSERVATION_DIAGNOSTICS_SOURCE)
     state = _qml_code(MULTIDETECT_STATE)
     indicator = _qml_code(TOOLBAR_INDICATOR)
     layer = _read(FLY_VIEW_LAYER)
@@ -845,6 +847,27 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "MultiDetectState.targetObservationEpochEvents.length -" in layer
     assert "enabled: MultiDetectState.targetObservationEpochEventCount > 0" not in layer
     assert "MultiDetectState.targetObservationEpochDroppedEventCount" in indicator
+    assert "targetObservationDiagnosticsJson() const" in controller_header
+    assert "saveTargetObservationDiagnostics()" in controller_header
+    assert "function targetObservationDiagnosticsJson()" in state
+    assert "function saveTargetObservationDiagnostics()" in state
+    assert "function _copyTargetObservationDiagnostics()" in layer
+    assert "function _saveTargetObservationDiagnostics()" in layer
+    assert 'text: qsTr("复制定位诊断")' in layer
+    assert 'text: qsTr("保存定位诊断")' in layer
+    assert 'QStringLiteral("multidetect.target-observation-diagnostics.v1")' in target_diagnostics
+    assert 'readiness.insert(QStringLiteral("locatable"), locatable)' in target_diagnostics
+    assert (
+        'readiness.insert(QStringLiteral("coordinates_included"), locatable)' in target_diagnostics
+    )
+    assert "if (locatable)" in target_diagnostics
+    assert 'geolocation.insert(QStringLiteral("latitudeDeg")' in target_diagnostics
+    assert 'document.insert(QStringLiteral("advisory_only"), true)' in target_diagnostics
+    assert 'document.insert(QStringLiteral("flight_control_enabled"), false)' in target_diagnostics
+    assert (
+        'document.insert(QStringLiteral("physical_release_enabled"), false)' in target_diagnostics
+    )
+    assert "QSaveFile file(outputPath)" in target_diagnostics
 
 
 def test_operator_actions_use_native_qgc_buttons_without_a_custom_hud_card() -> None:

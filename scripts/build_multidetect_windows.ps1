@@ -373,6 +373,7 @@ if ($BuildSelfTests) {
         'MultiDetectOperatorProtocolSelfTest',
         'MultiDetectTargetEvidenceStoreSelfTest',
         'MultiDetectProducerEpochDiagnosticsSelfTest',
+        'MultiDetectTargetObservationDiagnosticsSelfTest',
         'MultiDetectDepthGridProtocolSelfTest',
         'MultiDetectReplayRtspWireSelfTest'
     )

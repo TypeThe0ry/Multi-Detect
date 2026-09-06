@@ -77,6 +77,8 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/MultiDetectOperatorProtocol.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectProducerEpochDiagnostics.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectProducerEpochDiagnostics.h",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEvidenceStore.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEvidenceStore.h",
         "ground-control/MultiDetectGCS/custom/src/PlanViewRightPanel.qml",

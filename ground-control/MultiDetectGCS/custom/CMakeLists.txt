@@ -71,6 +71,22 @@ target_link_libraries(
     MultiDetectProducerEpochDiagnosticsSelfTest PRIVATE MultiDetectProducerEpochDiagnostics Qt6::Core
 )
 
+add_library(
+    MultiDetectTargetObservationDiagnostics STATIC
+    src/MultiDetectTargetObservationDiagnostics.cc
+    src/MultiDetectTargetObservationDiagnostics.h
+)
+target_include_directories(MultiDetectTargetObservationDiagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(MultiDetectTargetObservationDiagnostics PUBLIC Qt6::Core)
+
+add_executable(
+    MultiDetectTargetObservationDiagnosticsSelfTest EXCLUDE_FROM_ALL
+    tests/MultiDetectTargetObservationDiagnosticsSelfTest.cc
+)
+target_link_libraries(
+    MultiDetectTargetObservationDiagnosticsSelfTest PRIVATE MultiDetectTargetObservationDiagnostics Qt6::Core
+)
+
 add_executable(
     MultiDetectDepthGridProtocolSelfTest EXCLUDE_FROM_ALL
     tests/MultiDetectDepthGridProtocolSelfTest.cc
@@ -184,6 +200,7 @@ set(CUSTOM_SOURCES
 
 set(CUSTOM_LIBRARIES
     MultiDetectUi MultiDetectOperatorProtocol MultiDetectProducerEpochDiagnostics
+    MultiDetectTargetObservationDiagnostics
     CACHE INTERNAL "" FORCE
 )
 

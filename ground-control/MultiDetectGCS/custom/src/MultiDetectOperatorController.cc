@@ -1838,6 +1838,34 @@ QString MultiDetectOperatorController::saveTargetObservationEpochDiagnostics()
     return savedPath;
 }
 
+QString MultiDetectOperatorController::targetObservationDiagnosticsJson() const
+{
+    const qulonglong localNowMs = static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+    return QString::fromUtf8(MultiDetectTargetObservationDiagnostics::json(
+        _rangeStatus, _targetGeolocationStatus, _gnssStatus, _targetObservationEpochSummary(),
+        QDateTime::currentDateTimeUtc(), localNowMs, _lastRangeStatusAtMs,
+        _lastTargetGeolocationStatusAtMs, _lastGnssStatusAtMs));
+}
+
+QString MultiDetectOperatorController::saveTargetObservationDiagnostics()
+{
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                              + QStringLiteral("/diagnostics");
+    const qulonglong localNowMs = static_cast<qulonglong>(QDateTime::currentMSecsSinceEpoch());
+    QString savedPath;
+    QString error;
+    if (!MultiDetectTargetObservationDiagnostics::save(
+            directory, _rangeStatus, _targetGeolocationStatus, _gnssStatus,
+            _targetObservationEpochSummary(), QDateTime::currentDateTimeUtc(), localNowMs,
+            _lastRangeStatusAtMs, _lastTargetGeolocationStatusAtMs, _lastGnssStatusAtMs,
+            &savedPath, &error)) {
+        _setLastError(error);
+        return {};
+    }
+    _setLastError(QString());
+    return savedPath;
+}
+
 bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,
                                                                    quint64 receivedAtMs)
 {

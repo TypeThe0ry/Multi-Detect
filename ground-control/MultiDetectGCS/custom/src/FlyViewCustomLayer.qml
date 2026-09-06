@@ -365,6 +365,32 @@ Item {
         _setTargetEvidenceFeedback(qsTr("生产者诊断已保存：%1").arg(savedPath), false);
     }
 
+    function _copyTargetObservationDiagnostics() {
+        const diagnostics = MultiDetectState.targetObservationDiagnosticsJson();
+        if (diagnostics === "") {
+            _setTargetEvidenceFeedback(qsTr("定位诊断不可用"), true);
+            return;
+        }
+        QGroundControl.copyToClipboard(diagnostics);
+        _setTargetEvidenceFeedback(
+            root._targetGeolocationQualified ? qsTr("已复制定位诊断：当前可定位") :
+                                               qsTr("已复制定位诊断：当前不可定位，坐标已省略"),
+            false);
+    }
+
+    function _saveTargetObservationDiagnostics() {
+        const savedPath = MultiDetectState.saveTargetObservationDiagnostics();
+        if (savedPath === "") {
+            const detail = MultiDetectState.operatorLastError !== "" ?
+                               ": " + MultiDetectState.operatorLastError : "";
+            _setTargetEvidenceFeedback(qsTr("定位诊断保存失败") + detail, true);
+            return;
+        }
+        const state = root._targetGeolocationQualified ? qsTr("可定位") :
+                                                         qsTr("不可定位，坐标已省略");
+        _setTargetEvidenceFeedback(qsTr("定位诊断已保存（%1）：%2").arg(state).arg(savedPath), false);
+    }
+
     function _wgs84MetersPerDegree(latitudeDeg) {
         if (!Number.isFinite(latitudeDeg) || latitudeDeg <= -90.0 || latitudeDeg >= 90.0)
             return null;
@@ -899,6 +925,23 @@ Item {
                     Layout.fillWidth: true
                     text: qsTr("保存诊断")
                     onClicked: root._saveProducerEpochDiagnostics()
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root._margin * 0.35
+
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: qsTr("复制定位诊断")
+                    onClicked: root._copyTargetObservationDiagnostics()
+                }
+
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: qsTr("保存定位诊断")
+                    onClicked: root._saveTargetObservationDiagnostics()
                 }
             }
 

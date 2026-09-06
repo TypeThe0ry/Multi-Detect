@@ -152,6 +152,14 @@ QtObject {
     function saveProducerEpochDiagnostics() {
         return _operator !== null ? String(_operator.saveTargetObservationEpochDiagnostics()) : "";
     }
+
+    function targetObservationDiagnosticsJson() {
+        return _operator !== null ? String(_operator.targetObservationDiagnosticsJson()) : "";
+    }
+
+    function saveTargetObservationDiagnostics() {
+        return _operator !== null ? String(_operator.saveTargetObservationDiagnostics()) : "";
+    }
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is
     // cleared by C++ and therefore always renders UNKNOWN here.

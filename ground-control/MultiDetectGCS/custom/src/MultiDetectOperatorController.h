@@ -12,6 +12,7 @@
 #include "MultiDetectObservationEpoch.h"
 #include "MultiDetectOperatorProtocol.h"
 #include "MultiDetectProducerEpochDiagnostics.h"
+#include "MultiDetectTargetObservationDiagnostics.h"
 #include "QGCMAVLink.h"
 
 class LinkInterface;
@@ -172,6 +173,8 @@ public:
     Q_INVOKABLE double depthAtNormalized(double x, double y) const;
     Q_INVOKABLE QString targetObservationEpochDiagnosticsJson() const;
     Q_INVOKABLE QString saveTargetObservationEpochDiagnostics();
+    Q_INVOKABLE QString targetObservationDiagnosticsJson() const;
+    Q_INVOKABLE QString saveTargetObservationDiagnostics();
 
 signals:
     void linkStateChanged();
