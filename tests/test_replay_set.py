@@ -17,6 +17,10 @@ from multidetect.replay_set import (
     build_replay_set_manifest,
     load_replay_set_manifest,
 )
+from multidetect.replay_set_intake import (
+    prepare_deployment_replay_set,
+    verify_deployment_replay_intake,
+)
 
 
 def _telemetry() -> dict[str, object]:
@@ -123,6 +127,168 @@ def _write_stratum(root: Path, stratum: str, *, with_predictions: bool = False) 
             + "\n",
             encoding="utf-8",
         )
+
+
+def _intake_sources(root: Path) -> dict[str, Path]:
+    for stratum in REPLAY_SET_STRATA:
+        _write_stratum(root, stratum, with_predictions=True)
+    return {stratum: root / stratum for stratum in REPLAY_SET_STRATA}
+
+
+def test_deployment_replay_intake_stages_raw_recordings_without_claims(tmp_path: Path) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    output = tmp_path / "intake"
+
+    report = prepare_deployment_replay_set(
+        sources,
+        output,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+
+    assert report["entry_count"] == 6
+    assert report["frame_count"] == 6
+    assert report["annotation_state"] == "pending"
+    assert report["prediction_state"] == "pending"
+    assert report["release_ready"] is False
+    assert (output / "intake.receipt.json").is_file()
+    for stratum in REPLAY_SET_STRATA:
+        assert (output / stratum / "recording.manifest.json").is_file()
+        assert (output / stratum / "events.jsonl").is_file()
+        assert (output / stratum / "frame-0001.png").is_file()
+        assert not (output / stratum / "ground-truth.jsonl").exists()
+        assert not (output / stratum / "predictions.jsonl").exists()
+    assert verify_deployment_replay_intake(output)["canonical_hash"] == report["canonical_hash"]
+
+
+def test_deployment_replay_intake_requires_exact_strata_and_refuses_overwrite(
+    tmp_path: Path,
+) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    missing = dict(sources)
+    missing.pop("night")
+    with pytest.raises(AutonomyContractError, match="exactly six strata"):
+        prepare_deployment_replay_set(
+            missing,
+            tmp_path / "missing",
+            dataset_id="field-2026",
+            dataset_version="v1",
+        )
+
+    output = tmp_path / "intake"
+    prepare_deployment_replay_set(
+        sources,
+        output,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    with pytest.raises(AutonomyContractError, match="already exists"):
+        prepare_deployment_replay_set(
+            sources,
+            output,
+            dataset_id="field-2026",
+            dataset_version="v1",
+        )
+
+
+def test_deployment_replay_intake_rejects_reused_recording_and_rolls_back(
+    tmp_path: Path,
+) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    sources["night"] = sources["day"]
+    duplicate_output = tmp_path / "duplicate"
+    with pytest.raises(AutonomyContractError, match="distinct source directory"):
+        prepare_deployment_replay_set(
+            sources,
+            duplicate_output,
+            dataset_id="field-2026",
+            dataset_version="v1",
+        )
+    assert not duplicate_output.exists()
+
+    sources = _intake_sources(tmp_path / "fresh-sources")
+    (sources["reflection"] / "frame-0001.png").write_bytes(b"broken")
+    broken_output = tmp_path / "broken"
+    with pytest.raises(AutonomyContractError, match="image frame-0001.png"):
+        prepare_deployment_replay_set(
+            sources,
+            broken_output,
+            dataset_id="field-2026",
+            dataset_version="v1",
+        )
+    assert not broken_output.exists()
+    assert not list(tmp_path.glob(".broken.*"))
+
+
+def test_deployment_replay_intake_verifier_detects_artifact_and_receipt_tampering(
+    tmp_path: Path,
+) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    first = tmp_path / "first"
+    prepare_deployment_replay_set(
+        sources,
+        first,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    (first / "day" / "frame-0001.png").write_bytes(b"tampered")
+    with pytest.raises(AutonomyContractError, match="hash mismatch"):
+        verify_deployment_replay_intake(first)
+
+    second = tmp_path / "second"
+    prepare_deployment_replay_set(
+        sources,
+        second,
+        dataset_id="field-2026",
+        dataset_version="v1",
+    )
+    receipt_path = second / "intake.receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["claims"]["annotations_reviewed"] = True
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(AutonomyContractError, match="must not assert"):
+        verify_deployment_replay_intake(second)
+
+
+def test_prepare_deployment_replay_set_cli_round_trip(tmp_path: Path) -> None:
+    sources = _intake_sources(tmp_path / "sources")
+    output = tmp_path / "intake"
+    command = [
+        sys.executable,
+        "scripts/prepare_deployment_replay_set.py",
+        "--output",
+        str(output),
+        "--dataset-id",
+        "field-2026",
+        "--dataset-version",
+        "v1",
+    ]
+    for stratum in REPLAY_SET_STRATA:
+        command.extend(("--source", f"{stratum}={sources[stratum]}"))
+    completed = subprocess.run(
+        command,
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["release_ready"] is False
+
+    verified = subprocess.run(
+        [
+            sys.executable,
+            "scripts/prepare_deployment_replay_set.py",
+            "--verify",
+            str(output),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stderr
+    assert json.loads(verified.stdout)["entry_count"] == 6
 
 
 def test_replay_set_builder_binds_all_six_strata_and_reports_pending_accuracy(

@@ -84,6 +84,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".replay_set_readiness",
         "check_replay_set_readiness",
     ),
+    "prepare_deployment_replay_set": (
+        ".replay_set_intake",
+        "prepare_deployment_replay_set",
+    ),
+    "verify_deployment_replay_intake": (
+        ".replay_set_intake",
+        "verify_deployment_replay_intake",
+    ),
     "ReplaySetCalibrationError": (
         ".replay_set_calibration",
         "ReplaySetCalibrationError",
@@ -437,6 +445,8 @@ __all__ = [
     "verify_field_session_capture",
     "evaluate_replay_set",
     "check_replay_set_readiness",
+    "prepare_deployment_replay_set",
+    "verify_deployment_replay_intake",
     "ReplaySetCalibrationError",
     "calibrate_replay_set_thresholds",
     "verify_replay_set_calibration_report",

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multi-detect.local/schemas/replay-set-intake-receipt.schema.json",
+  "title": "Deployment replay-set intake receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "dataset_id", "dataset_version", "source_kind",
+    "required_strata", "entries", "claims", "next_command", "canonical_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "dataset_id": { "type": "string", "minLength": 1 },
+    "dataset_version": { "type": "string", "minLength": 1 },
+    "source_kind": { "const": "deployment_recording" },
+    "required_strata": {
+      "const": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"]
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotations_reviewed", "predictions_complete", "accuracy_validated", "release_ready"
+      ],
+      "properties": {
+        "annotations_reviewed": { "const": false },
+        "predictions_complete": { "const": false },
+        "accuracy_validated": { "const": false },
+        "release_ready": { "const": false }
+      }
+    },
+    "next_command": { "type": "string", "minLength": 1 },
+    "canonical_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\:]+(?:/[^\\\\:]+)*$" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stratum", "recording_id", "recording_hash", "frame_count", "artifacts",
+        "annotation_state", "prediction_state"
+      ],
+      "properties": {
+        "stratum": { "enum": ["day", "night", "haze", "reflection", "smoke_only", "no_fire"] },
+        "recording_id": { "type": "string", "minLength": 1 },
+        "recording_hash": { "$ref": "#/$defs/sha256" },
+        "frame_count": { "type": "integer", "minimum": 1 },
+        "artifacts": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/artifact" } },
+        "annotation_state": { "const": "pending" },
+        "prediction_state": { "const": "pending" }
+      }
+    }
+  }
+}
