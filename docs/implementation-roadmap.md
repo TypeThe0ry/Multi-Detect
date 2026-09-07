@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## RuntimeProfile → PX4 Mission feedback 六源绑定（v185，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect.px4_mission_feedback_profile_binding` 与
+  `multidetect-px4-mission-feedback-profile-bind`，显式接收 RuntimeProfile sidecar 集合和既有
+  `px4_mission_feedback_binding` 报告；不扫描目录，所有输入与引用源都必须在同一 `base_directory` 内、不可为符号链接。
+- [x] 重新打开 v184 四模式 profile policy，逐叶重开六个 HIL/REAL Mission feedback report，核对模式对应
+  profile kind、HIL/REAL signer `key_id`、runtime binding gate、receive-only、`flight_control_enabled=false`
+  和 `output_locked=true`；profile set 只提供模式策略，六源 reviewer 继续提供每个空军架构的实际身份/哈希。
+- [x] 新增 `px4-mission-feedback-profile-binding.schema.json` 与 3 项定向回归（成功、profile 集合不完整、CLI
+  错误输出）；输出包含两个输入 source 的 bytes/SHA-256、四个 mode policy、六个 leaf 结果和固定 claim boundary。
+- [ ] 现场取得同一版本的真实 HIL/REAL profile、Mission 与 feedback sidecar 后，运行该 joiner 并把成功报告挂入
+  发布证据；在硬件、人工 Fly View 与实飞门齐全前，最终 `v0.3.0` 仍保持阻断。
+
 ## RuntimeProfile sidecar 集合预检（v184，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.runtime_profile_binding_set` 与

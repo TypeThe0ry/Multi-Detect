@@ -9,6 +9,27 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v185 RuntimeProfile → PX4 Mission feedback 六源绑定
+
+`multidetect.px4_mission_feedback_profile_binding` 是 v184 profile 集合之后的显式 joiner。它先重开四模式
+RuntimeProfile policy，再调用现有六源 reviewer 重开 HIL/REAL × fixed-wing/multirotor/VTOL 的 Mission、
+profile 和 feedback report，逐叶核对 profile kind、签名 `key_id`、runtime identity、receive-only 与锁输出。
+通用模式 sidecar 只作为 policy 身份，不冒充空军架构 profile 文件；报告仍保持 software-only claim boundary。
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.px4_mission_feedback_profile_binding `
+  --profile-set artifacts/evaluation/terminal-continuation-v184/runtime-profile-binding-set-v184.json `
+  --feedback-binding artifacts/evaluation/field/px4-mission-feedback-binding.json `
+  --base-directory . `
+  --expected-release-label 0.3.0-pre.8 `
+  --expected-px4-mission-path-hash <64-hex> `
+  --out artifacts/evaluation/px4-mission-feedback-profile-binding.json
+```
+
+缺少真实 HIL/REAL 六源时 joiner 会 fail-closed；不会启动 runtime、连接 PX4 或改变 E7。现场取得同一
+版本的 profile/Mission/feedback sidecar 后，使用该命令产生可重开的绑定报告并挂入发布证据。
+
 ## v184 RuntimeProfile sidecar 集合预检
 
 `multidetect.runtime_profile_binding_set` 对显式 profile JSON 做集合级重开：REPLAY/SIM 使用对应的

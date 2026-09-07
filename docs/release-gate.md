@@ -1,5 +1,28 @@
 # v0.3.0 E7 发布门
 
+## v185 RuntimeProfile → PX4 Mission feedback 六源审查（2026-09-07）
+
+发布证据现在可以先用 `multidetect-px4-mission-feedback-profile-bind` 将 v184 四模式
+RuntimeProfile sidecar 集合与既有六源 `px4_mission_feedback_binding` 报告重新打开并对账：模式集合负责
+profile kind、HIL/REAL 签名 `key_id`、身份有效性和 locked-output policy；六源 reviewer 负责每个
+`HIL/REAL × fixed-wing/multirotor/VTOL` Mission、endpoint、firmware、MAVLink feedback 与实际 profile
+文件哈希。该 joiner 产物是可重开的 software evidence consumer，不替代 E7，也不代表硬件、现场 HIL/REAL、
+人工 Fly View 或实飞验收。
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.px4_mission_feedback_profile_binding `
+  --profile-set .\artifacts\evaluation\terminal-continuation-v184\runtime-profile-binding-set-v184.json `
+  --feedback-binding .\artifacts\field\px4-mission-feedback-binding.json `
+  --base-directory . `
+  --expected-release-label 0.3.0-pre.8 `
+  --expected-px4-mission-path-hash <64-hex> `
+  --out .\artifacts\evaluation\px4-mission-feedback-profile-binding.json
+```
+
+profile set 或六源 sidecar 缺失、越界、篡改、模式/空军架构覆盖不足、签名 key 漂移、输出解锁或 feedback
+非只读时，joiner 会退出 `1` 并把对应 checks/reasons 写入 schema 化错误/失败报告。
+
 ## v160 原生 epoch 诊断保存后的当前门状态（2026-09-07，`v0.3.0-pre.8`）
 
 原生诊断弹窗、测试类和原子保存使 UI parity 更新为

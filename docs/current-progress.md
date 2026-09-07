@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v184 工作树）
+最后更新：2026-09-07（v185 工作树）
+
+## v185 本轮已收口（RuntimeProfile → PX4 Mission feedback 六源绑定）
+
+- 新增 [`src/multidetect/px4_mission_feedback_profile_binding.py`](../src/multidetect/px4_mission_feedback_profile_binding.py)
+  与 `multidetect-px4-mission-feedback-profile-bind` CLI：显式重开 v184 RuntimeProfile sidecar 集合和
+  `px4_mission_feedback_binding` 六源报告，按 `REPLAY → SIM → HIL → REAL` 模式策略对账，再逐叶检查
+  `HIL/REAL × fixed-wing/multirotor/VTOL` 的 profile kind、签名 key、runtime binding、receive-only 与锁输出。
+- 新增 [`px4-mission-feedback-profile-binding.schema.json`](../configs/schemas/px4-mission-feedback-profile-binding.schema.json)，
+  成功与结构错误均有固定 schema；输出保留 profile set/feedback source bytes+SHA-256、模式策略、六个叶子结果、
+  reasons 和 software-only claim boundary。profile set 的通用模式 sidecar 不被错误地当作六个空军架构文件，
+  只绑定策略身份；六源 reviewer 继续负责每个 airframe 的实际 profile/mission/report 哈希与身份。
+- 4 项定向回归覆盖六叶成功绑定、profile set 不完整、叶子 signer key 漂移的 fail-closed 以及 CLI 错误 schema；相关
+  25 项回归为 `24 passed, 1 skipped`，清理后再次全量为 `3744 passed, 6 skipped, 0 failed`（3,750 tests，337.783 秒）。本轮仍不启动
+  runtime、不连接 PX4、不改变 QGC C++/QML 和 E7，硬件、室外 GNSS、HIL/REAL、人工 Fly View 与实飞验收仍保持原门禁。
 
 ## v184 本轮已收口（RuntimeProfile sidecar 集合预检）
 

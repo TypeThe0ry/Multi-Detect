@@ -3,8 +3,8 @@
 Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知、目标跟踪、测距定位、
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
-> 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；硬件、室外 GNSS、HIL/REAL
-> 与人工 QGC 仍有门禁，software/SIM 记录不等于实飞或生产批准。
+> 当前版本 **`v0.3.0-pre.8`**；最终版仍受硬件、室外 GNSS、HIL/REAL 与人工 QGC 门禁。
+> v185：RuntimeProfile sidecar → PX4 Mission feedback 六源绑定。
 
 ## 从这里开始
 
@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v184：RuntimeProfile sidecar 集合预检 |
+| 工程迭代 | v185：RuntimeProfile→PX4 六源绑定 |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |

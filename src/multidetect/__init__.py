@@ -104,6 +104,18 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".runtime_profile_binding_set",
         "verify_runtime_profile_binding_set",
     ),
+    "Px4MissionFeedbackProfileBindingError": (
+        ".px4_mission_feedback_profile_binding",
+        "Px4MissionFeedbackProfileBindingError",
+    ),
+    "build_px4_mission_feedback_profile_binding": (
+        ".px4_mission_feedback_profile_binding",
+        "build_px4_mission_feedback_profile_binding",
+    ),
+    "verify_px4_mission_feedback_profile_binding": (
+        ".px4_mission_feedback_profile_binding",
+        "verify_px4_mission_feedback_profile_binding",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -519,6 +531,9 @@ __all__ = [
     "verify_runtime_report_binding_set",
     "RuntimeProfileBindingSetError",
     "verify_runtime_profile_binding_set",
+    "Px4MissionFeedbackProfileBindingError",
+    "build_px4_mission_feedback_profile_binding",
+    "verify_px4_mission_feedback_profile_binding",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",

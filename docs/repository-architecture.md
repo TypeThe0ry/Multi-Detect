@@ -1,5 +1,28 @@
 # 统一仓库架构
 
+## v185 RuntimeProfile → PX4 Mission feedback 六源绑定（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+v184 RuntimeProfile sidecar 集合 ── mode policy (REPLAY/SIM/HIL/REAL)
+                                      │
+                                      ▼
+                 px4_mission_feedback_profile_binding
+                                      │
+       ┌────────── HIL/REAL × fixed-wing/multirotor/VTOL ──────────┐
+       ▼                                                            ▼
+  profile kind + signer key + locked output              Mission/feedback 六源逐叶哈希/身份
+       └────────────────────── joined, re-openable report ─────────┘
+```
+
+- `src/multidetect/px4_mission_feedback_profile_binding.py` 是下游 joiner：重开 v184 集合报告与既有六源报告，
+  重新哈希所有显式引用源；四模式集合提供策略身份，六源 reviewer 提供每个 airframe 的实际 Mission、profile、
+  endpoint、firmware、MAVLink feedback 和 runtime binding 证据。
+- 不把一个通用 mode profile 路径冒充六个 airframe profile；joiner 只比较 profile kind、签名 `key_id`、
+  profile/identity validity 和 locked-output 策略，逐叶文件与身份仍由 `px4_mission_feedback_binding` 重算。
+- `configs/schemas/px4-mission-feedback-profile-binding.schema.json` 封闭成功/错误输出；CLI 为
+  `multidetect-px4-mission-feedback-profile-bind`。该层仍是 software evidence consumer，不启动运行时、不连接
+  PX4、不发送消息、不改变 E7 或最终硬件/人工验收。
+
 ## v184 RuntimeProfile sidecar 集合预检（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

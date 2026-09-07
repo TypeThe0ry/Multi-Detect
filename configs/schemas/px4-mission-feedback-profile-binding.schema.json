@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schema/px4-mission-feedback-profile-binding.schema.json",
+  "title": "Multi-Detect RuntimeProfile to PX4 Mission feedback binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "release_label",
+    "profile_set",
+    "feedback_binding",
+    "mode_policies",
+    "leaf_bindings",
+    "checks",
+    "gate_passed",
+    "reasons",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.px4-mission-feedback-profile-binding" },
+    "schema_version": { "const": 1 },
+    "event": {
+      "enum": [
+        "px4_mission_feedback_profile_binding_verified",
+        "px4_mission_feedback_profile_binding_error"
+      ]
+    },
+    "release_label": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "profile_set": { "$ref": "#/$defs/profileSetSummary" },
+    "feedback_binding": { "$ref": "#/$defs/feedbackSummary" },
+    "mode_policies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/modePolicy" }
+    },
+    "leaf_bindings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/leafBinding" }
+    },
+    "checks": { "$ref": "#/$defs/checks" },
+    "gate_passed": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim_boundary": { "$ref": "#/$defs/claimBoundary" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event": { "const": "px4_mission_feedback_profile_binding_error" } },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "profile_set": { "$ref": "#/$defs/emptyProfileSetSummary" },
+          "feedback_binding": { "$ref": "#/$defs/emptyFeedbackSummary" },
+          "mode_policies": { "maxItems": 0 },
+          "leaf_bindings": { "maxItems": 0 },
+          "gate_passed": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event": { "const": "px4_mission_feedback_profile_binding_verified" } },
+        "required": ["event"]
+      },
+      "then": { "not": { "required": ["error"] } }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "bytes", "sha256"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "bytes": { "type": "integer", "minimum": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "profileChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_shape",
+        "mode_coverage",
+        "entries_unique",
+        "sources_hash_bound",
+        "all_entries_passed",
+        "policies_locked",
+        "no_errors"
+      ],
+      "properties": {
+        "document_shape": { "type": "boolean" },
+        "mode_coverage": { "type": "boolean" },
+        "entries_unique": { "type": "boolean" },
+        "sources_hash_bound": { "type": "boolean" },
+        "all_entries_passed": { "type": "boolean" },
+        "policies_locked": { "type": "boolean" },
+        "no_errors": { "type": "boolean" }
+      }
+    },
+    "profileSetSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "required_modes",
+        "covered_modes",
+        "binding_count",
+        "complete",
+        "gate_passed",
+        "checks"
+      ],
+      "properties": {
+        "source": { "$ref": "#/$defs/source" },
+        "required_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mode" },
+          "uniqueItems": true
+        },
+        "covered_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mode" },
+          "uniqueItems": true
+        },
+        "binding_count": { "type": "integer", "minimum": 0 },
+        "complete": { "type": "boolean" },
+        "gate_passed": { "type": "boolean" },
+        "checks": { "$ref": "#/$defs/profileChecks" }
+      }
+    },
+    "emptyProfileSetSummary": {
+      "allOf": [
+        { "$ref": "#/$defs/profileSetSummary" },
+        {
+          "properties": {
+            "required_modes": { "maxItems": 0 },
+            "covered_modes": { "maxItems": 0 },
+            "binding_count": { "const": 0 },
+            "complete": { "const": false },
+            "gate_passed": { "const": false }
+          }
+        }
+      ]
+    },
+    "feedbackSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "schema_version",
+        "px4_mission_path_hash",
+        "observation_count",
+        "gate_passed",
+        "checks"
+      ],
+      "properties": {
+        "source": { "$ref": "#/$defs/source" },
+        "schema_version": {
+          "anyOf": [
+            { "const": 2 },
+            { "type": "null" }
+          ]
+        },
+        "px4_mission_path_hash": {
+          "anyOf": [
+            { "$ref": "#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        },
+        "observation_count": { "type": "integer", "minimum": 0 },
+        "gate_passed": { "type": "boolean" },
+        "checks": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" }
+        }
+      }
+    },
+    "emptyFeedbackSummary": {
+      "allOf": [
+        { "$ref": "#/$defs/feedbackSummary" },
+        {
+          "properties": {
+            "schema_version": { "type": "null" },
+            "px4_mission_path_hash": { "type": "null" },
+            "observation_count": { "const": 0 },
+            "gate_passed": { "const": false },
+            "checks": { "maxProperties": 0 }
+          }
+        }
+      ]
+    },
+    "mode": { "enum": ["replay", "sim", "hil", "real"] },
+    "modePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "profile_id",
+        "key_id",
+        "signature_required",
+        "signature_valid",
+        "profile_valid",
+        "identity_valid",
+        "output_locked",
+        "flight_control_enabled",
+        "document_sha256"
+      ],
+      "properties": {
+        "runtime_mode": { "$ref": "#/$defs/mode" },
+        "profile_id": { "enum": ["replay", "sim", "hil", "flight"] },
+        "key_id": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "signature_required": { "type": "boolean" },
+        "signature_valid": { "type": "boolean" },
+        "profile_valid": { "type": "boolean" },
+        "identity_valid": { "type": "boolean" },
+        "output_locked": { "type": "boolean" },
+        "flight_control_enabled": { "type": "boolean" },
+        "document_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "leafChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id_matches",
+        "key_id_matches",
+        "signature_valid",
+        "identity_valid",
+        "profile_valid",
+        "output_locked",
+        "flight_control_disabled",
+        "runtime_binding_passed",
+        "receive_only",
+        "feedback_gate_passed"
+      ],
+      "properties": {
+        "profile_id_matches": { "type": "boolean" },
+        "key_id_matches": { "type": "boolean" },
+        "signature_valid": { "type": "boolean" },
+        "identity_valid": { "type": "boolean" },
+        "profile_valid": { "type": "boolean" },
+        "output_locked": { "type": "boolean" },
+        "flight_control_disabled": { "type": "boolean" },
+        "runtime_binding_passed": { "type": "boolean" },
+        "receive_only": { "type": "boolean" },
+        "feedback_gate_passed": { "type": "boolean" }
+      }
+    },
+    "leafBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "vehicle_class",
+        "runtime_profile_id",
+        "runtime_profile_key_id",
+        "checks",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "runtime_mode": { "enum": ["hil", "real"] },
+        "vehicle_class": { "enum": ["fixed-wing", "multirotor", "vtol"] },
+        "runtime_profile_id": {
+          "anyOf": [
+            { "enum": ["hil", "flight"] },
+            { "type": "null" }
+          ]
+        },
+        "runtime_profile_key_id": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "checks": { "$ref": "#/$defs/leafChecks" },
+        "gate_passed": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_set_document_valid",
+        "profile_set_gate_passed",
+        "profile_set_sources_bound",
+        "profile_modes_complete",
+        "feedback_binding_document_valid",
+        "feedback_binding_gate_passed",
+        "feedback_sources_bound",
+        "feedback_coverage_complete",
+        "mode_profile_policies_match",
+        "runtime_profile_ids_match",
+        "runtime_profile_keys_match",
+        "all_outputs_locked",
+        "all_leaf_bindings_match",
+        "no_errors"
+      ],
+      "properties": {
+        "profile_set_document_valid": { "type": "boolean" },
+        "profile_set_gate_passed": { "type": "boolean" },
+        "profile_set_sources_bound": { "type": "boolean" },
+        "profile_modes_complete": { "type": "boolean" },
+        "feedback_binding_document_valid": { "type": "boolean" },
+        "feedback_binding_gate_passed": { "type": "boolean" },
+        "feedback_sources_bound": { "type": "boolean" },
+        "feedback_coverage_complete": { "type": "boolean" },
+        "mode_profile_policies_match": { "type": "boolean" },
+        "runtime_profile_ids_match": { "type": "boolean" },
+        "runtime_profile_keys_match": { "type": "boolean" },
+        "all_outputs_locked": { "type": "boolean" },
+        "all_leaf_bindings_match": { "type": "boolean" },
+        "no_errors": { "type": "boolean" }
+      }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "software_profile_policy_to_px4_feedback_identity_only",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "flight_acceptance",
+        "operator_visual_acceptance"
+      ],
+      "properties": {
+        "software_profile_policy_to_px4_feedback_identity_only": { "const": true },
+        "hardware_acceptance": { "const": "not_claimed" },
+        "hil_acceptance": { "const": "not_claimed" },
+        "real_acceptance": { "const": "not_claimed" },
+        "flight_acceptance": { "const": "not_claimed" },
+        "operator_visual_acceptance": { "const": "not_claimed" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

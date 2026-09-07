@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v185 RuntimeProfile → PX4 Mission feedback 六源绑定（2026-09-07）
+
+- 新增 `multidetect.px4_mission_feedback_profile_binding` 与
+  `multidetect-px4-mission-feedback-profile-bind`：显式重开 v184 四模式 RuntimeProfile sidecar 集合，
+  再调用既有 `px4_mission_feedback_binding` 重开 HIL/REAL × fixed-wing/multirotor/VTOL 六源。
+- Joiner 按模式策略核对 profile kind、HIL/REAL signer `key_id`、signature/identity/profile validity、
+  receive-only、`flight_control_enabled=false` 与 `output_locked=true`；通用 mode profile 不冒充六个 airframe
+  文件，六源 reviewer 仍逐叶重算 Mission/profile/report 哈希和身份。
+- 新增 `px4-mission-feedback-profile-binding.schema.json`、成功/不完整/错误三项回归和 CLI 错误 schema；
+  本轮仍是 software evidence consumer，不启动 runtime、不连接 PX4、不发送消息，不改变 E7、硬件、室外 GNSS、
+  人工 Fly View、HIL/REAL 或最终 `v0.3.0` 发布门。
+
 ### v0.3.0-pre.8 v184 RuntimeProfile sidecar binding set（2026-09-07）
 
 - 新增 `multidetect.runtime_profile_binding_set` 与 `multidetect-runtime-profile-set-verify`：显式重开
