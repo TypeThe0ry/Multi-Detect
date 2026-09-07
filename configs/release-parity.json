@@ -2,8 +2,8 @@
   "parity": {
     "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
     "px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8",
-    "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
-    "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
+    "safety_policy_hash": "a7c16d5c7a52508c6d289296abdda50f24cc8010d62f1a535ef609114545ced5",
+    "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
     "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
   },
   "product": "Multi-Detect",

@@ -12,6 +12,7 @@ import pytest
 import multidetect.cli as cli_module
 from multidetect.backends import RawSensorReplayRecording
 from multidetect.domain import MissionPhase
+from multidetect.runtime import load_runtime_run_report
 from multidetect.synthetic_model import create_synthetic_hil_model_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -273,6 +274,8 @@ def test_integrated_replay_cli_runs_real_raw_decoder_factory_onnx_and_live_core(
     second_result = tmp_path / "second-result.json"
     first_audit = tmp_path / "first-audit.jsonl"
     second_audit = tmp_path / "second-audit.jsonl"
+    first_runtime_report = tmp_path / "first-runtime-report.json"
+    second_runtime_report = tmp_path / "second-runtime-report.json"
 
     common = [
         "integrated-replay",
@@ -301,6 +304,8 @@ def test_integrated_replay_cli_runs_real_raw_decoder_factory_onnx_and_live_core(
                 str(first_audit),
                 "--result-out",
                 str(first_result),
+                "--runtime-report",
+                str(first_runtime_report),
                 *common[5:],
             ]
         )
@@ -315,6 +320,8 @@ def test_integrated_replay_cli_runs_real_raw_decoder_factory_onnx_and_live_core(
                 str(second_audit),
                 "--result-out",
                 str(second_result),
+                "--runtime-report",
+                str(second_runtime_report),
                 *common[5:],
             ]
         )
@@ -331,6 +338,17 @@ def test_integrated_replay_cli_runs_real_raw_decoder_factory_onnx_and_live_core(
     assert first["synthetic_hil_components"] == ["primary"]
     assert first["ground_truth_isolated"] is True
     assert first["hardware_outputs_present"] is False
+    assert first["runtime_run_report"]["stream_exhausted"] is True
+    assert first["runtime_run_report"]["max_frames"] is None
+    assert first["runtime_run_report"]["processed_frame_ids"] == [
+        "frame-0001",
+        "frame-0002",
+    ]
+    assert (
+        load_runtime_run_report(first_runtime_report).to_mapping_with_hash()
+        == first["runtime_run_report"]
+    )
+    assert first_runtime_report.read_bytes() == second_runtime_report.read_bytes()
     assert len(first["run_identity_hash"]) == 64
     assert first_audit.read_bytes() == second_audit.read_bytes()
     assert '"integrated_replay_started"' in first_stdout

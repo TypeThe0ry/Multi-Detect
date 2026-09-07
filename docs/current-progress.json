@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T06:54:00Z",
+  "updated_at_utc": "2026-09-07T07:24:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v177",
+  "working_iteration": "v178",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3714,
-      "passed_tests": 3710,
+      "tests": 3715,
+      "passed_tests": 3711,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 233.629,
+      "duration_seconds": 236.371,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v177/full-rerun.xml",
-      "junit_file_bytes": 542975,
-      "junit_file_sha256": "6dc8b44644d659929d60162b506d2f178ed4694b7e148597902424f8b4f366f6",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v178/full-rerun.xml",
+      "junit_file_bytes": 543117,
+      "junit_file_sha256": "736fbab2d45161703bdc256c5758d636edea33cdb2c0de7e536e3fcd8d052a3b",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -595,6 +595,61 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v178_integrated_replay_runtime_report_selected_regression": {
+      "passed": true,
+      "tests": 140,
+      "passed_tests": 140,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "integrated_replay_natural_exhaustion_runtime_report_sidecar_and_live_source_compatibility",
+      "runtime_report_fields": [
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason",
+        "sha256"
+      ],
+      "runtime_descriptor_hash": "9dce13f34ff5e603569e6327b0a1dc0502dd73e1dc9587e9fcdb19433f0d6fd1",
+      "runtime_input_hash": "d37537ba3301f28bf9bbcabbc8186e7de1c6515b485929e385e5d26a3ef1125d",
+      "natural_stream_exhaustion": true,
+      "bounded_prefix_normalization": "max_frames_equal_recording_count_normalized_to_none",
+      "consumed_frame_identity_rechecked": true,
+      "camera_stream_exhausted_audit": true,
+      "integrated_cli_commands": ["integrated-replay", "integrated-replay-qgc"],
+      "sidecar_embedded_in_result": true,
+      "sidecar_round_trip": true,
+      "runtime_report_path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-runtime-report-v178.json",
+      "runtime_report_bytes": 507,
+      "runtime_report_sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906",
+      "runtime_report_canonical_sha256": "f72fbcee791a97dbaa701b5fac2c25fa9535359d61a575532b7bf49eae93cf78",
+      "run_summary_path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-run-v178.json",
+      "run_summary_bytes": 1276,
+      "run_summary_sha256": "9a5a8827d9891dc33e763cd6eea2e904ac61c9c91b02f9772c3a87791c1b7588",
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-focused.xml",
+      "focused_junit_file_bytes": 19230,
+      "focused_junit_file_sha256": "6cb22cbd107bf23e0191801de02afb215a328f324726721a0dcbcf4a043a4c76",
+      "focused_duration_seconds": 4.92,
+      "full_regression": {
+        "tests": 3715,
+        "passed_tests": 3711,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 236.371,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v178/full-rerun.xml",
+        "junit_file_bytes": 543117,
+        "junit_file_sha256": "736fbab2d45161703bdc256c5758d636edea33cdb2c0de7e536e3fcd8d052a3b"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v177_simulator_runtime_report_selected_regression": {
       "passed": true,
       "tests": 31,
@@ -870,12 +925,12 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10185,
-    "file_sha256": "c3f9362479b8df39c7126cda5b84a573e86d907079391dfc82a505650d90f42b",
+    "file_sha256": "0b878bec370224e98051f4e03f3ab6fa277556e8576eb47c4e21b7ecbcc79859",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
-      "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
-      "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
+      "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+      "safety_policy_hash": "a7c16d5c7a52508c6d289296abdda50f24cc8010d62f1a535ef609114545ced5",
       "px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8"
     }
   },
@@ -2293,6 +2348,50 @@
         "gate_passed": true
       },
       "all_inputs_bound_to_current_parity": true,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
+    "v178_integrated_replay_runtime_report_sidecar": {
+      "reason": "integrated Replay finite-source natural exhaustion is bound to the shared RuntimeRunReport contract",
+      "recording_root": "artifacts/evaluation/terminal-continuation-v178/recording",
+      "recording_frame_ids": ["frame-0001", "frame-0002"],
+      "processed_frame_ids": ["frame-0001", "frame-0002"],
+      "runtime_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-runtime-report-v178.json",
+        "bytes": 507,
+        "sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906",
+        "canonical_sha256": "f72fbcee791a97dbaa701b5fac2c25fa9535359d61a575532b7bf49eae93cf78",
+        "descriptor_hash": "9dce13f34ff5e603569e6327b0a1dc0502dd73e1dc9587e9fcdb19433f0d6fd1",
+        "input_hash": "d37537ba3301f28bf9bbcabbc8186e7de1c6515b485929e385e5d26a3ef1125d",
+        "processed_frame_count": 2,
+        "started_at_s": 0.0,
+        "finished_at_s": 2.0,
+        "duration_s": 2.0,
+        "stream_exhausted": true,
+        "max_frames": null,
+        "termination_reason": "stream_exhausted",
+        "load_round_trip": true
+      },
+      "run_summary": {
+        "path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-run-v178.json",
+        "bytes": 1276,
+        "sha256": "9a5a8827d9891dc33e763cd6eea2e904ac61c9c91b02f9772c3a87791c1b7588",
+        "embedded_runtime_report": true
+      },
+      "focused_regression": {
+        "tests": 140,
+        "passed_tests": 140,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v178/integrated-replay-focused.xml",
+        "junit_bytes": 19230,
+        "junit_sha256": "6cb22cbd107bf23e0191801de02afb215a328f324726721a0dcbcf4a043a4c76"
+      },
+      "same_runtime_report_contract_as_sim_hil_real": true,
+      "natural_exhaustion_audit": true,
+      "flight_control_enabled": false,
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"

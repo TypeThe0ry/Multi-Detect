@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v178 integrated Replay natural-exhaustion report（2026-09-07）
+
+- `RawSensorReplayBackend` 的有限帧源现在使用独立的 `FrameSourceExhausted` 信号；`LiveMissionRunner`
+  将其记录为 `camera.stream_exhausted`，不会把相机读取异常吞成成功结果；直接 `read()` 的历史
+  `RuntimeError` 兼容性保持不变。
+- `IntegratedReplaySession` 现在核对真实消费的帧 ID 顺序、完整 recording 数量、descriptor/input hash
+  和自然耗尽状态，并生成与 SIM/HIL/REAL 共用的 hash-bound `RuntimeRunReport`；固定 `max_frames ==
+  frame_count` 只作为兼容输入，绑定时会归一化为自然耗尽，报告 `max_frames=null`、`complete=true`。
+- `integrated-replay` 与 `integrated-replay-qgc` 新增 `--runtime-report <path>`，结果 JSON 同时嵌入
+  canonical report；v178 fixture sidecar 与 round-trip verifier 已落在
+  `artifacts/evaluation/terminal-continuation-v178/`。该更新只增强 Replay/QGC software 证据，不改变
+  QGC C++/QML 二进制，也不提升室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞门。
+
 ### v0.3.0-pre.8 v177 SIM RuntimeRunReport sidecar（2026-09-07）
 
 - `SimulatorScenarioRunResult` 现在可以导出与 Replay/HIL/REAL 共用的 `RuntimeRunReport`：场景 manifest runtime

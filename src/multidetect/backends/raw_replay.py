@@ -49,7 +49,7 @@ from ..mavlink_gps import (
 )
 from ..runtime import RuntimeDescriptor, RuntimeMode, RuntimeProfile
 from ..simulation.runtime_input import ScenarioRuntimeInput
-from ..vision import CapturedFrame
+from ..vision import CapturedFrame, FrameSourceExhausted
 
 ImageDecoder = Callable[[bytes, "RawReplayImageReference"], Any]
 
@@ -683,6 +683,20 @@ class ReplayFrameSource:
 
         return len(self.recording.frames)
 
+    @property
+    def consumed_frame_ids(self) -> tuple[str, ...]:
+        """Frame IDs delivered by this single-pass source so far."""
+
+        with self._lock:
+            return tuple(item.frame_id for item in self.recording.frames[: self._next_index])
+
+    @property
+    def exhausted(self) -> bool:
+        """Whether every verified frame has been delivered to the caller."""
+
+        with self._lock:
+            return self._next_index >= len(self.recording.frames)
+
     def open(self) -> None:
         with self._lock:
             if self._closed:
@@ -696,7 +710,7 @@ class ReplayFrameSource:
             if not self._opened:
                 raise RuntimeError("ReplayFrameSource is not open")
             if self._next_index >= len(self.recording.frames):
-                raise RuntimeError("ReplayFrameSource is exhausted")
+                raise FrameSourceExhausted("ReplayFrameSource is exhausted")
             entry = self.recording.frames[self._next_index]
             image_bytes = entry.image.read_verified_bytes()
             image_bgr = self._image_decoder(image_bytes, entry.image)

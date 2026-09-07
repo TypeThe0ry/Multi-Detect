@@ -226,7 +226,7 @@ from .rtsp_evidence_recording import (
     record_rtsp_evidence,
     rtsp_evidence_recording_document,
 )
-from .runtime import RuntimeMode
+from .runtime import RuntimeMode, RuntimeRunReport, write_runtime_run_report
 from .runtime_launcher import (
     ProfileBoundRuntimeConfig,
     launch_profile_bound_runtime,
@@ -1845,6 +1845,11 @@ def build_parser() -> argparse.ArgumentParser:
     integrated_replay.add_argument("--audit-out", type=Path)
     integrated_replay.add_argument("--result-out", type=Path)
     integrated_replay.add_argument(
+        "--runtime-report",
+        type=Path,
+        help="write the canonical hash-bound RuntimeRunReport sidecar",
+    )
+    integrated_replay.add_argument(
         "--perception-args",
         nargs=argparse.REMAINDER,
         required=True,
@@ -1920,6 +1925,11 @@ def build_parser() -> argparse.ArgumentParser:
     integrated_replay_qgc.add_argument("--performance-window-frames", type=int, default=600)
     integrated_replay_qgc.add_argument("--audit-out", type=Path)
     integrated_replay_qgc.add_argument("--result-out", type=Path)
+    integrated_replay_qgc.add_argument(
+        "--runtime-report",
+        type=Path,
+        help="write the canonical hash-bound RuntimeRunReport sidecar",
+    )
     integrated_replay_qgc.add_argument(
         "--perception-args",
         nargs=argparse.REMAINDER,
@@ -4645,6 +4655,27 @@ def _integrated_replay_perception_namespace(
     return parsed
 
 
+def _runtime_report_for_session(
+    session: object,
+    *,
+    output_path: Path | None,
+) -> dict[str, object] | None:
+    """Return and optionally persist a completed integrated-runtime report."""
+
+    report = getattr(session, "runtime_run_report", None)
+    if report is None:
+        if output_path is not None:
+            raise RuntimeError(
+                "integrated Replay session did not expose a completed RuntimeRunReport"
+            )
+        return None
+    if not isinstance(report, RuntimeRunReport):
+        raise TypeError("integrated Replay session runtime_run_report has an invalid type")
+    if output_path is not None:
+        write_runtime_run_report(output_path, report)
+    return report.to_mapping_with_hash()
+
+
 def _run_integrated_replay(args: argparse.Namespace) -> int:
     """Execute verified raw sensors through the production perception/live core."""
 
@@ -4741,6 +4772,10 @@ def _run_integrated_replay(args: argparse.Namespace) -> int:
             }
         )
         result = session.run()
+        runtime_report = _runtime_report_for_session(
+            session,
+            output_path=args.runtime_report,
+        )
         result_mapping = asdict(result)
         result_mapping["final_phase"] = result.final_phase.value
         document: dict[str, Any] = {
@@ -4770,6 +4805,8 @@ def _run_integrated_replay(args: argparse.Namespace) -> int:
             "performance_metrics_are_deterministic_placeholders": True,
             "result": result_mapping,
         }
+        if runtime_report is not None:
+            document["runtime_run_report"] = runtime_report
         if args.result_out is not None:
             args.result_out.parent.mkdir(parents=True, exist_ok=True)
             args.result_out.write_text(
@@ -4996,6 +5033,10 @@ def _run_integrated_replay_qgc(args: argparse.Namespace) -> int:
         )
         result = session.run()
         synchronization = synchronized_bridge.require_complete()
+        runtime_report = _runtime_report_for_session(
+            session,
+            output_path=args.runtime_report,
+        )
         expected_runtime_run_hash64_hex = session.identity.run_identity_hash[:16].lower()
         if synchronization.acknowledged_runtime_run_hash64_hex != expected_runtime_run_hash64_hex:
             raise RuntimeError(
@@ -5053,6 +5094,8 @@ def _run_integrated_replay_qgc(args: argparse.Namespace) -> int:
             "wall_clock_pacer": synchronized_bridge.pacer.stats.to_mapping(),
             "result": result_mapping,
         }
+        if runtime_report is not None:
+            document["runtime_run_report"] = runtime_report
         if args.result_out is not None:
             args.result_out.parent.mkdir(parents=True, exist_ok=True)
             args.result_out.write_text(

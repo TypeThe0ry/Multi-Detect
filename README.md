@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v177：SIM RuntimeRunReport sidecar |
+| 工程迭代 | v178：integrated Replay natural-exhaustion report |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,7 +81,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 成熟度与未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v177 目标定位诊断验证、会话审计与原生录制
+### v163–v178 目标定位诊断验证、会话审计与原生录制
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -114,7 +114,9 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 耗尽才算完整，`max_frames` 前缀显式标记 incomplete；v177 将报告契约接入 SIM 场景 runner，可通过
 `--runtime-report` 生成 sidecar，绑定 manifest runtime channel、descriptor 和处理帧身份；portable EXE 为
 46,875,136 bytes、SHA-256
-`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；详情、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
+`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`。v178 将同一契约接入
+`integrated-replay`/`integrated-replay-qgc`：有限 raw source 必须自然耗尽，逐帧 ID、descriptor/input hash
+和 `camera.stream_exhausted` 审计均可写入 `RuntimeRunReport` sidecar；详情、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 
@@ -122,11 +124,7 @@ Jetson 现在以认证 operator protocol 类型 `25`、默认 `5 Hz` 发布独�
 目标，原生 QGC 的“室外测距质量”也能显示 position health、fix type、卫星数、水平/垂直精度、
 样本年龄以及精确的不可定位原因。合格门与共享定位算法保持一致（`fix>=3`、卫星 `>=6`、
 水平 `<=6 m`、垂直 `<=10 m`、年龄 `<=1.5 s`）；弱样本和伪造的 qualified 状态 fail-closed。
-该消息不携带经纬度，QGC 端 1 秒无新包即清空，且固定为 display-only，不增加飞控或物理投放权限。
-
-已构建并 simple-boot 验证新的 `0.3.0-pre.8` portable EXE；这是 software/build 证据，不替代人工
-Fly View、室外 GNSS、HIL/REAL、硬件或飞行验收。路径、哈希和测试明细见
-[当前进度](docs/current-progress.md)。
+该消息无经纬度且 display-only；GNSS、portable 与人工/硬件门见[当前进度](docs/current-progress.md)。
 
 ### v132–v150 GR01 计划、事务化 E7 与 trust registry 复核
 

@@ -1,6 +1,27 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v177 工作树）
+最后更新：2026-09-07（v178 工作树）
+
+## v178 本轮已收口（integrated Replay 自然耗尽与 RuntimeRunReport）
+
+- `ReplayFrameSource` 为有限 recording 增加独立的 `FrameSourceExhausted` 结束信号；`LiveMissionRunner`
+  将其记录为 `camera.stream_exhausted`，保留直接 `read()` 的历史 `RuntimeError` 兼容性，避免把自然结束和
+  相机读取故障混在一起。
+- `IntegratedReplaySession` 现在只接受完整 recording：逐帧核对实际消费 ID 顺序、frame count、descriptor/input
+  hash 以及 source exhaustion，再生成与 SIM/HIL/REAL 共用的 hash-bound `RuntimeRunReport`。兼容传入的
+  `max_frames == frame_count` 会归一化为 `null`，报告明确 `complete=true`、`termination_reason=stream_exhausted`。
+- `integrated-replay` 与 `integrated-replay-qgc` 支持 `--runtime-report <path>`，结果 JSON 嵌入同一 canonical
+  report，sidecar 原子写入并通过 loader round-trip；v178 定向回归为 `140 passed, 0 skipped, 0 failed`。
+- v178 证据位于 `artifacts/evaluation/terminal-continuation-v178/`：runtime report 507 bytes，SHA-256
+  `8B6DF9AD8106EA9A83A49BD5C1D9281EA24604F7969649141001A7FDE8433906`，canonical SHA-256
+  `F72FBCEE791A97DBAA701B5FAC2C25FA9535359D61A575532B7BF49EAE93CF78`；run summary 1,276 bytes，SHA-256
+  `9A5A8827D9891DC33E763CD6EEA2E904AC61C9C91B02F9772C3A87791C1B7588`；focused JUnit 19,230 bytes，SHA-256
+  `6CB22CBD107BF23E0191801DE02AFB215A328F324726721A0DCBCF4A043A4C76`。
+- v178 全量 Python 回归为 `3711 passed, 4 skipped, 0 failed`（3,715 tests，236.371 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v178/full-rerun.xml`，543,117 bytes，SHA-256
+  `736FBAB2D45161703BDC256C5758D636EDEA33CDB2C0DE7E536E3FCD8D052A3B`；该轮只增强 software/Replay/QGC
+  证据链，不改变 QGC C++/QML 二进制，也不提升室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞门，E7 仍按
+  report-only 规则阻断。
 
 ## v177 本轮已收口（SIM RuntimeRunReport sidecar 与 bounded-prefix 对账）
 

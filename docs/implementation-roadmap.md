@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## integrated Replay 自然耗尽与 RuntimeRunReport（v178，`v0.3.0-pre.8`）
+
+- [x] 有限 `ReplayFrameSource` 发出可区分的 `FrameSourceExhausted` 结束信号；Live runner 记录
+  `camera.stream_exhausted`，不把结束误报为相机故障或成功帧；
+- [x] `IntegratedReplaySession` 对账完整 recording 的实际消费帧 ID、数量、descriptor/input hash 与自然耗尽，
+  输出与 SIM/HIL/REAL 共用的 hash-bound `RuntimeRunReport`；兼容的 `max_frames == frame_count` 归一化为 `null`；
+- [x] `integrated-replay` / `integrated-replay-qgc` 支持 `--runtime-report` sidecar，结果内嵌 canonical report，
+  140 项定向回归覆盖 CLI、round-trip、重复运行保护和 source compatibility；
+- [ ] 仍需在现场 portable 上人工载入真实长回放，并将报告与外部采集、HIL/REAL 记录逐帧对账；该门通过前不改变
+  E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## SIM RuntimeRunReport sidecar 与 bounded-prefix 对账（v177，`v0.3.0-pre.8`）
 
 - [x] `SimulatorScenarioRunResult.runtime_run_report` 复用 Replay/HIL/REAL 的 `RuntimeRunReport`，绑定

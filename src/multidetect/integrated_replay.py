@@ -8,7 +8,8 @@ frames, read-only telemetry and the deterministic runtime clock.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from .autonomy.serialization import canonical_sha256, require_sha256
@@ -17,7 +18,13 @@ from .live import LiveMissionRunner, LiveRunConfig, LiveRunResult
 from .mission import MissionController
 from .operator_link import RuntimeBackendHealth, RuntimeStatusMessage
 from .operator_status import build_runtime_status_from_descriptor
-from .runtime import RuntimeCapability, RuntimeMode, RuntimeProfile
+from .runtime import (
+    RuntimeCapability,
+    RuntimeMode,
+    RuntimeProfile,
+    RuntimeRunReport,
+    write_runtime_run_report,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +74,35 @@ class IntegratedReplaySession:
     identity: IntegratedReplayIdentity
     runtime_status: RuntimeStatusMessage
     runner: LiveMissionRunner
+    _runtime_run_report: RuntimeRunReport | None = field(default=None, init=False, repr=False)
 
     def run(self) -> LiveRunResult:
         """Run every verified frame and reject a silent prefix-only result."""
+
+        result, _report = self.run_with_report()
+        return result
+
+    @property
+    def runtime_run_report(self) -> RuntimeRunReport:
+        """Return the report produced by the completed single-pass run."""
+
+        if self._runtime_run_report is None:
+            raise RuntimeError("integrated Replay has not completed a runtime run")
+        return self._runtime_run_report
+
+    def run_with_report(self) -> tuple[LiveRunResult, RuntimeRunReport]:
+        """Run the complete stream and return its hash-bound completion report.
+
+        Integrated Replay intentionally lets the finite source signal natural
+        exhaustion.  A ``max_frames == frame_count`` prefix is normalized to
+        an unbounded run by :func:`build_integrated_replay_session`, so the
+        report's ``stream_exhausted`` bit is evidence rather than an assertion
+        derived only from a frame counter.
+        """
+
+        if self._runtime_run_report is not None:
+            raise RuntimeError("integrated Replay sessions are single-pass")
+        started_at_s = self.backend.clock.monotonic()
 
         result = self.runner.run()
         if result.processed_frames != self.backend.frame_count:
@@ -77,7 +110,33 @@ class IntegratedReplaySession:
                 "integrated Replay did not consume the complete verified recording: "
                 f"processed {result.processed_frames}, expected {self.backend.frame_count}"
             )
-        return result
+        source = self.backend.frame_source
+        consumed_frame_ids = tuple(getattr(source, "consumed_frame_ids", ()))
+        expected_frame_ids = tuple(frame.frame_id for frame in self.backend.recording.frames)
+        if consumed_frame_ids != expected_frame_ids:
+            raise RuntimeError(
+                "integrated Replay frame identity sequence does not match the verified recording"
+            )
+        if not bool(getattr(source, "exhausted", False)):
+            raise RuntimeError(
+                "integrated Replay did not observe natural source exhaustion after the recording"
+            )
+        report = RuntimeRunReport(
+            descriptor_hash=self.backend.descriptor.canonical_hash,
+            input_hash=self.backend.input_hash,
+            processed_frame_ids=consumed_frame_ids,
+            started_at_s=started_at_s,
+            finished_at_s=self.backend.clock.monotonic(),
+            stream_exhausted=True,
+            max_frames=None,
+        )
+        self._runtime_run_report = report
+        return result, report
+
+    def write_runtime_run_report(self, path: str | Path) -> Path:
+        """Persist the completed runtime report using the canonical writer."""
+
+        return write_runtime_run_report(path, self.runtime_run_report)
 
 
 def build_integrated_replay_session(
@@ -130,10 +189,7 @@ def build_integrated_replay_session(
     if runner_options.get("fixed_wing_aim_executor") is not None:
         raise ValueError("integrated Replay cannot attach a flight-control executor")
 
-    selected_config = config or LiveRunConfig(
-        max_frames=backend.frame_count,
-        display=False,
-    )
+    selected_config = config or LiveRunConfig(display=False)
     if not isinstance(selected_config, LiveRunConfig):
         raise TypeError("config must be a LiveRunConfig")
     if selected_config.observe_pixhawk_lifecycle:
@@ -142,10 +198,16 @@ def build_integrated_replay_session(
         raise ValueError(
             "integrated Replay is headless; synchronized QGC video is a separate E4 gate"
         )
-    if selected_config.max_frames is None:
-        selected_config = replace(selected_config, max_frames=backend.frame_count)
-    elif selected_config.max_frames != backend.frame_count:
-        raise ValueError("integrated Replay max_frames must equal the complete verified recording")
+    if selected_config.max_frames is not None:
+        if selected_config.max_frames != backend.frame_count:
+            raise ValueError(
+                "integrated Replay max_frames must equal the complete verified recording"
+            )
+        # A frame budget would stop immediately after the last frame and leave
+        # RuntimeRunReport unable to distinguish a complete stream from a
+        # caller-selected prefix.  Normalize the exact full-count convenience
+        # value to natural source exhaustion.
+        selected_config = replace(selected_config, max_frames=None)
 
     identity = IntegratedReplayIdentity(
         runtime_descriptor_hash=descriptor.canonical_hash,

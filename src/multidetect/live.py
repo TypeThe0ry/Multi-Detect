@@ -128,7 +128,13 @@ from .unified_tracking import (
     UnifiedTrackState,
 )
 from .vehicle_reid import OnnxVehicleReIdEncoder
-from .vision import CapturedFrame, DetectorEnsemble, FrameSource, VisionDependencyError
+from .vision import (
+    CapturedFrame,
+    DetectorEnsemble,
+    FrameSource,
+    FrameSourceExhausted,
+    VisionDependencyError,
+)
 from .visual_inertial_range import VisualInertialRangeConfig, VisualInertialRangeEstimator
 
 _PERSON_LOCK_MODEL_LABELS = frozenset(
@@ -1290,6 +1296,17 @@ class LiveMissionRunner:
                 capture_started_s = self.performance_clock.monotonic()
                 try:
                     captured = self.frame_source.read()
+                except FrameSourceExhausted:
+                    self.mission.audit.append(
+                        "camera.stream_exhausted",
+                        self.clock.monotonic(),
+                        {
+                            "processed_frames": processed,
+                            "source": type(self.frame_source).__name__,
+                            "deterministic": isinstance(self.clock, ManualClock),
+                        },
+                    )
+                    break
                 except (OSError, RuntimeError, TypeError, ValueError) as exc:
                     self.mission.audit.append(
                         "camera.read_failed",

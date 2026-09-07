@@ -23,7 +23,7 @@ from multidetect.integrated_replay import (
 from multidetect.live import LiveRunConfig
 from multidetect.mission import MissionController
 from multidetect.operator_link import RuntimeBackendHealth
-from multidetect.runtime import RuntimeMode
+from multidetect.runtime import RuntimeMode, load_runtime_run_report
 
 ROOT = Path(__file__).resolve().parents[1]
 MISSION_PATH = ROOT / "configs/missions/fire_patrol.demo.json"
@@ -153,8 +153,22 @@ def test_integrated_replay_consumes_raw_frames_through_live_core_and_binds_statu
     assert session.runtime_status.hardware_outputs_present is False
     assert session.runtime_status.profile_valid is True
     assert session.runtime_status.run_hash64 == int(session.identity.run_identity_hash[:16], 16)
+    report = session.runtime_run_report
+    assert report.descriptor_hash == backend.descriptor.canonical_hash
+    assert report.input_hash == backend.input_hash
+    assert report.processed_frame_ids == ("frame-0001", "frame-0002")
+    assert report.processed_frame_count == backend.frame_count
+    assert report.stream_exhausted is True
+    assert report.max_frames is None
+    assert report.complete is True
+    assert report.termination_reason == "stream_exhausted"
+    assert report.started_at_s == 0.0
+    assert report.finished_at_s == 2.0
     assert result.capture_latency_p50_ms == 0.0
     assert result.inference_latency_p50_ms == 0.0
+
+    events = tuple(event[2] for event in _audit)
+    assert "camera.stream_exhausted" in events
 
 
 def test_integrated_replay_repeats_identity_result_and_core_audit_deterministically(
@@ -167,6 +181,18 @@ def test_integrated_replay_repeats_identity_result_and_core_audit_deterministica
     assert first[2].identity.run_identity_hash == second[2].identity.run_identity_hash
     assert asdict(first[3]) == asdict(second[3])
     assert first[4] == second[4]
+    assert first[2].runtime_run_report == second[2].runtime_run_report
+
+
+def test_integrated_replay_report_round_trips_and_session_is_single_pass(tmp_path: Path) -> None:
+    backend, _detector, session, _result, _audit = _run_once(tmp_path)
+
+    destination = tmp_path / "runtime-report.json"
+    session.write_runtime_run_report(destination)
+    assert load_runtime_run_report(destination) == session.runtime_run_report
+
+    with pytest.raises(RuntimeError, match="single-pass"):
+        session.run()
 
 
 def test_integrated_replay_identity_changes_with_mission_or_perception() -> None:

@@ -29,6 +29,17 @@ class CameraReadError(RuntimeError):
     """Raised when a local or RTSP source cannot deliver a frame."""
 
 
+class FrameSourceExhausted(RuntimeError):
+    """Raised when a finite frame source has delivered its complete stream.
+
+    The exception remains a ``RuntimeError`` for callers that historically
+    treated a direct ``read()`` after the end of a source as an error.  The
+    live mission loop catches it separately so deterministic Replay can report
+    natural stream exhaustion instead of treating a fixed frame budget as a
+    complete recording.
+    """
+
+
 class OnnxOutputContractError(RuntimeError):
     """Raised when a model does not expose the required post-NMS Nx6 contract."""
 
