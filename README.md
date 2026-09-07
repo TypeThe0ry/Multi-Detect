@@ -36,7 +36,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v192：Windows PX4 runtime capture wrapper + v191 sidecar capture/join |
+| 工程迭代 | v193：PX4 capture receipt + v192 Windows wrapper + v191 sidecar/join |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -80,12 +80,11 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详见 [当前进度](docs/current-progress.md)。
 
-### v163–v192 目标定位与证据链
+### v163–v193 目标定位与证据链
 
-v192 新增 `scripts/run_px4_runtime_capture.ps1`，从仓库根目录一键调用 `multidetect-px4-runtime-capture`，转发
-HIL/REAL、endpoint、边界参数和 sidecar 输出；密钥只走环境变量名。v191 的 bounded read-only session 继续生成
-Mission feedback、endpoint/vehicle identity 和 join sidecar，telemetry/application/flight-control 分桶，
-真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View 和飞行验收仍按当前进度门禁执行。
+v193 capture 后输出可搬运的 `capture-summary.json`/`capture-receipt.json`；receipt 绑定六源并重算路径、字节数、
+SHA-256，搬运后可用 `multidetect-px4-runtime-capture-receipt-verify` 复核。v192 wrapper 一键调用 capture，转发
+HIL/REAL、endpoint、边界参数和 sidecar 输出，密钥只走环境变量名；真实硬件、GNSS、人工视觉、HIL/REAL 与飞行仍按门禁。
 
 v163–v165 建立 `target-observation-diagnostics` schema、session 审计和 Fly View 接入；详见[当前进度](docs/current-progress.md)。
 

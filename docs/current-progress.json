@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T16:11:38Z",
+  "updated_at_utc": "2026-09-07T16:45:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "f49079bd424901c9f9f6456b589685d8cf6d0ed5",
-    "commit_subject": "fix(field): preserve PX4 capture exit diagnostics",
-    "commits_ahead_of_origin_main": 274
+    "commit": "d3fde58aa51d4d809cde0d0e97a4d2341fb13ff2",
+    "commit_subject": "feat(field): add PX4 capture receipt closure",
+    "commits_ahead_of_origin_main": 276
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v192",
+  "working_iteration": "v193",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,17 +74,37 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3790,
-      "passed_tests": 3783,
+      "tests": 3794,
+      "passed_tests": 3787,
       "skipped": 7,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 190.792,
+      "duration_seconds": 190.89,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v192/full-rerun-v192-final.xml",
-      "junit_file_bytes": 555245,
-      "junit_file_sha256": "2c48eb74343af0a8e5f7358cc1b94297426078fa5b8c51603e520a1b159a2bf9",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v193/full-rerun-v193.xml",
+      "junit_file_bytes": 555788,
+      "junit_file_sha256": "8fa731a3b7e2c39538eceb15f9f8b6f9062f1e05b134df84d6f0cf46f290b143",
       "distributed_in_git": false
+    },
+    "v193_px4_runtime_capture_receipt_selected_regression": {
+      "passed": true,
+      "tests": 39,
+      "passed_tests": 39,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "px4_runtime_capture_receipt_six_source_closure_summary_output_wrapper_and_release_docs",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v193/px4-runtime-capture-receipt-focused-v193.xml",
+      "junit_file_bytes": 5533,
+      "junit_file_sha256": "a46237d711879e83883a7fdc1007073e5ac47d8b229d8176ed818a0bdaf09222",
+      "receipt_build_and_verify": "passed",
+      "source_tamper_and_gate_rejection": "passed",
+      "summary_output_integration": "passed",
+      "powerShell_parser_and_forwarding": "passed",
+      "release_parity": "regenerated",
+      "ruff": "passed",
+      "compileall": "passed",
+      "git_diff_check": "passed"
     },
     "v192_px4_runtime_capture_wrapper_selected_regression": {
       "passed": true,
@@ -1318,17 +1338,91 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 10690,
-    "file_sha256": "c4b0272564fe365ac95497d8d339c190549909ec37d4f20e4f3f5165bb4911f9",
+    "bytes": 10811,
+    "file_sha256": "176e1be1e1e0dc44a2589f4e2fb45ae46fc2ab2bb6c820cfd652403e8390e926",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
       "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
-      "px4_mission_path_hash": "da5c8edf57a2f8a80867dee4b85b4238916f563d171fcf1a0dc674cdb99b3af8"
+      "px4_mission_path_hash": "0457c69bff4d8abf73c3c48657c1f9fdfd41401401f1314996ea2bebfec88bfb"
     }
   },
   "evidence": {
+    "v193_px4_runtime_capture_receipt": {
+      "schema": "multidetect.px4-runtime-capture-receipt",
+      "schema_version": 1,
+      "producer": "build_px4_runtime_capture_receipt",
+      "verifier": "verify_px4_runtime_capture_receipt",
+      "module": "src/multidetect/px4_runtime_capture_receipt.py",
+      "cli": [
+        "multidetect-px4-runtime-capture-receipt",
+        "multidetect-px4-runtime-capture-receipt-verify"
+      ],
+      "wrapper": "scripts/run_px4_runtime_capture.ps1",
+      "release_label": "0.3.0-pre.8",
+      "runtime_modes": [
+        "hil",
+        "real"
+      ],
+      "source_roles": [
+        "mission",
+        "runtime_observation",
+        "runtime_profile",
+        "mission_feedback",
+        "endpoint_vehicle_identity",
+        "join"
+      ],
+      "contract": {
+        "source_count": 6,
+        "capture_summary_hashed": true,
+        "relative_paths": true,
+        "bytes_and_sha256_recomputed": true,
+        "symlink_and_path_escape_rejected": true,
+        "summary_and_join_gates_required": true,
+        "overwrite_requires_explicit_flag": true
+      },
+      "verification": {
+        "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v193/px4-runtime-capture-receipt-focused-v193.xml",
+        "focused_junit_tests": 39,
+        "focused_junit_passed": 39,
+        "focused_junit_skipped": 0,
+        "focused_junit_failed": 0,
+        "focused_junit_errors": 0,
+        "focused_junit_file_bytes": 5533,
+        "focused_junit_sha256": "a46237d711879e83883a7fdc1007073e5ac47d8b229d8176ed818a0bdaf09222",
+        "receipt_build_and_verify": "passed",
+        "source_tamper_and_gate_rejection": "passed",
+        "summary_output_integration": "passed",
+        "powerShell_parser_and_forwarding": "passed",
+        "full_junit_local_path": "artifacts/evaluation/terminal-continuation-v193/full-rerun-v193.xml",
+        "full_junit_tests": 3794,
+        "full_junit_passed": 3787,
+        "full_junit_skipped": 7,
+        "full_junit_failed": 0,
+        "full_junit_errors": 0,
+        "full_junit_duration_seconds": 190.89,
+        "full_junit_file_bytes": 555788,
+        "full_junit_sha256": "8fa731a3b7e2c39538eceb15f9f8b6f9062f1e05b134df84d6f0cf46f290b143",
+        "release_parity": {
+          "path": "configs/release-parity.json",
+          "bytes": 10811,
+          "sha256": "176e1be1e1e0dc44a2589f4e2fb45ae46fc2ab2bb6c820cfd652403e8390e926",
+          "px4_mission_path_hash": "0457c69bff4d8abf73c3c48657c1f9fdfd41401401f1314996ea2bebfec88bfb"
+        }
+      },
+      "claim_boundary": {
+        "software_capture_receipt": true,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "outdoor_gnss_acceptance": "not_claimed",
+        "operator_visual_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed",
+        "release_eligible": false
+      },
+      "portable_exe_rebuilt": false
+    },
     "v192_px4_runtime_capture_wrapper": {
       "schema": "multidetect.px4-runtime-capture-wrapper",
       "schema_version": 1,

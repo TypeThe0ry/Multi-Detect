@@ -1,6 +1,29 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-08（v192 工作树）
+最后更新：2026-09-08（v193 工作树）
+
+## v193 本轮已收口（PX4 capture receipt 与现场搬运闭包）
+
+- `multidetect.px4_runtime_capture` 新增可选 `--capture-summary-out`：采集成功后以原子写入保存原始
+  `px4-runtime-capture` 摘要；摘要不含密钥，也不改变 receive-only provider、Mission feedback 或 join 语义。
+- 新增 [`src/multidetect/px4_runtime_capture_receipt.py`](../src/multidetect/px4_runtime_capture_receipt.py)、
+  `multidetect-px4-runtime-capture-receipt` 和 `-verify`，以及
+  [`configs/schemas/px4-runtime-capture-receipt.schema.json`](../configs/schemas/px4-runtime-capture-receipt.schema.json)。
+  receipt 固定列出六个角色：Mission、RuntimeObservation、RuntimeProfile、Mission feedback、
+  endpoint/vehicle identity、live join；同时记录 capture summary 的相对路径、字节数和 SHA-256。
+- builder/verify 会重开同一 `base_directory`，拒绝符号链接、越界/重复/碰撞路径、摘要或任一源文件篡改，
+  且只接受 completed capture、feedback/identity/join 全部通过和五项 acceptance claim 全为 false。
+  产物是可搬运的软件证据闭包，不升级真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终发布门。
+- [`scripts/run_px4_runtime_capture.ps1`](../scripts/run_px4_runtime_capture.ps1) 现在在 capture 返回零后自动生成
+  `capture-summary.json` 与 `capture-receipt.json`；capture 失败时不继续生成 receipt，并原样传播 native exit code。
+- v193 聚焦回归为 `39 passed / 0 skipped / 0 failed`，全量回归为 `3,787 passed / 7 skipped / 0 failed`
+  （3,794 tests，190.89 秒）。焦点 JUnit 为
+  `artifacts/evaluation/terminal-continuation-v193/px4-runtime-capture-receipt-focused-v193.xml`，5,533 bytes /
+  SHA-256 `A46237D711879E83883A7FDC1007073E5AC47D8B229D8176ED818A0BDAF09222`；全量 JUnit 为
+  `artifacts/evaluation/terminal-continuation-v193/full-rerun-v193.xml`，555,788 bytes /
+  SHA-256 `8FA731A3B7E2C39538ECEB15F9F8B6F9062F1E05B134DF84D6F0CF46F290B143`。当前 parity 已刷新为
+  10,811 bytes / SHA-256 `176E1BE1E1E0DC44A2589F4E2FB45AE46FC2AB2BB6C820CFD652403E8390E926`，
+  PX4 Mission path hash 为 `0457C69BFF4D8ABF73C3C48657C1F9FDFD41401401F1314996EA2BEBFEC88BFB`。
 
 ## v192 本轮已收口（Windows field capture wrapper）
 

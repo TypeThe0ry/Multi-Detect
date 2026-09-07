@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v193 PX4 capture receipt closure（2026-09-08）
+
+- `multidetect.px4_runtime_capture` 新增 `--capture-summary-out`；Windows
+  `scripts/run_px4_runtime_capture.ps1` 成功完成 capture 后自动生成 summary 和 receipt。
+- 新增 `src/multidetect/px4_runtime_capture_receipt.py`、严格 schema、创建/验证 CLI 与回归：固定列出
+  Mission、RuntimeObservation、RuntimeProfile、Mission feedback、endpoint/vehicle identity、join 六个文件，
+  重算路径、字节数和 SHA-256，拒绝越界、符号链接、重复、篡改或未通过的 capture gate。
+- receipt 只记录 receive-only software capture / completed join，所有 hardware、HIL/REAL、室外 GNSS、人工视觉、
+  飞行和 release claims 保持 false。v193 聚焦回归 `39 passed`，全量回归 `3,787 passed, 7 skipped, 0 failed`
+  （3,794 tests）；当前 parity 与 JUnit 哈希见 [`docs/current-progress.json`](docs/current-progress.json)。
+
 ### v0.3.0-pre.8 v192 Windows PX4 runtime capture wrapper（2026-09-08）
 
 - 新增 `scripts/run_px4_runtime_capture.ps1`：从 `PSScriptRoot` 稳定解析仓库，自动选择 QGC venv、仓库 `.venv`
