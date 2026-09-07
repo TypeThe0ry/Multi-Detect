@@ -1,5 +1,19 @@
 # 统一仓库架构
 
+## v175 全量回放摘要剪贴板导出（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+native replay store (verified full event stream)
+  -> QML summaryClipboardText()
+  -> QGroundControl.copyToClipboard()
+  -> operator-pasteable replay summary
+```
+
+- 摘要只读取 native store 已校验字段：bundle/session、时间、总量、可定位/测距/媒体/目标统计、时长、媒体字节和完整性；
+  按钮在 `loaded && integrityVerified` 之前保持禁用，避免复制半加载或未验证内容；
+- 这条链路只写系统剪贴板，不落地图、不选择目标、不创建 Mission、不发送飞控指令，也不改变 GPS/测距 fail-closed；
+  现场人工审阅、室外 GNSS、硬件、HIL/REAL 与实飞门继续独立存在。
+
 ## v174 全量回放质量摘要（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

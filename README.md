@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v174：全量回放质量摘要与 parity 重绑 |
+| 当前工程迭代 | v175：全量回放摘要一键复制与 parity 重绑 |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,7 +81,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 成熟度与未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v174 目标定位诊断验证、会话审计与原生录制
+### v163–v175 目标定位诊断验证、会话审计与原生录制
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -109,10 +109,9 @@ v171 将 `multidetect.target-event-replay.v1` 接入原生 QGC：C++ 严格复�
 时间线和 SHA-256，Fly View 只读显示回放，不连接地图、目标选择、任务或飞控；Python bundle 已由 native self-test
 跨语言复核。
 
-v172 增加媒体/车辆元数据、四种只读筛选和事件级复制证据；v173 将 SIM/PX4 派生证据与 E7 report-only 重新绑定当前 parity。
-v174 再把摘要提升到完整事件流：native/Python 提供可定位、有效测距、有媒体、唯一目标、时长和媒体字节统计，
-Fly View 区分“匹配总数”和最多 512 条“当前显示数”。portable EXE 为 46,875,136 bytes、SHA-256
-`4E468DD936CD7F938E7373B0500294B12DDA9E1942FA9D9412D8803AB49E457A`；详细证据、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
+v172 增加媒体/车辆元数据、四种只读筛选和事件级复制证据；v173–v174 重绑当前 parity 并把摘要提升到完整事件流。
+v175 新增“复制全量摘要”（仅完整性通过时可用），portable EXE 为 46,875,136 bytes、SHA-256
+`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；详情、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 

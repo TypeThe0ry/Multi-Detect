@@ -1,6 +1,39 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v174 工作树）
+最后更新：2026-09-07（v175 工作树）
+
+## v175 本轮已收口（全量摘要一键复制与 parity 重绑）
+
+- Fly View 回放弹窗新增“复制全量摘要”：只在 native replay store 已加载且完整性校验通过时启用，复制
+  bundle/session、开始时间、总事件/媒体数、可定位/有效测距/有媒体/唯一目标统计、捕获时长、媒体字节和完整性状态；
+  复制仍是只读剪贴板操作，不落地图、不选目标、不创建 Mission、不发送飞控指令。
+- v175 继承 native/Python 完整事件流质量统计与最多 512 条显示上限；QGC 静态契约与回放专项回归为
+  `45 passed, 0 skipped, 0 failed`，portable offscreen `--simple-boot-test` 退出 0 且 stdout/stderr 均为 0 bytes；
+  native replay self-test 通过。
+- Release/portable EXE 已重链并部署到
+  `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`：
+  46,875,136 bytes，SHA-256 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；
+  Release 与 portable 文件字节一致。
+- 当前 `configs/release-parity.json` 为 10,129 bytes，SHA-256
+  `1C937FFDD4D0D59267A5DF79A240E8101431613CAD0BE17533B2FFF6ECC33EBC`；core hash 保持
+  `155A5011AA27042D587DD50AE29236A02DB4E7F42864CCF2607CB21AAC626D0A`，UI hash 更新为
+  `46629AC7EC0AF1DC03B9D4D01B5EC56F959CF6C2C5EC27E59EBF76CD1090ECB9`。
+- v175 external join/revalidation、PX4 response matrix/campaign 均 `gate_passed=true`，文件分别为
+  5,492/565/6,985/26,120 bytes，SHA-256 为 `CBFAE8D4A08A97A1007FBCAE3FDE6F82D94816A77878AF6C17E9C21BCC4FD6AD` /
+  `EE2C4F7D032315027C109D60E83EF36C0FD8B15408F8A83A99A027A308B8F702` /
+  `8960871D28A7934D27C11C19C9F3ECA5844EF89F2BDBEE49E5348BA6F2CC73E3` /
+  `3999F21F379B0B1EF46972413564A6D025390068CCD53D8A61DB093A33A06139`；matrix/campaign canonical SHA 为
+  `051C9FA04794AFD8A74F40AA5EBA638983129FD137B53B41B5DE9776EAEFD52B` /
+  `86E6318530784A3770F8A4AEC6B2E1E6E5C8BCD0525BD87B201809E3C764B5EE`。
+- report-only E7 已重算到 `artifacts/evaluation/terminal-continuation-v175/release-gate/`，manifest/report 为
+  23,729/73,786 bytes，SHA-256 `4EF6E491199AADEF899D31DA3E02DAEFCC677A8C19CFAC58B62411B5226F5FF4` /
+  `7941392E1A51C1119A9C7661A22ED23E3B64D4D5D852A213CE4F1C35B58062DA`；E7 仍为
+  `gate_passed=false`、`release_allowed=false`、32 条详细 blocker（仓库基线保持 31）。
+- 本轮没有提升室外 GNSS、真实硬件、HIL/REAL、人工 Fly View 或实飞状态；现场链路继续 fail-closed。
+- 完整回归随后完成 `3704 passed, 4 skipped, 0 failed`（3,708 tests，195.301 秒），JUnit
+  `artifacts/evaluation/target-event-replay-v175-full-rerun.xml` 为 542,180 bytes、SHA-256
+  `233628DA0C949A2F84E0690FF293E9F642D7D33BB64785E51316AA031B332BBC`；Ruff、format、compileall 与
+  `git diff --check` 通过。
 
 ## v174 本轮已收口（全量回放质量摘要与 parity 重绑）
 
@@ -2158,10 +2191,10 @@ v59 矩阵内部摘要为：
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-- 大小：`46,704,640` bytes
-- SHA-256：`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`
-- 当前 portable 已包含 v162 的目标定位诊断弹窗、中文 fail-closed 原因、复制/原子保存 JSON、
-  producer epoch 诊断、evidence v6 与全部此前 QGC C++/QML 变更。v163 只新增离线 verifier，未重链 EXE。
+- 大小：`46,875,136` bytes
+- SHA-256：`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`
+- 当前 portable 已包含 v175 的全量 replay 摘要与一键复制、v174 质量统计、v172 媒体/车辆明细、
+  producer epoch 诊断、evidence v6 与全部此前 QGC C++/QML 变更；native self-test 和 offscreen simple boot 均通过。
 - 该文件位于被忽略的本机 `build/`，不是 GitHub 下载资产；运行时必须保留完整 portable 目录。
 
 ## 当前 E7 阻断分类

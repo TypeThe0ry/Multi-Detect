@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T05:03:51Z",
+  "updated_at_utc": "2026-09-07T05:30:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v174",
+  "working_iteration": "v175",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 181.948,
+      "duration_seconds": 195.301,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/target-event-replay-v174-full-rerun.xml",
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v175-full-rerun.xml",
       "junit_file_bytes": 542180,
-      "junit_file_sha256": "f891c6155a01a275ae96372f2df38487483a8fa4cfc57a339f1edba9d8ad9faa",
+      "junit_file_sha256": "233628da0c949a2f84e0690ff293e9f642d7d33bb64785e51316aa031b332bbc",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -595,6 +595,82 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v175_target_event_replay_summary_clipboard_selected_regression": {
+      "passed": true,
+      "tests": 45,
+      "passed_tests": 45,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "full_replay_summary_clipboard_export_native_python_quality_and_read_only_qml_projection",
+      "native_target_event_replay_store_self_test": "passed",
+      "native_target_event_replay_external_python_bundle": "passed",
+      "full_event_stream_statistics": [
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes"
+      ],
+      "filter_match_count_uses_full_stream": true,
+      "summary_clipboard_export": "enabled_after_loaded_and_integrity_verified",
+      "summary_clipboard_fields": [
+        "bundle_id",
+        "session_id",
+        "started_at_utc",
+        "event_count",
+        "media_count",
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes",
+        "integrity_verified"
+      ],
+      "displayed_event_limit": 512,
+      "read_only_replay_filters": ["all", "locatable", "ranged", "media"],
+      "copy_to_clipboard_read_only": true,
+      "no_map_or_target_selection": true,
+      "no_flight_control_or_physical_release": true,
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v175-focused.xml",
+      "junit_file_bytes": 6772,
+      "junit_file_sha256": "b35a2cda67a8f809e4211bd25047941ca38f723ec51a0d5087279aa3925a07ee",
+      "documentation_parity_selected_regression": {
+        "tests": 72,
+        "passed_tests": 72,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_local_path": "artifacts/evaluation/target-event-replay-v175-docs-focused.xml",
+        "junit_file_bytes": 10452,
+        "junit_file_sha256": "c310bc839e0e14e352e55e9cb4542d1fb9e2f20ec23422139bcf70c47da2e531"
+      },
+      "full_regression": {
+        "tests": 3708,
+        "passed_tests": 3704,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 195.301,
+        "python_version": "3.12.7",
+        "junit_local_path": "artifacts/evaluation/target-event-replay-v175-full-rerun.xml",
+        "junit_file_bytes": 542180,
+        "junit_file_sha256": "233628da0c949a2f84e0690ff293e9f642d7d33bb64785e51316aa031b332bbc"
+      },
+      "portable_simple_boot": "passed",
+      "portable_boot_stdout_bytes": 0,
+      "portable_boot_stderr_bytes": 0,
+      "portable_boot_qml_initialization_errors": 0,
+      "portable_exe_path": "build/windows-v0.3.0-pre.8-release/portable-v0.3.0-pre.8/bin/MultiDetectGCS.exe",
+      "portable_exe_bytes": 46875136,
+      "portable_exe_sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b",
+      "native_self_test_exe_bytes": 209408,
+      "native_self_test_exe_sha256": "69a860ce4a5ed7a94e66849fa0fa0cb86c658ccf9cac29ff7b7099910baf1195",
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v170_target_card_localization_quality_selected_regression": {
       "passed": true,
       "tests": 89,
@@ -671,9 +747,9 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10129,
-    "file_sha256": "01001d1dfb2b043d03daad50cc88dabc669b90831fda760d08c25937ff20836d",
+    "file_sha256": "1c937ffdd4d0d59267a5df79a240e8101431613cad0be17533b2fff6ecc33ebc",
     "hashes": {
-      "ui_contract_hash": "1a7f75ecb38a9880f88046214e97a5de5bda78a7ba0494943604be2105244c71",
+      "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
@@ -702,6 +778,7 @@
       "portable_simple_boot": "passed",
       "replay_filters": ["all", "locatable", "ranged", "media"],
       "copy_to_clipboard_read_only": true,
+      "summary_clipboard_export_read_only": true,
       "full_event_stream_statistics": [
         "locatable_event_count",
         "ranged_event_count",
@@ -712,7 +789,7 @@
       ],
       "filter_match_count_uses_full_stream": true,
       "exe_bytes": 46875136,
-      "exe_sha256": "4e468dd936cd7f938e7373b0500294b12dda9e1942fa9d9412d8803ab49e457a"
+      "exe_sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
     },
     "gnss_bound_target_evidence_snapshots": {
       "schema": "multidetect.target-evidence.v6",
@@ -2076,6 +2153,72 @@
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
     },
+    "v175_replay_summary_clipboard_and_parity_rebound": {
+      "reason": "one-click read-only full replay summary clipboard export and derived evidence rebound after QML contract change",
+      "current_release_parity_path": "configs/release-parity.json",
+      "current_release_parity_bytes": 10129,
+      "current_release_parity_sha256": "1c937ffdd4d0d59267a5df79a240e8101431613cad0be17533b2fff6ecc33ebc",
+      "current_core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+      "current_ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
+      "summary_clipboard_export_read_only": true,
+      "summary_clipboard_requires_loaded_and_integrity_verified": true,
+      "full_event_stream_statistics": [
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes"
+      ],
+      "displayed_event_limit": 512,
+      "filter_match_count_uses_full_stream": true,
+      "external_join": {
+        "path": "artifacts/evaluation/terminal-continuation-v175/simulator-external-runtime-ai-join-v175-current-parity-pre8.json",
+        "bytes": 5492,
+        "sha256": "cbfae8d4a08a97a1007fbcae3fde6f82d94816a77878af6c17e9c21bcc4fd6ad",
+        "gate_passed": true
+      },
+      "external_revalidation": {
+        "path": "artifacts/evaluation/terminal-continuation-v175/simulator-external-runtime-ai-revalidation-v175-current-parity-pre8.json",
+        "bytes": 565,
+        "sha256": "ee2c4f7d032315027c109d60e83ef36c0fd8b15408f8a83a99a027a308b8f702",
+        "source_recomputed": true,
+        "gate_passed": true
+      },
+      "px4_response_matrix": {
+        "path": "artifacts/evaluation/terminal-continuation-v175/px4-reported-position-response-matrix-v175-current-parity-pre8.json",
+        "bytes": 6985,
+        "sha256": "8960871d28a7934d27c11c19c9f3eca5844ef89f2bdbee49e5348ba6f2cc73e3",
+        "matrix_sha256": "051c9fa04794afd8a74f40aa5eba638983129fd137b53b41b5de9776eaefd52b",
+        "gate_passed": true
+      },
+      "px4_response_campaign": {
+        "path": "artifacts/evaluation/terminal-continuation-v175/px4-reported-position-response-campaign-v175-current-parity-pre8.json",
+        "bytes": 26120,
+        "sha256": "3999f21f379b0b1ef46972413564a6d025390068ccd53d8a61db093a33a06139",
+        "campaign_sha256": "86e6318530784a3770f8a4aec6b2e1e6e5c8bcd0525bd87b201809e3c764b5ee",
+        "gate_passed": true
+      },
+      "release_gate_report": {
+        "manifest_path": "artifacts/evaluation/terminal-continuation-v175/release-gate/release-gate-pre.8-current-20260907T052600Z-v6-bound.json",
+        "manifest_bytes": 23729,
+        "manifest_sha256": "4ef6e491199aadef899d31da3e02daefcc677a8c19cfac58b62411b5226f5ff4",
+        "report_path": "artifacts/evaluation/terminal-continuation-v175/release-gate/release-gate-pre.8-current-20260907T052600Z-v6-bound-report.json",
+        "report_bytes": 73786,
+        "report_sha256": "7941392e1a51c1119a9c7661a22ed23e3b64d4d5d852a213ce4f1c35b58062da",
+        "gate_passed": false,
+        "release_allowed": false,
+        "blocker_count": 32,
+        "current_release_parity_bound": true
+      },
+      "derived_evidence_rebound": true,
+      "release_gate_recomputed": true,
+      "gate_passed": false,
+      "release_allowed": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
     "v174_replay_quality_summary_and_parity_rebound": {
       "reason": "full target-event replay quality statistics and derived evidence rebound after native/QML contract change",
       "current_release_parity_path": "configs/release-parity.json",
@@ -2194,18 +2337,18 @@
       "real_acceptance": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v175/release-gate/release-gate-pre.8-current-20260907T052600Z-v6-bound.json",
       "manifest_file_bytes": 23729,
-      "manifest_file_sha256": "6e1d31983ef6c74155d9e6fd818bd86b2cdd7956c32d33a8000f0a3baaec8a52",
-      "local_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound-report.json",
+      "manifest_file_sha256": "4ef6e491199aadef899d31da3e02daefcc677a8c19cfac58b62411b5226f5ff4",
+      "local_path": "artifacts/evaluation/terminal-continuation-v175/release-gate/release-gate-pre.8-current-20260907T052600Z-v6-bound-report.json",
       "distributed_in_git": false,
       "file_bytes": 73786,
-      "file_sha256": "1913ad13f27157434f0d71ac574e2e9f58090f233be55f54088e93bcda078234",
+      "file_sha256": "7941392e1a51c1119a9c7661a22ed23e3b64d4d5d852a213ce4f1c35b58062da",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32,
       "current_release_parity_bound": true,
-      "status": "current_v173_report_only_blocked"
+      "status": "current_v175_report_only_blocked"
     }
   },
   "model_status": {

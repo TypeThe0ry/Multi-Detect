@@ -533,7 +533,11 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         'qsTr("目标事件回放 · 只读")',
         'qsTr("选择清单")',
         'qsTr("清除")',
+        'qsTr("复制全量摘要")',
         'qsTr("清单 %1 · 开始 %2 · 事件 %3/%4 · 媒体 %5")',
+        'qsTr("可定位: %1 · 有效测距: %2 · 有媒体: %3 · 目标: %4")',
+        'qsTr("时长: %1 s · 媒体字节: %2 B")',
+        'qsTr("完整性: %1")',
         'qsTr("全量质量：可定位 %1 · 有效测距 %2 · 有媒体 %3 · 目标 %4 · 时长 %5 s · 媒体 %6 B")',
         'qsTr("筛选：%1 · 匹配 %2 条 · 当前显示 %3 条")',
         'qsTr("✓ 可定位")',
@@ -547,6 +551,7 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         assert text in dialog
     assert "function replayFilterMatches(event)" in dialog
     assert "function eventClipboardText(event)" in dialog
+    assert "function summaryClipboardText()" in dialog
     assert "QGroundControl.copyToClipboard" in dialog
     assert "sendTargetSelection" not in dialog
     assert "executePayload" not in dialog

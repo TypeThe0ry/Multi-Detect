@@ -13,8 +13,20 @@
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
 当前文件为 `46,875,136` bytes，SHA-256
-`4E468DD936CD7F938E7373B0500294B12DDA9E1942FA9D9412D8803AB49E457A`；portable 目录已经过
+`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v175 全量摘要一键复制与 parity 重绑（2026-09-07）
+
+Fly View 回放弹窗现在提供“复制全量摘要”。按钮只在 native replay store 完整加载且 `integrityVerified=true` 时启用，
+复制 bundle/session、开始时间、事件/媒体总量、可定位/有效测距/有媒体/唯一目标、捕获时长、媒体字节和完整性状态；
+它只写剪贴板，不落地图、不选目标、不创建 Mission、不发送飞控或物理释放指令。
+
+v175 portable/Release EXE 均为 `46,875,136` bytes，SHA-256
+`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；native replay self-test 通过，portable
+offscreen `--simple-boot-test` 退出 0 且 stdout/stderr 均为 0 bytes。当前 parity 为 10,129 bytes、SHA-256
+`1C937FFDD4D0D59267A5DF79A240E8101431613CAD0BE17533B2FFF6ECC33EBC`，三机型 external/PX4 派生证据和 report-only E7
+已在 `artifacts/evaluation/terminal-continuation-v175/` 重绑；E7 仍为 `gate_passed=false`、`release_allowed=false`。
 
 ### v174 全量回放质量摘要与 parity 重绑（2026-09-07）
 

@@ -1347,6 +1347,35 @@ Item {
                 ].join("\n");
             }
 
+            function summaryClipboardText() {
+                if (typeof multiDetectTargetEventReplayStore === "undefined" ||
+                        multiDetectTargetEventReplayStore === null ||
+                        !multiDetectTargetEventReplayStore.loaded)
+                    return "";
+                return [
+                    "Multi-Detect target-event replay summary",
+                    qsTr("清单: %1 · bundle: %2 · 会话: %3")
+                        .arg(multiDetectTargetEventReplayStore.manifestName)
+                        .arg(multiDetectTargetEventReplayStore.bundleId)
+                        .arg(multiDetectTargetEventReplayStore.sessionId),
+                    qsTr("开始: %1 · 事件: %2 · 媒体: %3")
+                        .arg(multiDetectTargetEventReplayStore.startedAtUtc)
+                        .arg(multiDetectTargetEventReplayStore.eventCount)
+                        .arg(multiDetectTargetEventReplayStore.mediaCount),
+                    qsTr("可定位: %1 · 有效测距: %2 · 有媒体: %3 · 目标: %4")
+                        .arg(multiDetectTargetEventReplayStore.locatableEventCount)
+                        .arg(multiDetectTargetEventReplayStore.rangedEventCount)
+                        .arg(multiDetectTargetEventReplayStore.mediaEventCount)
+                        .arg(multiDetectTargetEventReplayStore.uniqueTargetCount),
+                    qsTr("时长: %1 s · 媒体字节: %2 B")
+                        .arg(Number(multiDetectTargetEventReplayStore.captureDurationS).toFixed(3))
+                        .arg(multiDetectTargetEventReplayStore.mediaBytes),
+                    qsTr("完整性: %1")
+                        .arg(multiDetectTargetEventReplayStore.integrityVerified ?
+                                 qsTr("已验证") : qsTr("未验证"))
+                ].join("\n");
+            }
+
             function gpsText(gps) {
                 const value = gps || ({});
                 if (value.coordinates_included !== true)
@@ -1392,6 +1421,16 @@ Item {
                                  multiDetectTargetEventReplayStore !== null &&
                                  multiDetectTargetEventReplayStore.loaded
                         onClicked: root._clearTargetEventReplay()
+                    }
+
+                    QGCButton {
+                        text: qsTr("复制全量摘要")
+                        enabled: typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                 multiDetectTargetEventReplayStore !== null &&
+                                 multiDetectTargetEventReplayStore.loaded &&
+                                 multiDetectTargetEventReplayStore.integrityVerified
+                        onClicked: QGroundControl.copyToClipboard(
+                                       targetEventReplayDialog.summaryClipboardText())
                     }
 
                     QGCLabel {

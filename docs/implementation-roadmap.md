@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 全量摘要一键复制与 parity 重绑（v175）
+
+- [x] Fly View 回放弹窗提供完整摘要剪贴板导出，绑定 native 已验证的 bundle/session、质量统计、时长、媒体字节和完整性状态；
+- [x] 摘要按钮仅在 `loaded && integrityVerified` 时可用，保持只读剪贴板边界，不进入地图、目标、Mission、飞控或物理释放路径；
+- [x] 重链 Release/portable、通过 native self-test 与 offscreen simple boot，完成 45 项回放/QGC 定向回归；
+- [x] 以新 UI parity 重建三机型 external/PX4 派生证据并重算 report-only E7；
+- [ ] 在现场 portable 上人工载入长回放并核对摘要文本、复制结果和长文本布局；该人工门通过前不改变 E7、室外 GNSS、
+  硬件、HIL/REAL 或实飞状态。
+
 ## 全量回放质量摘要与 parity 重绑（v174）
 
 - [x] native replay store 与 Python bundle 对完整事件流计算可定位、有效测距、有媒体、唯一目标、捕获时长和媒体字节统计；

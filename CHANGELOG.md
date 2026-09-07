@@ -5,6 +5,12 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v175 one-click replay summary export and parity rebind（2026-09-07）
+
+- Fly View 回放弹窗新增“复制全量摘要”，在 native 完整性校验通过后复制 bundle/session、事件与质量统计、捕获时长、媒体字节和完整性状态；该操作只写剪贴板，不触发地图、目标、Mission、飞控或物理释放；
+- Release/portable EXE 重链并通过 native self-test、offscreen simple boot 与 45 项回放/QGC 定向回归；EXE 为 46,875,136 bytes，SHA-256 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；
+- `release-parity.json` 更新为 SHA-256 `1C937FFDD4D0D59267A5DF79A240E8101431613CAD0BE17533B2FFF6ECC33EBC`，三机型 external/PX4 派生证据与 report-only E7 已在 `artifacts/evaluation/terminal-continuation-v175/` 重绑；E7 仍 `gate_passed=false / release_allowed=false`，版本保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v174 full replay quality summary and parity rebind（2026-09-07）
 
 - `TargetEventReplayBundle` 与 native replay store 对完整事件流计算可定位、有效测距、有媒体、唯一目标、捕获时长和媒体字节统计；Fly View 同时呈现筛选匹配总数与最多 512 条的当前显示数，避免长回放把截断列表当成完整结果；
