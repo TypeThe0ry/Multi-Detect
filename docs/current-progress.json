@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T15:30:37Z",
+  "updated_at_utc": "2026-09-07T16:02:56Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "c15a0be07707b8cc5c441a87b0eb9400d31e876b",
-    "commit_subject": "feat(runtime): add PX4 sidecar capture bridge",
-    "commits_ahead_of_origin_main": 269
+    "commit": "82627d86d4f946f37182468c1f9efb25f5a066f5",
+    "commit_subject": "feat(field): add PX4 runtime capture PowerShell wrapper",
+    "commits_ahead_of_origin_main": 270
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v191",
+  "working_iteration": "v192",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,17 +74,39 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3786,
-      "passed_tests": 3779,
+      "tests": 3790,
+      "passed_tests": 3783,
       "skipped": 7,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 187.779,
+      "duration_seconds": 197.147,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v191/full-rerun-v191-final.xml",
-      "junit_file_bytes": 554650,
-      "junit_file_sha256": "cd69d10146c6a361cf25ddd5905a13f9afb640da44999f36e8861a993322dba9",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v192/full-rerun-v192-final.xml",
+      "junit_file_bytes": 555245,
+      "junit_file_sha256": "6096292e30637a8dd6d26c8153768b82d00359729dc7e1335641bec01e6f36a5",
       "distributed_in_git": false
+    },
+    "v192_px4_runtime_capture_wrapper_selected_regression": {
+      "passed": true,
+      "tests": 97,
+      "passed_tests": 96,
+      "skipped": 1,
+      "failed": 0,
+      "errors": 0,
+      "scope": "windows_px4_runtime_capture_wrapper_parser_forwarding_secret_boundary_and_px4_parity",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v192/px4-runtime-capture-wrapper-focused-v192.xml",
+      "junit_file_bytes": 15216,
+      "junit_file_sha256": "f4a29388474fe194289c16efddb5c1c2bb1690ad820227d618b565e51944f61b",
+      "duration_seconds": 2.364,
+      "implementation": "scripts/run_px4_runtime_capture.ps1",
+      "powerShell_parser": "passed",
+      "forwarding_contract": "passed",
+      "secret_boundary": "passed",
+      "mode_fail_closed": "passed",
+      "release_parity": "regenerated",
+      "ruff": "passed",
+      "compileall": "passed",
+      "git_diff_check": "passed"
     },
     "v191_px4_runtime_capture_selected_regression": {
       "passed": true,
@@ -1296,17 +1318,69 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 10645,
-    "file_sha256": "7bb1d0252c93a5177e0380e219cb285f2ff123746fee71db358399b657840787",
+    "bytes": 10690,
+    "file_sha256": "93ca9fe682d386673de9eff4f66851728acee8ade4b7d5f2dd981e592633f6d5",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
       "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
-      "px4_mission_path_hash": "1758a3a6ac52c01260e432adc005e5ac9993978359f7243a281a02645b98dd97"
+      "px4_mission_path_hash": "651b98a0f850261d07f22775752a41327cdb6193452ea414deaab443b9c7e72a"
     }
   },
   "evidence": {
+    "v192_px4_runtime_capture_wrapper": {
+      "schema": "multidetect.px4-runtime-capture-wrapper",
+      "schema_version": 1,
+      "implementation": "scripts/run_px4_runtime_capture.ps1",
+      "module": "src/multidetect/px4_runtime_capture.py",
+      "cli": "multidetect-px4-runtime-capture",
+      "release_label": "0.3.0-pre.8",
+      "runtime_modes": [
+        "hil",
+        "real"
+      ],
+      "contract": {
+        "repository_root_from_psscriptroot": true,
+        "python_resolution": [
+          "ground-control/MultiDetectGCS/.venv/Scripts/python.exe",
+          ".venv/Scripts/python.exe",
+          "PATH"
+        ],
+        "bounded_options_forwarded": true,
+        "autopilot_version_request_forwarded": true,
+        "ranging_request_forwarded": true,
+        "sidecar_outputs_forwarded": true,
+        "overwrite_is_explicit": true
+      },
+      "secret_boundary": {
+        "hmac_value_in_arguments": false,
+        "signing_key_value_in_arguments": false,
+        "environment_variable_names_only": true,
+        "pythonpath_restored": true
+      },
+      "verification": {
+        "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v192/px4-runtime-capture-wrapper-focused-v192.xml",
+        "focused_junit_tests": 97,
+        "focused_junit_passed": 96,
+        "focused_junit_skipped": 1,
+        "focused_junit_failed": 0,
+        "focused_junit_errors": 0,
+        "focused_junit_file_bytes": 15216,
+        "focused_junit_sha256": "f4a29388474fe194289c16efddb5c1c2bb1690ad820227d618b565e51944f61b",
+        "powershell_parser": "passed",
+        "release_parity": "regenerated"
+      },
+      "claim_boundary": {
+        "software_wrapper": true,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "outdoor_gnss_acceptance": "not_claimed",
+        "operator_visual_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      }
+    },
     "v191_px4_runtime_capture": {
       "schema": "multidetect.px4-runtime-capture",
       "schema_version": 1,

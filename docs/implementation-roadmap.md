@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## Windows field capture wrapper（v192，`v0.3.0-pre.8`）
+
+- [x] 新增 `scripts/run_px4_runtime_capture.ps1`：从 `PSScriptRoot` 解析仓库根目录，自动选择 QGC venv、仓库
+  `.venv` 或 PATH Python，并调用统一的 `multidetect.px4_runtime_capture` 模块。
+- [x] 完整转发 HIL/REAL、endpoint/baud、system/component ID、采集时限、`AUTOPILOT_VERSION`/ranging 请求、
+  sidecar 输出和覆盖策略；REAL/HIL signing identity 组合在 wrapper 层先行 fail-closed。
+- [x] HMAC/signing 只按环境变量名传递，恢复调用方 `PYTHONPATH`，不修改网卡、路由或飞控状态；wrapper、
+  capture 模块、schema 和 generator 已纳入 PX4 Mission path parity。
+- [x] PowerShell parser、契约静态断言、release parity、ruff、compileall 与 diff check 通过；真实 Pixhawk/
+  GNSS/HIL/REAL 采集与人工 Fly View 仍是现场门，软件 wrapper 不替代它们。
+- [x] v192 聚焦回归 `97 tests / 96 passed / 1 skipped`，全量回归 `3,783 passed / 7 skipped / 0 failed`
+  （3,790 tests）；JUnit 和 SHA-256 已写入 `docs/current-progress.json`。
+
 ## PX4 receive-only runtime sidecar capture（v191，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect-px4-runtime-capture`，在一个 bounded `PixhawkReadOnlyTelemetryProvider` session 中

@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v192 Windows PX4 runtime capture wrapper（2026-09-08）
+
+- 新增 `scripts/run_px4_runtime_capture.ps1`：从 `PSScriptRoot` 稳定解析仓库，自动选择 QGC venv、仓库 `.venv`
+  或 PATH Python，一条 PowerShell 命令调用统一的 `multidetect.px4_runtime_capture` sidecar capture/join。
+- 转发 HIL/REAL、串口/UDP endpoint、边界参数、`AUTOPILOT_VERSION`/ranging 请求、三个 sidecar 输出路径和
+  覆盖策略；REAL/HIL signing identity 组合先在 wrapper 层 fail-closed。
+- HMAC/signing 只传环境变量名，不把密钥原文放进 PowerShell 参数或报告；恢复调用方 `PYTHONPATH`，不触碰网卡、
+  路由或飞控输出。wrapper 已加入 PX4 Mission release parity，新增 parser/契约/密钥边界回归。
+- v192 聚焦回归 `96 passed, 1 skipped`（97 tests），全量 Python 回归 `3,783 passed, 7 skipped, 0 failed`
+  （3,790 tests）；JUnit、耗时与 SHA-256 记录在 [`docs/current-progress.json`](docs/current-progress.json)。
+- 本轮仍是 field tooling 与 software join 完善，不改变真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、
+  飞行或最终 `v0.3.0` 发布门状态。
+
 ### v0.3.0-pre.8 v191 PX4 receive-only runtime sidecar capture（2026-09-07）
 
 - 新增 `src/multidetect/px4_runtime_capture.py` 与 `multidetect-px4-runtime-capture`：在一个 bounded

@@ -1,6 +1,31 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v191 工作树）
+最后更新：2026-09-08（v192 工作树）
+
+## v192 本轮已收口（Windows field capture wrapper）
+
+- 新增 [`scripts/run_px4_runtime_capture.ps1`](../scripts/run_px4_runtime_capture.ps1)：从脚本自身解析仓库根目录，
+  自动选择 `ground-control/MultiDetectGCS/.venv`、仓库 `.venv` 或 PATH 中的 Python，并调用同一个
+  `multidetect.px4_runtime_capture` 模块；现场不需要手抄长命令或依赖当前工作目录。
+- wrapper 完整转发 `hil|real`、串口/UDP endpoint、baud、system/component ID、stale/duration/poll 边界、
+  `AUTOPILOT_VERSION`/ranging 请求、三个 sidecar 输出路径和 `--overwrite`。REAL 必须给 signing identity
+  hash 或 signing-key 环境变量名，HIL 明确拒绝两者；HMAC/signing 原文只由 Python 子进程读取环境变量，
+  不进入 PowerShell 参数列表，也不改变网卡、路由或飞控状态。
+- 增加 PowerShell parser、转发契约、密钥边界、模式 fail-closed 和 parity 断言；wrapper 与 capture 模块、
+  schema、确定性 generator 一起纳入 PX4 Mission path hash。当前 v192 的现场入口仍只生成 sidecar 和软件
+  join，不自动声称真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终 `v0.3.0` 通过。
+- v192 聚焦回归为 `97 tests / 96 passed / 1 skipped / 0 failed`，JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v192/px4-runtime-capture-wrapper-focused-v192.xml`，15,216 bytes /
+  SHA-256 `F4A29388474FE194289C16EFDDB5C1C2BB1690AD820227D618B565E51944F61B`；全量回归为
+  `3,783 passed / 7 skipped / 0 failed`（3,790 tests，197.147 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v192/full-rerun-v192-final.xml`，555,245 bytes /
+  SHA-256 `6096292E30637A8DD6D26C8153768B82D00359729DC7E1335641BEC01E6F36A5`。docs/parity、ruff、
+  format、compileall、PowerShell parser 与 diff check 均通过。
+- 现场调用模板（在仓库根目录 PowerShell）：
+  `& .\scripts\run_px4_runtime_capture.ps1 -BaseDirectory <capture-root> -Mission mission.json
+  -RuntimeObservation runtime-observation.json -RuntimeProfile signed-profile.json -RuntimeMode hil
+  -Endpoint <serial-or-udp-endpoint> -RuntimeProfileKeyId <KEY_ID>`；先在当前进程设置
+  `$env:MULTIDETECT_RUNTIME_PROFILE_HMAC_KEY`，不要把密钥写进命令历史。
 
 ## v191 本轮已收口（PX4 receive-only runtime sidecar capture）
 
