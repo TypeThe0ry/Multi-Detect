@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T00:25:56Z",
+  "updated_at_utc": "2026-09-07T00:42:33Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "bff5e1509f64e59f5f489113d3f1a3340a33fdb0",
-    "commit_subject": "feat(evidence): record localization diagnostic sessions",
-    "commits_ahead_of_origin_main": 224
+    "commit": "43b45250a381f85ab01b333d67776c0e26f6af1e",
+    "commit_subject": "feat(evidence): verify native recording manifests",
+    "commits_ahead_of_origin_main": 226
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v165",
+  "working_iteration": "v166",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12",
-      "tests": 3693,
-      "passed_tests": 3689,
+      "tests": 3701,
+      "passed_tests": 3697,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 196.262,
+      "duration_seconds": 269.92,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/pytest-full-v165.xml",
-      "junit_file_bytes": 539793,
-      "junit_file_sha256": "16793fe3e14efb14f9d3cfa8404eb048678a6d5507e40d666abb4ce1bd1e264c",
+      "junit_local_path": "artifacts/evaluation/pytest-full-v166.xml",
+      "junit_file_bytes": 541038,
+      "junit_file_sha256": "2b9efe6fc0e4579ab487e6d27485b0b56189e29c083e5e9a818e36df01964aaa",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -384,14 +384,46 @@
       "portable_boot_log_sha256": "c9eb7946fd49812e81ae27e5cd898c4fa005946de9843cb6129fe0f9b371215c",
       "flight_control_enabled": false,
       "physical_release_enabled": false
+    },
+    "v166_target_observation_recording_manifest_selected_regression": {
+      "passed": true,
+      "tests": 84,
+      "passed_tests": 82,
+      "skipped": 2,
+      "failed": 0,
+      "scope": "closed_recording_manifest_schema_strict_verifier_installed_cli_manifest_bound_session_parity_and_qgc_static_contract",
+      "manifest_schema": "multidetect.target-observation-recording-manifest.v1",
+      "manifest_schema_path": "configs/schemas/target-observation-recording-manifest.schema.json",
+      "manifest_verifier": "src/multidetect/target_observation_recording_manifest.py",
+      "installed_cli": "multidetect-target-observation-recording-manifest-verify",
+      "installed_cli_verification": "passed",
+      "session_cli_require_recording_manifest": "passed",
+      "closed_directory_required": true,
+      "relative_paths_only": true,
+      "snapshot_path_bytes_sha256_recomputed": true,
+      "duplicate_unknown_nonfinite_and_symlink_inputs_rejected": true,
+      "unreferenced_snapshots_rejected": true,
+      "snapshot_order_and_recording_interval_verified": true,
+      "zero_sample_manifest_structurally_valid": true,
+      "manifest_verification_local_path": "artifacts/evaluation/terminal-continuation-v166/cpp-recording-manifest-installed-cli-v166.json",
+      "manifest_verification_bytes": 2288,
+      "manifest_verification_sha256": "a6c4f145b4c8ddbed6d3049667588a34ec601d8372d731cdb8767ea59e4d15ac",
+      "manifest_bound_session_local_path": "artifacts/evaluation/terminal-continuation-v166/cpp-recording-session-installed-cli-v166.json",
+      "manifest_bound_session_bytes": 2832,
+      "manifest_bound_session_sha256": "93f6a85d1d662b4744ff17a6b3f1750cecce022766849538a52c35b9789133eb",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v166/pytest-selected-v166.xml",
+      "junit_file_bytes": 13942,
+      "junit_file_sha256": "e3960250e345593c6334f8e19081f73898af3e55b8165154823e3cf00c1bdb01",
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
     }
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 9750,
-    "file_sha256": "149e83944d7e90331a9940665c14d5eab9387533c49f2308c1027a7903a11496",
+    "bytes": 9956,
+    "file_sha256": "0d74691c5655acb1ae49eb99aa29b303a21c29fd3ecc23007696db719dc935e3",
     "hashes": {
-      "ui_contract_hash": "1b14a62d40fda9c76ec37c9e789a25d2123db4dff489cb61cf263888cb1b7ea1",
+      "ui_contract_hash": "f472e0188120b71a9b8fa33588ba91957eddf9bf6fc4f1157f09ca7fbbe279b5",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
@@ -456,7 +488,11 @@
       "target_observation_recording_maximum_samples": 3600,
       "target_observation_recording_native_self_test": "passed",
       "target_observation_recording_cross_language_session_verification": "passed",
-      "target_observation_recording_manifest_closed_schema_claimed": false,
+      "target_observation_recording_manifest_closed_schema_claimed": true,
+      "target_observation_recording_manifest_schema_path": "configs/schemas/target-observation-recording-manifest.schema.json",
+      "target_observation_recording_manifest_offline_verifier": "src/multidetect/target_observation_recording_manifest.py",
+      "target_observation_recording_manifest_installed_cli": "multidetect-target-observation-recording-manifest-verify",
+      "target_observation_recording_directory_closure_verified": true,
       "single_authenticated_message_atomicity_required": true,
       "range_geolocation_gnss_sequence_and_sent_at_equal_required": true,
       "three_message_transport_atomicity_claimed": false,
@@ -1097,13 +1133,13 @@
       }
     },
     "field_link_read_only_current_probe": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v165/field-link-preflight-live-v165-current.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v166/field-link-preflight-live-v166-current.json",
       "distributed_in_git": false,
-      "file_bytes": 4668,
-      "file_sha256": "c898fc420b79e2a81dc770441628f202cce936e71d8bbc2bc89dc1ed313023b2",
-      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v165/field-link-interface-diagnostic-v165-current.json",
+      "file_bytes": 4669,
+      "file_sha256": "da3808a1d60fc8a41502f17b49054d17994a0150a6c8ab1d5475f16900c29ced",
+      "interface_diagnostic_local_path": "artifacts/evaluation/terminal-continuation-v166/field-link-interface-diagnostic-v166-current.json",
       "interface_diagnostic_file_bytes": 2513,
-      "interface_diagnostic_file_sha256": "d8bcf46155ec6379dbc2c7e2016b10782c2db8be98884c1f50a0b3d9f4bbfd6a",
+      "interface_diagnostic_file_sha256": "236193d306a01fa485eaf22aeebf3f379eeefd716c7072e9c2025b82f6191639",
       "address_state_schema": "multidetect.field-link-address-state/v1",
       "address_state_schema_path": "configs/schemas/field-link-address-state.schema.json",
       "address_state_verifier": "multidetect.field_link_address_state.verify_field_link_address_state",
@@ -1523,10 +1559,10 @@
       "e7_binding": "connected_fail_closed_pending_four_independent_human_reviews"
     },
     "px4_reported_position_response_matrix": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v165/px4-reported-position-response-matrix-v165-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v166/px4-reported-position-response-matrix-v166-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "e5d3cab0ec16f29f7ac1e95ea670b54f97c76c3e468cedc370135dcf1dd26729",
-      "matrix_sha256": "b623659f7710111ec8be20fb8746d5cd322dfc808d105ccc9d8fec008e3cd408",
+      "file_sha256": "c9404657ee801a28dab2d76d5814ea8672bb580c731b21c6284d13feec3a3e15",
+      "matrix_sha256": "4c93505385dced014a45a7454842ef576fdba6ad038a5a1d700fffd58c34320e",
       "gate_passed": true,
       "vehicle_classes": ["fixed-wing", "multirotor", "vtol"],
       "maximum_horizontal_displacement_m": {
@@ -1539,10 +1575,10 @@
       "hardware_acceptance": "not_claimed"
     },
     "px4_reported_position_response_campaign": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v165/px4-reported-position-response-campaign-v165-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v166/px4-reported-position-response-campaign-v166-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "a5da1cd3a178ed6bafb02063a701861a97147a171b7626a3a3108d6e41a6a4ed",
-      "campaign_sha256": "d23ab5447523e2fdaa49f4147feb716acb144ad067a6e1fcb35b1cf9f0711aa0",
+      "file_sha256": "626564dfa276526c454fab63495962a9aa445e950d324a0cde39700998dddbaa",
+      "campaign_sha256": "ace702a6deca7d794e757f41ac0e0479b4c381cd094fd7029a622f6260fd228d",
       "gate_passed": true,
       "positive_run_count": 6,
       "fault_run_count": 9,
@@ -1551,11 +1587,11 @@
       "hardware_acceptance": "not_claimed"
     },
     "external_three_airframe_rebind": {
-      "local_path": "artifacts/evaluation/terminal-continuation-v165/simulator-external-runtime-ai-join-v165-current-parity-pre8.json",
+      "local_path": "artifacts/evaluation/terminal-continuation-v166/simulator-external-runtime-ai-join-v166-current-parity-pre8.json",
       "distributed_in_git": false,
-      "file_sha256": "ad6746c56f0e95f082a772c01e43076f199b73c1443acb31a849e7dc1259203c",
-      "verification_local_path": "artifacts/evaluation/terminal-continuation-v165/simulator-external-runtime-ai-revalidation-v165-current-parity-pre8.json",
-      "verification_file_sha256": "d9ab485ee22fb89e9393c74107029678bb5b107786ab7c5d0f8eb45e1bd9fb7d",
+      "file_sha256": "78f95b8830285498d07aba9dc03f86f5efd2d9ae7e883b6b1a7d82c2c950a555",
+      "verification_local_path": "artifacts/evaluation/terminal-continuation-v166/simulator-external-runtime-ai-revalidation-v166-current-parity-pre8.json",
+      "verification_file_sha256": "8423ff6c0d53d7417325b3ff36a71a99e20fb13414e8d1f9c78231c520a5bccc",
       "gate_passed": true,
       "source_recomputed": true,
       "new_external_runtime_claimed": false
@@ -1710,18 +1746,18 @@
       "release_claim": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v165/release-gate/release-gate-pre.8-current-20260907T001838Z-v6-bound.json",
-      "manifest_file_bytes": 23608,
-      "manifest_file_sha256": "aeeb075b6578193c5448ac501d4fa419da67772f3c0a52d3c049c151529d33a7",
-      "local_path": "artifacts/evaluation/terminal-continuation-v165/release-gate/release-gate-pre.8-current-20260907T001838Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v166/release-gate/release-gate-pre.8-current-20260907T003529Z-v6-bound.json",
+      "manifest_file_bytes": 23609,
+      "manifest_file_sha256": "f9dbfa1045a3225e74cad3f827222b3e847b2bc90fb119f1fbb0aed62e76ed38",
+      "local_path": "artifacts/evaluation/terminal-continuation-v166/release-gate/release-gate-pre.8-current-20260907T003529Z-v6-bound-report.json",
       "distributed_in_git": false,
       "file_bytes": 73494,
-      "file_sha256": "d3ad0b86cea288d5b81c8837d4f36490e5ddf403b82aae8de8baa2c01944c52c",
+      "file_sha256": "6a56a9940bea80885278a0287d9c67fc0f8bb668c8cd9b33c52e8f9e9e8df544",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 31,
       "current_release_parity_bound": true,
-      "status": "current_v165_report_only_blocked"
+      "status": "current_v166_report_only_blocked"
     }
   },
   "model_status": {

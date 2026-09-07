@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v166 closed recording-manifest verification（2026-09-07）
+
+- 新增闭合录制 manifest schema、严格 verifier、仓库 wrapper 和安装式 CLI；重算每份快照的
+  path/bytes/SHA-256，检查录制时间、顺序与目录闭合，并拒绝歧义或路径逃逸；
+- session verifier 新增 `--require-recording-manifest`，将已验证 manifest 身份写入闭合会话报告；
+- v165 C++ 真实双快照目录通过两层安装式 CLI；定向回归 `82 passed, 2 skipped, 0 failed`；
+- parity 与 E7 已重算，仍为 `false / false / 31 blockers`。本轮不重链 EXE，不提升真实硬件验收状态。
+- 最终全量回归为 `3697 passed, 4 skipped, 0 failed`，耗时 269.920 秒；JUnit SHA-256
+  `2B9EFE6FC0E4579AB487E6D27485B0B56189E29C083E5E9A818E36DF01964AAA`。
+
 ### v0.3.0-pre.8 v165 native localization diagnostics recording（2026-09-07）
 
 - Fly View 新增开始/停止连续定位诊断录制，按 `1 Hz` 保存、单次上限 3,600 份，并显示状态、数量和目录；

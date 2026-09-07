@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v165：原生目标定位诊断连续录制 |
+| 当前工程迭代 | v166：录制 manifest 闭合验证 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v165 目标定位诊断验证、会话审计与原生录制
+### v163–v166 目标定位诊断验证、会话审计与原生录制
 
 v163 为 `multidetect.target-observation-diagnostics.v1` 增加闭合 schema 和严格 verifier，重算原子身份、
 freshness、定位门与坐标省略，并拒绝重复/未知字段、非有限数、符号链接及超限输入。v164 增加多快照
@@ -95,6 +95,11 @@ v165 把同一审计链接入原生 Fly View：可开始/停止 `1 Hz` 录制，
 `8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`；offscreen simple boot 退出 0。
 该功能仍为 advisory-only，E7 保持 `false / false / 31 blockers`，不代表室外 GNSS、硬件、HIL/REAL、
 人工视觉或实飞验收通过。全量回归为 `3689 passed, 4 skipped, 0 failed`。
+
+v166 为录制 manifest 增加闭合 schema、独立安装式 verifier，并让 session verifier 可通过
+`--require-recording-manifest` 强制验证目录闭合、路径、bytes、SHA-256、时间顺序和完整引用。真实 C++
+双快照目录通过两层安装式 CLI 复核；全量回归 `3697 passed, 4 skipped, 0 failed`。本轮不重链主 EXE，
+E7 仍为 `false / false / 31 blockers`。
 
 ### v162 原生目标定位诊断弹窗
 

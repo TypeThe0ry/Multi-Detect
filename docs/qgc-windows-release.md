@@ -12,6 +12,14 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v166 录制 manifest 闭合验证（2026-09-07）
+
+新增闭合 manifest schema、独立安装式 verifier，以及 session CLI 的 `--require-recording-manifest` 强制
+绑定。它会重算每份快照的路径、bytes、SHA-256 和诊断语义，并拒绝目录额外文件、重复引用、顺序/时间
+错误、符号链接与路径逃逸。v165 C++ 双快照会话已由两层安装式 CLI 复核通过。该轮仅改 Python 审计与
+共享 UI contract，主 EXE 继续使用 v165 的 46,718,976 bytes 制品，安全与硬件验收状态不变。最终全量
+回归为 `3697 passed, 4 skipped, 0 failed`。
+
 ### v165 原生目标定位诊断连续录制（2026-09-07）
 
 Fly View 可开始/停止 `1 Hz` 目标定位诊断录制，单次最多 3,600 个快照。每次录制写入独立目录，正常

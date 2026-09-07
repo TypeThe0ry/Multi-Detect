@@ -1,6 +1,27 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v165 工作树）
+最后更新：2026-09-07（v166 工作树）
+
+## v166 本轮已收口
+
+- 为原生录制 manifest 增加闭合 Draft 2020-12 schema、严格 Python verifier、仓库 wrapper 和安装式
+  `multidetect-target-observation-recording-manifest-verify`。验证拒绝重复/未知字段、非有限数、符号链接、
+  路径逃逸、重复引用、bytes/SHA-256 不符、时间区间/顺序错误及未被 manifest 引用的额外快照。
+- session verifier 自动识别单目录中的 manifest；`--require-recording-manifest` 强制目录必须完成 manifest
+  校验，并把 manifest 路径、bytes、SHA-256、session ID、停止原因、样本数和目录闭合状态写入会话报告。
+  零样本 manifest 可以作为结构有效的短会话记录，但不能通过需要实际诊断样本的 session 门。
+- 安装式 CLI 对 v165 C++ 实际会话验证通过：manifest 报告 2,288 bytes、SHA-256
+  `A6C4F145B4C8DDBED6D3049667588A34EC601D8372D731CDB8767EA59E4D15AC`；manifest 绑定会话报告
+  2,832 bytes、SHA-256 `93F6A85D1D662B4744FF17A6B3F1750CECCE022766849538A52C35B9789133EB`。
+- 定向回归 84 tests：`82 passed, 2 skipped, 0 failed`；两个 skip 仍是 Windows 当前权限下的符号链接测试。
+- parity 为 9,956 bytes、SHA-256
+  `0D74691C5655ACB1AE49EB99AA29B303A21C29FD3ECC23007696DB719DC935E3`；UI contract 更新为
+  `F472E0188120B71A9B8FA33588BA91957EDDF9BF6FC4F1157F09CA7FBBE279B5`，其余四组不变。
+- 派生 SIM/PX4、只读现场链路和 E7 已按 v166 parity 重算；现场仍从 `192.168.1.13/24` 错路由且三端点
+  超时，E7 保持 `false / false / 31 blockers`。本轮仅增强离线证据完整性，不重链主 EXE，也不提升
+  人工、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+- 最终全量回归 3,701 tests：`3697 passed, 4 skipped, 0 failed, 0 errors`，耗时 269.920 秒；JUnit
+  541,038 bytes、SHA-256 `2B9EFE6FC0E4579AB487E6D27485B0B56189E29C083E5E9A818E36DF01964AAA`。
 
 ## v165 本轮已收口
 
