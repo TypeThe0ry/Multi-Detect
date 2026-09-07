@@ -1,6 +1,24 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v181 工作树）
+最后更新：2026-09-07（v182 工作树）
+
+## v182 本轮已收口（绑定器错误输出 schema 化）
+
+- `multidetect-runtime-report-verify` 在输入 JSON 损坏、报告无法读取或契约异常时，现在输出完整的
+  `runtime_report_binding_error` 文档：13 项检查统一为 `false`，`result/runtime_report/expectations` 明确为 `null`，
+  并保留结构化 `error.type/message` 与稳定 `reasons`；退出码仍为 `1`，不会把失败当成通过。
+- `configs/schemas/runtime-report-binding.schema.json` 现在同时约束成功和失败两种输出，失败路径也可由同一
+  JSON Schema 校验；损坏 JSON fixture 的 schema 校验通过，绑定门保持 `false`。
+- v182 错误证据位于 `artifacts/evaluation/terminal-continuation-v182/`：输入 11 bytes / SHA-256
+  `2F021715A3272E09152B7FDD6ABCA9A71CD53F67389855C522BFA4D754D9EE08`；错误报告 1,201 bytes / SHA-256
+  `29E7923EE8F20C6617E08538E0962F4C0A84F442AA599510401A3ECA7C3AEC15`，schema errors 为 0。
+- 定向回归为 `44 passed, 0 skipped, 0 failed`，JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v182/runtime-binding-focused-v182.xml`，6,452 bytes，SHA-256
+  `F431DD257A58DA62B6CE5D74529FB0867C0647A4D5FAFBD30B439FD853DF5191`；全量 Python 回归为
+  `3724 passed, 4 skipped, 0 failed`（3,728 tests，385.28 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v182/full-rerun.xml`，544,825 bytes，SHA-256
+  `3B104184FFDCC0F2611BF369BCA6DDC0B3D2C50F8E61453786857819F3C57702`。本轮仍只增强 software 证据输出；E7、
+  室外 GNSS、硬件、HIL/REAL、人工 Fly View 与实飞门保持 `false / false`。
 
 ## v181 本轮已收口（真实 integrated Replay 结果格式兼容绑定）
 

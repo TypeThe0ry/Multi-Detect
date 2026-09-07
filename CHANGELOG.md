@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v182 schema-stable runtime binding errors（2026-09-07）
+
+- `multidetect-runtime-report-verify` 的坏输入路径现在输出 `runtime_report_binding_error`：完整 13 项检查、
+  `result/runtime_report/expectations=null`、结构化 `error.type/message`、稳定 reasons 和退出码 `1`，便于 CI/审计
+  统一消费而不会把异常文档误当成功结果。
+- `runtime-report-binding.schema.json` 同时约束成功与失败文档；新增损坏 JSON schema 回归，v182 绑定错误证据的
+  schema errors 为 `0`，44 项定向回归通过。
+- 全量回归为 `3724 passed, 4 skipped, 0 failed`（3,728 tests）；本轮仍为 software-only 证据，不提升 E7、室外
+  GNSS、真实硬件、HIL/REAL、人工 Fly View 或实飞验收状态。
+
 ### v0.3.0-pre.8 v181 integrated Replay result-shape compatibility binding（2026-09-07）
 
 - `multidetect.runtime_report_binding` 同时支持当前 integrated Replay/QGC 的嵌套结果和历史真实产物的顶层

@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## RuntimeReportBinding 失败输出 schema 化（v182，`v0.3.0-pre.8`）
+
+- [x] CLI 异常路径输出稳定 `runtime_report_binding_error` 文档：完整检查键、明确 null 输入区、结构化错误类型/消息、
+  reasons 和非零退出码；成功/失败均可由同一 binding schema 解析。
+- [x] 损坏 JSON fixture、schema 校验与 44 项定向回归通过；v182 全量为 3,728 项（3,724 passed、4 skipped）。
+- [x] 失败输出仍保持 software-only claim boundary，不修改 `px4_mission_path` parity、QGC C++/QML 二进制或
+  地图/Mission/飞控/物理释放路径。
+- [ ] 继续在现场 portable 上人工打开 Fly View、载入真实长回放，并把成功/失败绑定报告与外部采集、HIL/REAL 记录
+  逐帧对账；该门通过前不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## integrated Replay 结果格式兼容与严格帧身份绑定（v181，`v0.3.0-pre.8`）
 
 - [x] `runtime_report_binding` 同时适配当前嵌套 `result` 和历史真实 integrated Replay/QGC 顶层结果字段，保留

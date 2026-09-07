@@ -1,5 +1,25 @@
 # 统一仓库架构
 
+## v182 RuntimeReportBinding 失败输出（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+结果/sidecar 读取或契约异常
+        │ exit=1, 13 checks=false, error.type/message
+        ▼
+runtime_report_binding_error JSON
+        │ same runtime-report-binding schema + null input sections
+        ▼
+CI / 审计消费者可稳定区分错误与 gate_passed=true
+        │ no runtime start, no map/Mission/flight-control writes
+        ▼
+现场 Fly View review → 外部/HIL/REAL 逐帧对账 → E7 consumer
+```
+
+- 成功文档继续提供结果、报告、期望和全部检查；异常文档把不可生成的输入区明确置 `null`，并以结构化错误
+  字段保留原始失败原因，不伪造路径、字节数或 hash。
+- v182 损坏 JSON 证据的同一 schema 校验为 0 errors；该输出契约修复不改变 QGC、PX4 Mission、地图、飞控、
+  硬件或现场验收状态。
+
 ## v181 integrated Replay 结果格式兼容绑定（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

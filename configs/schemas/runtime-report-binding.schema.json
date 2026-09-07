@@ -19,18 +19,44 @@
   "properties": {
     "schema": { "const": "multidetect.runtime-report-binding" },
     "schema_version": { "const": 1 },
-    "event": { "const": "runtime_report_binding_verified" },
-    "result": { "$ref": "#/$defs/result" },
-    "runtime_report": { "$ref": "#/$defs/runtimeReport" },
-    "expectations": { "$ref": "#/$defs/expectations" },
+    "event": {
+      "enum": ["runtime_report_binding_verified", "runtime_report_binding_error"]
+    },
+    "result": {
+      "anyOf": [{ "$ref": "#/$defs/result" }, { "type": "null" }]
+    },
+    "runtime_report": {
+      "anyOf": [{ "$ref": "#/$defs/runtimeReport" }, { "type": "null" }]
+    },
+    "expectations": {
+      "anyOf": [{ "$ref": "#/$defs/expectations" }, { "type": "null" }]
+    },
     "checks": { "$ref": "#/$defs/checks" },
     "gate_passed": { "type": "boolean" },
     "reasons": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "claim_boundary": { "$ref": "#/$defs/claimBoundary" }
+    "claim_boundary": { "$ref": "#/$defs/claimBoundary" },
+    "error": { "$ref": "#/$defs/error" }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event": { "const": "runtime_report_binding_error" } },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "result": { "const": null },
+          "runtime_report": { "const": null },
+          "expectations": { "const": null },
+          "gate_passed": { "const": false }
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha256": {
       "type": "string",
@@ -175,6 +201,15 @@
         "hil_acceptance": { "const": "not_claimed" },
         "real_acceptance": { "const": "not_claimed" },
         "flight_acceptance": { "const": "not_claimed" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
       }
     }
   }

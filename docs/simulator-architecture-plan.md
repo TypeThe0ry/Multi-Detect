@@ -9,6 +9,13 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v182 RuntimeReportBinding 失败输出 schema 化
+
+坏结果 JSON、缺失 sidecar 或契约异常现在统一返回 `runtime_report_binding_error`：完整 13 项检查为 false、输入
+区为 null、`error.type/message` 可机器读取，且与成功报告共用 `runtime-report-binding.schema.json`。损坏 JSON
+fixture 的 schema errors 为 0，44 项定向与 3,728 项全量 Python 回归通过；该软件错误契约不改变 RuntimeBackend、
+QGC C++/QML、PX4 Mission、地图、飞控、真实 GNSS、硬件、HIL/REAL 或实飞门。
+
 ## v181 integrated Replay 结果格式兼容绑定
 
 `multidetect.runtime_report_binding` 现在能重开当前嵌套结果和历史真实 integrated Replay/QGC 顶层结果；统一

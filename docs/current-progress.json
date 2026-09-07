@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T08:59:00Z",
+  "updated_at_utc": "2026-09-07T09:13:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v181",
+  "working_iteration": "v182",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3727,
-      "passed_tests": 3723,
+      "tests": 3728,
+      "passed_tests": 3724,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 306.38,
+      "duration_seconds": 385.28,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v181/full-rerun.xml",
-      "junit_file_bytes": 544704,
-      "junit_file_sha256": "76008b1c63bd8175159289646acc70251b9df89d4417db11cf4c415357d1ec67",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v182/full-rerun.xml",
+      "junit_file_bytes": 544825,
+      "junit_file_sha256": "3b104184ffdcc0f2611bf369bca6ddc0b3d2c50f8e61453786857819f3c57702",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -591,6 +591,47 @@
         "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
         "junit_file_bytes": 10452,
         "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
+    "v182_runtime_report_binding_error_schema_selected_regression": {
+      "passed": true,
+      "tests": 44,
+      "passed_tests": 44,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "runtime_report_binding_schema_stable_failure_document_and_legacy_result_contracts",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "error_event": "runtime_report_binding_error",
+      "malformed_json_exit_code": 1,
+      "failure_document_schema_errors": 0,
+      "failure_checks_are_complete": true,
+      "result_and_report_sections_are_null_on_input_failure": true,
+      "error_input_path": "artifacts/evaluation/terminal-continuation-v182/malformed-integrated-result-v182.json",
+      "error_input_bytes": 11,
+      "error_input_sha256": "2f021715a3272e09152b7fdd6abca9a71cd53f67389855c522bfa4d754d9ee08",
+      "runtime_report_input_path": "artifacts/evaluation/terminal-continuation-v182/runtime-report-input-v182.json",
+      "runtime_report_input_bytes": 507,
+      "runtime_report_input_sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906",
+      "error_report_path": "artifacts/evaluation/terminal-continuation-v182/runtime-report-binding-error-v182.json",
+      "error_report_bytes": 1201,
+      "error_report_sha256": "29e7923ee8f20c6617e08538e0962f4c0a84f442aa599510401a3eca7c3aec15",
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v182/runtime-binding-focused-v182.xml",
+      "focused_junit_file_bytes": 6452,
+      "focused_junit_file_sha256": "f431dd257a58da62b6ce5d74529fb0867c0647a4d5fafbd30b439fd853df5191",
+      "focused_duration_seconds": 0.609,
+      "full_regression": {
+        "tests": 3728,
+        "passed_tests": 3724,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 385.28,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v182/full-rerun.xml",
+        "junit_file_bytes": 544825,
+        "junit_file_sha256": "3b104184ffdcc0f2611bf369bca6ddc0b3d2c50f8e61453786857819f3c57702"
       },
       "flight_control_enabled": false,
       "physical_release_enabled": false
@@ -2486,6 +2527,61 @@
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
+    },
+    "v182_runtime_report_binding_error_schema": {
+      "reason": "keep malformed result and missing sidecar failures machine-readable and schema-valid",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "error_event": "runtime_report_binding_error",
+      "exit_code": 1,
+      "failure_checks_are_complete": true,
+      "result_and_report_sections_are_null": true,
+      "error_input": {
+        "path": "artifacts/evaluation/terminal-continuation-v182/malformed-integrated-result-v182.json",
+        "bytes": 11,
+        "sha256": "2f021715a3272e09152b7fdd6abca9a71cd53f67389855c522bfa4d754d9ee08"
+      },
+      "runtime_report_input": {
+        "path": "artifacts/evaluation/terminal-continuation-v182/runtime-report-input-v182.json",
+        "bytes": 507,
+        "sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906"
+      },
+      "error_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v182/runtime-report-binding-error-v182.json",
+        "bytes": 1201,
+        "sha256": "29e7923ee8f20c6617e08538e0962f4c0a84f442aa599510401a3eca7c3aec15",
+        "schema_errors": 0,
+        "gate_passed": false,
+        "reasons": [
+          "RuntimeReportBindingError: runtime result is not valid JSON"
+        ]
+      },
+      "focused_regression": {
+        "tests": 44,
+        "passed_tests": 44,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v182/runtime-binding-focused-v182.xml",
+        "junit_bytes": 6452,
+        "junit_sha256": "f431dd257a58da62b6ce5d74529fb0867c0647a4d5fafbd30b439fd853df5191"
+      },
+      "full_regression": {
+        "tests": 3728,
+        "passed_tests": 3724,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 385.28,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v182/full-rerun.xml",
+        "junit_bytes": 544825,
+        "junit_sha256": "3b104184ffdcc0f2611bf369bca6ddc0b3d2c50f8e61453786857819f3c57702"
+      },
+      "software_runtime_identity_only": true,
+      "flight_control_enabled": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed",
+      "flight_acceptance": "not_claimed"
     },
     "v181_integrated_replay_runtime_report_binding": {
       "reason": "reopen a real integrated Replay result in both current and legacy producer shapes",

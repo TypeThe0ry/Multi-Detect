@@ -54,6 +54,13 @@ _CHECK_NAMES = (
     "sim_truth_free",
     "sim_closed",
 )
+_CLAIM_BOUNDARY = {
+    "software_runtime_identity_only": True,
+    "hardware_acceptance": "not_claimed",
+    "hil_acceptance": "not_claimed",
+    "real_acceptance": "not_claimed",
+    "flight_acceptance": "not_claimed",
+}
 
 
 class RuntimeReportBindingError(ValueError):
@@ -444,13 +451,7 @@ def verify_runtime_report_binding(
         "checks": checks,
         "gate_passed": all(checks.values()),
         "reasons": reasons,
-        "claim_boundary": {
-            "software_runtime_identity_only": True,
-            "hardware_acceptance": "not_claimed",
-            "hil_acceptance": "not_claimed",
-            "real_acceptance": "not_claimed",
-            "flight_acceptance": "not_claimed",
-        },
+        "claim_boundary": dict(_CLAIM_BOUNDARY),
     }
 
 
@@ -502,13 +503,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         exit_code = 0 if document["gate_passed"] else 1
     except (OSError, RuntimeReportBindingError, TypeError, ValueError) as exc:
+        message = str(exc) or type(exc).__name__
         document = {
             "schema": SCHEMA,
             "schema_version": SCHEMA_VERSION,
-            "event": EVENT,
-            "checks": {"input_valid": False},
+            "event": "runtime_report_binding_error",
+            "result": None,
+            "runtime_report": None,
+            "expectations": None,
+            "checks": {name: False for name in _CHECK_NAMES},
             "gate_passed": False,
-            "reasons": [f"{type(exc).__name__}: {exc}"],
+            "reasons": [f"{type(exc).__name__}: {message}"],
+            "claim_boundary": dict(_CLAIM_BOUNDARY),
+            "error": {"type": type(exc).__name__, "message": message},
         }
         exit_code = 1
     if args.out is not None:

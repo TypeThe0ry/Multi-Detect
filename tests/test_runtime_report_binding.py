@@ -289,3 +289,37 @@ def test_binding_rejects_duplicate_result_keys(tmp_path: Path) -> None:
     )
 
     assert main([str(result_path), str(report_path)]) == 1
+
+
+def test_cli_failure_document_is_schema_valid(tmp_path: Path, capsys) -> None:
+    _, report_path, _ = _integrated_fixture(tmp_path)
+    result_path = tmp_path / "invalid.json"
+    result_path.write_text('{"event":', encoding="utf-8")
+    output_path = tmp_path / "binding-error.json"
+
+    assert main([str(result_path), str(report_path), "--out", str(output_path)]) == 1
+    document = json.loads(output_path.read_text(encoding="utf-8"))
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(document))
+
+    assert errors == []
+    assert document["event"] == "runtime_report_binding_error"
+    assert document["gate_passed"] is False
+    assert document["result"] is None
+    assert document["error"]["type"] == "RuntimeReportBindingError"
+    assert set(document["checks"]) == {
+        "result_json_valid",
+        "runtime_report_valid",
+        "result_event_supported",
+        "result_gate_passed",
+        "runtime_mode_matches",
+        "descriptor_hash_matches",
+        "input_hash_matches",
+        "processed_frame_count_matches",
+        "processed_frame_ids_match",
+        "termination_contract_matches",
+        "embedded_report_matches",
+        "sim_truth_free",
+        "sim_closed",
+    }
+    assert json.loads(capsys.readouterr().out)["event"] == "runtime_report_binding_error"
