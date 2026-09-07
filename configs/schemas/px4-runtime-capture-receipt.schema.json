@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/px4-runtime-capture-receipt.schema.json",
+  "title": "Multi-Detect PX4 runtime capture receipt v1",
+  "description": "Portable byte-exact closure for a completed receive-only PX4 runtime capture. It does not claim hardware, flight, operator-visual, or release acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "source_count",
+    "capture_summary",
+    "files",
+    "gates",
+    "gate_passed",
+    "portable",
+    "claims"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.px4-runtime-capture-receipt"},
+    "schema_version": {"const": 1},
+    "event": {"const": "px4_runtime_capture_receipt_created"},
+    "runtime_mode": {"enum": ["hil", "real"]},
+    "source_count": {"const": 6},
+    "capture_summary": {"$ref": "#/$defs/file"},
+    "files": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_summary_completed",
+        "mission_feedback",
+        "endpoint_vehicle_identity",
+        "join"
+      ],
+      "properties": {
+        "capture_summary_completed": {"const": true},
+        "mission_feedback": {"const": true},
+        "endpoint_vehicle_identity": {"const": true},
+        "join": {"const": true}
+      }
+    },
+    "gate_passed": {"const": true},
+    "portable": {"const": true},
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_eligible",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "operator_visual_acceptance"
+      ],
+      "properties": {
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "operator_visual_acceptance": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "portable_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(^|/)\\.\\.(?:/|$)).+$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/portable_path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "bytes", "sha256"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "mission",
+            "runtime_observation",
+            "runtime_profile",
+            "mission_feedback",
+            "endpoint_vehicle_identity",
+            "join"
+          ]
+        },
+        "path": {"$ref": "#/$defs/portable_path"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

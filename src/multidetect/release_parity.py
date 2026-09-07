@@ -332,6 +332,11 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         # and passes secret material by environment-variable name; a wrapper
         # drift must invalidate previously reviewed field instructions.
         "scripts/run_px4_runtime_capture.ps1",
+        # v193 turns the local capture summary into a portable, byte-exact
+        # six-source receipt.  Bind both the producer and schema so a copied
+        # field package cannot silently change its closure or claim boundary.
+        "src/multidetect/px4_runtime_capture_receipt.py",
+        "configs/schemas/px4-runtime-capture-receipt.schema.json",
         # v190 joins the live RuntimeObservation result, executable PX4
         # Mission feedback, signed RuntimeProfile and endpoint/vehicle
         # identity sidecar into one fail-closed software evidence contract.

@@ -161,6 +161,18 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".px4_runtime_capture",
         "capture_px4_runtime_sidecars",
     ),
+    "Px4RuntimeCaptureReceiptError": (
+        ".px4_runtime_capture_receipt",
+        "Px4RuntimeCaptureReceiptError",
+    ),
+    "build_px4_runtime_capture_receipt": (
+        ".px4_runtime_capture_receipt",
+        "build_px4_runtime_capture_receipt",
+    ),
+    "verify_px4_runtime_capture_receipt": (
+        ".px4_runtime_capture_receipt",
+        "verify_px4_runtime_capture_receipt",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -591,6 +603,9 @@ __all__ = [
     "verify_runtime_endpoint_vehicle_identity_sidecar",
     "Px4RuntimeCaptureError",
     "capture_px4_runtime_sidecars",
+    "Px4RuntimeCaptureReceiptError",
+    "build_px4_runtime_capture_receipt",
+    "verify_px4_runtime_capture_receipt",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",

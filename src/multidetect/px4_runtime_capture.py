@@ -198,6 +198,7 @@ def capture_px4_runtime_sidecars(
     mission_feedback_out: str | Path = Path("feedback/px4-mission-feedback.json"),
     endpoint_vehicle_identity_out: str | Path = Path("identity/px4-endpoint-vehicle.json"),
     join_out: str | Path = Path("join/live-runtime-observation-mission-binding.json"),
+    capture_summary_out: str | Path | None = None,
     baud: int = 57_600,
     expected_system_id: int = 1,
     expected_component_id: int = 1,
@@ -246,8 +247,15 @@ def capture_px4_runtime_sidecars(
         label="endpoint_vehicle_identity_out",
     )
     join_path = _output_path(join_out, base=base, label="join_out")
+    capture_summary_path = (
+        None
+        if capture_summary_out is None
+        else _output_path(capture_summary_out, base=base, label="capture_summary_out")
+    )
     source_paths = (mission_path, live_path, profile_path)
     output_paths = (feedback_path, identity_path, join_path)
+    if capture_summary_path is not None:
+        output_paths = output_paths + (capture_summary_path,)
     if len({path for path in source_paths + output_paths}) != len(source_paths + output_paths):
         raise Px4RuntimeCaptureError("input and output paths must be distinct")
 
@@ -370,7 +378,7 @@ def capture_px4_runtime_sidecars(
             close()
 
     transport = reopened_feedback.get("transport")
-    return {
+    summary = {
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
         "event": EVENT,
@@ -415,6 +423,9 @@ def capture_px4_runtime_sidecars(
             "operator_visual_acceptance": False,
         },
     }
+    if capture_summary_path is not None:
+        _atomic_write_json(capture_summary_path, summary, overwrite=overwrite)
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -454,6 +465,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--join-out",
         type=Path,
         default=Path("join/live-runtime-observation-mission-binding.json"),
+    )
+    parser.add_argument(
+        "--capture-summary-out",
+        type=Path,
+        help="write the completed capture summary to a file beneath --base-directory",
     )
     parser.add_argument("--overwrite", action="store_true")
     return parser
@@ -495,6 +511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             mission_feedback_out=args.mission_feedback_out,
             endpoint_vehicle_identity_out=args.endpoint_vehicle_identity_out,
             join_out=args.join_out,
+            capture_summary_out=args.capture_summary_out,
             baud=args.baud,
             expected_system_id=args.expected_system_id,
             expected_component_id=args.expected_component_id,

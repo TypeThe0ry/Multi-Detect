@@ -31,6 +31,10 @@ from multidetect.px4_runtime_capture import (
     capture_px4_runtime_sidecars,
     main,
 )
+from multidetect.px4_runtime_capture_receipt import (
+    build_px4_runtime_capture_receipt,
+    verify_px4_runtime_capture_receipt,
+)
 from multidetect.runtime import RuntimeMode, RuntimeProfile, RuntimeRunReport
 from multidetect.runtime_launcher import build_pixhawk_runtime_identity
 from multidetect.runtime_observation import (
@@ -210,6 +214,7 @@ def test_capture_writes_sidecars_and_reruns_join(tmp_path: Path) -> None:
         endpoint="udpin:127.0.0.1:14999",
         runtime_profile_hmac_key=KEY,
         runtime_profile_key_id=KEY_ID,
+        capture_summary_out=base / "capture-summary.json",
         duration_seconds=0.0,
         clock=lambda: 10.0,
         observed_at=lambda: datetime(2026, 9, 7, 12, 0, tzinfo=UTC),
@@ -221,6 +226,12 @@ def test_capture_writes_sidecars_and_reruns_join(tmp_path: Path) -> None:
     assert summary["join"]["gate_passed"] is True, summary["join"]["reasons"]
     assert summary["transport"]["telemetry_request_messages_transmitted"] == 2
     assert summary["transport"]["application_messages_transmitted"] == 0
+    capture_summary_path = base / "capture-summary.json"
+    assert json.loads(capture_summary_path.read_text(encoding="utf-8")) == summary
+    receipt_path = base / "capture-receipt.json"
+    receipt = build_px4_runtime_capture_receipt(capture_summary_path, base, receipt_path)
+    assert receipt["source_count"] == 6
+    assert verify_px4_runtime_capture_receipt(receipt_path, base_directory=base) == receipt
     identity_path = Path(summary["endpoint_vehicle_identity"]["path"])
     verify_runtime_endpoint_vehicle_identity_sidecar(
         json.loads(identity_path.read_text(encoding="utf-8"))

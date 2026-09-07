@@ -35,6 +35,8 @@ param(
     [string]$MissionFeedbackOut = 'feedback\px4-mission-feedback.json',
     [string]$EndpointVehicleIdentityOut = 'identity\px4-endpoint-vehicle.json',
     [string]$JoinOut = 'join\live-runtime-observation-mission-binding.json',
+    [string]$CaptureSummaryOut = 'capture-summary.json',
+    [string]$CaptureReceiptOut = 'capture-receipt.json',
     [string]$PythonPath = '',
     [switch]$Overwrite
 )
@@ -73,6 +75,8 @@ Assert-NonEmpty -Value $RuntimeMode -Name 'RuntimeMode'
 Assert-NonEmpty -Value $Endpoint -Name 'Endpoint'
 Assert-NonEmpty -Value $RuntimeProfileHmacKeyEnv -Name 'RuntimeProfileHmacKeyEnv'
 Assert-NonEmpty -Value $RuntimeProfileKeyId -Name 'RuntimeProfileKeyId'
+Assert-NonEmpty -Value $CaptureSummaryOut -Name 'CaptureSummaryOut'
+Assert-NonEmpty -Value $CaptureReceiptOut -Name 'CaptureReceiptOut'
 $RuntimeMode = $RuntimeMode.ToLowerInvariant()
 
 foreach ($number in @(
@@ -178,6 +182,8 @@ $arguments.Add('--endpoint-vehicle-identity-out')
 $arguments.Add($EndpointVehicleIdentityOut)
 $arguments.Add('--join-out')
 $arguments.Add($JoinOut)
+$arguments.Add('--capture-summary-out')
+$arguments.Add($CaptureSummaryOut)
 
 if (-not $NoRequestAutopilotVersion) {
     $arguments.Add('--request-autopilot-version')
@@ -204,14 +210,37 @@ if ($Overwrite) {
 # list.  The Python CLI resolves the named environment variables in its own
 # process, so PowerShell transcripts and error output contain names only.
 $previousPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
-$outputLines = @()
+$captureOutputLines = @()
+$receiptOutputLines = @()
+$exitCode = 0
 try {
     $env:PYTHONPATH = Join-Path $repositoryRoot 'src'
     # Merge stderr into the captured stream so Windows PowerShell 5.1 does
     # not turn the Python module's structured error event into a terminating
     # NativeCommandError before its exit code can be propagated.
-    $outputLines = @(& $python @($arguments.ToArray()) 2>&1)
-    $exitCode = Get-NativeExitCode
+    $captureOutputLines = @(& $python @($arguments.ToArray()) 2>&1)
+    $captureExitCode = Get-NativeExitCode
+    if ($captureExitCode -eq 0) {
+        $receiptArguments = [System.Collections.Generic.List[string]]::new()
+        $receiptArguments.Add('-m')
+        $receiptArguments.Add('multidetect.px4_runtime_capture_receipt')
+        $receiptArguments.Add('--capture-summary')
+        $receiptArguments.Add($CaptureSummaryOut)
+        $receiptArguments.Add('--base-directory')
+        $receiptArguments.Add($BaseDirectory)
+        $receiptArguments.Add('--out')
+        $receiptArguments.Add($CaptureReceiptOut)
+        $receiptArguments.Add('--runtime-mode')
+        $receiptArguments.Add($RuntimeMode)
+        if ($Overwrite) {
+            $receiptArguments.Add('--overwrite')
+        }
+        $receiptOutputLines = @(& $python @($receiptArguments.ToArray()) 2>&1)
+        $exitCode = Get-NativeExitCode
+    }
+    else {
+        $exitCode = $captureExitCode
+    }
 }
 finally {
     if ($null -eq $previousPythonPath) {
@@ -222,7 +251,10 @@ finally {
     }
 }
 
-foreach ($line in $outputLines) {
+foreach ($line in $captureOutputLines) {
+    Write-Output ([string]$line)
+}
+foreach ($line in $receiptOutputLines) {
     Write-Output ([string]$line)
 }
 
