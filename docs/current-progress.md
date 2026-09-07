@@ -1,6 +1,27 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v167 工作树）
+最后更新：2026-09-07（v168 工作树）
+
+## v168 本轮已收口
+
+- 原生录制器现在在每次成功保存快照后同步维护只读实时质量摘要：样本/可定位数量、定位率、最长连续
+  不可定位、观测时长、采样间隔/断档、三类质量分段和 producer epoch 切换都可直接供 QML 使用。
+- Fly View 诊断弹窗新增“录制质量 · 实时只读”区域与质量时间线；红/黄/橙分别表示不可定位、测距
+  无效和 GNSS 不合格，详细列表保留分段范围与 epoch 切换数量。停止录制后的正式结论仍由 manifest 绑定
+  的独立离线 verifier 生成，实时 UI 不自封为最终证据。
+- C++ self-test 生成 4 样本会话，覆盖 2 个连续不可定位样本、2,000 ms 断档、三类各 1 个质量段与
+  1 次 epoch 切换；安装式 verifier 独立复核后 `gate_passed=true`。报告 7,780 bytes、SHA-256
+  `EB06060134414907BBDAB327553958A28FEB7AF2E7FCB22D9B96D9D2C65221BB`。
+- Release/portable EXE 已重链并完成依赖部署：46,746,112 bytes、SHA-256
+  `F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`；offscreen simple boot 退出 0。
+- 定向回归 86 tests：`85 passed, 1 skipped, 0 failed`。parity 9,956 bytes、SHA-256
+  `DE1686C5844B11D30D2AA532FE701FA55E9E909C221CA621650FCBA6C1E5F997`；UI contract 为
+  `47A6E679A127FCF7E80A3723D85A8756BD50CA87CD4B546B5A4D2D537855DB3`，其余四组不变。
+- 最终全量回归 3,707 tests：`3703 passed, 4 skipped, 0 failed, 0 errors`，耗时 182.514 秒；JUnit
+  542,030 bytes、SHA-256 `B15A4B123DBF024311C3DB5E3A74B8F19A6C08115839AA09FD44090B71B23B04`。
+- SIM/PX4 派生证据、现场只读探测和 E7 已按 v168 重算。现场仍是 `192.168.1.13/24` 错路由且三端点
+  超时；E7 保持 `false / false / 31 blockers`。功能继续为 advisory-only，不提升室外 GNSS、硬件、
+  HIL/REAL、人工视觉或实飞状态。
 
 ## v167 本轮已收口
 

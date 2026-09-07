@@ -12,6 +12,18 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+当前文件为 `46,746,112` bytes，SHA-256
+`F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`；portable 目录已经过
+install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v168 原生实时录制质量时间线（2026-09-07）
+
+Fly View 定位诊断弹窗现在直接读取 C++ recorder 的实时只读质量摘要，显示样本数、定位率、最长不可
+定位段、期望/最大/平均间隔、断档、三类质量时间线、分段明细及 epoch 切换。4 样本 native self-test
+覆盖连续失败、2,000 ms 断档和 epoch 切换，并由安装式 session verifier 独立复核通过。实时摘要不是
+闭合证据，录制停止后的正式结论仍以 manifest 绑定的离线报告为准；功能不发送飞控指令或启用物理释放。
+最终全量回归为 `3703 passed, 4 skipped, 0 failed`。
+
 ### v167 连续定位质量分段与采样门（2026-09-07）
 
 session verifier 现在输出采样间隔统计/断档事件、连续不可定位段、测距异常段、GNSS 不合格段与 epoch

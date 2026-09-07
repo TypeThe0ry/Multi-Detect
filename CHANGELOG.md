@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v168 live localization recording quality（2026-09-07）
+
+- 原生录制器新增实时质量摘要，覆盖定位率、最长不可定位、采样断档、测距/GNSS/定位质量段和 epoch 切换；
+- Fly View 诊断弹窗新增只读质量时间线和分段明细；停止后的正式结论仍由 manifest 绑定离线 verifier 给出；
+- 4 样本 C++ 会话经安装式 CLI 独立复核通过；定向回归 `85 passed, 1 skipped, 0 failed`；
+- Release/portable EXE 为 46,746,112 bytes，SHA-256
+  `F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`，offscreen 启动退出 0；
+- parity、SIM/PX4 派生证据、现场只读探测与 E7 已重算；E7 保持 `false / false / 31 blockers`，
+  不提升室外 GNSS、硬件、HIL/REAL、人工视觉或实飞状态。
+- 最终全量回归为 `3703 passed, 4 skipped, 0 failed`，耗时 182.514 秒；JUnit SHA-256
+  `B15A4B123DBF024311C3DB5E3A74B8F19A6C08115839AA09FD44090B71B23B04`。
+
 ### v0.3.0-pre.8 v167 localization recording quality segmentation（2026-09-07）
 
 - session 报告新增采样间隔统计、断档事件、不可定位/测距/GNSS 连续异常段和 epoch 切换明细；

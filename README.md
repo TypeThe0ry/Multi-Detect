@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v167：连续定位质量分段与采样门 |
+| 当前工程迭代 | v168：原生实时录制质量时间线 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v167 目标定位诊断验证、会话审计与原生录制
+### v163–v168 目标定位诊断验证、会话审计与原生录制
 
 v163 为 `multidetect.target-observation-diagnostics.v1` 增加闭合 schema 和严格 verifier，重算原子身份、
 freshness、定位门与坐标省略，并拒绝重复/未知字段、非有限数、符号链接及超限输入。v164 增加多快照
@@ -104,6 +104,12 @@ E7 仍为 `false / false / 31 blockers`。
 v167 增加采样间隔/断档、连续不可定位、测距异常、GNSS 不合格和 epoch 切换分段，并提供最大连续失败
 数与最大采样间隔门。C++ 双快照实测最大间隔 1,000 ms、零异常段并通过；全量回归为
 `3703 passed, 4 skipped, 0 failed`，E7 状态不变。
+
+v168 把同一质量模型接入原生 Fly View 诊断弹窗，录制中实时显示定位率、最长失败段、采样断档、
+三类质量时间线与 epoch 切换；4 样本 C++→安装式 verifier 跨语言路径通过。portable EXE 更新为
+46,746,112 bytes、SHA-256 `F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`。
+实时摘要仅供态势感知，正式报告仍以闭合 manifest 的离线复核为准；E7 仍为 `false / false / 31 blockers`。
+最终全量回归为 `3703 passed, 4 skipped, 0 failed`。
 
 v162 的原生诊断弹窗、坐标 fail-closed 和制品明细已归档到 [当前进度](docs/current-progress.md)。
 
