@@ -321,6 +321,13 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/px4_mission_feedback_binding.py",
         "src/multidetect/px4_mission_feedback_cli.py",
         "src/multidetect/px4_mission_feedback_runtime.py",
+        # v190 joins the live RuntimeObservation result, executable PX4
+        # Mission feedback, signed RuntimeProfile and endpoint/vehicle
+        # identity sidecar into one fail-closed software evidence contract.
+        "src/multidetect/live_runtime_observation_mission_binding.py",
+        "scripts/generate_live_runtime_observation_mission_binding_evidence.py",
+        "configs/schemas/live-runtime-observation-mission-binding.schema.json",
+        "configs/schemas/runtime-endpoint-vehicle-identity.schema.json",
         "src/multidetect/runtime.py",
         "src/multidetect/runtime_launcher.py",
         "src/multidetect/runtime_profiles.py",

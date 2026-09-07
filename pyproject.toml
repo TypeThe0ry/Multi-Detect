@@ -73,6 +73,7 @@ multidetect-runtime-report-set-verify = "multidetect.runtime_report_binding_set:
 multidetect-runtime-observation-build = "multidetect.runtime_observation:main"
 multidetect-runtime-profile-set-verify = "multidetect.runtime_profile_binding_set:main"
 multidetect-px4-mission-feedback-profile-bind = "multidetect.px4_mission_feedback_profile_binding:main"
+multidetect-live-runtime-observation-mission-bind = "multidetect.live_runtime_observation_mission_binding:main"
 multidetect-replay-set-intake = "multidetect.replay_set_intake_cli:main"
 multidetect-replay-annotations = "multidetect.replay_annotation_cli:main"
 multidetect-replay-predictions = "multidetect.replay_prediction_cli:main"

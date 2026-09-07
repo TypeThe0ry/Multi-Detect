@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/runtime-endpoint-vehicle-identity.schema.json",
+  "title": "Multi-Detect receive-only endpoint and vehicle identity sidecar v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "observed_at_utc",
+    "runtime_descriptor_hash",
+    "runtime_input_hash",
+    "runtime_profile_document_sha256",
+    "endpoint",
+    "heartbeat_identity",
+    "observed_identity",
+    "source_kind",
+    "read_only",
+    "receive_only",
+    "flight_control_enabled",
+    "output_locked",
+    "identity_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.runtime-endpoint-vehicle-identity" },
+    "schema_version": { "const": 1 },
+    "event": { "const": "runtime_endpoint_vehicle_identity_observed" },
+    "runtime_mode": { "enum": ["hil", "real"] },
+    "observed_at_utc": { "type": "string", "format": "date-time" },
+    "runtime_descriptor_hash": { "$ref": "#/$defs/sha256" },
+    "runtime_input_hash": { "$ref": "#/$defs/sha256" },
+    "runtime_profile_document_sha256": { "$ref": "#/$defs/sha256" },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configured_endpoint", "resolved_endpoint", "baud"],
+      "properties": {
+        "configured_endpoint": { "type": "string", "minLength": 1 },
+        "resolved_endpoint": { "type": ["string", "null"], "minLength": 1 },
+        "baud": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "heartbeat_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_system_id",
+        "source_component_id",
+        "autopilot_id",
+        "vehicle_type_id",
+        "mavlink_version"
+      ],
+      "properties": {
+        "source_system_id": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "source_component_id": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "autopilot_id": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "vehicle_type_id": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "mavlink_version": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    },
+    "observed_identity": { "$ref": "#/$defs/observedIdentity" },
+    "source_kind": { "const": "live_mavlink_receive_only" },
+    "read_only": { "const": true },
+    "receive_only": { "const": true },
+    "flight_control_enabled": { "const": false },
+    "output_locked": { "const": true },
+    "identity_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "observedIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["airframe_profile_hash", "endpoint_binding_hash"],
+      "properties": {
+        "airframe_profile_hash": { "$ref": "#/$defs/sha256" },
+        "endpoint_binding_hash": { "$ref": "#/$defs/sha256" },
+        "vehicle_identity_hash": { "$ref": "#/$defs/sha256" },
+        "firmware_identity_hash": { "$ref": "#/$defs/sha256" },
+        "signing_identity_hash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

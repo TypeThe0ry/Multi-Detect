@@ -136,6 +136,26 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".px4_mission_feedback_profile_binding",
         "verify_px4_mission_feedback_profile_binding",
     ),
+    "LiveRuntimeObservationMissionBindingError": (
+        ".live_runtime_observation_mission_binding",
+        "LiveRuntimeObservationMissionBindingError",
+    ),
+    "build_live_runtime_observation_mission_binding": (
+        ".live_runtime_observation_mission_binding",
+        "build_live_runtime_observation_mission_binding",
+    ),
+    "verify_live_runtime_observation_mission_binding": (
+        ".live_runtime_observation_mission_binding",
+        "verify_live_runtime_observation_mission_binding",
+    ),
+    "build_runtime_endpoint_vehicle_identity_sidecar": (
+        ".live_runtime_observation_mission_binding",
+        "build_runtime_endpoint_vehicle_identity_sidecar",
+    ),
+    "verify_runtime_endpoint_vehicle_identity_sidecar": (
+        ".live_runtime_observation_mission_binding",
+        "verify_runtime_endpoint_vehicle_identity_sidecar",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -559,6 +579,11 @@ __all__ = [
     "Px4MissionFeedbackProfileBindingError",
     "build_px4_mission_feedback_profile_binding",
     "verify_px4_mission_feedback_profile_binding",
+    "LiveRuntimeObservationMissionBindingError",
+    "build_live_runtime_observation_mission_binding",
+    "verify_live_runtime_observation_mission_binding",
+    "build_runtime_endpoint_vehicle_identity_sidecar",
+    "verify_runtime_endpoint_vehicle_identity_sidecar",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",
