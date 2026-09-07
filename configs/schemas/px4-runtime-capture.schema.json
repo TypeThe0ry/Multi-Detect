@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/px4-runtime-capture.schema.json",
+  "title": "Multi-Detect PX4 runtime sidecar capture summary v1",
+  "description": "Summary emitted after a receive-only PX4 Mission feedback and endpoint/vehicle identity capture. The join remains software evidence and does not claim hardware, HIL, REAL, flight or operator-visual acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "mission",
+    "runtime_observation",
+    "mission_feedback",
+    "runtime_profile",
+    "endpoint_vehicle_identity",
+    "transport",
+    "join",
+    "claims"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.px4-runtime-capture"},
+    "schema_version": {"const": 1},
+    "event": {"const": "px4_runtime_capture_completed"},
+    "runtime_mode": {"enum": ["hil", "real"]},
+    "mission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mission_id", "mission_hash"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "mission_id": {"type": "string", "minLength": 1},
+        "mission_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "runtime_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "result_sha256", "runtime_descriptor_hash", "runtime_input_hash"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "result_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_descriptor_hash": {"$ref": "#/$defs/sha256"},
+        "runtime_input_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "mission_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "evidence_sha256", "gate_passed"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"type": "boolean"}
+      }
+    },
+    "runtime_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "document_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "document_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "endpoint_vehicle_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "identity_sha256", "gate_passed"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "identity_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"const": true}
+      }
+    },
+    "transport": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "configured_endpoint",
+        "resolved_endpoint",
+        "baud",
+        "expected_system_id",
+        "expected_component_id",
+        "read_only",
+        "messages_received",
+        "messages_transmitted",
+        "message_type_counts"
+      ],
+      "properties": {
+        "configured_endpoint": {"type": "string", "minLength": 1},
+        "resolved_endpoint": {"type": ["string", "null"], "minLength": 1},
+        "baud": {"type": "integer", "minimum": 1},
+        "expected_system_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "expected_component_id": {"type": ["integer", "null"], "minimum": 1, "maximum": 255},
+        "read_only": {"type": "boolean"},
+        "messages_received": {"type": "integer", "minimum": 0},
+        "messages_transmitted": {"type": "integer", "minimum": 0},
+        "telemetry_request_messages_transmitted": {"type": "integer", "minimum": 0},
+        "application_messages_transmitted": {"type": "integer", "minimum": 0},
+        "flight_control_messages_transmitted": {"type": "integer", "minimum": 0},
+        "message_type_counts": {
+          "type": "object",
+          "propertyNames": {"type": "string", "minLength": 1},
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "join": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "evidence_sha256", "gate_passed", "reasons"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "gate_passed": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_eligible",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "operator_visual_acceptance"
+      ],
+      "properties": {
+        "release_eligible": {"const": false},
+        "hardware_acceptance": {"const": false},
+        "hil_acceptance": {"const": false},
+        "real_acceptance": {"const": false},
+        "operator_visual_acceptance": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

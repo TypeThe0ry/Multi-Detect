@@ -156,6 +156,11 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".live_runtime_observation_mission_binding",
         "verify_runtime_endpoint_vehicle_identity_sidecar",
     ),
+    "Px4RuntimeCaptureError": (".px4_runtime_capture", "Px4RuntimeCaptureError"),
+    "capture_px4_runtime_sidecars": (
+        ".px4_runtime_capture",
+        "capture_px4_runtime_sidecars",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -584,6 +589,8 @@ __all__ = [
     "verify_live_runtime_observation_mission_binding",
     "build_runtime_endpoint_vehicle_identity_sidecar",
     "verify_runtime_endpoint_vehicle_identity_sidecar",
+    "Px4RuntimeCaptureError",
+    "capture_px4_runtime_sidecars",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",

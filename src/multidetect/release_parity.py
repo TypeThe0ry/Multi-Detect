@@ -321,6 +321,12 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/px4_mission_feedback_binding.py",
         "src/multidetect/px4_mission_feedback_cli.py",
         "src/multidetect/px4_mission_feedback_runtime.py",
+        # v191 is the field-facing receive-only producer: it captures the
+        # Mission feedback and endpoint/vehicle identity sidecars in one
+        # bounded provider session, then reruns the v190 five-source join.
+        "src/multidetect/px4_runtime_capture.py",
+        "configs/schemas/px4-runtime-capture.schema.json",
+        "scripts/generate_px4_runtime_capture_evidence.py",
         # v190 joins the live RuntimeObservation result, executable PX4
         # Mission feedback, signed RuntimeProfile and endpoint/vehicle
         # identity sidecar into one fail-closed software evidence contract.

@@ -247,6 +247,39 @@ def test_profile_provision_binds_fresh_px4_endpoint_mission_and_vehicle(
     assert SIGNING_KEY_HEX not in serialized
 
 
+def test_profile_provision_allows_bounded_telemetry_requests() -> None:
+    provider = _provider("fixed-wing", messages_transmitted=2)
+    provider.telemetry_request_messages_transmitted = 2
+    provider.application_messages_transmitted = 0
+    provider.flight_control_messages_transmitted = 0
+
+    provision = provision_px4_mission_feedback_runtime_profile(
+        _mission("fixed-wing"),
+        provider,
+        runtime_mode="hil",
+        hmac_key=HMAC_KEY,
+        key_id=KEY_ID,
+        duration_s=0.0,
+        clock=lambda: 10.0,
+    )
+
+    assert provision.messages_transmitted == 2
+    assert provision.telemetry_request_messages_transmitted == 2
+    assert provision.application_messages_transmitted == 0
+    assert provision.flight_control_messages_transmitted == 0
+    assert provision.summary(path=Path("profile.json"), document_sha256="a" * 64)["transport"] == {
+        "configured_endpoint": "udpin:127.0.0.1:14599",
+        "resolved_endpoint": "udpin:127.0.0.1:14599",
+        "baud": 57600,
+        "read_only": True,
+        "messages_received": 1,
+        "messages_transmitted": 2,
+        "telemetry_request_messages_transmitted": 2,
+        "application_messages_transmitted": 0,
+        "flight_control_messages_transmitted": 0,
+    }
+
+
 @pytest.mark.parametrize(
     ("provider_overrides", "reason"),
     (

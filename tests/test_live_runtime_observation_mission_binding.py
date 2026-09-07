@@ -250,6 +250,41 @@ def test_join_binds_live_result_mission_feedback_profile_and_identity(tmp_path: 
     assert document["claims"]["real_acceptance"] is False
 
 
+def test_join_accepts_telemetry_request_traffic_when_outputs_stay_locked(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    feedback_path = Path(fixture["feedback"])
+    feedback = json.loads(feedback_path.read_text(encoding="utf-8"))
+    transport = feedback["transport"]
+    transport.update(
+        {
+            "messages_transmitted": 2,
+            "telemetry_request_messages_transmitted": 2,
+            "application_messages_transmitted": 0,
+            "flight_control_messages_transmitted": 0,
+        }
+    )
+    from multidetect.autonomy.serialization import canonical_sha256
+
+    feedback["evidence_sha256"] = canonical_sha256(
+        {key: value for key, value in feedback.items() if key != "evidence_sha256"}
+    )
+    _write_json(feedback_path, feedback)
+
+    document = verify_live_runtime_observation_mission_binding(
+        fixture["live"],
+        feedback_path,
+        fixture["profile"],
+        fixture["identity"],
+        mission=fixture["mission"],
+        base_directory=fixture["root"],
+        hmac_key=PROFILE_KEY,
+        expected_key_id=PROFILE_KEY_ID,
+    )
+
+    assert document["gate_passed"] is True, document["reasons"]
+    assert document["checks"]["all_outputs_locked"] is True
+
+
 def test_join_rejects_identity_endpoint_drift_even_with_recomputed_sidecar_hash(
     tmp_path: Path,
 ) -> None:

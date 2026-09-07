@@ -262,6 +262,53 @@ def test_observer_writes_and_reloads_hash_bound_receive_only_report(tmp_path: Pa
     assert reloaded["schema_version"] == 1
 
 
+def test_observer_allows_explicit_telemetry_requests_without_output() -> None:
+    mission = _mission()
+    provider = _provider(mission)
+    provider.messages_transmitted = 2
+    provider.telemetry_request_messages_transmitted = 2
+    provider.application_messages_transmitted = 0
+    provider.flight_control_messages_transmitted = 0
+
+    report = _observe(provider, mission)
+
+    assert report["feedback_gate_passed"] is True
+    assert report["reasons"] == ()
+    assert report["transport"]["messages_transmitted"] == 2
+    assert report["transport"]["telemetry_request_messages_transmitted"] == 2
+    assert report["transport"]["application_messages_transmitted"] == 0
+    assert report["transport"]["flight_control_messages_transmitted"] == 0
+
+
+def test_observer_rejects_explicit_application_output_but_keeps_report() -> None:
+    mission = _mission()
+    provider = _provider(mission)
+    provider.messages_transmitted = 2
+    provider.telemetry_request_messages_transmitted = 1
+    provider.application_messages_transmitted = 1
+    provider.flight_control_messages_transmitted = 0
+
+    report = _observe(provider, mission)
+
+    assert report["feedback_gate_passed"] is False
+    assert report["reasons"] == ("application_messages_transmitted",)
+
+
+def test_observer_rejects_inconsistent_explicit_transmit_counters() -> None:
+    mission = _mission()
+    provider = _provider(mission)
+    provider.messages_transmitted = 1
+    provider.telemetry_request_messages_transmitted = 1
+    provider.application_messages_transmitted = 1
+    provider.flight_control_messages_transmitted = 0
+
+    with pytest.raises(
+        Px4MissionFeedbackObservationError,
+        match="transmit counters do not sum",
+    ):
+        _observe(provider, mission)
+
+
 @pytest.mark.parametrize("mode", ("hil", "real"))
 def test_v2_observer_binds_signed_runtime_vehicle_endpoint_and_airframe(
     tmp_path: Path,

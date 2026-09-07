@@ -99,9 +99,34 @@ _VEHICLE_TYPE_IDS = {
     "vtol": frozenset({19, 20, 21, 22, 23, 24, 25}),
 }
 
+_TRANSMIT_COUNTER_FIELDS = (
+    "telemetry_request_messages_transmitted",
+    "application_messages_transmitted",
+    "flight_control_messages_transmitted",
+)
+_MISSING_COUNTER = object()
+
 
 class Px4MissionFeedbackObservationError(AutonomyContractError):
     """Raised when an observation report is malformed or self-inconsistent."""
+
+
+@dataclass(frozen=True, slots=True)
+class _TransmitCounterBreakdown:
+    """Normalized transport output counters used by the feedback gate.
+
+    ``messages_transmitted`` remains the historical total.  New providers
+    expose the three explicit buckets so receive-only telemetry requests are
+    distinguishable from application or flight-control output.  A legacy
+    provider/report without those fields is conservatively treated as
+    application output, preserving the old fail-closed behaviour.
+    """
+
+    total: int
+    telemetry_requests: int
+    application: int
+    flight_control: int
+    explicit: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +152,9 @@ class Px4RuntimeProfileProvision:
     sample_count: int
     messages_received: int
     messages_transmitted: int
+    telemetry_request_messages_transmitted: int
+    application_messages_transmitted: int
+    flight_control_messages_transmitted: int
 
     def summary(self, *, path: Path, document_sha256: str) -> dict[str, object]:
         """Return a secret-free operator summary for the generated file."""
@@ -149,6 +177,11 @@ class Px4RuntimeProfileProvision:
                 "read_only": True,
                 "messages_received": self.messages_received,
                 "messages_transmitted": self.messages_transmitted,
+                "telemetry_request_messages_transmitted": (
+                    self.telemetry_request_messages_transmitted
+                ),
+                "application_messages_transmitted": self.application_messages_transmitted,
+                "flight_control_messages_transmitted": self.flight_control_messages_transmitted,
             },
             "heartbeat_identity": self.heartbeat_identity.to_document(),
             "autopilot_version_identity": self.autopilot_version_identity.to_document(),
@@ -331,6 +364,9 @@ def provision_px4_mission_feedback_runtime_profile(
         raise Px4MissionFeedbackObservationError(
             "complete PX4 AUTOPILOT_VERSION identity is required"
         )
+    transmit_counters = _provider_transmit_counters(provider)
+    if transmit_counters is None:
+        raise Px4MissionFeedbackObservationError("provider transmit counters are invalid")
     if mode is RuntimeMode.HIL:
         profile = RuntimeProfile.hil(
             vehicle_identity_hash=runtime_identity.vehicle_identity_hash,
@@ -392,11 +428,10 @@ def provision_px4_mission_feedback_runtime_profile(
             "provider.messages_received",
             minimum=1,
         ),
-        messages_transmitted=require_int(
-            provider.messages_transmitted,
-            "provider.messages_transmitted",
-            minimum=0,
-        ),
+        messages_transmitted=transmit_counters.total,
+        telemetry_request_messages_transmitted=transmit_counters.telemetry_requests,
+        application_messages_transmitted=transmit_counters.application,
+        flight_control_messages_transmitted=transmit_counters.flight_control,
     )
 
 
@@ -486,11 +521,17 @@ def _runtime_profile_probe_reasons(
     reasons: list[str] = []
     if getattr(provider, "is_read_only", None) is not True:
         reasons.append("provider_not_read_only")
-    messages_transmitted = getattr(provider, "messages_transmitted", None)
-    if isinstance(messages_transmitted, bool) or not isinstance(messages_transmitted, int):
+    counters = _provider_transmit_counters(provider)
+    if counters is None:
         reasons.append("invalid_transmit_counter")
-    elif messages_transmitted != 0:
-        reasons.append("mavlink_messages_transmitted")
+    elif counters.application or counters.flight_control:
+        if counters.explicit:
+            if counters.application:
+                reasons.append("application_messages_transmitted")
+            if counters.flight_control:
+                reasons.append("flight_control_messages_transmitted")
+        else:
+            reasons.append("mavlink_messages_transmitted")
     messages_received = getattr(provider, "messages_received", None)
     if (
         isinstance(messages_received, bool)
@@ -561,6 +602,78 @@ def _runtime_profile_probe_reasons(
                 ):
                     reasons.append("autopilot_version_not_observed_during_probe")
     return tuple(reasons)
+
+
+def _provider_transmit_counters(
+    provider: object,
+) -> _TransmitCounterBreakdown | None:
+    """Normalize provider output counters without hiding malformed values.
+
+    Older adapters only expose ``messages_transmitted``.  Their non-zero total
+    is conservatively classified as application output.  New Pixhawk adapters
+    expose explicit telemetry/application/flight-control buckets; telemetry
+    requests are accepted by the receive-only gate when the two output buckets
+    remain zero.
+    """
+
+    try:
+        total_value = provider.messages_transmitted  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    if isinstance(total_value, bool) or not isinstance(total_value, int) or total_value < 0:
+        return None
+    values: dict[str, object] = {}
+    for field in _TRANSMIT_COUNTER_FIELDS:
+        try:
+            value = getattr(provider, field)
+        except AttributeError:
+            continue
+        values[field] = value
+    return _normalise_transmit_counters(
+        total_value,
+        values,
+        context="provider",
+    )
+
+
+def _normalise_transmit_counters(
+    total_value: object,
+    values: Mapping[str, object],
+    *,
+    context: str,
+) -> _TransmitCounterBreakdown:
+    """Validate the total and derive missing counter buckets.
+
+    The optional fields were added after the v1/v2 report contracts shipped,
+    so an all-absent report is interpreted using the historical conservative
+    rule (all non-zero output is application output).  Partially populated
+    reports are accepted when the omitted buckets can be derived exactly.
+    """
+
+    total = require_int(total_value, f"{context}.messages_transmitted", minimum=0)
+    explicit = any(field in values for field in _TRANSMIT_COUNTER_FIELDS)
+    if not explicit:
+        return _TransmitCounterBreakdown(total, 0, total, 0, False)
+
+    parsed: dict[str, int] = {}
+    for field in _TRANSMIT_COUNTER_FIELDS:
+        if field in values:
+            parsed[field] = require_int(values[field], f"{context}.{field}", minimum=0)
+    telemetry = parsed.get("telemetry_request_messages_transmitted", 0)
+    flight_control = parsed.get("flight_control_messages_transmitted", 0)
+    if "application_messages_transmitted" in parsed:
+        application = parsed["application_messages_transmitted"]
+    else:
+        application = total - telemetry - flight_control
+        if application < 0:
+            raise Px4MissionFeedbackObservationError(
+                f"{context} transmit counters exceed messages_transmitted"
+            )
+    if total != telemetry + application + flight_control:
+        raise Px4MissionFeedbackObservationError(
+            f"{context} transmit counters do not sum to messages_transmitted"
+        )
+    return _TransmitCounterBreakdown(total, telemetry, application, flight_control, True)
 
 
 def observe_px4_mission_feedback(
@@ -664,11 +777,9 @@ def observe_px4_mission_feedback(
         "provider.messages_received",
         minimum=0,
     )
-    messages_transmitted = require_int(
-        provider.messages_transmitted,
-        "provider.messages_transmitted",
-        minimum=0,
-    )
+    transmit_counters = _provider_transmit_counters(provider)
+    if transmit_counters is None:
+        raise Px4MissionFeedbackObservationError("provider transmit counters are invalid")
     message_type_counts = _message_type_counts(provider.message_type_counts)
     relevant_count = sum(
         message_type_counts.get(name, 0) for name in ("MISSION_CURRENT", "MISSION_ITEM_REACHED")
@@ -691,7 +802,7 @@ def observe_px4_mission_feedback(
     feedback_reasons = _gate_reasons(
         feedback=feedback,
         read_only=read_only,
-        messages_transmitted=messages_transmitted,
+        counters=transmit_counters,
         receive_error_count=receive_error_count,
     )
     runtime_options = (
@@ -741,6 +852,25 @@ def observe_px4_mission_feedback(
             "observed_at must return a timezone-aware datetime"
         )
 
+    transport_document: dict[str, object] = {
+        "configured_endpoint": configured_endpoint,
+        "resolved_endpoint": resolved_endpoint,
+        "baud": baud,
+        "expected_system_id": feedback.expected_system_id,
+        "expected_component_id": feedback.expected_component_id,
+        "read_only": read_only,
+        "messages_received": messages_received,
+        "messages_transmitted": transmit_counters.total,
+        "message_type_counts": message_type_counts,
+    }
+    if transmit_counters.explicit:
+        transport_document.update(
+            {
+                "telemetry_request_messages_transmitted": transmit_counters.telemetry_requests,
+                "application_messages_transmitted": transmit_counters.application,
+                "flight_control_messages_transmitted": transmit_counters.flight_control,
+            }
+        )
     result: dict[str, object] = {
         "schema_version": (
             PX4_MISSION_FEEDBACK_OBSERVATION_SCHEMA_VERSION
@@ -769,17 +899,7 @@ def observe_px4_mission_feedback(
             "receive_error_count": receive_error_count,
             "receive_error_samples": receive_error_samples,
         },
-        "transport": {
-            "configured_endpoint": configured_endpoint,
-            "resolved_endpoint": resolved_endpoint,
-            "baud": baud,
-            "expected_system_id": feedback.expected_system_id,
-            "expected_component_id": feedback.expected_component_id,
-            "read_only": read_only,
-            "messages_received": messages_received,
-            "messages_transmitted": messages_transmitted,
-            "message_type_counts": message_type_counts,
-        },
+        "transport": transport_document,
         "feedback": feedback.to_mapping(),
         "feedback_sha256": feedback.canonical_hash,
         "feedback_gate_passed": not reasons,
@@ -985,6 +1105,7 @@ def verify_px4_mission_feedback_observation(
                     "message_type_counts",
                 }
             ),
+            optional=frozenset(_TRANSMIT_COUNTER_FIELDS),
         )
         require_text(transport["configured_endpoint"], "transport.configured_endpoint")
         optional_text(transport["resolved_endpoint"], "transport.resolved_endpoint")
@@ -1003,10 +1124,10 @@ def verify_px4_mission_feedback_observation(
             "transport.messages_received",
             minimum=0,
         )
-        messages_transmitted = require_int(
+        transmit_counters = _normalise_transmit_counters(
             transport["messages_transmitted"],
-            "transport.messages_transmitted",
-            minimum=0,
+            {field: transport[field] for field in _TRANSMIT_COUNTER_FIELDS if field in transport},
+            context="transport",
         )
         counts = _message_type_counts(transport["message_type_counts"])
         if sum(counts.values()) != messages_received:
@@ -1025,7 +1146,7 @@ def verify_px4_mission_feedback_observation(
         expected_reasons: tuple[str, ...] = _gate_reasons(
             feedback=feedback,
             read_only=read_only,
-            messages_transmitted=messages_transmitted,
+            counters=transmit_counters,
             receive_error_count=receive_error_count,
         )
         if schema_version == PX4_MISSION_FEEDBACK_OBSERVATION_SCHEMA_VERSION:
@@ -1157,7 +1278,7 @@ def _gate_reasons(
     *,
     feedback: Px4MissionFeedbackSnapshot,
     read_only: bool,
-    messages_transmitted: int,
+    counters: _TransmitCounterBreakdown,
     receive_error_count: int,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
@@ -1167,8 +1288,14 @@ def _gate_reasons(
         reasons.append(f"feedback:{feedback.reason}")
     if not read_only:
         reasons.append("provider_not_read_only")
-    if messages_transmitted:
-        reasons.append("mavlink_messages_transmitted")
+    if counters.application or counters.flight_control:
+        if counters.explicit:
+            if counters.application:
+                reasons.append("application_messages_transmitted")
+            if counters.flight_control:
+                reasons.append("flight_control_messages_transmitted")
+        else:
+            reasons.append("mavlink_messages_transmitted")
     return tuple(reasons)
 
 
@@ -1335,6 +1462,11 @@ def _observer_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-system-id", type=int, default=1)
     parser.add_argument("--expected-component-id", type=int, default=1)
     parser.add_argument(
+        "--request-autopilot-version",
+        action="store_true",
+        help="request a bounded AUTOPILOT_VERSION telemetry response for identity binding",
+    )
+    parser.add_argument(
         "--maximum-feedback-age-seconds",
         type=float,
         default=PX4_MISSION_FEEDBACK_CANONICAL_MAX_AGE_S,
@@ -1387,6 +1519,11 @@ def _provision_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--expected-system-id", type=int, default=1)
     parser.add_argument("--expected-component-id", type=int, default=1)
+    parser.add_argument(
+        "--request-autopilot-version",
+        action="store_true",
+        help="request a bounded AUTOPILOT_VERSION telemetry response during provisioning",
+    )
     parser.add_argument("--provider-stale-after-seconds", type=float, default=1.5)
     parser.add_argument("--probe-duration-seconds", type=float, default=10.0)
     parser.add_argument("--poll-interval-seconds", type=float, default=0.05)
@@ -1443,6 +1580,7 @@ def provision_main(argv: list[str] | None = None) -> int:
                 expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS["px4"],
                 require_operational_state=True,
                 request_ranging_streams=False,
+                request_autopilot_version=args.request_autopilot_version,
             )
         )
         provision = provision_px4_mission_feedback_runtime_profile(
@@ -1518,6 +1656,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_system_id=args.expected_system_id,
                 expected_autopilot_id=PIXHAWK_AUTOPILOT_IDS["px4"],
                 request_ranging_streams=False,
+                request_autopilot_version=args.request_autopilot_version,
             ),
             mission_feedback_tracker=tracker,
         )

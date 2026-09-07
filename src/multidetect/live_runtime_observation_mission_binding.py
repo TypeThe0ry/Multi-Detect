@@ -274,6 +274,47 @@ def _identity_without_hash(value: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _feedback_transport_outputs_locked(value: object) -> bool:
+    """Accept telemetry-only traffic while rejecting application output.
+
+    v1/v2 feedback reports predate the separated counters.  A legacy report
+    with no bucket fields is therefore considered locked only when its total
+    transmitted count is zero.  New reports may contain bounded telemetry
+    requests (for example AUTOPILOT_VERSION discovery) as long as the total
+    reconciles and both application and flight-control buckets stay at zero.
+    """
+
+    if not isinstance(value, Mapping):
+        return False
+    total = value.get("messages_transmitted")
+    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        return False
+    fields = (
+        "telemetry_request_messages_transmitted",
+        "application_messages_transmitted",
+        "flight_control_messages_transmitted",
+    )
+    if not any(field in value for field in fields):
+        return total == 0
+    parsed: dict[str, int] = {}
+    for field in fields:
+        if field not in value:
+            continue
+        candidate = value[field]
+        if isinstance(candidate, bool) or not isinstance(candidate, int) or candidate < 0:
+            return False
+        parsed[field] = candidate
+    telemetry = parsed.get("telemetry_request_messages_transmitted", 0)
+    flight_control = parsed.get("flight_control_messages_transmitted", 0)
+    application = parsed.get("application_messages_transmitted", total - telemetry - flight_control)
+    return (
+        application >= 0
+        and total == telemetry + application + flight_control
+        and application == 0
+        and flight_control == 0
+    )
+
+
 def verify_runtime_endpoint_vehicle_identity_sidecar(raw: object) -> dict[str, object]:
     """Strictly verify one endpoint/vehicle identity sidecar."""
 
@@ -906,7 +947,7 @@ def verify_live_runtime_observation_mission_binding(
         and isinstance(feedback_document, Mapping)
         and isinstance(feedback_document.get("transport"), Mapping)
         and feedback_document["transport"].get("read_only") is True
-        and feedback_document["transport"].get("messages_transmitted") == 0
+        and _feedback_transport_outputs_locked(feedback_document["transport"])
         and isinstance(feedback_binding, Mapping)
         and feedback_binding.get("flight_control_enabled") is False
         and feedback_binding.get("output_locked") is True

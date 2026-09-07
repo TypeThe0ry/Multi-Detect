@@ -99,6 +99,21 @@
         "read_only": {"type": "boolean"},
         "messages_received": {"type": "integer", "minimum": 0},
         "messages_transmitted": {"type": "integer", "minimum": 0},
+        "telemetry_request_messages_transmitted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Telemetry/autopilot-version/stream-interval requests; optional for legacy reports."
+        },
+        "application_messages_transmitted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Application-layer MAVLink output; optional for legacy reports."
+        },
+        "flight_control_messages_transmitted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Flight-control MAVLink output; optional for legacy reports."
+        },
         "message_type_counts": {
           "type": "object",
           "propertyNames": {"type": "string", "minLength": 1},
