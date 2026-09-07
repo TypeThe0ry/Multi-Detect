@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T16:52:16Z",
+  "updated_at_utc": "2026-09-07T16:54:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "d3fde58aa51d4d809cde0d0e97a4d2341fb13ff2",
-    "commit_subject": "feat(field): add PX4 capture receipt closure",
-    "commits_ahead_of_origin_main": 276
+    "commit": "66a69ae5da3baaf1c046882c944df4ed00a85341",
+    "commit_subject": "fix(field): reject symlinked PX4 receipt paths",
+    "commits_ahead_of_origin_main": 278
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
