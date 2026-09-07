@@ -31,7 +31,13 @@ from ..autonomy.serialization import canonical_sha256
 from ..clock import ManualClock
 from ..mission_progress import MissionProgressConfig, MissionProgressSnapshot
 from ..product_version import load_product_version
-from ..runtime import RuntimeDescriptor, RuntimeMode, RuntimeProfile
+from ..runtime import (
+    RuntimeDescriptor,
+    RuntimeMode,
+    RuntimeProfile,
+    RuntimeRunReport,
+    write_runtime_run_report,
+)
 from ..simulation import FaultEvent, FaultKind, ScenarioRuntimeInput, load_runtime_scenario
 from .ai_executor import SimulatorAiExecutorConfig, SimulatorTelemetrySnapshot
 from .closed_loop import SimulatorClosedLoop, SimulatorClosedLoopStep
@@ -179,6 +185,7 @@ class SimulatorScenarioRunResult:
     closed: bool
     runtime_descriptor: RuntimeDescriptor
     scene_stream: SimulatorSceneStream | None = None
+    runtime_input_hash: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -219,6 +226,44 @@ class SimulatorScenarioRunResult:
         """Canonical identity hash for the runtime used by this result."""
 
         return self.runtime_descriptor.canonical_hash
+
+    @property
+    def runtime_run_report(self) -> RuntimeRunReport:
+        """Return the shared completion contract for this bounded SIM run.
+
+        A scenario runner is intentionally configured with a finite frame
+        budget, so consuming that budget is not evidence that an unbounded
+        observation stream naturally exhausted.  The report therefore marks
+        the result as a deterministic prefix with ``stream_exhausted=False``
+        while retaining the exact runtime-channel hash and processed frame
+        identities.  The existing scenario evidence keeps its historical
+        ``frame_budget_complete`` terminal reason; this report is the common
+        Replay/SIM/HIL/REAL completion contract layered on top of it.
+        """
+
+        clock = self.evidence.get("clock")
+        if not isinstance(clock, Mapping):
+            raise SimulatorScenarioRunnerError(
+                "runtime completion report requires shared clock evidence"
+            )
+        finished_at_s = clock.get("monotonic_s")
+        input_hash = self.runtime_input_hash or self.scenario_manifest_hash
+        return RuntimeRunReport(
+            descriptor_hash=self.runtime_descriptor.canonical_hash,
+            input_hash=input_hash,
+            processed_frame_ids=tuple(
+                f"sim:{self.scenario_id}:{index}" for index in range(self.completed_frames)
+            ),
+            started_at_s=0.0,
+            finished_at_s=finished_at_s,
+            stream_exhausted=False,
+            max_frames=self.requested_frames,
+        )
+
+    def write_runtime_run_report(self, path: str | Path) -> Path:
+        """Persist the shared bounded-prefix report next to scenario evidence."""
+
+        return write_runtime_run_report(path, self.runtime_run_report)
 
     def to_mapping_with_hash(self) -> dict[str, object]:
         result = self.to_mapping()
@@ -482,6 +527,7 @@ class SimulatorScenarioRunner:
             evidence=evidence,
             closed=self.sim.closed,
             runtime_descriptor=self.runtime_descriptor,
+            runtime_input_hash=canonical_sha256(self.runtime_input.to_channel_mapping()),
         )
         if scene_snapshots:
             # Bind the stream to the runner evidence *without* introducing a
@@ -957,6 +1003,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-ai", action="store_true")
     parser.add_argument("--fault", action="append", dest="fault_ids")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--runtime-report",
+        type=Path,
+        help="optional path for the shared hash-bound RuntimeRunReport",
+    )
     args = parser.parse_args(argv)
     try:
         mission = None if args.mission is None else _load_mission_document(args.mission)
@@ -976,6 +1027,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.start_mission:
             runner.start_mission()
         result = runner.run()
+        if args.runtime_report is not None:
+            result.write_runtime_run_report(args.runtime_report)
     except (OSError, SimulatorScenarioRunnerError, ValueError, TypeError) as exc:
         print(json.dumps({"event": "simulator_scenario_run_failed", "error": str(exc)}))
         return 2

@@ -9,6 +9,16 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v177 SIM RuntimeRunReport sidecar
+
+`SimulatorScenarioRunResult.runtime_run_report` 现在复用 Replay/HIL/REAL 的统一运行报告契约。场景 runner 的
+`frames` 是明确的有限预算，因此历史场景 evidence 仍以 `frame_budget_complete` 表示预算跑满；sidecar 则绑定
+manifest runtime channel、SIM `RuntimeDescriptor`、`sim:<scenario>:<index>` 处理帧 ID 和共享 ManualClock，明确
+`stream_exhausted=false`、`termination_reason=frame_limit_reached`。CLI 可用
+`python -m multidetect.simulator.scenario_runner --scenario <manifest> --runtime-report <path>` 原子写出，随后由
+`load_runtime_run_report()` 独立复核。该 sidecar 只表达 truth-free software/SIM 前缀，不改变地图、Mission、
+飞控、物理释放或室外 GNSS/HIL/REAL/实飞验收状态。
+
 ## v82 实际 PX4 estimator covariance 观察
 
 在 pinned PX4/Gazebo VTOL 外部容器中，主机只读 companion link 请求 `ODOMETRY` 并走生产

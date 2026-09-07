@@ -13,8 +13,9 @@ from multidetect.autonomy.contracts import (
     MissionFrame,
     MissionItem,
 )
+from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.mission_progress import MissionProgressConfig, MissionProgressPhase
-from multidetect.runtime import RuntimeMode
+from multidetect.runtime import RuntimeMode, load_runtime_run_report
 from multidetect.simulation import FaultEvent, FaultKind, load_runtime_scenario
 from multidetect.simulator import (
     FlightMode,
@@ -133,6 +134,55 @@ def test_manifest_runner_binds_runtime_descriptor_and_shared_clock() -> None:
     assert result.runtime_descriptor_hash == runner.descriptor.canonical_hash
     assert result.evidence["runtime_descriptor_hash"] == runner.descriptor.canonical_hash
     assert result.evidence["clock"]["monotonic_s"] == pytest.approx(0.5)
+
+
+def test_manifest_runner_exposes_hash_bound_bounded_runtime_report(tmp_path: Path) -> None:
+    runner = SimulatorScenarioRunner(
+        MANIFEST,
+        config=SimulatorScenarioRunnerConfig(frames=3, dt_s=0.25, enable_ai=False),
+    )
+    result = runner.run()
+
+    report = result.runtime_run_report
+    assert report.descriptor_hash == result.runtime_descriptor_hash
+    assert report.input_hash == canonical_sha256(runner.runtime.to_channel_mapping())
+    assert report.processed_frame_ids == (
+        "sim:river_rescue_vtol_001:0",
+        "sim:river_rescue_vtol_001:1",
+        "sim:river_rescue_vtol_001:2",
+    )
+    assert report.processed_frame_count == result.completed_frames == 3
+    assert report.complete is False
+    assert report.max_frames == result.requested_frames == 3
+    assert report.termination_reason == "frame_limit_reached"
+    assert report.finished_at_s == pytest.approx(0.75)
+
+    destination = result.write_runtime_run_report(tmp_path / "sim-runtime-run.json")
+    assert load_runtime_run_report(destination) == report
+
+
+def test_manifest_runner_cli_can_persist_shared_runtime_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    destination = tmp_path / "cli-runtime-run.json"
+    code = scenario_runner_main(
+        [
+            "--scenario",
+            str(MANIFEST),
+            "--frames",
+            "2",
+            "--no-ai",
+            "--runtime-report",
+            str(destination),
+        ]
+    )
+
+    assert code == 0
+    json.loads(capsys.readouterr().out)
+    report = load_runtime_run_report(destination)
+    assert report.processed_frame_count == 2
+    assert report.max_frames == 2
+    assert report.complete is False
 
 
 @pytest.mark.parametrize(

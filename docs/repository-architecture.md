@@ -1,5 +1,31 @@
 # 统一仓库架构
 
+## v177 SIM RuntimeRunReport sidecar（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+Scenario Manifest runtime channel
+        │ canonical runtime-input hash
+        ▼
+SimulatorScenarioRunner (shared ManualClock + RuntimeDescriptor)
+        │ fixed frame budget / SIM step IDs
+        ▼
+SimulatorScenarioRunResult.runtime_run_report
+        │ stream_exhausted=false
+        │ termination_reason=frame_limit_reached
+        ▼
+write_runtime_run_report(--runtime-report)
+        │ canonical JSON + SHA-256 + atomic replace
+        ▼
+Replay/HIL/REAL 共用的 RuntimeRunReport loader/verifier
+```
+
+- SIM 场景的历史 evidence 仍保留 `frame_budget_complete`，用于判断场景预算是否跑满；新增 sidecar 单独表达
+  “这是一个有限前缀”，不会把预算结束误解成 backend 自然 `StopIteration`；
+- sidecar 的 descriptor hash、runtime channel hash、稳定 `sim:<scenario>:<index>` 帧 ID 和 ManualClock 终止时间
+  可被独立加载器复核，CLI 入口为 `python -m multidetect.simulator.scenario_runner ... --runtime-report <path>`；
+- 该链路仍是 truth-free software/SIM 记录，不触发地图、Mission、飞控或物理释放，也不提升室外 GNSS、真实硬件、
+  HIL/REAL、人工视觉或实飞验收。
+
 ## v176 运行时完成报告与确定性前缀阻断（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

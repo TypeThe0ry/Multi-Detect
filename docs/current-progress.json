@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T06:19:00Z",
+  "updated_at_utc": "2026-09-07T06:46:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v176",
+  "working_iteration": "v177",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3712,
-      "passed_tests": 3708,
+      "tests": 3714,
+      "passed_tests": 3710,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 228.68,
+      "duration_seconds": 233.629,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v176/full-rerun.xml",
-      "junit_file_bytes": 542691,
-      "junit_file_sha256": "6678934d4ffb91f0f9fa331d0f5e193424daa68ddb6169adcde416103e408830",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v177/full-rerun.xml",
+      "junit_file_bytes": 542975,
+      "junit_file_sha256": "6dc8b44644d659929d60162b506d2f178ed4694b7e148597902424f8b4f366f6",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -591,6 +591,65 @@
         "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
         "junit_file_bytes": 10452,
         "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
+    "v177_simulator_runtime_report_selected_regression": {
+      "passed": true,
+      "tests": 31,
+      "passed_tests": 31,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "simulator_scenario_runtime_report_sidecar_bounded_prefix_and_cli_round_trip",
+      "runtime_report_fields": [
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason",
+        "sha256"
+      ],
+      "runtime_descriptor_hash": "87cb25f8725422afccd97a627b63561abbd9860f2a6e064445a000a725613c12",
+      "runtime_input_hash": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587",
+      "bounded_prefix": {
+        "complete": false,
+        "stream_exhausted": false,
+        "max_frames": 3,
+        "processed_frame_count": 3,
+        "termination_reason": "frame_limit_reached"
+      },
+      "cli_command": "python -m multidetect.simulator.scenario_runner --scenario configs/scenarios/river_rescue_vtol_001.scenario.json --frames 3 --dt 0.25 --no-ai --out artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json --runtime-report artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json",
+      "cli_exit_code": 0,
+      "runtime_report_path": "artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json",
+      "runtime_report_bytes": 574,
+      "runtime_report_sha256": "11b084daf84f9b7bf2861a253f6311d10eb051a576aa0d32bc0197f57dc32669",
+      "runtime_report_canonical_sha256": "a8f02a03a8695484a1ef5759d360c908bde49cc06264a12f050b1b4251bbf014",
+      "runtime_report_load_round_trip": true,
+      "scenario_evidence_path": "artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json",
+      "scenario_evidence_bytes": 19797,
+      "scenario_evidence_sha256": "a786ef286e6f49a29e92b5035129e0a5f51827ad60ceea3a7a57a4ad9a64f478",
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v177/scenario-focused-rerun.xml",
+      "focused_junit_file_bytes": 4747,
+      "focused_junit_file_sha256": "d8b5660fe07718f15785631b527295788daeee7d788d77c3440b3f44de8b1a89",
+      "focused_duration_seconds": 0.429,
+      "cli_stderr_bytes": 0,
+      "full_regression": {
+        "tests": 3714,
+        "passed_tests": 3710,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 233.629,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v177/full-rerun.xml",
+        "junit_file_bytes": 542975,
+        "junit_file_sha256": "6dc8b44644d659929d60162b506d2f178ed4694b7e148597902424f8b4f366f6"
       },
       "flight_control_enabled": false,
       "physical_release_enabled": false
@@ -2237,6 +2296,41 @@
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
+    },
+    "v177_simulator_runtime_report_sidecar": {
+      "reason": "SIM scenario runner sidecar reuses the hash-bound RuntimeRunReport contract",
+      "scenario": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+      "scenario_id": "river_rescue_vtol_001",
+      "mode": "vtol",
+      "requested_frames": 3,
+      "completed_frames": 3,
+      "scenario_terminal_reason": "frame_budget_complete",
+      "runtime_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json",
+        "bytes": 574,
+        "sha256": "11b084daf84f9b7bf2861a253f6311d10eb051a576aa0d32bc0197f57dc32669",
+        "canonical_sha256": "a8f02a03a8695484a1ef5759d360c908bde49cc06264a12f050b1b4251bbf014",
+        "descriptor_hash": "87cb25f8725422afccd97a627b63561abbd9860f2a6e064445a000a725613c12",
+        "input_hash": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587",
+        "stream_exhausted": false,
+        "max_frames": 3,
+        "termination_reason": "frame_limit_reached",
+        "load_round_trip": true
+      },
+      "scenario_evidence": {
+        "path": "artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json",
+        "bytes": 19797,
+        "sha256": "a786ef286e6f49a29e92b5035129e0a5f51827ad60ceea3a7a57a4ad9a64f478",
+        "stderr_bytes": 0
+      },
+      "same_runtime_report_contract_as_replay_hil_real": true,
+      "truth_loaded": false,
+      "truth_free": true,
+      "flight_control_enabled": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed",
+      "flight_acceptance": "not_claimed"
     },
     "v176_runtime_run_report_and_parity_rebound": {
       "reason": "hash-bound RuntimeBackend completion report with deterministic prefix semantics and current parity rebound",

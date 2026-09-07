@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v176：运行时完成报告与确定性前缀阻断 |
+| 工程迭代 | v177：SIM RuntimeRunReport sidecar |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,7 +81,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 成熟度与未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v176 目标定位诊断验证、会话审计与原生录制
+### v163–v177 目标定位诊断验证、会话审计与原生录制
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -111,7 +111,8 @@ v171 将 `multidetect.target-event-replay.v1` 接入原生 QGC：C++ 严格复�
 
 v172 增加媒体/车辆元数据、四种只读筛选和事件级复制证据；v173–v174 重绑当前 parity 并把摘要提升到完整事件流。
 v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 RuntimeBackend 增加 hash-bound 完成报告：自然
-耗尽才算完整，`max_frames` 前缀显式标记 incomplete，并通过严格 schema、原子写入和 SHA-256 复核；portable EXE 为
+耗尽才算完整，`max_frames` 前缀显式标记 incomplete；v177 将报告契约接入 SIM 场景 runner，可通过
+`--runtime-report` 生成 sidecar，绑定 manifest runtime channel、descriptor 和处理帧身份；portable EXE 为
 46,875,136 bytes、SHA-256
 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；详情、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
 

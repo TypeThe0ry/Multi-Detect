@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## SIM RuntimeRunReport sidecar 与 bounded-prefix 对账（v177，`v0.3.0-pre.8`）
+
+- [x] `SimulatorScenarioRunResult.runtime_run_report` 复用 Replay/HIL/REAL 的 `RuntimeRunReport`，绑定
+  manifest runtime channel hash、SIM `RuntimeDescriptor`、共享 ManualClock 和稳定的处理帧 ID；
+- [x] 固定 frame budget 消耗仍以场景证据的 `frame_budget_complete` 表示，但 sidecar 明确
+  `stream_exhausted=false`、`termination_reason=frame_limit_reached`，避免把有限前缀误报为自然完整流；
+- [x] `multidetect.simulator.scenario_runner --runtime-report <path>` 支持原子保存和独立加载复核，补充
+  CLI/round-trip 回归；
+- [ ] 现场 portable 长回放仍需由人工把 sidecar 与外部采集、HIL/REAL 记录逐帧对账；该门通过前不改变 E7、
+  室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## 运行时完成报告与确定性前缀阻断（v176，`v0.3.0-pre.8`）
 
 - [x] `AutonomyRuntime.run_with_report()` 记录 `stream_exhausted`、`max_frames`、处理帧数和稳定终止原因；

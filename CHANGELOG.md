@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v177 SIM RuntimeRunReport sidecar（2026-09-07）
+
+- `SimulatorScenarioRunResult` 现在可以导出与 Replay/HIL/REAL 共用的 `RuntimeRunReport`：场景 manifest runtime
+  channel、runtime descriptor、处理帧 ID、共享时钟和 frame budget 均进入同一 hash-bound 报告；
+- `multidetect.simulator.scenario_runner` 新增 `--runtime-report <path>`，以原子 JSON sidecar 保存报告并可由
+  `load_runtime_run_report()` 重新校验；固定帧预算消耗仍保留 `frame_budget_complete` 场景语义，但 sidecar 明确
+  `stream_exhausted=false` / `termination_reason=frame_limit_reached`，避免把有限 SIM 前缀误报成自然完整流；
+- v177 CLI 产物和 tamper/round-trip 回归已加入进度记录；该更新不改变 QGC C++/QML 二进制，也不提升室外 GNSS、
+  真实硬件、HIL/REAL 或实飞门。
+
 ### v0.3.0-pre.8 v176 deterministic runtime completion report（2026-09-07）
 
 - `AutonomyRuntime.run_with_report()` 现在区分自然耗尽的完整流与 `max_frames` 截断前缀，报告记录处理帧数、时长、

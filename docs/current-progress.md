@@ -1,6 +1,30 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v176 工作树）
+最后更新：2026-09-07（v177 工作树）
+
+## v177 本轮已收口（SIM RuntimeRunReport sidecar 与 bounded-prefix 对账）
+
+- `SimulatorScenarioRunResult.runtime_run_report` 复用 Replay/HIL/REAL 的统一 `RuntimeRunReport` 契约，绑定
+  manifest runtime channel hash、SIM `RuntimeDescriptor`、稳定的 `sim:<scenario>:<index>` 帧 ID 和共享
+  `ManualClock`；场景 evidence 的 `frame_budget_complete` 仍表示预算跑满，sidecar 则明确
+  `stream_exhausted=false`、`termination_reason=frame_limit_reached`，避免有限 SIM 前缀被误报为自然完整流。
+- `multidetect.simulator.scenario_runner` 新增 `--runtime-report <path>`，通过同一原子 writer 生成可独立加载的
+  JSON sidecar。v177 CLI 产物为 3 帧 VTOL、`complete=false`、`max_frames=3`、报告 canonical hash
+  `A8F02A03A8695484A1EF5759D360C908BDE49CC06264A12F050B1B4251BBF014`；报告文件位于
+  `artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json`，574 bytes，SHA-256
+  `11B084DAF84F9B7BF2861A253F6311D10EB051A576AA0D32BC0197F57DC32669`。
+- 同一 CLI 输出的 scenario evidence 位于
+  `artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json`，19,797 bytes，SHA-256
+  `A786EF286E6F49A29E92B5035129E0A5F51827AD60CEEA3A7A57A4AD9A64F478`；stderr 为 0 bytes，报告加载复核通过。
+- `tests/test_simulator_scenario_runner.py` 新增 sidecar 属性、持久化往返和 CLI 写入回归；v177 场景 runner 定向
+  回归为 `31 passed, 0 skipped, 0 failed`，JUnit 为
+  `artifacts/evaluation/terminal-continuation-v177/scenario-focused-rerun.xml`（4,747 bytes，SHA-256
+  `D8B5660FE07718F15785631B527295788DAEEE7D788D77C3440B3F44DE8B1A89`）。该更新只增强 truth-free software/SIM 记录，不改变 QGC C++/QML
+  二进制，也不提升室外 GNSS、真实硬件、HIL/REAL 或实飞门。
+- v177 工作树全量回归为 `3710 passed, 4 skipped, 0 failed`（3,714 tests，233.629 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v177/full-rerun.xml`，542,975 bytes，SHA-256
+  `6DC8B44644D659929D60162B506D2F178ED4694B7E148597902424F8B4F366F6`；Ruff、format、compileall 与
+  `git diff --check` 作为同一收口门复核。
 
 ## v176 本轮已收口（运行时完成报告与确定性前缀阻断）
 
