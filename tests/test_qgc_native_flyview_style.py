@@ -853,6 +853,14 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "function saveTargetObservationDiagnostics()" in state
     assert "function _copyTargetObservationDiagnostics()" in layer
     assert "function _saveTargetObservationDiagnostics()" in layer
+    assert "startTargetObservationDiagnosticsRecording()" in controller_header
+    assert "stopTargetObservationDiagnosticsRecording()" in controller_header
+    assert "targetObservationRecordingChanged" in controller_header
+    assert "function startTargetObservationDiagnosticsRecording()" in state
+    assert "function stopTargetObservationDiagnosticsRecording()" in state
+    assert "function _toggleTargetObservationDiagnosticsRecording()" in layer
+    assert 'qsTr("开始定位诊断录制")' in layer
+    assert 'qsTr("停止定位诊断录制")' in layer
     assert 'text: qsTr("复制定位诊断")' in layer
     assert 'text: qsTr("查看定位诊断")' in layer
     assert 'text: qsTr("保存定位诊断")' in layer

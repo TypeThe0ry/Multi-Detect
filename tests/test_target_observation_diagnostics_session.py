@@ -98,6 +98,8 @@ def test_schema_parity_and_installed_command_are_bound() -> None:
     assert "configs/schemas/target-observation-diagnostics-session.schema.json" in ui_contract
     assert "src/multidetect/target_observation_diagnostics_session.py" in ui_contract
     assert "scripts/verify_target_observation_diagnostics_session.py" in ui_contract
+    assert "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.cc" in ui_contract
+    assert "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.h" in ui_contract
     pyproject = (SCHEMA_PATH.parents[2] / "pyproject.toml").read_text(encoding="utf-8")
     assert "multidetect-target-observation-session-verify" in pyproject
 

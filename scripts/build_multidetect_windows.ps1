@@ -374,6 +374,7 @@ if ($BuildSelfTests) {
         'MultiDetectTargetEvidenceStoreSelfTest',
         'MultiDetectProducerEpochDiagnosticsSelfTest',
         'MultiDetectTargetObservationDiagnosticsSelfTest',
+        'MultiDetectTargetObservationRecorderSelfTest',
         'MultiDetectDepthGridProtocolSelfTest',
         'MultiDetectReplayRtspWireSelfTest'
     )

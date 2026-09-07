@@ -79,6 +79,8 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "ground-control/MultiDetectGCS/custom/src/MultiDetectProducerEpochDiagnostics.h",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.h",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.h",
         "configs/schemas/target-observation-diagnostics.schema.json",
         "configs/schemas/target-observation-diagnostics-session.schema.json",
         "scripts/verify_target_observation_diagnostics.py",

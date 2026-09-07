@@ -13,6 +13,7 @@
 #include "MultiDetectOperatorProtocol.h"
 #include "MultiDetectProducerEpochDiagnostics.h"
 #include "MultiDetectTargetObservationDiagnostics.h"
+#include "MultiDetectTargetObservationRecorder.h"
 #include "QGCMAVLink.h"
 
 class LinkInterface;
@@ -50,6 +51,9 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(QVariantList targetObservationEpochEvents READ targetObservationEpochEvents NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(qulonglong targetObservationEpochEventCount READ targetObservationEpochEventCount NOTIFY targetObservationEpochStatsChanged)
     Q_PROPERTY(qulonglong targetObservationEpochDroppedEventCount READ targetObservationEpochDroppedEventCount NOTIFY targetObservationEpochStatsChanged)
+    Q_PROPERTY(bool targetObservationRecordingActive READ targetObservationRecordingActive NOTIFY targetObservationRecordingChanged)
+    Q_PROPERTY(int targetObservationRecordingSampleCount READ targetObservationRecordingSampleCount NOTIFY targetObservationRecordingChanged)
+    Q_PROPERTY(QString targetObservationRecordingSessionDirectory READ targetObservationRecordingSessionDirectory NOTIFY targetObservationRecordingChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -123,6 +127,12 @@ public:
     {
         return _targetObservationEpochDiagnostics.droppedEventCount();
     }
+    bool targetObservationRecordingActive() const { return _targetObservationRecorder.active(); }
+    int targetObservationRecordingSampleCount() const { return _targetObservationRecorder.sampleCount(); }
+    QString targetObservationRecordingSessionDirectory() const
+    {
+        return _targetObservationRecorder.sessionDirectory();
+    }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }
 
@@ -175,6 +185,8 @@ public:
     Q_INVOKABLE QString saveTargetObservationEpochDiagnostics();
     Q_INVOKABLE QString targetObservationDiagnosticsJson() const;
     Q_INVOKABLE QString saveTargetObservationDiagnostics();
+    Q_INVOKABLE QString startTargetObservationDiagnosticsRecording();
+    Q_INVOKABLE QString stopTargetObservationDiagnosticsRecording();
 
 signals:
     void linkStateChanged();
@@ -187,6 +199,7 @@ signals:
     void targetGeolocationStatusChanged();
     void gnssStatusChanged();
     void targetObservationEpochStatsChanged();
+    void targetObservationRecordingChanged();
     void releaseStatusChanged();
     void runtimeStatusChanged();
     void approachChallengeChanged();
@@ -365,6 +378,7 @@ private:
     qulonglong _targetObservationEpochChangedAtMs = 0;
     qulonglong _targetObservationEpochLastIncidentAtMs = 0;
     MultiDetectProducerEpochDiagnostics _targetObservationEpochDiagnostics;
+    MultiDetectTargetObservationRecorder _targetObservationRecorder;
     ChallengeBinding _challenge;
     ApproachChallengeBinding _approachChallengeBinding;
     PayloadTargetChallengeBinding _payloadTargetChallengeBinding;

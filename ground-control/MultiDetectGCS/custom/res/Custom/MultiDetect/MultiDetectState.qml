@@ -144,6 +144,12 @@ QtObject {
                                                                     Number(_operator.targetObservationEpochEventCount) : 0
     readonly property real targetObservationEpochDroppedEventCount: _operator !== null ?
                                                                            Number(_operator.targetObservationEpochDroppedEventCount) : 0
+    readonly property bool targetObservationRecordingActive: _operator !== null &&
+                                                              _operator.targetObservationRecordingActive === true
+    readonly property real targetObservationRecordingSampleCount: _operator !== null ?
+                                                                         Number(_operator.targetObservationRecordingSampleCount) : 0
+    readonly property string targetObservationRecordingSessionDirectory: _operator !== null ?
+                                                                                  String(_operator.targetObservationRecordingSessionDirectory) : ""
 
     function producerEpochDiagnosticsJson() {
         return _operator !== null ? String(_operator.targetObservationEpochDiagnosticsJson()) : "";
@@ -159,6 +165,14 @@ QtObject {
 
     function saveTargetObservationDiagnostics() {
         return _operator !== null ? String(_operator.saveTargetObservationDiagnostics()) : "";
+    }
+
+    function startTargetObservationDiagnosticsRecording() {
+        return _operator !== null ? String(_operator.startTargetObservationDiagnosticsRecording()) : "";
+    }
+
+    function stopTargetObservationDiagnosticsRecording() {
+        return _operator !== null ? String(_operator.stopTargetObservationDiagnosticsRecording()) : "";
     }
     // This is derived only from an outer-MAVLink-signed and inner-HMAC-
     // authenticated RuntimeStatus packet. Missing or expired metadata is

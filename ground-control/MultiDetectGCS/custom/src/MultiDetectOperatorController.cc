@@ -2,6 +2,7 @@
 
 #include <QtCore/QBuffer>
 #include <QtCore/QDateTime>
+#include <QtCore/QDir>
 #include <QtCore/QSet>
 #include <QtCore/QSettings>
 #include <QtCore/QStandardPaths>
@@ -197,6 +198,15 @@ void MultiDetectOperatorController::shutdown()
     }
     _shutdown = true;
     _pollTimer.stop();
+    if (_targetObservationRecorder.active()) {
+        QString manifestPath;
+        QString error;
+        if (!_targetObservationRecorder.stop(QDateTime::currentDateTimeUtc(),
+                                             QStringLiteral("application_shutdown"),
+                                             &manifestPath, &error)) {
+            qCWarning(MultiDetectOperatorLog) << error;
+        }
+    }
     disconnect(MAVLinkProtocol::instance(), nullptr, this, nullptr);
     _pendingSelection.clear();
     _clearPendingTrackSelections();
@@ -1484,6 +1494,28 @@ void MultiDetectOperatorController::_poll()
             (void) _sendPending(delivery);
         }
     }
+
+    if (_targetObservationRecorder.active()) {
+        const int previousSampleCount = _targetObservationRecorder.sampleCount();
+        QString error;
+        if (!_targetObservationRecorder.capture(
+                _rangeStatus, _targetGeolocationStatus, _gnssStatus,
+                _targetObservationEpochSummary(), QDateTime::currentDateTimeUtc(), nowMs,
+                _lastRangeStatusAtMs, _lastTargetGeolocationStatusAtMs, _lastGnssStatusAtMs,
+                &error)) {
+            QString manifestPath;
+            QString stopError;
+            if (!_targetObservationRecorder.stop(QDateTime::currentDateTimeUtc(),
+                                                 QStringLiteral("capture_failed"),
+                                                 &manifestPath, &stopError)) {
+                error += QStringLiteral("; recorder finalization failed: %1").arg(stopError);
+            }
+            _setLastError(error);
+            emit targetObservationRecordingChanged();
+        } else if (_targetObservationRecorder.sampleCount() != previousSampleCount) {
+            emit targetObservationRecordingChanged();
+        }
+    }
 }
 
 void MultiDetectOperatorController::_startDirectOperatorLink()
@@ -1864,6 +1896,38 @@ QString MultiDetectOperatorController::saveTargetObservationDiagnostics()
     }
     _setLastError(QString());
     return savedPath;
+}
+
+QString MultiDetectOperatorController::startTargetObservationDiagnosticsRecording()
+{
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                              + QStringLiteral("/diagnostics/sessions");
+    QString error;
+    if (!_targetObservationRecorder.start(directory, QDateTime::currentDateTimeUtc(),
+                                          MultiDetectTargetObservationRecorder::kDefaultIntervalMs,
+                                          MultiDetectTargetObservationRecorder::kDefaultMaximumSamples,
+                                          &error)) {
+        _setLastError(error);
+        return {};
+    }
+    _setLastError(QString());
+    emit targetObservationRecordingChanged();
+    return QDir::toNativeSeparators(_targetObservationRecorder.sessionDirectory());
+}
+
+QString MultiDetectOperatorController::stopTargetObservationDiagnosticsRecording()
+{
+    QString manifestPath;
+    QString error;
+    if (!_targetObservationRecorder.stop(QDateTime::currentDateTimeUtc(),
+                                         QStringLiteral("operator_stopped"),
+                                         &manifestPath, &error)) {
+        _setLastError(error);
+        return {};
+    }
+    _setLastError(QString());
+    emit targetObservationRecordingChanged();
+    return manifestPath;
 }
 
 bool MultiDetectOperatorController::_acceptTargetGeolocationSource(const QVariantMap& fields, quint64 sentAtMs,

@@ -4,7 +4,7 @@
     "px4_mission_path_hash": "df1cab8dd37c203cd8a86c6cee714cdc8650c3cd626376b2584d322ef2b6f4bf",
     "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
     "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
-    "ui_contract_hash": "db582f452060e8ad33717da4b4147bbb05168555ab2d182ee61a3327d2d08127"
+    "ui_contract_hash": "1b14a62d40fda9c76ec37c9e789a25d2123db4dff489cb61cf263888cb1b7ea1"
   },
   "product": "Multi-Detect",
   "release_label": "0.3.0-pre.8",
@@ -168,6 +168,8 @@
       "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEvidenceStore.h",
       "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.cc",
       "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationDiagnostics.h",
+      "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.cc",
+      "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.h",
       "ground-control/MultiDetectGCS/custom/src/PlanViewRightPanel.qml",
       "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
       "scripts/verify_target_observation_diagnostics.py",

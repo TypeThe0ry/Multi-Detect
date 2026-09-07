@@ -392,6 +392,28 @@ Item {
         _setTargetEvidenceFeedback(qsTr("定位诊断已保存（%1）：%2").arg(state).arg(savedPath), false);
     }
 
+    function _toggleTargetObservationDiagnosticsRecording() {
+        if (MultiDetectState.targetObservationRecordingActive) {
+            const manifestPath = MultiDetectState.stopTargetObservationDiagnosticsRecording();
+            if (manifestPath === "") {
+                const detail = MultiDetectState.operatorLastError !== "" ?
+                                   ": " + MultiDetectState.operatorLastError : "";
+                _setTargetEvidenceFeedback(qsTr("定位诊断录制停止失败") + detail, true);
+                return;
+            }
+            _setTargetEvidenceFeedback(qsTr("定位诊断录制已完成：%1").arg(manifestPath), false);
+            return;
+        }
+        const sessionDirectory = MultiDetectState.startTargetObservationDiagnosticsRecording();
+        if (sessionDirectory === "") {
+            const detail = MultiDetectState.operatorLastError !== "" ?
+                               ": " + MultiDetectState.operatorLastError : "";
+            _setTargetEvidenceFeedback(qsTr("定位诊断录制启动失败") + detail, true);
+            return;
+        }
+        _setTargetEvidenceFeedback(qsTr("定位诊断录制已启动：%1").arg(sessionDirectory), false);
+    }
+
     function _localizationReasonText(reason) {
         const translations = {
             "range_status_missing": qsTr("缺少测距状态"),
@@ -990,6 +1012,29 @@ Item {
                     Layout.fillWidth: true
                     text: qsTr("保存定位诊断")
                     onClicked: root._saveTargetObservationDiagnostics()
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root._margin * 0.35
+
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: MultiDetectState.targetObservationRecordingActive ?
+                              qsTr("停止定位诊断录制") : qsTr("开始定位诊断录制")
+                    onClicked: root._toggleTargetObservationDiagnosticsRecording()
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: MultiDetectState.targetObservationRecordingActive ?
+                               qgcPal.colorGreen : qgcPal.text
+                    text: MultiDetectState.targetObservationRecordingActive ?
+                              qsTr("录制中 · %1 个样本 · 1 Hz").arg(
+                                  Math.round(MultiDetectState.targetObservationRecordingSampleCount)) :
+                              qsTr("连续诊断未录制")
+                    wrapMode: Text.WordWrap
                 }
             }
 
