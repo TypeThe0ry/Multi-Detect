@@ -11,6 +11,7 @@ from multidetect.runtime_observation import (
     RuntimeObservationResult,
     RuntimeObservationResultError,
     load_runtime_observation_result,
+    main,
     write_runtime_observation_pair,
     write_runtime_observation_result,
 )
@@ -65,6 +66,32 @@ def test_observation_builder_round_trips_pair_and_optional_result_hash(tmp_path:
     assert json.loads(report_path.read_text(encoding="utf-8")) == (
         result.runtime_run_report.to_mapping_with_hash()
     )
+
+
+def test_observation_builder_cli_reuses_existing_runtime_report(tmp_path: Path, capsys) -> None:
+    report = _report(RuntimeMode.REAL)
+    report_path = tmp_path / "real-report.json"
+    result_path = tmp_path / "real-result.json"
+    report_path.write_text(
+        json.dumps(report.to_mapping_with_hash(), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                str(report_path),
+                "--runtime-mode",
+                "real",
+                "--out",
+                str(result_path),
+                "--include-hash",
+            ]
+        )
+        == 0
+    )
+    assert Path(capsys.readouterr().out.strip()) == result_path.resolve()
+    assert load_runtime_observation_result(result_path).runtime_run_report == report
 
 
 def test_observation_result_is_valid_against_its_schema(tmp_path: Path) -> None:

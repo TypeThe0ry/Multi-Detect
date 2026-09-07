@@ -17,7 +17,9 @@ counter split.
 
 from __future__ import annotations
 
+import argparse
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,7 +35,12 @@ from .autonomy.serialization import (
     strict_json_loads,
     strict_object,
 )
-from .runtime import RuntimeMode, RuntimeRunReport, write_runtime_run_report
+from .runtime import (
+    RuntimeMode,
+    RuntimeRunReport,
+    load_runtime_run_report,
+    write_runtime_run_report,
+)
 
 SCHEMA = "multidetect.runtime-observation-result"
 SCHEMA_VERSION = 1
@@ -278,9 +285,45 @@ def write_runtime_observation_pair(
     return result_file, report_path
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("runtime_report", type=Path, help="existing RuntimeRunReport sidecar JSON")
+    parser.add_argument("--runtime-mode", choices=("hil", "real"), required=True)
+    parser.add_argument("--out", type=Path, required=True, help="observation result JSON")
+    parser.add_argument(
+        "--include-hash",
+        action="store_true",
+        help="include the optional result sha256 field",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        report = load_runtime_run_report(args.runtime_report)
+        result = RuntimeObservationResult(RuntimeMode(args.runtime_mode), report)
+        output = write_runtime_observation_result(
+            args.out,
+            result,
+            include_hash=args.include_hash,
+        )
+    except (OSError, AutonomyContractError, TypeError, ValueError) as exc:
+        print(f"runtime observation build failed: {exc}")
+        return 1
+    print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
 __all__ = [
     "RuntimeObservationResult",
     "RuntimeObservationResultError",
+    "build_parser",
+    "main",
     "SCHEMA",
     "SCHEMA_VERSION",
     "load_runtime_observation_result",
