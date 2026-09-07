@@ -1,5 +1,36 @@
 # 统一仓库架构
 
+## v189 profile-bound live RuntimeObservation producer（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+RawSensorRuntimeBackend
+  frame_source + shared clock + telemetry provider + RuntimeDescriptor
+                                      │
+                                      ▼
+                    LiveMissionRunner.from_runtime_backend
+                                      │
+                 actual frame IDs / shared-clock timestamps
+                                      │
+                    RuntimeRunReport (hash-bound sidecar)
+                                      │
+                                      ▼
+                    RuntimeObservationResult (HIL/REAL)
+                                      │
+     telemetry-request count ────────┼──── application/flight-control count
+                                      │
+                                      ▼
+                    runtime_report_binding / QGC evidence
+```
+
+- `src/multidetect/live.py` 由同一个 live producer 持有 descriptor/input hash、逐帧身份和终止状态；
+  `--max-frames` 前缀明确为 `frame_limit_reached`，无界人工停止不写完成报告。
+- `src/multidetect/cli.py live-camera` 可写 report/result sidecar；`--runtime-observation-result` 只在
+  签名 profile-bound HIL/REAL runtime 下启用，并在原子写入前调用 receive-only safety guard。
+- `PixhawkReadOnlyTelemetryProvider` 与 `PixhawkFlightControlProvider` 保持兼容总计，同时提供
+  telemetry-request、application、flight-control 三个分项，避免 telemetry 配置请求掩盖真实输出。
+- v189 evidence generator 使用这条 production runner 路径做确定性软件验证；它只建立可重开的身份和
+  输出安全证据，不替代真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View 或飞行验收。
+
 ## v188 RuntimeObservation builder CLI（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

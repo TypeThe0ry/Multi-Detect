@@ -1,5 +1,22 @@
 # Implementation roadmap
 
+## Profile-bound live RuntimeObservation producer（v189，`v0.3.0-pre.8`）
+
+- [x] 将 `LiveMissionRunner.from_runtime_backend` 接到真实 producer 形状：完成运行后直接提供
+  `RuntimeRunReport` 与 `RuntimeObservationResult`，使用实际 descriptor/input hash、处理帧 ID、共享时钟
+  和明确的有界/自然终止状态；无界用户停止不伪造终止原因。
+- [x] `multidetect live-camera` 支持 `--runtime-report`、`--runtime-observation-result` 和
+  `--runtime-observation-include-hash`，输出只接受签名 profile-bound HIL/REAL runtime，并在写 sidecar
+  前执行 report/result/binding 与 receive-only 安全门。
+- [x] Pixhawk provider 拆分 `messages_transmitted`、telemetry-request、application 和
+  flight-control 计数；已知应用/飞控输出、硬件控制或飞控能力开启时 observation builder fail-closed。
+- [x] 生成 [`scripts/generate_runtime_observation_live_producer_evidence.py`](../scripts/generate_runtime_observation_live_producer_evidence.py)
+  和 v189 pair/JUnit 证据：聚焦 `306 passed, 1 skipped`，全量 `3764 passed, 6 skipped`，schema/round-trip/
+  binding 均通过。
+- [ ] 将 v189 live result 与同版 RuntimeProfile、PX4 Mission feedback、endpoint/vehicle identity sidecar
+  做显式 join，并以真实 HIL/REAL capture 重跑；软件 evidence 不升级硬件、室外 GNSS、人工 Fly View、HIL/
+  REAL 或实飞验收。
+
 ## RuntimeObservation builder CLI（v188，`v0.3.0-pre.8`）
 
 - [x] 增加 `multidetect-runtime-observation-build` 安装式 CLI：从已有 hash-bound `RuntimeRunReport`
@@ -9,9 +26,9 @@
   严格 parser；v188 HIL/REAL 两个 pair 的 schema errors、round-trip 和 runtime-report binding 均通过。
 - [x] 新增 `scripts/generate_runtime_observation_cli_evidence.py` 与 CLI 回归，验证两个模式的产物哈希和
   binding gate；不把 Pixhawk telemetry-request capture 的发送计数伪装为零应用发送。
-- [ ] 将 CLI/builder 接到真实 HIL/REAL capture producer：明确 telemetry request 与
-  application/flight-control message counter，绑定同版 RuntimeProfile、Mission feedback、endpoint/
-  vehicle identity 后再重跑现场证据。
+- [x] 已由 v189 将 CLI/builder 接到 profile-bound live producer，并明确 telemetry request 与
+  application/flight-control message counter；同版 RuntimeProfile、Mission feedback、endpoint/vehicle
+  identity 的 sidecar join 与真实现场重跑仍由 v189 的下一项完成。
 
 ## typed RuntimeObservationResult 生产入口（v187，`v0.3.0-pre.8`）
 
@@ -23,9 +40,10 @@
   顶层派生字段篡改均有回归覆盖。
 - [x] 生成 v187 HIL/REAL 软件 pair、binding 正向重开和 `runtime_input_hash` 篡改负向证据；现有
   `capture_pixhawk_odometry_covariance.py` 的 telemetry request 发送计数不被错误转换为零发送结果。
-- [ ] 把该 builder 接入真实 HIL/REAL capture producer：producer 必须明确区分 telemetry request 与
-  application/flight-control message counter，并在同一 RuntimeProfile、Mission feedback、endpoint/
-  vehicle identity sidecar 下重跑；软件 fixture 不升级硬件、室外 GNSS、人工 Fly View、HIL/REAL 或实飞门。
+- [x] v189 已把该 builder 接入 profile-bound live producer，producer 明确区分 telemetry request 与
+  application/flight-control message counter，并在构造 result 前执行输出安全门。
+- [ ] 在同一 RuntimeProfile、Mission feedback、endpoint/vehicle identity sidecar 下重跑真实 HIL/REAL
+  capture；软件 fixture 不升级硬件、室外 GNSS、人工 Fly View、HIL/REAL 或实飞门。
 
 ## HIL/REAL RuntimeReport 观测适配器（v186，`v0.3.0-pre.8`）
 

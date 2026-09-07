@@ -1,6 +1,37 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v188 工作树）
+最后更新：2026-09-07（v189 工作树）
+
+## v189 本轮已收口（profile-bound live RuntimeObservation producer）
+
+- `LiveMissionRunner.from_runtime_backend` 现在直接拥有 live producer 的完成报告和类型化观测
+  结果入口：`runtime_run_report` 记录同一 descriptor/input hash、实际处理帧 ID、共享时钟起止时间、
+  `stream_exhausted` 与 `max_frames`；`build_runtime_observation_result()` 在 HIL/REAL 模式下从该报告
+  派生 canonical receive-only result。无界 live 流被用户中止时不伪造终止原因，报告保持不可用。
+- `multidetect live-camera` 增加 `--runtime-report`、`--runtime-observation-result` 和
+  `--runtime-observation-include-hash`。输出要求签名 profile-bound HIL/REAL runtime；先构造并校验
+  observation，再原子写入 result/report，避免安全门失败留下孤立 sidecar。
+- live producer 暴露分离后的计数：`messages_transmitted` 是兼容性的总数，
+  `telemetry_request_messages_transmitted` 单列 telemetry/autopilot/stream 请求，
+  `application_messages_transmitted` 与 `flight_control_messages_transmitted` 单列应用/飞控输出。
+  Pixhawk read-only provider 的 telemetry 请求不会被误报为零发送；观测结果构造器拒绝任何已知应用/飞控
+  输出、可控硬件或飞控能力开启的 provider。
+- 新增 [`scripts/generate_runtime_observation_live_producer_evidence.py`](../scripts/generate_runtime_observation_live_producer_evidence.py)：
+  用真实 `LiveMissionRunner.from_runtime_backend` 路径生成 HIL 软件 pair。结果 1,419 bytes / SHA-256
+  `2FADB5B4D6A5E041DBE35430EE03E4CB7549955B2F757F50F9FE243A87DBC01B`；RuntimeReport 544 bytes /
+  SHA-256 `F4D7B8E2E61AA2B7972F38BBEBA9F8857424116316F7DFB83565B5CDDCB5CFE2`；schema errors `0`、
+  round-trip `true`、binding `gate_passed=true`，负向应用输出 guard 按预期拒绝。Telemetry 总数为 `2`，
+  其中请求 `2`、应用 `0`、飞控 `0`，`read_only=true`、`output_locked=true`。
+- 聚焦回归为 `307 tests / 306 passed / 1 skipped / 0 failed`；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v189/runtime-observation-live-producer-focused-v189.xml`，
+  41,264 bytes、SHA-256 `07BF0AEE56F35D75389D310C9A36ACDDD676CC114055E6E6CA043E48A496160A`。
+  全量回归为 `3,770 tests / 3,764 passed / 6 skipped / 0 failed`，365.571 秒；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v189/full-rerun-v189-final.xml`，552,187 bytes、SHA-256
+  `691416301B89CBDFBBC91EC3617AE67AB9B37B07242C68CD3241684A51D6922A`。
+- 本轮已更新 release parity（PX4 Mission path 与 safety policy hash）并提交实现；仍未重编译 portable EXE。
+  这些是 software runtime identity/安全边界证据，不代表真实 Pixhawk、室外 GNSS、HIL、REAL、人工 QGC
+  或实飞验收；最终 `v0.3.0` 继续保持阻断。下一步是把 live 结果与同版 RuntimeProfile、PX4 Mission
+  feedback、endpoint/vehicle identity sidecar 做显式 join。
 
 ## v188 本轮已收口（RuntimeObservation builder CLI）
 

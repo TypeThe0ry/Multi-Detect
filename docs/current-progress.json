@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T12:58:49Z",
+  "updated_at_utc": "2026-09-07T13:42:31Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "14ccca400301630f09bb9840572eca5f6f35dfb7",
-    "commit_subject": "feat(runtime): expose observation result builder cli",
-    "commits_ahead_of_origin_main": 262
+    "commit": "726ccf91cf19be87a55429df9a8ae9b27c352b24",
+    "commit_subject": "feat(runtime): bind observation results to live producer",
+    "commits_ahead_of_origin_main": 264
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v188",
+  "working_iteration": "v189",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,17 +74,34 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3767,
-      "passed_tests": 3761,
+      "tests": 3770,
+      "passed_tests": 3764,
       "skipped": 6,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 366.479,
+      "duration_seconds": 365.571,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v188/full-rerun-v188-final.xml",
-      "junit_file_bytes": 551799,
-      "junit_file_sha256": "f739a1cfd6a87c08838e68e9d15fb90e453ae05ef018746df35f32ad7f5f5597",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v189/full-rerun-v189-final.xml",
+      "junit_file_bytes": 552187,
+      "junit_file_sha256": "691416301b89cbdfbbc91ec3617ae67ab9b37b07242c68cd3241684a51d6922a",
       "distributed_in_git": false
+    },
+    "v189_runtime_observation_live_producer_selected_regression": {
+      "passed": true,
+      "tests": 307,
+      "passed_tests": 306,
+      "skipped": 1,
+      "failed": 0,
+      "errors": 0,
+      "scope": "live_runtime_backend_observation_result_cli_pixhawk_counter_separation",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v189/runtime-observation-live-producer-focused-v189.xml",
+      "junit_file_bytes": 41264,
+      "junit_file_sha256": "07bf0aee56f35d75389d310c9a36acddd676cc114055e6e6ca043e48a496160a",
+      "runtime_report_binding": "passed",
+      "negative_application_output_guard": "passed",
+      "ruff": "passed",
+      "compileall": "passed",
+      "git_diff_check": "passed"
     },
     "v152_gnss_status_selected_regression": {
       "passed": true,
@@ -1242,16 +1259,87 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10185,
-    "file_sha256": "0b878bec370224e98051f4e03f3ab6fa277556e8576eb47c4e21b7ecbcc79859",
+    "file_sha256": "fdd3edc3328f1bca50b96a6d4d917a64280c80629bc7c656117ca369bc221e21",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
-      "safety_policy_hash": "a7c16d5c7a52508c6d289296abdda50f24cc8010d62f1a535ef609114545ced5",
-      "px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8"
+      "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+      "px4_mission_path_hash": "335bbc6ca26ed433db5e732b5053e756714539d43ac1c3fa46a79891f2055138"
     }
   },
   "evidence": {
+    "v189_runtime_observation_live_producer": {
+      "schema": "multidetect.runtime-observation-result",
+      "schema_version": 1,
+      "producer": "LiveMissionRunner.from_runtime_backend",
+      "runner_module": "src/multidetect/live.py",
+      "cli": "multidetect live-camera",
+      "generator": "scripts/generate_runtime_observation_live_producer_evidence.py",
+      "release_label": "0.3.0-pre.8",
+      "runtime_mode": "hil",
+      "runtime_descriptor_backend_id": "evidence:live-hil-producer",
+      "bounded_run": {
+        "processed_frames": 2,
+        "processed_frame_ids": ["live-producer-0001", "live-producer-0002"],
+        "stream_exhausted": false,
+        "max_frames": 2,
+        "termination_reason": "frame_limit_reached"
+      },
+      "runtime_message_counters": {
+        "messages_transmitted": 2,
+        "telemetry_request_messages_transmitted": 2,
+        "application_messages_transmitted": 0,
+        "flight_control_messages_transmitted": 0,
+        "is_read_only": true,
+        "hardware_control_enabled": false,
+        "flight_control_enabled": false,
+        "output_locked": true
+      },
+      "positive_pair": {
+        "result_path": "artifacts/evaluation/terminal-continuation-v189/hil-runtime-observation-v189.json",
+        "result_bytes": 1419,
+        "result_sha256": "2fadb5b4d6a5e041dbe35430ee03e4cb7549955b2f757f50f9fe243a87dbc01b",
+        "runtime_report_path": "artifacts/evaluation/terminal-continuation-v189/hil-runtime-report-v189.json",
+        "runtime_report_bytes": 544,
+        "runtime_report_sha256": "f4d7b8e2e61aa2b7972f38bbeba9f8857424116316f7dfb83565b5cddcb5cfe2",
+        "summary_path": "artifacts/evaluation/terminal-continuation-v189/summary-v189.json",
+        "summary_bytes": 1521,
+        "summary_sha256": "f996511987766883e1ba0c85ddb2fde839737b978d7bb58ecb09ab767ca75696",
+        "schema_errors": 0,
+        "round_trip": true,
+        "binding_gate_passed": true
+      },
+      "negative_application_output_rejection": {
+        "rejected": true,
+        "message": "runtime observation result requires zero application messages transmitted"
+      },
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v189/runtime-observation-live-producer-focused-v189.xml",
+      "focused_junit_tests": 307,
+      "focused_junit_passed": 306,
+      "focused_junit_skipped": 1,
+      "focused_junit_failed": 0,
+      "focused_junit_errors": 0,
+      "focused_junit_file_bytes": 41264,
+      "focused_junit_file_sha256": "07bf0aee56f35d75389d310c9a36acddd676cc114055e6e6ca043e48a496160a",
+      "full_junit_local_path": "artifacts/evaluation/terminal-continuation-v189/full-rerun-v189-final.xml",
+      "full_junit_tests": 3770,
+      "full_junit_passed": 3764,
+      "full_junit_skipped": 6,
+      "full_junit_failed": 0,
+      "full_junit_errors": 0,
+      "full_junit_duration_seconds": 365.571,
+      "full_junit_file_bytes": 552187,
+      "full_junit_file_sha256": "691416301b89cbdfbbc91ec3617ae67ab9b37b07242c68cd3241684a51d6922a",
+      "claim_boundary": {
+        "software_runtime_identity_only": true,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed"
+      },
+      "portable_exe_rebuilt": false
+    },
     "v188_runtime_observation_cli": {
       "schema": "multidetect.runtime-observation-result",
       "schema_version": 1,
@@ -3619,7 +3707,7 @@
     "flight_acceptance": "not_claimed"
   },
   "next_priorities": [
-    "integrate_runtime_observation_cli_into_hil_real_capture_producer",
+    "bind_live_runtime_observation_to_mission_feedback_and_endpoint_identity_sidecars",
     "manual_fly_view_target_event_replay_review_on_current_portable",
     "capture_hil_real_runtime_report_sidecars_for_binding_set",
     "execute_real_gr01_session_then_portable_review_on_second_field_machine",

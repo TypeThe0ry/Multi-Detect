@@ -5,6 +5,22 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v189 profile-bound live RuntimeObservation producer（2026-09-07）
+
+- `LiveMissionRunner.from_runtime_backend` 现在直接绑定 live producer 的 `RuntimeRunReport` 和
+  `RuntimeObservationResult`：报告使用实际 descriptor/input hash、逐帧 ID、共享时钟和有界/自然终止信息；
+  无界流被人工停止时不伪造完成报告。
+- `multidetect live-camera` 新增 `--runtime-report`、`--runtime-observation-result`、
+  `--runtime-observation-include-hash`，仅接受签名 profile-bound HIL/REAL runtime，并在写文件前运行
+  receive-only 安全门。
+- Pixhawk telemetry provider 将兼容总发送数与 telemetry-request、application、flight-control 计数分离；
+  已知应用/飞控输出、可控硬件或飞控能力开启时，typed observation result 会 fail-closed。
+- 新增 `scripts/generate_runtime_observation_live_producer_evidence.py` 与 live/Pixhawk/CLI 回归；软件
+  HIL pair schema errors `0`、round-trip `true`、binding gate `true`，负向应用输出 guard 通过。
+  聚焦 `307 tests / 306 passed / 1 skipped`，全量 `3770 tests / 3764 passed / 6 skipped / 0 failed`。
+- 本轮更新 release parity 并记录 v189 evidence；portable EXE 未重编译，真实 Pixhawk、室外 GNSS、HIL/REAL、
+  人工 Fly View、实飞和最终 `v0.3.0` 发布门保持原状态。
+
 ### v0.3.0-pre.8 v188 RuntimeObservation builder CLI（2026-09-07）
 
 - 新增安装式 `multidetect-runtime-observation-build`：从已有 `RuntimeRunReport` sidecar 和明确的

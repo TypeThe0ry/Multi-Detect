@@ -9,6 +9,32 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v189 profile-bound live producer 接线
+
+v189 把 HIL/REAL 观测结果从“独立 builder 输入 sidecar”推进到同一条 `LiveMissionRunner` producer 路径：
+
+```text
+profile-bound RuntimeBackend
+        ├─ frame_source / shared clock
+        ├─ telemetry provider
+        └─ RuntimeDescriptor + input hash
+                    │
+                    ▼
+        LiveMissionRunner.from_runtime_backend
+                    │
+         RuntimeRunReport + frame identity
+                    │
+         RuntimeObservationResult (receive-only)
+```
+
+- `live-camera` 现可通过 `--runtime-report`、`--runtime-observation-result`、
+  `--runtime-observation-include-hash` 写出绑定结果；模式、签名 profile 和终止条件都在入口检查。
+- Pixhawk 链路把 telemetry/autopilot/stream 请求与 application/flight-control 输出分项计数。观测结果
+  只允许已知应用/飞控计数为零、read-only、硬件控制关闭和 `output_locked=true` 的 provider；总 telemetry
+  请求不会被抹成“零发送”。
+- v189 软件 harness 已用两帧 bounded HIL path 验证 schema、round-trip、report binding 和负向输出拒绝。
+  真实硬件、室外 GNSS、HIL/REAL、PX4 Mission feedback/endpoint sidecar 和人工 QGC 仍是后续验收门。
+
 ## v188 RuntimeObservation builder CLI
 
 安装后可用的 `multidetect-runtime-observation-build` 把现有 `RuntimeRunReport` sidecar 转成
