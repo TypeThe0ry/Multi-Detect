@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T14:46:16Z",
+  "updated_at_utc": "2026-09-07T15:30:37Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "464443efd3254861da30f9c790dbd7348e667ffb",
-    "commit_subject": "feat(runtime): join live observation mission identity",
-    "commits_ahead_of_origin_main": 266
+    "commit": "c15a0be07707b8cc5c441a87b0eb9400d31e876b",
+    "commit_subject": "feat(runtime): add PX4 sidecar capture bridge",
+    "commits_ahead_of_origin_main": 269
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v190",
+  "working_iteration": "v191",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,17 +74,36 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3777,
-      "passed_tests": 3770,
+      "tests": 3786,
+      "passed_tests": 3779,
       "skipped": 7,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 180.87,
+      "duration_seconds": 187.779,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v190/full-rerun-v190-final.xml",
-      "junit_file_bytes": 553421,
-      "junit_file_sha256": "66fa6c5aa8ce96f3bc1755d452071ab9c206ddc9da16f5c33dcb7becb7b3a95e",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v191/full-rerun-v191-final.xml",
+      "junit_file_bytes": 554650,
+      "junit_file_sha256": "cd69d10146c6a361cf25ddd5905a13f9afb640da44999f36e8861a993322dba9",
       "distributed_in_git": false
+    },
+    "v191_px4_runtime_capture_selected_regression": {
+      "passed": true,
+      "tests": 54,
+      "passed_tests": 53,
+      "skipped": 1,
+      "failed": 0,
+      "errors": 0,
+      "scope": "px4_runtime_sidecar_capture_telemetry_counter_separation_and_live_mission_join",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v191/px4-runtime-capture-focused-v191.xml",
+      "junit_file_bytes": 9118,
+      "junit_file_sha256": "cb77d5255b3708b600b63339d876bae0db9127e0a34f0cbb96d9ba6813a04307",
+      "positive_receive_only_capture": "passed",
+      "negative_application_output_guard": "passed",
+      "schema_validation": "passed",
+      "release_parity": "regenerated",
+      "ruff": "passed",
+      "compileall": "passed",
+      "git_diff_check": "passed"
     },
     "v189_runtime_observation_live_producer_selected_regression": {
       "passed": true,
@@ -1277,17 +1296,103 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 10482,
-    "file_sha256": "98177d06a88565d5ffdce97f265cff573ccc1256f5de4a64c737daee72be8435",
+    "bytes": 10645,
+    "file_sha256": "7bb1d0252c93a5177e0380e219cb285f2ff123746fee71db358399b657840787",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
       "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
-      "px4_mission_path_hash": "7c4dde6a78ece45886f72ad8f28815b275c2614089c109fcefee095ad894ea6d"
+      "px4_mission_path_hash": "1758a3a6ac52c01260e432adc005e5ac9993978359f7243a281a02645b98dd97"
     }
   },
   "evidence": {
+    "v191_px4_runtime_capture": {
+      "schema": "multidetect.px4-runtime-capture",
+      "schema_version": 1,
+      "producer": "capture_px4_runtime_sidecars",
+      "module": "src/multidetect/px4_runtime_capture.py",
+      "cli": "multidetect-px4-runtime-capture",
+      "generator": "scripts/generate_px4_runtime_capture_evidence.py",
+      "release_label": "0.3.0-pre.8",
+      "runtime_mode": "hil",
+      "command": "$env:PYTHONPATH='src'; python scripts/generate_px4_runtime_capture_evidence.py --output-directory artifacts/evaluation/terminal-continuation-v191 --capture-schema configs/schemas/px4-runtime-capture.schema.json --join-schema configs/schemas/live-runtime-observation-mission-binding.schema.json --identity-schema configs/schemas/runtime-endpoint-vehicle-identity.schema.json",
+      "summary": {
+        "path": "artifacts/evaluation/terminal-continuation-v191/summary-v191.json",
+        "bytes": 3131,
+        "sha256": "1f2cb1abbee493338730e750507cd62d1fdf783a615deee4e8056fd25ad1cb90"
+      },
+      "positive_receive_only": {
+        "capture_summary_path": "artifacts/evaluation/terminal-continuation-v191/positive/capture-summary.json",
+        "capture_summary_bytes": 2707,
+        "capture_summary_sha256": "fca9b90901b47385bffec4672edf932fa46f17fe41264720f5a3ba293674ec9c",
+        "schema_errors": 0,
+        "feedback_gate_passed": true,
+        "join_gate_passed": true,
+        "join_schema_errors": 0,
+        "identity_schema_errors": 0,
+        "feedback_bytes": 4390,
+        "feedback_sha256": "ebfe426925d3c90ce09f3386af8f094bb46d9e9d602cec2eda2d493775aad572",
+        "join_bytes": 6539,
+        "join_sha256": "716c6b6abdd9bb6ee158c82f9864224f18e440d256861cc481314b53eb3cffee",
+        "transport": {
+          "messages_transmitted": 2,
+          "telemetry_request_messages_transmitted": 2,
+          "application_messages_transmitted": 0,
+          "flight_control_messages_transmitted": 0,
+          "read_only": true
+        }
+      },
+      "negative_application_output": {
+        "capture_summary_path": "artifacts/evaluation/terminal-continuation-v191/negative-application-output/capture-summary.json",
+        "capture_summary_bytes": 2938,
+        "capture_summary_sha256": "2a08b0ede717f8fb11fdc3d7a7d090c67bff3b4c9227f9f92f010d2155bed624",
+        "schema_errors": 0,
+        "feedback_gate_passed": false,
+        "join_gate_passed": false,
+        "join_schema_errors": 0,
+        "identity_schema_errors": 0,
+        "rejected": true,
+        "feedback_bytes": 4464,
+        "feedback_sha256": "ed054e559d8c5b7b49c3a78225b38c5704d73322307ebb749aed66ee684b9e78",
+        "join_bytes": 6786,
+        "join_sha256": "4c6622296ee74ebb30b1ad2757914eeaf10b22f0cc0ae940e02c92f7b6276c16",
+        "reasons": [
+          "PX4 Mission feedback gate is not qualified",
+          "one or more joined sources are not output locked"
+        ],
+        "transport": {
+          "messages_transmitted": 3,
+          "telemetry_request_messages_transmitted": 2,
+          "application_messages_transmitted": 1,
+          "flight_control_messages_transmitted": 0,
+          "read_only": false
+        }
+      },
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v191/px4-runtime-capture-focused-v191.xml",
+      "focused_junit_tests": 54,
+      "focused_junit_passed": 53,
+      "focused_junit_skipped": 1,
+      "focused_junit_failed": 0,
+      "focused_junit_errors": 0,
+      "focused_junit_duration_seconds": 0.72,
+      "focused_junit_file_bytes": 9118,
+      "focused_junit_file_sha256": "cb77d5255b3708b600b63339d876bae0db9127e0a34f0cbb96d9ba6813a04307",
+      "release_parity": {
+        "path": "configs/release-parity.json",
+        "bytes": 10645,
+        "sha256": "7bb1d0252c93a5177e0380e219cb285f2ff123746fee71db358399b657840787",
+        "px4_mission_path_hash": "1758a3a6ac52c01260e432adc005e5ac9993978359f7243a281a02645b98dd97"
+      },
+      "claim_boundary": {
+        "software_sidecar_capture": true,
+        "hardware_acceptance": "not_claimed",
+        "hil_acceptance": "not_claimed",
+        "real_acceptance": "not_claimed",
+        "flight_acceptance": "not_claimed",
+        "operator_visual_acceptance": "not_claimed"
+      }
+    },
     "v190_live_runtime_observation_mission_binding": {
       "schema": "multidetect.live-runtime-observation-mission-binding",
       "schema_version": 1,

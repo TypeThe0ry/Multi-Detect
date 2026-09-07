@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v191 PX4 receive-only runtime sidecar capture（2026-09-07）
+
+- 新增 `src/multidetect/px4_runtime_capture.py` 与 `multidetect-px4-runtime-capture`：在一个 bounded
+  `PixhawkReadOnlyTelemetryProvider` session 中生成 PX4 Mission feedback、endpoint/vehicle identity sidecar，
+  并立即重跑 v190 live observation / Mission / RuntimeProfile 五源 join。
+- 将发送总数拆为 `telemetry_request_messages_transmitted`、`application_messages_transmitted` 和
+  `flight_control_messages_transmitted`。有界 `AUTOPILOT_VERSION`/stream/range 请求可以被记录；应用或飞控输出
+  仍保持 fail-closed，旧报告继续兼容并按保守规则解释。
+- 新增 `configs/schemas/px4-runtime-capture.schema.json`、确定性证据生成器与 v191 回归；正向 telemetry-only
+  capture 通过，负向 application output 同时关闭 feedback 与 join gate。当前证据为 in-memory software fixture，
+  不代表真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终 `v0.3.0` 发布。
+- v191 聚焦回归 `53 passed, 1 skipped`，全量 Python 回归 `3,779 passed, 7 skipped, 0 failed`
+  （3,786 tests）；JUnit 与 SHA-256 详见 [`docs/current-progress.json`](docs/current-progress.json)。
+- 刷新 `configs/release-parity.json`，将 v191 producer、schema 和 evidence generator 绑定到 PX4 Mission path。
+
 ### v0.3.0-pre.8 v190 live RuntimeObservation × PX4 Mission identity join（2026-09-07）
 
 - 新增 `multidetect.live_runtime_observation_mission_binding` 与安装式

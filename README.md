@@ -36,7 +36,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v190：live/PX4/profile/endpoint identity 五源软件 join |
+| 工程迭代 | v191：PX4 receive-only runtime sidecar capture + v190 五源 join |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -80,7 +80,12 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详见 [当前进度](docs/current-progress.md)。
 
-### v163–v190 目标定位与证据链
+### v163–v191 目标定位与证据链
+
+v191 新增 `multidetect-px4-runtime-capture`：同一个 bounded Pixhawk read-only session 生成 Mission feedback、
+endpoint/vehicle identity 和 join sidecar；telemetry request、application、flight-control 发送计数分桶，现场
+可用 `--request-autopilot-version` 绑定 firmware identity。正向 in-memory evidence 与负向应用输出 gate 均已回归，
+真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View 和飞行验收仍按当前进度门禁执行。
 
 v163–v165 建立 `target-observation-diagnostics` schema、session 审计和 Fly View 接入；详见[当前进度](docs/current-progress.md)。
 
@@ -117,13 +122,9 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 显式 receive-only 观测适配器、14 项单绑定安全检查和可重复四模式软件 fixture；v187–v189 接入 live
 producer，v190 以 25 项检查 join live/PX4/profile/endpoint identity sidecar；见[当前进度](docs/current-progress.md)。
 
-### v152 独立 GNSS 质量状态
+### v152 GNSS 状态
 
-Jetson 现在以认证 operator protocol 类型 `25`、默认 `5 Hz` 发布独立 `GNSS_STATUS`：即使尚未选择
-目标，原生 QGC 的“室外测距质量”也能显示 position health、fix type、卫星数、水平/垂直精度、
-样本年龄以及精确的不可定位原因。合格门与共享定位算法保持一致（`fix>=3`、卫星 `>=6`、
-水平 `<=6 m`、垂直 `<=10 m`、年龄 `<=1.5 s`）；弱样本和伪造的 qualified 状态 fail-closed。
-该消息无经纬度且 display-only；GNSS、portable 与人工/硬件门见[当前进度](docs/current-progress.md)。
+独立 `GNSS_STATUS`、质量门与不可定位原因保持在当前进度和历史归档中，详见[当前进度](docs/current-progress.md)。
 
 ### v132–v150 GR01 计划、事务化 E7 与 trust registry 复核
 

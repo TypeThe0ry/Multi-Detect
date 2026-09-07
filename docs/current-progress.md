@@ -1,6 +1,43 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v190 工作树）
+最后更新：2026-09-07（v191 工作树）
+
+## v191 本轮已收口（PX4 receive-only runtime sidecar capture）
+
+- 新增 [`src/multidetect/px4_runtime_capture.py`](../src/multidetect/px4_runtime_capture.py) 与安装式命令
+  `multidetect-px4-runtime-capture`：在同一个 bounded Pixhawk read-only provider session 中采集 v2
+  `PX4 Mission feedback`、endpoint/vehicle identity sidecar，并立即重开并重跑 v190 的 live observation /
+  Mission / signed RuntimeProfile 五源 join。输入和输出均要求位于同一 `--base-directory`，拒绝符号链接、越界
+  路径、输入/输出复用和 profile/runtime mode 漂移；所有 JSON 原子写入。
+- 传输计数从兼容性的 `messages_transmitted` 总数拆为
+  `telemetry_request_messages_transmitted`、`application_messages_transmitted` 和
+  `flight_control_messages_transmitted`。`AUTOPILOT_VERSION` 等有界身份请求可被记录而不会被误判为飞控输出；
+  任一应用或飞控输出仍会让 feedback/profile/join 门 fail-closed。旧 v1/v2 报告没有分桶字段时继续按保守规则
+  将非零总数视为应用输出。
+- `--request-autopilot-version`（默认开启）让现场采集可拿到完整 PX4 firmware identity；REAL 模式仍要求调用者
+  通过环境变量或内存参数提供 signing identity hash，HMAC/profile key 只从环境或调用者内存读取，绝不写入报告。
+  现场入口示例：
+  `multidetect-px4-runtime-capture --base-directory <capture-root> --mission <mission.json>
+  --runtime-observation <live-observation.json> --runtime-profile <signed-profile.json> --runtime-mode hil
+  --endpoint <serial-or-udp-endpoint> --runtime-profile-hmac-key-env <KEY_ENV>
+  --runtime-profile-key-id <KEY_ID> --request-autopilot-version`。
+- 新增 [`configs/schemas/px4-runtime-capture.schema.json`](../configs/schemas/px4-runtime-capture.schema.json)
+  和 [`scripts/generate_px4_runtime_capture_evidence.py`](../scripts/generate_px4_runtime_capture_evidence.py)。
+  v191 确定性证据在 `artifacts/evaluation/terminal-continuation-v191/summary-v191.json`：正向 receive-only capture
+  的 feedback/join/schema 均通过，telemetry 请求 `2`、应用输出 `0`、飞控输出 `0`；负向应用输出样本被 feedback
+  与 join 同时拒绝。该证据使用 bounded in-memory provider，不连接真实 Pixhawk、串口、GNSS 或飞机。
+- v191 聚焦回归为 `54 tests / 53 passed / 1 skipped / 0 failed`；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v191/px4-runtime-capture-focused-v191.xml`，9,118 bytes / SHA-256
+  `CB77D5255B3708B600B63339D876BAE0DB9127E0A34F0CBB96D9BA6813A04307`。`ruff check`、`ruff format --check`、
+  `compileall` 与 `git diff --check` 均通过；完整回归为 `3,779 passed / 7 skipped / 0 failed`
+  （3,786 tests，187.779 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v191/full-rerun-v191-final.xml`，554,650 bytes / SHA-256
+  `CD69D10146C6A361CF25DDD5905A13F9AFB640DA44999F36E8861A993322DBA9`。当前 parity 为 10,645 bytes / SHA-256
+  `7BB1D0252C93A5177E0380E219CB285F2FF123746FEE71DB358399B657840787`，PX4 Mission path hash 为
+  `1758A3A6AC52C01260E432ADC005E5AC9993978359F7243A281A02645B98DD97`。
+- v191 仍只关闭“现场采集入口缺失”和“telemetry 请求误判为输出”这两个软件缺口；不把合成 provider 升级为真实
+  HIL/REAL、室外 GNSS、人工 Fly View、飞行或最终 `v0.3.0` 发布通过。下一步是把现场生成的 sidecar 原样带回，
+  用同一 CLI 重跑 join，再执行三机型 Mission feedback、GNSS/测距和人工视觉验收门。
 
 ## v190 本轮已收口（live RuntimeObservation × PX4 Mission × RuntimeProfile × endpoint/vehicle identity join）
 
@@ -32,7 +69,7 @@
 - 全量 Python 回归为 `3,770 passed / 7 skipped / 0 failed`（3,777 tests，180.87 秒）；JUnit 位于
   `artifacts/evaluation/terminal-continuation-v190/full-rerun-v190-final.xml`，553,421 bytes / SHA-256
   `66FA6C5AA8CE96F3BC1755D452071AB9C206DDC9DA16F5C33DCB7BECB7B3A95E`。
-  当前 `configs/release-parity.json` 为 10,482 bytes / SHA-256
+  v190 evidence 当时绑定的 `configs/release-parity.json` 为 10,482 bytes / SHA-256
   `98177D06A88565D5FFDCE97F265CFF573CCC1256F5DE4A64C737DAEE72BE8435`，PX4 Mission path hash 为
   `7C4DDE6A78ECE45886F72AD8F28815B275C2614089C109FCEFEE095AD894EA6D`。
   本轮只证明 software sidecar join、schema、hash/身份/锁输出和 fail-closed 逻辑；不把合成 HIL 证据升级为

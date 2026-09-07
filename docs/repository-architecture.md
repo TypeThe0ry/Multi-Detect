@@ -1,5 +1,39 @@
 # 统一仓库架构
 
+## v191 PX4 receive-only runtime sidecar capture（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+signed RuntimeProfile + executable Mission + live RuntimeObservation
+                              │
+                              ▼
+                 multidetect-px4-runtime-capture
+                              │ one bounded read-only provider session
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+       PX4 Mission feedback              endpoint/vehicle identity
+       total + telemetry/app/flight      heartbeat + AUTOPILOT_VERSION
+             └────────────────┬────────────────┘
+                              ▼
+       live_runtime_observation_mission_binding (v190)
+                              │
+                              ▼
+                  re-openable join JSON + claims
+```
+
+- `src/multidetect/px4_runtime_capture.py` 是现场采集入口：它重开 Mission、HIL/REAL
+  `RuntimeObservationResult` 和签名 profile，使用 `PixhawkReadOnlyTelemetryProvider` 采集反馈与身份，原子写入
+  feedback/identity/join 三类 sidecar，再用当前源码的 v190 joiner 重算五源证据。`--base-directory` 对输入和输出
+  统一做真实路径边界检查，HMAC/signing key 只从调用者内存或环境变量进入。
+- v191 把 `messages_transmitted` 拆成 telemetry request、application 和 flight-control 三个可审计桶；旧报告
+  没有分桶时仍使用非零即应用输出的兼容 fail-closed 解释。这样 `AUTOPILOT_VERSION`、stream/range 请求不会
+  被错误地当作控制输出，同时任何真实应用/飞控发送仍会关闭 profile、feedback 和 join gate。
+- `configs/schemas/px4-runtime-capture.schema.json` 约束 CLI 成功摘要；feedback v1/v2 schema 约束可选计数桶，
+  `live-runtime-observation-mission-binding` 的输出锁检查也接受 telemetry-only traffic。证据生成器
+  `scripts/generate_px4_runtime_capture_evidence.py` 覆盖正向 telemetry-only 与负向 application-output 两条路径。
+- 现场命令只需要替换 mission、live observation、signed profile、endpoint 和环境变量名；返回的三个 sidecar 可
+  直接复制到审计目录并重新执行同一 join。v191 软件证据不等于真实 Pixhawk、室外 GNSS、HIL/REAL、人工视觉、
+  飞行或最终发布验收。
+
 ## v190 live observation / Mission / profile / endpoint identity join（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
