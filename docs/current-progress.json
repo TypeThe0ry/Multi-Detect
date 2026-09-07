@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T07:39:00Z",
+  "updated_at_utc": "2026-09-07T08:22:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v179",
+  "working_iteration": "v180",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3715,
-      "passed_tests": 3711,
+      "tests": 3725,
+      "passed_tests": 3721,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 269.676,
+      "duration_seconds": 311.097,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v179/full-rerun.xml",
-      "junit_file_bytes": 543119,
-      "junit_file_sha256": "edf8454297ef15bda74213edf5dd18c9110c9a4e8a61d6e1a4a998ad3f3dffad",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v180/full-rerun.xml",
+      "junit_file_bytes": 544434,
+      "junit_file_sha256": "d6d12065420c8c64ce91379fbb5411e7dc7da3f8eb5c9036207807dfe1fe575c",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -591,6 +591,51 @@
         "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
         "junit_file_bytes": 10452,
         "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
+    "v180_runtime_report_binding_selected_regression": {
+      "passed": true,
+      "tests": 41,
+      "passed_tests": 41,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "runtime_result_runtime_report_binding_sim_and_integrated_contracts",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "known_result_events": [
+        "integrated_replay_finished",
+        "integrated_replay_qgc_finished",
+        "simulator_scenario_run_finished"
+      ],
+      "unknown_result_events_fail_closed": true,
+      "sim_result_runtime_input_hash_exposed": true,
+      "sim_result_path": "artifacts/evaluation/terminal-continuation-v180/simulator-run-v180.json",
+      "sim_result_bytes": 17161,
+      "sim_result_sha256": "3883ced727a1ed73f09f63ffc222808406efb8b46a93b44810385de136604195",
+      "runtime_report_path": "artifacts/evaluation/terminal-continuation-v180/simulator-runtime-report-v180.json",
+      "runtime_report_bytes": 542,
+      "runtime_report_sha256": "bf6904c29dc673bfb2be70c6ba4ffef8378f240bf553b628ba2545abb42e304e",
+      "runtime_report_canonical_sha256": "31b18485d212af0abe04c1c9dde1f6f1ce96f5ca6c0985e64a69d3a78a1a4a7e",
+      "binding_report_path": "artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-v180.json",
+      "binding_report_bytes": 2431,
+      "binding_report_sha256": "7e5c96466580e36bd038199d1b23fd8c7852b3c758710aa4328fe15705109a9b",
+      "binding_gate_passed": true,
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-focused.xml",
+      "focused_junit_file_bytes": 6062,
+      "focused_junit_file_sha256": "0fca9e28e44c47fe8bc42b9b0d3a9cc5f874b325b37584de14ecf7975063b493",
+      "focused_duration_seconds": 0.629,
+      "full_regression": {
+        "tests": 3725,
+        "passed_tests": 3721,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 311.097,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v180/full-rerun.xml",
+        "junit_file_bytes": 544434,
+        "junit_file_sha256": "d6d12065420c8c64ce91379fbb5411e7dc7da3f8eb5c9036207807dfe1fe575c"
       },
       "flight_control_enabled": false,
       "physical_release_enabled": false
@@ -2395,6 +2440,70 @@
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
+    },
+    "v180_runtime_report_binding": {
+      "reason": "reopen result and sidecar to prove the RuntimeRunReport belongs to the producing run",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "known_result_events": [
+        "integrated_replay_finished",
+        "integrated_replay_qgc_finished",
+        "simulator_scenario_run_finished"
+      ],
+      "unknown_result_events_fail_closed": true,
+      "result": {
+        "path": "artifacts/evaluation/terminal-continuation-v180/simulator-run-v180.json",
+        "bytes": 17161,
+        "sha256": "3883ced727a1ed73f09f63ffc222808406efb8b46a93b44810385de136604195",
+        "event": "simulator_scenario_run_finished",
+        "runtime_mode": "sim",
+        "runtime_input_hash": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587",
+        "runtime_descriptor_hash": "87cb25f8725422afccd97a627b63561abbd9860f2a6e064445a000a725613c12",
+        "requested_frames": 2,
+        "completed_frames": 2,
+        "terminal_reason": "frame_budget_complete",
+        "truth_free": true,
+        "closed": true
+      },
+      "runtime_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v180/simulator-runtime-report-v180.json",
+        "bytes": 542,
+        "sha256": "bf6904c29dc673bfb2be70c6ba4ffef8378f240bf553b628ba2545abb42e304e",
+        "canonical_sha256": "31b18485d212af0abe04c1c9dde1f6f1ce96f5ca6c0985e64a69d3a78a1a4a7e",
+        "descriptor_hash": "87cb25f8725422afccd97a627b63561abbd9860f2a6e064445a000a725613c12",
+        "input_hash": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587",
+        "processed_frame_ids": [
+          "sim:river_rescue_vtol_001:0",
+          "sim:river_rescue_vtol_001:1"
+        ],
+        "processed_frame_count": 2,
+        "stream_exhausted": false,
+        "max_frames": 2,
+        "termination_reason": "frame_limit_reached"
+      },
+      "binding_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-v180.json",
+        "bytes": 2431,
+        "sha256": "7e5c96466580e36bd038199d1b23fd8c7852b3c758710aa4328fe15705109a9b",
+        "gate_passed": true,
+        "all_checks_passed": true
+      },
+      "focused_regression": {
+        "tests": 41,
+        "passed_tests": 41,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-focused.xml",
+        "junit_bytes": 6062,
+        "junit_sha256": "0fca9e28e44c47fe8bc42b9b0d3a9cc5f874b325b37584de14ecf7975063b493"
+      },
+      "same_runtime_report_contract_as_replay_sim_hil_real": true,
+      "software_runtime_identity_only": true,
+      "flight_control_enabled": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed",
+      "flight_acceptance": "not_claimed"
     },
     "v179_integrated_replay_qgc_runtime_report_sidecar": {
       "reason": "QGC integrated Replay synchronizes metadata before consuming the shared hash-bound RuntimeRunReport",

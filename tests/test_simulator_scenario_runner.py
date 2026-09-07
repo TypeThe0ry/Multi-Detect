@@ -132,6 +132,9 @@ def test_manifest_runner_binds_runtime_descriptor_and_shared_clock() -> None:
     result = runner.run()
     assert result.runtime_descriptor is runner.descriptor
     assert result.runtime_descriptor_hash == runner.descriptor.canonical_hash
+    assert result.to_mapping()["runtime_input_hash"] == canonical_sha256(
+        runner.runtime.to_channel_mapping()
+    )
     assert result.evidence["runtime_descriptor_hash"] == runner.descriptor.canonical_hash
     assert result.evidence["clock"]["monotonic_s"] == pytest.approx(0.5)
 

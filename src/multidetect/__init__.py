@@ -80,6 +80,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "verify_field_session_capture",
     ),
     "evaluate_replay_set": (".replay_set_evaluation", "evaluate_replay_set"),
+    "RuntimeReportBindingError": (
+        ".runtime_report_binding",
+        "RuntimeReportBindingError",
+    ),
+    "verify_runtime_report_binding": (
+        ".runtime_report_binding",
+        "verify_runtime_report_binding",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -489,6 +497,8 @@ __all__ = [
     "capture_field_session",
     "verify_field_session_capture",
     "evaluate_replay_set",
+    "RuntimeReportBindingError",
+    "verify_runtime_report_binding",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",

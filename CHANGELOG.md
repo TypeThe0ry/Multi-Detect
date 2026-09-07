@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v180 runtime result/report binding verifier（2026-09-07）
+
+- 新增 `multidetect.runtime_report_binding` 与 `multidetect-runtime-report-verify`：只读重新打开结果 JSON 和
+  `RuntimeRunReport` sidecar，严格校验事件适配器、runtime mode、descriptor/input hash、处理帧数量/ID、终止
+  合同、integrated Replay/QGC 内嵌报告，以及 SIM 的 `truth_free`/`closed`；未知事件 fail-closed。
+- `SimulatorScenarioRunResult.to_mapping()` 公开 sidecar 使用的 `runtime_input_hash`，避免审核者只凭 manifest
+  hash 或重新构造输入。绑定 schema 独立于 `px4_mission_path` parity，不改变 QGC C++/QML 或飞控路径。
+- `river_rescue_vtol_001` 2 帧绑定证据与 41 项定向回归通过；全量回归为 `3721 passed, 4 skipped, 0 failed`
+  （3,725 tests）。本轮仍只证明 software/SIM 记录身份，E7、室外 GNSS、真实硬件、HIL/REAL、人工 Fly View
+  和实飞门保持阻断。
+
 ### v0.3.0-pre.8 v179 integrated Replay/QGC RuntimeRunReport parity（2026-09-07）
 
 - `integrated-replay-qgc` 回归现在使用真实 `RuntimeRunReport` 对象，先完成本地 RTSP/metadata 同步 ACK，

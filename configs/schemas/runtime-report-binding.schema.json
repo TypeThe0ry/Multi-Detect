@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schema/runtime-report-binding.schema.json",
+  "title": "Multi-Detect runtime result/report binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "result",
+    "runtime_report",
+    "expectations",
+    "checks",
+    "gate_passed",
+    "reasons",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.runtime-report-binding" },
+    "schema_version": { "const": 1 },
+    "event": { "const": "runtime_report_binding_verified" },
+    "result": { "$ref": "#/$defs/result" },
+    "runtime_report": { "$ref": "#/$defs/runtimeReport" },
+    "expectations": { "$ref": "#/$defs/expectations" },
+    "checks": { "$ref": "#/$defs/checks" },
+    "gate_passed": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim_boundary": { "$ref": "#/$defs/claimBoundary" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "pathInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256", "event", "runtime_mode", "gate_passed"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "event": { "type": ["string", "null"] },
+        "runtime_mode": { "type": ["string", "null"] },
+        "gate_passed": { "type": ["boolean", "null"] }
+      }
+    },
+    "runtimeReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "canonical_sha256",
+        "schema_version",
+        "event",
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "canonical_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_version": { "const": 1 },
+        "event": { "const": "runtime_run_finished" },
+        "descriptor_hash": { "$ref": "#/$defs/sha256" },
+        "input_hash": { "$ref": "#/$defs/sha256" },
+        "processed_frame_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "processed_frame_count": { "type": "integer", "minimum": 0 },
+        "started_at_s": { "type": "number", "minimum": 0 },
+        "finished_at_s": { "type": "number", "minimum": 0 },
+        "duration_s": { "type": "number", "minimum": 0 },
+        "stream_exhausted": { "type": "boolean" },
+        "max_frames": { "type": ["integer", "null"], "minimum": 0 },
+        "termination_reason": {
+          "enum": ["stream_exhausted", "frame_limit_reached"]
+        }
+      }
+    },
+    "expectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "descriptor_hash",
+        "input_hash",
+        "require_embedded_report",
+        "require_complete",
+        "embedded_report_present"
+      ],
+      "properties": {
+        "runtime_mode": { "type": ["string", "null"] },
+        "descriptor_hash": { "type": ["string", "null"] },
+        "input_hash": { "type": ["string", "null"] },
+        "require_embedded_report": { "type": "boolean" },
+        "require_complete": { "type": "boolean" },
+        "embedded_report_present": { "type": "boolean" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_json_valid",
+        "runtime_report_valid",
+        "result_event_supported",
+        "result_gate_passed",
+        "runtime_mode_matches",
+        "descriptor_hash_matches",
+        "input_hash_matches",
+        "processed_frame_count_matches",
+        "processed_frame_ids_match",
+        "termination_contract_matches",
+        "embedded_report_matches",
+        "sim_truth_free",
+        "sim_closed"
+      ],
+      "properties": {
+        "result_json_valid": { "type": "boolean" },
+        "runtime_report_valid": { "type": "boolean" },
+        "result_event_supported": { "type": "boolean" },
+        "result_gate_passed": { "type": "boolean" },
+        "runtime_mode_matches": { "type": "boolean" },
+        "descriptor_hash_matches": { "type": "boolean" },
+        "input_hash_matches": { "type": "boolean" },
+        "processed_frame_count_matches": { "type": "boolean" },
+        "processed_frame_ids_match": { "type": "boolean" },
+        "termination_contract_matches": { "type": "boolean" },
+        "embedded_report_matches": { "type": "boolean" },
+        "sim_truth_free": { "type": "boolean" },
+        "sim_closed": { "type": "boolean" }
+      }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "software_runtime_identity_only",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "flight_acceptance"
+      ],
+      "properties": {
+        "software_runtime_identity_only": { "const": true },
+        "hardware_acceptance": { "const": "not_claimed" },
+        "hil_acceptance": { "const": "not_claimed" },
+        "real_acceptance": { "const": "not_claimed" },
+        "flight_acceptance": { "const": "not_claimed" }
+      }
+    }
+  }
+}

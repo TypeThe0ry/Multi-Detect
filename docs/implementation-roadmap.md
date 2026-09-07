@@ -1,5 +1,17 @@
 # Implementation roadmap
 
+## 运行结果与 RuntimeRunReport 独立绑定（v180，`v0.3.0-pre.8`）
+
+- [x] 新增 `runtime_report_binding` 只读 verifier 与 `multidetect-runtime-report-verify` CLI，重新打开结果和
+  sidecar，严格校验 JSON、报告 canonical SHA-256、事件适配器、模式/descriptor/input identity、帧计数与帧 ID；
+- [x] integrated Replay/QGC 要求内嵌报告与 sidecar 完全一致；SIM 绑定有限前缀的
+  `stream_exhausted=false` / `frame_limit_reached`，并要求 `truth_free=true`、`closed=true`；未知事件保持 fail-closed；
+- [x] `SimulatorScenarioRunResult` 序列化精确 `runtime_input_hash`，实跑 `river_rescue_vtol_001` 2 帧证据完成
+  结果↔报告绑定，41 项绑定/场景回归和全量 `3721 passed, 4 skipped, 0 failed`（3,725 tests）通过；
+- [ ] 仍需在现场 portable 上人工打开同一 Fly View、载入真实长回放并将绑定报告与外部采集、HIL/REAL 记录逐帧
+  对账；该门通过前不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。绑定器是下游软件证据消费者，不新增
+  `px4_mission_path` parity 项，也不触发 QGC C++/QML 重链。
+
 ## integrated Replay/QGC RuntimeRunReport parity（v179，`v0.3.0-pre.8`）
 
 - [x] `integrated-replay-qgc` 在本地 RTSP/metadata 同步 ACK 完成后写出 `RuntimeRunReport` sidecar，并将

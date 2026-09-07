@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v179：integrated Replay/QGC RuntimeRunReport parity |
+| 工程迭代 | v180：运行结果与 RuntimeRunReport 独立绑定 |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -79,9 +79,9 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 - E7 发布门：只有版本、模型、精度、人工视觉、Mission、HIL/REAL 和硬件证据全部满足时
   才能允许最终发布。
 
-成熟度与未完成项见 [当前进度](docs/current-progress.md)。
+详见 [当前进度](docs/current-progress.md)。
 
-### v163–v179 目标定位诊断验证、会话审计与原生录制
+### v163–v180 目标定位与证据链
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -116,7 +116,8 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 46,875,136 bytes、SHA-256
 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`。v178–v179 将同一契约接入
 `integrated-replay`/`integrated-replay-qgc`，校验自然耗尽、逐帧身份、descriptor/input hash，并覆盖 sidecar
-嵌入与 QGC 同步回归；详情、测试和 E7 阻断见[当前进度](docs/current-progress.md)。
+嵌入与 QGC 同步回归；v180 加入 `multidetect-runtime-report-verify`，绑定结果与 sidecar，核对 hash、帧、终止
+语义和内嵌报告；见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 

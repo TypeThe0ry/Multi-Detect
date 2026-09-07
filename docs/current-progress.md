@@ -1,6 +1,28 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v179 工作树）
+最后更新：2026-09-07（v180 工作树）
+
+## v180 本轮已收口（运行结果与 RuntimeRunReport 独立绑定）
+
+- 新增 [`src/multidetect/runtime_report_binding.py`](../src/multidetect/runtime_report_binding.py) 与
+  `multidetect-runtime-report-verify` CLI：重新打开结果 JSON 和 `RuntimeRunReport` sidecar，拒绝重复键、软链接、
+  非对象和损坏/篡改报告，并按已知事件严格核对 runtime mode、descriptor/input hash、处理帧数量/ID、终止语义、
+  integrated Replay/QGC 内嵌报告以及 SIM 的 `truth_free`/`closed` 状态；未知事件保持 fail-closed。
+- `SimulatorScenarioRunResult.to_mapping()` 现在公开生成 sidecar 所使用的精确 `runtime_input_hash`，审核者不需要
+  重建场景输入即可把结果和报告绑定。该字段只扩展 SIM software 结果，不改变 `px4_mission_path` parity、QGC C++/QML
+  二进制或任何飞控输出路径。
+- 真实 2 帧 `river_rescue_vtol_001` SIM 证据绑定通过：结果 17,161 bytes / SHA-256
+  `3883CED727A1ED73F09F63FFC222808406EFB8B46A93B44810385DE136604195`；RuntimeRunReport 542 bytes / SHA-256
+  `BF6904C29DC673BFB2BE70C6BA4FFEF8378F240BF553B628BA2545ABB42E304E`，canonical SHA-256
+  `31B18485D212AF0ABE04C1C9DDE1F6F1CE96F5CA6C0985E64A69D3A78A1A4A7E`；绑定报告 2,431 bytes / SHA-256
+  `7E5C96466580E36BD038199D1B23FD8C7852B3C758710AA4328FE15705109A9B`，`gate_passed=true`。
+- v180 定向回归为 `41 passed, 0 skipped, 0 failed`，JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-focused.xml`，6,062 bytes，SHA-256
+  `0FCA9E28E44C47FE8BC42B9B0D3A9CC5F874B325B37584DE14ECF7975063B493`；全量 Python 回归为
+  `3721 passed, 4 skipped, 0 failed`（3,725 tests，311.097 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v180/full-rerun.xml`，544,434 bytes，SHA-256
+  `D6D12065420C8C64CE91379FBB5411E7DC7DA3F8EB5C9036207807DFE1FE575C`。这轮先锁定 software 证据身份；硬件、
+  室外 GNSS、HIL/REAL、人工 Fly View 与实飞门仍未通过，不改变 E7 `false / false`。
 
 ## v179 本轮已收口（integrated Replay/QGC sidecar 对账）
 

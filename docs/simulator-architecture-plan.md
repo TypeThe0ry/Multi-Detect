@@ -9,6 +9,26 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v180 运行结果与 RuntimeRunReport 绑定消费者
+
+SIM 场景结果现在在写出时公开与 sidecar 相同的 `runtime_input_hash`。新增
+`multidetect.runtime_report_binding` 会重新打开结果和 `RuntimeRunReport`，按事件适配器核对
+`RuntimeDescriptor`、输入通道、`sim:<scenario>:<index>` 帧序列、预算终止语义和 `truth_free/closed`；
+integrated Replay/QGC 则额外要求结果内嵌报告与 sidecar 的 canonical mapping 完全相等。命令入口为：
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.runtime_report_binding `
+  artifacts/evaluation/terminal-continuation-v180/simulator-run-v180.json `
+  artifacts/evaluation/terminal-continuation-v180/simulator-runtime-report-v180.json `
+  --runtime-mode sim `
+  --out artifacts/evaluation/terminal-continuation-v180/runtime-report-binding-v180.json
+```
+
+v180 的 `river_rescue_vtol_001` 2 帧结果绑定 `gate_passed=true`，41 项定向回归及 3,725 项全量回归全部通过。该 verifier 是
+software-only 的只读证据边界，不代表真实 GNSS、Pixhawk、HIL/REAL、人工 QGC 或实飞；未知事件保持
+fail-closed，且不修改 `px4_mission_path` parity 或 QGC 二进制。
+
 ## v179 integrated Replay/QGC RuntimeRunReport parity
 
 `integrated-replay-qgc` 现在在本地 RTSP/metadata 同步 ACK 完成后消费真实 `RuntimeRunReport`，通过

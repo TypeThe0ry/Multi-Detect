@@ -1,5 +1,30 @@
 # 统一仓库架构
 
+## v180 运行结果与 RuntimeRunReport 独立绑定（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+SIM / integrated Replay / integrated Replay-QGC result JSON
+        │ reopen with strict JSON + known event adapter
+        ▼
+multidetect.runtime_report_binding
+        │ descriptor/input hash + frame count/IDs + termination contract
+        │ embedded report equality + SIM truth-free/closed checks
+        ▼
+runtime-report-binding JSON evidence
+        │ gate_passed / reasons / software-only claim boundary
+        ▼
+manual Fly View review → external/HIL/REAL evidence reconciliation → E7 consumer
+```
+
+- `multidetect-runtime-report-verify` 是只读下游消费者：输入是已经生成的结果 JSON 和
+  `RuntimeRunReport` sidecar，重新计算身份并 fail-closed，不启动 runtime、不接触车辆、不写地图/Mission/飞控。
+- 已知事件适配 `integrated_replay_finished`、`integrated_replay_qgc_finished` 与
+  `simulator_scenario_run_finished`；未知事件不继承任何完成语义。SIM 结果显式携带
+  `runtime_input_hash`，因此绑定审阅不依赖重新解析场景 manifest。
+- 绑定 schema 与 verifier 不加入 `px4_mission_path` parity：它消费已有共享报告而不改变核心 contract，避免把
+  software 证据消费者误当成 QGC/EXE 或 HIL/REAL 实现变化。v180 2 帧 VTOL 证据、41 项定向与 3,725 项全量
+  回归见 `artifacts/evaluation/terminal-continuation-v180/`；hardware/HIL/REAL/flight claim 全部保持 `not_claimed`。
+
 ## v179 integrated Replay/QGC RuntimeRunReport parity（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

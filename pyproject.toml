@@ -68,6 +68,7 @@ multidetect-px4-mission-feedback-verify = "multidetect.px4_mission_feedback_cli:
 multidetect-px4-runtime-profile-provision = "multidetect.px4_mission_feedback_cli:provision_main"
 multidetect-gazebo-geolocation-matrix = "multidetect.gazebo_geolocation_regime_matrix:main"
 multidetect-qgc-visual-review = "multidetect.qgc_visual_acceptance:main"
+multidetect-runtime-report-verify = "multidetect.runtime_report_binding:main"
 multidetect-replay-set-intake = "multidetect.replay_set_intake_cli:main"
 multidetect-replay-annotations = "multidetect.replay_annotation_cli:main"
 multidetect-replay-predictions = "multidetect.replay_prediction_cli:main"

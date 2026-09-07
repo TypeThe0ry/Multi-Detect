@@ -207,6 +207,11 @@ class SimulatorScenarioRunResult:
             "closed": self.closed,
             "runtime_descriptor": self.runtime_descriptor.to_mapping(),
             "runtime_descriptor_hash": self.runtime_descriptor.canonical_hash,
+            # Expose the exact runtime-channel identity used by the shared
+            # RuntimeRunReport.  Keeping this hash in the result itself lets
+            # an offline reviewer bind the sidecar without reconstructing the
+            # scenario input (or trusting only its manifest hash).
+            "runtime_input_hash": self.runtime_input_hash,
             "truth_loaded": False,
             "truth_free": True,
         }
