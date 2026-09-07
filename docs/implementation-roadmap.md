@@ -1,5 +1,12 @@
 # Implementation roadmap
 
+## 当前 parity 重绑与 E7 report-only（v173）
+
+- [x] 用当前 `release-parity.json` 重建并独立复核三机型 external runtime/AI join；
+- [x] 重建并复核 PX4 `GLOBAL_POSITION_INT` 三机型 response matrix 与 repeatability/fault campaign；
+- [x] 重算 report-only E7，记录 manifest/report 身份与 32 条详细阻断；
+- [ ] 完成现场人工 Fly View 回放审阅和网段/Jetson/GR01/相机真实链路，再决定是否进入 HIL/REAL 门。
+
 ## 回放证据明细、筛选与复制（v172）
 
 - [x] native replay store 投影媒体 `kind`、encoding、bytes、尺寸与完整 SHA-256，并严格复核源帧/车辆姿态元数据；
@@ -8,7 +15,7 @@
 - [x] C++ self-test、Python bundle 跨语言 `--load`、portable offscreen simple boot、45 项定向回归和 3,708 项全量回归通过；
 - [ ] 在同一现场机人工打开当前 portable，载入真实 RTSP/GNSS/测距 bundle，核对筛选、复制和长文本布局；该人工门通过前
   不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态；
-- [ ] 以当前 v172 parity 重新绑定 external/PX4 派生证据并重算 E7 report-only。
+- [x] v173 已以当前 v172 parity 重新绑定 external/PX4 派生证据并重算 E7 report-only。
 
 ## 原生目标事件回放只读查看器（v171）
 

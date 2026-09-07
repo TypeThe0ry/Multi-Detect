@@ -1,5 +1,18 @@
 # 统一仓库架构
 
+## v173 当前 parity 重绑与 E7 report-only（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+current release-parity.json
+  -> external runtime/AI join + PX4 response matrix/campaign
+  -> source/canonical hash revalidation
+  -> report-only E7 manifest/report
+```
+
+- 三机型派生证据都重新读取当前 parity，旧 v171 输出保留为历史 provenance；新的 E7 报告仍 fail-closed，
+  不把 software/SIM 结果提升为室外 GNSS、硬件、HIL/REAL 或实飞验收；
+- 这条重绑链只生成证据和报告，不改变 QGC UI、任务路径、飞控适配器或物理释放权限。
+
 ## v172 回放证据审阅投影（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

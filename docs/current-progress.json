@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T04:19:32Z",
+  "updated_at_utc": "2026-09-07T04:35:53Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v172",
+  "working_iteration": "v173",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -2019,14 +2019,53 @@
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
     },
-    "v172_parity_rebind_pending": {
-      "reason": "native replay evidence review changed the UI contract hash; v171 derived reports remain historical until rebound",
+    "v173_parity_rebound_derived_evidence": {
+      "reason": "v172 replay evidence review UI contract rebound across SIM/PX4 derived evidence and report-only E7",
       "current_release_parity_path": "configs/release-parity.json",
       "current_release_parity_bytes": 10129,
       "current_release_parity_sha256": "a12a5490e73ed52266a44f447dfd87895cd837476895afff2efd43caae09c827",
       "current_ui_contract_hash": "82fa274fb167812803c39ff7e260acf334bb903436d04bb5e653879d806c0fdc",
-      "derived_evidence_rebound": false,
-      "release_gate_recomputed": false,
+      "external_join": {
+        "path": "artifacts/evaluation/terminal-continuation-v172/simulator-external-runtime-ai-join-v172-current-parity-pre8.json",
+        "bytes": 5492,
+        "sha256": "c1a7cfe59f275eac69d62d04505f6e3e5a17134b81986cb2b1ec88849bd07e7a",
+        "gate_passed": true
+      },
+      "external_revalidation": {
+        "path": "artifacts/evaluation/terminal-continuation-v172/simulator-external-runtime-ai-revalidation-v172-current-parity-pre8.json",
+        "bytes": 565,
+        "sha256": "daeaf324373c4439bb4689d0fb3b4bc587471edddc23d8d2560c20b422f4720c",
+        "source_recomputed": true,
+        "gate_passed": true
+      },
+      "px4_response_matrix": {
+        "path": "artifacts/evaluation/terminal-continuation-v172/px4-reported-position-response-matrix-v172-current-parity-pre8.json",
+        "bytes": 6985,
+        "sha256": "b4d2e008c418c967725424ec30109b68ac0b2419c6f979d319eba8e4b2747380",
+        "matrix_sha256": "48c33f4895ab6473a0fba29529c634e9c87ec2b3d6c90db3df6f2c8d37291226",
+        "gate_passed": true
+      },
+      "px4_response_campaign": {
+        "path": "artifacts/evaluation/terminal-continuation-v172/px4-reported-position-response-campaign-v172-current-parity-pre8.json",
+        "bytes": 26120,
+        "sha256": "ae1e2556f39c6b3604f852dc29d9772b2e7162cb2972e8826e278419d8356749",
+        "campaign_sha256": "7b7dfb670eb7b7626cc33531f9d8443acab1a9a3c30482b672ff09442113cf19",
+        "gate_passed": true
+      },
+      "release_gate_report": {
+        "manifest_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound.json",
+        "manifest_bytes": 23729,
+        "manifest_sha256": "6e1d31983ef6c74155d9e6fd818bd86b2cdd7956c32d33a8000f0a3baaec8a52",
+        "report_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound-report.json",
+        "report_bytes": 73786,
+        "report_sha256": "1913ad13f27157434f0d71ac574e2e9f58090f233be55f54088e93bcda078234",
+        "gate_passed": false,
+        "release_allowed": false,
+        "blocker_count": 32,
+        "current_release_parity_bound": true
+      },
+      "derived_evidence_rebound": true,
+      "release_gate_recomputed": true,
       "gate_passed": false,
       "release_allowed": false,
       "hardware_acceptance": "not_claimed",
@@ -2034,18 +2073,18 @@
       "real_acceptance": "not_claimed"
     },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v171/release-gate/release-gate-pre.8-current-20260907T035000Z-v6-bound.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound.json",
       "manifest_file_bytes": 23729,
-      "manifest_file_sha256": "b1cbcd26061925787c34fa02405818833ce9a1d80d4609f3967505558b62745e",
-      "local_path": "artifacts/evaluation/terminal-continuation-v171/release-gate/release-gate-pre.8-current-20260907T035000Z-v6-bound-report.json",
+      "manifest_file_sha256": "6e1d31983ef6c74155d9e6fd818bd86b2cdd7956c32d33a8000f0a3baaec8a52",
+      "local_path": "artifacts/evaluation/terminal-continuation-v172/release-gate/release-gate-pre.8-current-20260907T043500Z-v6-bound-report.json",
       "distributed_in_git": false,
       "file_bytes": 73786,
-      "file_sha256": "5e7ec0df188ab1e093b196b4e936e296ef0dcbdd73bdb8c1ee11a892780986e0",
+      "file_sha256": "1913ad13f27157434f0d71ac574e2e9f58090f233be55f54088e93bcda078234",
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32,
-      "current_release_parity_bound": false,
-      "status": "v171_report_stale_after_v172_parity_change"
+      "current_release_parity_bound": true,
+      "status": "current_v173_report_only_blocked"
     }
   },
   "model_status": {

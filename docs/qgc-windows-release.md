@@ -16,6 +16,16 @@
 `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
 
+### v173 当前 parity 重绑与 E7 report-only（2026-09-07）
+
+v172 改动 UI contract 后，三机型 external runtime/AI join、PX4 `GLOBAL_POSITION_INT` response matrix 与
+repeatability/fault campaign 已按当前 `release-parity.json` 重新生成并独立复核通过；report-only E7 也已重算。
+新的 manifest/report 位于 `artifacts/evaluation/terminal-continuation-v172/release-gate/`，SHA-256 为
+`6E1D31983EF6C74155D9E6FD818BD86B2CDD7956C32D33A8000F0A3BAAEC8A52` /
+`1913AD13F27157434F0D71AC574E2E9F58090F233BE55F54088E93BCDA078234`。E7 仍为
+`gate_passed=false`、`release_allowed=false`、32 条详细 blocker；这次只更新证据身份，不改变硬件、室外 GNSS、
+HIL/REAL、人工视觉或实飞声明。
+
 ### v172 回放证据明细、筛选与复制（2026-09-07）
 
 回放弹窗继续使用 native `MultiDetectTargetEventReplayStore` 的已验证事件，新增媒体 kind/encoding/bytes/尺寸/完整

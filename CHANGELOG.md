@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v173 current parity rebind and E7 report-only（2026-09-07）
+
+- 以当前 `release-parity.json` 重新生成并独立复核三机型 external runtime/AI join、PX4 `GLOBAL_POSITION_INT`
+  response matrix 与 repeatability/fault campaign；external、matrix、campaign gate 全部通过，source/canonical hash
+  和字节数均已绑定到当前 parity；
+- report-only E7 在 `artifacts/evaluation/terminal-continuation-v172/release-gate/` 重算，manifest/report 为
+  23,729/73,786 bytes，SHA-256 `6E1D31983EF6C74155D9E6FD818BD86B2CDD7956C32D33A8000F0A3BAAEC8A52` /
+  `1913AD13F27157434F0D71AC574E2E9F58090F233BE55F54088E93BCDA078234`；结果仍为
+  `gate_passed=false / release_allowed=false`，32 条详细 blocker；
+- 这是证据身份重绑，不代表室外 GNSS、硬件、HIL/REAL、人工视觉或实飞通过；版本仍保持 `v0.3.0-pre.8` prerelease。
+
 ### v0.3.0-pre.8 v172 target-event replay evidence review（2026-09-07）
 
 - 回放查看器现在把已校验的媒体 `kind`、相对路径、encoding、bytes、完整 SHA-256 和可选宽高投影到事件明细；
@@ -18,7 +29,7 @@ QGroundControl 历史，不作为本产品发布记录。
 - Release/portable EXE 为 46,869,504 bytes，SHA-256
   `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；`release-parity.json` 为 10,129 bytes，
   SHA-256 `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`；
-- v172 改动了 UI contract，因此 v171 派生证据/E7 报告在当前 parity 下标为历史待重绑；E7 仍保持
+- v172 改动了 UI contract；v171 派生证据/E7 报告在当时标为历史待重绑，随后由 v173 按当前 parity 重算；E7 仍保持
   `gate_passed=false / release_allowed=false`，硬件、室外 GNSS、HIL/REAL、人工视觉与实飞门均未通过。
 
 ### v0.3.0-pre.8 v171 native target-event replay inspector（2026-09-07）

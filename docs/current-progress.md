@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v172 工作树）
+最后更新：2026-09-07（v173 工作树）
+
+## v173 本轮已收口（当前 parity 重绑与 E7 report-only 重算）
+
+- 以当前 `configs/release-parity.json`（10,129 bytes，SHA-256
+  `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`，UI
+  `82FA274FB167812803C39FF7E260ACF334BB903436D04BB5E653879D806C0FDC`）重新生成并独立复核三机型 external
+  runtime/AI join、PX4 `GLOBAL_POSITION_INT` response matrix 与 repeatability/fault campaign；三份 gate 均通过。
+- 新证据位于 `artifacts/evaluation/terminal-continuation-v172/`：external join/revalidation 为 5,492/565 bytes，
+  PX4 matrix/campaign 为 6,985/26,120 bytes；对应 source SHA-256 和 matrix/campaign canonical SHA 已写入机器状态。
+- report-only E7 已在同目录 `release-gate/` 重算：manifest/report 为 23,729/73,786 bytes，SHA-256
+  `6E1D31983EF6C74155D9E6FD818BD86B2CDD7956C32D33A8000F0A3BAAEC8A52` /
+  `1913AD13F27157434F0D71AC574E2E9F58090F233BE55F54088E93BCDA078234`；当前
+  `gate_passed=false`、`release_allowed=false`、32 条详细 blocker（仓库基线仍为 31）。
+- 本轮只是 parity/证据重绑，不改变 v172 的只读回放功能或任何硬件能力声明；现场网卡仍为 `192.168.1.13/24`，
+  Jetson/GR01/相机未连通，室外 GNSS、真实硬件、HIL/REAL、人工 Fly View 和实飞状态继续未声明。
 
 ## v172 本轮已收口（回放证据明细、筛选与复制）
 
@@ -22,8 +37,8 @@
   46,869,504 bytes，SHA-256 `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；
   native replay self-test 为 202,240 bytes、SHA-256 `7BD2F93FBA5889D548BB65F5F5E81AA780FE47747593439BA8B4805FDBA0F837`。
 - `configs/release-parity.json` 当前为 10,129 bytes，SHA-256
-  `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`。因 v172 UI contract 变化，v171 派生证据与
-  E7 report-only 暂标为历史待重绑；E7 仍 `gate_passed=false`、`release_allowed=false`，仓库基线 31 blockers 不变。
+  `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`。v171 派生证据与 E7 report-only 当时曾待
+  重绑，已由 v173 在当前 parity 下重新生成；E7 仍 `gate_passed=false`、`release_allowed=false`，仓库基线 31 blockers 不变。
   现场网卡仍为 `192.168.1.13/24`，目标网段 `192.168.144.0/24`，Jetson/GR01/相机未连通；本轮没有提升室外 GNSS、
   真实硬件、HIL/REAL、人工 Fly View 或实飞状态。
 

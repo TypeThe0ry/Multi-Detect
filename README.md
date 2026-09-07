@@ -3,9 +3,8 @@
 Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知、目标跟踪、测距定位、
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
-> 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；真实 Jetson/相机/Pixhawk、
-> 室外 GNSS 精度、HIL/REAL、三机型硬件响应和人工 QGC 验收仍有门禁未关闭；software/SIM
-> 记录不能解释为实飞或生产批准。
+> 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；真实硬件、室外 GNSS、HIL/REAL
+> 和人工 QGC 验收仍有门禁，software/SIM 记录不等于实飞或生产批准。
 
 ## 从这里开始
 
@@ -38,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v172：回放证据明细、筛选与复制 |
+| 当前工程迭代 | v173：当前 parity 重绑与 E7 report-only |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +81,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 成熟度与未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v172 目标定位诊断验证、会话审计与原生录制
+### v163–v173 目标定位诊断验证、会话审计与原生录制
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -113,8 +112,8 @@ v171 将 `multidetect.target-event-replay.v1` 接入原生 QGC：C++ 严格复�
 v172 在同一查看器上增加媒体 kind/encoding/bytes/尺寸/完整 SHA-256、源帧与车辆姿态明细，并提供“全部/可定位/
 有效测距/有媒体”筛选和事件级“复制证据”。定向回归 `45 passed`，全量 `3704 passed, 4 skipped`（3,708 tests）；
 portable EXE 为 46,869,504 bytes、SHA-256 `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`。
-两轮功能均为只读态势感知，不落图、不生成假坐标、不发送飞控指令；E7 仍 `false / false / 31 blockers`，室外 GNSS、
-硬件、HIL/REAL、人工视觉和实飞状态不变。
+v173 已将 SIM/PX4 派生证据和 E7 report-only 重新绑定到当前 parity；功能仍只读，不落图、不生成假坐标、不发飞控指令；
+E7 仍 `false / false / 31 blockers`，室外 GNSS、硬件、HIL/REAL、人工视觉和实飞状态未通过。
 
 ### v152 独立 GNSS 质量状态
 
