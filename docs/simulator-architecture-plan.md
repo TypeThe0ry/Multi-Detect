@@ -9,6 +9,31 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v183 多模式 RuntimeReportBinding 集合
+
+`multidetect.runtime_report_binding_set` 将单个 result↔`RuntimeRunReport` 复核提升为显式集合门。调用者必须
+传入每个源文件，verifier 不会从 `artifacts/` 自动发现输入；每条源路径先解析到同一 base directory，再调用
+现有 `runtime_report_binding` 重开 JSON、canonical report、descriptor/input hash、处理帧身份、终止条件以及
+SIM 的 `truth_free`/`closed` 合同。集合层按 `REPLAY → SIM → HIL → REAL` 稳定排序，拒绝重复 mode、缺失
+required mode、result/report 源复用、路径越界和 mode 声明漂移。
+
+CLI 示例：
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.runtime_report_binding_set `
+  --required-modes replay,sim `
+  --base-directory . `
+  --binding replay artifacts/evaluation/terminal-continuation-v181/integrated-replay-run-v181.json artifacts/evaluation/terminal-continuation-v181/integrated-replay-runtime-report-v181.json `
+  --binding sim artifacts/evaluation/terminal-continuation-v183/sim-result-v183.json artifacts/evaluation/terminal-continuation-v183/sim-runtime-report-v183.json `
+  --out artifacts/evaluation/terminal-continuation-v183/runtime-report-binding-set-v183.json
+```
+
+该 v183 集合在 Replay/SIM 两个软件源上 `2/2` 通过；默认 required modes 仍包含 HIL/REAL，因此没有现场
+sidecar 时会保持 `complete=false`。9 项集合回归为 8 passed、1 个 Windows symlink 权限 skip；输出 schema 是
+`configs/schemas/runtime-report-binding-set.schema.json`，claim boundary 仍明确为 software runtime
+identity only，不代表 QGC 人工画面、室外 GNSS、真实硬件、HIL/REAL、Mission 或飞行验收。
+
 ## v182 RuntimeReportBinding 失败输出 schema 化
 
 坏结果 JSON、缺失 sidecar 或契约异常现在统一返回 `runtime_report_binding_error`：完整 13 项检查为 false、输入

@@ -1,5 +1,20 @@
 # Implementation roadmap
 
+## 多模式 RuntimeReportBinding 集合校验（v183，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect.runtime_report_binding_set` 与
+  `multidetect-runtime-report-set-verify`，显式接收每个 runtime mode 的 result/sidecar 对，按
+  `REPLAY → SIM → HIL → REAL` 稳定排序并逐项重开单绑定 verifier；不扫描 `artifacts/`，所有源文件必须
+  解析在指定 base directory 内。
+- [x] 集合门严格检查 required-mode 覆盖、重复 mode、结果/sidecar/跨类型源复用、声明 mode 一致性、
+  13 项单绑定检查和 entry error；缺少 HIL/REAL 时保持 `complete=false` / `gate_passed=false`，不会把
+  Replay/SIM 软件记录提升成硬件、HIL、REAL 或实飞验收。
+- [x] `runtime-report-binding-set.schema.json` 覆盖成功与结构错误输出；真实 v181 integrated Replay +
+  v183 `river_rescue_vtol_001` SIM 2 帧集合证据为 2/2 通过，schema errors 为 `0`，9 项定向回归（8 passed、
+  1 个 Windows symlink 权限 skip）、ruff、format、compileall 通过。
+- [ ] 仍需在现场 portable 上人工打开 Fly View、载入真实长回放，并在获得 HIL/REAL 结果与 sidecar 后
+  扩展集合覆盖；该软件集合门不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## RuntimeReportBinding 失败输出 schema 化（v182，`v0.3.0-pre.8`）
 
 - [x] CLI 异常路径输出稳定 `runtime_report_binding_error` 文档：完整检查键、明确 null 输入区、结构化错误类型/消息、

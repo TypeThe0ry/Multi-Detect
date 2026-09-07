@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v182 工作树）
+最后更新：2026-09-07（v183 工作树）
+
+## v183 本轮已收口（多模式 RuntimeReportBinding 集合校验）
+
+- 新增 [`src/multidetect/runtime_report_binding_set.py`](../src/multidetect/runtime_report_binding_set.py) 与
+  `multidetect-runtime-report-set-verify` CLI：把每个运行模式的结果 JSON 与 `RuntimeRunReport` sidecar
+  作为显式 pair 重新打开并绑定，固定 `REPLAY → SIM → HIL → REAL` 顺序，拒绝重复模式、跨模式复用、
+  base directory 外路径、未知字段和任一单项错误。每条 pair 复用 13 项单绑定检查，集合层再检查模式覆盖、
+  声明一致性、结果/报告路径唯一性、source 唯一性和全体通过条件。
+- `configs/schemas/runtime-report-binding-set.schema.json` 同时约束成功与结构错误事件。v183 软件证据以
+  2/2 `REPLAY + SIM` pair 通过；集合报告 8,035 bytes / SHA-256
+  `52C6DAC94B3529C1C25782280D1A94DA6E17CC098AD7A494B0C73604B6B0144C`，schema errors 为 0；定向回归
+  `8 passed, 1 skipped, 0 failed`（9 tests；Windows symlink 权限导致的预期 skip），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v183/runtime-binding-set-focused-v183.xml`，2,232 bytes / SHA-256
+  `44A5EF5766847D1504CD3AAC69C7C5F0E93E6D81A2F9373149EFA27C6E235D9A`；全量 Python 回归为
+  `3732 passed, 5 skipped, 0 failed`（3,737 tests，279.743 秒），JUnit 546,831 bytes / SHA-256
+  `915357977330EF96CD990DA87AF134A1130997FA6F6204D9345AB798947C471B`。
+- 默认四模式集合仍明确保持 `gate_passed=false`，缺少 `HIL` 与 `REAL`；集合校验只证明 software runtime
+  identity，不把 Replay/SIM 证据冒充 HIL、REAL、硬件或飞行验收。Python-only 改动未重编译 portable EXE，
+  当前可执行文件与 v180 绑定身份保持不变；E7 仍为 `false / false`。
 
 ## v182 本轮已收口（绑定器错误输出 schema 化）
 

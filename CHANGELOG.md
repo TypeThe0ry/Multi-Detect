@@ -5,6 +5,17 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v183 multi-mode RuntimeReportBinding set（2026-09-07）
+
+- 新增 `multidetect.runtime_report_binding_set` 与
+  `multidetect-runtime-report-set-verify`：显式绑定多个 runtime mode 的 result JSON 和
+  `RuntimeRunReport` sidecar，稳定按 `REPLAY → SIM → HIL → REAL` 排序并重跑每条 13 项单绑定检查。
+- 集合层拒绝缺失 required mode、重复 mode、结果/sidecar 跨模式复用、路径越界和声明 mode 漂移；缺少
+  HIL/REAL 时报告保持 `complete=false` / `gate_passed=false`，不提升任何硬件或实飞声明。
+- 新增 `runtime-report-binding-set.schema.json`、9 项定向回归和真实 v181 integrated Replay + v183
+  SIM 2 帧集合证据；集合 schema errors 为 `0`，required-mode 可包含额外已绑定模式，空文件/符号链接
+  source fail-closed；当前版本仍保持 `v0.3.0-pre.8`，E7 仍阻断。
+
 ### v0.3.0-pre.8 v182 schema-stable runtime binding errors（2026-09-07）
 
 - `multidetect-runtime-report-verify` 的坏输入路径现在输出 `runtime_report_binding_error`：完整 13 项检查、

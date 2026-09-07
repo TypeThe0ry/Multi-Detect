@@ -1,5 +1,32 @@
 # 统一仓库架构
 
+## v183 多模式 RuntimeReportBinding 集合（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+REPLAY result + RuntimeRunReport ─┐
+SIM result + RuntimeRunReport ────┼─> runtime_report_binding_set
+未来 HIL/REAL sidecar ────────────┘       │
+                                          ├─ stable mode order
+                                          ├─ required coverage
+                                          ├─ no duplicate/reused sources
+                                          └─ 13 single-binding checks per entry
+                                                   │
+                         complete/gate_passed + reasons + claim boundary
+                                                   │
+                    软件运行身份记录 → 人工 Fly View / HIL / REAL 逐步补齐
+```
+
+- `src/multidetect/runtime_report_binding_set.py` 只接受显式 result/report 路径，路径必须解析在统一
+  `base_directory` 内；它调用现有单绑定 verifier，按 `REPLAY → SIM → HIL → REAL` 排序，确保集合报告
+  可重复且不依赖目录扫描顺序。
+- `configs/schemas/runtime-report-binding-set.schema.json` 同时描述成功和结构错误文档。集合层独立检查
+  required-mode 覆盖、重复 mode、结果/sidecar/跨类型源复用、声明 mode 一致性、逐 entry error 和整体
+  gate；缺少 HIL/REAL 时明确 `complete=false`，不会升级任何硬件或飞行声明。
+- v183 真实软件证据：v181 integrated Replay + v183 `river_rescue_vtol_001` SIM 2 帧，集合 `2/2` 通过，
+  `runtime-report-binding-set-v183.json` 8,035 bytes、SHA-256
+  `52C6DAC94B3529C1C25782280D1A94DA6E17CC098AD7A494B0C73604B6B0144C`；定向回归 8/9（1 个 Windows
+  symlink 权限 skip），schema errors `0`。
+
 ## v182 RuntimeReportBinding 失败输出（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

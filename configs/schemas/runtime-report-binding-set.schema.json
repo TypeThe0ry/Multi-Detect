@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schema/runtime-report-binding-set.schema.json",
+  "title": "Multi-Detect runtime result/report binding set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "required_modes",
+    "covered_modes",
+    "binding_count",
+    "complete",
+    "bindings",
+    "checks",
+    "gate_passed",
+    "reasons",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.runtime-report-binding-set" },
+    "schema_version": { "const": 1 },
+    "event": {
+      "enum": [
+        "runtime_report_binding_set_verified",
+        "runtime_report_binding_set_error"
+      ]
+    },
+    "required_modes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mode" },
+      "uniqueItems": true
+    },
+    "covered_modes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mode" },
+      "uniqueItems": true
+    },
+    "binding_count": { "type": "integer", "minimum": 0 },
+    "complete": { "type": "boolean" },
+    "bindings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "checks": { "$ref": "#/$defs/checks" },
+    "gate_passed": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim_boundary": { "$ref": "#/$defs/claimBoundary" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event": { "const": "runtime_report_binding_set_error" } },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "required_modes": { "maxItems": 0 },
+          "covered_modes": { "maxItems": 0 },
+          "binding_count": { "const": 0 },
+          "complete": { "const": false },
+          "bindings": { "maxItems": 0 },
+          "gate_passed": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event": { "const": "runtime_report_binding_set_verified" } },
+        "required": ["event"]
+      },
+      "then": {
+        "not": { "required": ["error"] }
+      }
+    }
+  ],
+  "$defs": {
+    "mode": { "enum": ["replay", "sim", "hil", "real"] },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "result",
+        "runtime_report",
+        "expectations",
+        "binding",
+        "checks",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "runtime_mode": { "$ref": "#/$defs/mode" },
+        "result": { "$ref": "#/$defs/source" },
+        "runtime_report": { "$ref": "#/$defs/source" },
+        "expectations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["require_embedded_report", "require_complete"],
+          "properties": {
+            "require_embedded_report": { "type": "boolean" },
+            "require_complete": { "type": "boolean" }
+          }
+        },
+        "binding": {
+          "anyOf": [
+            { "$ref": "#/$defs/bindingProjection" },
+            { "type": "null" }
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "result_json_valid",
+            "runtime_report_valid",
+            "result_event_supported",
+            "result_gate_passed",
+            "runtime_mode_matches",
+            "descriptor_hash_matches",
+            "input_hash_matches",
+            "processed_frame_count_matches",
+            "processed_frame_ids_match",
+            "termination_contract_matches",
+            "embedded_report_matches",
+            "sim_truth_free",
+            "sim_closed"
+          ],
+          "properties": {
+            "result_json_valid": { "type": "boolean" },
+            "runtime_report_valid": { "type": "boolean" },
+            "result_event_supported": { "type": "boolean" },
+            "result_gate_passed": { "type": "boolean" },
+            "runtime_mode_matches": { "type": "boolean" },
+            "descriptor_hash_matches": { "type": "boolean" },
+            "input_hash_matches": { "type": "boolean" },
+            "processed_frame_count_matches": { "type": "boolean" },
+            "processed_frame_ids_match": { "type": "boolean" },
+            "termination_contract_matches": { "type": "boolean" },
+            "embedded_report_matches": { "type": "boolean" },
+            "sim_truth_free": { "type": "boolean" },
+            "sim_closed": { "type": "boolean" }
+          }
+        },
+        "gate_passed": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "bindingProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "runtime_report",
+        "expectations",
+        "checks",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "result": { "type": "object" },
+        "runtime_report": { "type": "object" },
+        "expectations": { "type": "object" },
+        "checks": { "type": "object" },
+        "gate_passed": { "type": "boolean" },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_modes_valid",
+        "entries_have_required_fields",
+        "required_modes_complete",
+        "entries_unique",
+        "mode_declarations_match",
+        "result_paths_distinct",
+        "runtime_report_paths_distinct",
+        "source_paths_distinct",
+        "all_bindings_passed",
+        "no_errors"
+      ],
+      "properties": {
+        "required_modes_valid": { "type": "boolean" },
+        "entries_have_required_fields": { "type": "boolean" },
+        "required_modes_complete": { "type": "boolean" },
+        "entries_unique": { "type": "boolean" },
+        "mode_declarations_match": { "type": "boolean" },
+        "result_paths_distinct": { "type": "boolean" },
+        "runtime_report_paths_distinct": { "type": "boolean" },
+        "source_paths_distinct": { "type": "boolean" },
+        "all_bindings_passed": { "type": "boolean" },
+        "no_errors": { "type": "boolean" }
+      }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "software_runtime_identity_only",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "flight_acceptance"
+      ],
+      "properties": {
+        "software_runtime_identity_only": { "const": true },
+        "hardware_acceptance": { "const": "not_claimed" },
+        "hil_acceptance": { "const": "not_claimed" },
+        "real_acceptance": { "const": "not_claimed" },
+        "flight_acceptance": { "const": "not_claimed" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
