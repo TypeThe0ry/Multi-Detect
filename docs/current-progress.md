@@ -17,13 +17,13 @@
 - [`scripts/run_px4_runtime_capture.ps1`](../scripts/run_px4_runtime_capture.ps1) 现在在 capture 返回零后自动生成
   `capture-summary.json` 与 `capture-receipt.json`；capture 失败时不继续生成 receipt，并原样传播 native exit code。
 - v193 聚焦回归为 `39 passed / 0 skipped / 0 failed`，全量回归为 `3,787 passed / 7 skipped / 0 failed`
-  （3,794 tests，190.89 秒）。焦点 JUnit 为
+  （3,794 tests，203.18 秒）。焦点 JUnit 为
   `artifacts/evaluation/terminal-continuation-v193/px4-runtime-capture-receipt-focused-v193.xml`，5,533 bytes /
-  SHA-256 `A46237D711879E83883A7FDC1007073E5AC47D8B229D8176ED818A0BDAF09222`；全量 JUnit 为
+  SHA-256 `5819FABFE6CC8E01B5DD127F6CD45C41747B181AF83F3AF26C36138D634F7A16`；全量 JUnit 为
   `artifacts/evaluation/terminal-continuation-v193/full-rerun-v193.xml`，555,788 bytes /
-  SHA-256 `8FA731A3B7E2C39538ECEB15F9F8B6F9062F1E05B134DF84D6F0CF46F290B143`。当前 parity 已刷新为
-  10,811 bytes / SHA-256 `176E1BE1E1E0DC44A2589F4E2FB45AE46FC2AB2BB6C820CFD652403E8390E926`，
-  PX4 Mission path hash 为 `0457C69BFF4D8ABF73C3C48657C1F9FDFD41401401F1314996EA2BEBFEC88BFB`。
+  SHA-256 `C06571E0CBEC31D1B8065156A4F7B1751065E1646C88A68047A8E828CD0FE884`。当前 parity 已刷新为
+  10,811 bytes / SHA-256 `5E7DAB745DB86193CB43DEE186ADB818214414449B6A70C50D498009AF5F621F`，
+  PX4 Mission path hash 为 `F2DEB4CB83D50C1C70F06556DC6C7AD58344CBEEB12FB7ED9EE00FA3CD88EDCE`。
 
 ## v192 本轮已收口（Windows field capture wrapper）
 

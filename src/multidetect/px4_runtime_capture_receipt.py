@@ -109,6 +109,10 @@ def _resolve_input(value: str | Path, *, base: Path, label: str) -> Path:
         candidate = base / candidate
     if candidate.is_symlink():
         raise Px4RuntimeCaptureReceiptError(f"{label} cannot be a symbolic link")
+    # Inspect the lexical path before resolving it.  Checking only the
+    # resolved path would erase a directory symlink from the walk and allow a
+    # source to cross an otherwise trusted-looking path component.
+    _assert_no_symlink_components(candidate.absolute(), base=base, label=label)
     try:
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(base)
@@ -116,7 +120,7 @@ def _resolve_input(value: str | Path, *, base: Path, label: str) -> Path:
         raise Px4RuntimeCaptureReceiptError(
             f"{label} must resolve inside base directory {base}"
         ) from exc
-    _assert_no_symlink_components(resolved, base=base, label=label)
+    _assert_no_symlink_components(candidate.absolute(), base=base, label=label)
     if not resolved.is_file():
         raise Px4RuntimeCaptureReceiptError(f"{label} must be a regular file")
     return resolved
@@ -128,6 +132,7 @@ def _resolve_output(value: str | Path, *, base: Path, label: str) -> Path:
         candidate = base / candidate
     if candidate.exists() and candidate.is_symlink():
         raise Px4RuntimeCaptureReceiptError(f"{label} cannot be a symbolic link")
+    _assert_no_symlink_components(candidate.absolute(), base=base, label=label)
     try:
         parent = candidate.parent.resolve(strict=False)
         parent.relative_to(base)
@@ -135,7 +140,7 @@ def _resolve_output(value: str | Path, *, base: Path, label: str) -> Path:
         raise Px4RuntimeCaptureReceiptError(
             f"{label} must resolve inside base directory {base}"
         ) from exc
-    _assert_no_symlink_components(parent, base=base, label=label)
+    _assert_no_symlink_components(candidate.parent.absolute(), base=base, label=label)
     parent.mkdir(parents=True, exist_ok=True)
     resolved = parent / candidate.name
     if resolved == base or not resolved.name:
@@ -418,13 +423,13 @@ def verify_px4_runtime_capture_receipt(
     receipt_candidate = Path(receipt).expanduser()
     if receipt_candidate.is_symlink() or not receipt_candidate.is_file():
         raise Px4RuntimeCaptureReceiptError("receipt must be a regular non-symbolic-link file")
-    receipt_path = receipt_candidate.resolve(strict=True)
+    receipt_anchor = receipt_candidate.absolute()
     base = (
         _regular_directory(base_directory, label="base directory")
         if base_directory is not None
-        else receipt_path.parent
+        else receipt_anchor.parent
     )
-    _resolve_input(receipt_path, base=base, label="receipt")
+    receipt_path = _resolve_input(receipt_candidate, base=base, label="receipt")
     _, document = _read_json(receipt_path, label="capture receipt")
     _validate_document_schema(document, path=SCHEMA_PATH, label="capture receipt")
     required = frozenset(

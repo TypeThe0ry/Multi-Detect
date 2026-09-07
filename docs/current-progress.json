@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T16:45:00Z",
+  "updated_at_utc": "2026-09-07T16:52:16Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -79,11 +79,11 @@
       "skipped": 7,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 190.89,
+      "duration_seconds": 203.18,
       "local_artifacts_present": true,
       "junit_local_path": "artifacts/evaluation/terminal-continuation-v193/full-rerun-v193.xml",
       "junit_file_bytes": 555788,
-      "junit_file_sha256": "8fa731a3b7e2c39538eceb15f9f8b6f9062f1e05b134df84d6f0cf46f290b143",
+      "junit_file_sha256": "c06571e0cbec31d1b8065156a4f7b1751065e1646c88a68047a8e828cd0fe884",
       "distributed_in_git": false
     },
     "v193_px4_runtime_capture_receipt_selected_regression": {
@@ -96,7 +96,7 @@
       "scope": "px4_runtime_capture_receipt_six_source_closure_summary_output_wrapper_and_release_docs",
       "junit_local_path": "artifacts/evaluation/terminal-continuation-v193/px4-runtime-capture-receipt-focused-v193.xml",
       "junit_file_bytes": 5533,
-      "junit_file_sha256": "a46237d711879e83883a7fdc1007073e5ac47d8b229d8176ed818a0bdaf09222",
+      "junit_file_sha256": "5819fabfe6cc8e01b5dd127f6cd45c41747b181af83f3af26c36138d634f7a16",
       "receipt_build_and_verify": "passed",
       "source_tamper_and_gate_rejection": "passed",
       "summary_output_integration": "passed",
@@ -1339,13 +1339,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10811,
-    "file_sha256": "176e1be1e1e0dc44a2589f4e2fb45ae46fc2ab2bb6c820cfd652403e8390e926",
+    "file_sha256": "5e7dab745db86193cb43dee186adb818214414449b6a70c50d498009af5f621f",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
       "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
-      "px4_mission_path_hash": "0457c69bff4d8abf73c3c48657c1f9fdfd41401401f1314996ea2bebfec88bfb"
+      "px4_mission_path_hash": "f2deb4cb83d50c1c70f06556dc6c7ad58344cbeeb12fb7ed9ee00fa3cd88edce"
     }
   },
   "evidence": {
@@ -1390,7 +1390,7 @@
         "focused_junit_failed": 0,
         "focused_junit_errors": 0,
         "focused_junit_file_bytes": 5533,
-        "focused_junit_sha256": "a46237d711879e83883a7fdc1007073e5ac47d8b229d8176ed818a0bdaf09222",
+        "focused_junit_sha256": "5819fabfe6cc8e01b5dd127f6cd45c41747b181af83f3af26c36138d634f7a16",
         "receipt_build_and_verify": "passed",
         "source_tamper_and_gate_rejection": "passed",
         "summary_output_integration": "passed",
@@ -1401,14 +1401,14 @@
         "full_junit_skipped": 7,
         "full_junit_failed": 0,
         "full_junit_errors": 0,
-        "full_junit_duration_seconds": 190.89,
+        "full_junit_duration_seconds": 203.18,
         "full_junit_file_bytes": 555788,
-        "full_junit_sha256": "8fa731a3b7e2c39538eceb15f9f8b6f9062f1e05b134df84d6f0cf46f290b143",
+        "full_junit_sha256": "c06571e0cbec31d1b8065156a4f7b1751065e1646c88a68047a8e828cd0fe884",
         "release_parity": {
           "path": "configs/release-parity.json",
           "bytes": 10811,
-          "sha256": "176e1be1e1e0dc44a2589f4e2fb45ae46fc2ab2bb6c820cfd652403e8390e926",
-          "px4_mission_path_hash": "0457c69bff4d8abf73c3c48657c1f9fdfd41401401f1314996ea2bebfec88bfb"
+          "sha256": "5e7dab745db86193cb43dee186adb818214414449b6a70c50d498009af5f621f",
+          "px4_mission_path_hash": "f2deb4cb83d50c1c70f06556dc6c7ad58344cbeeb12fb7ed9ee00fa3cd88edce"
         }
       },
       "claim_boundary": {

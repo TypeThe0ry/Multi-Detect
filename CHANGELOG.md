@@ -14,7 +14,7 @@ QGroundControl 历史，不作为本产品发布记录。
   重算路径、字节数和 SHA-256，拒绝越界、符号链接、重复、篡改或未通过的 capture gate。
 - receipt 只记录 receive-only software capture / completed join，所有 hardware、HIL/REAL、室外 GNSS、人工视觉、
   飞行和 release claims 保持 false。v193 聚焦回归 `39 passed`，全量回归 `3,787 passed, 7 skipped, 0 failed`
-  （3,794 tests）；当前 parity 与 JUnit 哈希见 [`docs/current-progress.json`](docs/current-progress.json)。
+  （3,794 tests，203.18 秒）；当前 parity 与 JUnit 哈希见 [`docs/current-progress.json`](docs/current-progress.json)。
 
 ### v0.3.0-pre.8 v192 Windows PX4 runtime capture wrapper（2026-09-08）
 

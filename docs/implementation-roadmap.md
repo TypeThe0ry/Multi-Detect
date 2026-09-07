@@ -9,7 +9,7 @@
   相对路径、字节数和 SHA-256，并在重开时检查摘要 gate、路径闭包、符号链接和每个文件的当前 digest。
 - [x] receipt 只证明同一目录下的 receive-only software capture 与 completed join，不把软件 fixture 升级为真实
   Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终 `v0.3.0` 发布；wrapper capture 非零时不生成 receipt。
-- [x] v193 聚焦回归 `39 passed`，全量回归 `3,787 passed / 7 skipped / 0 failed`（3,794 tests）；JUnit、
+- [x] v193 聚焦回归 `39 passed`，全量回归 `3,787 passed / 7 skipped / 0 failed`（3,794 tests，203.18 秒）；JUnit、
   parity bytes/hash 与 PX4 Mission path hash 已写入 `docs/current-progress.json`。
 - [ ] 现场实际采集后把整个 base directory 原样搬回，在目标机运行 `multidetect-px4-runtime-capture-receipt-verify`，
   再执行三机型 Mission feedback、GNSS/测距、人工视觉和 HIL/REAL 门。
