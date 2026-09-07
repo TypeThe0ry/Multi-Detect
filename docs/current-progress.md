@@ -1,6 +1,33 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v169 工作树）
+最后更新：2026-09-07（v170 工作树）
+
+## v170 本轮已收口
+
+- Fly View 目标定位卡片现在直接读取 `MultiDetectState.targetObservationRecordingQualitySummary.current_status`，
+  与诊断弹窗共用同一原生 recorder 摘要；卡片显示当前/上次录制状态、定位率、当前连续不可定位、最近采样断档和
+  `target_not_locatable` / `range_invalid` / `gnss_unqualified` / `latest_sampling_gap` 原因。
+- 没有录制样本时状态为中性 `WAITING`；录制停止后仍显示“上次定位质量”，不把历史摘要冒充当前采样。质量行只读，
+  不改变 GPS/测距 fail-closed、目标坐标与 `1σ` 圆、不进入 PX4 Mission、飞控或物理释放路径。
+- QGC custom 静态回归覆盖属性、四级状态映射、告警原因映射和主卡片绑定；Release/portable EXE 已重链并完成依赖部署，
+  46,751,744 bytes、SHA-256 `9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`。
+- 定向回归 89 tests：`88 passed, 1 skipped, 0 failed`，耗时 2.194 秒；JUnit 14,124 bytes、SHA-256
+  `C56C01C84072E0EC1B51F09FA6C9FCE90E37A85F530FCF034BFB0779E91F79B9`；Ruff、format、compileall 与 diff check 通过。
+- 全量回归 3,707 tests：`3703 passed, 4 skipped, 0 failed, 0 errors`，耗时 183.031 秒；JUnit 542,030 bytes、
+  SHA-256 `3B21593CB2277F1762D70C2287B34309EC615EE3456BC6D9DECDE9736AC7B3E1`。
+- portable offscreen simple boot 退出 0，stdout 0 bytes，stderr 879 bytes、SHA-256
+  `EBB0811E76009EAA70CEC8B19F52B3C2B3232340FAE78CDD7CC67A505644D7F9`，QML 初始化错误数 0。
+- v170 重新生成并独立验证 external join/revalidation、PX4 三机型 response matrix、6 正例/9 故障 campaign、
+  现场只读 preflight/interface diagnostic 和 E7 report-only；现场接口仍为 `192.168.1.13/24`，目标网段为
+  `192.168.144.0/24`，Jetson/GR01/相机均超时。E7 仍为 `gate_passed=false`、`release_allowed=false`、
+  `31 blockers`，本轮不提升室外 GNSS、硬件、HIL/REAL、人工视觉或实飞状态。
+- 当前派生证据均留在 `artifacts/evaluation/terminal-continuation-v170/`：external join/revalidation 为
+  `5,491/565` bytes（SHA-256 `7380455757770BC76C22FBF1C53FBC18B1AE37A97022E431B0F801A491BDCDDD` /
+  `BABB9B571A399CAC270938FB4923AB7C5480F6A9DBBCA36A701FD415807B6824`）；PX4 matrix/campaign 为
+  `6,985/26,120` bytes（文件 SHA-256 `8D26F7633D5DD353FC9CDC93413334432458F7087F43E278013AA9FF9D90C7A1` /
+  `32D5B33F38290CE6B99EFA3B37A1A9C5D7723B197D96A44C4CC9FCB599E2CBBC`）；现场 preflight/interface 为
+  `4,668/4,403` bytes（SHA-256 `83C33525C1DF94E696FA876837E4F07F125F0023F1A99749C794574431043574` /
+  `AAED1FCF57471A76B745CAFD1192A4D089F781D800A5764C4F72AB53605E09C4`）。
 
 ## v169 本轮已收口
 

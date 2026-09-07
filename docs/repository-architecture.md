@@ -1,5 +1,20 @@
 # 统一仓库架构
 
+## v170 目标卡片质量状态投影（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+native target-observation recorder
+  -> targetObservationRecordingQualitySummary.current_status
+  -> Fly View target geolocation card
+       current/last status + locatable rate
+       current non-locatable run + latest sampling gap
+       fail-closed reason text and palette color
+```
+
+- 目标卡片和“定位诊断”弹窗读取同一 `MultiDetectState` 摘要，不复制 recorder 逻辑，也不在 QML 重新计算定位质量；
+- `WAITING` 在没有样本时保持中性，停止录制后明确显示“上次定位质量”，避免把缓存摘要当成当前观测；
+- 这是态势感知/记录层的只读投影，坐标、`1σ` 圆、PX4 Mission、飞控和物理释放仍由原有 fail-closed 门控制。
+
 ## v164 外场定位诊断会话链（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

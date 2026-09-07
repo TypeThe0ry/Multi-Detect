@@ -5,6 +5,21 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v170 target card localization quality status（2026-09-07）
+
+- Fly View 目标定位卡片直接读取原生 recorder 的 `current_status`，在同一只读卡片中显示当前/上次录制状态、
+  定位率、当前连续不可定位、最近采样断档和诊断原因；没有录制样本时显示中性 `WAITING`，不会伪造质量结论；
+- 质量颜色和文本沿用诊断弹窗同一 `MultiDetectState.targetObservationRecordingQualitySummary` 数据源，保持
+  `WAITING/HEALTHY/WARNING/CRITICAL`、定位 fail-closed 和坐标 `1σ` 圆逻辑一致；
+- UI contract parity 更新为 `2EF5B835D615191657C91AA438B29604025D6342982DD62BC1BCDCFA45907E8D`；
+  Release/portable EXE 为 46,751,744 bytes，SHA-256
+  `9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`，offscreen simple boot 退出 0；
+- 定向回归 `88 passed, 1 skipped, 0 failed`（89 tests），Ruff、format、compileall 和 `git diff --check` 全部通过；
+- 全量回归 `3703 passed, 4 skipped, 0 failed`（3,707 tests，183.031 秒），JUnit 542,030 bytes、SHA-256
+  `3B21593CB2277F1762D70C2287B34309EC615EE3456BC6D9DECDE9736AC7B3E1`；
+- 三机型 external/PX4 派生证据、现场只读 preflight 与 E7 已按新 parity 重算；功能仍是 advisory-only，E7 保持
+  `gate_passed=false`、`release_allowed=false`、31 blockers，不提升室外 GNSS、硬件、HIL/REAL、人工视觉或实飞状态。
+
 ### v0.3.0-pre.8 v169 live localization quality alarms（2026-09-07）
 
 - 原生录制器实时摘要新增 `current_status` 四级状态：`WAITING`、`HEALTHY`、`WARNING`、`CRITICAL`，

@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v169：原生实时定位质量告警 |
+| 当前工程迭代 | v170：目标卡片实时定位质量状态 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v169 目标定位诊断验证、会话审计与原生录制
+### v163–v170 目标定位诊断验证、会话审计与原生录制
 
 v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
 统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
@@ -98,10 +98,12 @@ v168 把质量模型接入 Fly View，提供定位率、采样断档、三类质
 v169 在实时摘要上增加 `current_status` 四级健康状态（`WAITING`、`HEALTHY`、`WARNING`、`CRITICAL`），
 并显示当前连续不可定位/测距异常/GNSS 不合格计数、最近采样间隔与告警原因；连续两次不可定位进入严重状态，
 恢复样本后即时回到良好。C++ self-test 和安装式 verifier 覆盖 `WARNING → CRITICAL → HEALTHY`，
-portable EXE 更新为 46,751,232 bytes、SHA-256
-`5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；全量回归仍为
-`3703 passed, 4 skipped, 0 failed`，E7 仍为 `false / false / 31 blockers`。
-实时状态和质量摘要只用于态势感知与记录，不生成假坐标、不发出飞控指令，也不替代室外 GNSS、硬件、HIL/REAL
+v170 把同一 `current_status` 投影到 Fly View 目标定位卡片：卡片直接显示当前/上次录制状态、定位率、当前连续不可定位、
+最近采样断档与原因，并在没有录制样本时保持 `WAITING` 中性状态。portable EXE 更新为 46,751,744 bytes、SHA-256
+`9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`；全量回归仍为
+`3703 passed, 4 skipped, 0 failed`；v170 定向回归为 `88 passed, 1 skipped, 0 failed`，E7 仍为
+`false / false / 31 blockers`。
+目标卡片、实时状态和质量摘要只用于态势感知与记录，不生成假坐标、不发出飞控指令，也不替代室外 GNSS、硬件、HIL/REAL
 或人工视觉验收。
 
 v162 的原生诊断弹窗、坐标 fail-closed 和制品明细已归档到 [当前进度](docs/current-progress.md)。

@@ -12,9 +12,23 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-当前文件为 `46,751,232` bytes，SHA-256
-`5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；portable 目录已经过
+当前文件为 `46,751,744` bytes，SHA-256
+`9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v170 目标卡片实时定位质量状态（2026-09-07）
+
+目标定位卡片与诊断弹窗共用原生 recorder 的 `current_status` 摘要。卡片会显示当前/上次录制状态、定位率、当前
+连续不可定位、最近采样断档和告警原因；无录制样本时固定显示 `WAITING`，停止后不会把上次摘要伪装成当前样本。
+这条信息仍是只读 advisory，不改变定位坐标 fail-closed、`1σ` 圆、Mission、飞控或物理释放边界。
+
+当前 portable EXE 为 `46,751,744` bytes，SHA-256
+`9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`；offscreen simple boot 退出 0，stderr
+879 bytes、SHA-256 `EBB0811E76009EAA70CEC8B19F52B3C2B3232340FAE78CDD7CC67A505644D7F9`，QML 初始化错误数为 0。
+定向回归、parity/派生证据和 E7 已重算；E7 仍为 `gate_passed=false`、`release_allowed=false`、31 blockers，
+现场网卡/Jetson/GR01/相机和室外 GNSS、HIL/REAL、人工 Fly View、实飞门均未因此通过。v170 定向回归为
+`88 passed, 1 skipped, 0 failed`，全量回归为 `3703 passed, 4 skipped, 0 failed`；Ruff、format、compileall 和
+`git diff --check` 均通过。
 
 ### v169 原生实时定位质量告警（2026-09-07）
 
