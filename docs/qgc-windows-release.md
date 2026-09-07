@@ -12,9 +12,24 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-当前文件为 `46,746,112` bytes，SHA-256
-`F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`；portable 目录已经过
+当前文件为 `46,751,232` bytes，SHA-256
+`5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v169 原生实时定位质量告警（2026-09-07）
+
+当前 portable EXE 已更新为 `46,751,232` bytes，SHA-256
+`5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；路径为
+`D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`，
+完整 Qt/GStreamer 依赖已部署。Fly View 诊断弹窗读取 `current_status` 四级实时状态，显示当前连续
+不可定位、测距异常、GNSS 不合格计数、最近采样间隔与告警原因；状态只读，不发出飞控指令。
+
+C++ self-test 覆盖 `WARNING → CRITICAL → HEALTHY`，4 样本会话由安装式 session verifier 独立复核；
+portable offscreen simple boot 退出 0（stderr 879 bytes，SHA-256
+`D2BE8F83902FF9AF48F105685EF17B4571075F826E6A0126603DCBC670D41F81`）。定向回归为
+`85 passed, 1 skipped, 0 failed`，全量回归为 `3703 passed, 4 skipped, 0 failed`。E7 仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers；现场接口仍未切到 `192.168.144.0/24`，
+因此本制品不代表室外 GNSS、硬件、HIL/REAL、人工视觉或实飞验收通过。
 
 ### v168 原生实时录制质量时间线（2026-09-07）
 

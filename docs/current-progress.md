@@ -1,6 +1,31 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v168 工作树）
+最后更新：2026-09-07（v169 工作树）
+
+## v169 本轮已收口
+
+- 原生录制器的实时质量摘要新增 `current_status`：按当前连续状态给出 `WAITING`、`HEALTHY`、
+  `WARNING`、`CRITICAL` 四级结果，并暴露当前连续不可定位/测距异常/GNSS 不合格计数、最近采样间隔、
+  断档告警原因和严重级别阈值；历史质量分段与停止后的 manifest 绑定离线 verifier 保持不变。
+- Fly View 诊断弹窗新增当前状态颜色、中文状态文本和实时计数；质量状态仍是只读 advisory，任何质量告警
+  都不会生成坐标、任务或飞控输出。
+- C++ self-test 覆盖 `WARNING → CRITICAL → HEALTHY` 恢复路径；安装式 verifier 独立复核 4 样本会话，
+  2/4 可定位、定位率 `0.5`、最长连续不可定位 `2`、最大断档 `2,000 ms`，报告 7,795 bytes、SHA-256
+  `580898F32543B8EBAEE78E0099DDD46AACAC878066DA221AB3D431B1325C4BD4`。
+- Release/portable EXE 已按 v169 重链并完成依赖部署：46,751,232 bytes、SHA-256
+  `5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；portable offscreen simple boot
+  退出 0，stderr 879 bytes、SHA-256 `D2BE8F83902FF9AF48F105685EF17B4571075F826E6A0126603DCBC670D41F81`。
+- 定向回归 86 tests：`85 passed, 1 skipped, 0 failed`，耗时 2.412 秒；JUnit 13,696 bytes、SHA-256
+  `8721CA481C38579F34E4916C05D1F496461B1A037999B6D0F267C924DD807135`。最终全量回归 3,707 tests：
+  `3703 passed, 4 skipped, 0 failed, 0 errors`，耗时 182.008 秒；JUnit 542,030 bytes、SHA-256
+  `B0010AE56D61353559AF5C200E28D0A7310DF7650962FBDEA35406D18487B8D1`。
+- parity 9,956 bytes、SHA-256 `FB645D12D0CF0DD4CCEFF68CFC0D15D1E4BCFC25FD574301C4790D61D3F94A05`；
+  UI contract 为 `6C6BECB3C9890EAF3360FFBECADC2371923B0DE5014723CB8DC911DDE47CCC15`，其余四组不变。
+- 三机型 external join/revalidation、PX4 reported-position matrix、6 正例/9 故障 campaign、只读现场链路
+  和 E7 已按 v169 parity 重算并绑定。现场接口仍为 `192.168.1.13/24`，不在目标 `192.168.144.0/24`，
+  Jetson `192.168.144.10:22`、GR01 `192.168.144.25:5760`、相机 `192.168.144.108:554` 均超时；E7
+  仍为 `gate_passed=false`、`release_allowed=false`、`31 blockers`。本轮不提升室外 GNSS、硬件、HIL/REAL、
+  人工视觉或实飞状态。
 
 ## v168 本轮已收口
 

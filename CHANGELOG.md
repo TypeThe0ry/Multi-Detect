@@ -5,6 +5,20 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v169 live localization quality alarms（2026-09-07）
+
+- 原生录制器实时摘要新增 `current_status` 四级状态：`WAITING`、`HEALTHY`、`WARNING`、`CRITICAL`，
+  同步暴露当前连续不可定位、测距异常、GNSS 不合格计数、最近采样间隔与告警原因；连续两次不可定位
+  进入严重状态，恢复样本后实时清除当前告警；
+- Fly View 诊断弹窗展示当前状态颜色、中文状态与实时质量计数，保持只读 advisory，不改变坐标 fail-closed、
+  任务或飞控安全边界；
+- C++ self-test 真实覆盖 `WARNING → CRITICAL → HEALTHY`，4 样本会话经安装式 verifier 独立复核通过；
+- Release/portable EXE 为 46,751,232 bytes，SHA-256
+  `5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`，offscreen simple boot 退出 0；
+- 定向回归 `85 passed, 1 skipped, 0 failed`，全量回归 `3703 passed, 4 skipped, 0 failed`；parity、三机型
+  派生证据、现场只读探测与 E7 已重算，E7 仍为 `false / false / 31 blockers`，不提升室外 GNSS、硬件、
+  HIL/REAL、人工视觉或实飞状态。
+
 ### v0.3.0-pre.8 v168 live localization recording quality（2026-09-07）
 
 - 原生录制器新增实时质量摘要，覆盖定位率、最长不可定位、采样断档、测距/GNSS/定位质量段和 epoch 切换；

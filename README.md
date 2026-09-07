@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v168：原生实时录制质量时间线 |
+| 当前工程迭代 | v169：原生实时定位质量告警 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,34 +82,27 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v168 目标定位诊断验证、会话审计与原生录制
+### v163–v169 目标定位诊断验证、会话审计与原生录制
 
-v163 为 `multidetect.target-observation-diagnostics.v1` 增加闭合 schema 和严格 verifier，重算原子身份、
-freshness、定位门与坐标省略，并拒绝重复/未知字段、非有限数、符号链接及超限输入。v164 增加多快照
-session verifier，检查时间、epoch、sequence/`sentAtMs` 连续性并逐文件绑定 bytes 与 SHA-256。
+v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
+统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
 
-v165 把同一审计链接入原生 Fly View：可开始/停止 `1 Hz` 录制，单次最多 3,600 份，每次使用唯一目录；
-快照和最终 manifest 均原子提交，manifest 记录停止原因并绑定每份快照。C++ self-test 生成的 2 份真实
-快照已由安装式 session verifier 独立复核通过。
-当前 portable EXE 为 46,718,976 bytes，SHA-256
-`8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`；offscreen simple boot 退出 0。
-该功能仍为 advisory-only，E7 保持 `false / false / 31 blockers`，不代表室外 GNSS、硬件、HIL/REAL、
-人工视觉或实飞验收通过。全量回归为 `3689 passed, 4 skipped, 0 failed`。
+v165 将审计链接入原生 Fly View，支持 `1 Hz`、唯一目录、原子快照/manifest 和安装式 session verifier。
 
-v166 为录制 manifest 增加闭合 schema、独立安装式 verifier，并让 session verifier 可通过
-`--require-recording-manifest` 强制验证目录闭合、路径、bytes、SHA-256、时间顺序和完整引用。真实 C++
-双快照目录通过两层安装式 CLI 复核；全量回归 `3697 passed, 4 skipped, 0 failed`。本轮不重链主 EXE，
-E7 仍为 `false / false / 31 blockers`。
+v166 将录制 manifest 闭合校验、目录引用和 `--require-recording-manifest` 接入安装式 CLI。
 
-v167 增加采样间隔/断档、连续不可定位、测距异常、GNSS 不合格和 epoch 切换分段，并提供最大连续失败
-数与最大采样间隔门。C++ 双快照实测最大间隔 1,000 ms、零异常段并通过；全量回归为
-`3703 passed, 4 skipped, 0 failed`，E7 状态不变。
+v167 增加采样断档、连续不可定位、测距/GNSS 异常和 epoch 切换分段，并提供严格采样门。
 
-v168 把同一质量模型接入原生 Fly View 诊断弹窗，录制中实时显示定位率、最长失败段、采样断档、
-三类质量时间线与 epoch 切换；4 样本 C++→安装式 verifier 跨语言路径通过。portable EXE 更新为
-46,746,112 bytes、SHA-256 `F74F3D6FCFC8C044745A2B75A8ED07FD4CEBD41BDE2BD1239E00F9FB40C9A9FA`。
-实时摘要仅供态势感知，正式报告仍以闭合 manifest 的离线复核为准；E7 仍为 `false / false / 31 blockers`。
-最终全量回归为 `3703 passed, 4 skipped, 0 failed`。
+v168 把质量模型接入 Fly View，提供定位率、采样断档、三类质量时间线和 epoch 切换的实时只读摘要。
+
+v169 在实时摘要上增加 `current_status` 四级健康状态（`WAITING`、`HEALTHY`、`WARNING`、`CRITICAL`），
+并显示当前连续不可定位/测距异常/GNSS 不合格计数、最近采样间隔与告警原因；连续两次不可定位进入严重状态，
+恢复样本后即时回到良好。C++ self-test 和安装式 verifier 覆盖 `WARNING → CRITICAL → HEALTHY`，
+portable EXE 更新为 46,751,232 bytes、SHA-256
+`5BC3761AE4C13C28EBE6BB34691F6EB350CA9EDEF96376DF0DDD03DBE73C5A3A`；全量回归仍为
+`3703 passed, 4 skipped, 0 failed`，E7 仍为 `false / false / 31 blockers`。
+实时状态和质量摘要只用于态势感知与记录，不生成假坐标、不发出飞控指令，也不替代室外 GNSS、硬件、HIL/REAL
+或人工视觉验收。
 
 v162 的原生诊断弹窗、坐标 fail-closed 和制品明细已归档到 [当前进度](docs/current-progress.md)。
 
