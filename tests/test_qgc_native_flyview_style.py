@@ -856,8 +856,13 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert "startTargetObservationDiagnosticsRecording()" in controller_header
     assert "stopTargetObservationDiagnosticsRecording()" in controller_header
     assert "targetObservationRecordingChanged" in controller_header
+    assert (
+        "targetObservationRecordingQualitySummary READ targetObservationRecordingQualitySummary"
+        in controller_header
+    )
     assert "function startTargetObservationDiagnosticsRecording()" in state
     assert "function stopTargetObservationDiagnosticsRecording()" in state
+    assert "targetObservationRecordingQualitySummary" in state
     assert "function _toggleTargetObservationDiagnosticsRecording()" in layer
     assert 'qsTr("开始定位诊断录制")' in layer
     assert 'qsTr("停止定位诊断录制")' in layer
@@ -866,6 +871,12 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert 'text: qsTr("保存定位诊断")' in layer
     assert 'title: qsTr("目标定位诊断 · 只读")' in layer
     assert "JSON.parse(payload)" in layer
+    assert 'qsTr("录制质量 · 实时只读")' in layer
+    assert 'qsTr("质量时间轴")' in layer
+    assert 'qsTr("当前录制未发现连续质量异常段")' in layer
+    assert "recordingSampling.cadence_violation_count" in layer
+    assert "recordingQuality.longest_non_locatable_run" in layer
+    assert "recordingQuality.epoch_transition_count" in layer
     assert 'qsTr("不可定位 · 坐标已强制省略")' in layer
     assert 'qsTr("定位门未全部通过；本诊断不含经纬度或 1σ")' in layer
     assert 'qsTr("诊断只用于定位排错与证据记录；不会发送飞控指令或启用物理释放")' in layer

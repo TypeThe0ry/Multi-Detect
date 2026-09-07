@@ -150,6 +150,8 @@ QtObject {
                                                                          Number(_operator.targetObservationRecordingSampleCount) : 0
     readonly property string targetObservationRecordingSessionDirectory: _operator !== null ?
                                                                                   String(_operator.targetObservationRecordingSessionDirectory) : ""
+    readonly property var targetObservationRecordingQualitySummary: _operator !== null ?
+                                                                                  _operator.targetObservationRecordingQualitySummary : ({})
 
     function producerEpochDiagnosticsJson() {
         return _operator !== null ? String(_operator.targetObservationEpochDiagnosticsJson()) : "";

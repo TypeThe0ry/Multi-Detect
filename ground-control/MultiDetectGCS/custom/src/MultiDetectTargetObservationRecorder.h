@@ -3,6 +3,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QString>
 #include <QtCore/QStringList>
+#include <QtCore/QVariantList>
 #include <QtCore/QVariantMap>
 
 class MultiDetectTargetObservationRecorder final
@@ -27,6 +28,7 @@ public:
     QString sessionDirectory() const { return _sessionDirectory; }
     qulonglong intervalMs() const { return _intervalMs; }
     int maximumSamples() const { return _maximumSamples; }
+    QVariantMap qualitySummary() const;
 
 private:
     bool _active = false;
@@ -37,4 +39,5 @@ private:
     qulonglong _nextCaptureAtMs = 0;
     int _maximumSamples = kDefaultMaximumSamples;
     QStringList _snapshotNames;
+    QVariantList _qualitySamples;
 };

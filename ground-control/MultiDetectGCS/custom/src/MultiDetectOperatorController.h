@@ -54,6 +54,7 @@ class MultiDetectOperatorController final : public QObject
     Q_PROPERTY(bool targetObservationRecordingActive READ targetObservationRecordingActive NOTIFY targetObservationRecordingChanged)
     Q_PROPERTY(int targetObservationRecordingSampleCount READ targetObservationRecordingSampleCount NOTIFY targetObservationRecordingChanged)
     Q_PROPERTY(QString targetObservationRecordingSessionDirectory READ targetObservationRecordingSessionDirectory NOTIFY targetObservationRecordingChanged)
+    Q_PROPERTY(QVariantMap targetObservationRecordingQualitySummary READ targetObservationRecordingQualitySummary NOTIFY targetObservationRecordingChanged)
     Q_PROPERTY(QVariantMap releaseStatus READ releaseStatus NOTIFY releaseStatusChanged)
     Q_PROPERTY(QVariantMap runtimeStatus READ runtimeStatus NOTIFY runtimeStatusChanged)
     Q_PROPERTY(QString expectedRuntimeMode READ expectedRuntimeMode CONSTANT)
@@ -132,6 +133,10 @@ public:
     QString targetObservationRecordingSessionDirectory() const
     {
         return _targetObservationRecorder.sessionDirectory();
+    }
+    QVariantMap targetObservationRecordingQualitySummary() const
+    {
+        return _targetObservationRecorder.qualitySummary();
     }
 
     QVariantMap releaseStatus() const { return _releaseStatus; }

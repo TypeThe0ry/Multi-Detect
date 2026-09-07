@@ -1074,6 +1074,10 @@ Item {
             readonly property var gnssStatus: snapshot.gnss_status || ({})
             readonly property var localReceive: snapshot.local_receive || ({})
             readonly property var reasons: Array.isArray(readiness.reasons) ? readiness.reasons : []
+            readonly property var recordingQuality: MultiDetectState.targetObservationRecordingQualitySummary || ({})
+            readonly property var recordingSampling: recordingQuality.sampling || ({})
+            readonly property var recordingSegments: recordingQuality.quality_segments || ({})
+            readonly property var qualitySegmentRows: flattenQualitySegments(recordingSegments)
 
             function valueOrDash(value) {
                 return value === undefined || value === null || value === "" ? "--" : String(value);
@@ -1083,6 +1087,31 @@ Item {
                 const entry = localReceive[channel] || ({});
                 return entry.age_ms === undefined || entry.age_ms === null ? "--" :
                        qsTr("%1 ms").arg(Math.round(Number(entry.age_ms)));
+            }
+
+            function flattenQualitySegments(segments) {
+                const rows = [];
+                ["non_locatable", "range_invalid", "gnss_unqualified"].forEach(function(kind) {
+                    const values = Array.isArray(segments[kind]) ? segments[kind] : [];
+                    values.forEach(function(segment) { rows.push(segment); });
+                });
+                return rows;
+            }
+
+            function qualityKindText(kind) {
+                if (kind === "non_locatable")
+                    return qsTr("不可定位");
+                if (kind === "range_invalid")
+                    return qsTr("测距异常");
+                return qsTr("GNSS 不合格");
+            }
+
+            function qualityKindColor(kind) {
+                if (kind === "non_locatable")
+                    return qgcPal.colorRed;
+                if (kind === "range_invalid")
+                    return qgcPal.warningText;
+                return qgcPal.colorOrange;
             }
 
             buttons: Dialog.Close
@@ -1229,6 +1258,118 @@ Item {
                                       .arg(targetObservationDiagnosticsDialog.receiveAge("target_geolocation")) :
                                   qsTr("定位门未全部通过；本诊断不含经纬度或 1σ")
                         wrapMode: Text.WordWrap
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: qgcPal.windowShade
+                        implicitHeight: recordingQualityColumn.implicitHeight + root._margin
+                        radius: ScreenTools.defaultBorderRadius
+                        visible: Number(targetObservationDiagnosticsDialog.recordingQuality.sample_count || 0) > 0
+
+                        ColumnLayout {
+                            id: recordingQualityColumn
+                            anchors.fill: parent
+                            anchors.margins: root._margin * 0.5
+                            spacing: root._margin * 0.28
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                font.bold: true
+                                text: targetObservationDiagnosticsDialog.recordingQuality.active === true ?
+                                          qsTr("录制质量 · 实时只读") : qsTr("录制质量 · 已停止")
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("样本 %1 · 可定位率 %2% · 最长连续不可定位 %3 · 观测 %4 ms")
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingQuality.sample_count || 0)))
+                                      .arg((Number(targetObservationDiagnosticsDialog.recordingQuality.locatable_rate || 0) * 100).toFixed(1))
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingQuality.longest_non_locatable_run || 0)))
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingQuality.observation_duration_ms || 0)))
+                                wrapMode: Text.WordWrap
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("采样期望 %1 ms · 最大间隔 %2 ms · 平均间隔 %3 ms · 断档 %4")
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.recordingSampling.expected_interval_ms))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.recordingSampling.maximum_gap_ms))
+                                      .arg(targetObservationDiagnosticsDialog.recordingSampling.mean_gap_ms === undefined ||
+                                           targetObservationDiagnosticsDialog.recordingSampling.mean_gap_ms === null ? "--" :
+                                               Number(targetObservationDiagnosticsDialog.recordingSampling.mean_gap_ms).toFixed(1))
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingSampling.cadence_violation_count || 0)))
+                                wrapMode: Text.WordWrap
+                            }
+
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                font.bold: true
+                                text: qsTr("质量时间轴")
+                            }
+                            Rectangle {
+                                id: qualityTimeline
+                                Layout.fillWidth: true
+                                implicitHeight: ScreenTools.defaultFontPixelHeight * 1.35
+                                color: qgcPal.window
+                                border.color: qgcPal.text
+                                border.width: 1
+                                radius: ScreenTools.defaultBorderRadius
+
+                                Repeater {
+                                    model: targetObservationDiagnosticsDialog.qualitySegmentRows
+
+                                    Rectangle {
+                                        required property var modelData
+                                        readonly property real totalSamples: Math.max(
+                                                                 Number(targetObservationDiagnosticsDialog.recordingQuality.sample_count || 0), 1)
+                                        x: Number(modelData.start_index || 0) / totalSamples * qualityTimeline.width
+                                        y: modelData.kind === "non_locatable" ? 1 :
+                                           modelData.kind === "range_invalid" ? qualityTimeline.height / 3 :
+                                                                                qualityTimeline.height * 2 / 3
+                                        width: Math.max(2, Number(modelData.sample_count || 0) /
+                                                        totalSamples * qualityTimeline.width)
+                                        height: Math.max(2, qualityTimeline.height / 3 - 1)
+                                        color: targetObservationDiagnosticsDialog.qualityKindColor(modelData.kind)
+                                        opacity: 0.82
+                                    }
+                                }
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                color: qgcPal.colorRed
+                                text: qsTr("红：不可定位 · 黄：测距异常 · 橙：GNSS 不合格")
+                                wrapMode: Text.WordWrap
+                            }
+                            Repeater {
+                                model: targetObservationDiagnosticsDialog.qualitySegmentRows
+
+                                QGCLabel {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    color: targetObservationDiagnosticsDialog.qualityKindColor(modelData.kind)
+                                    text: qsTr("%1：样本 %2–%3，共 %4 个，持续 %5 ms")
+                                          .arg(targetObservationDiagnosticsDialog.qualityKindText(modelData.kind))
+                                          .arg(Math.round(Number(modelData.start_index)))
+                                          .arg(Math.round(Number(modelData.end_index)))
+                                          .arg(Math.round(Number(modelData.sample_count)))
+                                          .arg(Math.round(Number(modelData.duration_ms)))
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                visible: targetObservationDiagnosticsDialog.qualitySegmentRows.length === 0
+                                text: qsTr("当前录制未发现连续质量异常段")
+                                wrapMode: Text.WordWrap
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("epoch 切换 %1 次；最终正式报告仍以 manifest 绑定的离线 verifier 为准")
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingQuality.epoch_transition_count || 0)))
+                                wrapMode: Text.WordWrap
+                            }
+                        }
                     }
 
                     RowLayout {

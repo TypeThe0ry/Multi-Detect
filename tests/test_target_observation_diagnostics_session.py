@@ -151,6 +151,16 @@ def test_schema_parity_and_installed_command_are_bound() -> None:
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.h"
         in ui_contract
     )
+    recorder_source = (
+        SCHEMA_PATH.parents[2]
+        / "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.cc"
+    ).read_text(encoding="utf-8")
+    assert "multidetect.target-observation-recording-live-quality.v1" in recorder_source
+    assert 'QStringLiteral("cadence_violation_count")' in recorder_source
+    assert 'QStringLiteral("longest_non_locatable_run")' in recorder_source
+    assert 'QStringLiteral("epoch_transition_count")' in recorder_source
+    assert 'QStringLiteral("flight_control_enabled"), false' in recorder_source
+    assert 'QStringLiteral("physical_release_enabled"), false' in recorder_source
     pyproject = (SCHEMA_PATH.parents[2] / "pyproject.toml").read_text(encoding="utf-8")
     assert "multidetect-target-observation-session-verify" in pyproject
     assert "multidetect-target-observation-recording-manifest-verify" in pyproject
