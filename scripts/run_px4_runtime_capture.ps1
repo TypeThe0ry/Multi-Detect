@@ -204,9 +204,13 @@ if ($Overwrite) {
 # list.  The Python CLI resolves the named environment variables in its own
 # process, so PowerShell transcripts and error output contain names only.
 $previousPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
+$outputLines = @()
 try {
     $env:PYTHONPATH = Join-Path $repositoryRoot 'src'
-    & $python @($arguments.ToArray())
+    # Merge stderr into the captured stream so Windows PowerShell 5.1 does
+    # not turn the Python module's structured error event into a terminating
+    # NativeCommandError before its exit code can be propagated.
+    $outputLines = @(& $python @($arguments.ToArray()) 2>&1)
     $exitCode = Get-NativeExitCode
 }
 finally {
@@ -216,6 +220,10 @@ finally {
     else {
         $env:PYTHONPATH = $previousPythonPath
     }
+}
+
+foreach ($line in $outputLines) {
+    Write-Output ([string]$line)
 }
 
 if ($exitCode -ne 0) {
