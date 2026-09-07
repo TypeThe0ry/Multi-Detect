@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## PX4 receive-only runtime sidecar capture（v191，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect-px4-runtime-capture`，在一个 bounded `PixhawkReadOnlyTelemetryProvider` session 中
+  采集 v2 PX4 Mission feedback、endpoint/vehicle identity，并立即重跑 live observation / Mission / signed
+  RuntimeProfile 五源 join；输入输出受统一 `base_directory`、原子写入和符号链接/越界检查约束。
+- [x] 将 `messages_transmitted` 拆为 telemetry request、application、flight-control 三个桶；有界
+  `AUTOPILOT_VERSION`/stream/range 请求可审计，任一应用或飞控输出仍关闭 feedback、profile 与 join gate；旧
+  v1/v2 报告按保守规则兼容。
+- [x] 新增 `px4-runtime-capture.schema.json`、确定性正/负向 evidence generator、聚焦 54 项与全量 3,786 项
+  回归，并刷新 PX4 Mission parity。
+- [ ] 在现场调用同一 CLI，带回真实 HIL/REAL 的 Mission、profile、feedback、endpoint/vehicle identity sidecar
+  后重跑 join；软件 fixture 不升级真实 Pixhawk、室外 GNSS、人工 Fly View、飞行或最终 `v0.3.0` 发布门。
+
 ## Live RuntimeObservation × PX4 Mission × RuntimeProfile × endpoint/vehicle identity join（v190，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.live_runtime_observation_mission_binding` 与安装式
