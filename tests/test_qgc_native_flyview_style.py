@@ -492,6 +492,8 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         "contains_flight_control",
         "contains_truth",
         "GPS 观测时间必须单调不回退",
+        'summary->insert(QStringLiteral("sha256")',
+        'summary.insert(QStringLiteral("source_frame_id")',
     ):
         assert contract in replay_source
     for property_name in (
@@ -526,10 +528,19 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         'qsTr("选择清单")',
         'qsTr("清除")',
         'qsTr("清单 %1 · 开始 %2 · 事件 %3/%4 · 媒体 %5")',
+        'qsTr("筛选：%1 · 当前显示 %2 条")',
+        'qsTr("✓ 可定位")',
+        'qsTr("✓ 有效测距")',
+        'qsTr("✓ 有媒体")',
+        'qsTr("复制证据")',
+        'SHA-256 %6',
         'qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")',
         "multiDetectTargetEventReplayStore.events",
     ):
         assert text in dialog
+    assert "function replayFilterMatches(event)" in dialog
+    assert "function eventClipboardText(event)" in dialog
+    assert "QGroundControl.copyToClipboard" in dialog
     assert "sendTargetSelection" not in dialog
     assert "executePayload" not in dialog
     assert "executeApproach" not in dialog

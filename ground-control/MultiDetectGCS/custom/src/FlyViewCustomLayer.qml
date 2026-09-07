@@ -1231,12 +1231,106 @@ Item {
             id: targetEventReplayDialog
 
             buttons: Dialog.Close
+            property string _replayFilter: "all"
             title: qsTr("目标事件回放 · 只读")
 
             Component.onDestruction: root._targetEventReplayDialog = null
 
             function valueOrDash(value) {
                 return value === undefined || value === null || value === "" ? "--" : String(value);
+            }
+
+            function numberText(value, precision) {
+                const numeric = Number(value);
+                return Number.isFinite(numeric) ? numeric.toFixed(precision) : "--";
+            }
+
+            function replayFilterMatches(event) {
+                const value = event || ({});
+                if (_replayFilter === "locatable")
+                    return (value.gps || ({})).coordinates_included === true;
+                if (_replayFilter === "ranged")
+                    return (value.ranging || ({})).available === true;
+                if (_replayFilter === "media")
+                    return (value.video || ({})).present === true ||
+                           (value.depth || ({})).present === true;
+                return true;
+            }
+
+            function replayFilterLabel() {
+                if (_replayFilter === "locatable")
+                    return qsTr("可定位");
+                if (_replayFilter === "ranged")
+                    return qsTr("有效测距");
+                if (_replayFilter === "media")
+                    return qsTr("有媒体");
+                return qsTr("全部");
+            }
+
+            function replayVisibleCount() {
+                if (typeof multiDetectTargetEventReplayStore === "undefined" ||
+                        multiDetectTargetEventReplayStore === null ||
+                        !multiDetectTargetEventReplayStore.loaded)
+                    return 0;
+                const values = multiDetectTargetEventReplayStore.events || [];
+                let count = 0;
+                for (let index = 0; index < values.length; ++index) {
+                    if (replayFilterMatches(values[index]))
+                        ++count;
+                }
+                return count;
+            }
+
+            function mediaText(label, media) {
+                const value = media || ({});
+                if (value.present !== true)
+                    return qsTr("%1：无").arg(label);
+                const dimensions = value.width !== undefined && value.height !== undefined ?
+                                      qsTr(" · %1×%2").arg(value.width).arg(value.height) : "";
+                return qsTr("%1：%2 · %3 · %4 B%5 · SHA-256 %6")
+                    .arg(label)
+                    .arg(value.path || qsTr("未知路径"))
+                    .arg(value.encoding || "--")
+                    .arg(value.bytes === undefined ? "--" : value.bytes)
+                    .arg(dimensions)
+                    .arg(value.sha256 || "--");
+            }
+
+            function eventClipboardText(event) {
+                const value = event || ({});
+                const gps = value.gps || ({});
+                const ranging = value.ranging || ({});
+                const gpsLine = gps.coordinates_included === true ?
+                                    qsTr("GPS: %1, %2 ±%3 m (%4)")
+                                        .arg(numberText(gps.latitude_deg, 7))
+                                        .arg(numberText(gps.longitude_deg, 7))
+                                        .arg(numberText(gps.horizontal_sigma_m, 1))
+                                        .arg(gps.freshness || "--") :
+                                    qsTr("GPS: 不可定位 (%1)").arg(gps.status || "--");
+                const rangeLine = ranging.available === true ?
+                                      qsTr("测距: %1 m · 方位 %2° · %3")
+                                          .arg(numberText(ranging.range_m, 2))
+                                          .arg(numberText(ranging.bearing_deg, 2))
+                                          .arg(ranging.validity || "--") :
+                                      qsTr("测距: 不可用");
+                return [
+                    "Multi-Detect target-event replay",
+                    qsTr("事件: %1 · 目标: %2 (%3)")
+                        .arg(value.event_id || "--")
+                        .arg(value.target_id || "--")
+                        .arg(value.target_label || "--"),
+                    qsTr("捕获: %1 s · 帧: %2")
+                        .arg(numberText(value.captured_at_s, 3))
+                        .arg(value.frame_id || "--"),
+                    qsTr("来源帧: %1 · 载体高度 %2 m · 航向 %3°")
+                        .arg(value.source_frame_id || "--")
+                        .arg(numberText(value.vehicle_altitude_agl_m, 2))
+                        .arg(numberText(value.vehicle_heading_deg, 2)),
+                    gpsLine,
+                    rangeLine,
+                    mediaText(qsTr("视频"), value.video),
+                    mediaText(qsTr("深度"), value.depth)
+                ].join("\n");
             }
 
             function gpsText(gps) {
@@ -1343,6 +1437,18 @@ Item {
 
                         QGCLabel {
                             Layout.fillWidth: true
+                            text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                   multiDetectTargetEventReplayStore !== null &&
+                                   multiDetectTargetEventReplayStore.loaded) ?
+                                      qsTr("筛选：%1 · 当前显示 %2 条")
+                                          .arg(targetEventReplayDialog.replayFilterLabel())
+                                          .arg(targetEventReplayDialog.replayVisibleCount()) : ""
+                            visible: text !== ""
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
                             color: qgcPal.warningText
                             text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
                                    multiDetectTargetEventReplayStore !== null &&
@@ -1352,6 +1458,38 @@ Item {
                             visible: text !== ""
                             wrapMode: Text.WordWrap
                         }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: root._margin * 0.2
+
+                    QGCLabel {
+                        text: qsTr("筛选")
+                    }
+
+                    QGCButton {
+                        text: targetEventReplayDialog._replayFilter === "all" ? qsTr("✓ 全部") : qsTr("全部")
+                        onClicked: targetEventReplayDialog._replayFilter = "all"
+                    }
+
+                    QGCButton {
+                        text: targetEventReplayDialog._replayFilter === "locatable" ?
+                                  qsTr("✓ 可定位") : qsTr("可定位")
+                        onClicked: targetEventReplayDialog._replayFilter = "locatable"
+                    }
+
+                    QGCButton {
+                        text: targetEventReplayDialog._replayFilter === "ranged" ?
+                                  qsTr("✓ 有效测距") : qsTr("有效测距")
+                        onClicked: targetEventReplayDialog._replayFilter = "ranged"
+                    }
+
+                    QGCButton {
+                        text: targetEventReplayDialog._replayFilter === "media" ?
+                                  qsTr("✓ 有媒体") : qsTr("有媒体")
+                        onClicked: targetEventReplayDialog._replayFilter = "media"
                     }
                 }
 
@@ -1372,12 +1510,15 @@ Item {
 
                         delegate: Rectangle {
                             required property var modelData
+                            readonly property bool replayMatches:
+                                targetEventReplayDialog.replayFilterMatches(modelData)
 
                             border.color: qgcPal.button
                             border.width: 1
                             color: qgcPal.windowShade
-                            height: replayEventColumn.implicitHeight + root._margin
+                            height: replayMatches ? replayEventColumn.implicitHeight + root._margin : 0
                             radius: ScreenTools.defaultBorderRadius
+                            visible: replayMatches
                             width: targetEventReplayList.width
 
                             ColumnLayout {
@@ -1423,11 +1564,43 @@ Item {
                                 QGCLabel {
                                     Layout.fillWidth: true
                                     color: qgcPal.text
-                                    text: qsTr("视频：%1 · 深度：%2")
-                                          .arg(parent.parent.modelData.video.present === true ?
-                                                   parent.parent.modelData.video.path : qsTr("无"))
-                                          .arg(parent.parent.modelData.depth.present === true ?
-                                                   parent.parent.modelData.depth.path : qsTr("无"))
+                                    text: targetEventReplayDialog.mediaText(
+                                              qsTr("视频"), parent.parent.modelData.video)
+                                    wrapMode: Text.WrapAnywhere
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    color: qgcPal.text
+                                    text: targetEventReplayDialog.mediaText(
+                                              qsTr("深度"), parent.parent.modelData.depth)
+                                    wrapMode: Text.WrapAnywhere
+                                }
+
+                                QGCButton {
+                                    Layout.alignment: Qt.AlignLeft
+                                    text: qsTr("复制证据")
+                                    onClicked: QGroundControl.copyToClipboard(
+                                                   targetEventReplayDialog.eventClipboardText(
+                                                       parent.parent.modelData))
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    color: qgcPal.text
+                                    text: qsTr("来源帧：%1")
+                                          .arg(parent.parent.modelData.source_frame_id || "--")
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    color: qgcPal.text
+                                    text: qsTr("载体：高度 %1 m · 航向 %2°")
+                                          .arg(targetEventReplayDialog.numberText(
+                                                   parent.parent.modelData.vehicle_altitude_agl_m, 1))
+                                          .arg(targetEventReplayDialog.numberText(
+                                                   parent.parent.modelData.vehicle_heading_deg, 1))
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -1437,7 +1610,7 @@ Item {
                             anchors.centerIn: parent
                             color: qgcPal.text
                             text: qsTr("尚无已校验的目标事件")
-                            visible: targetEventReplayList.count === 0
+                            visible: targetEventReplayDialog.replayVisibleCount() === 0
                         }
                     }
                 }

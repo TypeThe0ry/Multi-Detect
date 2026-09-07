@@ -14,6 +14,7 @@
 #include <QtCore/QJsonValue>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
+#include <QtCore/QVariant>
 
 #include <algorithm>
 #include <cmath>
@@ -713,10 +714,16 @@ bool mediaReference(const QJsonValue& raw, const QString& expectedKind, const QS
     }
     referenced->insert(relativePath);
     *mediaBytes += expectedBytes;
+    summary->insert(QStringLiteral("kind"), kind);
     summary->insert(QStringLiteral("present"), true);
     summary->insert(QStringLiteral("path"), relativePath);
+    summary->insert(QStringLiteral("sha256"), QString::fromLatin1(expectedHash));
     summary->insert(QStringLiteral("encoding"), encoding);
     summary->insert(QStringLiteral("bytes"), expectedBytes);
+    if (hasWidth) {
+        summary->insert(QStringLiteral("width"), width);
+        summary->insert(QStringLiteral("height"), height);
+    }
     return true;
 }
 
@@ -1183,6 +1190,9 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
         QString frameId;
         QString targetId;
         QString targetLabel;
+        QString sourceFrameId;
+        double vehicleAltitudeAglM = 0.0;
+        double vehicleHeadingDeg = 0.0;
         if (!requiredInteger(event, QStringLiteral("sequence"), 0, kMaximumEvents - 1, &sequence,
                              &error, QStringLiteral("target event")) || sequence != index ||
             !requiredNumber(event, QStringLiteral("captured_at_s"), 0.0,
@@ -1195,7 +1205,15 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
             !boundedString(event, QStringLiteral("target_id"), true, &targetId, &error,
                            QStringLiteral("target event")) ||
             !boundedString(event, QStringLiteral("target_label"), true, &targetLabel, &error,
-                           QStringLiteral("target event"))) {
+                           QStringLiteral("target event")) ||
+            !boundedString(event, QStringLiteral("source_frame_id"), false, &sourceFrameId, &error,
+                           QStringLiteral("target event")) ||
+            (!event.value(QStringLiteral("source_frame_id")).isNull() && sourceFrameId.isEmpty()) ||
+            !optionalNumber(event, QStringLiteral("vehicle_altitude_agl_m"), 0.0,
+                            std::numeric_limits<double>::max(), &vehicleAltitudeAglM, &error,
+                            QStringLiteral("target event")) ||
+            !optionalNumber(event, QStringLiteral("vehicle_heading_deg"), 0.0, 360.0,
+                            &vehicleHeadingDeg, &error, QStringLiteral("target event"))) {
             return _fail(error.isEmpty() ? tr("事件字段无效或未按时间递增") : error);
         }
         if (eventIds.contains(eventId)) {
@@ -1274,6 +1292,15 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
         summary.insert(QStringLiteral("ranging"), ranging);
         summary.insert(QStringLiteral("video"), video);
         summary.insert(QStringLiteral("depth"), depth);
+        summary.insert(QStringLiteral("source_frame_id"), sourceFrameId);
+        summary.insert(QStringLiteral("vehicle_altitude_agl_m"),
+                       event.value(QStringLiteral("vehicle_altitude_agl_m")).isNull()
+                           ? QVariant()
+                           : QVariant(vehicleAltitudeAglM));
+        summary.insert(QStringLiteral("vehicle_heading_deg"),
+                       event.value(QStringLiteral("vehicle_heading_deg")).isNull()
+                           ? QVariant()
+                           : QVariant(vehicleHeadingDeg));
         if (eventSummaries.size() < kMaximumDisplayedEvents) {
             eventSummaries.append(summary);
         }

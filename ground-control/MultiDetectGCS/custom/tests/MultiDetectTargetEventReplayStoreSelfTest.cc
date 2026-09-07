@@ -244,6 +244,16 @@ int main(int argc, char* argv[])
     require(event.value(QStringLiteral("ranging")).toMap().value(QStringLiteral("available"))
                 .toBool(),
             "valid range must be exposed", &failures);
+    const QVariantMap video = event.value(QStringLiteral("video")).toMap();
+    require(video.value(QStringLiteral("kind")).toString() == QStringLiteral("video_frame"),
+            "media kind must be exposed", &failures);
+    require(video.value(QStringLiteral("sha256")).toString() ==
+                QString::fromLatin1(sha256(QByteArrayLiteral("ABCD"))),
+            "media SHA-256 must be exposed", &failures);
+    require(video.value(QStringLiteral("bytes")).toLongLong() == 4 &&
+                video.value(QStringLiteral("width")).toInt() == 2 &&
+                video.value(QStringLiteral("height")).toInt() == 2,
+            "media size and dimensions must be exposed", &failures);
 
     QFile media(QDir(rootPath).filePath(QStringLiteral("media/000000-video_frame.bin")));
     require(media.open(QIODevice::WriteOnly | QIODevice::Truncate),
