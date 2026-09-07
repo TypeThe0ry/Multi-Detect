@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schema/runtime-observation-result.schema.json",
+  "title": "Multi-Detect receive-only HIL/REAL runtime observation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "runtime_mode",
+    "gate_passed",
+    "runtime_descriptor_hash",
+    "runtime_input_hash",
+    "processed_frame_count",
+    "processed_frame_ids",
+    "stream_exhausted",
+    "max_frames",
+    "observation_only",
+    "read_only",
+    "receive_only",
+    "flight_control_enabled",
+    "hardware_outputs_present",
+    "messages_transmitted",
+    "output_locked",
+    "runtime_run_report"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": {
+      "enum": [
+        "hil_runtime_observation_finished",
+        "real_runtime_observation_finished"
+      ]
+    },
+    "runtime_mode": { "enum": ["hil", "real"] },
+    "gate_passed": { "type": "boolean" },
+    "runtime_descriptor_hash": { "$ref": "#/$defs/sha256" },
+    "runtime_input_hash": { "$ref": "#/$defs/sha256" },
+    "processed_frame_count": { "type": "integer", "minimum": 0 },
+    "processed_frame_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "stream_exhausted": { "type": "boolean" },
+    "max_frames": { "type": ["integer", "null"], "minimum": 0 },
+    "observation_only": { "const": true },
+    "read_only": { "const": true },
+    "receive_only": { "const": true },
+    "flight_control_enabled": { "const": false },
+    "hardware_outputs_present": { "const": false },
+    "messages_transmitted": { "const": 0 },
+    "output_locked": { "const": true },
+    "runtime_run_report": { "$ref": "#/$defs/runtimeReport" },
+    "sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "runtime_mode": { "const": "hil" } },
+        "required": ["runtime_mode"]
+      },
+      "then": {
+        "properties": { "event": { "const": "hil_runtime_observation_finished" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime_mode": { "const": "real" } },
+        "required": ["runtime_mode"]
+      },
+      "then": {
+        "properties": { "event": { "const": "real_runtime_observation_finished" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "stream_exhausted": { "const": true } },
+        "required": ["stream_exhausted"]
+      },
+      "then": {
+        "properties": { "max_frames": { "const": null } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "stream_exhausted": { "const": false } },
+        "required": ["stream_exhausted"]
+      },
+      "then": {
+        "properties": {
+          "max_frames": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "runtimeReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "event",
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason",
+        "sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "event": { "const": "runtime_run_finished" },
+        "descriptor_hash": { "$ref": "#/$defs/sha256" },
+        "input_hash": { "$ref": "#/$defs/sha256" },
+        "processed_frame_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "processed_frame_count": { "type": "integer", "minimum": 0 },
+        "started_at_s": { "type": "number", "minimum": 0 },
+        "finished_at_s": { "type": "number", "minimum": 0 },
+        "duration_s": { "type": "number", "minimum": 0 },
+        "stream_exhausted": { "type": "boolean" },
+        "max_frames": { "type": ["integer", "null"], "minimum": 0 },
+        "termination_reason": {
+          "enum": ["stream_exhausted", "frame_limit_reached"]
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

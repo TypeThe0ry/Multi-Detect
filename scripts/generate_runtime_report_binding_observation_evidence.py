@@ -20,7 +20,8 @@ if __package__ in {None, ""}:
     if _repository_source.is_dir() and str(_repository_source) not in sys.path:
         sys.path.insert(0, str(_repository_source))
 
-from multidetect.runtime import RuntimeRunReport, write_runtime_run_report
+from multidetect.runtime import RuntimeMode, RuntimeRunReport, write_runtime_run_report
+from multidetect.runtime_observation import RuntimeObservationResult
 from multidetect.runtime_report_binding_set import (
     DEFAULT_REQUIRED_MODES,
     verify_runtime_report_binding_set,
@@ -107,26 +108,10 @@ def _make_pair(output_directory: Path, mode: str) -> tuple[Path, Path]:
             "closed": True,
         }
     else:
-        result = {
-            "schema_version": 1,
-            "event": f"{mode}_runtime_observation_finished",
-            "runtime_mode": mode,
-            "gate_passed": True,
-            "runtime_descriptor_hash": descriptor_hash,
-            "runtime_input_hash": input_hash,
-            "processed_frame_count": 2,
-            "processed_frame_ids": list(frame_ids),
-            "stream_exhausted": False,
-            "max_frames": 2,
-            "observation_only": True,
-            "read_only": True,
-            "receive_only": True,
-            "flight_control_enabled": False,
-            "hardware_outputs_present": False,
-            "messages_transmitted": 0,
-            "output_locked": True,
-            "runtime_run_report": report.to_mapping_with_hash(),
-        }
+        result = RuntimeObservationResult(
+            RuntimeMode(mode),
+            report,
+        ).to_mapping()
     result_path = output_directory / f"{mode}-runtime-result-v186.json"
     _write_json(result_path, result)
     return result_path, report_path

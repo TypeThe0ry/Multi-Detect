@@ -88,6 +88,26 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".runtime_report_binding",
         "verify_runtime_report_binding",
     ),
+    "RuntimeObservationResult": (
+        ".runtime_observation",
+        "RuntimeObservationResult",
+    ),
+    "RuntimeObservationResultError": (
+        ".runtime_observation",
+        "RuntimeObservationResultError",
+    ),
+    "load_runtime_observation_result": (
+        ".runtime_observation",
+        "load_runtime_observation_result",
+    ),
+    "write_runtime_observation_pair": (
+        ".runtime_observation",
+        "write_runtime_observation_pair",
+    ),
+    "write_runtime_observation_result": (
+        ".runtime_observation",
+        "write_runtime_observation_result",
+    ),
     "RuntimeReportBindingSetError": (
         ".runtime_report_binding_set",
         "RuntimeReportBindingSetError",
@@ -527,6 +547,11 @@ __all__ = [
     "evaluate_replay_set",
     "RuntimeReportBindingError",
     "verify_runtime_report_binding",
+    "RuntimeObservationResult",
+    "RuntimeObservationResultError",
+    "load_runtime_observation_result",
+    "write_runtime_observation_pair",
+    "write_runtime_observation_result",
     "RuntimeReportBindingSetError",
     "verify_runtime_report_binding_set",
     "RuntimeProfileBindingSetError",
