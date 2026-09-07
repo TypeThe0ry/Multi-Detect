@@ -5,6 +5,14 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v167 localization recording quality segmentation（2026-09-07）
+
+- session 报告新增采样间隔统计、断档事件、不可定位/测距/GNSS 连续异常段和 epoch 切换明细；
+- 新增最大连续不可定位样本数与最大采样间隔失败门，CLI 和闭合 schema 同步更新；
+- C++ 双快照目录以最大间隔 1,000 ms、零异常段通过；定向回归 `88 passed, 2 skipped, 0 failed`；
+- 全量回归 `3703 passed, 4 skipped, 0 failed`；parity 与 E7 已重算，E7 保持
+  `false / false / 31 blockers`，硬件和实飞状态不变。
+
 ### v0.3.0-pre.8 v166 closed recording-manifest verification（2026-09-07）
 
 - 新增闭合录制 manifest schema、严格 verifier、仓库 wrapper 和安装式 CLI；重算每份快照的

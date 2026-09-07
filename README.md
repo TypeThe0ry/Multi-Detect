@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v166：录制 manifest 闭合验证 |
+| 当前工程迭代 | v167：连续定位质量分段与采样门 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,7 +82,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v166 目标定位诊断验证、会话审计与原生录制
+### v163–v167 目标定位诊断验证、会话审计与原生录制
 
 v163 为 `multidetect.target-observation-diagnostics.v1` 增加闭合 schema 和严格 verifier，重算原子身份、
 freshness、定位门与坐标省略，并拒绝重复/未知字段、非有限数、符号链接及超限输入。v164 增加多快照
@@ -101,18 +101,11 @@ v166 为录制 manifest 增加闭合 schema、独立安装式 verifier，并让 
 双快照目录通过两层安装式 CLI 复核；全量回归 `3697 passed, 4 skipped, 0 failed`。本轮不重链主 EXE，
 E7 仍为 `false / false / 31 blockers`。
 
-### v162 原生目标定位诊断弹窗
+v167 增加采样间隔/断档、连续不可定位、测距异常、GNSS 不合格和 epoch 切换分段，并提供最大连续失败
+数与最大采样间隔门。C++ 双快照实测最大间隔 1,000 ms、零异常段并通过；全量回归为
+`3703 passed, 4 skipped, 0 failed`，E7 状态不变。
 
-Fly View 的“目标落图”卡片新增“查看定位诊断”。弹窗在打开瞬间冻结一份
-`multidetect.target-observation-diagnostics.v1`，用中文显示 fail-closed 原因、原子
-epoch/sequence/发送时间、目标/源帧、测距质量与年龄、GNSS fix/卫星/精度与年龄。定位门未全部通过时，
-界面明确显示“不可定位 · 坐标已强制省略”；只有诊断快照声明 `coordinates_included=true` 才显示
-经纬度与 1σ。弹窗仍提供复制/原子保存 JSON，不产生飞控或物理释放权限。
-
-v162 Release/portable EXE 为 46,704,640 bytes，SHA-256
-`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`；portable offscreen simple
-boot 退出 0 且 stdout/stderr 均为空。现场网卡仍为 `192.168.1.13/24`，不在机载
-`192.168.144.0/24` 网段，E7 仍为 `gate_passed=false / release_allowed=false / 31 blockers`。
+v162 的原生诊断弹窗、坐标 fail-closed 和制品明细已归档到 [当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 

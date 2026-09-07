@@ -12,6 +12,13 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v167 连续定位质量分段与采样门（2026-09-07）
+
+session verifier 现在输出采样间隔统计/断档事件、连续不可定位段、测距异常段、GNSS 不合格段与 epoch
+切换点；`--maximum-non-locatable-run` 和 `--maximum-sampling-gap-ms` 可把现场容许边界变为严格失败门。
+真实 C++ 双快照会话以最大间隔 1,000 ms、零异常段通过；全量回归为
+`3703 passed, 4 skipped, 0 failed`。本轮仅改审计工具，不重链主 EXE。
+
 ### v166 录制 manifest 闭合验证（2026-09-07）
 
 新增闭合 manifest schema、独立安装式 verifier，以及 session CLI 的 `--require-recording-manifest` 强制

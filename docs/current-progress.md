@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v166 工作树）
+最后更新：2026-09-07（v167 工作树）
+
+## v167 本轮已收口
+
+- manifest 绑定 session 报告新增观测总时长、采样间隔最小/最大/平均值、manifest 期望间隔、容差、断档
+  事件和违规数量；无需人工翻查数千份快照即可发现采集停顿或丢帧区间。
+- 新增连续质量分段：`non_locatable`、`range_invalid`、`gnss_unqualified` 分别记录开始/结束样本、UTC、
+  本地时间、持续时间、样本数、诊断原因、测距状态和 GNSS 原因；epoch 切换也记录前后 epoch 与发生点。
+- 新增 `--maximum-non-locatable-run` 与 `--maximum-sampling-gap-ms` 两个可选门，超过允许的连续不可定位
+  样本数或最大采样间隔时会保持报告可审计但 `gate_passed=false`。
+- 安装式 CLI 对 v165 C++ 双快照目录以定位率 1.0、最大不可定位连续数 0、最大间隔 1,000 ms、零质量
+  异常段通过严格门；报告 3,349 bytes、SHA-256
+  `BF033208CA17673E7F1D6F6ECB6701FDEB89A67555B772748473423CE3617471`。
+- 定向回归 90 tests：`88 passed, 2 skipped, 0 failed`。parity 9,956 bytes、SHA-256
+  `9F0583CAD05B62E14D82C832209FB2D1EBEEDDC6A61E7BA90DAA928C114EC817`；UI contract 为
+  `38269F81C6FAFE0E2A47ADD5FE874336BA7E9E1EB6C6F2CA25C0FE35A655138D`，其余四组不变。
+- 最终全量回归 3,707 tests：`3703 passed, 4 skipped, 0 failed, 0 errors`，耗时 188.534 秒；JUnit
+  542,056 bytes、SHA-256 `2C91D31119AD87B16987A59675C179E0AB1922E19091FA70193B47DDB01B6178`。
+- SIM/PX4 派生证据、只读现场链路和 E7 已重算；现场仍从 `192.168.1.13/24` 错路由且三端点超时，
+  E7 保持 `false / false / 31 blockers`。本轮不重链 EXE，不提升真实硬件、室外 GNSS 或实飞状态。
 
 ## v166 本轮已收口
 
