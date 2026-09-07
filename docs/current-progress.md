@@ -16,11 +16,13 @@
   join，不自动声称真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终 `v0.3.0` 通过。
 - v192 聚焦回归为 `97 tests / 96 passed / 1 skipped / 0 failed`，JUnit 位于
   `artifacts/evaluation/terminal-continuation-v192/px4-runtime-capture-wrapper-focused-v192.xml`，15,216 bytes /
-  SHA-256 `F4A29388474FE194289C16EFDDB5C1C2BB1690AD820227D618B565E51944F61B`；全量回归为
+  SHA-256 `D4C68D5C6139E4B0920FD911DDB39EDFD6E6CF78B08E712C0727A1C1CDA9B63C`；全量回归为
   `3,783 passed / 7 skipped / 0 failed`（3,790 tests，197.147 秒），JUnit 位于
   `artifacts/evaluation/terminal-continuation-v192/full-rerun-v192-final.xml`，555,245 bytes /
-  SHA-256 `6096292E30637A8DD6D26C8153768B82D00359729DC7E1335641BEC01E6F36A5`。docs/parity、ruff、
-  format、compileall、PowerShell parser 与 diff check 均通过。
+  SHA-256 `2C48EB74343AF0A8E5F7358CC1B94297426078FA5B8C51603E520A1B159A2BF9`。docs/parity、ruff、
+  format、compileall、PowerShell parser 与 diff check 均通过。wrapper 变更后的当前 parity 为 10,690 bytes /
+  SHA-256 `C4B0272564FE365AC95497D8D339C190549909EC37D4F20E4F3F5165BB4911F9`，PX4 Mission path hash 为
+  `DA5C8EDF57A2F8A80867DEE4B85B4238916F563D171FCF1A0DC674CDB99B3AF8`。
 - 现场调用模板（在仓库根目录 PowerShell）：
   `& .\scripts\run_px4_runtime_capture.ps1 -BaseDirectory <capture-root> -Mission mission.json
   -RuntimeObservation runtime-observation.json -RuntimeProfile signed-profile.json -RuntimeMode hil
@@ -60,7 +62,7 @@
   `CD69D10146C6A361CF25DDD5905A13F9AFB640DA44999F36E8861A993322DBA9`。当前 parity 为 10,645 bytes / SHA-256
   `7BB1D0252C93A5177E0380E219CB285F2FF123746FEE71DB358399B657840787`，PX4 Mission path hash 为
   `1758A3A6AC52C01260E432ADC005E5AC9993978359F7243A281A02645B98DD97`。
-- v191 仍只关闭“现场采集入口缺失”和“telemetry 请求误判为输出”这两个软件缺口；不把合成 provider 升级为真实
+- v191 当时只关闭“现场采集入口缺失”和“telemetry 请求误判为输出”这两个软件缺口；不把合成 provider 升级为真实
   HIL/REAL、室外 GNSS、人工 Fly View、飞行或最终 `v0.3.0` 发布通过。下一步是把现场生成的 sidecar 原样带回，
   用同一 CLI 重跑 join，再执行三机型 Mission feedback、GNSS/测距和人工视觉验收门。
 

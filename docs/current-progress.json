@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T16:02:56Z",
+  "updated_at_utc": "2026-09-07T16:11:38Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "82627d86d4f946f37182468c1f9efb25f5a066f5",
-    "commit_subject": "feat(field): add PX4 runtime capture PowerShell wrapper",
-    "commits_ahead_of_origin_main": 270
+    "commit": "f49079bd424901c9f9f6456b589685d8cf6d0ed5",
+    "commit_subject": "fix(field): preserve PX4 capture exit diagnostics",
+    "commits_ahead_of_origin_main": 274
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -79,11 +79,11 @@
       "skipped": 7,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 197.147,
+      "duration_seconds": 190.792,
       "local_artifacts_present": true,
       "junit_local_path": "artifacts/evaluation/terminal-continuation-v192/full-rerun-v192-final.xml",
       "junit_file_bytes": 555245,
-      "junit_file_sha256": "6096292e30637a8dd6d26c8153768b82d00359729dc7e1335641bec01e6f36a5",
+      "junit_file_sha256": "2c48eb74343af0a8e5f7358cc1b94297426078fa5b8c51603e520a1b159a2bf9",
       "distributed_in_git": false
     },
     "v192_px4_runtime_capture_wrapper_selected_regression": {
@@ -96,8 +96,8 @@
       "scope": "windows_px4_runtime_capture_wrapper_parser_forwarding_secret_boundary_and_px4_parity",
       "junit_local_path": "artifacts/evaluation/terminal-continuation-v192/px4-runtime-capture-wrapper-focused-v192.xml",
       "junit_file_bytes": 15216,
-      "junit_file_sha256": "f4a29388474fe194289c16efddb5c1c2bb1690ad820227d618b565e51944f61b",
-      "duration_seconds": 2.364,
+      "junit_file_sha256": "d4c68d5c6139e4b0920fd911ddb39edfd6e6cf78b08e712c0727a1c1cda9b63c",
+      "duration_seconds": 2.256,
       "implementation": "scripts/run_px4_runtime_capture.ps1",
       "powerShell_parser": "passed",
       "forwarding_contract": "passed",
@@ -1319,13 +1319,13 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10690,
-    "file_sha256": "93ca9fe682d386673de9eff4f66851728acee8ade4b7d5f2dd981e592633f6d5",
+    "file_sha256": "c4b0272564fe365ac95497d8d339c190549909ec37d4f20e4f3f5165bb4911f9",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
       "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
-      "px4_mission_path_hash": "651b98a0f850261d07f22775752a41327cdb6193452ea414deaab443b9c7e72a"
+      "px4_mission_path_hash": "da5c8edf57a2f8a80867dee4b85b4238916f563d171fcf1a0dc674cdb99b3af8"
     }
   },
   "evidence": {
@@ -1367,9 +1367,14 @@
         "focused_junit_failed": 0,
         "focused_junit_errors": 0,
         "focused_junit_file_bytes": 15216,
-        "focused_junit_sha256": "f4a29388474fe194289c16efddb5c1c2bb1690ad820227d618b565e51944f61b",
+        "focused_junit_sha256": "d4c68d5c6139e4b0920fd911ddb39edfd6e6cf78b08e712c0727a1c1cda9b63c",
         "powershell_parser": "passed",
-        "release_parity": "regenerated"
+        "release_parity": {
+          "path": "configs/release-parity.json",
+          "bytes": 10690,
+          "sha256": "c4b0272564fe365ac95497d8d339c190549909ec37d4f20e4f3f5165bb4911f9",
+          "px4_mission_path_hash": "da5c8edf57a2f8a80867dee4b85b4238916f563d171fcf1a0dc674cdb99b3af8"
+        }
       },
       "claim_boundary": {
         "software_wrapper": true,
