@@ -1,6 +1,28 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v164 工作树）
+最后更新：2026-09-07（v165 工作树）
+
+## v165 本轮已收口
+
+- 原生 QGC 新增目标定位诊断连续录制：Fly View 可一次开始/停止，以 `1 Hz` 保存严格 v163 快照，单次
+  最多 3,600 份；UI 显示活动状态、样本数与会话目录，应用退出、采集失败和上限到达都会执行明确收口。
+- 每次录制使用唯一 `target-observation-session-*` 目录；快照沿用原子保存，正常停止以原子替换写入
+  `multidetect.target-observation-recording-manifest.v1`，记录停止原因及每份相对路径、bytes、SHA-256。
+  异常退出时已完成快照仍保留，不能伪造一个“已完成” manifest。
+- C++ recorder self-test 真实生成 2 份快照和 manifest；安装后的
+  `multidetect-target-observation-session-verify` 独立复核得到 2/2 可定位、定位率 1.0、门通过。会话报告
+  2,272 bytes、SHA-256 `4E463C50144C83E40A50B472F97539D9C7B522683F81CEAB1AF2C146F6F344F5`。
+- Release/portable EXE 已重链：46,718,976 bytes、SHA-256
+  `8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`；portable offscreen simple
+  boot 退出 0，无 QML 初始化失败。
+- parity 为 9,750 bytes、SHA-256
+  `149E83944D7E90331A9940665C14D5EAB9387533C49F2308C1027A7903A11496`；UI contract 更新为
+  `1B14A62D40FDA9C76EC37C9E789A25D2123DB4DFF489CB61CF263888CB1B7EA1`，其余四组未变。
+- 派生 SIM/PX4 证据与 E7 已按 v165 parity 重算。只读现场探测确认系统仍从 `192.168.1.13/24` 路由，
+  Jetson/GR01/RTSP 三端点超时；E7 保持 `gate_passed=false / release_allowed=false / 31 blockers`。
+  录制功能固定 advisory-only、飞控关闭、物理释放关闭，不提升人工、硬件、室外 GNSS、HIL/REAL 或实飞状态。
+- 最终全量回归 3,693 tests：`3689 passed, 4 skipped, 0 failed, 0 errors`，耗时 196.262 秒；JUnit
+  539,793 bytes、SHA-256 `16793FE3E14EFB14F9D3CFA8404EB048678A6D5507E40D666ABB4CE1BD1E264C`。
 
 ## v164 本轮已收口
 

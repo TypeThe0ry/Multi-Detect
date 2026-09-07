@@ -38,7 +38,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 当前工程迭代 | v164：外场目标定位诊断会话与连续性审计 |
+| 当前工程迭代 | v165：原生目标定位诊断连续录制 |
 | 最终发布状态 | 阻断；E7 `gate_passed=false`、`release_allowed=false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -82,24 +82,19 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详细成熟度和未完成项见 [当前进度](docs/current-progress.md)。
 
-### v163–v164 目标定位诊断离线验证与会话审计
+### v163–v165 目标定位诊断验证、会话审计与原生录制
 
-QGC 保存的 `multidetect.target-observation-diagnostics.v1` 现在有闭合 Draft 2020-12 JSON Schema，
-并可由仓库脚本或安装后的 `multidetect-target-observation-diagnostics-verify` 严格离线复核。verifier 会
-重算三路原子身份、源/接收年龄、定位门、坐标省略规则，拒绝重复键、未知字段、非有限数、符号链接和
-超过 1 MiB 的输入；`--require-locatable` 可把“结构有效但当前不可定位”作为失败门返回。
+v163 为 `multidetect.target-observation-diagnostics.v1` 增加闭合 schema 和严格 verifier，重算原子身份、
+freshness、定位门与坐标省略，并拒绝重复/未知字段、非有限数、符号链接及超限输入。v164 增加多快照
+session verifier，检查时间、epoch、sequence/`sentAtMs` 连续性并逐文件绑定 bytes 与 SHA-256。
 
-原生 C++ self-test 直接从实际 `MultiDetectTargetObservationDiagnostics` 发出 JSON，再交给 Python
-verifier 验证，避免 C++ producer 与 Python schema 各自只测 fixture。v163 没有修改或重链主程序，当前
-portable EXE 继续使用 v162 已验证的 46,704,640 bytes 文件，SHA-256
-`ECB14FA929AB117EC42178A305D531B8E03FAF1EB283260E551F67E0DF3E28B4`。本轮只增加审计能力，仍固定
-advisory-only、飞控关闭、物理释放关闭。全量回归为 `3676 passed, 3 skipped, 0 failed`。
-
-v164 新增 `multidetect-target-observation-session-verify`：可接收多份快照或诊断目录，按本地观测时间
-排序，拒绝时间重复/回退、同 epoch sequence/`sentAtMs` 回退及退休 epoch 复活，并统计定位率、最长连续
-不可定位段、epoch 切换、失败原因、测距状态与 GNSS 原因。每个样本的路径、bytes 和 SHA-256 均进入闭合
-会话报告；阈值不达标只关闭证据门，不产生任何飞控能力。
-v164 全量回归为 `3689 passed, 4 skipped, 0 failed`。
+v165 把同一审计链接入原生 Fly View：可开始/停止 `1 Hz` 录制，单次最多 3,600 份，每次使用唯一目录；
+快照和最终 manifest 均原子提交，manifest 记录停止原因并绑定每份快照。C++ self-test 生成的 2 份真实
+快照已由安装式 session verifier 独立复核通过。
+当前 portable EXE 为 46,718,976 bytes，SHA-256
+`8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`；offscreen simple boot 退出 0。
+该功能仍为 advisory-only，E7 保持 `false / false / 31 blockers`，不代表室外 GNSS、硬件、HIL/REAL、
+人工视觉或实飞验收通过。全量回归为 `3689 passed, 4 skipped, 0 failed`。
 
 ### v162 原生目标定位诊断弹窗
 

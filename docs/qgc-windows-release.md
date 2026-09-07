@@ -12,6 +12,17 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
+### v165 原生目标定位诊断连续录制（2026-09-07）
+
+Fly View 可开始/停止 `1 Hz` 目标定位诊断录制，单次最多 3,600 个快照。每次录制写入独立目录，正常
+停止时原子提交 manifest，并以相对路径、bytes、SHA-256 绑定每个快照；异常退出不会把未收口会话伪装成
+完成会话。C++ self-test 发出的 2 份快照已由安装式 session verifier 独立复核通过。
+
+当前 portable EXE 为 `46,718,976` bytes，SHA-256
+`8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`；offscreen simple boot
+退出 0。功能仍是 advisory-only，不发送飞控指令或启用物理释放；现场链路、室外 GNSS、HIL/REAL、
+人工视觉、硬件与实飞门均没有因此升级。最终全量回归为 `3689 passed, 4 skipped, 0 failed`。
+
 ### v164 外场定位诊断会话 verifier（2026-09-07）
 
 安装式命令 `multidetect-target-observation-session-verify` 接收多份诊断文件或目录，验证每个快照后检查

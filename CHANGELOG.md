@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v165 native localization diagnostics recording（2026-09-07）
+
+- Fly View 新增开始/停止连续定位诊断录制，按 `1 Hz` 保存、单次上限 3,600 份，并显示状态、数量和目录；
+- 每次录制使用唯一目录，快照和最终 manifest 均原子提交；manifest 绑定相对路径、bytes、SHA-256，异常
+  退出保留已完成快照但不伪造完整收口；
+- 原生 self-test 生成 2 份真实快照，安装后的 session verifier 独立复核 2/2 可定位、定位率 1.0、门通过；
+- Release/portable EXE 为 46,718,976 bytes，SHA-256
+  `8F600A9CE8D1C4E8AF1A63721F16E52A67E56715A81B2EE7D469AED62C1BAB6D`，offscreen 启动通过；
+- parity 与 E7 已重算，E7 保持 `false / false / 31 blockers`。功能仍为 advisory-only，硬件、室外 GNSS、
+  HIL/REAL、人工视觉和实飞状态没有升级。
+- 最终全量回归为 `3689 passed, 4 skipped, 0 failed`，耗时 196.262 秒；JUnit SHA-256
+  `16793FE3E14EFB14F9D3CFA8404EB048678A6D5507E40D666ABB4CE1BD1E264C`。
+
 ### v0.3.0-pre.8 v164 localization diagnostics session verifier（2026-09-07）
 
 - 新增多快照/目录会话 verifier 与闭合报告，逐样本复用 v163 严格校验并绑定路径、bytes、SHA-256；
