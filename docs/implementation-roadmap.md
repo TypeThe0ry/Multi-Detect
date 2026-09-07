@@ -1,5 +1,15 @@
 # Implementation roadmap
 
+## 回放证据明细、筛选与复制（v172）
+
+- [x] native replay store 投影媒体 `kind`、encoding、bytes、尺寸与完整 SHA-256，并严格复核源帧/车辆姿态元数据；
+- [x] Fly View 回放弹窗提供全部、可定位、有效测距、有媒体四种只读筛选；
+- [x] 每个事件支持复制包含 GPS、测距、车辆与媒体身份的证据文本，不调用地图、任务、飞控或物理释放；
+- [x] C++ self-test、Python bundle 跨语言 `--load`、portable offscreen simple boot、45 项定向回归和 3,708 项全量回归通过；
+- [ ] 在同一现场机人工打开当前 portable，载入真实 RTSP/GNSS/测距 bundle，核对筛选、复制和长文本布局；该人工门通过前
+  不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态；
+- [ ] 以当前 v172 parity 重新绑定 external/PX4 派生证据并重算 E7 report-only。
+
 ## 原生目标事件回放只读查看器（v171）
 
 - [x] `MultiDetectTargetEventReplayStore` 在 C++ 侧一次性加载并校验 `manifest.json`、`events.jsonl` 和 `media/`；

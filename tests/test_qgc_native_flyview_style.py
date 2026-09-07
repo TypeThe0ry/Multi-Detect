@@ -533,7 +533,7 @@ def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> N
         'qsTr("✓ 有效测距")',
         'qsTr("✓ 有媒体")',
         'qsTr("复制证据")',
-        'SHA-256 %6',
+        "SHA-256 %6",
         'qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")',
         "multiDetectTargetEventReplayStore.events",
     ):

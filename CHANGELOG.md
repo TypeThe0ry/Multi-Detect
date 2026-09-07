@@ -5,6 +5,22 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v172 target-event replay evidence review（2026-09-07）
+
+- 回放查看器现在把已校验的媒体 `kind`、相对路径、encoding、bytes、完整 SHA-256 和可选宽高投影到事件明细；
+  `source_frame_id`、机体 AGL 与航向等可空元数据也在 C++ 侧按范围严格校验，拒绝空字符串、非有限数和越界值；
+- Fly View 回放弹窗新增“全部/可定位/有效测距/有媒体”只读筛选、事件级“复制证据”和完整媒体/车辆/GPS/测距明细，
+  复制内容只进入剪贴板，不改变地图、目标选择、任务、飞控或物理释放状态；
+- native self-test、Python 生成 bundle 的跨语言 `--load`、portable offscreen simple boot 均通过；定向回归 `45 passed`，
+  全量回归 `3704 passed, 4 skipped, 0 failed`（3,708 tests，194.025 秒），JUnit 542,180 bytes、SHA-256
+  `31D7D474F947B1E4F648CCBC4C62404FCE10C44DEADDE83E16C3B1E156C78AF0`；
+- 文档/parity/style 定向回归 `72 passed`，Ruff、format、compileall 与 `git diff --check` 通过；
+- Release/portable EXE 为 46,869,504 bytes，SHA-256
+  `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；`release-parity.json` 为 10,129 bytes，
+  SHA-256 `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`；
+- v172 改动了 UI contract，因此 v171 派生证据/E7 报告在当前 parity 下标为历史待重绑；E7 仍保持
+  `gate_passed=false / release_allowed=false`，硬件、室外 GNSS、HIL/REAL、人工视觉与实飞门均未通过。
+
 ### v0.3.0-pre.8 v171 native target-event replay inspector（2026-09-07）
 
 - 新增原生 `MultiDetectTargetEventReplayStore`，从 `manifest.json` 读取并严格校验

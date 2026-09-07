@@ -1,6 +1,31 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v171 工作树）
+最后更新：2026-09-07（v172 工作树）
+
+## v172 本轮已收口（回放证据明细、筛选与复制）
+
+- 原生 `MultiDetectTargetEventReplayStore` 继续作为唯一读取入口：事件媒体摘要现在包含 `kind`、相对路径、
+  encoding、bytes、完整 SHA-256 与可选宽高；`source_frame_id`、机体 AGL 和航向等元数据在 C++ 侧按可空语义、
+  有限数和范围严格校验，失败仍清空已加载状态。
+- Fly View 回放弹窗增加“全部/可定位/有效测距/有媒体”四种只读筛选；每个事件可一键“复制证据”，复制文本包含
+  事件/目标/捕获时间、源帧、车辆姿态、GPS、测距和完整媒体身份，仍不落图、不选目标、不创建任务、不发送飞控。
+- C++ self-test、Python 创建的真实 bundle 由 native `--load` 跨语言复核、portable offscreen simple boot 均通过。
+  v172 定向回归 45 tests：`45 passed, 0 skipped, 0 failed`；JUnit `artifacts/evaluation/target-event-replay-v172-focused.xml`，
+  6,772 bytes，SHA-256 `FFC03FE6EB989B4119B8209A0753BAA6C87D78F20587D4B6B989591483A328AD`。
+- 文档/parity/style 定向回归另有 72 tests：`72 passed, 0 skipped, 0 failed`；Ruff、format、compileall 与
+  `git diff --check` 通过。
+- 全量回归 3,708 tests：`3704 passed, 4 skipped, 0 failed, 0 errors`，耗时 194.025 秒；JUnit
+  `artifacts/evaluation/target-event-replay-v172-full-rerun.xml`，542,180 bytes，SHA-256
+  `31D7D474F947B1E4F648CCBC4C62404FCE10C44DEADDE83E16C3B1E156C78AF0`。
+- Release/portable EXE 已重链并部署到
+  `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`：
+  46,869,504 bytes，SHA-256 `A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；
+  native replay self-test 为 202,240 bytes、SHA-256 `7BD2F93FBA5889D548BB65F5F5E81AA780FE47747593439BA8B4805FDBA0F837`。
+- `configs/release-parity.json` 当前为 10,129 bytes，SHA-256
+  `A12A5490E73ED52266A44F447DFD87895CD837476895AFFF2EFD43CAAE09C827`。因 v172 UI contract 变化，v171 派生证据与
+  E7 report-only 暂标为历史待重绑；E7 仍 `gate_passed=false`、`release_allowed=false`，仓库基线 31 blockers 不变。
+  现场网卡仍为 `192.168.1.13/24`，目标网段 `192.168.144.0/24`，Jetson/GR01/相机未连通；本轮没有提升室外 GNSS、
+  真实硬件、HIL/REAL、人工 Fly View 或实飞状态。
 
 ## v171 本轮已收口（原生目标事件回放只读查看器）
 

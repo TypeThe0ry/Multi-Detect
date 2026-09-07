@@ -12,9 +12,20 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-当前文件为 `46,863,360` bytes，SHA-256
-`589E33ADAB2C7D1DBC58524BCAE3474D18743A6E0D970FC4C01CF3F187201717`；portable 目录已经过
+当前文件为 `46,869,504` bytes，SHA-256
+`A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v172 回放证据明细、筛选与复制（2026-09-07）
+
+回放弹窗继续使用 native `MultiDetectTargetEventReplayStore` 的已验证事件，新增媒体 kind/encoding/bytes/尺寸/完整
+SHA-256、源帧与车辆 AGL/航向明细；“全部/可定位/有效测距/有媒体”筛选和事件级“复制证据”均为只读投影，复制内容
+不会触发地图、目标选择、任务、飞控或物理释放。native self-test、Python bundle `--load` 跨语言复核和 offscreen
+simple boot 通过；定向回归 `45 passed`，全量回归 `3704 passed, 4 skipped, 0 failed`（3,708 tests）。
+
+v172 改动 UI contract 后，v171 派生证据和 E7 report-only 需按当前 parity 重新绑定；E7 仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers，现场网段、Jetson、GR01、相机、室外 GNSS、人工 Fly View、
+HIL/REAL、硬件和实飞验收均未声明。
 
 ### v171 原生目标事件回放只读查看器（2026-09-07）
 

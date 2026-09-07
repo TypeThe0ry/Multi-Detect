@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T03:52:27Z",
+  "updated_at_utc": "2026-09-07T04:15:44Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,8 +10,8 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "1fcfc68bcb735e98bf0f42c546d725ac79c3b9d2",
-    "commit_subject": "feat(qgc): add read-only target event replay inspector",
+    "commit": "c14e36a47de391db71bbac27fbb9a243711b7d65",
+    "commit_subject": "feat(qgc): enrich target replay evidence review",
     "commits_ahead_of_origin_main": 236
   },
   "product_version": {
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v171",
+  "working_iteration": "v172",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 184.441,
+      "duration_seconds": 194.025,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/target-event-replay-v171-full.xml",
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v172-full-rerun.xml",
       "junit_file_bytes": 542180,
-      "junit_file_sha256": "8074dbad5781888e518f7a0826f30b9cdd34f4f654f0b2ce698754da89ce2dc6",
+      "junit_file_sha256": "31d7d474f947b1e4f648ccbc4c62404fce10c44deadde83e16c3b1e156c78af0",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -505,6 +505,48 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v172_target_event_replay_evidence_review_selected_regression": {
+      "passed": true,
+      "tests": 45,
+      "passed_tests": 45,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "native_qgc_target_event_replay_media_metadata_filters_copy_and_read_only_qml_projection",
+      "native_target_event_replay_store_self_test": "passed",
+      "native_target_event_replay_external_python_bundle": "passed",
+      "media_kind_sha256_encoding_bytes_dimensions_exposed": true,
+      "source_frame_and_vehicle_metadata_validated": true,
+      "gps_quality_and_freshness_fail_closed": true,
+      "read_only_replay_filters": ["all", "locatable", "ranged", "media"],
+      "copy_to_clipboard_read_only": true,
+      "no_map_or_target_selection": true,
+      "no_flight_control_or_physical_release": true,
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v172-focused.xml",
+      "junit_file_bytes": 6772,
+      "junit_file_sha256": "ffc03fe6eb989b4119b8209a0753baa6c87d78f20587d4b6b989591483a328ad",
+      "portable_simple_boot": "passed",
+      "portable_boot_stdout_bytes": 0,
+      "portable_boot_stderr_bytes": 0,
+      "portable_boot_qml_initialization_errors": 0,
+      "portable_exe_path": "build/windows-v0.3.0-pre.8-release/portable-v0.3.0-pre.8/bin/MultiDetectGCS.exe",
+      "portable_exe_bytes": 46869504,
+      "portable_exe_sha256": "a1c52d9130386d8fae4316ee23fd00d68e2141e6a385a7844229cb8680a79412",
+      "native_self_test_exe_bytes": 202240,
+      "native_self_test_exe_sha256": "7bd2f93fba5889d548bb65f5f5e81aa780fe47747593439ba8b4805fdba0f837",
+      "documentation_parity_selected_regression": {
+        "tests": 72,
+        "passed_tests": 72,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_local_path": "artifacts/evaluation/target-event-replay-v172-docs-focused.xml",
+        "junit_file_bytes": 10452,
+        "junit_file_sha256": "cdf67a04863300a26527452c13003b222efd04f24a65c4844169f56c9fe58900"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v170_target_card_localization_quality_selected_regression": {
       "passed": true,
       "tests": 89,
@@ -581,9 +623,9 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10129,
-    "file_sha256": "d99f244acfa708d16cc40019ca0ed8e8fcfce827bfd250983a5fac1a716ed23c",
+    "file_sha256": "a12a5490e73ed52266a44f447dfd87895cd837476895afff2efd43caae09c827",
     "hashes": {
-      "ui_contract_hash": "cc9841a00bf6b92f05c68c6cb26921ec8163f829a223b32b9c42131c55e5aadf",
+      "ui_contract_hash": "82fa274fb167812803c39ff7e260acf334bb903436d04bb5e653879d806c0fdc",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
@@ -600,6 +642,8 @@
       "native_self_test": "passed",
       "external_python_bundle_load": "passed",
       "strict_manifest_event_media_sha256": true,
+      "media_kind_sha256_encoding_bytes_dimensions_exposed": true,
+      "source_frame_and_vehicle_metadata_validated": true,
       "duplicate_json_keys_rejected": true,
       "gps_quality_and_freshness_fail_closed": true,
       "displayed_event_limit": 512,
@@ -608,8 +652,10 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false,
       "portable_simple_boot": "passed",
-      "exe_bytes": 46863360,
-      "exe_sha256": "589e33adab2c7d1dbc58524bcae3474d18743a6e0d970fc4c01cf3f187201717"
+      "replay_filters": ["all", "locatable", "ranged", "media"],
+      "copy_to_clipboard_read_only": true,
+      "exe_bytes": 46869504,
+      "exe_sha256": "a1c52d9130386d8fae4316ee23fd00d68e2141e6a385a7844229cb8680a79412"
     },
     "gnss_bound_target_evidence_snapshots": {
       "schema": "multidetect.target-evidence.v6",
@@ -1973,6 +2019,20 @@
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
     },
+    "v172_parity_rebind_pending": {
+      "reason": "native replay evidence review changed the UI contract hash; v171 derived reports remain historical until rebound",
+      "current_release_parity_path": "configs/release-parity.json",
+      "current_release_parity_bytes": 10129,
+      "current_release_parity_sha256": "a12a5490e73ed52266a44f447dfd87895cd837476895afff2efd43caae09c827",
+      "current_ui_contract_hash": "82fa274fb167812803c39ff7e260acf334bb903436d04bb5e653879d806c0fdc",
+      "derived_evidence_rebound": false,
+      "release_gate_recomputed": false,
+      "gate_passed": false,
+      "release_allowed": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
     "release_gate_report": {
       "manifest_local_path": "artifacts/evaluation/terminal-continuation-v171/release-gate/release-gate-pre.8-current-20260907T035000Z-v6-bound.json",
       "manifest_file_bytes": 23729,
@@ -1984,8 +2044,8 @@
       "gate_passed": false,
       "release_allowed": false,
       "blocker_count": 32,
-      "current_release_parity_bound": true,
-      "status": "current_v171_report_only_blocked"
+      "current_release_parity_bound": false,
+      "status": "v171_report_stale_after_v172_parity_change"
     }
   },
   "model_status": {

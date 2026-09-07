@@ -1,5 +1,19 @@
 # 统一仓库架构
 
+## v172 回放证据审阅投影（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+validated replay event
+  -> native media/source-frame/vehicle metadata summary
+  -> QML filter (all/locatable/ranged/media)
+  -> per-event evidence text -> QGroundControl clipboard
+```
+
+- C++ store 保持唯一校验和读取边界；QML 只筛选已验证事件、显示完整媒体身份并复制证据文本，绝不重新计算
+  GPS/测距质量或放宽 fail-closed 条件；
+- 该投影是只读态势感知/审计功能，不落地图点、不改变目标选择、不创建 PX4 Mission、不发送飞控指令，
+  也不提升室外 GNSS、硬件、HIL/REAL、人工视觉或实飞验收状态。
+
 ## v171 目标事件回放只读查看器（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
