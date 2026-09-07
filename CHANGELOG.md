@@ -5,6 +5,24 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v190 live RuntimeObservation × PX4 Mission identity join（2026-09-07）
+
+- 新增 `multidetect.live_runtime_observation_mission_binding` 与安装式
+  `multidetect-live-runtime-observation-mission-bind`：显式重开 live `RuntimeObservationResult`、
+  `RuntimeRunReport`、可执行 PX4 Mission、v2 Mission feedback、签名 `RuntimeProfile` 和
+  endpoint/vehicle identity sidecar，逐项验证 canonical hash、模式、heartbeat、endpoint/baud、airframe、
+  profile signature、receive-only 与 `output_locked`。
+- 新增 `live-runtime-observation-mission-binding.schema.json`、
+  `runtime-endpoint-vehicle-identity.schema.json`、v190 确定性 evidence generator 和负向 mode-drift
+  fixture；25 项 join 检查通过，schema errors `0`，定向回归 `145 passed, 2 skipped`。路径/符号链接/重复
+  source/身份或输出漂移均 fail-closed，HIL/REAL HMAC key 不写入报告。
+- 全量 Python 回归为 `3770 passed, 7 skipped, 0 failed`（3,777 tests，180.87 秒），JUnit 记录在
+  `artifacts/evaluation/terminal-continuation-v190/full-rerun-v190-final.xml`；README 文档大小门与 release
+  parity 测试均通过。
+- 已重新生成 `configs/release-parity.json` 并将新模块、schema、脚本绑定到 PX4 Mission path。v190 仍是
+  software sidecar evidence；portable EXE 未重编译，真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、
+  实飞和最终 `v0.3.0` 发布门保持原状态。
+
 ### v0.3.0-pre.8 v189 profile-bound live RuntimeObservation producer（2026-09-07）
 
 - `LiveMissionRunner.from_runtime_backend` 现在直接绑定 live producer 的 `RuntimeRunReport` 和

@@ -1,5 +1,36 @@
 # 统一仓库架构
 
+## v190 live observation / Mission / profile / endpoint identity join（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+LiveMissionRunner ──► RuntimeObservationResult + RuntimeRunReport
+        │                         │
+        │                         ├──────────────┐
+        ▼                         ▼              ▼
+  signed RuntimeProfile   executable PX4 Mission  v2 Mission feedback
+        │                         │              │
+        └──────── endpoint/vehicle identity ─────┘
+                              │
+                              ▼
+        live_runtime_observation_mission_binding
+          ├─ explicit source paths / base-directory boundary
+          ├─ canonical hashes + HMAC profile identity
+          ├─ mode / heartbeat / endpoint / baud / airframe join
+          └─ receive-only + output_locked + strict success/error schema
+                              │
+                              ▼
+                software sidecar evidence (25 checks)
+```
+
+- `src/multidetect/live_runtime_observation_mission_binding.py` 是 v190 的唯一 joiner；它重开六类输入并拒绝
+  符号链接、越界、空/超大/重复 source 与任一嵌入摘要漂移。HIL/REAL profile HMAC key 只经调用者内存/环境
+  传入，输出只记录 `key_id` 和哈希，不记录密钥。
+- `configs/schemas/live-runtime-observation-mission-binding.schema.json` 约束成功/错误报告，
+  `configs/schemas/runtime-endpoint-vehicle-identity.schema.json` 约束 endpoint、heartbeat、Pixhawk
+  vehicle identity 和固定锁输出 sidecar；两者与 joiner、evidence generator 已纳入 `px4_mission_path` parity。
+- v190 证据使用两帧 bounded HIL in-memory producer，25 项检查通过；它只证明 software identity/安全合同，
+  不把合成数据升级为真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View 或飞行验收。
+
 ## v189 profile-bound live RuntimeObservation producer（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

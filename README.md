@@ -4,7 +4,6 @@ Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知�
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 > 当前版本 **`v0.3.0-pre.8`**；最终版仍受硬件、室外 GNSS、HIL/REAL 与人工 QGC 门禁。
-> v189：profile-bound live RuntimeObservation producer + Pixhawk 分离 telemetry/application/flight-control 计数。
 
 ## 从这里开始
 
@@ -37,7 +36,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v189：profile-bound live RuntimeObservation producer |
+| 工程迭代 | v190：live/PX4/profile/endpoint identity 六源软件 join |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,7 +80,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详见 [当前进度](docs/current-progress.md)。
 
-### v163–v189 目标定位与证据链
+### v163–v190 目标定位与证据链
 
 v163–v165 建立 `target-observation-diagnostics` schema、session 审计和 Fly View 接入；详见[当前进度](docs/current-progress.md)。
 
@@ -115,7 +114,8 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 `integrated-replay`/`integrated-replay-qgc`，校验自然耗尽、逐帧身份、descriptor/input hash，并覆盖 sidecar
 嵌入与 QGC 同步回归；v180 加入 `multidetect-runtime-report-verify`，v182 将绑定失败输出 schema 化并
 保留严格帧身份；v183 加入集合绑定，v184 加入 RuntimeProfile sidecar 集合预检，v186 为 HIL/REAL 增加
-显式 receive-only 观测适配器、14 项单绑定安全检查和可重复四模式软件 fixture；见[当前进度](docs/current-progress.md)。
+显式 receive-only 观测适配器、14 项单绑定安全检查和可重复四模式软件 fixture；v187–v189 接入 live
+producer，v190 以 25 项检查 join live/PX4/profile/endpoint identity sidecar；见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 

@@ -1,6 +1,43 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v189 工作树）
+最后更新：2026-09-07（v190 工作树）
+
+## v190 本轮已收口（live RuntimeObservation × PX4 Mission × RuntimeProfile × endpoint/vehicle identity join）
+
+- 新增 [`src/multidetect/live_runtime_observation_mission_binding.py`](../src/multidetect/live_runtime_observation_mission_binding.py)：
+  以同一 `base_directory` 显式重开并哈希 live `RuntimeObservationResult`、`RuntimeRunReport`、可执行
+  `PX4 Mission`、v2 `PX4 Mission feedback`、签名 `RuntimeProfile` 和
+  `runtime-endpoint-vehicle-identity` sidecar；拒绝符号链接、越界路径、空/超大/重复 source、模式/哈希/
+  heartbeat/endpoint/airframe 漂移和任一输出解锁。HIL/REAL 的 profile HMAC 只从调用者内存或环境变量读取，
+  报告不落密钥；身份 sidecar 固定 receive-only、无飞控输出、`output_locked=true`。
+- 新增安装式命令 `multidetect-live-runtime-observation-mission-bind`，成功和错误输出分别由
+  [`live-runtime-observation-mission-binding.schema.json`](../configs/schemas/live-runtime-observation-mission-binding.schema.json)
+  约束；endpoint/vehicle 身份 sidecar 由
+  [`runtime-endpoint-vehicle-identity.schema.json`](../configs/schemas/runtime-endpoint-vehicle-identity.schema.json)
+  约束。`src/multidetect/release_parity.py` 已将 joiner、证据生成器和两个 schema 纳入 PX4 Mission path。
+- [`scripts/generate_live_runtime_observation_mission_binding_evidence.py`](../scripts/generate_live_runtime_observation_mission_binding_evidence.py)
+  用真实 `LiveMissionRunner.from_runtime_backend` 两帧 bounded HIL producer、同版签名 profile、可执行 Mission、
+  v2 feedback 和 identity sidecar 生成可重开软件证据：join 报告 6,340 bytes / SHA-256
+  `CDF38A290AF39986BA64DB4791349693D7F02B1E88F351951711386C54951C42`，25 项检查全部通过，schema errors `0`；
+  负向模式篡改被拒绝（identity sidecar 的 REAL signing identity 缺失、模式不一致和 output lock 均关闭 gate）。
+  五类关键 source 为：live observation 1,403 bytes / `1659D846E6AA3C5AD0441FB1772202DBCE6247C06D994A16E3765C4E60138BE0`，
+  RuntimeReport 536 bytes / `4D74129933FDA1086361A56438496221741C17637BB54E0FA174DC63EA02FA3`，Mission 795 bytes /
+  `9FA908D84C5C9BF85330C5CC4AF983CEFE133B5FF2837C48EE243FD19DE5F70C`，feedback 4,254 bytes /
+  `06D613785990F03E16D9BEB0FF254EBA34D45C2B292500608E66B36F91B76815`，profile 727 bytes /
+  `00969A4FE6DF6ACB66C2F20BFD02AE4B81295B920A0D129775665B380E7BC416`，identity 1,470 bytes /
+  `4F51C73A24E899D5B0296B59BD4E26B5081FAE94B20CA2A83BD8F87F2DDF82C2`。
+- v190 定向回归为 `145 passed / 2 skipped / 0 failed`；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v190/live-runtime-observation-mission-binding-focused-v190.xml`，
+  20,037 bytes / SHA-256 `3B029752BCDAB4AFC4F63BCDC84A5C348A0393D671B16C82CDEC7704502B38D3`。
+- 全量 Python 回归为 `3,770 passed / 7 skipped / 0 failed`（3,777 tests，180.87 秒）；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v190/full-rerun-v190-final.xml`，553,421 bytes / SHA-256
+  `66FA6C5AA8CE96F3BC1755D452071AB9C206DDC9DA16F5C33DCB7BECB7B3A95E`。
+  当前 `configs/release-parity.json` 为 10,482 bytes / SHA-256
+  `98177D06A88565D5FFDCE97F265CFF573CCC1256F5DE4A64C737DAEE72BE8435`，PX4 Mission path hash 为
+  `7C4DDE6A78ECE45886F72AD8F28815B275C2614089C109FCEFEE095AD894EA6D`。
+  本轮只证明 software sidecar join、schema、hash/身份/锁输出和 fail-closed 逻辑；不把合成 HIL 证据升级为
+  真实 Pixhawk、室外 GNSS、HIL/REAL、人工 Fly View、飞行或最终 `v0.3.0` 发布通过。下一步是用真实设备采集
+  同版 profile/Mission/feedback/endpoint sidecar 并重跑此 join，再继续执行现场验收门。
 
 ## v189 本轮已收口（profile-bound live RuntimeObservation producer）
 

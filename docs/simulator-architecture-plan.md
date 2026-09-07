@@ -9,6 +9,35 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v190 live observation 与 PX4 Mission 身份 join
+
+v190 在 v189 producer 输出之上增加一条严格的 software evidence join：同一 bounded live
+`RuntimeObservationResult`/`RuntimeRunReport` 必须与可执行 PX4 Mission、v2 Mission feedback、签名
+`RuntimeProfile` 和 endpoint/vehicle identity sidecar 逐源重开并通过 canonical hash、模式、heartbeat、
+传输、airframe 和锁输出检查。
+
+```text
+LiveMissionRunner
+  ├─ RuntimeObservationResult + RuntimeRunReport
+  ├─ executable PX4 Mission ── PX4 Mission feedback v2
+  ├─ signed RuntimeProfile
+  └─ endpoint/vehicle identity sidecar
+                 │
+                 ▼
+ live_runtime_observation_mission_binding
+                 │
+       25 checks / strict success-error schema
+                 │
+ software sidecar join (release eligible = false)
+```
+
+- `multidetect-live-runtime-observation-mission-bind` 不扫描目录，所有路径必须由调用者显式给出并位于同一
+  `base_directory`；符号链接、越界路径、重复 source、模式漂移、profile HMAC/identity 漂移和任何可控输出
+  都 fail-closed。
+- v190 in-memory HIL harness 已通过两帧 bounded producer、Mission feedback、profile signature、endpoint/
+  vehicle identity 与负向 mode-drift 验证。该结果只证明可重开的软件身份/安全合同，真实 PX4、室外 GNSS、
+  HIL/REAL、人工 QGC 和实飞仍需现场 sidecar 与独立验收。
+
 ## v189 profile-bound live producer 接线
 
 v189 把 HIL/REAL 观测结果从“独立 builder 输入 sidecar”推进到同一条 `LiveMissionRunner` producer 路径：

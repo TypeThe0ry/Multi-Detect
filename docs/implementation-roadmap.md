@@ -1,5 +1,19 @@
 # Implementation roadmap
 
+## Live RuntimeObservation × PX4 Mission × RuntimeProfile × endpoint/vehicle identity join（v190，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect.live_runtime_observation_mission_binding` 与安装式
+  `multidetect-live-runtime-observation-mission-bind`，显式接收 live observation、RuntimeReport、可执行
+  Mission、v2 PX4 Mission feedback、签名 RuntimeProfile 和 endpoint/vehicle identity sidecar；所有 source
+  先在同一 `base_directory` 内重开、拒绝符号链接/越界/空/超大/重复引用，再做 canonical hash join。
+- [x] 固化 25 项 fail-closed 检查：模式、profile document SHA、RuntimeDescriptor/input hash、heartbeat、
+  endpoint/baud、airframe/Mission identity、feedback runtime binding、HMAC signature、receive-only 与
+  `output_locked`；成功/错误事件分别受两个 strict JSON Schema 约束，HIL/REAL key 不落盘。
+- [x] 新增确定性 v190 producer evidence 和负向 mode-drift fixture；软件 join 报告 schema errors `0`、
+  `gate_passed=true`，定向回归 `145 passed, 2 skipped`，全量回归 `3770 passed, 7 skipped, 0 failed`。
+- [ ] 将同一 joiner 接到真实 HIL/REAL capture，采集同版 RuntimeProfile、Mission、PX4 feedback、endpoint/
+  vehicle identity 后重跑；软件 evidence 不升级真实 Pixhawk、室外 GNSS、人工 Fly View、HIL/REAL 或实飞验收。
+
 ## Profile-bound live RuntimeObservation producer（v189，`v0.3.0-pre.8`）
 
 - [x] 将 `LiveMissionRunner.from_runtime_backend` 接到真实 producer 形状：完成运行后直接提供
@@ -13,9 +27,8 @@
 - [x] 生成 [`scripts/generate_runtime_observation_live_producer_evidence.py`](../scripts/generate_runtime_observation_live_producer_evidence.py)
   和 v189 pair/JUnit 证据：聚焦 `306 passed, 1 skipped`，全量 `3764 passed, 6 skipped`，schema/round-trip/
   binding 均通过。
-- [ ] 将 v189 live result 与同版 RuntimeProfile、PX4 Mission feedback、endpoint/vehicle identity sidecar
-  做显式 join，并以真实 HIL/REAL capture 重跑；软件 evidence 不升级硬件、室外 GNSS、人工 Fly View、HIL/
-  REAL 或实飞验收。
+- [x] v190 已将 v189 live result 与同版 RuntimeProfile、PX4 Mission feedback、endpoint/vehicle identity
+  sidecar 做显式 software join；真实 HIL/REAL capture 重跑仍保留为 v190 的现场门。
 
 ## RuntimeObservation builder CLI（v188，`v0.3.0-pre.8`）
 
