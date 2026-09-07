@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/target-observation-recording-manifest.schema.json",
+  "title": "Multi-Detect target observation recording manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "session_id",
+    "started_at_utc",
+    "ended_at_utc",
+    "interval_ms",
+    "maximum_samples",
+    "sample_count",
+    "stop_reason",
+    "snapshots",
+    "advisory_only",
+    "flight_control_enabled",
+    "physical_release_enabled"
+  ],
+  "properties": {
+    "schema": {"const": "multidetect.target-observation-recording-manifest.v1"},
+    "schema_version": {"const": 1},
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "ended_at_utc": {"type": "string", "format": "date-time"},
+    "interval_ms": {"type": "integer", "minimum": 250, "maximum": 60000},
+    "maximum_samples": {"type": "integer", "minimum": 1, "maximum": 3600},
+    "sample_count": {"type": "integer", "minimum": 0, "maximum": 3600},
+    "stop_reason": {"type": "string", "minLength": 1, "maxLength": 128},
+    "snapshots": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 3600,
+      "items": {"$ref": "#/$defs/snapshot"}
+    },
+    "advisory_only": {"const": true},
+    "flight_control_enabled": {"const": false},
+    "physical_release_enabled": {"const": false}
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "bytes", "sha256"],
+      "properties": {
+        "relative_path": {
+          "type": "string",
+          "pattern": "^target-observation-diagnostics-[A-Za-z0-9_.-]+\\.json$",
+          "maxLength": 255
+        },
+        "bytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

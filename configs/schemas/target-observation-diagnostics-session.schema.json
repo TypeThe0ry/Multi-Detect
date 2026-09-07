@@ -20,6 +20,7 @@
     "range_validity_counts",
     "gnss_reason_counts",
     "requirements",
+    "recording_manifest",
     "samples",
     "advisory_only",
     "flight_control_enabled",
@@ -49,11 +50,22 @@
     "requirements": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["minimum_samples", "minimum_locatable_rate"],
+      "required": [
+        "minimum_samples",
+        "minimum_locatable_rate",
+        "recording_manifest_required"
+      ],
       "properties": {
         "minimum_samples": {"type": "integer", "minimum": 1},
-        "minimum_locatable_rate": {"type": "number", "minimum": 0, "maximum": 1}
+        "minimum_locatable_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "recording_manifest_required": {"type": "boolean"}
       }
+    },
+    "recording_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/recordingManifest"}
+      ]
     },
     "samples": {
       "type": "array",
@@ -71,6 +83,31 @@
     }
   },
   "$defs": {
+    "recordingManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "session_id",
+        "stop_reason",
+        "sample_count",
+        "directory_closed"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "stop_reason": {"type": "string", "minLength": 1},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "directory_closed": {"const": true}
+      }
+    },
     "countMap": {
       "type": "object",
       "propertyNames": {"minLength": 1},

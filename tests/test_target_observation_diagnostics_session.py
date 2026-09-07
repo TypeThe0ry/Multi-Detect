@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,17 @@ from multidetect.target_observation_diagnostics_session import (
     TargetObservationDiagnosticsSessionError,
     main,
     verify_target_observation_diagnostics_session,
+)
+from multidetect.target_observation_recording_manifest import (
+    MANIFEST_NAME,
+    TargetObservationRecordingManifestError,
+    verify_target_observation_recording_manifest,
+)
+from multidetect.target_observation_recording_manifest import (
+    SCHEMA_PATH as RECORDING_SCHEMA_PATH,
+)
+from multidetect.target_observation_recording_manifest import (
+    main as recording_manifest_main,
 )
 
 
@@ -92,12 +104,45 @@ def _write(directory: Path, index: int, document: object) -> Path:
     return path
 
 
+def _write_recording_manifest(directory: Path, paths: list[Path]) -> Path:
+    entries = [
+        {
+            "relative_path": path.name,
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in paths
+    ]
+    document = {
+        "schema": "multidetect.target-observation-recording-manifest.v1",
+        "schema_version": 1,
+        "session_id": "09459b71-367b-4419-9ae8-e8cfba311423",
+        "started_at_utc": "1970-01-01T00:00:00.000Z",
+        "ended_at_utc": "1970-01-01T00:00:04.000Z",
+        "interval_ms": 1000,
+        "maximum_samples": 3600,
+        "sample_count": len(paths),
+        "stop_reason": "operator_stopped",
+        "snapshots": entries,
+        "advisory_only": True,
+        "flight_control_enabled": False,
+        "physical_release_enabled": False,
+    }
+    manifest = directory / MANIFEST_NAME
+    manifest.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
 def test_schema_parity_and_installed_command_are_bound() -> None:
     Draft202012Validator.check_schema(json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
+    Draft202012Validator.check_schema(json.loads(RECORDING_SCHEMA_PATH.read_text(encoding="utf-8")))
     ui_contract = set(DEFAULT_FILE_LIST["ui_contract"])
     assert "configs/schemas/target-observation-diagnostics-session.schema.json" in ui_contract
     assert "src/multidetect/target_observation_diagnostics_session.py" in ui_contract
     assert "scripts/verify_target_observation_diagnostics_session.py" in ui_contract
+    assert "configs/schemas/target-observation-recording-manifest.schema.json" in ui_contract
+    assert "src/multidetect/target_observation_recording_manifest.py" in ui_contract
+    assert "scripts/verify_target_observation_recording_manifest.py" in ui_contract
     assert (
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetObservationRecorder.cc"
         in ui_contract
@@ -108,6 +153,108 @@ def test_schema_parity_and_installed_command_are_bound() -> None:
     )
     pyproject = (SCHEMA_PATH.parents[2] / "pyproject.toml").read_text(encoding="utf-8")
     assert "multidetect-target-observation-session-verify" in pyproject
+    assert "multidetect-target-observation-recording-manifest-verify" in pyproject
+
+
+def test_recording_manifest_closes_directory_and_binds_session(tmp_path: Path) -> None:
+    paths = [
+        _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1)),
+        _write(tmp_path, 2, _snapshot(local_now_ms=2000, epoch=7, sequence=2)),
+    ]
+    manifest = _write_recording_manifest(tmp_path, paths)
+
+    verification = verify_target_observation_recording_manifest(manifest)
+    assert verification["gate_passed"] is True
+    assert verification["directory_closed"] is True
+    assert verification["sample_count"] == 2
+    assert [item["path"] for item in verification["snapshots"]] == [
+        str(path.resolve()) for path in paths
+    ]
+
+    session = verify_target_observation_diagnostics_session(
+        [tmp_path], require_recording_manifest=True
+    )
+    assert session["gate_passed"] is True
+    assert session["recording_manifest"]["sha256"] == verification["manifest_sha256"]
+    assert session["recording_manifest"]["directory_closed"] is True
+    assert session["requirements"]["recording_manifest_required"] is True
+
+
+def test_zero_sample_recording_manifest_is_valid_but_not_a_session(tmp_path: Path) -> None:
+    manifest = _write_recording_manifest(tmp_path, [])
+    verification = verify_target_observation_recording_manifest(manifest)
+    assert verification["gate_passed"] is True
+    assert verification["sample_count"] == 0
+    assert verification["snapshots"] == []
+
+    with pytest.raises(TargetObservationDiagnosticsSessionError, match="at least one input"):
+        verify_target_observation_diagnostics_session([tmp_path], require_recording_manifest=True)
+
+
+@pytest.mark.parametrize("mutation", ["bytes", "sha256", "sample_count"])
+def test_recording_manifest_rejects_tampered_bindings(tmp_path: Path, mutation: str) -> None:
+    path = _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
+    manifest = _write_recording_manifest(tmp_path, [path])
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    if mutation == "sample_count":
+        document["sample_count"] = 2
+    elif mutation == "bytes":
+        document["snapshots"][0]["bytes"] += 1
+    else:
+        document["snapshots"][0]["sha256"] = "0" * 64
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(TargetObservationRecordingManifestError):
+        verify_target_observation_recording_manifest(manifest)
+
+
+def test_recording_manifest_rejects_unreferenced_snapshot_and_wrong_order(
+    tmp_path: Path,
+) -> None:
+    first = _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
+    second = _write(tmp_path, 2, _snapshot(local_now_ms=2000, epoch=7, sequence=2))
+    manifest = _write_recording_manifest(tmp_path, [first])
+    with pytest.raises(TargetObservationRecordingManifestError, match="not closed"):
+        verify_target_observation_recording_manifest(manifest)
+
+    manifest = _write_recording_manifest(tmp_path, [second, first])
+    with pytest.raises(TargetObservationRecordingManifestError, match="strictly increasing"):
+        verify_target_observation_recording_manifest(manifest)
+
+
+def test_recording_manifest_rejects_duplicate_key_and_unknown_field(tmp_path: Path) -> None:
+    path = _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
+    manifest = _write_recording_manifest(tmp_path, [path])
+    text = manifest.read_text(encoding="utf-8").replace(
+        '"schema_version": 1,', '"schema_version": 1, "schema_version": 1,'
+    )
+    manifest.write_text(text, encoding="utf-8")
+    with pytest.raises(TargetObservationRecordingManifestError, match="duplicate JSON key"):
+        verify_target_observation_recording_manifest(manifest)
+
+    manifest = _write_recording_manifest(tmp_path, [path])
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    document["unexpected"] = True
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(TargetObservationRecordingManifestError, match="schema validation"):
+        verify_target_observation_recording_manifest(manifest)
+
+
+def test_recording_manifest_requirement_and_cli_fail_closed(tmp_path: Path) -> None:
+    path = _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
+    with pytest.raises(TargetObservationDiagnosticsSessionError, match="manifest is required"):
+        verify_target_observation_diagnostics_session([tmp_path], require_recording_manifest=True)
+
+    manifest = _write_recording_manifest(tmp_path, [path])
+    output = tmp_path / "manifest-verification.json"
+    assert recording_manifest_main([str(manifest), "--out", str(output)]) == 0
+    assert json.loads(output.read_text(encoding="utf-8"))["gate_passed"] is True
+
+    manifest.write_text("{}", encoding="utf-8")
+    assert recording_manifest_main([str(manifest), "--out", str(output)]) == 1
+    failure = json.loads(output.read_text(encoding="utf-8"))
+    assert failure["gate_passed"] is False
+    assert failure["flight_control_enabled"] is False
 
 
 def test_session_sorts_inputs_and_reports_quality_and_epoch_transition(tmp_path: Path) -> None:

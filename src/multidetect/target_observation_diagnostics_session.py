@@ -18,6 +18,11 @@ from .target_observation_diagnostics import (
     load_target_observation_diagnostics,
     write_json_atomic,
 )
+from .target_observation_recording_manifest import (
+    MANIFEST_NAME,
+    TargetObservationRecordingManifestError,
+    verify_target_observation_recording_manifest,
+)
 
 SCHEMA = "multidetect.target-observation-diagnostics-session.v1"
 ROOT = Path(__file__).resolve().parents[2]
@@ -102,6 +107,7 @@ def verify_target_observation_diagnostics_session(
     *,
     minimum_samples: int = 2,
     minimum_locatable_rate: float = 0.0,
+    require_recording_manifest: bool = False,
 ) -> dict[str, object]:
     """Verify a chronological diagnostics session and return a source-bound report."""
 
@@ -121,8 +127,39 @@ def verify_target_observation_diagnostics_session(
             "minimum_locatable_rate must be between 0 and 1"
         )
 
+    if not isinstance(require_recording_manifest, bool):
+        raise TargetObservationDiagnosticsSessionError(
+            "require_recording_manifest must be a boolean"
+        )
+    recording_manifest: dict[str, object] | None = None
+    session_inputs: Sequence[str | Path] = inputs
+    if len(inputs) == 1:
+        candidate = Path(inputs[0]).expanduser()
+        manifest_path = candidate / MANIFEST_NAME if candidate.is_dir() else None
+        if manifest_path is not None and manifest_path.exists():
+            try:
+                manifest_report = verify_target_observation_recording_manifest(manifest_path)
+            except TargetObservationRecordingManifestError as exc:
+                raise TargetObservationDiagnosticsSessionError(
+                    f"invalid recording manifest: {exc}"
+                ) from exc
+            session_inputs = [item["path"] for item in manifest_report["snapshots"]]
+            recording_manifest = {
+                "path": manifest_report["manifest_path"],
+                "bytes": manifest_report["manifest_bytes"],
+                "sha256": manifest_report["manifest_sha256"],
+                "session_id": manifest_report["session_id"],
+                "stop_reason": manifest_report["stop_reason"],
+                "sample_count": manifest_report["sample_count"],
+                "directory_closed": manifest_report["directory_closed"],
+            }
+    if require_recording_manifest and recording_manifest is None:
+        raise TargetObservationDiagnosticsSessionError(
+            "a single recording directory with a valid manifest is required"
+        )
+
     loaded: list[tuple[Path, dict[str, Any]]] = []
-    for path in _expand_inputs(inputs):
+    for path in _expand_inputs(session_inputs):
         try:
             loaded.append(load_target_observation_diagnostics(path))
         except TargetObservationDiagnosticsError as exc:
@@ -251,7 +288,9 @@ def verify_target_observation_diagnostics_session(
         "requirements": {
             "minimum_samples": minimum_samples,
             "minimum_locatable_rate": minimum_locatable_rate,
+            "recording_manifest_required": require_recording_manifest,
         },
+        "recording_manifest": recording_manifest,
         "samples": samples,
         "advisory_only": True,
         "flight_control_enabled": False,
@@ -270,6 +309,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("input", nargs="+", type=Path, help="snapshot file(s) or directories")
     parser.add_argument("--minimum-samples", type=int, default=2)
     parser.add_argument("--minimum-locatable-rate", type=float, default=0.0)
+    parser.add_argument(
+        "--require-recording-manifest",
+        action="store_true",
+        help="require one native recording directory and verify its closed manifest",
+    )
     parser.add_argument("--out", type=Path)
     return parser
 
@@ -281,6 +325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.input,
             minimum_samples=args.minimum_samples,
             minimum_locatable_rate=args.minimum_locatable_rate,
+            require_recording_manifest=args.require_recording_manifest,
         )
     except (TargetObservationDiagnosticsSessionError, OSError, ValueError) as exc:
         report = {

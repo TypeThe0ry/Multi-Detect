@@ -35,6 +35,7 @@ multidetect-field-preflight-verify = "multidetect.field_link_preflight:verify_ma
 multidetect-field-address-state-verify = "multidetect.field_link_address_state:main"
 multidetect-target-observation-diagnostics-verify = "multidetect.target_observation_diagnostics:main"
 multidetect-target-observation-session-verify = "multidetect.target_observation_diagnostics_session:main"
+multidetect-target-observation-recording-manifest-verify = "multidetect.target_observation_recording_manifest:main"
 multidetect-field-session = "multidetect.field_session_acceptance:main"
 multidetect-field-capture = "multidetect.field_session_capture:main"
 multidetect-field-capture-verify = "multidetect.field_session_capture:verify_main"
