@@ -115,6 +115,12 @@ int main(int argc, char* argv[])
                              started.addMSecs(1000), baseMs + 1000, baseMs + 950,
                              baseMs + 950, baseMs + 950, &error),
             "second due capture must succeed");
+    const QVariantMap warningStatus =
+        recorder.qualitySummary().value(QStringLiteral("current_status")).toMap();
+    require(warningStatus.value(QStringLiteral("level")).toString() == QStringLiteral("WARNING"),
+            "one current non-locatable sample must raise a warning");
+    require(warningStatus.value(QStringLiteral("current_non_locatable_run")).toInt() == 1,
+            "warning must expose the current non-locatable run");
     const QVariantMap restartedSummary{{QStringLiteral("active_epoch"), 8u}};
     require(recorder.capture(rangeStatus(3900, 8, 1, QStringLiteral("INVALID")),
                              geolocationStatus(3900, 8, 1, false),
@@ -122,12 +128,23 @@ int main(int argc, char* argv[])
                              started.addMSecs(3000), baseMs + 3000, baseMs + 2950,
                              baseMs + 2950, baseMs + 2950, &error),
             "delayed third capture must succeed");
+    const QVariantMap criticalStatus =
+        recorder.qualitySummary().value(QStringLiteral("current_status")).toMap();
+    require(criticalStatus.value(QStringLiteral("level")).toString() ==
+                QStringLiteral("CRITICAL"),
+            "two current non-locatable samples must raise a critical alarm");
+    require(criticalStatus.value(QStringLiteral("latest_gap_violation")).toBool(),
+            "critical status must expose the latest sampling gap");
+    require(criticalStatus.value(QStringLiteral("reasons")).toStringList().contains(
+                QStringLiteral("latest_sampling_gap")),
+            "critical status must explain the latest sampling gap");
     require(recorder.capture(rangeStatus(4900, 8, 2), geolocationStatus(4900, 8, 2),
                              gnssStatus(4900, 8, 2), restartedSummary,
                              started.addMSecs(4000), baseMs + 4000, baseMs + 3950,
                              baseMs + 3950, baseMs + 3950, &error),
             "fourth recovery capture must succeed");
     const QVariantMap liveQuality = recorder.qualitySummary();
+    const QVariantMap currentStatus = liveQuality.value(QStringLiteral("current_status")).toMap();
     const QVariantMap sampling = liveQuality.value(QStringLiteral("sampling")).toMap();
     const QVariantMap segments = liveQuality.value(QStringLiteral("quality_segments")).toMap();
     require(liveQuality.value(QStringLiteral("active")).toBool(),
@@ -148,6 +165,14 @@ int main(int argc, char* argv[])
             "quality summary must segment all three quality dimensions");
     require(liveQuality.value(QStringLiteral("epoch_transition_count")).toInt() == 1,
             "quality summary must expose epoch transitions");
+    require(currentStatus.value(QStringLiteral("level")).toString() == QStringLiteral("HEALTHY"),
+            "a valid recovery sample must restore current quality health");
+    require(currentStatus.value(QStringLiteral("current_non_locatable_run")).toInt() == 0 &&
+                currentStatus.value(QStringLiteral("current_range_invalid_run")).toInt() == 0 &&
+                currentStatus.value(QStringLiteral("current_gnss_unqualified_run")).toInt() == 0,
+            "current quality runs must reset after recovery");
+    require(!currentStatus.value(QStringLiteral("latest_gap_violation")).toBool(),
+            "a normal latest interval must clear the live gap alarm");
     require(!liveQuality.value(QStringLiteral("flight_control_enabled")).toBool(),
             "quality summary must remain read-only");
     require(!liveQuality.value(QStringLiteral("physical_release_enabled")).toBool(),

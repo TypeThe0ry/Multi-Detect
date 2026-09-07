@@ -1076,6 +1076,7 @@ Item {
             readonly property var reasons: Array.isArray(readiness.reasons) ? readiness.reasons : []
             readonly property var recordingQuality: MultiDetectState.targetObservationRecordingQualitySummary || ({})
             readonly property var recordingSampling: recordingQuality.sampling || ({})
+            readonly property var recordingCurrentStatus: recordingQuality.current_status || ({})
             readonly property var recordingSegments: recordingQuality.quality_segments || ({})
             readonly property var qualitySegmentRows: flattenQualitySegments(recordingSegments)
 
@@ -1112,6 +1113,24 @@ Item {
                 if (kind === "range_invalid")
                     return qgcPal.warningText;
                 return qgcPal.colorOrange;
+            }
+
+            function qualityLevelText(level) {
+                if (level === "HEALTHY")
+                    return qsTr("良好");
+                if (level === "WARNING")
+                    return qsTr("警告");
+                if (level === "CRITICAL")
+                    return qsTr("严重");
+                return qsTr("等待样本");
+            }
+
+            function qualityLevelColor(level) {
+                if (level === "HEALTHY")
+                    return qgcPal.colorGreen;
+                if (level === "CRITICAL")
+                    return qgcPal.colorRed;
+                return qgcPal.warningText;
             }
 
             buttons: Dialog.Close
@@ -1278,6 +1297,26 @@ Item {
                                 font.bold: true
                                 text: targetObservationDiagnosticsDialog.recordingQuality.active === true ?
                                           qsTr("录制质量 · 实时只读") : qsTr("录制质量 · 已停止")
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                color: targetObservationDiagnosticsDialog.qualityLevelColor(
+                                           targetObservationDiagnosticsDialog.recordingCurrentStatus.level)
+                                font.bold: true
+                                font.pointSize: ScreenTools.mediumFontPointSize
+                                text: qsTr("当前状态：%1")
+                                      .arg(targetObservationDiagnosticsDialog.qualityLevelText(
+                                               targetObservationDiagnosticsDialog.recordingCurrentStatus.level))
+                            }
+                            QGCLabel {
+                                Layout.fillWidth: true
+                                text: qsTr("当前连续不可定位 %1 · 测距异常 %2 · GNSS 不合格 %3 · 最近间隔 %4 ms")
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingCurrentStatus.current_non_locatable_run || 0)))
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingCurrentStatus.current_range_invalid_run || 0)))
+                                      .arg(Math.round(Number(targetObservationDiagnosticsDialog.recordingCurrentStatus.current_gnss_unqualified_run || 0)))
+                                      .arg(targetObservationDiagnosticsDialog.valueOrDash(
+                                               targetObservationDiagnosticsDialog.recordingCurrentStatus.latest_gap_ms))
+                                wrapMode: Text.WordWrap
                             }
                             QGCLabel {
                                 Layout.fillWidth: true

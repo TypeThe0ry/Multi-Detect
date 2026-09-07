@@ -190,6 +190,11 @@ QVariantMap MultiDetectTargetObservationRecorder::qualitySummary() const
     qulonglong maximumGapMs = 0;
     qulonglong totalGapMs = 0;
     int cadenceViolationCount = 0;
+    int currentRangeInvalidRun = 0;
+    int currentGnssUnqualifiedRun = 0;
+    qulonglong latestGapMs = 0;
+    bool latestGapAvailable = false;
+    bool latestGapViolation = false;
     QVariantList gapEvents;
     QVariantList epochTransitions;
     QVariant previousEpoch;
@@ -205,10 +210,23 @@ QVariantMap MultiDetectTargetObservationRecorder::qualitySummary() const
             ++currentNonLocatableRun;
             longestNonLocatableRun = std::max(longestNonLocatableRun, currentNonLocatableRun);
         }
+        if (sample.value(QStringLiteral("range_validity")).toString() == QStringLiteral("VALID")) {
+            currentRangeInvalidRun = 0;
+        } else {
+            ++currentRangeInvalidRun;
+        }
+        if (sample.value(QStringLiteral("gnss_qualified")).toBool()) {
+            currentGnssUnqualifiedRun = 0;
+        } else {
+            ++currentGnssUnqualifiedRun;
+        }
         if (index > 0) {
             const QVariantMap preceding = _qualitySamples.at(index - 1).toMap();
             const qulonglong gapMs = sample.value(QStringLiteral("local_now_ms")).toULongLong() -
                                       preceding.value(QStringLiteral("local_now_ms")).toULongLong();
+            latestGapMs = gapMs;
+            latestGapAvailable = true;
+            latestGapViolation = gapMs > cadenceLimitMs;
             minimumGapMs = std::min(minimumGapMs, gapMs);
             maximumGapMs = std::max(maximumGapMs, gapMs);
             totalGapMs += gapMs;
@@ -265,6 +283,43 @@ QVariantMap MultiDetectTargetObservationRecorder::qualitySummary() const
                           qualitySegments(_qualitySamples, QStringLiteral("range_invalid"))},
                          {QStringLiteral("gnss_unqualified"),
                           qualitySegments(_qualitySamples, QStringLiteral("gnss_unqualified"))}};
+    QString qualityLevel = QStringLiteral("WAITING");
+    QStringList qualityReasons;
+    if (sampleCount > 0) {
+        if (currentNonLocatableRun > 0) {
+            qualityReasons.append(QStringLiteral("target_not_locatable"));
+        }
+        if (currentRangeInvalidRun > 0) {
+            qualityReasons.append(QStringLiteral("range_invalid"));
+        }
+        if (currentGnssUnqualifiedRun > 0) {
+            qualityReasons.append(QStringLiteral("gnss_unqualified"));
+        }
+        if (latestGapViolation) {
+            qualityReasons.append(QStringLiteral("latest_sampling_gap"));
+        }
+        if (currentNonLocatableRun >= 2) {
+            qualityLevel = QStringLiteral("CRITICAL");
+        } else if (!qualityReasons.isEmpty()) {
+            qualityLevel = QStringLiteral("WARNING");
+        } else {
+            qualityLevel = QStringLiteral("HEALTHY");
+        }
+    }
+    QVariantMap currentStatus{{QStringLiteral("level"), qualityLevel},
+                              {QStringLiteral("reasons"), qualityReasons},
+                              {QStringLiteral("current_non_locatable_run"),
+                               currentNonLocatableRun},
+                              {QStringLiteral("current_range_invalid_run"),
+                               currentRangeInvalidRun},
+                              {QStringLiteral("current_gnss_unqualified_run"),
+                               currentGnssUnqualifiedRun},
+                              {QStringLiteral("latest_gap_ms"), QVariant()},
+                              {QStringLiteral("latest_gap_violation"), latestGapViolation},
+                              {QStringLiteral("critical_non_locatable_run_threshold"), 2}};
+    if (latestGapAvailable) {
+        currentStatus.insert(QStringLiteral("latest_gap_ms"), QVariant::fromValue(latestGapMs));
+    }
     return {{QStringLiteral("schema"),
              QStringLiteral("multidetect.target-observation-recording-live-quality.v1")},
             {QStringLiteral("schema_version"), 1},
@@ -277,6 +332,7 @@ QVariantMap MultiDetectTargetObservationRecorder::qualitySummary() const
             {QStringLiteral("longest_non_locatable_run"), longestNonLocatableRun},
             {QStringLiteral("observation_duration_ms"), QVariant::fromValue(observationDurationMs)},
             {QStringLiteral("sampling"), sampling},
+            {QStringLiteral("current_status"), currentStatus},
             {QStringLiteral("quality_segments"), segments},
             {QStringLiteral("epoch_transition_count"), epochTransitions.size()},
             {QStringLiteral("epoch_transitions"), epochTransitions},

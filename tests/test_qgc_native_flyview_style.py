@@ -875,6 +875,15 @@ def test_raw_gnss_quality_is_authenticated_display_only_and_target_independent()
     assert 'qsTr("质量时间轴")' in layer
     assert 'qsTr("当前录制未发现连续质量异常段")' in layer
     assert "recordingSampling.cadence_violation_count" in layer
+    assert "recordingQuality.current_status" in layer
+    assert "recordingCurrentStatus.current_non_locatable_run" in layer
+    assert "recordingCurrentStatus.current_range_invalid_run" in layer
+    assert "recordingCurrentStatus.current_gnss_unqualified_run" in layer
+    assert "recordingCurrentStatus.latest_gap_ms" in layer
+    assert 'qsTr("当前状态：%1")' in layer
+    assert 'qsTr("良好")' in layer
+    assert 'qsTr("警告")' in layer
+    assert 'qsTr("严重")' in layer
     assert "recordingQuality.longest_non_locatable_run" in layer
     assert "recordingQuality.epoch_transition_count" in layer
     assert 'qsTr("不可定位 · 坐标已强制省略")' in layer
