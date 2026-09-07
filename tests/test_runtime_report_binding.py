@@ -66,6 +66,64 @@ def test_integrated_result_and_sidecar_bind_end_to_end(tmp_path: Path) -> None:
     assert binding["expectations"]["embedded_report_present"] is True
 
 
+def test_integrated_legacy_top_level_result_shape_binds(tmp_path: Path) -> None:
+    """Bind artifacts emitted before the explicit nested result/gate fields."""
+
+    _, report_path, report = _integrated_fixture(tmp_path)
+    result_path = _write_result(
+        tmp_path / "legacy-integrated-result.json",
+        {
+            "schema_version": 1,
+            "event": "integrated_replay_finished",
+            "runtime_mode": "replay",
+            "recording_hash": report.input_hash,
+            "runtime_descriptor_hash": report.descriptor_hash,
+            "processed_frames": report.processed_frame_count,
+            "frame_ids": list(report.processed_frame_ids),
+            "natural_stream_exhaustion": True,
+            "hardware_outputs_present": False,
+            "flight_control_enabled": False,
+            "runtime_run_report": report.to_mapping_with_hash(),
+        },
+    )
+
+    binding = verify_runtime_report_binding(
+        result_path,
+        report_path,
+        expected_runtime_mode="replay",
+        require_embedded_report=True,
+    )
+
+    assert binding["gate_passed"] is True
+    assert binding["checks"]["result_gate_passed"] is True
+    assert binding["checks"]["processed_frame_ids_match"] is True
+
+
+def test_integrated_binding_rejects_malformed_top_level_frame_ids(tmp_path: Path) -> None:
+    _, report_path, report = _integrated_fixture(tmp_path)
+    result_path = _write_result(
+        tmp_path / "malformed-integrated-result.json",
+        {
+            "event": "integrated_replay_finished",
+            "runtime_mode": "replay",
+            "recording_hash": report.input_hash,
+            "runtime_descriptor_hash": report.descriptor_hash,
+            "processed_frames": report.processed_frame_count,
+            "frame_ids": ["frame-0001", 2],
+            "natural_stream_exhaustion": True,
+            "hardware_outputs_present": False,
+            "flight_control_enabled": False,
+            "runtime_run_report": report.to_mapping_with_hash(),
+        },
+    )
+
+    binding = verify_runtime_report_binding(result_path, report_path)
+
+    assert binding["gate_passed"] is False
+    assert binding["checks"]["processed_frame_ids_match"] is False
+    assert "processed_frame_ids_match" in binding["reasons"]
+
+
 def test_integrated_binding_fails_when_embedded_report_is_tampered(tmp_path: Path) -> None:
     result_path, report_path, _ = _integrated_fixture(tmp_path)
     result = json.loads(result_path.read_text(encoding="utf-8"))

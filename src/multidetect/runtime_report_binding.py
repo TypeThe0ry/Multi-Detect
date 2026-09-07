@@ -9,9 +9,11 @@ starting a runtime or touching a vehicle.
 
 The verifier intentionally understands the result shapes already emitted by
 ``integrated-replay``, ``integrated-replay-qgc`` and
-``simulator.scenario_runner``.  Unknown result events remain fail-closed until
-a mode-specific adapter is added, so a future producer cannot silently inherit
-the wrong completion semantics.
+``simulator.scenario_runner``.  Integrated Replay accepts both the current
+nested ``result`` mapping and the legacy top-level frame summary used by older
+evidence.  Unknown result events remain fail-closed until a mode-specific
+adapter is added, so a future producer cannot silently inherit the wrong
+completion semantics.
 """
 
 from __future__ import annotations
@@ -138,26 +140,80 @@ def _as_nonnegative_int(value: object) -> int | None:
     return value
 
 
+def _frame_ids_or_none(value: object) -> tuple[str, ...] | None:
+    """Return a strict frame-id tuple without silently filtering malformed data."""
+
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return None
+    values = tuple(value)
+    if any(not isinstance(item, str) or not item.strip() for item in values):
+        return None
+    if len(values) != len(set(values)):
+        return None
+    return values
+
+
+def _first_present(mapping: Mapping[str, Any], *names: str) -> object:
+    """Read the first explicitly present field, preserving falsey values."""
+
+    for name in names:
+        if name in mapping:
+            return mapping[name]
+    return None
+
+
 def _result_contract(
     result: Mapping[str, Any],
 ) -> dict[str, object]:
     """Derive identity and termination expectations from a known result shape."""
 
     event = result.get("event")
-    if event in _INTEGRATED_EVENTS:
+    if isinstance(event, str) and event in _INTEGRATED_EVENTS:
         nested = result.get("result")
         nested_result = nested if isinstance(nested, Mapping) else {}
+        processed_count = _first_present(
+            nested_result,
+            "processed_frames",
+            "processed_frame_count",
+        )
+        if processed_count is None:
+            processed_count = _first_present(
+                result,
+                "processed_frames",
+                "processed_frame_count",
+            )
+        processed_ids_value = _first_present(
+            nested_result,
+            "processed_frame_ids",
+            "frame_ids",
+        )
+        if processed_ids_value is None:
+            processed_ids_value = _first_present(
+                result,
+                "processed_frame_ids",
+                "frame_ids",
+            )
+        processed_ids = _frame_ids_or_none(processed_ids_value)
+        processed_ids_present = any(
+            name in nested_result for name in ("processed_frame_ids", "frame_ids")
+        ) or any(name in result for name in ("processed_frame_ids", "frame_ids"))
+        explicit_truth_free = result.get("ground_truth_isolated")
+        derived_truth_free = (
+            result.get("hardware_outputs_present") is False
+            and result.get("flight_control_enabled") is False
+        )
         return {
             "supported": True,
             "runtime_mode": "replay",
             "descriptor_hash": _hash_or_none(result.get("runtime_descriptor_hash")),
             "input_hash": _hash_or_none(result.get("recording_hash")),
-            "processed_count": _as_nonnegative_int(nested_result.get("processed_frames")),
-            "processed_ids": None,
+            "processed_count": _as_nonnegative_int(processed_count),
+            "processed_ids": processed_ids,
+            "processed_ids_valid": not processed_ids_present or processed_ids is not None,
             "stream_exhausted": True,
             "max_frames": None,
             "embedded_required": True,
-            "truth_free": result.get("ground_truth_isolated") is True,
+            "truth_free": explicit_truth_free is True or derived_truth_free,
             "closed": True,
         }
 
@@ -177,6 +233,7 @@ def _result_contract(
             ),
             "processed_count": completed_frames,
             "processed_ids": processed_ids,
+            "processed_ids_valid": processed_ids is not None,
             "stream_exhausted": False,
             "max_frames": requested_frames,
             "embedded_required": False,
@@ -192,10 +249,9 @@ def _result_contract(
     candidate_ids = result.get("processed_frame_ids")
     if candidate_ids is None:
         candidate_ids = nested_result.get("processed_frame_ids")
-    processed_ids = (
-        tuple(item for item in candidate_ids if isinstance(item, str))
-        if isinstance(candidate_ids, Sequence) and not isinstance(candidate_ids, (str, bytes))
-        else None
+    processed_ids = _frame_ids_or_none(candidate_ids)
+    processed_ids_present = (
+        "processed_frame_ids" in result or "processed_frame_ids" in nested_result
     )
     count = result.get("processed_frame_count")
     if count is None:
@@ -215,6 +271,7 @@ def _result_contract(
         ),
         "processed_count": _as_nonnegative_int(count),
         "processed_ids": processed_ids,
+        "processed_ids_valid": not processed_ids_present or processed_ids is not None,
         "stream_exhausted": None,
         "max_frames": None,
         "embedded_required": False,
@@ -274,7 +331,9 @@ def verify_runtime_report_binding(
     # Known producers must publish a derived count; silently accepting a
     # missing count would let a report bind to an under-specified result.
     count_matches = processed_count is not None and report.processed_frame_count == processed_count
-    ids_matches = processed_ids is None or report.processed_frame_ids == processed_ids
+    ids_matches = contract.get("processed_ids_valid", True) is True and (
+        processed_ids is None or report.processed_frame_ids == processed_ids
+    )
     if contract["runtime_mode"] == "sim" and processed_ids is None:
         ids_matches = False
     if processed_ids is None:
@@ -318,7 +377,21 @@ def verify_runtime_report_binding(
         required=embedded_required,
     )
 
-    result_gate_passed = result.get("gate_passed") is True
+    explicit_result_gate = result.get("gate_passed")
+    if explicit_result_gate is not None:
+        result_gate_passed = explicit_result_gate is True
+    elif isinstance(event, str) and event in _INTEGRATED_EVENTS:
+        # Older integrated artifacts predate the explicit gate field.  Their
+        # equivalent safety boundary is the conjunction emitted by the
+        # producer: complete finite-stream exhaustion with no flight-control or
+        # hardware output path active.  Missing fields remain fail-closed.
+        result_gate_passed = (
+            result.get("natural_stream_exhaustion") is True
+            and result.get("hardware_outputs_present") is False
+            and result.get("flight_control_enabled") is False
+        )
+    else:
+        result_gate_passed = False
     if event == "simulator_scenario_run_finished":
         result_gate_passed = result.get("terminal_reason") in {
             "frame_budget_complete",

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T08:35:00Z",
+  "updated_at_utc": "2026-09-07T08:52:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v180",
+  "working_iteration": "v181",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3725,
-      "passed_tests": 3721,
+      "tests": 3727,
+      "passed_tests": 3723,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 311.097,
+      "duration_seconds": 306.38,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v180/full-rerun.xml",
-      "junit_file_bytes": 544434,
-      "junit_file_sha256": "d6d12065420c8c64ce91379fbb5411e7dc7da3f8eb5c9036207807dfe1fe575c",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v181/full-rerun.xml",
+      "junit_file_bytes": 544704,
+      "junit_file_sha256": "76008b1c63bd8175159289646acc70251b9df89d4417db11cf4c415357d1ec67",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -591,6 +591,52 @@
         "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
         "junit_file_bytes": 10452,
         "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
+    "v181_integrated_replay_runtime_report_binding_selected_regression": {
+      "passed": true,
+      "tests": 43,
+      "passed_tests": 43,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "runtime_report_binding_current_and_legacy_integrated_replay_result_shapes",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "known_result_events": [
+        "integrated_replay_finished",
+        "integrated_replay_qgc_finished",
+        "simulator_scenario_run_finished"
+      ],
+      "legacy_top_level_result_shape_supported": true,
+      "malformed_frame_ids_fail_closed": true,
+      "unknown_result_events_fail_closed": true,
+      "result_path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-run-v181.json",
+      "result_bytes": 1276,
+      "result_sha256": "9a5a8827d9891dc33e763cd6eea2e904ac61c9c91b02f9772c3a87791c1b7588",
+      "runtime_report_path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-runtime-report-v181.json",
+      "runtime_report_bytes": 507,
+      "runtime_report_sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906",
+      "runtime_report_canonical_sha256": "f72fbcee791a97dbaa701b5fac2c25fa9535359d61a575532b7bf49eae93cf78",
+      "binding_report_path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-binding-v181.json",
+      "binding_report_bytes": 2410,
+      "binding_report_sha256": "5ca09d94b667388a537121c3dfcd9f7988a2eddd31c425ae3f466819d608d33c",
+      "binding_gate_passed": true,
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v181/integrated-runtime-binding-focused-v181.xml",
+      "focused_junit_file_bytes": 6332,
+      "focused_junit_file_sha256": "7b8c379ad496bdc0952a238c479f6197f7298b26496a93a19113855a0993c437",
+      "focused_duration_seconds": 0.798,
+      "full_regression": {
+        "tests": 3727,
+        "passed_tests": 3723,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 306.38,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v181/full-rerun.xml",
+        "junit_file_bytes": 544704,
+        "junit_file_sha256": "76008b1c63bd8175159289646acc70251b9df89d4417db11cf4c415357d1ec67"
       },
       "flight_control_enabled": false,
       "physical_release_enabled": false
@@ -2440,6 +2486,77 @@
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"
+    },
+    "v181_integrated_replay_runtime_report_binding": {
+      "reason": "reopen a real integrated Replay result in both current and legacy producer shapes",
+      "binding_schema": "configs/schemas/runtime-report-binding.schema.json",
+      "known_result_events": [
+        "integrated_replay_finished",
+        "integrated_replay_qgc_finished",
+        "simulator_scenario_run_finished"
+      ],
+      "legacy_top_level_result_shape_supported": true,
+      "malformed_frame_ids_fail_closed": true,
+      "source_result": {
+        "path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-run-v181.json",
+        "bytes": 1276,
+        "sha256": "9a5a8827d9891dc33e763cd6eea2e904ac61c9c91b02f9772c3a87791c1b7588",
+        "event": "integrated_replay_finished",
+        "runtime_mode": "replay",
+        "processed_frames": 2,
+        "frame_ids": ["frame-0001", "frame-0002"],
+        "natural_stream_exhaustion": true,
+        "hardware_outputs_present": false,
+        "flight_control_enabled": false
+      },
+      "runtime_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-runtime-report-v181.json",
+        "bytes": 507,
+        "sha256": "8b6df9ad8106ea9a83a49bd5c1d9281ea24604f7969649141001a7fde8433906",
+        "canonical_sha256": "f72fbcee791a97dbaa701b5fac2c25fa9535359d61a575532b7bf49eae93cf78",
+        "descriptor_hash": "9dce13f34ff5e603569e6327b0a1dc0502dd73e1dc9587e9fcdb19433f0d6fd1",
+        "input_hash": "d37537ba3301f28bf9bbcabbc8186e7de1c6515b485929e385e5d26a3ef1125d",
+        "processed_frame_ids": ["frame-0001", "frame-0002"],
+        "processed_frame_count": 2,
+        "stream_exhausted": true,
+        "max_frames": null,
+        "termination_reason": "stream_exhausted"
+      },
+      "binding_report": {
+        "path": "artifacts/evaluation/terminal-continuation-v181/integrated-replay-binding-v181.json",
+        "bytes": 2410,
+        "sha256": "5ca09d94b667388a537121c3dfcd9f7988a2eddd31c425ae3f466819d608d33c",
+        "gate_passed": true,
+        "all_checks_passed": true,
+        "reasons": []
+      },
+      "focused_regression": {
+        "tests": 43,
+        "passed_tests": 43,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v181/integrated-runtime-binding-focused-v181.xml",
+        "junit_bytes": 6332,
+        "junit_sha256": "7b8c379ad496bdc0952a238c479f6197f7298b26496a93a19113855a0993c437"
+      },
+      "full_regression": {
+        "tests": 3727,
+        "passed_tests": 3723,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 306.38,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v181/full-rerun.xml",
+        "junit_bytes": 544704,
+        "junit_sha256": "76008b1c63bd8175159289646acc70251b9df89d4417db11cf4c415357d1ec67"
+      },
+      "software_runtime_identity_only": true,
+      "flight_control_enabled": false,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed",
+      "flight_acceptance": "not_claimed"
     },
     "v180_runtime_report_binding": {
       "reason": "reopen result and sidecar to prove the RuntimeRunReport belongs to the producing run",

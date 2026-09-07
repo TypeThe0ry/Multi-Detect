@@ -9,6 +9,14 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v181 integrated Replay 结果格式兼容绑定
+
+`multidetect.runtime_report_binding` 现在能重开当前嵌套结果和历史真实 integrated Replay/QGC 顶层结果；统一
+核对 `processed_frames`、可选但严格校验的 `frame_ids`、natural source exhaustion、descriptor/input hash、
+内嵌 sidecar 与无飞控/硬件输出边界。v181 用 v178 2 帧真实产物生成 `gate_passed=true` 绑定证据，43 项定向与
+3,727 项全量 Python 回归通过。该证据消费者仍是 software-only，不代表真实 GNSS、Pixhawk、HIL/REAL、人工 QGC
+或实飞，也不修改 `px4_mission_path` parity 或 QGC 二进制。
+
 ## v180 运行结果与 RuntimeRunReport 绑定消费者
 
 SIM 场景结果现在在写出时公开与 sidecar 相同的 `runtime_input_hash`。新增

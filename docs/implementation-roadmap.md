@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## integrated Replay 结果格式兼容与严格帧身份绑定（v181，`v0.3.0-pre.8`）
+
+- [x] `runtime_report_binding` 同时适配当前嵌套 `result` 和历史真实 integrated Replay/QGC 顶层结果字段，保留
+  同一 RuntimeRunReport、descriptor/input hash、自然耗尽与无输出边界；不依赖重跑生产 runtime。
+- [x] 对 `frame_ids`/`processed_frame_ids` 做严格字符串、非空、唯一性校验；新增旧格式成功绑定与 malformed ID
+  fail-closed 回归，使用 v178 真实 sidecar 生成 v181 绑定证据。
+- [x] v181 定向 43 项、全量 3,727 项（3,723 passed、4 skipped）通过；该软件消费者不改变 `px4_mission_path`
+  parity、QGC C++/QML 二进制、地图/Mission/飞控或物理释放路径。
+- [ ] 仍需在现场 portable 上人工打开同一 Fly View、载入真实长回放并将绑定报告与外部采集、HIL/REAL 记录逐帧
+  对账；该门通过前不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## 运行结果与 RuntimeRunReport 独立绑定（v180，`v0.3.0-pre.8`）
 
 - [x] 新增 `runtime_report_binding` 只读 verifier 与 `multidetect-runtime-report-verify` CLI，重新打开结果和

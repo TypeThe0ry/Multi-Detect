@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v180 工作树）
+最后更新：2026-09-07（v181 工作树）
+
+## v181 本轮已收口（真实 integrated Replay 结果格式兼容绑定）
+
+- `runtime_report_binding` 现在同时读取当前生产结果的嵌套 `result.processed_frames`/报告门，和历史
+  integrated Replay 产物的顶层 `processed_frames`、`frame_ids`、`natural_stream_exhaustion` 形状；两种形状都必须
+  重新绑定 descriptor/input hash、处理帧数量/ID、自然耗尽和无飞控/硬件输出边界，缺字段仍 fail-closed。
+- 帧 ID 字段不再静默过滤非字符串、空值或重复值；一旦结果声明了 malformed ID，绑定报告直接失败，避免旧产物
+  被“部分解析后通过”。`integrated_replay_finished` 与 `integrated_replay_qgc_finished` 共用同一适配器。
+- v181 历史 2 帧 integrated Replay 证据绑定通过：结果 1,276 bytes / SHA-256
+  `9A5A8827D9891DC33E763CD6EEA2E904AC61C9C91B02F9772C3A87791C1B7588`；RuntimeRunReport 507 bytes / SHA-256
+  `8B6DF9AD8106EA9A83A49BD5C1D9281EA24604F7969649141001A7FDE8433906`；绑定报告 2,410 bytes / SHA-256
+  `5CA09D94B667388A537121C3DFCD9F7988A2EDDD31C425AE3F466819D608D33C`，`gate_passed=true`。
+- 定向回归为 `43 passed, 0 skipped, 0 failed`，JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v181/integrated-runtime-binding-focused-v181.xml`，6,332 bytes，
+  SHA-256 `7B8C379AD496BDC0952A238C479F6197F7298B26496A93A19113855A0993C437`；全量 Python 回归为
+  `3723 passed, 4 skipped, 0 failed`（3,727 tests，306.38 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v181/full-rerun.xml`，544,704 bytes，SHA-256
+  `76008B1C63BD8175159289646ACC70251B9DF89D4417DB11CF4C415357D1EC67`。本轮仍只锁定 software 证据身份；E7、
+  室外 GNSS、硬件、HIL/REAL、人工 Fly View 与实飞门保持 `false / false`。
 
 ## v180 本轮已收口（运行结果与 RuntimeRunReport 独立绑定）
 

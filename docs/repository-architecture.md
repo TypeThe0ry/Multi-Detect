@@ -1,5 +1,26 @@
 # 统一仓库架构
 
+## v181 integrated Replay 结果格式兼容绑定（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+当前嵌套结果 / 历史顶层 integrated Replay/QGC 结果
+        │ strict adapter: count + frame IDs + natural exhaustion + no outputs
+        ▼
+multidetect.runtime_report_binding
+        │ descriptor/input hash + embedded RuntimeRunReport equality
+        ▼
+v181 binding evidence (gate_passed / reasons)
+        │ software identity only
+        ▼
+人工 Fly View review → 外部/HIL/REAL 逐帧对账 → E7 consumer
+```
+
+- 适配器按字段是否显式存在区分“旧格式兼容”和“缺字段”：顶层 `processed_frames`/`frame_ids` 可以绑定，
+  malformed、重复或缺少必要自然耗尽/输出边界的结果仍失败；当前 `result` 嵌套格式保持原契约。
+- v181 证据以 v178 真实 2 帧 integrated Replay result + sidecar 重开生成，绑定报告 2,410 bytes、
+  SHA-256 `5CA09D94B667388A537121C3DFCD9F7988A2EDDD31C425AE3F466819D608D33C`、`gate_passed=true`；不改变
+  parity、QGC 二进制、地图、Mission、飞控或硬件验收状态。
+
 ## v180 运行结果与 RuntimeRunReport 独立绑定（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

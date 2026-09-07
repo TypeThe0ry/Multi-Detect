@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v181 integrated Replay result-shape compatibility binding（2026-09-07）
+
+- `multidetect.runtime_report_binding` 同时支持当前 integrated Replay/QGC 的嵌套结果和历史真实产物的顶层
+  `processed_frames`、`frame_ids`、`natural_stream_exhaustion` 字段；两种格式都重新核对 descriptor/input hash、
+  处理帧数量/身份、自然耗尽和无飞控/硬件输出边界。
+- 对结果声明的帧 ID 执行严格类型、空值和重复校验，malformed ID fail-closed；新增 2 个兼容/篡改回归，定向
+  `43 passed`，并用 v178 真实 2 帧 integrated Replay sidecar 生成 v181 `gate_passed=true` 绑定证据。
+- 全量回归为 `3723 passed, 4 skipped, 0 failed`（3,727 tests）；本轮仍为 software-only 证据，不提升 E7、室外
+  GNSS、真实硬件、HIL/REAL、人工 Fly View 或实飞验收状态。
+
 ### v0.3.0-pre.8 v180 runtime result/report binding verifier（2026-09-07）
 
 - 新增 `multidetect.runtime_report_binding` 与 `multidetect-runtime-report-verify`：只读重新打开结果 JSON 和
