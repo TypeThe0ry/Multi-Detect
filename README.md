@@ -4,7 +4,7 @@ Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知�
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 > 当前版本 **`v0.3.0-pre.8`**；最终版仍受硬件、室外 GNSS、HIL/REAL 与人工 QGC 门禁。
-> v187：typed RuntimeObservationResult 生产入口 + RuntimeReport HIL/REAL 观测绑定。
+> v188：RuntimeObservation builder CLI + typed HIL/REAL 观测生产入口。
 
 ## 从这里开始
 
@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v187：typed RuntimeObservationResult 生产入口 |
+| 工程迭代 | v188：RuntimeObservation builder CLI |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,7 +81,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详见 [当前进度](docs/current-progress.md)。
 
-### v163–v187 目标定位与证据链
+### v163–v188 目标定位与证据链
 
 v163–v165 建立 `target-observation-diagnostics` schema、session 审计和 Fly View 接入；详见[当前进度](docs/current-progress.md)。
 

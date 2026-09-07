@@ -1,6 +1,25 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v187 工作树）
+最后更新：2026-09-07（v188 工作树）
+
+## v188 本轮已收口（RuntimeObservation builder CLI）
+
+- 新增安装式命令 `multidetect-runtime-observation-build`（实现入口
+  `src/multidetect/runtime_observation.py:main`）：输入现有 `RuntimeRunReport` sidecar、指定
+  `--runtime-mode hil|real` 和 `--out`，即可生成与 sidecar 同源的 canonical receive-only result；
+  `--include-hash` 可额外写入 result `sha256`，不会改写原 sidecar。
+- CLI 对错误路径保持非零退出，并通过同一 `load_runtime_observation_result` 严格重开；它只构造
+  `RuntimeObservationResult`，不连接 Pixhawk、不发送 telemetry/control 消息，也不把 covariance
+  capture 的 telemetry request 计数转换成零发送声明。
+- 新增 [`scripts/generate_runtime_observation_cli_evidence.py`](../scripts/generate_runtime_observation_cli_evidence.py)：
+  v188 HIL/REAL 两个 CLI pair schema errors 均为 `0`、重开为 `true`、binding `gate_passed=true`。
+  HIL result 1,392 bytes / SHA-256 `C344CDB4A31A71841AA512A69CE40DDBC4092BEC96BFFE8A601485B00B27535D`；
+  REAL result 1,398 bytes / SHA-256 `EB6E7A23F86108696BD0BC7826D0C4BB4A07C49A5B75D74490F30F25FE4069A4`。
+- 定向 `tests/test_runtime_observation.py tests/test_runtime_report_binding.py tests/test_runtime_report_binding_set.py`
+  为 `39 tests / 38 passed / 1 skipped / 0 failed`；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v188/runtime-observation-cli-focused-v188.xml`，6,274 bytes、SHA-256
+  `F82133782267F4556DF51EFC5E742C5871740C36A2331CF12F98DCDBC0C53DFD`。本轮仍不改变 portable EXE、
+  硬件、室外 GNSS、真实 HIL/REAL、人工 Fly View、实飞或最终 `v0.3.0` 发布状态。
 
 ## v187 本轮已收口（typed RuntimeObservationResult 生产入口）
 

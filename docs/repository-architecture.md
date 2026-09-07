@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v188 RuntimeObservation builder CLI（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+RuntimeRunReport sidecar ──► multidetect-runtime-observation-build
+                                  │  --runtime-mode hil|real
+                                  │  --include-hash (optional)
+                                  ▼
+                        RuntimeObservationResult
+                                  │
+                   strict result + sidecar re-open/bind
+                                  ▼
+                runtime_report_binding / 14 safety checks
+```
+
+- CLI 只构造 receive-only observation result，输出锁字段由 builder 固定；sidecar 原文件保持不变。
+- v188 evidence generator 对 HIL/REAL 各执行一次 CLI、schema 校验、round-trip 和 binding verifier；
+  真实 producer 仍需自行区分 telemetry request 与 application/flight-control 发送计数。
+
 ## v187 typed RuntimeObservationResult 生产入口（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

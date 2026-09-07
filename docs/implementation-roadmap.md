@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## RuntimeObservation builder CLI（v188，`v0.3.0-pre.8`）
+
+- [x] 增加 `multidetect-runtime-observation-build` 安装式 CLI：从已有 hash-bound `RuntimeRunReport`
+  sidecar 和明确 `hil|real` 模式生成 canonical receive-only result，支持可选 result `sha256`，不改写
+  sidecar。
+- [x] CLI 复用 `RuntimeObservationResult` / `load_runtime_observation_result`，错误路径返回非零并保持
+  严格 parser；v188 HIL/REAL 两个 pair 的 schema errors、round-trip 和 runtime-report binding 均通过。
+- [x] 新增 `scripts/generate_runtime_observation_cli_evidence.py` 与 CLI 回归，验证两个模式的产物哈希和
+  binding gate；不把 Pixhawk telemetry-request capture 的发送计数伪装为零应用发送。
+- [ ] 将 CLI/builder 接到真实 HIL/REAL capture producer：明确 telemetry request 与
+  application/flight-control message counter，绑定同版 RuntimeProfile、Mission feedback、endpoint/
+  vehicle identity 后再重跑现场证据。
+
 ## typed RuntimeObservationResult 生产入口（v187，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.runtime_observation.RuntimeObservationResult`，从唯一的

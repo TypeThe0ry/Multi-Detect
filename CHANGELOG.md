@@ -5,6 +5,16 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v188 RuntimeObservation builder CLI（2026-09-07）
+
+- 新增安装式 `multidetect-runtime-observation-build`：从已有 `RuntimeRunReport` sidecar 和明确的
+  `hil|real` 模式生成 canonical receive-only result，可选 `--include-hash` 写入 result `sha256`，不改写 sidecar。
+- CLI 复用严格 `RuntimeObservationResult` parser，错误返回非零；v188 HIL/REAL pair 均完成 schema、
+  round-trip 和 `runtime_report_binding` gate，新增 CLI evidence generator 与回归。
+- builder 的 `messages_transmitted=0` 仍只表示该 result 的应用/飞控输出锁；Pixhawk telemetry-request
+  capture 保持独立计数。本轮不重编译 portable EXE，不改变硬件、室外 GNSS、HIL/REAL、人工 Fly View、
+  实飞或最终 `v0.3.0` 发布状态。
+
 ### v0.3.0-pre.8 v187 typed RuntimeObservationResult producer entry（2026-09-07）
 
 - 新增 `multidetect.runtime_observation.RuntimeObservationResult`：从唯一的 `RuntimeRunReport` 派生

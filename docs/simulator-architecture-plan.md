@@ -9,6 +9,23 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v188 RuntimeObservation builder CLI
+
+安装后可用的 `multidetect-runtime-observation-build` 把现有 `RuntimeRunReport` sidecar 转成
+HIL/REAL canonical result：
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.runtime_observation .\hil-runtime-report.json `
+  --runtime-mode hil `
+  --out .\hil-runtime-observation.json `
+  --include-hash
+```
+
+CLI 只重开和写入软件 result，不启动 runtime、不连接 Pixhawk、不发消息；v188 证据由同一
+`runtime_report_binding` 重新验证。真实 telemetry-request capture 的发送计数仍需在现场 producer
+中单独保留，不能直接套用 builder 的零应用发送合同。
+
 ## v187 typed RuntimeObservationResult 生产入口
 
 `src/multidetect/runtime_observation.py` 把 HIL/REAL receive-only result 的生产侧字段收拢为一个不可变
