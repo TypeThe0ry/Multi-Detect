@@ -1,5 +1,30 @@
 # 统一仓库架构
 
+## v187 typed RuntimeObservationResult 生产入口（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+RuntimeRunReport (唯一身份来源)
+          │
+          ▼
+ RuntimeObservationResult
+          │  derive event/mode/hash/frame IDs/termination
+          │  fixed receive-only output lock
+          ├── write_runtime_observation_pair ──► result JSON + sidecar JSON
+          └── load_runtime_observation_result ─► strict re-open / hash check
+                                                   │
+                                                   ▼
+                         runtime_report_binding (HIL/REAL 14 checks)
+                                                   │
+                               software identity only; field evidence pending
+```
+
+- builder 只接受 `RuntimeMode.HIL` / `RuntimeMode.REAL`，不允许 Replay/SIM 复用观测事件；顶层派生字段
+  必须与同一 `RuntimeRunReport` 完全相等，嵌套报告由既有 hash-bound parser 重开。
+- `messages_transmitted=0` 是该 builder 的应用层 receive-only 合同；Pixhawk covariance 采集器允许
+  发送 telemetry request，两者保持不同 producer contract，不把请求发送数抹掉或冒充控制输出。
+- `runtime-observation-result.schema.json` 固定 event/mode、哈希、帧数组、终止关系和锁输出字段；
+  v187 证据生成器同时验证正向 HIL/REAL pair 与 input-hash 篡改负向结果。
+
 ## v186 HIL/REAL RuntimeReport 观测适配器（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

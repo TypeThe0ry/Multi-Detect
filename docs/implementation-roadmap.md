@@ -1,5 +1,19 @@
 # Implementation roadmap
 
+## typed RuntimeObservationResult 生产入口（v187，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect.runtime_observation.RuntimeObservationResult`，从唯一的
+  `RuntimeRunReport` 派生 HIL/REAL result 的 event、mode、descriptor/input hash、逐帧身份、数量、
+  bounded termination、内嵌 canonical report 和固定 receive-only 输出锁；构造器拒绝歧义终止状态。
+- [x] 新增 `write_runtime_observation_pair` / `load_runtime_observation_result` 与独立
+  `runtime-observation-result.schema.json`；可选 result `sha256`、严格 JSON 重开、嵌套报告哈希和
+  顶层派生字段篡改均有回归覆盖。
+- [x] 生成 v187 HIL/REAL 软件 pair、binding 正向重开和 `runtime_input_hash` 篡改负向证据；现有
+  `capture_pixhawk_odometry_covariance.py` 的 telemetry request 发送计数不被错误转换为零发送结果。
+- [ ] 把该 builder 接入真实 HIL/REAL capture producer：producer 必须明确区分 telemetry request 与
+  application/flight-control message counter，并在同一 RuntimeProfile、Mission feedback、endpoint/
+  vehicle identity sidecar 下重跑；软件 fixture 不升级硬件、室外 GNSS、人工 Fly View、HIL/REAL 或实飞门。
+
 ## HIL/REAL RuntimeReport 观测适配器（v186，`v0.3.0-pre.8`）
 
 - [x] 为 `multidetect.runtime_report_binding` 增加显式 `hil_runtime_observation_finished` /

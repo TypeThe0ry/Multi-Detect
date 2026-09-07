@@ -1,6 +1,32 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v186 工作树）
+最后更新：2026-09-07（v187 工作树）
+
+## v187 本轮已收口（typed RuntimeObservationResult 生产入口）
+
+- 新增 [`src/multidetect/runtime_observation.py`](../src/multidetect/runtime_observation.py)：以同一份
+  `RuntimeRunReport` 为唯一来源，类型化生成 `hil_runtime_observation_finished` /
+  `real_runtime_observation_finished` 结果；descriptor/input hash、处理帧 ID、数量、终止字段和内嵌
+  canonical report 不再由现场 producer 手工复制。`write_runtime_observation_pair` 同时写 result 与
+  sidecar，`load_runtime_observation_result` 会严格重开并拒绝身份、报告或安全字段漂移。
+- receive-only 字段由 builder 固定为 `observation_only/read_only/receive_only=true`、
+  `messages_transmitted=0`、`flight_control_enabled=false`、`hardware_outputs_present=false`、
+  `output_locked=true`；明确区分 telemetry-request capture 与零应用发送的观测结果，避免把现有
+  Pixhawk covariance 采集器的 telemetry 请求数误记成控制输出或反向冒充现场验收。
+- 新增 [`configs/schemas/runtime-observation-result.schema.json`](../configs/schemas/runtime-observation-result.schema.json)、
+  [`scripts/generate_runtime_observation_builder_evidence.py`](../scripts/generate_runtime_observation_builder_evidence.py)
+  和 `tests/test_runtime_observation.py`。v187 HIL/REAL 两个软件 pair 均 schema errors `0`、binding `gate_passed=true`；
+  篡改 `runtime_input_hash` 的负向 pair `gate_passed=false`，失败检查为 `input_hash_matches`。证据摘要位于
+  `artifacts/evaluation/terminal-continuation-v187/summary-v187.json`。
+- 定向 `tests/test_runtime_observation.py tests/test_runtime_report_binding.py tests/test_runtime_report_binding_set.py`
+  为 `38 tests / 37 passed / 1 skipped / 0 failed`；JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v187/runtime-observation-focused-v187.xml`，6,139 bytes、SHA-256
+  `851CC04C0C75C00CE0C17815994FB1463D4EE455C82AD0DE5486A4552D2CC4DE`。本轮仍为 Python/schema/docs-only，
+  全量回归为 `3,760 passed, 6 skipped, 0 failed`（3,766 tests，293.085 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v187/full-rerun-v187-final.xml`，551,664 bytes、SHA-256
+  `9EC0FC399BCA4422390D2A5E5BD89ED08FB275E82286BF6503A53EFC76856BC5`。本轮仍为 Python/schema/docs-only，
+  portable EXE 未重编译；硬件、室外 GNSS、真实 HIL/REAL、人工 Fly View、实飞和最终 `v0.3.0` 继续保持
+  `not_claimed` / 阻断。
 
 ## v186 本轮已收口（HIL/REAL RuntimeReport 观测适配器）
 
@@ -2441,6 +2467,14 @@ MultiDetectGCS，并完成 exact PID/HWND 动态地图/证据卡片机器采集�
 负向 source-binding 预检保持 5/5 检测、0 假点。v67 combined-SIM source 已能被通用 adapter 识别为
 真实 SIM runtime，但它的 toolbar/Mission 截图没有配置 target-geolocation acceptance，不能直接充当
 包含地图点/1σ/证据卡片的人工记录；SIM 模式仍需专门运行该定位画面。
+
+### P0.5：把 typed RuntimeObservationResult 接入真实 HIL/REAL producer
+
+v187 已把 result/sidecar 的生产字段收拢到不可变 builder，并验证正向 pair 与 input-hash 篡改负向。
+下一步接入 `capture_pixhawk_odometry_covariance.py` 的现场适配层时，必须保留 telemetry request 计数，
+另设 application/flight-control message counter；只有后者为零且 RuntimeProfile、Mission feedback、
+endpoint/vehicle identity 同版绑定，才能生成 v186 receive-only 结果。不能把 telemetry 请求数抹成零，
+也不能用软件 fixture 关闭硬件/HIL/REAL 门。
 
 ### P1：三机型动态对等（机器子门已完成）
 

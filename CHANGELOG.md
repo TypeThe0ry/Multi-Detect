@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v187 typed RuntimeObservationResult producer entry（2026-09-07）
+
+- 新增 `multidetect.runtime_observation.RuntimeObservationResult`：从唯一的 `RuntimeRunReport` 派生
+  HIL/REAL result 的事件、模式、descriptor/input hash、逐帧身份、数量、bounded termination 和内嵌
+  canonical report，避免真实 producer 手抄字段造成漂移。
+- 新增 `write_runtime_observation_pair`、`load_runtime_observation_result` 与
+  `runtime-observation-result.schema.json`；builder 固定 receive-only 输出锁，显式区分 telemetry request
+  capture 与应用/飞控发送计数，顶层/嵌套报告篡改 fail-closed。
+- 新增 v187 builder evidence generator 与 9 项 producer 回归；HIL/REAL 软件 pair schema errors `0`、
+  binding 通过，`runtime_input_hash` 篡改负向门关闭。本轮不重编译 portable EXE，不改变硬件、室外 GNSS、
+  HIL/REAL、人工 Fly View、实飞或最终 `v0.3.0` 发布状态。
+
 ### v0.3.0-pre.8 v186 HIL/REAL RuntimeReport observation adapter（2026-09-07）
 
 - `multidetect.runtime_report_binding` 现在识别两个显式事件：

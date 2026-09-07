@@ -9,6 +9,23 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v187 typed RuntimeObservationResult 生产入口
+
+`src/multidetect/runtime_observation.py` 把 HIL/REAL receive-only result 的生产侧字段收拢为一个不可变
+类型：producer 只提交已经完成的 `RuntimeRunReport`，builder 派生事件、mode、descriptor/input hash、
+逐帧身份、数量和 bounded termination，并嵌入同一 hash-bound report。`write_runtime_observation_pair`
+保证 result/sidecar 使用同一对象；`load_runtime_observation_result` 在消费前重新校验所有派生字段。
+
+```powershell
+$env:PYTHONPATH = 'src'
+python .\scripts\generate_runtime_observation_builder_evidence.py `
+  --output-directory artifacts/evaluation/terminal-continuation-v187
+```
+
+v187 证据只验证 software builder、schema 与 binding 重开；telemetry-request capture 不被转换成
+`messages_transmitted=0`，真实 Pixhawk/HIL/REAL 仍需独立 producer、profile、Mission feedback、endpoint
+identity 和现场证据。
+
 ## v186 RuntimeReport HIL/REAL 观测接口
 
 `runtime_report_binding` 现在为未来现场采集定义了两个严格结果事件：
