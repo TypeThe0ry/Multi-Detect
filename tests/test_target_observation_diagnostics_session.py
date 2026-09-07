@@ -276,8 +276,74 @@ def test_session_sorts_inputs_and_reports_quality_and_epoch_transition(tmp_path:
     assert report["longest_non_locatable_run"] == 1
     assert report["observed_epochs"] == [7, 8]
     assert report["epoch_transition_count"] == 1
+    assert report["epoch_transitions"] == [
+        {
+            "sample_index": 2,
+            "local_now_ms": 3000,
+            "generated_at_utc": "1970-01-01T00:00:03.000Z",
+            "from_epoch": 7,
+            "to_epoch": 8,
+        }
+    ]
     assert report["reason_counts"] == {"gnss_not_qualified": 1}
     assert [item["local_now_ms"] for item in report["samples"]] == [1000, 2000, 3000]
+
+
+def test_session_reports_cadence_gaps_and_contiguous_quality_segments(
+    tmp_path: Path,
+) -> None:
+    documents = [
+        _snapshot(local_now_ms=1000, epoch=7, sequence=1),
+        _snapshot(local_now_ms=2000, epoch=7, sequence=2, locatable=False),
+        _snapshot(local_now_ms=5000, epoch=7, sequence=3, locatable=False),
+        _snapshot(local_now_ms=6000, epoch=8, sequence=1),
+    ]
+    documents[2]["range_status"]["validity"] = "STALE"  # type: ignore[index]
+    paths = [_write(tmp_path, index, document) for index, document in enumerate(documents)]
+    manifest = _write_recording_manifest(tmp_path, paths)
+    manifest_document = json.loads(manifest.read_text(encoding="utf-8"))
+    manifest_document["ended_at_utc"] = "1970-01-01T00:00:07.000Z"
+    manifest.write_text(json.dumps(manifest_document, indent=2) + "\n", encoding="utf-8")
+
+    report = verify_target_observation_diagnostics_session(
+        [tmp_path],
+        minimum_samples=4,
+        require_recording_manifest=True,
+        maximum_non_locatable_run=1,
+        maximum_sampling_gap_ms=2000,
+    )
+
+    assert report["observation_duration_ms"] == 5000
+    assert report["sampling"] == {
+        "interval_count": 3,
+        "minimum_gap_ms": 1000,
+        "maximum_gap_ms": 3000,
+        "mean_gap_ms": pytest.approx(5000 / 3),
+        "expected_interval_ms": 1000,
+        "cadence_tolerance_ms": 500,
+        "cadence_violation_count": 1,
+        "gap_events": [
+            {
+                "previous_index": 1,
+                "current_index": 2,
+                "gap_ms": 3000,
+                "expected_interval_ms": 1000,
+            }
+        ],
+    }
+    non_locatable = report["quality_segments"]["non_locatable"]
+    assert len(non_locatable) == 1
+    assert non_locatable[0]["start_index"] == 1
+    assert non_locatable[0]["end_index"] == 2
+    assert non_locatable[0]["sample_count"] == 2
+    assert non_locatable[0]["duration_ms"] == 3000
+    assert non_locatable[0]["diagnostic_reasons"] == ["gnss_not_qualified"]
+    assert report["quality_segments"]["range_invalid"][0]["start_index"] == 2
+    assert report["quality_segments"]["gnss_unqualified"][0]["sample_count"] == 2
+    assert report["epoch_transitions"][0]["from_epoch"] == 7
+    assert report["epoch_transitions"][0]["to_epoch"] == 8
+    assert report["gate_passed"] is False
+    assert len(report["reasons"]) == 2
 
 
 def test_directory_input_and_atomic_cli_report(tmp_path: Path) -> None:
@@ -303,6 +369,30 @@ def test_minimum_sample_and_locatable_rate_gates_fail_closed(tmp_path: Path) -> 
     assert len(report["reasons"]) == 2
     assert report["flight_control_enabled"] is False
     assert report["physical_release_enabled"] is False
+
+
+def test_cli_applies_sampling_and_non_locatable_run_limits(tmp_path: Path) -> None:
+    _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
+    _write(tmp_path, 2, _snapshot(local_now_ms=3000, epoch=7, sequence=2, locatable=False))
+    output = tmp_path / "limited-session-report.json"
+
+    assert (
+        main(
+            [
+                str(tmp_path),
+                "--maximum-non-locatable-run",
+                "0",
+                "--maximum-sampling-gap-ms",
+                "1500",
+                "--out",
+                str(output),
+            ]
+        )
+        == 1
+    )
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["gate_passed"] is False
+    assert len(report["reasons"]) == 2
 
 
 def test_sequence_and_sent_time_rollbacks_are_rejected(tmp_path: Path) -> None:
@@ -340,11 +430,30 @@ def test_duplicate_inputs_and_equal_local_times_are_rejected(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("minimum_samples", "minimum_locatable_rate"),
-    [(True, 0.0), (1.5, 0.0), (1, True), (1, float("nan")), (1, 1.01)],
+    (
+        "minimum_samples",
+        "minimum_locatable_rate",
+        "maximum_non_locatable_run",
+        "maximum_sampling_gap_ms",
+    ),
+    [
+        (True, 0.0, None, None),
+        (1.5, 0.0, None, None),
+        (1, True, None, None),
+        (1, float("nan"), None, None),
+        (1, 1.01, None, None),
+        (1, 0.0, True, None),
+        (1, 0.0, -1, None),
+        (1, 0.0, None, True),
+        (1, 0.0, None, 0),
+    ],
 )
 def test_gate_thresholds_require_strict_finite_types(
-    tmp_path: Path, minimum_samples: object, minimum_locatable_rate: object
+    tmp_path: Path,
+    minimum_samples: object,
+    minimum_locatable_rate: object,
+    maximum_non_locatable_run: object,
+    maximum_sampling_gap_ms: object,
 ) -> None:
     source = _write(tmp_path, 1, _snapshot(local_now_ms=1000, epoch=7, sequence=1))
     with pytest.raises(TargetObservationDiagnosticsSessionError):
@@ -352,6 +461,8 @@ def test_gate_thresholds_require_strict_finite_types(
             [source],
             minimum_samples=minimum_samples,  # type: ignore[arg-type]
             minimum_locatable_rate=minimum_locatable_rate,  # type: ignore[arg-type]
+            maximum_non_locatable_run=maximum_non_locatable_run,  # type: ignore[arg-type]
+            maximum_sampling_gap_ms=maximum_sampling_gap_ms,  # type: ignore[arg-type]
         )
 
 

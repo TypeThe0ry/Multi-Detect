@@ -87,6 +87,66 @@ def _count_map(counter: Counter[str]) -> dict[str, int]:
     return {key: counter[key] for key in sorted(counter)}
 
 
+def _quality_segments(
+    samples: Sequence[Mapping[str, object]], *, kind: str
+) -> list[dict[str, object]]:
+    def affected(sample: Mapping[str, object]) -> bool:
+        if kind == "non_locatable":
+            return sample["locatable"] is False
+        if kind == "range_invalid":
+            return sample["range_validity"] != "VALID"
+        if kind == "gnss_unqualified":
+            return sample["gnss_qualified"] is not True
+        raise TargetObservationDiagnosticsSessionError(f"unsupported quality segment: {kind}")
+
+    segments: list[dict[str, object]] = []
+    start: int | None = None
+    for index in range(len(samples) + 1):
+        is_affected = index < len(samples) and affected(samples[index])
+        if is_affected and start is None:
+            start = index
+        if is_affected or start is None:
+            continue
+        selected = samples[start:index]
+        first = selected[0]
+        last = selected[-1]
+        reasons = sorted(
+            {
+                str(reason)
+                for sample in selected
+                for reason in sample["diagnostic_reasons"]  # type: ignore[union-attr]
+            }
+        )
+        range_validities = sorted(
+            {
+                str(sample["range_validity"])
+                for sample in selected
+                if sample["range_validity"] is not None
+            }
+        )
+        gnss_reasons = sorted(
+            {str(sample["gnss_reason"]) for sample in selected if sample["gnss_reason"] is not None}
+        )
+        segments.append(
+            {
+                "kind": kind,
+                "start_index": start,
+                "end_index": index - 1,
+                "sample_count": len(selected),
+                "started_at_utc": first["generated_at_utc"],
+                "ended_at_utc": last["generated_at_utc"],
+                "start_local_now_ms": first["local_now_ms"],
+                "end_local_now_ms": last["local_now_ms"],
+                "duration_ms": int(last["local_now_ms"]) - int(first["local_now_ms"]),
+                "diagnostic_reasons": reasons,
+                "range_validities": range_validities,
+                "gnss_reasons": gnss_reasons,
+            }
+        )
+        start = None
+    return segments
+
+
 def _validate_report(report: Mapping[str, object]) -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
@@ -108,6 +168,8 @@ def verify_target_observation_diagnostics_session(
     minimum_samples: int = 2,
     minimum_locatable_rate: float = 0.0,
     require_recording_manifest: bool = False,
+    maximum_non_locatable_run: int | None = None,
+    maximum_sampling_gap_ms: int | None = None,
 ) -> dict[str, object]:
     """Verify a chronological diagnostics session and return a source-bound report."""
 
@@ -131,6 +193,22 @@ def verify_target_observation_diagnostics_session(
         raise TargetObservationDiagnosticsSessionError(
             "require_recording_manifest must be a boolean"
         )
+    if maximum_non_locatable_run is not None and (
+        isinstance(maximum_non_locatable_run, bool)
+        or not isinstance(maximum_non_locatable_run, int)
+        or maximum_non_locatable_run < 0
+    ):
+        raise TargetObservationDiagnosticsSessionError(
+            "maximum_non_locatable_run must be a non-negative integer or null"
+        )
+    if maximum_sampling_gap_ms is not None and (
+        isinstance(maximum_sampling_gap_ms, bool)
+        or not isinstance(maximum_sampling_gap_ms, int)
+        or maximum_sampling_gap_ms < 1
+    ):
+        raise TargetObservationDiagnosticsSessionError(
+            "maximum_sampling_gap_ms must be a positive integer or null"
+        )
     recording_manifest: dict[str, object] | None = None
     session_inputs: Sequence[str | Path] = inputs
     if len(inputs) == 1:
@@ -152,6 +230,7 @@ def verify_target_observation_diagnostics_session(
                 "stop_reason": manifest_report["stop_reason"],
                 "sample_count": manifest_report["sample_count"],
                 "directory_closed": manifest_report["directory_closed"],
+                "interval_ms": manifest_report["interval_ms"],
             }
     if require_recording_manifest and recording_manifest is None:
         raise TargetObservationDiagnosticsSessionError(
@@ -178,6 +257,7 @@ def verify_target_observation_diagnostics_session(
     last_identity_by_epoch: dict[int, tuple[int, int]] = {}
     previous_local_now_ms: int | None = None
     epoch_transitions = 0
+    epoch_transition_events: list[dict[str, object]] = []
     locatable_count = 0
     current_nonlocatable_run = 0
     longest_nonlocatable_run = 0
@@ -214,10 +294,20 @@ def verify_target_observation_diagnostics_session(
                 active_epoch = producer_epoch
                 observed_epochs.append(producer_epoch)
             elif producer_epoch != active_epoch:
+                previous_epoch = active_epoch
                 retired_epochs.add(active_epoch)
                 active_epoch = producer_epoch
                 observed_epochs.append(producer_epoch)
                 epoch_transitions += 1
+                epoch_transition_events.append(
+                    {
+                        "sample_index": index,
+                        "local_now_ms": local_now_ms,
+                        "generated_at_utc": document["generated_at_utc"],
+                        "from_epoch": previous_epoch,
+                        "to_epoch": producer_epoch,
+                    }
+                )
             previous_identity = last_identity_by_epoch.get(producer_epoch)
             if previous_identity is not None:
                 if sequence < previous_identity[0]:
@@ -261,6 +351,35 @@ def verify_target_observation_diagnostics_session(
 
     sample_count = len(samples)
     locatable_rate = locatable_count / sample_count
+    sampling_intervals_ms = [
+        int(samples[index]["local_now_ms"]) - int(samples[index - 1]["local_now_ms"])
+        for index in range(1, sample_count)
+    ]
+    expected_interval_ms = (
+        int(recording_manifest["interval_ms"]) if recording_manifest is not None else None
+    )
+    cadence_tolerance_ms = (
+        max(250, expected_interval_ms // 2) if expected_interval_ms is not None else None
+    )
+    cadence_limit_ms = (
+        expected_interval_ms + cadence_tolerance_ms
+        if expected_interval_ms is not None and cadence_tolerance_ms is not None
+        else None
+    )
+    sampling_gap_events = [
+        {
+            "previous_index": index - 1,
+            "current_index": index,
+            "gap_ms": gap,
+            "expected_interval_ms": expected_interval_ms,
+        }
+        for index, gap in enumerate(sampling_intervals_ms, start=1)
+        if cadence_limit_ms is not None and gap > cadence_limit_ms
+    ]
+    quality_segments = {
+        kind: _quality_segments(samples, kind=kind)
+        for kind in ("non_locatable", "range_invalid", "gnss_unqualified")
+    }
     gate_reasons: list[str] = []
     if sample_count < minimum_samples:
         gate_reasons.append(
@@ -269,6 +388,20 @@ def verify_target_observation_diagnostics_session(
     if locatable_rate < minimum_locatable_rate:
         gate_reasons.append(
             f"locatable_rate {locatable_rate:.6f} is below minimum {minimum_locatable_rate:.6f}"
+        )
+    if (
+        maximum_non_locatable_run is not None
+        and longest_nonlocatable_run > maximum_non_locatable_run
+    ):
+        gate_reasons.append(
+            f"longest_non_locatable_run {longest_nonlocatable_run} exceeds maximum "
+            f"{maximum_non_locatable_run}"
+        )
+    maximum_observed_gap_ms = max(sampling_intervals_ms, default=0)
+    if maximum_sampling_gap_ms is not None and maximum_observed_gap_ms > maximum_sampling_gap_ms:
+        gate_reasons.append(
+            f"maximum sampling gap {maximum_observed_gap_ms} ms exceeds maximum "
+            f"{maximum_sampling_gap_ms} ms"
         )
     report: dict[str, object] = {
         "schema": SCHEMA,
@@ -281,7 +414,25 @@ def verify_target_observation_diagnostics_session(
         "locatable_rate": locatable_rate,
         "longest_non_locatable_run": longest_nonlocatable_run,
         "epoch_transition_count": epoch_transitions,
+        "epoch_transitions": epoch_transition_events,
         "observed_epochs": observed_epochs,
+        "observation_duration_ms": int(samples[-1]["local_now_ms"])
+        - int(samples[0]["local_now_ms"]),
+        "sampling": {
+            "interval_count": len(sampling_intervals_ms),
+            "minimum_gap_ms": min(sampling_intervals_ms, default=None),
+            "maximum_gap_ms": max(sampling_intervals_ms, default=None),
+            "mean_gap_ms": (
+                sum(sampling_intervals_ms) / len(sampling_intervals_ms)
+                if sampling_intervals_ms
+                else None
+            ),
+            "expected_interval_ms": expected_interval_ms,
+            "cadence_tolerance_ms": cadence_tolerance_ms,
+            "cadence_violation_count": len(sampling_gap_events),
+            "gap_events": sampling_gap_events,
+        },
+        "quality_segments": quality_segments,
         "reason_counts": _count_map(reason_counts),
         "range_validity_counts": _count_map(validity_counts),
         "gnss_reason_counts": _count_map(gnss_reason_counts),
@@ -289,6 +440,8 @@ def verify_target_observation_diagnostics_session(
             "minimum_samples": minimum_samples,
             "minimum_locatable_rate": minimum_locatable_rate,
             "recording_manifest_required": require_recording_manifest,
+            "maximum_non_locatable_run": maximum_non_locatable_run,
+            "maximum_sampling_gap_ms": maximum_sampling_gap_ms,
         },
         "recording_manifest": recording_manifest,
         "samples": samples,
@@ -314,6 +467,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="require one native recording directory and verify its closed manifest",
     )
+    parser.add_argument("--maximum-non-locatable-run", type=int)
+    parser.add_argument("--maximum-sampling-gap-ms", type=int)
     parser.add_argument("--out", type=Path)
     return parser
 
@@ -326,6 +481,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             minimum_samples=args.minimum_samples,
             minimum_locatable_rate=args.minimum_locatable_rate,
             require_recording_manifest=args.require_recording_manifest,
+            maximum_non_locatable_run=args.maximum_non_locatable_run,
+            maximum_sampling_gap_ms=args.maximum_sampling_gap_ms,
         )
     except (TargetObservationDiagnosticsSessionError, OSError, ValueError) as exc:
         report = {

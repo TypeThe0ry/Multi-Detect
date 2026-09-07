@@ -15,7 +15,11 @@
     "locatable_rate",
     "longest_non_locatable_run",
     "epoch_transition_count",
+    "epoch_transitions",
     "observed_epochs",
+    "observation_duration_ms",
+    "sampling",
+    "quality_segments",
     "reason_counts",
     "range_validity_counts",
     "gnss_reason_counts",
@@ -39,10 +43,35 @@
     "locatable_rate": {"type": "number", "minimum": 0, "maximum": 1},
     "longest_non_locatable_run": {"type": "integer", "minimum": 0},
     "epoch_transition_count": {"type": "integer", "minimum": 0},
+    "epoch_transitions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/epochTransition"}
+    },
     "observed_epochs": {
       "type": "array",
       "uniqueItems": true,
       "items": {"type": "integer", "minimum": 1}
+    },
+    "observation_duration_ms": {"type": "integer", "minimum": 0},
+    "sampling": {"$ref": "#/$defs/sampling"},
+    "quality_segments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["non_locatable", "range_invalid", "gnss_unqualified"],
+      "properties": {
+        "non_locatable": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/qualitySegment"}
+        },
+        "range_invalid": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/qualitySegment"}
+        },
+        "gnss_unqualified": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/qualitySegment"}
+        }
+      }
     },
     "reason_counts": {"$ref": "#/$defs/countMap"},
     "range_validity_counts": {"$ref": "#/$defs/countMap"},
@@ -53,12 +82,16 @@
       "required": [
         "minimum_samples",
         "minimum_locatable_rate",
-        "recording_manifest_required"
+        "recording_manifest_required",
+        "maximum_non_locatable_run",
+        "maximum_sampling_gap_ms"
       ],
       "properties": {
         "minimum_samples": {"type": "integer", "minimum": 1},
         "minimum_locatable_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "recording_manifest_required": {"type": "boolean"}
+        "recording_manifest_required": {"type": "boolean"},
+        "maximum_non_locatable_run": {"type": ["integer", "null"], "minimum": 0},
+        "maximum_sampling_gap_ms": {"type": ["integer", "null"], "minimum": 1}
       }
     },
     "recording_manifest": {
@@ -93,7 +126,8 @@
         "session_id",
         "stop_reason",
         "sample_count",
-        "directory_closed"
+        "directory_closed",
+        "interval_ms"
       ],
       "properties": {
         "path": {"type": "string", "minLength": 1},
@@ -105,7 +139,108 @@
         },
         "stop_reason": {"type": "string", "minLength": 1},
         "sample_count": {"type": "integer", "minimum": 1},
-        "directory_closed": {"const": true}
+        "directory_closed": {"const": true},
+        "interval_ms": {"type": "integer", "minimum": 250, "maximum": 60000}
+      }
+    },
+    "epochTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_index",
+        "local_now_ms",
+        "generated_at_utc",
+        "from_epoch",
+        "to_epoch"
+      ],
+      "properties": {
+        "sample_index": {"type": "integer", "minimum": 1},
+        "local_now_ms": {"type": "integer", "minimum": 0},
+        "generated_at_utc": {"type": "string", "format": "date-time"},
+        "from_epoch": {"type": "integer", "minimum": 1},
+        "to_epoch": {"type": "integer", "minimum": 1}
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interval_count",
+        "minimum_gap_ms",
+        "maximum_gap_ms",
+        "mean_gap_ms",
+        "expected_interval_ms",
+        "cadence_tolerance_ms",
+        "cadence_violation_count",
+        "gap_events"
+      ],
+      "properties": {
+        "interval_count": {"type": "integer", "minimum": 0},
+        "minimum_gap_ms": {"type": ["integer", "null"], "minimum": 1},
+        "maximum_gap_ms": {"type": ["integer", "null"], "minimum": 1},
+        "mean_gap_ms": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "expected_interval_ms": {"type": ["integer", "null"], "minimum": 250},
+        "cadence_tolerance_ms": {"type": ["integer", "null"], "minimum": 250},
+        "cadence_violation_count": {"type": "integer", "minimum": 0},
+        "gap_events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/samplingGap"}
+        }
+      }
+    },
+    "samplingGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["previous_index", "current_index", "gap_ms", "expected_interval_ms"],
+      "properties": {
+        "previous_index": {"type": "integer", "minimum": 0},
+        "current_index": {"type": "integer", "minimum": 1},
+        "gap_ms": {"type": "integer", "minimum": 1},
+        "expected_interval_ms": {"type": "integer", "minimum": 250}
+      }
+    },
+    "qualitySegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "start_index",
+        "end_index",
+        "sample_count",
+        "started_at_utc",
+        "ended_at_utc",
+        "start_local_now_ms",
+        "end_local_now_ms",
+        "duration_ms",
+        "diagnostic_reasons",
+        "range_validities",
+        "gnss_reasons"
+      ],
+      "properties": {
+        "kind": {"enum": ["non_locatable", "range_invalid", "gnss_unqualified"]},
+        "start_index": {"type": "integer", "minimum": 0},
+        "end_index": {"type": "integer", "minimum": 0},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "started_at_utc": {"type": "string", "format": "date-time"},
+        "ended_at_utc": {"type": "string", "format": "date-time"},
+        "start_local_now_ms": {"type": "integer", "minimum": 0},
+        "end_local_now_ms": {"type": "integer", "minimum": 0},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "diagnostic_reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "range_validities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "gnss_reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     },
     "countMap": {
