@@ -31,6 +31,7 @@ Item {
     property string _pendingExecutionPopup: ""
     property double _pendingExecutionStartedAtMs: 0
     property var _targetEvidenceHistoryDialog: null
+    property var _targetEventReplayDialog: null
     property var _producerEpochDiagnosticsDialog: null
     property var _targetObservationDiagnosticsDialog: null
     property var _payloadActionDialog: null
@@ -626,6 +627,61 @@ Item {
             _targetEvidenceHistoryDialog.close();
     }
 
+    function _openTargetEventReplayDialog() {
+        if (_targetEventReplayDialog === null)
+            _targetEventReplayDialog = targetEventReplayDialogFactory.open();
+    }
+
+    function _closeTargetEventReplayDialog() {
+        if (_targetEventReplayDialog !== null)
+            _targetEventReplayDialog.close();
+    }
+
+    function _chooseTargetEventReplayManifest() {
+        if (typeof multiDetectTargetEventReplayStore === "undefined" ||
+                multiDetectTargetEventReplayStore === null) {
+            _setTargetEvidenceFeedback(qsTr("目标事件回放校验器不可用"), true);
+            return;
+        }
+        targetEventReplayManifestFileDialog.openForLoad();
+    }
+
+    function _loadTargetEventReplayManifest(path) {
+        if (typeof multiDetectTargetEventReplayStore === "undefined" ||
+                multiDetectTargetEventReplayStore === null) {
+            _setTargetEvidenceFeedback(qsTr("目标事件回放校验器不可用"), true);
+            return;
+        }
+        if (multiDetectTargetEventReplayStore.loadManifest(path)) {
+            _setTargetEvidenceFeedback(
+                qsTr("回放清单已验证：%1 个事件").arg(
+                    multiDetectTargetEventReplayStore.eventCount), false);
+            _openTargetEventReplayDialog();
+            return;
+        }
+        const detail = multiDetectTargetEventReplayStore.lastError !== "" ?
+                           ": " + multiDetectTargetEventReplayStore.lastError : "";
+        _setTargetEvidenceFeedback(qsTr("回放清单校验失败") + detail, true);
+    }
+
+    function _openOrChooseTargetEventReplay() {
+        if (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                multiDetectTargetEventReplayStore !== null &&
+                multiDetectTargetEventReplayStore.loaded) {
+            _openTargetEventReplayDialog();
+            return;
+        }
+        _chooseTargetEventReplayManifest();
+    }
+
+    function _clearTargetEventReplay() {
+        if (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                multiDetectTargetEventReplayStore !== null) {
+            multiDetectTargetEventReplayStore.clear();
+        }
+        _setTargetEvidenceFeedback(qsTr("已清除回放查看器"), false);
+    }
+
     function _openProducerEpochDiagnosticsDialog() {
         if (_producerEpochDiagnosticsDialog === null)
             _producerEpochDiagnosticsDialog = producerEpochDiagnosticsDialogFactory.open();
@@ -1049,6 +1105,32 @@ Item {
 
                 QGCButton {
                     Layout.fillWidth: true
+                    text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                           multiDetectTargetEventReplayStore !== null &&
+                           multiDetectTargetEventReplayStore.loaded) ?
+                              qsTr("查看回放") : qsTr("载入回放")
+                    onClicked: root._openOrChooseTargetEventReplay()
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.text
+                    text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                           multiDetectTargetEventReplayStore !== null &&
+                           multiDetectTargetEventReplayStore.loaded) ?
+                              qsTr("只读 · %1 个事件已校验").arg(
+                                  multiDetectTargetEventReplayStore.eventCount) :
+                              qsTr("选择 manifest.json 后校验事件与媒体")
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root._margin * 0.35
+
+                QGCButton {
+                    Layout.fillWidth: true
                     text: qsTr("复制诊断")
                     onClicked: root._copyProducerEpochDiagnostics()
                 }
@@ -1119,6 +1201,253 @@ Item {
                 color: qgcPal.warningText
                 text: qsTr("仅显示与记录；不产生飞控指令")
                 wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    QGCFileDialog {
+        id: targetEventReplayManifestFileDialog
+
+        folder: QGroundControl.settingsManager.appSettings.telemetrySavePath
+        nameFilters: [qsTr("JSON 文件 (*.json)"), qsTr("所有文件 (*)")]
+        title: qsTr("选择目标事件回放 manifest.json")
+
+        onAcceptedForLoad: function(file) {
+            root._loadTargetEventReplayManifest(file);
+            close();
+        }
+    }
+
+    QGCPopupDialogFactory {
+        id: targetEventReplayDialogFactory
+
+        dialogComponent: targetEventReplayDialogComponent
+    }
+
+    Component {
+        id: targetEventReplayDialogComponent
+
+        QGCPopupDialog {
+            id: targetEventReplayDialog
+
+            buttons: Dialog.Close
+            title: qsTr("目标事件回放 · 只读")
+
+            Component.onDestruction: root._targetEventReplayDialog = null
+
+            function valueOrDash(value) {
+                return value === undefined || value === null || value === "" ? "--" : String(value);
+            }
+
+            function gpsText(gps) {
+                const value = gps || ({});
+                if (value.coordinates_included !== true)
+                    return qsTr("不可定位 · 坐标已省略 · %1").arg(value.status || qsTr("未知"));
+                return qsTr("可定位 · %1, %2 · 1σ %3 m · %4")
+                    .arg(Number(value.latitude_deg).toFixed(7))
+                    .arg(Number(value.longitude_deg).toFixed(7))
+                    .arg(Number(value.horizontal_sigma_m).toFixed(1))
+                    .arg(value.freshness || qsTr("未知时效"));
+            }
+
+            function rangeText(ranging) {
+                const value = ranging || ({});
+                if (value.available !== true)
+                    return qsTr("测距：不可用");
+                const range = value.range_m === undefined || value.range_m === null ? "--" :
+                              Number(value.range_m).toFixed(1);
+                const bearing = value.bearing_deg === undefined || value.bearing_deg === null ? "--" :
+                                Number(value.bearing_deg).toFixed(1);
+                return qsTr("测距：%1 m · 方位 %2° · %3")
+                    .arg(range).arg(bearing).arg(value.validity || "--");
+            }
+
+            ColumnLayout {
+                height: Math.min(targetEventReplayDialog.maxContentAvailableHeight,
+                                 ScreenTools.defaultFontPixelHeight * 31)
+                spacing: root._margin * 0.35
+                width: Math.min(targetEventReplayDialog.maxContentAvailableWidth,
+                                ScreenTools.defaultFontPixelWidth * 72)
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: root._margin * 0.35
+
+                    QGCButton {
+                        text: qsTr("选择清单")
+                        onClicked: root._chooseTargetEventReplayManifest()
+                    }
+
+                    QGCButton {
+                        text: qsTr("清除")
+                        enabled: typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                 multiDetectTargetEventReplayStore !== null &&
+                                 multiDetectTargetEventReplayStore.loaded
+                        onClicked: root._clearTargetEventReplay()
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        color: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                multiDetectTargetEventReplayStore !== null &&
+                                multiDetectTargetEventReplayStore.integrityVerified) ?
+                                   qgcPal.colorGreen : qgcPal.warningText
+                        font.bold: true
+                        text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                               multiDetectTargetEventReplayStore !== null) ?
+                                  multiDetectTargetEventReplayStore.statusText :
+                                  qsTr("回放校验器不可用")
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: qgcPal.windowShade
+                    implicitHeight: replaySummaryColumn.implicitHeight + root._margin
+                    radius: ScreenTools.defaultBorderRadius
+
+                    ColumnLayout {
+                        id: replaySummaryColumn
+                        anchors.fill: parent
+                        anchors.margins: root._margin * 0.5
+                        spacing: root._margin * 0.16
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            font.bold: true
+                            text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                   multiDetectTargetEventReplayStore !== null &&
+                                   multiDetectTargetEventReplayStore.loaded) ?
+                                      qsTr("%1 · 会话 %2")
+                                          .arg(multiDetectTargetEventReplayStore.bundleId)
+                                          .arg(multiDetectTargetEventReplayStore.sessionId) :
+                                      qsTr("尚未加载目标事件回放")
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                   multiDetectTargetEventReplayStore !== null &&
+                                   multiDetectTargetEventReplayStore.loaded) ?
+                                      qsTr("清单 %1 · 开始 %2 · 事件 %3/%4 · 媒体 %5")
+                                          .arg(multiDetectTargetEventReplayStore.manifestName)
+                                          .arg(multiDetectTargetEventReplayStore.startedAtUtc)
+                                          .arg(multiDetectTargetEventReplayStore.displayedEventCount)
+                                          .arg(multiDetectTargetEventReplayStore.eventCount)
+                                          .arg(multiDetectTargetEventReplayStore.mediaCount) :
+                                      qsTr("先选择由 create_target_event_replay.py 生成的 manifest.json")
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            color: qgcPal.warningText
+                            text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                   multiDetectTargetEventReplayStore !== null &&
+                                   multiDetectTargetEventReplayStore.truncated) ?
+                                      qsTr("事件过多，仅显示前 %1 条；完整数量仍已校验").arg(
+                                          multiDetectTargetEventReplayStore.displayedEventCount) : ""
+                            visible: text !== ""
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                ScrollView {
+                    Layout.fillHeight: true
+                    Layout.fillWidth: true
+                    clip: true
+
+                    ListView {
+                        id: targetEventReplayList
+
+                        clip: true
+                        model: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                multiDetectTargetEventReplayStore !== null &&
+                                multiDetectTargetEventReplayStore.loaded) ?
+                                   multiDetectTargetEventReplayStore.events : []
+                        spacing: root._margin * 0.35
+
+                        delegate: Rectangle {
+                            required property var modelData
+
+                            border.color: qgcPal.button
+                            border.width: 1
+                            color: qgcPal.windowShade
+                            height: replayEventColumn.implicitHeight + root._margin
+                            radius: ScreenTools.defaultBorderRadius
+                            width: targetEventReplayList.width
+
+                            ColumnLayout {
+                                id: replayEventColumn
+                                anchors.fill: parent
+                                anchors.margins: root._margin * 0.5
+                                spacing: root._margin * 0.16
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    font.bold: true
+                                    text: qsTr("#%1 · %2 · 目标 %3 (%4)")
+                                          .arg(Number(parent.parent.modelData.sequence).toFixed(0))
+                                          .arg(parent.parent.modelData.event_id || "--")
+                                          .arg(parent.parent.modelData.target_id || "--")
+                                          .arg(parent.parent.modelData.target_label || "--")
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    text: qsTr("捕获时间：%1 s · 帧 %2")
+                                          .arg(Number(parent.parent.modelData.captured_at_s).toFixed(3))
+                                          .arg(parent.parent.modelData.frame_id || "--")
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    color: parent.parent.modelData.gps.coordinates_included === true ?
+                                               qgcPal.colorGreen : qgcPal.warningText
+                                    text: targetEventReplayDialog.gpsText(parent.parent.modelData.gps)
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    text: targetEventReplayDialog.rangeText(
+                                              parent.parent.modelData.ranging)
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QGCLabel {
+                                    Layout.fillWidth: true
+                                    color: qgcPal.text
+                                    text: qsTr("视频：%1 · 深度：%2")
+                                          .arg(parent.parent.modelData.video.present === true ?
+                                                   parent.parent.modelData.video.path : qsTr("无"))
+                                          .arg(parent.parent.modelData.depth.present === true ?
+                                                   parent.parent.modelData.depth.path : qsTr("无"))
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+
+                        QGCLabel {
+                            anchors.centerIn: parent
+                            color: qgcPal.text
+                            text: qsTr("尚无已校验的目标事件")
+                            visible: targetEventReplayList.count === 0
+                        }
+                    }
+                }
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    color: qgcPal.warningText
+                    text: qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")
+                    wrapMode: Text.WordWrap
+                }
             }
         }
     }

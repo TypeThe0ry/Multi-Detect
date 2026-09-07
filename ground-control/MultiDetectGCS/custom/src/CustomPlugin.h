@@ -7,6 +7,7 @@
 class QQmlApplicationEngine;
 class MultiDetectOperatorController;
 class MultiDetectTargetEvidenceStore;
+class MultiDetectTargetEventReplayStore;
 
 class CustomOverrideInterceptor final : public QQmlAbstractUrlInterceptor
 {
@@ -33,5 +34,6 @@ private:
     CustomOverrideInterceptor* _selector = nullptr;
     MultiDetectOperatorController* _operatorController = nullptr;
     MultiDetectTargetEvidenceStore* _targetEvidenceStore = nullptr;
+    MultiDetectTargetEventReplayStore* _targetEventReplayStore = nullptr;
     QVariantList _toolBarIndicatorList;
 };

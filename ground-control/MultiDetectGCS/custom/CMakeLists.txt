@@ -56,6 +56,23 @@ target_include_directories(MultiDetectTargetEvidenceStoreSelfTest PRIVATE ${CMAK
 target_link_libraries(MultiDetectTargetEvidenceStoreSelfTest PRIVATE Qt6::Core)
 
 add_library(
+    MultiDetectTargetEventReplayStore STATIC
+    src/MultiDetectTargetEventReplayStore.cc
+    src/MultiDetectTargetEventReplayStore.h
+)
+target_include_directories(MultiDetectTargetEventReplayStore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(MultiDetectTargetEventReplayStore PUBLIC Qt6::Core)
+target_compile_features(MultiDetectTargetEventReplayStore PUBLIC cxx_std_20)
+
+add_executable(
+    MultiDetectTargetEventReplayStoreSelfTest EXCLUDE_FROM_ALL
+    tests/MultiDetectTargetEventReplayStoreSelfTest.cc
+)
+target_link_libraries(
+    MultiDetectTargetEventReplayStoreSelfTest PRIVATE MultiDetectTargetEventReplayStore Qt6::Core
+)
+
+add_library(
     MultiDetectProducerEpochDiagnostics STATIC
     src/MultiDetectProducerEpochDiagnostics.cc
     src/MultiDetectProducerEpochDiagnostics.h
@@ -213,12 +230,15 @@ set(CUSTOM_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MultiDetectOperatorController.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MultiDetectTargetEvidenceStore.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MultiDetectTargetEvidenceStore.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/MultiDetectTargetEventReplayStore.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/MultiDetectTargetEventReplayStore.h
     CACHE INTERNAL "" FORCE
 )
 
 set(CUSTOM_LIBRARIES
     MultiDetectUi MultiDetectOperatorProtocol MultiDetectProducerEpochDiagnostics
     MultiDetectTargetObservationDiagnostics MultiDetectTargetObservationRecorder
+    MultiDetectTargetEventReplayStore
     CACHE INTERNAL "" FORCE
 )
 

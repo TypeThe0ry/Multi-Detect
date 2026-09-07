@@ -92,6 +92,12 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/target_observation_recording_manifest.py",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEvidenceStore.cc",
         "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEvidenceStore.h",
+        # The native target-event replay inspector is the QGC presentation
+        # boundary for the same hash-bound evidence contract.  Bind its
+        # verifier implementation to the UI parity so a native schema or
+        # fail-closed change invalidates stale SIM/HIL/REAL review evidence.
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEventReplayStore.cc",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEventReplayStore.h",
         "ground-control/MultiDetectGCS/custom/src/PlanViewRightPanel.qml",
         "ground-control/MultiDetectGCS/custom/src/SelectViewDropdown.qml",
     ),

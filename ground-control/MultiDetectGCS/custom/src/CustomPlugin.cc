@@ -11,6 +11,7 @@
 
 #include "MultiDetectOperatorController.h"
 #include "MultiDetectTargetEvidenceStore.h"
+#include "MultiDetectTargetEventReplayStore.h"
 #include "LinkConfiguration.h"
 #include "QGCApplication.h"
 #include "SettingsManager.h"
@@ -190,6 +191,8 @@ void CustomPlugin::cleanup()
     }
     delete _targetEvidenceStore;
     _targetEvidenceStore = nullptr;
+    delete _targetEventReplayStore;
+    _targetEventReplayStore = nullptr;
     if (_qmlEngine && _selector) {
         _qmlEngine->removeUrlInterceptor(_selector);
     }
@@ -239,9 +242,14 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     if (!_targetEvidenceStore) {
         _targetEvidenceStore = new MultiDetectTargetEvidenceStore(this);
     }
+    if (!_targetEventReplayStore) {
+        _targetEventReplayStore = new MultiDetectTargetEventReplayStore(this);
+    }
     _qmlEngine->rootContext()->setContextProperty(QStringLiteral("multiDetectOperator"), _operatorController);
     _qmlEngine->rootContext()->setContextProperty(
         QStringLiteral("multiDetectTargetEvidenceStore"), _targetEvidenceStore);
+    _qmlEngine->rootContext()->setContextProperty(
+        QStringLiteral("multiDetectTargetEventReplayStore"), _targetEventReplayStore);
     _qmlEngine->rootContext()->setContextProperty(
         QStringLiteral("multiDetectVehicleLinkDisabled"), vehicleLinkIsolationRequested());
     // The closed-loop HIL acceptance driver may exercise the same QML state

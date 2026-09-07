@@ -25,6 +25,11 @@ OPERATOR_CONTROLLER_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorControlle
 OPERATOR_PROTOCOL_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.cc"
 OPERATOR_PROTOCOL_HEADER = CUSTOM_ROOT / "src" / "MultiDetectOperatorProtocol.h"
 TARGET_EVIDENCE_STORE_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectTargetEvidenceStore.cc"
+TARGET_EVENT_REPLAY_STORE_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectTargetEventReplayStore.cc"
+TARGET_EVENT_REPLAY_STORE_HEADER = CUSTOM_ROOT / "src" / "MultiDetectTargetEventReplayStore.h"
+TARGET_EVENT_REPLAY_STORE_SELFTEST = (
+    CUSTOM_ROOT / "tests" / "MultiDetectTargetEventReplayStoreSelfTest.cc"
+)
 PRODUCER_EPOCH_DIAGNOSTICS_SOURCE = CUSTOM_ROOT / "src" / "MultiDetectProducerEpochDiagnostics.cc"
 TARGET_OBSERVATION_DIAGNOSTICS_SOURCE = (
     CUSTOM_ROOT / "src" / "MultiDetectTargetObservationDiagnostics.cc"
@@ -458,6 +463,77 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert 'Number.isFinite(numeric) ? numeric.toFixed(precision) + suffix : "--"' in layer
     assert 'root._optionalNumberText(parent.parent.entry.range_m, 1, " m")' in card
     assert 'root._optionalNumberText(parent.parent.entry.relative_bearing_deg, 1, "°")' in card
+
+
+def test_native_target_event_replay_inspector_is_hash_bound_and_read_only() -> None:
+    layer = _qml_code(FLY_VIEW_LAYER)
+    plugin = _read(CUSTOM_PLUGIN_SOURCE)
+    cmake = _read(CUSTOM_CMAKE)
+    replay_source = _read(TARGET_EVENT_REPLAY_STORE_SOURCE)
+    replay_header = _read(TARGET_EVENT_REPLAY_STORE_HEADER)
+    replay_selftest = _read(TARGET_EVENT_REPLAY_STORE_SELFTEST)
+
+    assert "multiDetectTargetEventReplayStore" in plugin
+    assert "MultiDetectTargetEventReplayStore" in plugin
+    assert "MultiDetectTargetEventReplayStore" in cmake
+    assert "MultiDetectTargetEventReplayStoreSelfTest" in cmake
+    assert "MultiDetectTargetEventReplayStoreSelfTest" in _read(
+        ROOT / "scripts" / "build_multidetect_windows.ps1"
+    )
+
+    for contract in (
+        'QStringLiteral("multidetect.target-event-replay.v1")',
+        'QStringLiteral("multidetect.target-event.v1")',
+        'QStringLiteral("bundle_hash")',
+        'QStringLiteral("events.jsonl")',
+        'QStringLiteral("media")',
+        "duplicate JSON object key",
+        "SHA-256 mismatch",
+        "contains_flight_control",
+        "contains_truth",
+        "GPS 观测时间必须单调不回退",
+    ):
+        assert contract in replay_source
+    for property_name in (
+        "loaded",
+        "integrityVerified",
+        "truncated",
+        "manifestName",
+        "bundleId",
+        "sessionId",
+        "eventCount",
+        "displayedEventCount",
+        "mediaCount",
+        "events",
+        "statusText",
+        "lastError",
+    ):
+        assert "Q_PROPERTY" in replay_header and property_name in replay_header
+    assert "valid replay bundle must load" in replay_selftest
+    assert "tampered media must fail closed" in replay_selftest
+    assert "duplicate JSON keys must fail closed" in replay_selftest
+
+    dialog_start = layer.index("id: targetEventReplayDialog\n")
+    dialog = layer[dialog_start:]
+    for text in (
+        "targetEventReplayManifestFileDialog.openForLoad()",
+        "multiDetectTargetEventReplayStore.loadManifest(path)",
+    ):
+        assert text in layer
+
+    for text in (
+        'qsTr("目标事件回放 · 只读")',
+        'qsTr("选择清单")',
+        'qsTr("清除")',
+        'qsTr("清单 %1 · 开始 %2 · 事件 %3/%4 · 媒体 %5")',
+        'qsTr("回放查看器只读取已校验证据；不会落图、选目标、发送任务或产生飞控指令")',
+        "multiDetectTargetEventReplayStore.events",
+    ):
+        assert text in dialog
+    assert "sendTargetSelection" not in dialog
+    assert "executePayload" not in dialog
+    assert "executeApproach" not in dialog
+    assert "multiDetectOperator" not in dialog
 
 
 def test_isolated_hil_exports_live_target_hit_geometry_without_selecting_it() -> None:
