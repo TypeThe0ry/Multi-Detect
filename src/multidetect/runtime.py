@@ -10,8 +10,9 @@ defines that boundary only; it does not provide a raw-sensor replay adapter.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from .autonomy.serialization import (
@@ -26,6 +27,7 @@ from .autonomy.serialization import (
     require_schema_version,
     require_sha256,
     require_text,
+    strict_json_loads,
     strict_object,
 )
 from .clock import Clock
@@ -613,11 +615,23 @@ class RuntimeFrameResult:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeRunReport:
+    """Canonical, persistable result of one observation-runtime execution.
+
+    The report deliberately records stream termination separately from the
+    number of processed frames.  A caller that stops after ``max_frames`` has
+    a valid prefix, but it must not be mistaken for a complete Replay/SIM
+    run.  ``stream_exhausted`` is set only after the backend actually returns
+    ``StopIteration``; a frame-limit stop remains explicitly incomplete.
+    """
+
     descriptor_hash: str
     input_hash: str
     processed_frame_ids: tuple[str, ...]
     started_at_s: float
     finished_at_s: float
+    stream_exhausted: bool = True
+    max_frames: int | None = None
+    schema_version: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -652,6 +666,178 @@ class RuntimeRunReport:
         )
         if self.finished_at_s < self.started_at_s:
             raise AutonomyContractError("runtime report cannot finish before it started")
+        object.__setattr__(
+            self,
+            "stream_exhausted",
+            require_bool(self.stream_exhausted, "stream_exhausted"),
+        )
+        if self.max_frames is not None:
+            object.__setattr__(
+                self,
+                "max_frames",
+                require_int(self.max_frames, "max_frames", minimum=0),
+            )
+        object.__setattr__(self, "schema_version", require_schema_version(self.schema_version))
+
+    @property
+    def processed_frame_count(self) -> int:
+        """Number of frame IDs in the report, derived from the canonical list."""
+
+        return len(self.processed_frame_ids)
+
+    @property
+    def duration_s(self) -> float:
+        """Elapsed shared-clock time for the run."""
+
+        return self.finished_at_s - self.started_at_s
+
+    @property
+    def complete(self) -> bool:
+        """Whether the backend stream was observed to terminate naturally."""
+
+        return self.stream_exhausted
+
+    @property
+    def termination_reason(self) -> str:
+        """Stable human/machine label for the report's stopping condition."""
+
+        return "stream_exhausted" if self.stream_exhausted else "frame_limit_reached"
+
+    def to_mapping(self) -> dict[str, Any]:
+        """Return the unsigned canonical report document."""
+
+        return {
+            "schema_version": self.schema_version,
+            "event": "runtime_run_finished",
+            "descriptor_hash": self.descriptor_hash,
+            "input_hash": self.input_hash,
+            "processed_frame_ids": list(self.processed_frame_ids),
+            "processed_frame_count": self.processed_frame_count,
+            "started_at_s": self.started_at_s,
+            "finished_at_s": self.finished_at_s,
+            "duration_s": self.duration_s,
+            "stream_exhausted": self.stream_exhausted,
+            "max_frames": self.max_frames,
+            "termination_reason": self.termination_reason,
+        }
+
+    @classmethod
+    def from_mapping(cls, raw: object) -> RuntimeRunReport:
+        """Load and verify a strict report mapping.
+
+        ``sha256`` is optional so an in-memory unsigned mapping can be used as
+        a constructor input.  When present it is recomputed over the unsigned
+        canonical document and therefore detects any persisted-field tamper.
+        """
+
+        value = strict_object(
+            raw,
+            name="RuntimeRunReport",
+            required=frozenset(
+                {
+                    "schema_version",
+                    "event",
+                    "descriptor_hash",
+                    "input_hash",
+                    "processed_frame_ids",
+                    "processed_frame_count",
+                    "started_at_s",
+                    "finished_at_s",
+                    "duration_s",
+                    "stream_exhausted",
+                    "max_frames",
+                    "termination_reason",
+                }
+            ),
+            optional=frozenset({"sha256"}),
+        )
+        if require_text(value["event"], "event") != "runtime_run_finished":
+            raise AutonomyContractError("RuntimeRunReport event must be runtime_run_finished")
+        raw_ids = value["processed_frame_ids"]
+        if not isinstance(raw_ids, Sequence) or isinstance(raw_ids, (str, bytes, bytearray)):
+            raise AutonomyContractError("processed_frame_ids must be an array")
+        report = cls(
+            descriptor_hash=require_sha256(value["descriptor_hash"], "descriptor_hash"),
+            input_hash=require_sha256(value["input_hash"], "input_hash"),
+            processed_frame_ids=tuple(
+                require_text(item, f"processed_frame_ids[{index}]")
+                for index, item in enumerate(raw_ids)
+            ),
+            started_at_s=require_real(value["started_at_s"], "started_at_s", minimum=0.0),
+            finished_at_s=require_real(value["finished_at_s"], "finished_at_s", minimum=0.0),
+            stream_exhausted=require_bool(value["stream_exhausted"], "stream_exhausted"),
+            max_frames=(
+                None
+                if value["max_frames"] is None
+                else require_int(value["max_frames"], "max_frames", minimum=0)
+            ),
+            schema_version=require_schema_version(value["schema_version"]),
+        )
+        count = require_int(value["processed_frame_count"], "processed_frame_count", minimum=0)
+        if count != report.processed_frame_count:
+            raise AutonomyContractError("processed_frame_count does not match processed_frame_ids")
+        duration = require_real(value["duration_s"], "duration_s", minimum=0.0)
+        if duration != report.duration_s:
+            raise AutonomyContractError("duration_s does not match runtime report timestamps")
+        if (
+            require_text(value["termination_reason"], "termination_reason")
+            != report.termination_reason
+        ):
+            raise AutonomyContractError("termination_reason does not match stream_exhausted")
+        if "sha256" in value:
+            claimed = require_sha256(value["sha256"], "sha256")
+            if claimed != report.canonical_hash:
+                raise AutonomyContractError("RuntimeRunReport sha256 does not match canonical data")
+        return report
+
+    @property
+    def canonical_json(self) -> str:
+        return canonical_json(self.to_mapping())
+
+    @property
+    def canonical_hash(self) -> str:
+        return canonical_sha256(self.to_mapping())
+
+    @property
+    def run_identity_hash(self) -> str:
+        """Alias used by runtime-status/evidence consumers."""
+
+        return self.canonical_hash
+
+    def to_mapping_with_hash(self) -> dict[str, Any]:
+        result = self.to_mapping()
+        result["sha256"] = self.canonical_hash
+        return result
+
+
+def write_runtime_run_report(path: str | Path, report: RuntimeRunReport) -> Path:
+    """Atomically write a hash-bound runtime report and return its path."""
+
+    if not isinstance(report, RuntimeRunReport):
+        raise TypeError("report must be a RuntimeRunReport")
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(target.name + ".tmp")
+    temporary.write_text(
+        canonical_json(report.to_mapping_with_hash()) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    temporary.replace(target)
+    return target
+
+
+def load_runtime_run_report(path: str | Path) -> RuntimeRunReport:
+    """Read, strictly parse and verify a persisted runtime report."""
+
+    source = Path(path).expanduser().resolve()
+    try:
+        raw = strict_json_loads(source.read_text(encoding="utf-8"), name="RuntimeRunReport")
+    except OSError as exc:
+        raise AutonomyContractError(f"unable to read RuntimeRunReport: {exc}") from exc
+    if not isinstance(raw, Mapping):
+        raise AutonomyContractError("RuntimeRunReport must be an object")
+    return RuntimeRunReport.from_mapping(raw)
 
 
 @dataclass(slots=True)
@@ -685,12 +871,14 @@ class AutonomyRuntime:
         results: list[RuntimeFrameResult] = []
         started_at_s = self.backend.clock.monotonic()
         iterator: Iterator[FrameObservation] | None = None
+        stream_exhausted = False
         try:
             iterator = self.backend.observations()
             while max_frames is None or len(results) < max_frames:
                 try:
                     frame = next(iterator)
                 except StopIteration:
+                    stream_exhausted = True
                     break
                 now_s = self.backend.clock.monotonic()
                 result = self.processor.process_observation(frame, now_s=now_s)
@@ -726,6 +914,8 @@ class AutonomyRuntime:
             processed_frame_ids=tuple(item.frame_id for item in frozen_results),
             started_at_s=started_at_s,
             finished_at_s=finished_at_s,
+            stream_exhausted=stream_exhausted,
+            max_frames=max_frames,
         )
 
 
@@ -742,4 +932,6 @@ __all__ = [
     "RuntimeProfile",
     "RuntimeProfileId",
     "RuntimeRunReport",
+    "load_runtime_run_report",
+    "write_runtime_run_report",
 ]

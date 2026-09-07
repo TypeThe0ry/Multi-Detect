@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 运行时完成报告与确定性前缀阻断（v176，`v0.3.0-pre.8`）
+
+- [x] `AutonomyRuntime.run_with_report()` 记录 `stream_exhausted`、`max_frames`、处理帧数和稳定终止原因；
+  被 `max_frames` 截断的有效前缀明确标记为 incomplete，不再被当成完整 Replay/SIM 运行；
+- [x] `RuntimeRunReport` 提供严格 JSON schema、canonical JSON/SHA-256、原子写入与加载复核，报告身份继续绑定
+  `RuntimeDescriptor` 与 backend input hash；
+- [x] `configs/schemas/runtime-run-report.schema.json` 纳入 `px4_mission_path` parity，Python 回归覆盖完整流、
+  有界前缀、派生字段篡改和 JSON schema 校验；
+- [ ] 仍需在现场 portable 上人工载入真实长回放并将完成报告与外部采集、HIL/REAL 记录对账；该人工/硬件门通过前，
+  不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## 全量摘要一键复制与 parity 重绑（v175）
 
 - [x] Fly View 回放弹窗提供完整摘要剪贴板导出，绑定 native 已验证的 bundle/session、质量统计、时长、媒体字节和完整性状态；

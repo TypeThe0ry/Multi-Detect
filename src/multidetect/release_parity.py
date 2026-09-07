@@ -280,6 +280,11 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "configs/schemas/px4-mission-feedback-observation-v2.schema.json",
         "configs/schemas/runtime-profile.schema.json",
         "configs/schemas/runtime-profile-document.schema.json",
+        # Persisted observation-runtime completion reports belong to the same
+        # PX4 Mission/runtime identity boundary.  Binding their schema here
+        # prevents an old prefix/completion interpretation from surviving a
+        # runtime implementation change.
+        "configs/schemas/runtime-run-report.schema.json",
         # The E7 HIL/REAL x three-airframe join is part of the Mission path:
         # changing its source binding or fail-closed release contract must
         # invalidate all previously captured feedback matrices.

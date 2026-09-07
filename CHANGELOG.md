@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v176 deterministic runtime completion report（2026-09-07）
+
+- `AutonomyRuntime.run_with_report()` 现在区分自然耗尽的完整流与 `max_frames` 截断前缀，报告记录处理帧数、时长、
+  稳定终止原因和 descriptor/input provenance；
+- 新增严格 `runtime-run-report` JSON schema、canonical SHA-256、原子写入/加载及篡改回归，schema 已纳入
+  `px4_mission_path` parity；
+- 三机型 external/PX4 派生证据已按新 parity 重绑，完整回归为 `3708 passed, 4 skipped, 0 failed`（3,712 tests）；
+  该更新只增强 Replay/SIM 运行记录与 fail-closed 证据边界，不改变室外 GNSS、硬件、HIL/REAL 或实飞门状态。
+
 ### v0.3.0-pre.8 v175 one-click replay summary export and parity rebind（2026-09-07）
 
 - Fly View 回放弹窗新增“复制全量摘要”，在 native 完整性校验通过后复制 bundle/session、事件与质量统计、捕获时长、媒体字节和完整性状态；该操作只写剪贴板，不触发地图、目标、Mission、飞控或物理释放；

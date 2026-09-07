@@ -16,6 +16,22 @@
 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
 
+### v176 RuntimeBackend 完成报告与 parity 重绑（2026-09-07）
+
+v176 增强的是 Python RuntimeBackend/Replay/SIM 运行记录契约，不改变 QGC C++/QML 二进制；因此当前 portable
+EXE 继续沿用已验证的 v175 字节（`46,875,136` bytes，SHA-256
+`41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`）。新增
+`RuntimeRunReport` 只有在 backend 自然返回 `StopIteration` 时才标记完整；`max_frames` 截断的前缀会写成
+`complete=false`。报告通过 `configs/schemas/runtime-run-report.schema.json`、canonical SHA-256 和原子写入/加载
+复核，descriptor/input provenance 与当前 parity 绑定。
+
+当前 parity 已重算为 `10,185` bytes、SHA-256
+`C3F9362479B8DF39C7126CDA5B84A573E86D907079391DFC82A505650D90F42B`；三机型 external/PX4 派生证据和
+report-only E7 已在 `artifacts/evaluation/terminal-continuation-v176/` 重新绑定。v176 RuntimeBackend 专项回归
+为 `53 passed, 0 skipped, 0 failed`；E7 仍为 `gate_passed=false`、`release_allowed=false`、32 条详细 blocker，
+完整 Python 回归为 `3708 passed, 4 skipped, 0 failed`（3,712 tests）；不提升室外 GNSS、真实硬件、HIL/REAL、
+人工视觉或实飞状态。
+
 ### v175 全量摘要一键复制与 parity 重绑（2026-09-07）
 
 Fly View 回放弹窗现在提供“复制全量摘要”。按钮只在 native replay store 完整加载且 `integrityVerified=true` 时启用，

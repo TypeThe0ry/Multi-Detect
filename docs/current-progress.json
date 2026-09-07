@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T05:30:00Z",
+  "updated_at_utc": "2026-09-07T06:19:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v175",
+  "working_iteration": "v176",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3708,
-      "passed_tests": 3704,
+      "tests": 3712,
+      "passed_tests": 3708,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 195.301,
+      "duration_seconds": 228.68,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/target-event-replay-v175-full-rerun.xml",
-      "junit_file_bytes": 542180,
-      "junit_file_sha256": "233628da0c949a2f84e0690ff293e9f642d7d33bb64785e51316aa031b332bbc",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v176/full-rerun.xml",
+      "junit_file_bytes": 542691,
+      "junit_file_sha256": "6678934d4ffb91f0f9fa331d0f5e193424daa68ddb6169adcde416103e408830",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -595,6 +595,70 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v176_runtime_run_report_selected_regression": {
+      "passed": true,
+      "tests": 53,
+      "passed_tests": 53,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "runtime_backend_completion_report_prefix_semantics_persistence_schema_and_tamper",
+      "report_fields": [
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason",
+        "sha256"
+      ],
+      "bounded_prefix_is_incomplete": true,
+      "natural_stream_exhaustion_is_complete": true,
+      "canonical_hash_bound": true,
+      "atomic_persistence": true,
+      "json_schema": "configs/schemas/runtime-run-report.schema.json",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v176/runtime-report-focused.xml",
+      "junit_file_bytes": 7091,
+      "junit_file_sha256": "1ad1cc21aace6a86bf58c73168b1b40d3f7c5bf685f296bf5ea7089ad1709f99",
+      "full_regression": {
+        "tests": 3712,
+        "passed_tests": 3708,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 228.68,
+        "python_version": "3.12.7",
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v176/full-rerun.xml",
+        "junit_file_bytes": 542691,
+        "junit_file_sha256": "6678934d4ffb91f0f9fa331d0f5e193424daa68ddb6169adcde416103e408830"
+      },
+      "portable_simple_boot": "passed",
+      "portable_simple_boot_stdout_bytes": 0,
+      "portable_simple_boot_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "portable_simple_boot_stderr_bytes": 0,
+      "portable_simple_boot_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "portable_simple_boot_qml_initialization_errors": 0,
+      "native_target_event_replay_store_self_test": "passed",
+      "native_target_event_replay_store_self_test_exit_code": 0,
+      "native_target_event_replay_store_self_test_output": "MultiDetectTargetEventReplayStoreSelfTest: PASS",
+      "release_exe": {
+        "path": "build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe",
+        "bytes": 46875136,
+        "sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
+      },
+      "portable_exe": {
+        "path": "build/windows-v0.3.0-pre.8-release/portable-v0.3.0-pre.8/bin/MultiDetectGCS.exe",
+        "bytes": 46875136,
+        "sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
+      },
+      "incremental_build": "passed_ninja_no_work",
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v175_target_event_replay_summary_clipboard_selected_regression": {
       "passed": true,
       "tests": 45,
@@ -746,14 +810,14 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 10129,
-    "file_sha256": "1c937ffdd4d0d59267a5df79a240e8101431613cad0be17533b2fff6ecc33ebc",
+    "bytes": 10185,
+    "file_sha256": "c3f9362479b8df39c7126cda5b84a573e86d907079391dfc82a505650d90f42b",
     "hashes": {
       "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
       "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
-      "px4_mission_path_hash": "df1cab8dd37c203cd8a86c6cee714cdc8650c3cd626376b2584d322ef2b6f4bf"
+      "px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8"
     }
   },
   "evidence": {
@@ -790,6 +854,27 @@
       "filter_match_count_uses_full_stream": true,
       "exe_bytes": 46875136,
       "exe_sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
+    },
+    "runtime_run_report_contract": {
+      "schema": "multidetect.runtime-run-report.v1",
+      "schema_path": "configs/schemas/runtime-run-report.schema.json",
+      "producer": "src/multidetect/runtime.py:AutonomyRuntime.run_with_report",
+      "persisted_loader": "load_runtime_run_report",
+      "persisted_writer": "write_runtime_run_report",
+      "natural_stream_exhaustion_required_for_complete": true,
+      "bounded_prefix_marked_incomplete": true,
+      "descriptor_and_input_hash_bound": true,
+      "derived_fields_recomputed": true,
+      "canonical_sha256_bound": true,
+      "atomic_write": true,
+      "px4_mission_path_parity_bound": true,
+      "selected_regression": "artifacts/evaluation/terminal-continuation-v176/runtime-report-focused.xml",
+      "selected_regression_tests": 53,
+      "selected_regression_passed": 53,
+      "flight_control_enabled": false,
+      "physical_release_enabled": false,
+      "hardware_claimed": false,
+      "outdoor_gnss_claimed": false
     },
     "gnss_bound_target_evidence_snapshots": {
       "schema": "multidetect.target-evidence.v6",
@@ -2149,6 +2234,96 @@
         "gate_passed": true
       },
       "all_inputs_bound_to_current_parity": true,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
+    "v176_runtime_run_report_and_parity_rebound": {
+      "reason": "hash-bound RuntimeBackend completion report with deterministic prefix semantics and current parity rebound",
+      "current_release_parity_path": "configs/release-parity.json",
+      "current_release_parity_bytes": 10185,
+      "current_release_parity_sha256": "c3f9362479b8df39c7126cda5b84a573e86d907079391dfc82a505650d90f42b",
+      "current_px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8",
+      "runtime_report_schema": "configs/schemas/runtime-run-report.schema.json",
+      "natural_stream_exhaustion_required": true,
+      "bounded_prefix_is_incomplete": true,
+      "canonical_sha256_and_atomic_persistence": true,
+      "selected_regression_tests": 53,
+      "selected_regression_passed": 53,
+      "external_join": {
+        "path": "artifacts/evaluation/terminal-continuation-v176/simulator-external-runtime-ai-join-v176-current-parity-pre8.json",
+        "bytes": 5492,
+        "sha256": "47077c6d070f7096948acf6065bc4975c9be0e8be077638644023c42e3457deb",
+        "gate_passed": true
+      },
+      "external_revalidation": {
+        "path": "artifacts/evaluation/terminal-continuation-v176/simulator-external-runtime-ai-revalidation-v176-current-parity-pre8.json",
+        "bytes": 565,
+        "sha256": "f04cf928746301c937830c71bdec1d3ab63d22424c5f46608ef4651bd7c851c9",
+        "source_recomputed": true,
+        "gate_passed": true
+      },
+      "px4_response_matrix": {
+        "path": "artifacts/evaluation/terminal-continuation-v176/px4-reported-position-response-matrix-v176-current-parity-pre8.json",
+        "bytes": 6985,
+        "sha256": "b1621b9be8e4fe6601d284d510d0bc6ccdf0779ae34266ecf1839a7902557cc1",
+        "matrix_sha256": "fcc1c2bae697bbb9bae0de3f9cabb0b8464b262a9c2e63384a68809fd65ff8c6",
+        "gate_passed": true
+      },
+      "px4_response_campaign": {
+        "path": "artifacts/evaluation/terminal-continuation-v176/px4-reported-position-response-campaign-v176-current-parity-pre8.json",
+        "bytes": 26120,
+        "sha256": "e08bab1bf2c4e71a9a9196839024b9fd231365e04ef8088b923f353223a696bb",
+        "campaign_sha256": "b84236f7f45eef4142e4c6546ba8d91a6f6851ee1a36710a8089f9f5026e1537",
+        "gate_passed": true
+      },
+      "release_gate_report": {
+        "manifest_path": "artifacts/evaluation/terminal-continuation-v176/release-gate/release-gate-pre.8-current-20260907T060500Z-v6-bound.json",
+        "manifest_bytes": 23729,
+        "manifest_sha256": "b5548abfb67183c633138b9bfb9c21cea824e591bc9de3250a82f4f6a5119dea",
+        "report_path": "artifacts/evaluation/terminal-continuation-v176/release-gate/release-gate-pre.8-current-20260907T060500Z-v6-bound-report.json",
+        "report_bytes": 73786,
+        "report_sha256": "8d0b88e0f0f92946bf0cd8e374cf0e3cb29c9607d700b8d0c249708c200e0d1ad",
+        "gate_passed": false,
+        "release_allowed": false,
+        "blocker_count": 32,
+        "current_release_parity_bound": true
+      },
+      "software_artifact_validation": {
+        "build_status": "passed_ninja_no_work",
+        "release_exe": {
+          "path": "build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe",
+          "bytes": 46875136,
+          "sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
+        },
+        "portable_exe": {
+          "path": "build/windows-v0.3.0-pre.8-release/portable-v0.3.0-pre.8/bin/MultiDetectGCS.exe",
+          "bytes": 46875136,
+          "sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b"
+        },
+        "native_target_event_replay_store_self_test": {
+          "path": "build/windows-v0.3.0-pre.8-release/Release/MultiDetectTargetEventReplayStoreSelfTest.exe",
+          "bytes": 209408,
+          "sha256": "69a860ce4a5ed7a94e66849fa0fa0cb86c658ccf9cac29ff7b7099910baf1195",
+          "exit_code": 0,
+          "output": "MultiDetectTargetEventReplayStoreSelfTest: PASS"
+        },
+        "portable_simple_boot": {
+          "command": "MultiDetectGCS.exe --simple-boot-test",
+          "exit_code": 0,
+          "stdout_path": "artifacts/evaluation/terminal-continuation-v176/portable-simple-boot-stdout.txt",
+          "stdout_bytes": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_path": "artifacts/evaluation/terminal-continuation-v176/portable-simple-boot-stderr.txt",
+          "stderr_bytes": 0,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "qml_initialization_errors": 0
+        }
+      },
+      "derived_evidence_rebound": true,
+      "release_gate_recomputed": true,
+      "gate_passed": false,
+      "release_allowed": false,
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"

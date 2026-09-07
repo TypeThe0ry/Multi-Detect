@@ -1,6 +1,34 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v175 工作树）
+最后更新：2026-09-07（v176 工作树）
+
+## v176 本轮已收口（运行时完成报告与确定性前缀阻断）
+
+- `RuntimeRunReport` 现在把自然耗尽与有界前缀分开记录：`stream_exhausted=true` 才表示完整流，传入
+  `max_frames` 的运行会保留已处理帧但明确标记 `complete=false`、`termination_reason=frame_limit_reached`；
+  不再把“刚好处理到上限”误报为完整 Replay/SIM 运行。
+- 新增 `configs/schemas/runtime-run-report.schema.json` 以及 `write_runtime_run_report()`/
+  `load_runtime_run_report()`：报告使用 canonical JSON 与 SHA-256，原子写入，严格拒绝未知字段、重复 ID、
+  派生计数/时长/终止原因篡改和错误的 persisted hash；descriptor hash 与 backend input hash 仍绑定在同一身份边界。
+- `runtime.py`、schema、parity source list 与回归测试已更新；RuntimeBackend 专项回归覆盖完整流、有界前缀、
+  持久化往返、schema 校验和 tamper fail-closed。
+- 当前 `configs/release-parity.json` 为 10,185 bytes，SHA-256
+  `C3F9362479B8DF39C7126CDA5B84A573E86D907079391DFC82A505650D90F42B`；`px4_mission_path_hash` 为
+  `727CDF63FC97FA8DA5D642274620FF3D6009C406912FF9B9A0D40E3685132CB8`。三机型 external join/revalidation 与
+  PX4 response matrix/campaign 均重新绑定并 `gate_passed=true`，report-only E7 位于
+  `artifacts/evaluation/terminal-continuation-v176/release-gate/`，仍为 `gate_passed=false`、
+  `release_allowed=false`、32 条详细 blocker。
+- 完整 Python 回归为 `3708 passed, 4 skipped, 0 failed`（3,712 tests，228.68 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v176/full-rerun.xml`，542,691 bytes，SHA-256
+  `6678934D4FFB91F0F9FA331D0F5E193424DAA68DDB6169ADCDE416103E408830`；Ruff、format、compileall 与
+  `git diff --check` 继续作为收口门。
+- 增量 Windows Release 构建已完成（Ninja 报告 `no work to do`）：Release 与 portable EXE 均为
+  `46,875,136` bytes、SHA-256 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`；
+  `MultiDetectTargetEventReplayStoreSelfTest.exe` 退出 0 并输出 `PASS`，portable
+  `--simple-boot-test` 退出 0，stdout/stderr 均为 0 bytes（SHA-256 均为
+  `E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855`）。
+- 当前仍是 `v0.3.0-pre.8` prerelease。运行时报告和 software/SIM 测试不等同于室外 GNSS、真实硬件、HIL/REAL、
+  人工 Fly View 或实飞验收；现场 portable 长回放对账仍是下一道人工门。
 
 ## v175 本轮已收口（全量摘要一键复制与 parity 重绑）
 

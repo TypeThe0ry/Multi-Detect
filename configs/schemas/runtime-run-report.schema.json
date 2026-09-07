@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schemas/runtime-run-report.schema.json",
+  "title": "Multi-Detect Runtime Run Report",
+  "description": "Hash-bound completion record for one post-detection Replay or simulator observation stream.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event",
+    "descriptor_hash",
+    "input_hash",
+    "processed_frame_ids",
+    "processed_frame_count",
+    "started_at_s",
+    "finished_at_s",
+    "duration_s",
+    "stream_exhausted",
+    "max_frames",
+    "termination_reason",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "const": "runtime_run_finished" },
+    "descriptor_hash": { "$ref": "#/$defs/sha256" },
+    "input_hash": { "$ref": "#/$defs/sha256" },
+    "processed_frame_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "processed_frame_count": { "type": "integer", "minimum": 0 },
+    "started_at_s": { "type": "number", "minimum": 0 },
+    "finished_at_s": { "type": "number", "minimum": 0 },
+    "duration_s": { "type": "number", "minimum": 0 },
+    "stream_exhausted": { "type": "boolean" },
+    "max_frames": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 0 }
+      ]
+    },
+    "termination_reason": {
+      "enum": ["stream_exhausted", "frame_limit_reached"]
+    },
+    "sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    }
+  }
+}

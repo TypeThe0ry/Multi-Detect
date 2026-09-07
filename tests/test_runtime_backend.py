@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator, ValidationError
 
 from multidetect.backends import (
     ObservationReplayBackend,
@@ -18,9 +21,14 @@ from multidetect.runtime import (
     RuntimeDescriptor,
     RuntimeMode,
     RuntimeRunReport,
+    load_runtime_run_report,
+    write_runtime_run_report,
 )
 
 AIRFRAME_HASH = "a" * 64
+RUNTIME_REPORT_SCHEMA = (
+    Path(__file__).resolve().parents[1] / "configs" / "schemas" / "runtime-run-report.schema.json"
+)
 
 
 def _frame(frame_id: str, captured_at_s: float) -> FrameObservation:
@@ -132,6 +140,85 @@ def test_runtime_report_binds_descriptor_and_recording_hash() -> None:
     assert report.input_hash == backend.recording.recording_hash
     assert report.processed_frame_ids == ("f0",)
     assert tuple(item.frame_id for item in results) == report.processed_frame_ids
+    assert report.stream_exhausted is True
+    assert report.complete is True
+    assert report.max_frames is None
+    assert report.termination_reason == "stream_exhausted"
+
+
+def test_runtime_report_round_trips_as_a_hash_bound_completion_record(tmp_path) -> None:
+    backend = ReplayBackend(
+        ReplayRecording("report-persist", [_frame("f0", 1.0), _frame("f1", 2.0)], AIRFRAME_HASH)
+    )
+    _results, report = AutonomyRuntime(backend=backend, processor=_Processor()).run_with_report()
+
+    destination = write_runtime_run_report(tmp_path / "runtime-run.json", report)
+    loaded = load_runtime_run_report(destination)
+
+    assert loaded == report
+    assert loaded.processed_frame_count == 2
+    assert loaded.duration_s == report.finished_at_s - report.started_at_s
+    assert loaded.run_identity_hash == loaded.canonical_hash
+    assert loaded.to_mapping_with_hash()["sha256"] == loaded.canonical_hash
+
+
+def test_runtime_report_matches_the_checked_in_json_schema() -> None:
+    backend = ReplayBackend(ReplayRecording("report-schema", [_frame("f0", 1.0)], AIRFRAME_HASH))
+    _results, report = AutonomyRuntime(backend=backend, processor=_Processor()).run_with_report()
+    schema = json.loads(RUNTIME_REPORT_SCHEMA.read_text(encoding="utf-8"))
+
+    Draft202012Validator(schema).validate(report.to_mapping_with_hash())
+
+    invalid = report.to_mapping_with_hash()
+    invalid["unexpected"] = True
+    with pytest.raises(ValidationError):
+        Draft202012Validator(schema).validate(invalid)
+
+
+def test_runtime_report_marks_a_bounded_prefix_as_incomplete() -> None:
+    backend = ReplayBackend(
+        ReplayRecording("report-prefix", [_frame("f0", 1.0), _frame("f1", 2.0)], AIRFRAME_HASH)
+    )
+
+    _results, report = AutonomyRuntime(backend=backend, processor=_Processor()).run_with_report(
+        max_frames=1
+    )
+
+    assert report.processed_frame_ids == ("f0",)
+    assert report.stream_exhausted is False
+    assert report.complete is False
+    assert report.max_frames == 1
+    assert report.termination_reason == "frame_limit_reached"
+
+
+def test_runtime_report_rejects_derived_field_tamper(tmp_path) -> None:
+    backend = ReplayBackend(ReplayRecording("report-tamper", [_frame("f0", 1.0)], AIRFRAME_HASH))
+    _results, report = AutonomyRuntime(backend=backend, processor=_Processor()).run_with_report()
+    document = report.to_mapping_with_hash()
+
+    document["processed_frame_count"] = 99
+    with pytest.raises(ValueError, match="processed_frame_count"):
+        RuntimeRunReport.from_mapping(document)
+
+    document = report.to_mapping_with_hash()
+    document["duration_s"] = 99.0
+    with pytest.raises(ValueError, match="duration_s"):
+        RuntimeRunReport.from_mapping(document)
+
+    document = report.to_mapping_with_hash()
+    document["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="sha256"):
+        RuntimeRunReport.from_mapping(document)
+
+    destination = write_runtime_run_report(tmp_path / "runtime-run.json", report)
+    destination.write_text(
+        destination.read_text(encoding="utf-8").replace(
+            '"stream_exhausted":true', '"stream_exhausted":false'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="sha256|termination_reason"):
+        load_runtime_run_report(destination)
 
 
 def test_runtime_rejects_backend_provenance_swap_during_processing() -> None:

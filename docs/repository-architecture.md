@@ -1,5 +1,28 @@
 # 统一仓库架构
 
+## v176 运行时完成报告与确定性前缀阻断（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+RuntimeBackend (Replay/SIM observation stream)
+        │ descriptor hash + input hash
+        ▼
+AutonomyRuntime.run_with_report(max_frames)
+        │ processed frame IDs + shared-clock timestamps
+        │ stream_exhausted / frame_limit_reached
+        ▼
+RuntimeRunReport.to_mapping_with_hash()
+        │ canonical JSON + SHA-256
+        ├─ atomic write_runtime_run_report()
+        └─ strict load_runtime_run_report() + schema validation
+```
+
+- 报告把“自然读到 `StopIteration`”作为唯一完整流信号；`max_frames` 产生的前缀仍可复盘，但明确是
+  `complete=false`，下游不能把它当成完整 SIM/Replay 证据；
+- `RuntimeRunReport` 的 persisted 文档同时绑定 descriptor、输入流、处理 ID、时钟区间和派生字段，加载时
+  重算计数、时长、终止原因和 canonical SHA-256；schema 文件纳入 `px4_mission_path` parity，避免契约漂移；
+- 该链路只生成软件运行记录，不触发地图、Mission、飞控或物理释放，也不提升室外 GNSS、真实硬件、HIL/REAL、
+  人工视觉或实飞验收状态。
+
 ## v175 全量回放摘要剪贴板导出（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
