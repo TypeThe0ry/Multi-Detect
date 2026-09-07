@@ -83,6 +83,12 @@ def test_default_file_list_is_explicit_and_resolves_from_repository() -> None:
         "configs/schemas/runtime-run-report.schema.json"
         in document["source_files"]["px4_mission_path"]
     )
+    assert {
+        "src/multidetect/px4_runtime_capture.py",
+        "configs/schemas/px4-runtime-capture.schema.json",
+        "scripts/generate_px4_runtime_capture_evidence.py",
+        "scripts/run_px4_runtime_capture.ps1",
+    } <= set(document["source_files"]["px4_mission_path"])
     assert (
         "configs/schemas/camera-calibration.schema.json"
         in document["source_files"]["core_algorithm"]

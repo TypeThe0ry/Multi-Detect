@@ -327,6 +327,11 @@ DEFAULT_FILE_LIST: dict[str, tuple[str, ...]] = {
         "src/multidetect/px4_runtime_capture.py",
         "configs/schemas/px4-runtime-capture.schema.json",
         "scripts/generate_px4_runtime_capture_evidence.py",
+        # Keep the Windows field entrypoint bound to the same PX4 Mission
+        # path.  It only resolves Python, forwards bounded capture options,
+        # and passes secret material by environment-variable name; a wrapper
+        # drift must invalidate previously reviewed field instructions.
+        "scripts/run_px4_runtime_capture.ps1",
         # v190 joins the live RuntimeObservation result, executable PX4
         # Mission feedback, signed RuntimeProfile and endpoint/vehicle
         # identity sidecar into one fail-closed software evidence contract.
