@@ -389,6 +389,16 @@ def test_target_geolocation_is_a_qualified_read_only_flyview_map_overlay() -> No
     assert "visible: root._targetMapContextVisible" in card
     assert 'qsTr("目标落图 · 只读")' in card
     assert 'qsTr("目标落图 · 不可定位")' in card
+    assert "readonly property var _recordingQualitySummary" in layer
+    assert "readonly property var _recordingCurrentStatus" in layer
+    assert "function _recordingQualityLevelText(level)" in layer
+    assert "function _recordingQualityColor(level)" in layer
+    assert "function _recordingQualityReasonText(reason)" in layer
+    assert "function _recordingQualityText()" in layer
+    assert 'qsTr("%1：等待样本")' in layer
+    assert 'qsTr("%1：%2 · 定位率 %3%")' in layer
+    assert "status.latest_gap_violation === true" in layer
+    assert "text: root._recordingQualityText()" in card
     assert 'text: qsTr("复制坐标")' in card
     assert 'text: qsTr("保存快照")' in card
     assert 'text: qsTr("记录")' in card

@@ -99,6 +99,10 @@ Item {
     property bool _targetEvidenceFeedbackIsError: false
     readonly property bool _targetMapPointInView: _targetMapPoint.x >= 0.0 && _targetMapPoint.y >= 0.0 &&
                                                   _targetMapPoint.x <= width && _targetMapPoint.y <= height
+    readonly property var _recordingQualitySummary: MultiDetectState.targetObservationRecordingQualitySummary || ({})
+    readonly property var _recordingCurrentStatus: _recordingQualitySummary.current_status || ({})
+    readonly property bool _recordingQualityHasSamples:
+        Number(_recordingQualitySummary.sample_count) > 0
 
     function _currentTargetRangeM() {
         if (MultiDetectState.rangeTargetId === MultiDetectState.targetId &&
@@ -165,6 +169,62 @@ Item {
         return Number.isFinite(bearingDeg) ?
                     qsTr("相对方位：%1°").arg(bearingDeg.toFixed(1)) :
                     qsTr("相对方位：等待估计");
+    }
+
+    function _recordingQualityLevelText(level) {
+        if (level === "HEALTHY")
+            return qsTr("良好");
+        if (level === "WARNING")
+            return qsTr("警告");
+        if (level === "CRITICAL")
+            return qsTr("严重");
+        return qsTr("等待样本");
+    }
+
+    function _recordingQualityColor(level) {
+        if (!_recordingQualityHasSamples)
+            return qgcPal.text;
+        if (level === "HEALTHY")
+            return qgcPal.colorGreen;
+        if (level === "CRITICAL")
+            return qgcPal.colorRed;
+        return qgcPal.warningText;
+    }
+
+    function _recordingQualityReasonText(reason) {
+        const translations = {
+            "target_not_locatable": qsTr("当前不可定位"),
+            "range_invalid": qsTr("测距异常"),
+            "gnss_unqualified": qsTr("GNSS 不合格"),
+            "latest_sampling_gap": qsTr("最近采样断档")
+        };
+        return translations[String(reason || "")] || String(reason || qsTr("质量异常"));
+    }
+
+    function _recordingQualityText() {
+        const summary = _recordingQualitySummary || ({});
+        const status = summary.current_status || ({});
+        const level = String(status.level || "WAITING");
+        const sampleCount = Number(summary.sample_count);
+        const prefix = summary.active === true ? qsTr("定位质量") : qsTr("上次定位质量");
+        if (!Number.isFinite(sampleCount) || sampleCount <= 0)
+            return qsTr("%1：等待样本").arg(prefix);
+
+        const rate = Number(summary.locatable_rate);
+        const rateText = Number.isFinite(rate) ?
+                             (Math.max(0.0, Math.min(1.0, rate)) * 100.0).toFixed(0) : "--";
+        let text = qsTr("%1：%2 · 定位率 %3%").arg(prefix)
+                    .arg(_recordingQualityLevelText(level)).arg(rateText);
+        const currentRun = Number(status.current_non_locatable_run);
+        if (Number.isFinite(currentRun) && currentRun > 0)
+            text += qsTr(" · 不可定位连续 %1").arg(Math.round(currentRun));
+        const latestGap = Number(status.latest_gap_ms);
+        if (Number.isFinite(latestGap) && latestGap > 0 && status.latest_gap_violation === true)
+            text += qsTr(" · 断档 %1 ms").arg(Math.round(latestGap));
+        const reasons = Array.isArray(status.reasons) ? status.reasons : [];
+        if (reasons.length > 0)
+            text += qsTr(" · %1").arg(_recordingQualityReasonText(reasons[0]));
+        return text;
     }
 
     function _optionalNumberText(value, precision, suffix) {
@@ -937,6 +997,14 @@ Item {
                       .arg(MultiDetectState.targetGeolocationSourceAgeMs)
                       .arg(MultiDetectState.targetGeolocationSourceFrameId !== "" ?
                                MultiDetectState.targetGeolocationSourceFrameId : "--")
+                wrapMode: Text.WordWrap
+            }
+
+            QGCLabel {
+                Layout.fillWidth: true
+                color: root._recordingQualityColor(
+                          String(root._recordingCurrentStatus.level || "WAITING"))
+                text: root._recordingQualityText()
                 wrapMode: Text.WordWrap
             }
 
