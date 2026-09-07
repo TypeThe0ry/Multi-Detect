@@ -37,6 +37,13 @@ class RawSensorRuntimeBackend(Protocol):
     freshness, deadline, wire and audit decisions.  A deterministic descriptor
     is accepted only with ``ManualClock``; concrete adapters remain responsible
     for advancing it from verified sensor timestamps.
+
+    Profile-bound Pixhawk adapters additionally expose
+    ``telemetry_request_messages_transmitted``,
+    ``application_messages_transmitted`` and
+    ``flight_control_messages_transmitted``.  The live producer records those
+    counters separately so telemetry setup requests cannot be relabeled as
+    application output or silently folded into a receive-only result.
     """
 
     @property

@@ -408,6 +408,9 @@ def test_pixhawk_flight_provider_sends_real_mavlink_attitude_and_mode_messages()
 
     assert provider.is_read_only is False
     assert provider.messages_transmitted == 2
+    assert provider.telemetry_request_messages_transmitted == 0
+    assert provider.application_messages_transmitted == 2
+    assert provider.flight_control_messages_transmitted == 2
     assert len(connection.mav.attitude_calls) == 1
     attitude = connection.mav.attitude_calls[0]
     assert attitude[1:4] == (1, 1, 71)
@@ -437,6 +440,10 @@ def test_flight_provider_requests_rc_channels_at_control_rate() -> None:
     provider.snapshot(now_s=10.1)
 
     assert len(connection.mav.command_long_calls) == 1
+    assert provider.messages_transmitted == 1
+    assert provider.telemetry_request_messages_transmitted == 1
+    assert provider.application_messages_transmitted == 0
+    assert provider.flight_control_messages_transmitted == 0
     request = connection.mav.command_long_calls[0]
     assert request[:4] == (1, 1, 511, 0)
     assert request[4] == 65.0

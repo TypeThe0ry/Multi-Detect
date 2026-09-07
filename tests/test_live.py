@@ -577,6 +577,29 @@ class _SafeTelemetryProvider:
         )
 
 
+class _AccountingTelemetryProvider(_SafeTelemetryProvider):
+    def __init__(
+        self,
+        *,
+        total: int = 0,
+        telemetry_requests: int = 0,
+        application: int = 0,
+        flight_control: int = 0,
+        read_only: bool = True,
+        hardware_control_enabled: bool = False,
+        flight_control_enabled: bool = False,
+        output_locked: bool = True,
+    ) -> None:
+        self.messages_transmitted = total
+        self.telemetry_request_messages_transmitted = telemetry_requests
+        self.application_messages_transmitted = application
+        self.flight_control_messages_transmitted = flight_control
+        self.is_read_only = read_only
+        self.hardware_control_enabled = hardware_control_enabled
+        self.flight_control_enabled = flight_control_enabled
+        self.output_locked = output_locked
+
+
 class _CountingTelemetryProvider(_SafeTelemetryProvider):
     def __init__(self) -> None:
         self.snapshot_calls = 0
@@ -839,6 +862,96 @@ def test_raw_sensor_backend_binds_shared_detector_to_production_live_pipeline() 
     assert detector.detect_calls == 1
     assert telemetry.snapshot_calls == 1
     assert telemetry.close_calls == 1
+
+
+def test_profile_bound_live_runner_emits_typed_observation_result() -> None:
+    clock = ManualClock(initial_monotonic_s=10.0)
+    source = _ClockAdvancingFrameSource(clock, (10.0,))
+    backend = _RawSensorBackend(
+        source,
+        _AccountingTelemetryProvider(total=3, telemetry_requests=3),
+    )
+    backend.clock = clock
+    backend.descriptor = RuntimeDescriptor(
+        mode=RuntimeMode.HIL,
+        profile=RuntimeProfile.hil(
+            vehicle_identity_hash="a" * 64,
+            airframe_profile_hash="b" * 64,
+            endpoint_binding_hash="c" * 64,
+        ),
+        backend_id="test:raw-hil-observation",
+        airframe_profile_hash="b" * 64,
+        scenario_id="scenario-1",
+        scenario_manifest_hash="d" * 64,
+        scenario_seed=7,
+        deterministic=False,
+    )
+    runner = LiveMissionRunner.from_runtime_backend(
+        backend=backend,
+        mission=MissionController(_patrol_config()),
+        detector=_Detector(),
+        config=LiveRunConfig(max_frames=1, display=False),
+    )
+
+    result = runner.run()
+
+    assert result.processed_frames == 1
+    report = runner.runtime_run_report
+    assert report.descriptor_hash == backend.descriptor.canonical_hash
+    assert report.input_hash == backend.descriptor.canonical_hash
+    assert report.processed_frame_ids == ("replay-clock-1",)
+    assert report.stream_exhausted is False
+    assert report.max_frames == 1
+    assert runner.runtime_message_counters == {
+        "messages_transmitted": 3,
+        "telemetry_request_messages_transmitted": 3,
+        "application_messages_transmitted": 0,
+        "flight_control_messages_transmitted": 0,
+        "is_read_only": True,
+        "hardware_control_enabled": False,
+        "flight_control_enabled": False,
+        "output_locked": True,
+    }
+    observation = runner.build_runtime_observation_result()
+    document = observation.to_mapping()
+    assert observation.mode is RuntimeMode.HIL
+    assert document["event"] == "hil_runtime_observation_finished"
+    assert document["runtime_run_report"] == report.to_mapping_with_hash()
+    assert document["messages_transmitted"] == 0
+    assert document["flight_control_enabled"] is False
+
+
+def test_profile_bound_live_runner_rejects_application_output_in_observation_result() -> None:
+    clock = ManualClock(initial_monotonic_s=10.0)
+    backend = _RawSensorBackend(
+        _ClockAdvancingFrameSource(clock, (10.0,)),
+        _AccountingTelemetryProvider(
+            total=1,
+            application=1,
+            flight_control=1,
+            read_only=False,
+            hardware_control_enabled=True,
+            output_locked=False,
+        ),
+    )
+    backend.clock = clock
+    backend.descriptor = RuntimeDescriptor(
+        mode=RuntimeMode.REAL,
+        profile=RuntimeProfile.observer(),
+        backend_id="test:raw-real-output",
+        airframe_profile_hash="a" * 64,
+    )
+    runner = LiveMissionRunner.from_runtime_backend(
+        backend=backend,
+        mission=MissionController(_patrol_config()),
+        detector=_Detector(),
+        config=LiveRunConfig(max_frames=1, display=False),
+    )
+
+    runner.run()
+
+    with pytest.raises(RuntimeError, match="application messages transmitted"):
+        runner.build_runtime_observation_result()
 
 
 def test_live_mission_runner_has_no_direct_operating_system_clock_reads() -> None:

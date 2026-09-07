@@ -1224,6 +1224,9 @@ def test_pixhawk_requests_dynamic_ranging_streams_after_heartbeat_with_bounded_r
 
     assert len(connection.mav.calls) == 21
     assert provider.messages_transmitted == 21
+    assert provider.telemetry_request_messages_transmitted == 21
+    assert provider.application_messages_transmitted == 0
+    assert provider.flight_control_messages_transmitted == 0
     assert {int(call[4]) for call in connection.mav.calls[:7]} == {
         29,
         30,
@@ -1261,6 +1264,9 @@ def test_pixhawk_requests_autopilot_version_once_and_stops_after_response() -> N
     assert int(request[2]) == 512
     assert int(request[4]) == 148
     assert provider.messages_transmitted == 1
+    assert provider.telemetry_request_messages_transmitted == 1
+    assert provider.application_messages_transmitted == 0
+    assert provider.flight_control_messages_transmitted == 0
     diagnostics = provider.diagnostics(now_s=15.1)
     assert diagnostics["autopilot_version_requests"] == {
         "enabled": True,
@@ -1310,6 +1316,9 @@ def test_pixhawk_default_receive_only_mode_sends_no_stream_requests() -> None:
 
     assert connection.mav.calls == []
     assert provider.messages_transmitted == 0
+    assert provider.telemetry_request_messages_transmitted == 0
+    assert provider.application_messages_transmitted == 0
+    assert provider.flight_control_messages_transmitted == 0
 
 
 def test_pixhawk_config_rejects_non_boolean_autopilot_version_request() -> None:

@@ -93,7 +93,8 @@ from .rgb_fire_corroboration import (
     IndependentRgbFireCorroborator,
 )
 from .rgb_slam_range import RgbSlamRangeConfig, RgbSlamRangeEstimator
-from .runtime import RuntimeDescriptor
+from .runtime import RuntimeDescriptor, RuntimeRunReport
+from .runtime_observation import RuntimeObservationResult
 from .selection_target_pool import UnifiedSelectionTargetPool
 from .semantic_environment import (
     AsyncSemanticContextRunner,
@@ -1000,6 +1001,80 @@ class LiveMissionRunner:
         self._target_world_speed = (
             TargetWorldSpeedEstimator() if ranging_engine is not None else None
         )
+        # The live producer owns the exact frame sequence consumed by the
+        # shared core. Keep it private until a completed run is requested as a
+        # typed HIL/REAL observation result; no synthetic IDs or counter
+        # conversion are allowed at the CLI boundary.
+        self._runtime_input_hash: str | None = None
+        self._runtime_run_report: RuntimeRunReport | None = None
+        self._runtime_processed_frame_ids: list[str] = []
+        self._runtime_stream_exhausted = False
+        self._runtime_run_started_at_s: float | None = None
+        self._runtime_run_finished_at_s: float | None = None
+
+    def _runtime_provider_chain(self) -> tuple[object, ...]:
+        """Return the telemetry wrapper chain from outermost to innermost.
+
+        Zone-evidence adapters deliberately wrap the Pixhawk provider.  Runtime
+        output accounting must inspect the innermost transport as well, or an
+        outer ``is_read_only`` convenience property could hide a control-capable
+        provider.  The walk is bounded and cycle-safe for custom adapters.
+        """
+
+        chain: list[object] = []
+        current: object | None = self.telemetry_provider
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            chain.append(current)
+            current = getattr(current, "base_provider", None)
+        return tuple(chain)
+
+    def _runtime_provider_value(self, name: str) -> object | None:
+        """Read a runtime accounting property from the innermost adapter."""
+
+        for provider in reversed(self._runtime_provider_chain()):
+            try:
+                value = getattr(provider, name)
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                continue
+            if value is not None:
+                return value
+        return None
+
+    @property
+    def runtime_message_counters(self) -> dict[str, int | bool | None]:
+        """Expose separated transport/application counters for a live run.
+
+        ``messages_transmitted`` remains the backwards-compatible total.  The
+        explicit telemetry/application/flight-control fields prevent a
+        telemetry-request capture from being mislabeled as a receive-only
+        application result.  Generic test providers may leave fields unknown;
+        profile-bound Pixhawk providers populate all of them.
+        """
+
+        counters: dict[str, int | bool | None] = {}
+        for name in (
+            "messages_transmitted",
+            "telemetry_request_messages_transmitted",
+            "application_messages_transmitted",
+            "flight_control_messages_transmitted",
+        ):
+            value = self._runtime_provider_value(name)
+            counters[name] = (
+                value
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                else None
+            )
+        for name in (
+            "is_read_only",
+            "hardware_control_enabled",
+            "flight_control_enabled",
+            "output_locked",
+        ):
+            value = self._runtime_provider_value(name)
+            counters[name] = value if isinstance(value, bool) else None
+        return counters
 
     @classmethod
     def from_runtime_backend(
@@ -1038,7 +1113,56 @@ class LiveMissionRunner:
             **kwargs,
         )
         runner.runtime_descriptor = descriptor
+        backend_input_hash = getattr(backend, "input_hash", None)
+        runner._runtime_input_hash = (
+            backend_input_hash if isinstance(backend_input_hash, str) else descriptor.canonical_hash
+        )
         return runner
+
+    @property
+    def runtime_run_report(self) -> RuntimeRunReport:
+        """Return the completed report for a profile-bound live producer.
+
+        The report is populated only after :meth:`run` reaches its normal
+        result construction path. A stream stopped without a finite
+        ``max_frames`` bound cannot satisfy the canonical termination contract
+        and remains unavailable instead of receiving an invented reason.
+        """
+
+        if self._runtime_run_report is None:
+            raise RuntimeError(
+                "live runtime report is unavailable until a bounded or naturally "
+                "exhausted run completes"
+            )
+        return self._runtime_run_report
+
+    def build_runtime_observation_result(self) -> RuntimeObservationResult:
+        """Build the typed receive-only result for a completed HIL/REAL run."""
+
+        descriptor = self.runtime_descriptor
+        if descriptor is None:
+            raise RuntimeError("runtime observation result requires a profile-bound runtime")
+        if descriptor.mode.value not in {"hil", "real"}:
+            raise RuntimeError("runtime observation result requires HIL or REAL runtime mode")
+        counters = self.runtime_message_counters
+        for name in (
+            "application_messages_transmitted",
+            "flight_control_messages_transmitted",
+        ):
+            value = counters[name]
+            if isinstance(value, int) and value != 0:
+                raise RuntimeError(
+                    f"runtime observation result requires zero {name.replace('_', ' ')}"
+                )
+        if counters["is_read_only"] is False or counters["hardware_control_enabled"] is True:
+            raise RuntimeError(
+                "runtime observation result requires a read-only, output-locked telemetry provider"
+            )
+        if counters["flight_control_enabled"] is True:
+            raise RuntimeError(
+                "runtime observation result requires flight control to remain disabled"
+            )
+        return RuntimeObservationResult(descriptor.mode, self.runtime_run_report)
 
     def run(self) -> LiveRunResult:
         ui = OpenCVAuthorizationUI() if self.config.display else None
@@ -1189,6 +1313,11 @@ class LiveMissionRunner:
         person_reid_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
         vehicle_reid_latency_ms: deque[float] = deque(maxlen=self.config.performance_window_frames)
         run_started_s = self.clock.monotonic()
+        self._runtime_run_report = None
+        self._runtime_processed_frame_ids = []
+        self._runtime_stream_exhausted = False
+        self._runtime_run_started_at_s = run_started_s
+        self._runtime_run_finished_at_s = None
         last_person_reid_at_s: float | None = run_started_s
         last_vehicle_reid_at_s: float | None = run_started_s
         first_captured_at_s: float | None = None
@@ -1297,6 +1426,7 @@ class LiveMissionRunner:
                 try:
                     captured = self.frame_source.read()
                 except FrameSourceExhausted:
+                    self._runtime_stream_exhausted = True
                     self.mission.audit.append(
                         "camera.stream_exhausted",
                         self.clock.monotonic(),
@@ -4019,6 +4149,7 @@ class LiveMissionRunner:
                         if local_track_status is not None:
                             local_tracking_statuses += 1
                 processed += 1
+                self._runtime_processed_frame_ids.append(captured.frame_id)
                 processed_at_s = self.clock.monotonic()
                 if first_processed_at_s is None:
                     first_processed_at_s = processed_at_s
@@ -4174,6 +4305,26 @@ class LiveMissionRunner:
             close = getattr(self.telemetry_provider, "close", None)
             if callable(close):
                 close()
+        self._runtime_run_finished_at_s = self.clock.monotonic()
+        if self.runtime_descriptor is not None:
+            if self._runtime_run_started_at_s is None:
+                raise RuntimeError("live runtime report has no start timestamp")
+            if not self._runtime_stream_exhausted and self.config.max_frames is None:
+                # A user-initiated stop of an unbounded live source has no
+                # canonical termination value. Leave the report unavailable
+                # rather than relabeling it as a completed stream or inventing
+                # a frame limit.
+                self._runtime_run_report = None
+            else:
+                self._runtime_run_report = RuntimeRunReport(
+                    descriptor_hash=self.runtime_descriptor.canonical_hash,
+                    input_hash=self._runtime_input_hash or self.runtime_descriptor.canonical_hash,
+                    processed_frame_ids=tuple(self._runtime_processed_frame_ids),
+                    started_at_s=self._runtime_run_started_at_s,
+                    finished_at_s=self._runtime_run_finished_at_s,
+                    stream_exhausted=self._runtime_stream_exhausted,
+                    max_frames=(None if self._runtime_stream_exhausted else self.config.max_frames),
+                )
         semantic_context_statistics = (
             self.semantic_context_runner.statistics()
             if self.semantic_context_runner is not None

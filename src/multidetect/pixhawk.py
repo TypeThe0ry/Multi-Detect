@@ -485,6 +485,12 @@ class PixhawkReadOnlyTelemetryProvider:
         self._message_type_counts: Counter[str] = Counter()
         self._rc_input_snapshot: PixhawkRcInputSnapshot | None = None
         self._messages_transmitted = 0
+        # Keep link-local telemetry configuration requests separate from any
+        # application/flight-control output.  Read-only providers only ever
+        # increment this counter; the flight-control subclass adds its own
+        # application counter while preserving ``messages_transmitted`` as the
+        # backwards-compatible total.
+        self._telemetry_request_messages_transmitted = 0
         self._stream_request_attempts = 0
         self._last_stream_request_s: float | None = None
         self._autopilot_version_request_attempts = 0
@@ -497,9 +503,27 @@ class PixhawkReadOnlyTelemetryProvider:
 
     @property
     def messages_transmitted(self) -> int:
-        """Count link-local stream-cadence requests; flight commands stay absent."""
+        """Count all messages emitted by this provider."""
 
         return self._messages_transmitted
+
+    @property
+    def telemetry_request_messages_transmitted(self) -> int:
+        """Count telemetry/autopilot-version/stream-interval requests only."""
+
+        return self._telemetry_request_messages_transmitted
+
+    @property
+    def application_messages_transmitted(self) -> int:
+        """Count application-layer output; read-only providers always return zero."""
+
+        return 0
+
+    @property
+    def flight_control_messages_transmitted(self) -> int:
+        """Count flight-control output; read-only providers always return zero."""
+
+        return 0
 
     @property
     def resolved_endpoint(self) -> str | None:
@@ -610,6 +634,9 @@ class PixhawkReadOnlyTelemetryProvider:
             "telemetry_configuration_enabled": self.config.request_ranging_streams,
             "messages_received": self.messages_received,
             "messages_transmitted": self.messages_transmitted,
+            "telemetry_request_messages_transmitted": (self.telemetry_request_messages_transmitted),
+            "application_messages_transmitted": self.application_messages_transmitted,
+            "flight_control_messages_transmitted": self.flight_control_messages_transmitted,
             "rejected_system_messages": self.rejected_system_messages,
             "ignored_non_autopilot_heartbeats": self.ignored_non_autopilot_heartbeats,
             "rejected_autopilot_version_messages": self.rejected_autopilot_version_messages,
@@ -1384,6 +1411,7 @@ class PixhawkReadOnlyTelemetryProvider:
             )
             sent += 1
         self._messages_transmitted += sent
+        self._telemetry_request_messages_transmitted += sent
         self._stream_request_attempts += 1
         self._last_stream_request_s = now_s
 
@@ -1434,6 +1462,7 @@ class PixhawkReadOnlyTelemetryProvider:
             0.0,
         )
         self._messages_transmitted += 1
+        self._telemetry_request_messages_transmitted += 1
         self._autopilot_version_request_attempts += 1
         self._last_autopilot_version_request_s = now_s
 

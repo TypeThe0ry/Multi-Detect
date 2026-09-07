@@ -140,6 +140,25 @@ def test_operator_udp_listeners_default_to_loopback() -> None:
     assert live.rgb_fire_verifier_minimum_iou == 0.30
     assert live.identity_tracking_log_out is None
     assert live.identity_tracking_session_id is None
+    assert live.runtime_report is None
+    assert live.runtime_observation_result is None
+    assert live.runtime_observation_include_hash is False
+
+
+def test_live_runtime_observation_outputs_require_profile_bound_runtime(capsys) -> None:
+    base = ["live-camera", str(CONFIG), "--onnx-model", "model.onnx"]
+
+    assert main([*base, "--runtime-report", "runtime-report.json"]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert "require --runtime-mode hil or real" in error["message"]
+
+    assert main([*base, "--runtime-observation-result", "runtime-result.json"]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert "require --runtime-mode hil or real" in error["message"]
+
+    assert main([*base, "--runtime-observation-include-hash"]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert "requires --runtime-observation-result" in error["message"]
 
 
 def test_profile_bound_runtime_cli_requires_an_explicit_mode() -> None:

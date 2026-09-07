@@ -512,7 +512,7 @@ class PixhawkFlightControlProvider(PixhawkReadOnlyTelemetryProvider):
     def __init__(self, config: PixhawkFlightControlConfig) -> None:
         super().__init__(config.telemetry)
         self.flight_control_config = config
-        self._messages_transmitted = 0
+        self._application_messages_transmitted = 0
         self._last_rc_stream_request_s: float | None = None
 
     @property
@@ -523,11 +523,24 @@ class PixhawkFlightControlProvider(PixhawkReadOnlyTelemetryProvider):
     def messages_transmitted(self) -> int:
         return self._messages_transmitted
 
+    @property
+    def application_messages_transmitted(self) -> int:
+        return self._application_messages_transmitted
+
+    @property
+    def flight_control_messages_transmitted(self) -> int:
+        return self._application_messages_transmitted
+
     def diagnostics(self, *, now_s: float) -> dict[str, object]:
         document = super().diagnostics(now_s=now_s)
         document["read_only"] = False
         document["hardware_control_enabled"] = True
         document["messages_transmitted"] = self.messages_transmitted
+        document["telemetry_request_messages_transmitted"] = (
+            self.telemetry_request_messages_transmitted
+        )
+        document["application_messages_transmitted"] = self.application_messages_transmitted
+        document["flight_control_messages_transmitted"] = self.flight_control_messages_transmitted
         return document
 
     def snapshot(self, *, now_s: float) -> VehicleTelemetry:
@@ -549,6 +562,7 @@ class PixhawkFlightControlProvider(PixhawkReadOnlyTelemetryProvider):
             0.0,
         )
         self._messages_transmitted += 1
+        self._application_messages_transmitted += 1
 
     def request_mode(self, mode: str) -> None:
         connection = self._qualified_connection()
@@ -562,6 +576,7 @@ class PixhawkFlightControlProvider(PixhawkReadOnlyTelemetryProvider):
             int(mapping[normalized]),
         )
         self._messages_transmitted += 1
+        self._application_messages_transmitted += 1
 
     def _ensure_rc_input_stream(self, *, now_s: float) -> None:
         sample = self.rc_input_snapshot
@@ -590,6 +605,7 @@ class PixhawkFlightControlProvider(PixhawkReadOnlyTelemetryProvider):
         )
         self._last_rc_stream_request_s = now_s
         self._messages_transmitted += 1
+        self._telemetry_request_messages_transmitted += 1
 
     def _qualified_connection(self) -> Any:
         self.connect()

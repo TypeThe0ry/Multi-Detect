@@ -1,8 +1,8 @@
 {
   "parity": {
     "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
-    "px4_mission_path_hash": "727cdf63fc97fa8da5d642274620ff3d6009c406912ff9b9a0d40e3685132cb8",
-    "safety_policy_hash": "a7c16d5c7a52508c6d289296abdda50f24cc8010d62f1a535ef609114545ced5",
+    "px4_mission_path_hash": "335bbc6ca26ed433db5e732b5053e756714539d43ac1c3fa46a79891f2055138",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
     "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
     "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
   },

@@ -232,6 +232,7 @@ from .runtime_launcher import (
     launch_profile_bound_runtime,
     signing_identity_hash_from_hex,
 )
+from .runtime_observation import write_runtime_observation_result
 from .selection_target_pool import UnifiedSelectionTargetPool
 from .semantic_environment import (
     CITYSEMSEGFORMER_LABELS,
@@ -1362,6 +1363,27 @@ def build_parser() -> argparse.ArgumentParser:
             "bind live-camera to a signed HIL/REAL RuntimeProfile; omitted keeps the legacy "
             "read-only development path"
         ),
+    )
+    live.add_argument(
+        "--runtime-report",
+        type=Path,
+        help=(
+            "write the canonical hash-bound RuntimeRunReport sidecar after a bounded or "
+            "naturally exhausted HIL/REAL run"
+        ),
+    )
+    live.add_argument(
+        "--runtime-observation-result",
+        type=Path,
+        help=(
+            "write the typed receive-only RuntimeObservationResult after a bounded or "
+            "naturally exhausted HIL/REAL run"
+        ),
+    )
+    live.add_argument(
+        "--runtime-observation-include-hash",
+        action="store_true",
+        help="include the canonical result sha256 when writing --runtime-observation-result",
     )
     live.add_argument(
         "--runtime-profile",
@@ -5836,6 +5858,17 @@ def _profile_bound_runtime_config_from_args(
 def _run_live_camera(args: argparse.Namespace) -> int:
     config = MissionConfig.from_json(args.config)
     profile_runtime_config = _profile_bound_runtime_config_from_args(args)
+    runtime_report_requested = args.runtime_report is not None
+    runtime_observation_requested = args.runtime_observation_result is not None
+    if (runtime_report_requested or runtime_observation_requested) and (
+        profile_runtime_config is None
+    ):
+        raise ValueError(
+            "--runtime-report/--runtime-observation-result require --runtime-mode hil or real "
+            "with a signed profile-bound runtime"
+        )
+    if args.runtime_observation_include_hash and not runtime_observation_requested:
+        raise ValueError("--runtime-observation-include-hash requires --runtime-observation-result")
     if not 0 <= args.capture_queue_frames <= 256:
         raise ValueError("--capture-queue-frames must be between 0 and 256")
     if not 0 <= args.warmup_iterations <= 100:
@@ -7195,8 +7228,31 @@ def _run_live_camera(args: argparse.Namespace) -> int:
         }
     )
     pixhawk_diagnostics: dict[str, object] | None = None
+    runtime_report_path: Path | None = None
+    runtime_observation_result_path: Path | None = None
+    runtime_message_counters: dict[str, int | bool | None] | None = None
     try:
         result = runner.run()
+        runtime_message_counters = runner.runtime_message_counters
+        if runtime_report_requested or runtime_observation_requested:
+            try:
+                runtime_report = runner.runtime_run_report
+            except RuntimeError as exc:
+                raise ValueError(
+                    "runtime observation outputs require --max-frames when the live stream "
+                    "does not naturally exhaust"
+                ) from exc
+            runtime_observation = (
+                runner.build_runtime_observation_result() if runtime_observation_requested else None
+            )
+            if runtime_report_requested:
+                runtime_report_path = write_runtime_run_report(args.runtime_report, runtime_report)
+            if runtime_observation is not None:
+                runtime_observation_result_path = write_runtime_observation_result(
+                    args.runtime_observation_result,
+                    runtime_observation,
+                    include_hash=args.runtime_observation_include_hash,
+                )
         if pixhawk_telemetry is not None:
             diagnostics_at_s = time.monotonic()
             pixhawk_diagnostics = pixhawk_telemetry.diagnostics(now_s=diagnostics_at_s)
@@ -7403,6 +7459,15 @@ def _run_live_camera(args: argparse.Namespace) -> int:
             "inert_payload_hil_enabled": payload_hil_cycle is not None,
             "auto_simulated_payload_cycle_enabled": args.auto_simulate_payload_cycle,
             "pixhawk": pixhawk_diagnostics,
+            "runtime_report_path": (
+                str(runtime_report_path) if runtime_report_path is not None else None
+            ),
+            "runtime_observation_result_path": (
+                str(runtime_observation_result_path)
+                if runtime_observation_result_path is not None
+                else None
+            ),
+            "runtime_message_counters": runtime_message_counters,
         }
     )
     return 0
