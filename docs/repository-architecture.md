@@ -1,5 +1,30 @@
 # 统一仓库架构
 
+## v184 RuntimeProfile sidecar 集合预检（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+REPLAY profile ─┐
+SIM profile ────┼─> runtime_profile_binding_set
+HIL profile ────┤        │
+REAL profile ───┘        ├─ mode/profile kind
+                         ├─ signed key_id + HMAC
+                         ├─ endpoint/vehicle/firmware identity
+                         └─ output locked (software preflight)
+                                      │
+                         profile identity evidence only
+                                      ▼
+             PX4 Mission feedback six-source / Fly View / E7
+```
+
+- `src/multidetect/runtime_profile_binding_set.py` 只接收显式 profile 路径和观察 identity；profile source 必须在
+  `base_directory` 内、不可为空或符号链接，所有模式按固定顺序输出，不能通过目录扫描或同一文件复用伪造覆盖。
+- HIL/REAL 签名 key 由调用者通过内存 API 或 `--hmac-key-env MODE ENV_NAME` 提供，报告只记录 `key_id`、source
+  hash 和布尔检查；加载器固定 `allow_flight_control_output=false`，因此有效 REAL profile 也只生成锁输出的
+  software 预检结果。完整四模式不等于真实连接、硬件、HIL/REAL、人工视觉或飞行验收。
+- `configs/schemas/runtime-profile-binding-set.schema.json` 同时约束成功与结构错误事件；该集合门与 v183
+  `runtime_report_binding_set` 可并列消费，之后由 `px4_mission_feedback_binding.py` 继续完成六组现场 Mission/
+  feedback/profile 逐叶绑定。
+
 ## v183 多模式 RuntimeReportBinding 集合（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

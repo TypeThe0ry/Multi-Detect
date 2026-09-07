@@ -1,6 +1,21 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v183 工作树）
+最后更新：2026-09-07（v184 工作树）
+
+## v184 本轮已收口（RuntimeProfile sidecar 集合预检）
+
+- 新增 [`src/multidetect/runtime_profile_binding_set.py`](../src/multidetect/runtime_profile_binding_set.py) 与
+  `multidetect-runtime-profile-set-verify` CLI：显式重开每个 `REPLAY / SIM / HIL / REAL` 的 RuntimeProfile
+  JSON sidecar，按固定模式顺序检查 profile kind、签名策略、`key_id`、观察到的 endpoint/vehicle/firmware/
+  airframe/signing identity，以及 `flight_control_enabled=false` / `output_locked=true`。
+- HIL/REAL 的 HMAC key 只从调用者内存或环境变量读取，不写入输出；路径必须在 `base_directory` 内且拒绝符号链接、
+  空文件、重复 mode 和重复 profile source。集合门允许用 `required_modes` 做 REPLAY/SIM 软件子集预检，默认仍要求
+  四模式；缺少 HIL/REAL 时 `complete=false`，不会将 profile 身份记录升级为现场、硬件、HIL/REAL 或飞行验收。
+- 新增 `runtime-profile-binding-set.schema.json` 和 9 项定向回归；完整四模式合成 profile 仅证明软件签名/身份/锁输出
+  契约，保留 [`px4_mission_feedback_binding.py`](../src/multidetect/px4_mission_feedback_binding.py) 的六源现场门与
+  E7 `false / false`。定向为 `8 passed, 1 skipped, 0 failed`；全量为 `3740 passed, 6 skipped, 0 failed`
+  （3,746 tests，317.402 秒），JUnit 位于 `artifacts/evaluation/terminal-continuation-v184/`。Python-only 改动未重编译
+  portable EXE。
 
 ## v183 本轮已收口（多模式 RuntimeReportBinding 集合校验）
 

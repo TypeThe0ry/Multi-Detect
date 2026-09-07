@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multidetect.local/schema/runtime-profile-binding-set.schema.json",
+  "title": "Multi-Detect runtime profile binding set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "event",
+    "required_modes",
+    "covered_modes",
+    "binding_count",
+    "complete",
+    "policies",
+    "bindings",
+    "checks",
+    "gate_passed",
+    "reasons",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema": { "const": "multidetect.runtime-profile-binding-set" },
+    "schema_version": { "const": 1 },
+    "event": {
+      "enum": [
+        "runtime_profile_binding_set_verified",
+        "runtime_profile_binding_set_error"
+      ]
+    },
+    "required_modes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mode" },
+      "uniqueItems": true
+    },
+    "covered_modes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mode" },
+      "uniqueItems": true
+    },
+    "binding_count": { "type": "integer", "minimum": 0 },
+    "complete": { "type": "boolean" },
+    "policies": { "$ref": "#/$defs/policies" },
+    "bindings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "checks": { "$ref": "#/$defs/checks" },
+    "gate_passed": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim_boundary": { "$ref": "#/$defs/claimBoundary" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event": { "const": "runtime_profile_binding_set_error" } },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "required_modes": { "maxItems": 0 },
+          "covered_modes": { "maxItems": 0 },
+          "binding_count": { "const": 0 },
+          "complete": { "const": false },
+          "bindings": { "maxItems": 0 },
+          "gate_passed": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event": { "const": "runtime_profile_binding_set_verified" } },
+        "required": ["event"]
+      },
+      "then": {
+        "not": { "required": ["error"] }
+      }
+    }
+  ],
+  "$defs": {
+    "mode": { "enum": ["replay", "sim", "hil", "real"] },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "profile_id", "capabilities", "endpoint_class"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "profile_id": { "enum": ["observer", "replay", "sim", "hil", "flight"] },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "observe",
+              "replay_input",
+              "simulation_transport",
+              "hil_transport",
+              "flight_control_output"
+            ]
+          }
+        },
+        "endpoint_class": {
+          "enum": ["read_only", "recording", "simulator", "hil_autopilot", "real_vehicle"]
+        },
+        "vehicle_identity_hash": { "$ref": "#/$defs/sha256" },
+        "firmware_identity_hash": { "$ref": "#/$defs/sha256" },
+        "airframe_profile_hash": { "$ref": "#/$defs/sha256" },
+        "signing_identity_hash": { "$ref": "#/$defs/sha256" },
+        "endpoint_binding_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "path",
+        "document_sha256",
+        "signature_valid",
+        "identity_valid",
+        "profile_valid",
+        "flight_control_enabled",
+        "output_locked",
+        "reason"
+      ],
+      "properties": {
+        "profile": { "$ref": "#/$defs/profile" },
+        "path": { "type": "string", "minLength": 1 },
+        "document_sha256": { "$ref": "#/$defs/sha256" },
+        "signature_valid": { "type": "boolean" },
+        "identity_valid": { "type": "boolean" },
+        "profile_valid": { "type": "boolean" },
+        "flight_control_enabled": { "type": "boolean" },
+        "output_locked": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["airframe_profile_hash", "endpoint_binding_hash"],
+      "properties": {
+        "airframe_profile_hash": { "$ref": "#/$defs/sha256" },
+        "endpoint_binding_hash": { "$ref": "#/$defs/sha256" },
+        "vehicle_identity_hash": { "$ref": "#/$defs/sha256" },
+        "firmware_identity_hash": { "$ref": "#/$defs/sha256" },
+        "signing_identity_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_signature_modes",
+        "require_firmware_identity_modes",
+        "require_output_locked_modes"
+      ],
+      "properties": {
+        "require_signature_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mode" },
+          "uniqueItems": true
+        },
+        "require_firmware_identity_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mode" },
+          "uniqueItems": true
+        },
+        "require_output_locked_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mode" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "expectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_signature",
+        "require_firmware_identity_binding",
+        "require_output_locked",
+        "hmac_key_supplied",
+        "expected_key_id"
+      ],
+      "properties": {
+        "require_signature": { "type": "boolean" },
+        "require_firmware_identity_binding": { "type": "boolean" },
+        "require_output_locked": { "type": "boolean" },
+        "hmac_key_supplied": { "type": "boolean" },
+        "expected_key_id": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "entryChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_document_valid",
+        "runtime_mode_matches",
+        "profile_kind_matches",
+        "signature_policy_matches",
+        "key_id_bound",
+        "identity_bound",
+        "firmware_identity_bound",
+        "output_locked",
+        "profile_gate_passed"
+      ],
+      "properties": {
+        "profile_document_valid": { "type": "boolean" },
+        "runtime_mode_matches": { "type": "boolean" },
+        "profile_kind_matches": { "type": "boolean" },
+        "signature_policy_matches": { "type": "boolean" },
+        "key_id_bound": { "type": "boolean" },
+        "identity_bound": { "type": "boolean" },
+        "firmware_identity_bound": { "type": "boolean" },
+        "output_locked": { "type": "boolean" },
+        "profile_gate_passed": { "type": "boolean" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "profile",
+        "observed_identity",
+        "expectations",
+        "document_key_id",
+        "result",
+        "checks",
+        "gate_passed",
+        "reasons"
+      ],
+      "properties": {
+        "runtime_mode": { "$ref": "#/$defs/mode" },
+        "profile": { "$ref": "#/$defs/source" },
+        "observed_identity": {
+          "anyOf": [
+            { "$ref": "#/$defs/identity" },
+            { "type": "null" }
+          ]
+        },
+        "expectations": { "$ref": "#/$defs/expectations" },
+        "document_key_id": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            { "$ref": "#/$defs/result" },
+            { "type": "null" }
+          ]
+        },
+        "checks": { "$ref": "#/$defs/entryChecks" },
+        "gate_passed": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_modes_valid",
+        "entries_have_required_fields",
+        "required_modes_complete",
+        "entries_unique",
+        "mode_declarations_match",
+        "profile_paths_distinct",
+        "all_required_signatures_valid",
+        "all_required_identities_bound",
+        "all_outputs_locked",
+        "all_profiles_passed",
+        "no_errors"
+      ],
+      "properties": {
+        "required_modes_valid": { "type": "boolean" },
+        "entries_have_required_fields": { "type": "boolean" },
+        "required_modes_complete": { "type": "boolean" },
+        "entries_unique": { "type": "boolean" },
+        "mode_declarations_match": { "type": "boolean" },
+        "profile_paths_distinct": { "type": "boolean" },
+        "all_required_signatures_valid": { "type": "boolean" },
+        "all_required_identities_bound": { "type": "boolean" },
+        "all_outputs_locked": { "type": "boolean" },
+        "all_profiles_passed": { "type": "boolean" },
+        "no_errors": { "type": "boolean" }
+      }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "software_runtime_profile_identity_only",
+        "hardware_acceptance",
+        "hil_acceptance",
+        "real_acceptance",
+        "flight_acceptance"
+      ],
+      "properties": {
+        "software_runtime_profile_identity_only": { "const": true },
+        "hardware_acceptance": { "const": "not_claimed" },
+        "hil_acceptance": { "const": "not_claimed" },
+        "real_acceptance": { "const": "not_claimed" },
+        "flight_acceptance": { "const": "not_claimed" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

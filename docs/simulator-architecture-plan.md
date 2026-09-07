@@ -9,6 +9,30 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v184 RuntimeProfile sidecar 集合预检
+
+`multidetect.runtime_profile_binding_set` 对显式 profile JSON 做集合级重开：REPLAY/SIM 使用对应的
+software profile，HIL/REAL 需要签名 profile、期望 `key_id` 和观察到的 endpoint/vehicle/firmware/airframe/
+signing identity。所有模式的 loader 调用都固定 `allow_flight_control_output=false`，所以该门只证明 profile
+身份和最小权限边界，不会启动 runtime 或写 PX4。
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m multidetect.runtime_profile_binding_set `
+  --required-modes replay,sim `
+  --require-signature-modes '' `
+  --require-firmware-identity-modes '' `
+  --base-directory . `
+  --binding replay path/to/replay-profile.json `
+  --binding sim path/to/sim-profile.json `
+  --out artifacts/evaluation/runtime-profile-set.json
+```
+
+HIL/REAL CLI 通过 `--identity-json MODE '{...}'`、`--hmac-key-env MODE ENV_NAME` 和
+`--expected-key-id MODE KEY_ID` 显式传入；完整四模式合成 profile 通过也只算 software preflight。真实
+PX4 Mission feedback 六源仍由 `px4_mission_feedback_binding` 单独要求，缺少现场采集时最终 E7、硬件、HIL/REAL
+和飞行门保持关闭。
+
 ## v183 多模式 RuntimeReportBinding 集合
 
 `multidetect.runtime_report_binding_set` 将单个 result↔`RuntimeRunReport` 复核提升为显式集合门。调用者必须

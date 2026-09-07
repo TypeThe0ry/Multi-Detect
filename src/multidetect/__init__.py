@@ -96,6 +96,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         ".runtime_report_binding_set",
         "verify_runtime_report_binding_set",
     ),
+    "RuntimeProfileBindingSetError": (
+        ".runtime_profile_binding_set",
+        "RuntimeProfileBindingSetError",
+    ),
+    "verify_runtime_profile_binding_set": (
+        ".runtime_profile_binding_set",
+        "verify_runtime_profile_binding_set",
+    ),
     "check_replay_set_readiness": (
         ".replay_set_readiness",
         "check_replay_set_readiness",
@@ -509,6 +517,8 @@ __all__ = [
     "verify_runtime_report_binding",
     "RuntimeReportBindingSetError",
     "verify_runtime_report_binding_set",
+    "RuntimeProfileBindingSetError",
+    "verify_runtime_profile_binding_set",
     "check_replay_set_readiness",
     "prepare_deployment_replay_set",
     "verify_deployment_replay_intake",

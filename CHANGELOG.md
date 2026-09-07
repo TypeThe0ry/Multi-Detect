@@ -5,6 +5,18 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v184 RuntimeProfile sidecar binding set（2026-09-07）
+
+- 新增 `multidetect.runtime_profile_binding_set` 与 `multidetect-runtime-profile-set-verify`：显式重开
+  REPLAY/SIM/HIL/REAL RuntimeProfile JSON，固定模式顺序检查 profile kind、签名/`key_id`、endpoint/vehicle/
+  firmware/airframe/signing identity 和锁输出策略。
+- HIL/REAL HMAC key 只接受内存映射或环境变量，报告只保留 key id、source hash 与布尔结果；重复 mode/source、
+  越界或符号链接、空文件、损坏签名和身份漂移均 fail-closed。新增 `runtime-profile-binding-set.schema.json`
+  和 9 项定向回归（8 passed、1 Windows symlink 权限 skip）；默认四模式仍在缺少现场 profile 时保持
+  `complete=false`，全量 Python 回归为 `3740 passed, 6 skipped, 0 failed`（3,746 tests），不改变 E7 或硬件/HIL/REAL/飞行声明。
+- v184 仍为 Python-only software preflight，portable EXE 未重编译；真实 PX4 Mission feedback 六源、人工 Fly View、
+  室外 GNSS 和最终 `v0.3.0` 发布门保持原状态。
+
 ### v0.3.0-pre.8 v183 multi-mode RuntimeReportBinding set（2026-09-07）
 
 - 新增 `multidetect.runtime_report_binding_set` 与

@@ -3,8 +3,8 @@
 Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知、目标跟踪、测距定位、
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
-> 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；真实硬件、室外 GNSS、HIL/REAL
-> 和人工 QGC 验收仍有门禁，software/SIM 记录不等于实飞或生产批准。
+> 当前版本为 **`v0.3.0-pre.8`**。最终 `v0.3.0` 尚未发布；硬件、室外 GNSS、HIL/REAL
+> 与人工 QGC 仍有门禁，software/SIM 记录不等于实飞或生产批准。
 
 ## 从这里开始
 
@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v183：多模式 RuntimeReportBinding 集合校验 |
+| 工程迭代 | v184：RuntimeProfile sidecar 集合预检 |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -117,7 +117,7 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`。v178–v179 将同一契约接入
 `integrated-replay`/`integrated-replay-qgc`，校验自然耗尽、逐帧身份、descriptor/input hash，并覆盖 sidecar
 嵌入与 QGC 同步回归；v180 加入 `multidetect-runtime-report-verify`，v182 将绑定失败输出 schema 化并
-保留严格帧身份；v183 加入集合绑定；见[当前进度](docs/current-progress.md)。
+保留严格帧身份；v183 加入集合绑定，v184 加入 RuntimeProfile sidecar 集合预检；见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 
@@ -760,9 +760,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe
 ```
 
-必须从完整 `portable-v0.3.0-pre.8` 目录启动。裸 `Release\MultiDetectGCS.exe` 不是单文件发布物，
-缺少同目录 Qt、QML、GStreamer、插件和翻译依赖时无法启动。`build/` 是本机构建输出，不属于
-GitHub 源码仓库。
+必须从完整 `portable-v0.3.0-pre.8` 目录启动；裸 `Release\MultiDetectGCS.exe` 不是单文件发布物，
+缺同目录 Qt/QML/GStreamer、插件或翻译依赖时无法启动。`build/` 是本机构建输出，不提交。
 
 ## 仓库结构
 

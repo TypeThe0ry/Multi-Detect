@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## RuntimeProfile sidecar 集合预检（v184，`v0.3.0-pre.8`）
+
+- [x] 新增 `multidetect.runtime_profile_binding_set` 与
+  `multidetect-runtime-profile-set-verify`，显式重开每个模式的 RuntimeProfile JSON，稳定按
+  `REPLAY → SIM → HIL → REAL` 排序；HMAC key 只从内存/环境变量读取，不写入证据。
+- [x] 集合门检查 required-mode 覆盖、重复 mode/source、模式对应 profile kind、HIL/REAL 签名与 `key_id`、
+  endpoint/vehicle/firmware/airframe/signing identity 绑定和全模式锁输出；结构错误、损坏签名和身份漂移均
+  fail-closed，输出带独立 schema 与 claim boundary。
+- [x] 9 项定向回归覆盖 REPLAY/SIM 子集、默认四模式关闭、合成 HIL/REAL 签名身份、重复/符号链接、篡改、
+  身份不匹配、CLI 成功/错误；这只是 software profile preflight，不启动 runtime、不连接 PX4、不改变 E7。
+- [ ] 现场采集真实 HIL/REAL profile、Mission feedback 和 endpoint identity 后，再将 profile 集合与六源
+  `px4_mission_feedback_binding` 逐叶对账；在真实硬件与人工 Fly View 证据齐全前，最终发布门保持关闭。
+
 ## 多模式 RuntimeReportBinding 集合校验（v183，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.runtime_report_binding_set` 与
