@@ -82,6 +82,46 @@ def _sim_fixture(tmp_path: Path) -> tuple[Path, Path]:
     return result_path, report_path
 
 
+def _observation_fixture(tmp_path: Path, mode: str) -> tuple[Path, Path]:
+    descriptor_hash = ("1" if mode == "hil" else "2") * 64
+    input_hash = ("3" if mode == "hil" else "4") * 64
+    frame_ids = (f"{mode}:frame-0001", f"{mode}:frame-0002")
+    report = RuntimeRunReport(
+        descriptor_hash=descriptor_hash,
+        input_hash=input_hash,
+        processed_frame_ids=frame_ids,
+        started_at_s=20.0,
+        finished_at_s=20.2,
+        stream_exhausted=False,
+        max_frames=2,
+    )
+    report_path = write_runtime_run_report(tmp_path / f"{mode}-report.json", report)
+    result_path = _write_json(
+        tmp_path / f"{mode}-result.json",
+        {
+            "schema_version": 1,
+            "event": f"{mode}_runtime_observation_finished",
+            "runtime_mode": mode,
+            "gate_passed": True,
+            "runtime_descriptor_hash": descriptor_hash,
+            "runtime_input_hash": input_hash,
+            "processed_frame_count": 2,
+            "processed_frame_ids": list(frame_ids),
+            "stream_exhausted": False,
+            "max_frames": 2,
+            "observation_only": True,
+            "read_only": True,
+            "receive_only": True,
+            "flight_control_enabled": False,
+            "hardware_outputs_present": False,
+            "messages_transmitted": 0,
+            "output_locked": True,
+            "runtime_run_report": report.to_mapping_with_hash(),
+        },
+    )
+    return result_path, report_path
+
+
 def _spec(mode: str, result: Path, report: Path) -> dict[str, str]:
     return {
         "runtime_mode": mode,
@@ -128,6 +168,54 @@ def test_default_four_mode_set_remains_closed_until_hil_and_real_exist(tmp_path:
     assert document["gate_passed"] is False
     assert document["checks"]["required_modes_complete"] is False
     assert document["checks"]["all_bindings_passed"] is True
+
+
+def test_four_mode_set_accepts_explicit_hil_real_observation_pairs(tmp_path: Path) -> None:
+    replay_result, replay_report = _replay_fixture(tmp_path)
+    sim_result, sim_report = _sim_fixture(tmp_path)
+    hil_result, hil_report = _observation_fixture(tmp_path, "hil")
+    real_result, real_report = _observation_fixture(tmp_path, "real")
+
+    document = verify_runtime_report_binding_set(
+        [
+            _spec("real", real_result, real_report),
+            _spec("sim", sim_result, sim_report),
+            _spec("hil", hil_result, hil_report),
+            _spec("replay", replay_result, replay_report),
+        ],
+        base_directory=tmp_path,
+        require_embedded_modes=("replay", "hil", "real"),
+    )
+
+    assert document["required_modes"] == ["replay", "sim", "hil", "real"]
+    assert document["covered_modes"] == ["replay", "sim", "hil", "real"]
+    assert document["binding_count"] == 4
+    assert document["complete"] is True
+    assert document["gate_passed"] is True
+    assert all(document["checks"].values())
+    assert all(entry["checks"]["output_safety_contract"] is True for entry in document["bindings"])
+
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(document)
+
+
+def test_hil_real_observation_pair_with_transmit_is_rejected_by_set(tmp_path: Path) -> None:
+    hil_result, hil_report = _observation_fixture(tmp_path, "hil")
+    result = json.loads(hil_result.read_text(encoding="utf-8"))
+    result["messages_transmitted"] = 1
+    _write_json(hil_result, result)
+
+    document = verify_runtime_report_binding_set(
+        [_spec("hil", hil_result, hil_report)],
+        required_modes=("hil",),
+        base_directory=tmp_path,
+    )
+
+    entry = document["bindings"][0]
+    assert document["gate_passed"] is False
+    assert entry["gate_passed"] is False
+    assert entry["checks"]["output_safety_contract"] is False
+    assert entry["checks"]["result_gate_passed"] is False
 
 
 def test_optional_bound_mode_does_not_break_required_mode_coverage(tmp_path: Path) -> None:

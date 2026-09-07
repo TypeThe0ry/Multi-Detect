@@ -1,5 +1,18 @@
 # Implementation roadmap
 
+## HIL/REAL RuntimeReport 观测适配器（v186，`v0.3.0-pre.8`）
+
+- [x] 为 `multidetect.runtime_report_binding` 增加显式 `hil_runtime_observation_finished` /
+  `real_runtime_observation_finished` 适配器，统一重开 RuntimeRunReport、descriptor/input hash、逐帧身份、
+  bounded termination 和内嵌 canonical report。
+- [x] 把 `observation_only`、`read_only`、`receive_only`、零发送计数、飞控/硬件输出关闭和
+  `output_locked` 固化为 `output_safety_contract`，同步单绑定/集合 schema；事件/模式漂移、发送计数篡改、
+  缺少终止字段和报告不一致均 fail-closed。
+- [x] 新增 `scripts/generate_runtime_report_binding_observation_evidence.py`：生成四模式 `4/4` 软件 fixture、
+  REPLAY/SIM 子集和发送计数负向报告；正向与负向输出均由同一 schema 重开校验。
+- [ ] 将该结果形状接入真实 HIL/REAL capture producer，并用同一版本 RuntimeProfile、PX4 Mission feedback、
+  endpoint/vehicle identity sidecar 重跑；合成 fixture 不得升级真实硬件、室外 GNSS、人工 Fly View、HIL/REAL 或实飞门。
+
 ## RuntimeProfile → PX4 Mission feedback 六源绑定（v185，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.px4_mission_feedback_profile_binding` 与
@@ -33,7 +46,7 @@
   `REPLAY → SIM → HIL → REAL` 稳定排序并逐项重开单绑定 verifier；不扫描 `artifacts/`，所有源文件必须
   解析在指定 base directory 内。
 - [x] 集合门严格检查 required-mode 覆盖、重复 mode、结果/sidecar/跨类型源复用、声明 mode 一致性、
-  13 项单绑定检查和 entry error；缺少 HIL/REAL 时保持 `complete=false` / `gate_passed=false`，不会把
+  14 项单绑定检查和 entry error；缺少 HIL/REAL 时保持 `complete=false` / `gate_passed=false`，不会把
   Replay/SIM 软件记录提升成硬件、HIL、REAL 或实飞验收。
 - [x] `runtime-report-binding-set.schema.json` 覆盖成功与结构错误输出；真实 v181 integrated Replay +
   v183 `river_rescue_vtol_001` SIM 2 帧集合证据为 2/2 通过，schema errors 为 `0`，9 项定向回归（8 passed、

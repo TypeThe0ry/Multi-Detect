@@ -9,11 +9,12 @@ starting a runtime or touching a vehicle.
 
 The verifier intentionally understands the result shapes already emitted by
 ``integrated-replay``, ``integrated-replay-qgc`` and
-``simulator.scenario_runner``.  Integrated Replay accepts both the current
-nested ``result`` mapping and the legacy top-level frame summary used by older
-evidence.  Unknown result events remain fail-closed until a mode-specific
-adapter is added, so a future producer cannot silently inherit the wrong
-completion semantics.
+``simulator.scenario_runner``.  It also has an explicit receive-only adapter
+for bounded HIL/REAL observation captures.  Integrated Replay accepts both the
+current nested ``result`` mapping and the legacy top-level frame summary used
+by older evidence.  Unknown result events remain fail-closed until a
+mode-specific adapter is added, so a future producer cannot silently inherit
+the wrong completion or output-safety semantics.
 """
 
 from __future__ import annotations
@@ -39,6 +40,10 @@ MAX_RESULT_BYTES = 256 * 1024 * 1024
 MAX_REPORT_BYTES = 4 * 1024 * 1024
 
 _INTEGRATED_EVENTS = frozenset({"integrated_replay_finished", "integrated_replay_qgc_finished"})
+_OBSERVATION_EVENTS = {
+    "hil_runtime_observation_finished": "hil",
+    "real_runtime_observation_finished": "real",
+}
 _CHECK_NAMES = (
     "result_json_valid",
     "runtime_report_valid",
@@ -51,6 +56,7 @@ _CHECK_NAMES = (
     "processed_frame_ids_match",
     "termination_contract_matches",
     "embedded_report_matches",
+    "output_safety_contract",
     "sim_truth_free",
     "sim_closed",
 )
@@ -169,6 +175,29 @@ def _first_present(mapping: Mapping[str, Any], *names: str) -> object:
     return None
 
 
+def _observation_output_safety(result: Mapping[str, Any]) -> bool:
+    """Require an HIL/REAL observation result to remain receive-only.
+
+    The fields are deliberately explicit rather than inferred from a mode
+    string.  This keeps a future producer from setting ``runtime_mode=real``
+    while retaining a control-capable transport or a stale transmit counter.
+    ``hardware_outputs_present`` describes application/vehicle-control output;
+    sensor and telemetry inputs may still originate from real hardware.
+    """
+
+    messages_transmitted = result.get("messages_transmitted")
+    return (
+        result.get("observation_only") is True
+        and result.get("read_only") is True
+        and result.get("receive_only") is True
+        and result.get("flight_control_enabled") is False
+        and result.get("hardware_outputs_present") is False
+        and type(messages_transmitted) is int
+        and messages_transmitted == 0
+        and result.get("output_locked") is True
+    )
+
+
 def _result_contract(
     result: Mapping[str, Any],
 ) -> dict[str, object]:
@@ -222,6 +251,72 @@ def _result_contract(
             "embedded_required": True,
             "truth_free": explicit_truth_free is True or derived_truth_free,
             "closed": True,
+            "termination_fields_valid": True,
+            "output_safety": True,
+        }
+
+    if isinstance(event, str) and event in _OBSERVATION_EVENTS:
+        nested = result.get("result")
+        nested_result = nested if isinstance(nested, Mapping) else {}
+        processed_count = _first_present(
+            nested_result,
+            "processed_frame_count",
+            "processed_frames",
+        )
+        if processed_count is None:
+            processed_count = _first_present(
+                result,
+                "processed_frame_count",
+                "processed_frames",
+            )
+        processed_ids_value = _first_present(
+            nested_result,
+            "processed_frame_ids",
+            "frame_ids",
+        )
+        if processed_ids_value is None:
+            processed_ids_value = _first_present(
+                result,
+                "processed_frame_ids",
+                "frame_ids",
+            )
+        processed_ids = _frame_ids_or_none(processed_ids_value)
+        processed_ids_present = any(
+            name in nested_result for name in ("processed_frame_ids", "frame_ids")
+        ) or any(name in result for name in ("processed_frame_ids", "frame_ids"))
+
+        stream_value = result.get("stream_exhausted")
+        stream_exhausted = stream_value if type(stream_value) is bool else None
+        max_frames_present = "max_frames" in result
+        raw_max_frames = result.get("max_frames")
+        max_frames = _as_nonnegative_int(raw_max_frames) if raw_max_frames is not None else None
+        max_frames_valid = raw_max_frames is None or max_frames is not None
+        termination_fields_valid = (
+            stream_exhausted is not None
+            and max_frames_present
+            and max_frames_valid
+            and (
+                (stream_exhausted is True and raw_max_frames is None)
+                or (stream_exhausted is False and max_frames is not None)
+            )
+        )
+        return {
+            "supported": True,
+            "runtime_mode": _OBSERVATION_EVENTS[event],
+            "descriptor_hash": _hash_or_none(result.get("runtime_descriptor_hash")),
+            "input_hash": _hash_or_none(
+                result.get("runtime_input_hash") or result.get("input_hash")
+            ),
+            "processed_count": _as_nonnegative_int(processed_count),
+            "processed_ids": processed_ids,
+            "processed_ids_valid": processed_ids_present and processed_ids is not None,
+            "stream_exhausted": stream_exhausted,
+            "max_frames": max_frames,
+            "embedded_required": True,
+            "truth_free": True,
+            "closed": True,
+            "termination_fields_valid": termination_fields_valid,
+            "output_safety": _observation_output_safety(result),
         }
 
     if event == "simulator_scenario_run_finished":
@@ -246,6 +341,8 @@ def _result_contract(
             "embedded_required": False,
             "truth_free": result.get("truth_free") is True,
             "closed": result.get("closed") is True,
+            "termination_fields_valid": True,
+            "output_safety": True,
         }
 
     # Keep unknown result events fail-closed.  The fallback fields are retained
@@ -284,6 +381,8 @@ def _result_contract(
         "embedded_required": False,
         "truth_free": True,
         "closed": True,
+        "termination_fields_valid": True,
+        "output_safety": False,
     }
 
 
@@ -362,9 +461,11 @@ def verify_runtime_report_binding(
 
     expected_stream_exhausted = contract["stream_exhausted"]
     expected_max_frames = contract["max_frames"]
-    termination_matches = True
+    termination_matches = bool(contract.get("termination_fields_valid", True))
     if expected_stream_exhausted is not None:
-        termination_matches = report.stream_exhausted is expected_stream_exhausted
+        termination_matches = termination_matches and (
+            report.stream_exhausted is expected_stream_exhausted
+        )
         if expected_stream_exhausted:
             termination_matches = termination_matches and report.max_frames is None
         else:
@@ -404,6 +505,8 @@ def verify_runtime_report_binding(
             "frame_budget_complete",
             "fault_terminal",
         }
+    if isinstance(event, str) and event in _OBSERVATION_EVENTS:
+        result_gate_passed = explicit_result_gate is True and contract["output_safety"] is True
 
     checks = {
         "result_json_valid": True,
@@ -417,6 +520,7 @@ def verify_runtime_report_binding(
         "processed_frame_ids_match": ids_matches,
         "termination_contract_matches": termination_matches,
         "embedded_report_matches": embedded_matches,
+        "output_safety_contract": contract["output_safety"] is True,
         "sim_truth_free": contract["runtime_mode"] != "sim" or contract["truth_free"] is True,
         "sim_closed": contract["runtime_mode"] != "sim" or contract["closed"] is True,
     }

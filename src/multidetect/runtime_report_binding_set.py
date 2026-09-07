@@ -335,6 +335,7 @@ _SINGLE_BINDING_CHECK_NAMES = (
     "processed_frame_ids_match",
     "termination_contract_matches",
     "embedded_report_matches",
+    "output_safety_contract",
     "sim_truth_free",
     "sim_closed",
 )

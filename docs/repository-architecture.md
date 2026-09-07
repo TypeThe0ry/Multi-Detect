@@ -1,5 +1,32 @@
 # 统一仓库架构
 
+## v186 HIL/REAL RuntimeReport 观测适配器（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+HIL result ── hil_runtime_observation_finished ──┐
+                                                  ├─> runtime_report_binding
+REAL result ─ real_runtime_observation_finished ──┘       │
+                                                         ├─ event → mode
+                                                         ├─ descriptor/input + frame IDs
+                                                         ├─ bounded termination + embedded report
+                                                         └─ output_safety_contract
+                                                                  │
+                    RuntimeRunReport sidecar ─────────────────────┘
+                                                                  ▼
+                                          runtime_report_binding_set (4-mode)
+                                                                  │
+                                   software identity only; field/HIL/REAL pending
+```
+
+- HIL/REAL 结果必须显式携带 `observation_only/read_only/receive_only=true`、
+  `messages_transmitted=0`、`flight_control_enabled=false`、`hardware_outputs_present=false` 和
+  `output_locked=true`；绑定器拒绝把未知事件或控制能力结果当作观测成功。
+- `scripts/generate_runtime_report_binding_observation_evidence.py` 生成可重开的四模式软件 fixture，
+  同时保存发送计数篡改的负向集合；这只验证接口和安全合同，不产生真实 Pixhawk、GNSS、硬件或飞行声明。
+- `configs/schemas/runtime-report-binding.schema.json` 和
+  `runtime-report-binding-set.schema.json` 的单绑定检查现为 14 项；集合仍按
+  `REPLAY → SIM → HIL → REAL` 固定排序，外部现场 sidecar 取得后可直接替换 fixture 路径重跑。
+
 ## v185 RuntimeProfile → PX4 Mission feedback 六源绑定（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
@@ -53,11 +80,11 @@ REAL profile ───┘        ├─ mode/profile kind
 ```text
 REPLAY result + RuntimeRunReport ─┐
 SIM result + RuntimeRunReport ────┼─> runtime_report_binding_set
-未来 HIL/REAL sidecar ────────────┘       │
+HIL/REAL observation result + report ──┘       │
                                           ├─ stable mode order
                                           ├─ required coverage
                                           ├─ no duplicate/reused sources
-                                          └─ 13 single-binding checks per entry
+                                          └─ 14 single-binding checks per entry
                                                    │
                          complete/gate_passed + reasons + claim boundary
                                                    │

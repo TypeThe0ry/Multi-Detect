@@ -4,7 +4,7 @@ Multi-Detect 是一个面向多旋翼、固定翼与 VTOL 的统一机载感知�
 QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 > 当前版本 **`v0.3.0-pre.8`**；最终版仍受硬件、室外 GNSS、HIL/REAL 与人工 QGC 门禁。
-> v185：RuntimeProfile sidecar → PX4 Mission feedback 六源绑定。
+> v186：RuntimeReport HIL/REAL 观测适配器 + RuntimeProfile → PX4 Mission feedback 六源绑定。
 
 ## 从这里开始
 
@@ -37,7 +37,7 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 | QGC/PE 数值版本 | `0.3.0` |
 | 发布通道 | `prerelease` |
 | 最新审计的 GitHub 基线 | `origin/main` / `b5c3f10baf4cc9febaa3a10103752f202f3b0611` |
-| 工程迭代 | v185：RuntimeProfile→PX4 六源绑定 |
+| 工程迭代 | v186：RuntimeReport HIL/REAL 观测适配器 |
 | 最终发布状态 | 阻断；E7 `false / false` |
 | 版本源 | [`configs/product-version.json`](configs/product-version.json) |
 | 共享契约身份 | [`configs/release-parity.json`](configs/release-parity.json) |
@@ -81,12 +81,9 @@ QGroundControl 地面站交互、数字孪生和 PX4 任务编排工程。
 
 详见 [当前进度](docs/current-progress.md)。
 
-### v163–v183 目标定位与证据链
+### v163–v186 目标定位与证据链
 
-v163–v164 建立 `target-observation-diagnostics` 闭合 schema、严格 verifier 和多快照 session 审计，
-统一校验原子身份、freshness、定位门、时间/epoch 连续性以及逐文件 bytes/SHA-256。
-
-v165 将审计链接入原生 Fly View，支持 `1 Hz`、唯一目录、原子快照/manifest 和安装式 session verifier。
+v163–v165 建立 `target-observation-diagnostics` schema、session 审计和 Fly View 接入；详见[当前进度](docs/current-progress.md)。
 
 v166 将录制 manifest 闭合校验、目录引用和 `--require-recording-manifest` 接入安装式 CLI。
 
@@ -117,7 +114,8 @@ v175 新增“复制全量摘要”（仅完整性通过时可用），v176 为 
 `41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B`。v178–v179 将同一契约接入
 `integrated-replay`/`integrated-replay-qgc`，校验自然耗尽、逐帧身份、descriptor/input hash，并覆盖 sidecar
 嵌入与 QGC 同步回归；v180 加入 `multidetect-runtime-report-verify`，v182 将绑定失败输出 schema 化并
-保留严格帧身份；v183 加入集合绑定，v184 加入 RuntimeProfile sidecar 集合预检；见[当前进度](docs/current-progress.md)。
+保留严格帧身份；v183 加入集合绑定，v184 加入 RuntimeProfile sidecar 集合预检，v186 为 HIL/REAL 增加
+显式 receive-only 观测适配器、14 项单绑定安全检查和可重复四模式软件 fixture；见[当前进度](docs/current-progress.md)。
 
 ### v152 独立 GNSS 质量状态
 

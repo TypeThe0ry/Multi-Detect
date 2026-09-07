@@ -5,6 +5,22 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v186 HIL/REAL RuntimeReport observation adapter（2026-09-07）
+
+- `multidetect.runtime_report_binding` 现在识别两个显式事件：
+  `hil_runtime_observation_finished` 与 `real_runtime_observation_finished`。适配器重开
+  `RuntimeRunReport`、descriptor/input hash、逐帧 ID、bounded termination 和内嵌 canonical report，
+  不再让 HIL/REAL 结果落入未知事件分支。
+- HIL/REAL 结果必须同时满足 `observation_only=true`、`read_only=true`、`receive_only=true`、
+  `messages_transmitted=0`、`flight_control_enabled=false`、`hardware_outputs_present=false` 与
+  `output_locked=true`；新增 `output_safety_contract` 检查，任何发送计数或模式漂移都会 fail-closed。
+- 新增 `scripts/generate_runtime_report_binding_observation_evidence.py`，可重复生成四模式 `4/4`
+  软件绑定、REPLAY/SIM 子集和发送计数篡改负向证据；绑定 schema 扩展为 14 项单绑定检查，schema errors
+  均为 `0`。新增 HIL/REAL 正向、篡改、事件模式漂移、终止字段缺失及集合覆盖回归。
+- 本轮仍只证明 software runtime identity 与 receive-only contract；生成的 HIL/REAL 文件是接口 fixture，
+  不代表真实 Pixhawk、室外 GNSS、硬件、HIL/REAL、人工 Fly View、实飞或最终 `v0.3.0` 发布通过；portable
+  EXE 未因 Python/schema-only 改动重编译。
+
 ### v0.3.0-pre.8 v185 RuntimeProfile → PX4 Mission feedback 六源绑定（2026-09-07）
 
 - 新增 `multidetect.px4_mission_feedback_profile_binding` 与

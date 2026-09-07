@@ -9,6 +9,27 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v186 RuntimeReport HIL/REAL 观测接口
+
+`runtime_report_binding` 现在为未来现场采集定义了两个严格结果事件：
+`hil_runtime_observation_finished` 与 `real_runtime_observation_finished`。它们沿用 SIM/Replay 的
+`RuntimeRunReport` sidecar、descriptor/input hash、逐帧 ID 和 bounded termination，但额外要求
+`observation_only/read_only/receive_only`、零发送计数、飞控/硬件输出关闭和 `output_locked`。因此同一
+`runtime_report_binding_set` 可以在四种模式下消费同一份可重开的结果结构，而不会把一个未知结果事件或
+software fixture 静默当成真实 HIL/REAL。
+
+可生成软件接口 fixture：
+
+```powershell
+$env:PYTHONPATH = 'src'
+python .\scripts\generate_runtime_report_binding_observation_evidence.py `
+  --output-directory artifacts/evaluation/terminal-continuation-v186
+```
+
+该命令会输出四模式正向集合、REPLAY/SIM 子集和发送计数负向集合；`claim_boundary` 固定为
+software runtime identity only，真实 profile/Mission/feedback、Pixhawk、室外 GNSS、人工 QGC 与实飞门
+仍必须由现场证据单独关闭。
+
 ## v185 RuntimeProfile → PX4 Mission feedback 六源绑定
 
 `multidetect.px4_mission_feedback_profile_binding` 是 v184 profile 集合之后的显式 joiner。它先重开四模式

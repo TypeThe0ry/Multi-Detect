@@ -1,6 +1,29 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v185 工作树）
+最后更新：2026-09-07（v186 工作树）
+
+## v186 本轮已收口（HIL/REAL RuntimeReport 观测适配器）
+
+- `runtime_report_binding` 新增两个严格事件适配器：`hil_runtime_observation_finished` 和
+  `real_runtime_observation_finished`。它们按事件固定 runtime mode，重新读取 descriptor/input hash、
+  processed frame count/IDs、bounded termination，并要求结果内嵌的 `RuntimeRunReport` 与 sidecar canonical
+  mapping 完全一致；未知事件仍保持 fail-closed。
+- HIL/REAL 观测结果必须显式声明 `observation_only/read_only/receive_only=true`、
+  `messages_transmitted=0`、`flight_control_enabled=false`、`hardware_outputs_present=false`、
+  `output_locked=true`。新增 `output_safety_contract` 单绑定检查并同步两个 binding schema；发送计数、
+  事件/模式漂移、缺少 `max_frames` 或内嵌报告都会关闭 gate。
+- 新增 [`scripts/generate_runtime_report_binding_observation_evidence.py`](../scripts/generate_runtime_report_binding_observation_evidence.py)，
+  在 `artifacts/evaluation/terminal-continuation-v186/` 生成四模式 `4/4` 软件绑定、REPLAY/SIM 子集和
+  `messages_transmitted=1` 负向报告：正向集合 14,785 bytes / SHA-256
+  `34F3B877B6C6DC77A751C1064AB32EA2F5AA2AF0DA6A4AC5C5307946B4A7273D`，schema errors `0`；负向集合
+  `gate_passed=false`、`output_safety_contract=false`，schema errors `0`。
+- 定向 `tests/test_runtime_report_binding.py tests/test_runtime_report_binding_set.py` 为 `28 passed, 1 skipped, 0 failed`；JUnit
+  位于 `artifacts/evaluation/terminal-continuation-v186/runtime-binding-focused-v186.xml`，4,929 bytes、SHA-256
+  `6C89C4A23DE25B928D0B1F2C8059BC69CFE0F7EDD597CBDA10DFF63709344834`。全量回归为 `3,751 passed, 6 skipped, 0 failed`
+  （3,757 tests，342.241 秒），JUnit 位于 `artifacts/evaluation/terminal-continuation-v186/full-rerun-v186-final.xml`，
+  550,454 bytes、SHA-256 `F2EAC63E24F34B2A9B34A3D1F7C48E32636F9360FB6E997CCA7E1480F915A02B`。
+- 本轮为 Python/schema/docs-only，未重编译 portable EXE。合成 HIL/REAL 只验证接口和安全合同，
+  `hardware/HIL/REAL/flight/manual visual` 仍 `not_claimed`，E7 与最终 `v0.3.0` 继续阻断。
 
 ## v185 本轮已收口（RuntimeProfile → PX4 Mission feedback 六源绑定）
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from multidetect.runtime import RuntimeRunReport, write_runtime_run_report
@@ -48,6 +49,46 @@ def _integrated_fixture(tmp_path: Path) -> tuple[Path, Path, RuntimeRunReport]:
             "runtime_descriptor_hash": "a" * 64,
             "ground_truth_isolated": True,
             "result": {"processed_frames": 2},
+            "runtime_run_report": report.to_mapping_with_hash(),
+        },
+    )
+    return result_path, report_path, report
+
+
+def _observation_fixture(tmp_path: Path, mode: str) -> tuple[Path, Path, RuntimeRunReport]:
+    descriptor_hash = ("c" if mode == "hil" else "d") * 64
+    input_hash = ("e" if mode == "hil" else "f") * 64
+    frame_ids = (f"{mode}:frame-0001", f"{mode}:frame-0002")
+    report = RuntimeRunReport(
+        descriptor_hash=descriptor_hash,
+        input_hash=input_hash,
+        processed_frame_ids=frame_ids,
+        started_at_s=10.0,
+        finished_at_s=10.2,
+        stream_exhausted=False,
+        max_frames=2,
+    )
+    report_path = write_runtime_run_report(tmp_path / f"{mode}-runtime-report.json", report)
+    result_path = _write_result(
+        tmp_path / f"{mode}-result.json",
+        {
+            "schema_version": 1,
+            "event": f"{mode}_runtime_observation_finished",
+            "runtime_mode": mode,
+            "gate_passed": True,
+            "runtime_descriptor_hash": descriptor_hash,
+            "runtime_input_hash": input_hash,
+            "processed_frame_count": 2,
+            "processed_frame_ids": list(frame_ids),
+            "stream_exhausted": False,
+            "max_frames": 2,
+            "observation_only": True,
+            "read_only": True,
+            "receive_only": True,
+            "flight_control_enabled": False,
+            "hardware_outputs_present": False,
+            "messages_transmitted": 0,
+            "output_locked": True,
             "runtime_run_report": report.to_mapping_with_hash(),
         },
     )
@@ -198,6 +239,62 @@ def test_sim_result_binds_bounded_prefix_and_runtime_input_hash(tmp_path: Path) 
     assert binding["expectations"]["embedded_report_present"] is False
 
 
+@pytest.mark.parametrize("mode", ("hil", "real"))
+def test_receive_only_observation_result_binds_for_hil_and_real(tmp_path: Path, mode: str) -> None:
+    result_path, report_path, report = _observation_fixture(tmp_path, mode)
+
+    binding = verify_runtime_report_binding(
+        result_path,
+        report_path,
+        expected_runtime_mode=mode,
+    )
+
+    assert binding["gate_passed"] is True
+    assert binding["result"]["runtime_mode"] == mode
+    assert binding["runtime_report"]["canonical_sha256"] == report.canonical_hash
+    assert binding["checks"]["output_safety_contract"] is True
+    assert binding["checks"]["termination_contract_matches"] is True
+    assert binding["expectations"]["require_embedded_report"] is True
+
+
+def test_receive_only_observation_rejects_transmit_counter(tmp_path: Path) -> None:
+    result_path, report_path, _ = _observation_fixture(tmp_path, "hil")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["messages_transmitted"] = 1
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    binding = verify_runtime_report_binding(result_path, report_path)
+
+    assert binding["gate_passed"] is False
+    assert binding["checks"]["output_safety_contract"] is False
+    assert binding["checks"]["result_gate_passed"] is False
+    assert "output_safety_contract" in binding["reasons"]
+
+
+def test_receive_only_observation_rejects_event_mode_drift(tmp_path: Path) -> None:
+    result_path, report_path, _ = _observation_fixture(tmp_path, "hil")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["runtime_mode"] = "real"
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    binding = verify_runtime_report_binding(result_path, report_path)
+
+    assert binding["gate_passed"] is False
+    assert binding["checks"]["runtime_mode_matches"] is False
+
+
+def test_receive_only_observation_requires_explicit_termination_contract(tmp_path: Path) -> None:
+    result_path, report_path, _ = _observation_fixture(tmp_path, "real")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result.pop("max_frames")
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    binding = verify_runtime_report_binding(result_path, report_path)
+
+    assert binding["gate_passed"] is False
+    assert binding["checks"]["termination_contract_matches"] is False
+
+
 def test_actual_simulator_result_exposes_bindable_runtime_input(tmp_path: Path) -> None:
     runner = SimulatorScenarioRunner(
         SIM_MANIFEST,
@@ -319,6 +416,7 @@ def test_cli_failure_document_is_schema_valid(tmp_path: Path, capsys) -> None:
         "processed_frame_ids_match",
         "termination_contract_matches",
         "embedded_report_matches",
+        "output_safety_contract",
         "sim_truth_free",
         "sim_closed",
     }
