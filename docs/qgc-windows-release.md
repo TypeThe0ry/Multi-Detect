@@ -12,9 +12,24 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-当前文件为 `46,751,744` bytes，SHA-256
-`9675AC36032CC990F1F27ACD638F1B4D1D0397F34D9B43810A95D0BCD0D2D263`；portable 目录已经过
+当前文件为 `46,863,360` bytes，SHA-256
+`589E33ADAB2C7D1DBC58524BCAE3474D18743A6E0D970FC4C01CF3F187201717`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v171 原生目标事件回放只读查看器（2026-09-07）
+
+Fly View 目标卡片新增“载入回放/查看回放”。选择录制目录中的 `manifest.json` 后，原生
+`MultiDetectTargetEventReplayStore` 会在 C++ 侧重算 manifest、`events.jsonl` 与 `media/` 的 schema、路径闭合、
+GPS/测距质量、时间线和 SHA-256；任何重复 key、额外文件、篡改或不合格输入都会清空查看器状态。弹窗只读显示
+bundle/session、目标、捕获时间、GPS、距离/方位和视频/深度引用，不落地图点、不选目标、不创建任务、不发送飞控指令。
+
+`MultiDetectTargetEventReplayStoreSelfTest.exe` 正向/负向测试通过，并用 Python 生成的真实 bundle 完成 `--load` 跨语言
+复核；portable `--simple-boot-test` 退出 0，stdout/stderr 均为 0 bytes，QML 初始化错误数 0。v171 定向回归为
+`45 passed, 0 skipped, 0 failed`，全量回归为 `3704 passed, 4 skipped, 0 failed, 0 errors`（3,708 tests）。当前 portable EXE 为 `46,863,360` bytes，SHA-256
+`589E33ADAB2C7D1DBC58524BCAE3474D18743A6E0D970FC4C01CF3F187201717`。
+
+以上是 software/native/portable 证据；E7 仍为 `gate_passed=false`、`release_allowed=false`、31 blockers，现场网段、
+Jetson、GR01、相机和室外 GNSS 尚未连通，人工 Fly View、HIL/REAL、硬件和实飞验收仍未声明。
 
 ### v170 目标卡片实时定位质量状态（2026-09-07）
 

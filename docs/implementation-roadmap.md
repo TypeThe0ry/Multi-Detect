@@ -1,5 +1,16 @@
 # Implementation roadmap
 
+## 原生目标事件回放只读查看器（v171）
+
+- [x] `MultiDetectTargetEventReplayStore` 在 C++ 侧一次性加载并校验 `manifest.json`、`events.jsonl` 和 `media/`；
+- [x] 拒绝重复 JSON key、未知字段、非有限数、路径逃逸/符号链接、时间/序列/GPS/测距不合格、目录额外文件
+  以及 bytes/SHA-256 不匹配，并在任何失败时清空状态；
+- [x] QML FileDialog 与只读时间线显示 bundle/session、事件、GPS、距离/方位和媒体引用；
+- [x] native self-test 覆盖有效包、媒体篡改与重复 key 负向路径，Python 生成的 bundle 可由 C++ `--load` 跨语言复核；
+- [x] portable simple boot 退出 0，回放查看器不调用地图、目标选择、任务、飞控或物理释放；
+- [ ] 在同一台现场机上人工打开 Fly View，选择一份真实 RTSP/GNSS/测距录制并核对时间线可读性；该人工门通过前不
+  改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## Hash-anchored GR01 review trust registry（v150）
 
 - [x] closed registry 登记 operator/reviewer principal、identity、key ID、Ed25519 public key、有效期与吊销元数据；

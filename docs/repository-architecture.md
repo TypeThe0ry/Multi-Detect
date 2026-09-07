@@ -1,5 +1,29 @@
 # 统一仓库架构
 
+## v171 目标事件回放只读查看器（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+manifest.json + events.jsonl + media/
+        │
+        ▼
+MultiDetectTargetEventReplayStore (C++)
+  strict JSON/duplicate/schema/path/SHA-256/GPS/range/media checks
+        │
+        ▼
+QVariantList (full event count, max 512 displayed)
+        │
+        ▼
+FlyViewCustomLayer FileDialog + read-only popup/ListView
+```
+
+- `MultiDetectTargetEventReplayStore` 是唯一 native 读取入口；它在加载期间重算 manifest、事件流和媒体的身份，
+  失败即清空 `loaded/integrityVerified/events`，不会把部分数据交给 UI；
+- QML 只负责选择文件、展示已验证字段和时间线，不复制 GPS/测距质量算法，也不连接地图、目标选择、任务、
+  operator protocol、飞控适配器或物理载荷；
+- Python `target_event_replay.py` 与 native store 共用 `multidetect.target-event-replay.v1` 契约，C++ self-test
+  直接加载 Python 生成的 bundle，防止两套 verifier 的字段或哈希语义漂移；
+- 该链路是证据回放/态势感知层，查看器通过不代表室外 GNSS、硬件、HIL/REAL、人工 Fly View 或实飞验收。
+
 ## v170 目标卡片质量状态投影（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

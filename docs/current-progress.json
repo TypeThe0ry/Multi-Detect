@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T02:22:17Z",
+  "updated_at_utc": "2026-09-07T03:52:27Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "073e8412cefb6ea8ae197aff09481b8c0d39620a",
-    "commit_subject": "feat(qgc): surface localization quality on target card",
-    "commits_ahead_of_origin_main": 234
+    "commit": "1fcfc68bcb735e98bf0f42c546d725ac79c3b9d2",
+    "commit_subject": "feat(qgc): add read-only target event replay inspector",
+    "commits_ahead_of_origin_main": 236
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v170",
+  "working_iteration": "v171",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -74,16 +74,16 @@
     "working_tree_full_regression": {
       "passed": true,
       "python_version": "3.12.7",
-      "tests": 3707,
-      "passed_tests": 3703,
+      "tests": 3708,
+      "passed_tests": 3704,
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 183.031,
+      "duration_seconds": 184.441,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v170/pytest-full-v170.xml",
-      "junit_file_bytes": 542030,
-      "junit_file_sha256": "3b21593cb2277f1762d70c2287b34309ec615ee3456bc6d9decde9736ac7b3e1",
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v171-full.xml",
+      "junit_file_bytes": 542180,
+      "junit_file_sha256": "8074dbad5781888e518f7a0826f30b9cdd34f4f654f0b2ce698754da89ce2dc6",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -479,6 +479,32 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v171_target_event_replay_inspector_selected_regression": {
+      "passed": true,
+      "tests": 45,
+      "passed_tests": 45,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "native_qgc_target_event_replay_inspector_strict_manifest_event_media_verification_and_read_only_qml_projection",
+      "native_target_event_replay_store_self_test": "passed",
+      "native_target_event_replay_external_python_bundle": "passed",
+      "strict_duplicate_json_key_rejection": true,
+      "manifest_event_media_sha256_reverification": true,
+      "gps_quality_and_freshness_fail_closed": true,
+      "read_only_qml_dialog": true,
+      "no_map_or_target_selection": true,
+      "no_flight_control_or_physical_release": true,
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v171-focused.xml",
+      "junit_file_bytes": 6772,
+      "junit_file_sha256": "eac8f4c1e543e517e90314060ca65a998ad00826dbc67a68598087c2518e9520",
+      "portable_simple_boot": "passed",
+      "portable_boot_stdout_bytes": 0,
+      "portable_boot_stderr_bytes": 0,
+      "portable_boot_qml_initialization_errors": 0,
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v170_target_card_localization_quality_selected_regression": {
       "passed": true,
       "tests": 89,
@@ -554,10 +580,10 @@
   },
   "release_parity": {
     "path": "configs/release-parity.json",
-    "bytes": 9956,
-    "file_sha256": "10a741fbc4b0fd620c4f9856fe797d1b99d7cd958dac9da93a6f0d1cea2e4f90",
+    "bytes": 10129,
+    "file_sha256": "d99f244acfa708d16cc40019ca0ed8e8fcfce827bfd250983a5fac1a716ed23c",
     "hashes": {
-      "ui_contract_hash": "2ef5b835d615191657c91aa438b29604025d6342982dd62bc1bcdcfa45907e8d",
+      "ui_contract_hash": "cc9841a00bf6b92f05c68c6cb26921ec8163f829a223b32b9c42131c55e5aadf",
       "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
@@ -565,6 +591,26 @@
     }
   },
   "evidence": {
+    "target_event_replay_native_inspector": {
+      "schema": "multidetect.target-event-replay.v1",
+      "native_store": [
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEventReplayStore.h",
+        "ground-control/MultiDetectGCS/custom/src/MultiDetectTargetEventReplayStore.cc"
+      ],
+      "native_self_test": "passed",
+      "external_python_bundle_load": "passed",
+      "strict_manifest_event_media_sha256": true,
+      "duplicate_json_keys_rejected": true,
+      "gps_quality_and_freshness_fail_closed": true,
+      "displayed_event_limit": 512,
+      "read_only_qml_popup": true,
+      "map_or_target_selection": false,
+      "flight_control_enabled": false,
+      "physical_release_enabled": false,
+      "portable_simple_boot": "passed",
+      "exe_bytes": 46863360,
+      "exe_sha256": "589e33adab2c7d1dbc58524bcae3474d18743a6e0d970fc4c01cf3f187201717"
+    },
     "gnss_bound_target_evidence_snapshots": {
       "schema": "multidetect.target-evidence.v6",
       "legacy_v1_read_compatible": true,
@@ -1896,19 +1942,50 @@
       "field_calibration_provenance_complete": false,
       "release_claim": "not_claimed"
     },
+    "v171_parity_rebound_derived_evidence": {
+      "external_join": {
+        "path": "artifacts/evaluation/terminal-continuation-v171/simulator-external-runtime-ai-join-v171-current-parity-pre8.json",
+        "bytes": 5492,
+        "sha256": "9ee018d6b483511922fce578e1b3e6e556b19c9488ac2a0b2e6c88fb774012ff",
+        "gate_passed": true
+      },
+      "external_revalidation": {
+        "path": "artifacts/evaluation/terminal-continuation-v171/simulator-external-runtime-ai-revalidation-v171-current-parity-pre8.json",
+        "bytes": 565,
+        "sha256": "8d72ed39c260275caa6e616fb7825a865cde4ed3ef5e4062f0294ebbb671708a",
+        "source_recomputed": true,
+        "gate_passed": true
+      },
+      "px4_response_matrix": {
+        "path": "artifacts/evaluation/terminal-continuation-v171/px4-reported-position-response-matrix-v171-current-parity-pre8.json",
+        "bytes": 6985,
+        "sha256": "1d67697c85cdef0a1f4f3f37ae331eeccd62d0922323d8d87dd08d42a484adf6",
+        "gate_passed": true
+      },
+      "px4_response_campaign": {
+        "path": "artifacts/evaluation/terminal-continuation-v171/px4-reported-position-response-campaign-v171-current-parity-pre8.json",
+        "bytes": 26120,
+        "sha256": "6766516c2d6a8e99a00947d8f76922d143a751fd0e49857e06bc5d0f669aa545",
+        "gate_passed": true
+      },
+      "all_inputs_bound_to_current_parity": true,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
     "release_gate_report": {
-      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v170/release-gate/release-gate-pre.8-current-20260907T022217Z-v6-bound.json",
-      "manifest_file_bytes": 23608,
-      "manifest_file_sha256": "7a2e815b028601e5e8aae03216d71ff09204517259d41918c40739c0753e2741",
-      "local_path": "artifacts/evaluation/terminal-continuation-v170/release-gate/release-gate-pre.8-current-20260907T022217Z-v6-bound-report.json",
+      "manifest_local_path": "artifacts/evaluation/terminal-continuation-v171/release-gate/release-gate-pre.8-current-20260907T035000Z-v6-bound.json",
+      "manifest_file_bytes": 23729,
+      "manifest_file_sha256": "b1cbcd26061925787c34fa02405818833ce9a1d80d4609f3967505558b62745e",
+      "local_path": "artifacts/evaluation/terminal-continuation-v171/release-gate/release-gate-pre.8-current-20260907T035000Z-v6-bound-report.json",
       "distributed_in_git": false,
-      "file_bytes": 73494,
-      "file_sha256": "2e356c27da5099df6f63ddc6397d1adca88a13141a82ac2cb8474afbff324f06",
+      "file_bytes": 73786,
+      "file_sha256": "5e7ec0df188ab1e093b196b4e936e296ef0dcbdd73bdb8c1ee11a892780986e0",
       "gate_passed": false,
       "release_allowed": false,
-      "blocker_count": 31,
+      "blocker_count": 32,
       "current_release_parity_bound": true,
-      "status": "current_v170_report_only_blocked"
+      "status": "current_v171_report_only_blocked"
     }
   },
   "model_status": {
@@ -1940,6 +2017,7 @@
     "flight_acceptance": "not_claimed"
   },
   "next_priorities": [
+    "manual_fly_view_target_event_replay_review_on_current_portable",
     "execute_real_gr01_session_then_portable_review_on_second_field_machine",
     "execute_hil_real_pixhawk_odometry_covariance_capture_with_signed_profile_and_mission_feedback",
     "execute_real_jetson_rtsp_v3_capture_conversion_attestation_and_gnss_join",

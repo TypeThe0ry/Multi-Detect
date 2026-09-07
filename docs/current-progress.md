@@ -1,6 +1,43 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v170 工作树）
+最后更新：2026-09-07（v171 工作树）
+
+## v171 本轮已收口（原生目标事件回放只读查看器）
+
+- 将已有 `multidetect.target-event-replay.v1` 证据包接入原生 QGC Fly View：选择 `manifest.json` 后由
+  `MultiDetectTargetEventReplayStore` 在 C++ 侧一次性校验 manifest、`events.jsonl` 与 `media/` 闭合目录，
+  再以只读 `QVariantList` 投影到 QML 时间线；校验失败会清空状态，不保留半加载数据。
+- 原生校验器拒绝重复 JSON key、未知字段、非有限数、路径逃逸/符号链接、时间/序列不连续、GPS 质量或新鲜度
+  不合格、测距区间不合法、媒体额外文件和 bytes/SHA-256 不匹配；事件与媒体路径均限制在 manifest 所属目录。
+- Fly View 目标卡片新增“载入回放/查看回放”入口和只读弹窗，显示 bundle/session、事件数量、目标类别、捕获时间、
+  GPS、距离/方位、视频/深度引用及校验状态；弹窗没有落图、选目标、任务、飞控或物理释放调用。
+- `MultiDetectTargetEventReplayStoreSelfTest` 通过，覆盖有效包、篡改媒体和重复 key 的 fail-closed 路径；Python
+  `create_target_event_replay.py` 生成的真实 bundle 由 C++ self-test `--load` 跨语言加载通过。
+- v171 定向回归 45 tests：`45 passed, 0 skipped, 0 failed`；JUnit `artifacts/evaluation/target-event-replay-v171-focused.xml`，
+  6,772 bytes，SHA-256 `EAC8F4C1E543E517E90314060CA65A998AD00826DBC67A68598087C2518E9520`。Ruff、format、compileall 与
+  `git diff --check` 通过。
+- 全量回归 3,708 tests：`3704 passed, 4 skipped, 0 failed, 0 errors`，耗时 184.441 秒；JUnit
+  `artifacts/evaluation/target-event-replay-v171-full.xml`，542,180 bytes，SHA-256
+  `8074DBAD5781888E518F7A0826F30B9CDD34F4F654F0B2CE698754DA89CE2DC6`。
+- Release portable EXE 已重链并部署到
+  `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`：
+  46,863,360 bytes，SHA-256 `589E33ADAB2C7D1DBC58524BCAE3474D18743A6E0D970FC4C01CF3F187201717`。
+  `MultiDetectTargetEventReplayStoreSelfTest.exe` 退出 0；portable `--simple-boot-test` 退出 0，stdout/stderr 均为
+  0 bytes，QML 初始化错误数 0。
+- `configs/release-parity.json` 已重新生成：10,129 bytes，SHA-256 `D99F244ACFA708D16CC40019CA0ED8E8FCFCE827BFD250983A5FAC1A716ED23C`；
+  UI `CC9841A00BF6B92F05C68C6CB26921EC8163F829A223B32B9C42131C55E5AADF`，core/task/safety/PX4 四组 hash 保持当前绑定。
+- 派生证据也从原始 source 按 v171 parity 重算：external join/revalidation 为 5,492/565 bytes（SHA-256
+  `9EE018D6B483511922FCE578E1B3E6E556B19C9488AC2A0B2E6C88FB774012FF` / `8D72ED39C260275CAA6E616FB7825A865CDE4ED3EF5E4062F0294EBBB671708A`），
+  PX4 response matrix/campaign 为 6,985/26,120 bytes（SHA-256
+  `1D67697C85CDEF0A1F4F3F37AE331EECCD62D0922323D8D87DD08D42A484ADF6` / `6766516C2D6A8E99A00947D8F76922D143A751FD0E49857E06BC5D0F669AA545`）。
+- E7 report-only 已在新输出目录 `artifacts/evaluation/terminal-continuation-v171/release-gate/` 重新生成；manifest/report
+  为 23,729/73,786 bytes（SHA-256 `B1CBCD26061925787C34FA02405818833CE9A1D80D4609F3967505558B62745E` /
+  `5E7EC0DF188AB1E093B196B4E936E296EF0DCBDD73BDB8C1EE11A892780986E0`），当前仍 `gate_passed=false`、
+  `release_allowed=false`，现场 freshness 超时与尚未完成的真实/人工门保持显式阻断。
+- E7 仍为 `gate_passed=false`、`release_allowed=false`；仓库基线保持 `31 blockers`，本次 report-only 因现场报告
+  新增 freshness 超时而列出 32 条详细原因。现场网卡仍是 `192.168.1.13/24`，目标网段
+  `192.168.144.0/24`；Jetson `192.168.144.10:22`、GR01 `192.168.144.25:5760`、相机 `192.168.144.108:554` 仍未连通。
+  本轮没有提升室外 GNSS、真实硬件、HIL/REAL、人工 Fly View 或实飞状态；当前查看器只读证据回放，不产生飞控指令。
 
 ## v170 本轮已收口
 

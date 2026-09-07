@@ -5,6 +5,19 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v171 native target-event replay inspector（2026-09-07）
+
+- 新增原生 `MultiDetectTargetEventReplayStore`，从 `manifest.json` 读取并严格校验
+  `multidetect.target-event-replay.v1` 的 manifest、`events.jsonl` 与 `media/` 目录闭合关系；重复 JSON key、未知字段、
+  非有限数、路径逃逸/符号链接、时间/序列/GPS/测距不合格、媒体额外文件和 bytes/SHA-256 不一致都会 fail-closed，
+  且失败时清空已加载状态；
+- Fly View 新增“载入回放/查看回放”只读入口，显示 bundle/session、事件时间线、类别、捕获时间、GPS、距离/方位和媒体引用，
+  不调用地图落点、目标选择、任务、飞控或物理释放接口；
+- C++ self-test 覆盖正向、媒体篡改和重复 key 负向路径；Python 生成的真实 bundle 可由 native `--load` 跨语言复核；
+- portable `MultiDetectGCS.exe`：46,863,360 bytes，SHA-256
+  `589E33ADAB2C7D1DBC58524BCAE3474D18743A6E0D970FC4C01CF3F187201717`；定向回归 `45 passed`，
+  `--simple-boot-test` 退出 0，QML 初始化错误数 0；E7 保持 `false / false / 31 blockers`，硬件/室外 GNSS/HIL/REAL/实飞门不变。
+
 ### v0.3.0-pre.8 v170 target card localization quality status（2026-09-07）
 
 - Fly View 目标定位卡片直接读取原生 recorder 的 `current_status`，在同一只读卡片中显示当前/上次录制状态、
