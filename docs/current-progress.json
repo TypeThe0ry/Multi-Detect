@@ -10,9 +10,9 @@
   },
   "working_base": {
     "branch": "main",
-    "commit": "8a16fee6edf25caf71cc6e4d7c798f2c3ffe2105",
+    "commit": "a614d67d47c621628af9d61930cb0fcc31f27736",
     "commit_subject": "feat(runtime): bind hil real observation reports",
-    "commits_ahead_of_origin_main": 258
+    "commits_ahead_of_origin_main": 259
   },
   "product_version": {
     "release_label": "0.3.0-pre.8",
