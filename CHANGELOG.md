@@ -5,6 +5,15 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v179 integrated Replay/QGC RuntimeRunReport parity（2026-09-07）
+
+- `integrated-replay-qgc` 回归现在使用真实 `RuntimeRunReport` 对象，先完成本地 RTSP/metadata 同步 ACK，
+  再通过 `--runtime-report` 写入 sidecar，并校验结果内嵌报告与 loader round-trip 完全一致；报告继续绑定
+  frame ID、descriptor/input hash、自然耗尽和 `max_frames=null`。
+- integrated Replay/QGC/Live/Runtime 定向回归保持 `140 passed, 0 skipped, 0 failed`，全量回归为
+  `3711 passed, 4 skipped, 0 failed`（3,715 tests）；该轮只加强 QGC software 证据，不改变 QGC C++/QML
+  二进制，也不提升室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞门。
+
 ### v0.3.0-pre.8 v178 integrated Replay natural-exhaustion report（2026-09-07）
 
 - `RawSensorReplayBackend` 的有限帧源现在使用独立的 `FrameSourceExhausted` 信号；`LiveMissionRunner`

@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## integrated Replay/QGC RuntimeRunReport parity（v179，`v0.3.0-pre.8`）
+
+- [x] `integrated-replay-qgc` 在本地 RTSP/metadata 同步 ACK 完成后写出 `RuntimeRunReport` sidecar，并将
+  同一 canonical mapping 嵌入结果 JSON；
+- [x] QGC 回归核对逐帧 ID、descriptor/input hash、自然耗尽、`max_frames=null` 与 loader round-trip，确保
+  QGC 入口和 headless Replay 使用同一运行报告契约；
+- [ ] 仍需在现场 portable 上人工打开同一 Fly View 并载入真实长回放，将报告与外部采集、HIL/REAL 逐帧对账；
+  该门通过前不改变 E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## integrated Replay 自然耗尽与 RuntimeRunReport（v178，`v0.3.0-pre.8`）
 
 - [x] 有限 `ReplayFrameSource` 发出可区分的 `FrameSourceExhausted` 结束信号；Live runner 记录

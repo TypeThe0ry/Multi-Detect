@@ -9,6 +9,14 @@ external runtime/live-AI machine gates 与单机型持续 PX4 reported-position 
 但不等同于视觉/QGC/HIL/REAL。最终
 `v0.3.0` 不提前发布。
 
+## v179 integrated Replay/QGC RuntimeRunReport parity
+
+`integrated-replay-qgc` 现在在本地 RTSP/metadata 同步 ACK 完成后消费真实 `RuntimeRunReport`，通过
+`--runtime-report <path>` 写出 canonical sidecar，并把相同 mapping 嵌入结果 JSON。报告继续核对逐帧身份、
+descriptor/input hash、自然 source exhaustion 与 `max_frames=null`；QGC 回归覆盖 loader round-trip，保持
+与 headless Replay/SIM/HIL/REAL 相同的运行契约。该变更只增强 software/QGC 证据，不改变 C++/QML 二进制，
+也不提升室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞验收状态。
+
 ## v177 SIM RuntimeRunReport sidecar
 
 `SimulatorScenarioRunResult.runtime_run_report` 现在复用 Replay/HIL/REAL 的统一运行报告契约。场景 runner 的

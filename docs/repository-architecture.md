@@ -1,5 +1,23 @@
 # 统一仓库架构
 
+## v179 integrated Replay/QGC RuntimeRunReport parity（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+integrated-replay-qgc
+        │ local RTSP + metadata ACK complete
+        ▼
+IntegratedReplaySession.runtime_run_report
+        │ frame IDs + descriptor/input hash + natural exhaustion
+        ▼
+--runtime-report sidecar + embedded result mapping
+        │ canonical JSON + SHA-256 + loader round-trip
+        ▼
+same RuntimeRunReport contract as Replay / SIM / HIL / REAL
+```
+
+- QGC 同步入口与 headless Replay 使用同一份报告对象；报告生成发生在同步 ACK 完成后，仍保持只读、无飞控
+  写入和无物理释放边界；v179 定向回归为 140/140，通过前仍不提升室外 GNSS、硬件、HIL/REAL 或实飞门。
+
 ## v177 SIM RuntimeRunReport sidecar（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

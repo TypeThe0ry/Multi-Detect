@@ -1,6 +1,20 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v178 工作树）
+最后更新：2026-09-07（v179 工作树）
+
+## v179 本轮已收口（integrated Replay/QGC sidecar 对账）
+
+- `integrated-replay-qgc` 的 CLI 回归现在挂接真实 `RuntimeRunReport`，在本地 RTSP/metadata 同步 ACK 完成后
+  写出 `--runtime-report` sidecar，并核对结果内嵌报告、canonical hash 与 loader round-trip；QGC 入口不再只是
+  解析参数，而是覆盖完整报告消费路径。
+- 报告仍绑定 `frame-0001`/`frame-0002`、descriptor/input hash、`stream_exhausted=true`、`max_frames=null`；
+  integrated Replay、QGC、Live、Runtime 定向回归为 `140 passed, 0 skipped, 0 failed`。
+- 定向 JUnit 位于 `artifacts/evaluation/terminal-continuation-v179/integrated-replay-qgc-focused.xml`，19,230 bytes，
+  SHA-256 `B4B6620511FE02F01D07177695CFFA28124E18A2502802AE9D7539E4FB813F88`；v179 全量 Python 回归为
+  `3711 passed, 4 skipped, 0 failed`（3,715 tests，269.676 秒），JUnit 位于
+  `artifacts/evaluation/terminal-continuation-v179/full-rerun.xml`，543,119 bytes，SHA-256
+  `EDF8454297EF15BDA74213EDF5DD18C9110C9A4E8A61D6E1A4A998AD3F3DFFAD`。这是 QGC 入口补强，不改变
+  QGC C++/QML 二进制，也不提升室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞门。
 
 ## v178 本轮已收口（integrated Replay 自然耗尽与 RuntimeRunReport）
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T07:24:00Z",
+  "updated_at_utc": "2026-09-07T07:39:00Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v178",
+  "working_iteration": "v179",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 236.371,
+      "duration_seconds": 269.676,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/terminal-continuation-v178/full-rerun.xml",
-      "junit_file_bytes": 543117,
-      "junit_file_sha256": "736fbab2d45161703bdc256c5758d636edea33cdb2c0de7e536e3fcd8d052a3b",
+      "junit_local_path": "artifacts/evaluation/terminal-continuation-v179/full-rerun.xml",
+      "junit_file_bytes": 543119,
+      "junit_file_sha256": "edf8454297ef15bda74213edf5dd18c9110c9a4e8a61d6e1a4a998ad3f3dffad",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -591,6 +591,50 @@
         "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
         "junit_file_bytes": 10452,
         "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
+    "v179_integrated_replay_qgc_runtime_report_selected_regression": {
+      "passed": true,
+      "tests": 140,
+      "passed_tests": 140,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "integrated_replay_qgc_runtime_report_sidecar_embedded_result_and_synchronization_round_trip",
+      "runtime_report_fields": [
+        "descriptor_hash",
+        "input_hash",
+        "processed_frame_ids",
+        "processed_frame_count",
+        "started_at_s",
+        "finished_at_s",
+        "duration_s",
+        "stream_exhausted",
+        "max_frames",
+        "termination_reason",
+        "sha256"
+      ],
+      "qgc_synchronization_ack_before_report": true,
+      "qgc_sidecar_and_embedded_mapping_match": true,
+      "runtime_report_loader_round_trip": true,
+      "natural_stream_exhaustion": true,
+      "processed_frame_ids": ["frame-0001", "frame-0002"],
+      "focused_junit_local_path": "artifacts/evaluation/terminal-continuation-v179/integrated-replay-qgc-focused.xml",
+      "focused_junit_file_bytes": 19230,
+      "focused_junit_file_sha256": "b4b6620511fe02f01d07177695cffa28124e18a2502802ae9d7539e4fb813f88",
+      "focused_duration_seconds": 3.93,
+      "full_regression": {
+        "tests": 3715,
+        "passed_tests": 3711,
+        "skipped": 4,
+        "failed": 0,
+        "errors": 0,
+        "duration_seconds": 269.676,
+        "junit_local_path": "artifacts/evaluation/terminal-continuation-v179/full-rerun.xml",
+        "junit_file_bytes": 543119,
+        "junit_file_sha256": "edf8454297ef15bda74213edf5dd18c9110c9a4e8a61d6e1a4a998ad3f3dffad"
       },
       "flight_control_enabled": false,
       "physical_release_enabled": false
@@ -2348,6 +2392,32 @@
         "gate_passed": true
       },
       "all_inputs_bound_to_current_parity": true,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
+    "v179_integrated_replay_qgc_runtime_report_sidecar": {
+      "reason": "QGC integrated Replay synchronizes metadata before consuming the shared hash-bound RuntimeRunReport",
+      "runtime_report_contract": "multidetect.runtime-run-report.v1",
+      "qgc_synchronization_ack_before_report": true,
+      "qgc_sidecar_and_embedded_mapping_match": true,
+      "runtime_report_loader_round_trip": true,
+      "processed_frame_ids": ["frame-0001", "frame-0002"],
+      "stream_exhausted": true,
+      "max_frames": null,
+      "termination_reason": "stream_exhausted",
+      "focused_regression": {
+        "tests": 140,
+        "passed_tests": 140,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_path": "artifacts/evaluation/terminal-continuation-v179/integrated-replay-qgc-focused.xml",
+        "junit_bytes": 19230,
+        "junit_sha256": "b4b6620511fe02f01d07177695cffa28124e18a2502802ae9d7539e4fb813f88"
+      },
+      "same_runtime_report_contract_as_replay_sim_hil_real": true,
+      "flight_control_enabled": false,
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"

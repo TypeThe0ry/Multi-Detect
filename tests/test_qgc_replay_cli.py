@@ -15,6 +15,7 @@ from multidetect.qgc_replay import (
     ReplayRtspPublisherStats,
     SynchronizedReplayEvidence,
 )
+from multidetect.runtime import RuntimeRunReport, load_runtime_run_report
 from multidetect.selection_target_pool import UnifiedSelectionTargetPool
 from multidetect.unified_tracking import UnifiedTargetPool
 
@@ -31,8 +32,8 @@ class _FakeBackend:
             recording_id="qgc-cli-fixture",
             recording_hash="b" * 64,
             frames=(
-                SimpleNamespace(captured_at_s=1.0, image=image),
-                SimpleNamespace(captured_at_s=2.0, image=image),
+                SimpleNamespace(captured_at_s=1.0, frame_id="frame-0001", image=image),
+                SimpleNamespace(captured_at_s=2.0, frame_id="frame-0002", image=image),
             ),
         )
         self.descriptor = SimpleNamespace(canonical_hash="c" * 64)
@@ -204,7 +205,18 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
             kwargs["operator_bridge"].simulate_run()
             return _FakeResult()
 
-        return SimpleNamespace(identity=identity, run=run)
+        return SimpleNamespace(
+            identity=identity,
+            run=run,
+            runtime_run_report=RuntimeRunReport(
+                descriptor_hash="c" * 64,
+                input_hash="b" * 64,
+                processed_frame_ids=("frame-0001", "frame-0002"),
+                started_at_s=0.0,
+                finished_at_s=2.0,
+                stream_exhausted=True,
+            ),
+        )
 
     monkeypatch.setattr(cli_module, "RawSensorReplayBackend", _FakeBackend)
     monkeypatch.setattr(cli_module, "build_production_perception", fake_factory)
@@ -218,6 +230,7 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
     )
     monkeypatch.setattr(cli_module, "build_integrated_replay_session", fake_session_builder)
     result_path = tmp_path / "qgc-result.json"
+    runtime_report_path = tmp_path / "qgc-runtime-report.json"
 
     exit_code = cli_module.main(
         [
@@ -240,6 +253,8 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
             "QGC_MAVLINK",
             "--result-out",
             str(result_path),
+            "--runtime-report",
+            str(runtime_report_path),
             "--perception-args",
             "--onnx-model",
             "primary.onnx",
@@ -316,6 +331,16 @@ def test_integrated_replay_qgc_cli_reuses_production_core_and_target_pool(
     assert document["hardware_outputs_present"] is False
     assert document["pixhawk_attached"] is False
     assert document["actuator_outputs_present"] is False
+    assert document["runtime_run_report"]["stream_exhausted"] is True
+    assert document["runtime_run_report"]["max_frames"] is None
+    assert document["runtime_run_report"]["processed_frame_ids"] == [
+        "frame-0001",
+        "frame-0002",
+    ]
+    assert (
+        load_runtime_run_report(runtime_report_path).to_mapping_with_hash()
+        == document["runtime_run_report"]
+    )
     stdout = capsys.readouterr().out
     assert '"integrated_replay_qgc_started"' in stdout
     assert '"integrated_replay_qgc_finished"' in stdout
