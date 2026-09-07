@@ -1281,6 +1281,20 @@ Item {
                 return count;
             }
 
+            function replayMatchedCount() {
+                if (typeof multiDetectTargetEventReplayStore === "undefined" ||
+                        multiDetectTargetEventReplayStore === null ||
+                        !multiDetectTargetEventReplayStore.loaded)
+                    return 0;
+                if (_replayFilter === "locatable")
+                    return multiDetectTargetEventReplayStore.locatableEventCount;
+                if (_replayFilter === "ranged")
+                    return multiDetectTargetEventReplayStore.rangedEventCount;
+                if (_replayFilter === "media")
+                    return multiDetectTargetEventReplayStore.mediaEventCount;
+                return multiDetectTargetEventReplayStore.eventCount;
+            }
+
             function mediaText(label, media) {
                 const value = media || ({});
                 if (value.present !== true)
@@ -1440,8 +1454,25 @@ Item {
                             text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
                                    multiDetectTargetEventReplayStore !== null &&
                                    multiDetectTargetEventReplayStore.loaded) ?
-                                      qsTr("筛选：%1 · 当前显示 %2 条")
+                                      qsTr("全量质量：可定位 %1 · 有效测距 %2 · 有媒体 %3 · 目标 %4 · 时长 %5 s · 媒体 %6 B")
+                                          .arg(multiDetectTargetEventReplayStore.locatableEventCount)
+                                          .arg(multiDetectTargetEventReplayStore.rangedEventCount)
+                                          .arg(multiDetectTargetEventReplayStore.mediaEventCount)
+                                          .arg(multiDetectTargetEventReplayStore.uniqueTargetCount)
+                                          .arg(Number(multiDetectTargetEventReplayStore.captureDurationS).toFixed(3))
+                                          .arg(multiDetectTargetEventReplayStore.mediaBytes) : ""
+                            visible: text !== ""
+                            wrapMode: Text.WordWrap
+                        }
+
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            text: (typeof multiDetectTargetEventReplayStore !== "undefined" &&
+                                   multiDetectTargetEventReplayStore !== null &&
+                                   multiDetectTargetEventReplayStore.loaded) ?
+                                      qsTr("筛选：%1 · 匹配 %2 条 · 当前显示 %3 条")
                                           .arg(targetEventReplayDialog.replayFilterLabel())
+                                          .arg(targetEventReplayDialog.replayMatchedCount())
                                           .arg(targetEventReplayDialog.replayVisibleCount()) : ""
                             visible: text !== ""
                             wrapMode: Text.WordWrap

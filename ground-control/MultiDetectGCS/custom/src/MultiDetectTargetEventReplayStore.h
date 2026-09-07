@@ -22,6 +22,12 @@ class MultiDetectTargetEventReplayStore final : public QObject
     Q_PROPERTY(int eventCount READ eventCount NOTIFY eventCountChanged)
     Q_PROPERTY(int displayedEventCount READ displayedEventCount NOTIFY displayedEventCountChanged)
     Q_PROPERTY(int mediaCount READ mediaCount NOTIFY mediaCountChanged)
+    Q_PROPERTY(int locatableEventCount READ locatableEventCount NOTIFY statisticsChanged)
+    Q_PROPERTY(int rangedEventCount READ rangedEventCount NOTIFY statisticsChanged)
+    Q_PROPERTY(int mediaEventCount READ mediaEventCount NOTIFY statisticsChanged)
+    Q_PROPERTY(int uniqueTargetCount READ uniqueTargetCount NOTIFY statisticsChanged)
+    Q_PROPERTY(double captureDurationS READ captureDurationS NOTIFY statisticsChanged)
+    Q_PROPERTY(qulonglong mediaBytes READ mediaBytes NOTIFY statisticsChanged)
     Q_PROPERTY(QVariantList events READ events NOTIFY eventsChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -39,6 +45,12 @@ public:
     int eventCount() const { return _eventCount; }
     int displayedEventCount() const { return _events.size(); }
     int mediaCount() const { return _mediaCount; }
+    int locatableEventCount() const { return _locatableEventCount; }
+    int rangedEventCount() const { return _rangedEventCount; }
+    int mediaEventCount() const { return _mediaEventCount; }
+    int uniqueTargetCount() const { return _uniqueTargetCount; }
+    double captureDurationS() const { return _captureDurationS; }
+    qulonglong mediaBytes() const { return _mediaBytes; }
     QVariantList events() const { return _events; }
     QString statusText() const { return _statusText; }
     QString lastError() const { return _lastError; }
@@ -59,6 +71,7 @@ signals:
     void eventCountChanged();
     void displayedEventCountChanged();
     void mediaCountChanged();
+    void statisticsChanged();
     void eventsChanged();
     void statusTextChanged();
     void lastErrorChanged();
@@ -77,6 +90,12 @@ private:
     QString _startedAtUtc;
     int _eventCount = 0;
     int _mediaCount = 0;
+    int _locatableEventCount = 0;
+    int _rangedEventCount = 0;
+    int _mediaEventCount = 0;
+    int _uniqueTargetCount = 0;
+    double _captureDurationS = 0.0;
+    qulonglong _mediaBytes = 0;
     QVariantList _events;
     QString _statusText;
     QString _lastError;

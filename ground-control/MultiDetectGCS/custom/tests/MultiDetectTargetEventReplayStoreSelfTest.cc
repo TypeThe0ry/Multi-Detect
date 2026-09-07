@@ -235,6 +235,11 @@ int main(int argc, char* argv[])
     require(store.eventCount() == 1 && store.mediaCount() == 1 &&
                 store.displayedEventCount() == 1,
             "event and media counts must be exposed", &failures);
+    require(store.locatableEventCount() == 1 && store.rangedEventCount() == 1 &&
+                store.mediaEventCount() == 1 && store.uniqueTargetCount() == 1,
+            "full replay quality counts must be exposed", &failures);
+    require(std::abs(store.captureDurationS()) < 1.0e-9 && store.mediaBytes() == 4,
+            "single-event replay duration and media bytes must be exposed", &failures);
     const QVariantMap event = store.events().constFirst().toMap();
     require(event.value(QStringLiteral("target_id")).toString() == QStringLiteral("target-1"),
             "event target id must be exposed", &failures);

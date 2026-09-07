@@ -1,5 +1,14 @@
 # Implementation roadmap
 
+## 全量回放质量摘要与 parity 重绑（v174）
+
+- [x] native replay store 与 Python bundle 对完整事件流计算可定位、有效测距、有媒体、唯一目标、捕获时长和媒体字节统计；
+- [x] Fly View 筛选显示匹配总数与当前显示数，长回放仍保留最多 512 条 UI 投影且不改变只读边界；
+- [x] C++ self-test、Python/native 跨语言加载、QGC 静态契约、portable offscreen boot、定向回归与完整 Python 回归通过；
+- [x] 以本轮 parity 重建三机型 external runtime/AI join、PX4 response matrix/campaign，并重算 report-only E7；
+- [ ] 在现场 portable 上人工载入长回放，核对全量摘要、筛选匹配数、复制证据和长文本布局；该人工门通过前不改变
+  E7、室外 GNSS、硬件、HIL/REAL 或实飞状态。
+
 ## 当前 parity 重绑与 E7 report-only（v173）
 
 - [x] 用当前 `release-parity.json` 重建并独立复核三机型 external runtime/AI join；

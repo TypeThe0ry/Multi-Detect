@@ -1,6 +1,31 @@
 # Multi-Detect 当前进度
 
-最后更新：2026-09-07（v173 工作树）
+最后更新：2026-09-07（v174 工作树）
+
+## v174 本轮已收口（全量回放质量摘要与 parity 重绑）
+
+- `TargetEventReplayBundle` 与原生 `MultiDetectTargetEventReplayStore` 现在都从完整、已验证的事件流计算质量摘要：可定位事件数、有效测距事件数、有媒体事件数、唯一目标数、首尾捕获时长和哈希绑定媒体字节数；QML 仍只显示最多 512 条事件，避免长回放被截断后误读总量。
+- Fly View 回放筛选同时显示“匹配总数”和“当前显示数”，四种筛选（全部、可定位、有效测距、有媒体）均使用 native 全量计数；事件明细、复制证据、地图/任务/飞控边界保持 v172 不变。
+- C++ self-test、Python/native 跨语言回放测试、QGC 静态契约测试、portable offscreen simple boot 均通过；v174 定向回归为
+  `45 passed, 0 skipped, 0 failed`，完整回归为 `3704 passed, 4 skipped, 0 failed`（3,708 tests，181.948 秒），JUnit
+  `artifacts/evaluation/target-event-replay-v174-full-rerun.xml` 为 542,180 bytes、SHA-256
+  `F891C6155A01A275AE96372F2DF38487483A8FA4CFC57A339F1EDBA9D8AD9FAA`；Ruff、format、compileall 和
+  `git diff --check` 通过。
+- Release/portable EXE 已重链并部署到
+  `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`：
+  46,875,136 bytes，SHA-256 `4E468DD936CD7F938E7373B0500294B12DDA9E1942FA9D9412D8803AB49E457A`；native replay self-test 为
+  209,408 bytes，SHA-256 `69A860CE4A5ED7A94E66849FA0FA0CB86C658CCF9CAC29FF7B7099910BAF1195`。
+- 当前 `configs/release-parity.json` 为 10,129 bytes，SHA-256
+  `01001D1DFB2B043D03DAAD50CC88DABC669B90831FDA760D08C25937FF20836D`；core hash 为
+  `155A5011AA27042D587DD50AE29236A02DB4E7F42864CCF2607CB21AAC626D0A`，UI hash 为
+  `1A7F75ECB38A9880F88046214E97A5DE5BDA78A7BA0494943604BE2105244C71`。
+- v174 重新绑定的 external join/revalidation、PX4 response matrix/campaign 均 `gate_passed=true`，文件分别为
+  5,492/565/6,985/26,120 bytes；同一 parity 下的 report-only E7 位于
+  `artifacts/evaluation/terminal-continuation-v174/release-gate/`，manifest/report 为 23,729/73,786 bytes，
+  SHA-256 `D6AB3FD2477408196A8AA304BEE6FC1AB74B45550373B807C46EB304BEB56228` /
+  `B58787B85F0FA33B35EABFD32E01C62F4FD2D204E60482A07016F9FD491432E6`；E7 仍为
+  `gate_passed=false`、`release_allowed=false`、32 条详细 blocker。
+- 本轮没有提升室外 GNSS、真实硬件、HIL/REAL、人工 Fly View 或实飞状态；现场链路仍按 fail-closed 记录。
 
 ## v173 本轮已收口（当前 parity 重绑与 E7 report-only 重算）
 

@@ -1,5 +1,25 @@
 # 统一仓库架构
 
+## v174 全量回放质量摘要（2026-09-07，`v0.3.0-pre.8`）
+
+```text
+manifest.json + events.jsonl + media/
+        │
+        ▼
+native/Python strict replay verifier
+        │  complete event stream statistics
+        │  locatable/ranged/media/target/duration/bytes
+        ▼
+QML read-only projection
+        ├─ filter match count (full stream)
+        └─ visible event list (max 512)
+```
+
+- 全量摘要在 verifier 层计算，QML 不从截断列表反推数量；native store 与 Python bundle 的字段语义保持一致，
+  因而长回放仍能正确显示质量总量；
+- 该层只读显示并复制证据，不落地图、不选目标、不创建 Mission、不发送飞控指令，也不改变 GPS/测距的
+  fail-closed 规则；现场人工审阅、室外 GNSS、硬件、HIL/REAL 与实飞门仍独立存在。
+
 ## v173 当前 parity 重绑与 E7 report-only（2026-09-07，`v0.3.0-pre.8`）
 
 ```text

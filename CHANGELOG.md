@@ -5,6 +5,12 @@ QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
 
+### v0.3.0-pre.8 v174 full replay quality summary and parity rebind（2026-09-07）
+
+- `TargetEventReplayBundle` 与 native replay store 对完整事件流计算可定位、有效测距、有媒体、唯一目标、捕获时长和媒体字节统计；Fly View 同时呈现筛选匹配总数与最多 512 条的当前显示数，避免长回放把截断列表当成完整结果；
+- C++ self-test、Python/native 跨语言加载、QGC 静态契约、portable offscreen boot 和完整 Python 回归通过；portable EXE 为 46,875,136 bytes，SHA-256 `4E468DD936CD7F938E7373B0500294B12DDA9E1942FA9D9412D8803AB49E457A`；
+- `release-parity.json` 已按本轮 native/QML 变化重算（10,129 bytes，SHA-256 `01001D1DFB2B043D03DAAD50CC88DABC669B90831FDA760D08C25937FF20836D`），SIM/PX4 派生证据和 report-only E7 已在 `artifacts/evaluation/terminal-continuation-v174/` 重新绑定；E7 仍为 `gate_passed=false / release_allowed=false`，版本保持 `v0.3.0-pre.8`。
+
 ### v0.3.0-pre.8 v173 current parity rebind and E7 report-only（2026-09-07）
 
 - 以当前 `release-parity.json` 重新生成并独立复核三机型 external runtime/AI join、PX4 `GLOBAL_POSITION_INT`

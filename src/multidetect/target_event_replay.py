@@ -1052,6 +1052,48 @@ class TargetEventReplayBundle:
             }
         )
 
+    @property
+    def locatable_event_count(self) -> int:
+        """Return the number of events with a qualified target coordinate."""
+
+        return sum(event.gps.qualified for event in self.events)
+
+    @property
+    def ranged_event_count(self) -> int:
+        """Return the number of events with usable range evidence."""
+
+        return sum(event.ranging.validity != "UNAVAILABLE" for event in self.events)
+
+    @property
+    def media_event_count(self) -> int:
+        """Return the number of events carrying at least one media reference."""
+
+        return sum(event.video is not None or event.depth is not None for event in self.events)
+
+    @property
+    def unique_target_count(self) -> int:
+        """Return the number of distinct target identities in the timeline."""
+
+        return len({event.target_id for event in self.events})
+
+    @property
+    def capture_duration_s(self) -> float:
+        """Return the monotonic span between the first and last event."""
+
+        return self.events[-1].captured_at_s - self.events[0].captured_at_s
+
+    @property
+    def media_bytes(self) -> int:
+        """Return the total bytes of unique, hash-bound media files."""
+
+        references = {
+            reference.relative_path: reference
+            for event in self.events
+            for reference in (event.video, event.depth)
+            if reference is not None
+        }
+        return sum(reference.byte_count for reference in references.values())
+
     def iter_events(
         self,
         *,
@@ -1082,6 +1124,12 @@ class TargetEventReplayBundle:
             "started_at_utc": self.started_at_utc,
             "event_count": self.event_count,
             "media_count": self.media_count,
+            "locatable_event_count": self.locatable_event_count,
+            "ranged_event_count": self.ranged_event_count,
+            "media_event_count": self.media_event_count,
+            "unique_target_count": self.unique_target_count,
+            "capture_duration_s": self.capture_duration_s,
+            "media_bytes": self.media_bytes,
             "event_stream_sha256": self.event_stream_sha256,
             "event_stream_bytes": self.event_stream_bytes,
             "bundle_hash": self.bundle_hash,

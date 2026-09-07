@@ -12,9 +12,22 @@
 当前推荐入口是
 `D:\Projects\Multi-Detect\build\windows-v0.3.0-pre.8-release\portable-v0.3.0-pre.8\bin\MultiDetectGCS.exe`。
 
-当前文件为 `46,869,504` bytes，SHA-256
-`A1C52D9130386D8FAE4316EE23FD00D68E2141E6A385A7844229CB8680A79412`；portable 目录已经过
+当前文件为 `46,875,136` bytes，SHA-256
+`4E468DD936CD7F938E7373B0500294B12DDA9E1942FA9D9412D8803AB49E457A`；portable 目录已经过
 install/windeployqt 依赖部署，不能把 build 目录里的裸 EXE 单独复制出去运行。
+
+### v174 全量回放质量摘要与 parity 重绑（2026-09-07）
+
+回放 verifier 现在从完整事件流计算可定位事件、有效测距事件、有媒体事件、唯一目标、捕获时长和哈希绑定媒体
+字节数；Fly View 筛选显示匹配总数与当前显示数，当前显示仍限制为最多 512 条。native self-test 为
+`209,408` bytes、SHA-256 `69A860CE4A5ED7A94E66849FA0FA0CB86C658CCF9CAC29FF7B7099910BAF1195`，
+portable offscreen simple boot 退出 0，Python/native 回归与完整 Python 回归通过。
+
+本轮 parity 文件为 10,129 bytes、SHA-256
+`01001D1DFB2B043D03DAAD50CC88DABC669B90831FDA760D08C25937FF20836D`；三机型 external/PX4 派生证据均绑定并通过，
+report-only E7 位于 `artifacts/evaluation/terminal-continuation-v174/release-gate/`，仍为
+`gate_passed=false`、`release_allowed=false`。该 portable 证据不代表室外 GNSS、真实硬件、HIL/REAL、人工视觉或实飞
+验收通过。
 
 ### v173 当前 parity 重绑与 E7 report-only（2026-09-07）
 

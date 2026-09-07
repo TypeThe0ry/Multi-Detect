@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at_utc": "2026-09-07T04:35:53Z",
+  "updated_at_utc": "2026-09-07T05:03:51Z",
   "audited_origin": {
     "remote": "origin",
     "branch": "main",
@@ -20,7 +20,7 @@
     "python": "0.3.0rc8",
     "channel": "prerelease"
   },
-  "working_iteration": "v173",
+  "working_iteration": "v174",
   "release_status": {
     "final_version_released": false,
     "gate_passed": false,
@@ -79,11 +79,11 @@
       "skipped": 4,
       "failed": 0,
       "errors": 0,
-      "duration_seconds": 194.025,
+      "duration_seconds": 181.948,
       "local_artifacts_present": true,
-      "junit_local_path": "artifacts/evaluation/target-event-replay-v172-full-rerun.xml",
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v174-full-rerun.xml",
       "junit_file_bytes": 542180,
-      "junit_file_sha256": "31d7d474f947b1e4f648ccbc4c62404fce10c44deadde83e16c3b1e156c78af0",
+      "junit_file_sha256": "f891c6155a01a275ae96372f2df38487483a8fa4cfc57a339f1edba9d8ad9faa",
       "distributed_in_git": false
     },
     "v152_gnss_status_selected_regression": {
@@ -547,6 +547,54 @@
       "flight_control_enabled": false,
       "physical_release_enabled": false
     },
+    "v174_target_event_replay_full_quality_summary_selected_regression": {
+      "passed": true,
+      "tests": 45,
+      "passed_tests": 45,
+      "skipped": 0,
+      "failed": 0,
+      "errors": 0,
+      "scope": "full_target_event_replay_quality_summary_native_python_and_read_only_qml_projection",
+      "native_target_event_replay_store_self_test": "passed",
+      "native_target_event_replay_external_python_bundle": "passed",
+      "full_event_stream_statistics": [
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes"
+      ],
+      "filter_match_count_uses_full_stream": true,
+      "displayed_event_limit": 512,
+      "read_only_replay_filters": ["all", "locatable", "ranged", "media"],
+      "no_map_or_target_selection": true,
+      "no_flight_control_or_physical_release": true,
+      "junit_local_path": "artifacts/evaluation/target-event-replay-v174-focused.xml",
+      "junit_file_bytes": 6772,
+      "junit_file_sha256": "abca07f1554d9b4f2500d1ff83957a701eeda481f139c3f22930bc87751b42e3",
+      "portable_simple_boot": "passed",
+      "portable_boot_stdout_bytes": 0,
+      "portable_boot_stderr_bytes": 0,
+      "portable_boot_qml_initialization_errors": 0,
+      "portable_exe_path": "build/windows-v0.3.0-pre.8-release/portable-v0.3.0-pre.8/bin/MultiDetectGCS.exe",
+      "portable_exe_bytes": 46875136,
+      "portable_exe_sha256": "4e468dd936cd7f938e7373b0500294b12dda9e1942fa9d9412d8803ab49e457a",
+      "native_self_test_exe_bytes": 209408,
+      "native_self_test_exe_sha256": "69a860ce4a5ed7a94e66849fa0fa0cb86c658ccf9cac29ff7b7099910baf1195",
+      "documentation_parity_selected_regression": {
+        "tests": 72,
+        "passed_tests": 72,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0,
+        "junit_local_path": "artifacts/evaluation/target-event-replay-v174-docs-focused.xml",
+        "junit_file_bytes": 10452,
+        "junit_file_sha256": "246ad8924274c0665b9f446ddc8a13c34b0c731470006aef0cdde16201c00927"
+      },
+      "flight_control_enabled": false,
+      "physical_release_enabled": false
+    },
     "v170_target_card_localization_quality_selected_regression": {
       "passed": true,
       "tests": 89,
@@ -623,10 +671,10 @@
   "release_parity": {
     "path": "configs/release-parity.json",
     "bytes": 10129,
-    "file_sha256": "a12a5490e73ed52266a44f447dfd87895cd837476895afff2efd43caae09c827",
+    "file_sha256": "01001d1dfb2b043d03daad50cc88dabc669b90831fda760d08c25937ff20836d",
     "hashes": {
-      "ui_contract_hash": "82fa274fb167812803c39ff7e260acf334bb903436d04bb5e653879d806c0fdc",
-      "core_algorithm_hash": "1c9f173385cd21975096ed67991228d04ecb10c1277d4634420d3a4da6865e3e",
+      "ui_contract_hash": "1a7f75ecb38a9880f88046214e97a5de5bda78a7ba0494943604be2105244c71",
+      "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
       "task_contract_hash": "7f8721c1561f5cbeb7a3cc41a7cde2face1b58f1eee8b33976a5f35aef8bcd5c",
       "safety_policy_hash": "a142109e93584194cf9a276cd6c430105d03baba3c3114cec44a19a532955fcc",
       "px4_mission_path_hash": "df1cab8dd37c203cd8a86c6cee714cdc8650c3cd626376b2584d322ef2b6f4bf"
@@ -654,8 +702,17 @@
       "portable_simple_boot": "passed",
       "replay_filters": ["all", "locatable", "ranged", "media"],
       "copy_to_clipboard_read_only": true,
-      "exe_bytes": 46869504,
-      "exe_sha256": "a1c52d9130386d8fae4316ee23fd00d68e2141e6a385a7844229cb8680a79412"
+      "full_event_stream_statistics": [
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes"
+      ],
+      "filter_match_count_uses_full_stream": true,
+      "exe_bytes": 46875136,
+      "exe_sha256": "4e468dd936cd7f938e7373b0500294b12dda9e1942fa9d9412d8803ab49e457a"
     },
     "gnss_bound_target_evidence_snapshots": {
       "schema": "multidetect.target-evidence.v6",
@@ -2015,6 +2072,70 @@
         "gate_passed": true
       },
       "all_inputs_bound_to_current_parity": true,
+      "hardware_acceptance": "not_claimed",
+      "hil_acceptance": "not_claimed",
+      "real_acceptance": "not_claimed"
+    },
+    "v174_replay_quality_summary_and_parity_rebound": {
+      "reason": "full target-event replay quality statistics and derived evidence rebound after native/QML contract change",
+      "current_release_parity_path": "configs/release-parity.json",
+      "current_release_parity_bytes": 10129,
+      "current_release_parity_sha256": "01001d1dfb2b043d03daad50cc88dabc669b90831fda760d08c25937ff20836d",
+      "current_core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+      "current_ui_contract_hash": "1a7f75ecb38a9880f88046214e97a5de5bda78a7ba0494943604be2105244c71",
+      "full_event_stream_statistics": [
+        "locatable_event_count",
+        "ranged_event_count",
+        "media_event_count",
+        "unique_target_count",
+        "capture_duration_s",
+        "media_bytes"
+      ],
+      "displayed_event_limit": 512,
+      "filter_match_count_uses_full_stream": true,
+      "external_join": {
+        "path": "artifacts/evaluation/terminal-continuation-v174/simulator-external-runtime-ai-join-v174-current-parity-pre8.json",
+        "bytes": 5492,
+        "sha256": "a32a21a6afacb42f5818cd4be1d3ca3ea0f2d2ba0283dc125d3d29f56498cd9d",
+        "gate_passed": true
+      },
+      "external_revalidation": {
+        "path": "artifacts/evaluation/terminal-continuation-v174/simulator-external-runtime-ai-revalidation-v174-current-parity-pre8.json",
+        "bytes": 565,
+        "sha256": "4e3a9a4f63854754fbc1bc3e6789bdac0348c837349dcbe469d42c3631aec7230",
+        "source_recomputed": true,
+        "gate_passed": true
+      },
+      "px4_response_matrix": {
+        "path": "artifacts/evaluation/terminal-continuation-v174/px4-reported-position-response-matrix-v174-current-parity-pre8.json",
+        "bytes": 6985,
+        "sha256": "1af4c9a2f4cdd3d8705ca476631253d69c138f5460d652b3002b24fbf7ea5750",
+        "matrix_sha256": "516bcce3b61576e41d2ad9c7629817612d1f09a8a3ddd1820be2e6650a09b4be",
+        "gate_passed": true
+      },
+      "px4_response_campaign": {
+        "path": "artifacts/evaluation/terminal-continuation-v174/px4-reported-position-response-campaign-v174-current-parity-pre8.json",
+        "bytes": 26120,
+        "sha256": "304422bac1ab6be9f3ca07e64341063cbd0efc4c083e01017ef46b0583565444",
+        "campaign_sha256": "b2ac9e29dc5ab5b9165095d1d9c5cc6aae479c85e67ee6ca77600069a0ec1eb0",
+        "gate_passed": true
+      },
+      "release_gate_report": {
+        "manifest_path": "artifacts/evaluation/terminal-continuation-v174/release-gate/release-gate-pre.8-current-20260907T045523Z-v6-bound.json",
+        "manifest_bytes": 23729,
+        "manifest_sha256": "d6ab3fd2477408196a8aa304bee6fc1ab74b45550373b807c46eb304beb56228",
+        "report_path": "artifacts/evaluation/terminal-continuation-v174/release-gate/release-gate-pre.8-current-20260907T045523Z-v6-bound-report.json",
+        "report_bytes": 73786,
+        "report_sha256": "b58787b85f0fa33b35eabfd32e01c62f4fd2d204e60482a07016f9fd491432e6",
+        "gate_passed": false,
+        "release_allowed": false,
+        "blocker_count": 32,
+        "current_release_parity_bound": true
+      },
+      "derived_evidence_rebound": true,
+      "release_gate_recomputed": true,
+      "gate_passed": false,
+      "release_allowed": false,
       "hardware_acceptance": "not_claimed",
       "hil_acceptance": "not_claimed",
       "real_acceptance": "not_claimed"

@@ -936,6 +936,9 @@ void MultiDetectTargetEventReplayStore::_clearState()
     const bool hadStartedAt = !_startedAtUtc.isEmpty();
     const bool hadEvents = !_events.isEmpty();
     const bool hadCounts = _eventCount != 0 || _mediaCount != 0;
+    const bool hadStatistics = _locatableEventCount != 0 || _rangedEventCount != 0 ||
+                               _mediaEventCount != 0 || _uniqueTargetCount != 0 ||
+                               _captureDurationS != 0.0 || _mediaBytes != 0;
 
     _loaded = false;
     _integrityVerified = false;
@@ -946,6 +949,12 @@ void MultiDetectTargetEventReplayStore::_clearState()
     _startedAtUtc.clear();
     _eventCount = 0;
     _mediaCount = 0;
+    _locatableEventCount = 0;
+    _rangedEventCount = 0;
+    _mediaEventCount = 0;
+    _uniqueTargetCount = 0;
+    _captureDurationS = 0.0;
+    _mediaBytes = 0;
     _events.clear();
     _lastError.clear();
     _setStatus(tr("未加载回放"));
@@ -961,6 +970,9 @@ void MultiDetectTargetEventReplayStore::_clearState()
         emit eventCountChanged();
         emit mediaCountChanged();
         emit displayedEventCountChanged();
+    }
+    if (hadStatistics) {
+        emit statisticsChanged();
     }
     if (hadEvents) {
         emit eventsChanged();
@@ -1157,10 +1169,16 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
         return _fail(tr("事件数量不匹配"));
     }
     QSet<QString> eventIds;
+    QSet<QString> targetIds;
     QSet<QString> referencedMedia;
     qint64 observedMediaBytes = 0;
     QVariantList eventSummaries;
     eventSummaries.reserve(qMin<int>(lines.size(), kMaximumDisplayedEvents));
+    int locatableEventCount = 0;
+    int rangedEventCount = 0;
+    int mediaEventCount = 0;
+    double firstCapturedAt = 0.0;
+    double lastCapturedAt = 0.0;
     double previousCapturedAt = -1.0;
     double previousGpsObservedAt = -1.0;
     bool hasPreviousGpsObservedAt = false;
@@ -1220,6 +1238,11 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
             return _fail(tr("事件 event_id 重复"));
         }
         eventIds.insert(eventId);
+        targetIds.insert(targetId);
+        if (index == 0) {
+            firstCapturedAt = capturedAt;
+        }
+        lastCapturedAt = capturedAt;
         previousCapturedAt = capturedAt;
 
         QVariantMap gps;
@@ -1256,6 +1279,16 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
         if (!video.value(QStringLiteral("present")).toBool() &&
             !depth.value(QStringLiteral("present")).toBool()) {
             return _fail(tr("事件必须包含视频帧或深度图"));
+        }
+        if (gps.value(QStringLiteral("coordinates_included")).toBool()) {
+            ++locatableEventCount;
+        }
+        if (ranging.value(QStringLiteral("available")).toBool()) {
+            ++rangedEventCount;
+        }
+        if (video.value(QStringLiteral("present")).toBool() ||
+            depth.value(QStringLiteral("present")).toBool()) {
+            ++mediaEventCount;
         }
         if (event.contains(QStringLiteral("gps_age_s"))) {
             const QJsonValue declaredValue = event.value(QStringLiteral("gps_age_s"));
@@ -1320,6 +1353,12 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
     _startedAtUtc = startedAtUtc;
     _eventCount = static_cast<int>(expectedEventCount);
     _mediaCount = static_cast<int>(expectedMediaCount);
+    _locatableEventCount = locatableEventCount;
+    _rangedEventCount = rangedEventCount;
+    _mediaEventCount = mediaEventCount;
+    _uniqueTargetCount = targetIds.size();
+    _captureDurationS = lastCapturedAt - firstCapturedAt;
+    _mediaBytes = static_cast<qulonglong>(observedMediaBytes);
     _events = eventSummaries;
     _lastError.clear();
     _setStatus(tr("已验证：清单、事件流与媒体 SHA-256 均通过"));
@@ -1333,6 +1372,7 @@ bool MultiDetectTargetEventReplayStore::loadManifest(const QString& path)
     emit eventCountChanged();
     emit displayedEventCountChanged();
     emit mediaCountChanged();
+    emit statisticsChanged();
     emit eventsChanged();
     emit lastErrorChanged();
     return true;

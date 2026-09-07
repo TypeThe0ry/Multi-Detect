@@ -149,6 +149,12 @@ def test_target_event_replay_round_trip_filters_and_binds_media(tmp_path: Path) 
     assert second.sequence == 1
     assert bundle.event_count == 2
     assert bundle.media_count == 3
+    assert bundle.locatable_event_count == 2
+    assert bundle.ranged_event_count == 2
+    assert bundle.media_event_count == 2
+    assert bundle.unique_target_count == 2
+    assert bundle.capture_duration_s == pytest.approx(1.0)
+    assert bundle.media_bytes == 27
     assert bundle.session_id == session_id
     assert bundle.summary()["claims"] == {
         "read_only_evidence": True,
@@ -569,6 +575,12 @@ def test_target_event_replay_inspector_filters_without_exposing_absolute_paths(
     captured = capsys.readouterr()
     output = json.loads(captured.out)
     assert output["summary"]["event_count"] == 2
+    assert output["summary"]["locatable_event_count"] == 2
+    assert output["summary"]["ranged_event_count"] == 2
+    assert output["summary"]["media_event_count"] == 2
+    assert output["summary"]["unique_target_count"] == 2
+    assert output["summary"]["capture_duration_s"] == pytest.approx(1.0)
+    assert output["summary"]["media_bytes"] == 27
     assert [item["target_id"] for item in output["events"]] == ["target-2"]
     assert output["events"][0]["gps_age_s"] is None
     assert output["events"][0]["gps_freshness"] == "unknown"
