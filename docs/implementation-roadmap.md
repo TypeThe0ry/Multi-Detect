@@ -3,7 +3,7 @@
 ## Live RuntimeObservation × PX4 Mission × RuntimeProfile × endpoint/vehicle identity join（v190，`v0.3.0-pre.8`）
 
 - [x] 新增 `multidetect.live_runtime_observation_mission_binding` 与安装式
-  `multidetect-live-runtime-observation-mission-bind`，显式接收 live observation、RuntimeReport、可执行
+  `multidetect-live-runtime-observation-mission-bind`，显式接收 live observation（含嵌套 RuntimeReport）、可执行
   Mission、v2 PX4 Mission feedback、签名 RuntimeProfile 和 endpoint/vehicle identity sidecar；所有 source
   先在同一 `base_directory` 内重开、拒绝符号链接/越界/空/超大/重复引用，再做 canonical hash join。
 - [x] 固化 25 项 fail-closed 检查：模式、profile document SHA、RuntimeDescriptor/input hash、heartbeat、
