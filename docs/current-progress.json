@@ -625,7 +625,7 @@
         "processed_frame_count": 3,
         "termination_reason": "frame_limit_reached"
       },
-      "cli_command": "python -m multidetect.simulator.scenario_runner --scenario configs/scenarios/river_rescue_vtol_001.scenario.json --frames 3 --dt 0.25 --no-ai --out artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json --runtime-report artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json",
+      "cli_command": "python -c \"from multidetect.simulator.scenario_runner import main; raise SystemExit(main(['--scenario', 'configs/scenarios/river_rescue_vtol_001.scenario.json', '--frames', '3', '--dt', '0.25', '--no-ai', '--out', 'artifacts/evaluation/terminal-continuation-v177/simulator-run-v177.json', '--runtime-report', 'artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json']))\"",
       "cli_exit_code": 0,
       "runtime_report_path": "artifacts/evaluation/terminal-continuation-v177/simulator-runtime-report-v177.json",
       "runtime_report_bytes": 574,
