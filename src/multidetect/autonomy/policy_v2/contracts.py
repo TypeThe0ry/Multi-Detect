@@ -307,6 +307,9 @@ class PolicyActionV2(_Document):
         )
         if value["schema"] != "multidetect.policy-action-v2":
             raise PolicyContractError("unsupported PolicyAction schema")
+        mask = value["action_mask"]
+        if not isinstance(mask, (list, tuple)):
+            raise PolicyContractError("action_mask must contain four booleans")
         return cls(
             kind=_text(value["kind"], "kind"),
             forward_m=value["forward_m"],
@@ -314,7 +317,7 @@ class PolicyActionV2(_Document):
             up_m=value["up_m"],
             yaw_delta_deg=value["yaw_delta_deg"],
             seconds=value["seconds"],
-            action_mask=tuple(value["action_mask"]),
+            action_mask=tuple(mask),
         )
 
     @classmethod
@@ -415,10 +418,29 @@ class StructuredSceneState(_Document):
         ):
             raise PolicyContractError("memory channels must be finite numbers")
         forbidden = {"labels", "truth", "privileged", "ground_truth", "expert"}
+
+        def contains_forbidden(value: object) -> bool:
+            if isinstance(value, Mapping):
+                return any(
+                    (isinstance(key, str) and key.casefold() in forbidden)
+                    or contains_forbidden(item)
+                    for key, item in value.items()
+                )
+            if isinstance(value, (list, tuple)):
+                return any(contains_forbidden(item) for item in value)
+            return False
+
         if any(
-            key.casefold() in forbidden
-            for block in (self.health, self.pose, self.task, self.scene, self.event)
-            for key in block
+            contains_forbidden(block)
+            for block in (
+                self.health,
+                self.pose,
+                self.task,
+                self.tracks,
+                self.scene,
+                self.event,
+                self.history,
+            )
         ):
             raise PolicyContractError("privileged labels cannot enter policy state")
         object.__setattr__(
