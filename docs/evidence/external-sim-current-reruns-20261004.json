@@ -1,0 +1,71 @@
+{
+  "schema": "multidetect.external-sim-current-reruns-summary",
+  "schema_version": 1,
+  "release_label": "0.3.0-pre.8",
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 12919,
+    "file_sha256": "db8c94408383648c33494b746a54706a82445501965dff508bdfebd908eb54e1",
+    "core_algorithm_hash": "508b67dc363cc7cbfe9674fb18fe6a67d5aff428a431a609d93636bcff7b4e55"
+  },
+  "fresh_runs": {
+    "shared_policy_vtol_sensor": {
+      "evidence": "artifacts/evaluation/continuation-shared-policy-vtol-sensor-20261004-current.json",
+      "bytes": 6380839,
+      "file_sha256": "1c5d61d6ab2d60525d5adb6963ccbe73069ead1f8052198e7456342612886ae7",
+      "tasks": ["synthetic-east", "synthetic-west"],
+      "mission_sorties": 2,
+      "sensor_frames": 3,
+      "same_container_sensor_capture": true,
+      "task_bound_first_sortie": "synthetic-east",
+      "gate_passed": true
+    },
+    "realtime_ai_flight": {
+      "evidence": "artifacts/evaluation/simulator-docker-ai-flight-20261004-current-r2.json",
+      "bytes": 667100,
+      "file_sha256": "527e493cef9f6dcd52b10d916084855d4d2ba5a4146dd1f83f7a94cc87f449af",
+      "control_port": 24640,
+      "telemetry_port": 24641,
+      "ai_steps": 422,
+      "accepted_steps": 422,
+      "target_updates_accepted": 40,
+      "target_updates_rejected": 0,
+      "flight_duration_s": 4.39,
+      "horizontal_displacement_m": 0.523185,
+      "gate_passed": true
+    },
+    "fixed_wing_depth_mission": {
+      "evidence": "artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261004-current-rerun.json",
+      "bytes": 67200,
+      "file_sha256": "c375b0fde90731add208ccaeae9a1b7936101f1a35d420b4cd53ae3879627ec0",
+      "sensor_frames": 2,
+      "model_assets_sha256": "6d918d0e84a6bad42eaf2b176ad84ea99c757f8dc1b27c0c5d1b37c5348f9af4",
+      "gate_passed": true
+    },
+    "multirotor_depth_mission": {
+      "evidence": "artifacts/evaluation/external-multirotor-depth-shared-policy-20261004-current-rerun.json",
+      "bytes": 67178,
+      "file_sha256": "ff9abab729729b114ca698be509df83732f950656ff4349cf555bf619da5747b",
+      "sensor_frames": 2,
+      "model_assets_sha256": "6d918d0e84a6bad42eaf2b176ad84ea99c757f8dc1b27c0c5d1b37c5348f9af4",
+      "gate_passed": true
+    }
+  },
+  "failed_attempt_retained": {
+    "evidence": "artifacts/evaluation/simulator-docker-ai-flight-20261004-current.json",
+    "failure_class": "temporary_sitl_arm_and_source_identity_endpoint_mismatch",
+    "gate_passed": false,
+    "superseded_by_successful_rerun": "artifacts/evaluation/simulator-docker-ai-flight-20261004-current-r2.json"
+  },
+  "safety_boundary": {
+    "software_sim_only": true,
+    "truth_free": true,
+    "hardware_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "qgc_human_visual_acceptance": "not_claimed",
+    "original_prompt_provenance": "not_claimed",
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,552 @@
+{
+  "contract": "multidetect.onboard-visual-replay-increment-development-evidence-v1",
+  "status": "mixed_static_and_replay_training_completed_false_positives_reduced_recall_and_identity_gates_failed",
+  "observed_at_utc": "2026-10-07T01:54:15Z",
+  "data_provenance": "offline_Blender_render_of_repository_entity_SDF_geometry_not_Gazebo_capture",
+  "preregistered_plan": {
+    "path": "docs/evidence/onboard-visual-replay-training-plan-20261007-r4.json",
+    "bytes": 3470,
+    "sha256": "c1a1eb738b29ee1650ffbde3461d1ba9bc0ae0c44a33c4023a04f016ff61f609"
+  },
+  "sources": [
+    {
+      "path": "scripts/merge_onboard_sdf_visual_curricula.py",
+      "bytes": 16115,
+      "sha256": "e546db377abae0fe927d48760cdbd381fa462db2508de0c03f642722ce38e0ac"
+    },
+    {
+      "path": "tests/test_merge_onboard_sdf_visual_curricula.py",
+      "bytes": 21110,
+      "sha256": "721512c3f74000d2e226215116ad00eefe80026cf1b24ace9c25b714395357c3"
+    },
+    {
+      "path": "scripts/audit_onboard_observation_corpus.py",
+      "bytes": 33234,
+      "sha256": "4a210a9c4b7a5bda8fef02e516b67abed354892eb0398fa9b1ba4e339a50d8c0"
+    },
+    {
+      "path": "tests/test_audit_onboard_observation_corpus.py",
+      "bytes": 17259,
+      "sha256": "06d17cbd94fc63e6b6048473344570e834b0d779b312a01558ad1a3c7b772aca"
+    },
+    {
+      "path": "scripts/train_onboard_sdf_visual_candidate.py",
+      "bytes": 21594,
+      "sha256": "4cd5c873e642ea4333bb4f9b09f05f9c7252ffff1f73c2a018cf6d8b861bfbcd"
+    },
+    {
+      "path": "scripts/evaluate_onboard_visual_curriculum.py",
+      "bytes": 15371,
+      "sha256": "47dfbc45959fea8b70c1e918ee828c1b2b8afac185aca26c37dd696f6868beaa"
+    },
+    {
+      "path": "scripts/replay_onboard_visual_clips.py",
+      "bytes": 25450,
+      "sha256": "5721d426d3d555f0a374d01e84d9ec18980e9f50806d4cad084d67b8d0b06537"
+    }
+  ],
+  "dataset": {
+    "manifest": {
+      "path": "artifacts/training/onboard-blender-sdf-replay-merged-20261007-r4-r2/manifest.json",
+      "bytes": 82280620,
+      "sha256": "4704587af437ddc9ed022a265c59aac1cf3dbf258b3c50aa14e0a24c354e12fd"
+    },
+    "source_manifests": [
+      {
+        "path": "artifacts/training/onboard-blender-sdf-curriculum-20261007-r2/manifest.json",
+        "bytes": 35481784,
+        "sha256": "d1c110067474e661ca217229a87e3b9f2c6777cd1260f539b19ce84a09bbd836"
+      },
+      {
+        "path": "artifacts/training/onboard-blender-sdf-far-curriculum-20261007-r3/manifest.json",
+        "bytes": 35886327,
+        "sha256": "6361d0daddf2f54d0e07df72efb3e9f24edcc12d441fab730c51fe128cf8a1dd"
+      },
+      {
+        "path": "artifacts/training/onboard-blender-sdf-clips-20261007-r2/manifest.json",
+        "bytes": 2735637,
+        "sha256": "ab81c82eeab010f63ecf642048f59bf8b122788aa664744aa9508d82399b3aaa"
+      },
+      {
+        "path": "artifacts/training/onboard-blender-sdf-clip-suite-20261007-r3/manifest.json",
+        "bytes": 9150136,
+        "sha256": "acc3ce0c867a78255fd7e2a1ef4c454d35da9fc97c6d2b8285520f6c8aac3f6e"
+      }
+    ],
+    "total_frames": 1344,
+    "split_frames": {
+      "train": 832,
+      "val": 256,
+      "test": 256
+    },
+    "original_train_clip_frames": 64,
+    "original_val_clip_frames_used_for_checkpoint_selection": 64,
+    "test_frames_moved_to_train": 0,
+    "original_splits_preserved": true,
+    "source_mask_bbox_and_label_consistency_verified": true,
+    "test_geometry_disjoint": true,
+    "world_and_cross_split_rgb_disjoint": true,
+    "pending_manifest_exact_bytes_sealed": true,
+    "native_merge_exit_code": 0,
+    "retained_pre_fix_merge": "artifacts/training/onboard-blender-sdf-replay-merged-20261007-r4/manifest.json",
+    "retained_pre_fix_merge_used_for_training": false,
+    "development_holdout_not_untouched_blind_benchmark": true
+  },
+  "training": {
+    "parent_checkpoint": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.pt",
+      "bytes": 5370942,
+      "sha256": "578827f7b5aa236eeeab51a9e9b7188a39b4df872d0186f6245b0631fcb8bc9b"
+    },
+    "parent_report": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/visual-training-report.json",
+      "bytes": 3513,
+      "sha256": "4804c1a0905d9b38b2a645a1a8a245f2297d10dacd79590a477a26a626d221f0"
+    },
+    "parent_onnx": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.onnx",
+      "bytes": 9747507,
+      "sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1"
+    },
+    "report": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007/visual-training-report.json",
+      "bytes": 3531,
+      "sha256": "4c47345a378edbb5899c9983c17f9e901771bbc0f09b8f4ba33e562dba6ca3ea"
+    },
+    "checkpoint": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007/weights/best.pt",
+      "bytes": 5368638,
+      "sha256": "54c71a7ac70e674ff6920f8483ccbdfca87311b756bc12de373f1034ca879b56"
+    },
+    "onnx": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007/weights/best.onnx",
+      "bytes": 9747510,
+      "sha256": "94962ba7c677e5a841fbb59bba0aff86f263887681b3fb420be6bbe2ac96e486"
+    },
+    "export_receipt": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007/weights/best.export-receipt.json",
+      "bytes": 291,
+      "sha256": "a7068f8cad8f4369d9f88216ea8ea56b7a39aabdd23064e1ebc202614f63e4a2"
+    },
+    "invocation_binding": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007-inputs/invocation-binding.json",
+      "bytes": 897,
+      "sha256": "c27d0814efbc4b156a0852322045faea1099837c93dc0a1c18d0f8ac3130bdfc"
+    },
+    "closed_input_inventory": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007-inputs/input-inventory.json",
+      "bytes": 412997,
+      "sha256": "4b5f19f258b52d05d90b38864234cd0f8f4295d788cab56eae71107b19ba3c15"
+    },
+    "results_csv": {
+      "path": "artifacts/models/onboard-vision-sdf-r4-replay-dev-20261007/results.csv",
+      "bytes": 1616,
+      "sha256": "db72b843918e8468bf8b4eaaf66590d7f852a7cfb3e631ff880907a133e45d9f"
+    },
+    "log": {
+      "path": "artifacts/evaluation/onboard-vision-replay-r4-training-20261007-r1.log",
+      "bytes": 378979,
+      "sha256": "6cd960f369d7f9269035758084c6db89499b6989769a49a0a27a8d85f811d755"
+    },
+    "configuration": {
+      "epochs": 12,
+      "batch": 4,
+      "imgsz": 640,
+      "seed": 20261017,
+      "optimizer": "AdamW",
+      "lr0": 0.001,
+      "workers": 0,
+      "amp": false,
+      "confidence_threshold": 0.25,
+      "iou_threshold": 0.5
+    },
+    "class_names": {
+      "0": "search_target"
+    },
+    "epochs_completed": 12,
+    "transferred_parameter_items": "708/708",
+    "device": "NVIDIA GeForce RTX 4060",
+    "native_exit_code": 0,
+    "traditional_raw_onnx_output_shape": [
+      1,
+      5,
+      8400
+    ],
+    "checkpoint_selection": "best validation fitness; original static and clip val splits used; test never used to select checkpoint",
+    "pytorch_validation_metrics": {
+      "metrics/precision(B)": 0.7437161622970175,
+      "metrics/recall(B)": 0.8060930984337764,
+      "metrics/mAP50(B)": 0.8462322995443676,
+      "metrics/mAP50-95(B)": 0.6301325630835588,
+      "fitness": 0.6301325630835588
+    },
+    "pytorch_test_metrics": {
+      "metrics/precision(B)": 0.526707826325131,
+      "metrics/recall(B)": 0.4557823129251701,
+      "metrics/mAP50(B)": 0.49515956273409956,
+      "metrics/mAP50-95(B)": 0.3348559257753717,
+      "fitness": 0.3348559257753717
+    },
+    "metric_backend": "Ultralytics_PyTorch; not equivalent to paired native ONNX results",
+    "finalized_existing_training": false
+  },
+  "comparisons": {
+    "far_static": {
+      "report": {
+        "path": "artifacts/evaluation/onboard-visual-r4-far-static-20261007.json",
+        "bytes": 27647,
+        "sha256": "304eaa7c2403926a33c190aacb58f5dd46b2837458895b26ca890c56ebb07e86"
+      },
+      "native_exit_code": 0,
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 33,
+        "false_positives": 5,
+        "false_negatives": 16,
+        "precision": 0.868421052631579,
+        "recall": 0.673469387755102
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 24,
+        "false_positives": 2,
+        "false_negatives": 25,
+        "precision": 0.9230769230769231,
+        "recall": 0.4897959183673469
+      },
+      "parent_model_sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1",
+      "candidate_model_sha256": "94962ba7c677e5a841fbb59bba0aff86f263887681b3fb420be6bbe2ac96e486"
+    },
+    "old_static": {
+      "report": {
+        "path": "artifacts/evaluation/onboard-visual-r4-old-static-20261007.json",
+        "bytes": 27240,
+        "sha256": "d36ad70ee88e5b633b37c15cb70ac3524d5a301c4d55b8a64afdbfb0ac31ff71"
+      },
+      "native_exit_code": 0,
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 27,
+        "false_positives": 8,
+        "false_negatives": 24,
+        "precision": 0.7714285714285715,
+        "recall": 0.5294117647058824
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 28,
+        "false_positives": 5,
+        "false_negatives": 23,
+        "precision": 0.8484848484848485,
+        "recall": 0.5490196078431373
+      },
+      "parent_model_sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1",
+      "candidate_model_sha256": "94962ba7c677e5a841fbb59bba0aff86f263887681b3fb420be6bbe2ac96e486"
+    },
+    "old_partial_occlusion": {
+      "report_group": "old_static",
+      "measured_condition": "partially_occluded",
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 14,
+        "false_positives": 6,
+        "false_negatives": 13,
+        "precision": 0.7,
+        "recall": 0.5185185185185185
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 15,
+        "false_positives": 3,
+        "false_negatives": 12,
+        "precision": 0.8333333333333334,
+        "recall": 0.5555555555555556
+      }
+    },
+    "far_clips": {
+      "parent": {
+        "report": {
+          "path": "artifacts/evaluation/onboard-visual-r4-far-clips-parent-20261007.json",
+          "bytes": 145275,
+          "sha256": "bf65e605a760f63c96efda4504f5e26f129664eef3981c548fd0f513415e9b46"
+        },
+        "native_exit_code": 0,
+        "observed_counters": {
+          "frames": 48,
+          "detector_detections": 29,
+          "currently_observed_tracks": 28,
+          "visible_gt_frames": 35,
+          "detection_tp": 11,
+          "detection_fp": 18,
+          "detection_fn": 24,
+          "track_matched_frames": 8,
+          "track_fp": 20,
+          "track_missed_visible_frames": 27,
+          "fully_occluded_frames": 13,
+          "absent_frames": 0,
+          "out_of_frame_frames": 0,
+          "partial_occlusion_frames": 23,
+          "id_switches": 2,
+          "fragmentations": 2,
+          "occlusion_events": 3,
+          "reacquired_occlusion_events": 2,
+          "occlusion_events_with_preexisting_track": 2,
+          "same_identity_recovered_events": 0
+        },
+        "model_sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1"
+      },
+      "candidate": {
+        "report": {
+          "path": "artifacts/evaluation/onboard-visual-r4-far-clips-candidate-20261007.json",
+          "bytes": 123645,
+          "sha256": "642c61492b93f1022d54bd8c16c34de139555bbef552dc2406ab957d8960d2b5"
+        },
+        "native_exit_code": 0,
+        "observed_counters": {
+          "frames": 48,
+          "detector_detections": 16,
+          "currently_observed_tracks": 13,
+          "visible_gt_frames": 35,
+          "detection_tp": 10,
+          "detection_fp": 6,
+          "detection_fn": 25,
+          "track_matched_frames": 9,
+          "track_fp": 4,
+          "track_missed_visible_frames": 26,
+          "fully_occluded_frames": 13,
+          "absent_frames": 0,
+          "out_of_frame_frames": 0,
+          "partial_occlusion_frames": 23,
+          "id_switches": 1,
+          "fragmentations": 1,
+          "occlusion_events": 3,
+          "reacquired_occlusion_events": 2,
+          "occlusion_events_with_preexisting_track": 2,
+          "same_identity_recovered_events": 0
+        },
+        "model_sha256": "94962ba7c677e5a841fbb59bba0aff86f263887681b3fb420be6bbe2ac96e486"
+      }
+    },
+    "old_clips": {
+      "parent": {
+        "report": {
+          "path": "artifacts/evaluation/onboard-visual-r4-old-clips-parent-20261007.json",
+          "bytes": 55968,
+          "sha256": "d574844d188abf74aa868b0de917364b4e2d387d1c51c229fe3969e8c8c6854e"
+        },
+        "native_exit_code": 0,
+        "observed_counters": {
+          "frames": 16,
+          "detector_detections": 8,
+          "currently_observed_tracks": 8,
+          "visible_gt_frames": 12,
+          "detection_tp": 6,
+          "detection_fp": 2,
+          "detection_fn": 6,
+          "track_matched_frames": 5,
+          "track_fp": 3,
+          "track_missed_visible_frames": 7,
+          "fully_occluded_frames": 4,
+          "absent_frames": 0,
+          "out_of_frame_frames": 0,
+          "partial_occlusion_frames": 5,
+          "id_switches": 2,
+          "fragmentations": 2,
+          "occlusion_events": 1,
+          "reacquired_occlusion_events": 1,
+          "occlusion_events_with_preexisting_track": 1,
+          "same_identity_recovered_events": 0
+        },
+        "model_sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1"
+      },
+      "candidate": {
+        "report": {
+          "path": "artifacts/evaluation/onboard-visual-r4-old-clips-candidate-20261007.json",
+          "bytes": 38902,
+          "sha256": "f203c8f0ccc187282212cf0018112724e2daf6c207b5207683f41dd469376bb4"
+        },
+        "native_exit_code": 0,
+        "observed_counters": {
+          "frames": 16,
+          "detector_detections": 2,
+          "currently_observed_tracks": 2,
+          "visible_gt_frames": 12,
+          "detection_tp": 2,
+          "detection_fp": 0,
+          "detection_fn": 10,
+          "track_matched_frames": 2,
+          "track_fp": 0,
+          "track_missed_visible_frames": 10,
+          "fully_occluded_frames": 4,
+          "absent_frames": 0,
+          "out_of_frame_frames": 0,
+          "partial_occlusion_frames": 5,
+          "id_switches": 0,
+          "fragmentations": 0,
+          "occlusion_events": 1,
+          "reacquired_occlusion_events": 1,
+          "occlusion_events_with_preexisting_track": 0,
+          "same_identity_recovered_events": 0
+        },
+        "model_sha256": "94962ba7c677e5a841fbb59bba0aff86f263887681b3fb420be6bbe2ac96e486"
+      }
+    }
+  },
+  "development_quality_rules": {
+    "same_parent_and_candidate_pixels_runtime_thresholds": true,
+    "separate_old_and_far_static_and_two_clip_evaluations": true,
+    "test_frames_never_added_to_train": true,
+    "no_threshold_tuning": true,
+    "development_holdout_not_untouched_blind_test": true,
+    "far_static": {
+      "tp_min": 33,
+      "fp_max": 5
+    },
+    "old_static": {
+      "tp_min": 27,
+      "fp_max": 8
+    },
+    "old_partial_occlusion": {
+      "tp_min": 14,
+      "fp_max": 6
+    },
+    "far_clips": {
+      "tp_min": 11,
+      "fp_max": 18,
+      "id_switches_max": 2,
+      "same_id_reacquisitions_min": 1
+    },
+    "old_clips": {
+      "tp_min": 6,
+      "fp_max": 2,
+      "id_switches_max": 2,
+      "same_id_reacquisitions_min": 1
+    }
+  },
+  "development_quality_results": {
+    "far_static": false,
+    "old_static": true,
+    "old_partial_occlusion": true,
+    "far_clips": false,
+    "old_clips": false
+  },
+  "all_development_quality_rules_passed": false,
+  "interpretation": {
+    "visual_optimizer_executed": true,
+    "learned_component": "existing_YOLO26n_auxiliary_search_target_detector",
+    "class_alias_to_car_or_person": false,
+    "same_confidence_and_matching_iou_for_parent_and_candidate": true,
+    "confidence_threshold": 0.25,
+    "matching_iou_threshold": 0.5,
+    "runtime_inputs": [
+      "image_bgr",
+      "dt for tracker only"
+    ],
+    "truth_into_runtime": false,
+    "masks_and_annotations_role": "offline supervision and post-inference scoring only",
+    "no_semantic_autonomy_or_physical_flight_claim": true,
+    "reduced_id_switches_not_identity_recovery_proof": true,
+    "concurrent_cpu_comparisons_not_a_latency_benchmark": true
+  },
+  "observation_corpus_audit": {
+    "report": {
+      "path": "artifacts/evaluation/onboard-observation-corpus-audit-20261007-r1.json",
+      "bytes": 169258,
+      "sha256": "77038c66878ce86d4cbb5d810baf0144b541e4e7778877184163d6194364cf53"
+    },
+    "native_exit_code": 2,
+    "audit_only": true,
+    "payload_readable_frames": 403,
+    "source_verified_frames": 303,
+    "source_verified_recordings": 4,
+    "source_verified_episodes": 4,
+    "source_verified_scene_count": 2,
+    "source_verified_scenario_seed_groups": 2,
+    "source_verified_splits": [
+      "train"
+    ],
+    "rejected_staging_seed": 42017,
+    "actual_raw_seed": 71041,
+    "observation_pretraining_eligible": false,
+    "rejection": "urban r1 staging scenario_seed does not equal raw recording scenario_seed",
+    "context_default_or_proxy_fields": [
+      "airspeed_mps",
+      "battery_remaining_pct",
+      "estimated_flight_time_s",
+      "geofence_valid",
+      "map_cache_available",
+      "wind_east_mps",
+      "wind_north_mps"
+    ],
+    "time_domains_kept_distinct": [
+      "host_capture",
+      "gazebo_sensor",
+      "derived_utc"
+    ],
+    "home_is_first_frame_gps_not_verified_px4_home_position": true,
+    "old_trainer_camera_relative_parser_fixed": false,
+    "formal_action_training_or_next_latent_optimizer_started": false
+  },
+  "original_model_and_parity_preservation": [
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    }
+  ],
+  "verification": {
+    "pre_receipt_targeted_tests_passed": 209,
+    "first_post_receipt_evidence_docs_index_parity_tests_passed": 113,
+    "actual_read_only_independent_review": {
+      "reviewed_receipt_sha256": "0800e791a1446b7888343ea495b8d420e5e3f1f1ce657a4ea0a006fb31ed8289",
+      "file_references_hash_checked": 34,
+      "clip_runtime_source_bindings_checked": 32,
+      "saved_predictions_recounted_against_iou_tracks_and_identity": true,
+      "training_csv_epochs_1_through_12_verified": true,
+      "checkpoint_to_onnx_and_closed_input_chain_verified": true,
+      "same_id_recovery_failures_verified": true,
+      "training_rerun": false,
+      "inference_rerun": false,
+      "subsequent_receipt_change": "verification metadata added only; model data metrics and gates unchanged"
+    },
+    "independent_merge_sealing_tests_passed": 34,
+    "all_six_native_comparison_processes_exit_code": 0,
+    "native_training_and_export_exit_code": 0,
+    "new_helpers_only_old_trainer_evaluator_tracking_and_core_unchanged": true
+  },
+  "remaining": [
+    "Far static recall regressed from 33/49 to 24/49 despite lower false positives (5 to 2).",
+    "Old continuous visible-frame detection regressed from 6/12 to 2/12; zero ID switches here reflects sparse detections, not a solved tracking problem.",
+    "Far continuous false positives improved from 18 to 6 but TP regressed 11 to 10; same-ID recovery stays zero.",
+    "The candidate fails frozen development quality rules and is not promoted.",
+    "This is a single-class auxiliary visual detector; Prompt understanding, temporal policy and flight-action training did not occur.",
+    "Current 40-feature r33 input does not directly consume RGB/Prompt; use multimodal goal/history inputs rather than treating this historical representation as a permanent constraint.",
+    "Strict observation corpus has only train sources, default/proxy context, clock ambiguity and one rejected identity; not admitted for policy or representation optimization.",
+    "Old trainer camera-relative parser loses geometry frame; new audit preserves it read-only; formal old loader rejects feature/hash mismatch.",
+    "Actual Gazebo/PX4 closed-loop, Jetson, HIL/REAL, outdoor GNSS and release gates remain unmet by this experiment."
+  ],
+  "temporal_model_training_performed": false,
+  "prompt_understanding_training_performed": false,
+  "flight_action_training_performed": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

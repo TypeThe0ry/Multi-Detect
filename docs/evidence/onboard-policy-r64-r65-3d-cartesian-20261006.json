@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-3d-cartesian-training-comparison-v1",
+  "generated_by": "scripts/train_onboard_model.py + evaluate_onboard_3d_sensor_holdout.py + evaluate_onboard_generalization.py",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "purpose": "Compare incremental OnboardAI candidates after expanding the repository-owned neutral 3-D geometry curriculum.",
+  "training_boundary": {
+    "same_parent_contract": true,
+    "same_feature_width": 40,
+    "same_task_action_order": true,
+    "same_flight_action_order": true,
+    "same_gazebo_3d_manifest": true,
+    "neutral_3d_geometry_only": true,
+    "colour_identity_used": false,
+    "red_green_fixture_used": false,
+    "pixel_level_rendered_training": false,
+    "training_ready_external_gazebo_capture": false,
+    "candidate_promoted": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  },
+  "curriculum_change": {
+    "source": "scripts/train_onboard_model.py:_gazebo_3d_transition_samples",
+    "scene_count": 3,
+    "event_count": 7,
+    "task_phase_count": 9,
+    "semantic_state_count": 5,
+    "cartesian_rows_per_full_cycle": 945,
+    "phase_coverage": [
+      "takeoff",
+      "search",
+      "inspect_target",
+      "match_target",
+      "record_location",
+      "return_home",
+      "report",
+      "hold",
+      "land"
+    ],
+    "scene_ids": [
+      "urban_inspection_multirotor_001",
+      "river_rescue_vtol_001",
+      "coastal_patrol_fixed_wing_001"
+    ],
+    "manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "implementation_sha256": "0d77082fe458136d034cb20226d3e69caa9b1dbbcbb15bd67bd8f508332abcd5",
+    "coverage_test_sha256": "ec88c3e834e561a0649f6e3b00c04db445ee51f0d41d83c2c544fb09cf467827"
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r64-3d-cartesian-dev",
+      "role": "candidate_parent_for_r65",
+      "model_path": "artifacts/models/onboard-policy-r64-3d-cartesian-dev/onboard_policy_r64.onnx",
+      "model_sha256": "f83e9ea7382d66fab25922ceb64a41258c726a229d5938c0de0e68bf1a361f83",
+      "training_config_sha256": "497d710108afc35a6bfbb5dc777e03531d5df898c5c18cde97410206282a1a4f",
+      "training_report_sha256": "2abf400d569debee356d08767bd2217ebe51a50f9fe2ee74e02f3ac6fb7c3c86",
+      "holdout": {
+        "seed": 20261009,
+        "case_count": 1200,
+        "task_accuracy": 0.9783333333333334,
+        "flight_accuracy": 0.975,
+        "compatible_output_rate": 0.985,
+        "receipt_sha256": "63f0295c976137c18a699ab25810f13d3881d1f1d870eaa6a6023c979e06ee02"
+      },
+      "generalization": {
+        "seed": 20261013,
+        "raw_head_passed": 21,
+        "guarded_passed": 21,
+        "guarded_failures": ["bearing-left"],
+        "receipt_sha256": "8b13db7c51aab8e615978e277f8020ae43dbeeb9734f5dfb92f6da2f21e11cc6"
+      }
+    },
+    {
+      "model_id": "onboard-policy-r65-3d-bearing-sign-dev",
+      "role": "candidate_not_promoted",
+      "model_path": "artifacts/models/onboard-policy-r65-3d-bearing-sign-dev/onboard_policy_r65.onnx",
+      "model_sha256": "f7624e00a9b87f611d8f32cd766dd6744e7873788cb6329f2f006e62be856a1b",
+      "parent_model_sha256": "f83e9ea7382d66fab25922ceb64a41258c726a229d5938c0de0e68bf1a361f83",
+      "training_config_sha256": "82333246cd7f14dc6caeab5eceb8d7dd57957a9c5103c47aedb205eec8413c71",
+      "training_report_sha256": "89a185be72bf33e9f38ce7114745c78944efddb9d629105208f3c2812cc178ef",
+      "training": {
+        "device": "NVIDIA GeForce RTX 4060",
+        "epochs": 18,
+        "learning_rate": 0.0008,
+        "navigation_sign_weight": 0.1,
+        "navigation_geometry_weight": 0.75,
+        "gazebo_3d_samples": 10000,
+        "bearing_augment_samples": 24000,
+        "sample_count": 110200
+      },
+      "holdout_runs": [
+        {
+          "seed": 20261009,
+          "case_count": 1200,
+          "task_accuracy": 0.9883333333333333,
+          "flight_accuracy": 0.98,
+          "compatible_output_rate": 0.9825,
+          "receipt_sha256": "849228b487203bdc14e4aad7735a305095cc059baeb0c18eeb9fcc0ffa309e48"
+        },
+        {
+          "seed": 20261013,
+          "case_count": 1200,
+          "task_accuracy": 0.9883333333333333,
+          "flight_accuracy": 0.9858333333333333,
+          "compatible_output_rate": 0.9916666666666667,
+          "receipt_sha256": "1589dbbd4f0cb3fe0da34818a078d33d63c56abbca81b567bcc016ae82ffa8b5"
+        }
+      ],
+      "generalization": {
+        "seed": 20261013,
+        "raw_head_passed": 20,
+        "guarded_passed": 21,
+        "guarded_failures": ["bearing-left"],
+        "navigation_direction_passed": 21,
+        "navigation_range_passed": 22,
+        "receipt_sha256": "105f3f3a3db9f0fd21f8e7bc6a172387ecec1e4a9263e731c3d36c6f34205b56"
+      }
+    }
+  ],
+  "decision": {
+    "status": "candidate_improves_structured_3d_holdout_but_not_promoted",
+    "selected_reference_unchanged": "configs/training/onboard-policy-current-reference-v1.json",
+    "reason": "r65 improves the two fixed structured 3-D holdouts, but its independent generalization still has a left-bearing failure and no pixel-level Gazebo capture or hardware evidence exists.",
+    "next_training_gate": "resolve symmetric bearing generalization, then train on recording-bound Gazebo RGB+Depth episodes with independent review before any promotion"
+  }
+}

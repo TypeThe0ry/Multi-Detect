@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "post_documentation_checks": {
+    "passed": 34,
+    "exit_code": 0,
+    "ruff_passed": true,
+    "diff_check_passed": true
+  },
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "status": "automated_verified",
+  "evidence": "docs/evidence/planning-gap-20260908.json",
+  "focused_passed": 34,
+  "new_tests": 8,
+  "plans_recomputed": 2,
+  "missing_end_energy_boundaries": 2,
+  "calibration_performed": false,
+  "next_step": "bounded_post_terminal_observation_tail",
+  "files": [
+    {
+      "path": "scripts/audit_planning_execution_gap.py",
+      "bytes": 5817,
+      "sha256": "4d8ae646c4fe4454a59a6e506bfc20a2d3e38cde41b28044535a31db25687e99"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-001.json",
+      "bytes": 2181383,
+      "sha256": "618d59a0ae6ebf9c4d5a30f8a2a38d5b241ac0c0309376a18893be7053f44b17"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-002.json",
+      "bytes": 5661099,
+      "sha256": "8593d3e055488a3ed7f672f49d8221aa29acec01e960256e2cb59a2e26d2d58d"
+    },
+    {
+      "path": "artifacts/evaluation/planning-gap-u1-20260908-a.json",
+      "bytes": 3195,
+      "sha256": "769284d53fc59028b8d29016b946a028a076cab129eb8b9080c250a915c7ef43"
+    },
+    {
+      "path": "artifacts/evaluation/planning-gap-u2-20260908-a.json",
+      "bytes": 3237,
+      "sha256": "c2396947acb9e640e44b65ab5d6efc5e95c25c2360d65b609238b36a94539147"
+    },
+    {
+      "path": "artifacts/evaluation/planning-gap-focused-20260908.xml",
+      "bytes": 4973,
+      "sha256": "1c5dbcd4f40c50605e8cd15fe25f2a7be11647b4e3bdca0c734c5d46f0ac18c8"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "results": [
+    {
+      "task": "synthetic-west",
+      "estimated_duration_s": 228.15563232861388,
+      "host_arm_to_completed_s": 104.21799999999348,
+      "host_observer_duration_s": 103.937,
+      "missing_boundaries": [
+        "end"
+      ]
+    },
+    {
+      "task": "synthetic-east",
+      "estimated_duration_s": 228.1534513836175,
+      "host_arm_to_completed_s": 109.70300000009593,
+      "host_observer_duration_s": 109.422,
+      "missing_boundaries": [
+        "end"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "command": "python scripts/audit_planning_execution_gap.py --report artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-001.json --report-sha256 618d59a0ae6ebf9c4d5a30f8a2a38d5b241ac0c0309376a18893be7053f44b17 --output artifacts/evaluation/planning-gap-u1-20260908-a.json",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/audit_planning_execution_gap.py --report artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-002.json --report-sha256 8593d3e055488a3ed7f672f49d8221aa29acec01e960256e2cb59a2e26d2d58d --output artifacts/evaluation/planning-gap-u2-20260908-a.json",
+      "exit_code": 0
+    }
+  ],
+  "tests": {
+    "passed": 34,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.412,
+    "full_suite_rerun": false
+  },
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "new_external_sim_run": false,
+    "physical_battery_measurement": false,
+    "clock_synchronization": false,
+    "executable_recompiled": false,
+    "journal_revalidated": false
+  },
+  "limitations": [
+    "Conservative estimate and host receive duration cannot directly be treated as calibration error.",
+    "Synthetic profile not measured battery power.",
+    "Both histories end without an energy interval bracketing accepted completion; whole mission energy remains unknown.",
+    "Historical raw reports unchanged."
+  ]
+}

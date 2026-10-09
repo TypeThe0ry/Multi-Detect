@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "outer_path": "artifacts\\evaluation\\qpc-camera-20260908-m.json",
+  "outer_sha256": "4ea312582f16f0573ec01e7bf4a5578eefb985cad25a5ba8c9b73bf5a9405f91",
+  "mission_path": "artifacts\\evaluation\\qpc-camera-20260908-m\\vtol-mission-acceptance.json",
+  "mission_sha256": "575e29ab614da3a3510625bbf45d3c5fffa61e0799479d292a5c5a500dcd6aa9",
+  "journal_path": "artifacts\\evaluation\\qpc-camera-20260908-m\\vtol-mission.transaction.jsonl",
+  "journal_sha256": "66779b13e8a3caf633d562b9293a10e074f51b26a99aa1715d2e9453e04b87d7",
+  "outer_gate_passed": true,
+  "mission_gate_passed": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "4447c6ecabd6316e13a16e90324b5f942d08a77dcd204ddb4ccab19001dd6090",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "navigation_request": {
+    "freshness_threshold_changed": false,
+    "host_receive_rate_proven": false,
+    "output_truncated": false,
+    "scope": "exact owned disposable SITL MAVLink instance 57955",
+    "stdout": "",
+    "value": 4
+  },
+  "stream_counts": {
+    "ATTITUDE": 4725,
+    "NAV_CONTROLLER_OUTPUT": 0,
+    "VFR_HUD": 378
+  },
+  "maximum_extended_state_receipt_gap_s": 0.4093119000317529,
+  "extended_state_gaps_over_1_5s": 0,
+  "firmware": {
+    "operation": "read_only_px4_ver_all",
+    "output_truncated": false,
+    "reproducible_binary_source_binding_proven": false,
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "HW arch: PX4_SITL\nPX4 git-hash: 83c4f4e580558816f0e398918f66358988004696\nPX4 version: 1.18.0 80 (17956992)\nOS: Linux\nOS version: Release 6.6.87 (101079039)\nBuild datetime: Aug  9 2026 04:08:10\nBuild uri: localhost\nBuild variant: default\nToolchain: GNU GCC, 13.3.0\nPX4GUID: 1006554d49534954414c44494e4f30303030\nUNKNOWN MCU\n"
+  },
+  "attitude_target_added_after_M": true,
+  "attitude_target_external_verified": false,
+  "trajectory_tracking_quality_proven": false,
+  "final_release_allowed": false
+}

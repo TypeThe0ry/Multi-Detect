@@ -1,0 +1,50 @@
+{
+  "schema": "multidetect.gazebo-3d-annotation-topic-observation",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-06T20:16:03Z",
+  "purpose": "record the real 3-D annotation topic observation without promoting it to reviewed training supervision",
+  "world": "urban_inspection_multirotor_001",
+  "container": "multidetect-annotation-sim-r1",
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "topic": "multidetect/annotation/bounding_boxes_3d",
+  "message_type": "gz.msgs.AnnotatedOriented3DBox_V",
+  "observed": true,
+  "observed_properties": {
+    "annotated_box_label_id": 42,
+    "center_xyz_m_present": true,
+    "size_xyz_m_present": true,
+    "orientation_xyzw_present": true,
+    "instance_segmentation_topic_configured": "multidetect/annotation/instance_segmentation"
+  },
+  "runtime_boundary": {
+    "capture_only": true,
+    "runtime_consumes_annotation_topics": false,
+    "truth_injected_into_policy": false
+  },
+  "paired_sensor_stream": {
+    "path": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/sensor-stream.bin",
+    "sha256": "a6b1a32f508c3b65a36bae7e3ecda44a5b85abf1350ca8620f45bc7fff24351b",
+    "rgb_frames": 20,
+    "depth_frames": 20,
+    "telemetry_frames": 20,
+    "sensor_gate_passed": true
+  },
+  "annotation_rows": {
+    "collector_output": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/annotation-observations.json",
+    "persisted_bytes": 0,
+    "frame_hash_binding": "not_completed",
+    "independent_review": "not_completed"
+  },
+  "blocker": {
+    "kind": "docker_desktop_storage_io",
+    "observed_error": "input/output error while copying into the disposable container",
+    "external_runtime_restarted": false,
+    "unrelated_containers_touched": false
+  },
+  "training_ready": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

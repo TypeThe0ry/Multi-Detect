@@ -1,0 +1,49 @@
+{
+  "status": "passed_retained_layers_file_audit_runtime_parity_unproven",
+  "release_label": "0.3.0-pre.8",
+  "receipt": "artifacts/evaluation/simulator-ai-flight-parity-20261002-gnss-display-r2.receipt.json",
+  "receipt_file_sha256": "7c99814c960975c11dd77ed1bb0e5b3dd5c6f4d89c417c142d341e603a633b3f",
+  "receipt_canonical_sha256": "dd6630eb956f38173cb9400d67275f9ebd53a04c2888595998c0effff09f8393",
+  "shared_policy_mission_layer": {
+    "receipt": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261002-gnss-display-r1.receipt.json",
+    "receipt_file_sha256": "f3a9b0f352856f045f92d3507acdfc0cca94aaf3f759ddcc69982df6a54e6c55",
+    "receipt_sha256": "09c21888c04350c7d7097c86cc35c864097e1113f573bd533ceaeb1a719c9cac",
+    "policy_artifact_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27f",
+    "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "scenario_manifest_sha256": "ee519c425b36ad8f04355c8e1e16c118ef1e04430d1c9db6b75f992d5450bf9c",
+    "airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
+    "planner_revalidated": true,
+    "runtime_source_parity_verified": false
+  },
+  "simulator_ai_flight_layer": {
+    "evidence": "artifacts/evaluation/simulator-docker-ai-flight-20261002-gnss-display-r2.json",
+    "evidence_sha256": "4a27af6b7178a685dd479f9035579f713d306d1dc6817905bedb206e1e950d52",
+    "scenario_manifest_sha256": "ee519c425b36ad8f04355c8e1e16c118ef1e04430d1c9db6b75f992d5450bf9c",
+    "airframe_profile_id": "px4_vtol_gazebo_v1",
+    "flight_status": "passed",
+    "position_sample_count": 180,
+    "final_horizontal_displacement_m": 1.90465,
+    "target_updates_accepted": 47,
+    "cleanup_verified": true,
+    "truth_free": true
+  },
+  "bindings": {
+    "same_scenario_manifest": true,
+    "same_airframe_profile_identity": true,
+    "same_audit_reference_parity": true,
+    "same_release_parity": false,
+    "current_runtime_parity_proven": false,
+    "external_sim_rerun_performed": false,
+    "planner_revalidated": true,
+    "policy_applied_to_actuator": false,
+    "px4_mission_path_reused_by_shared_policy_layer": true
+  },
+  "claims_boundary": {
+    "hardware_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "interpretation": "retained layers file audit only; runtime parity must be captured at both run start and run end before claiming same-release execution"
+  }
+}

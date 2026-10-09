@@ -1,0 +1,378 @@
+{
+  "contract": "multidetect.onboard-sdf-curriculum-visual-development-evidence-v1",
+  "date": "2026-10-07",
+  "release_label": "0.3.0-pre.8",
+  "status": "static_holdout_improved_continuous_unseen_clip_failed_candidate_not_promoted",
+  "data_provenance": "offline_Blender_render_of_repository_SDF_geometry_not_Gazebo_capture",
+  "dataset": {
+    "path": "artifacts/training/onboard-blender-sdf-curriculum-20261007-r2/manifest.json",
+    "sha256": "d1c110067474e661ca217229a87e3b9f2c6777cd1260f539b19ce84a09bbd836",
+    "bytes": 35481784,
+    "split_frames": {
+      "train": 384,
+      "val": 96,
+      "test": 96
+    },
+    "measured_conditions": {
+      "train": {
+        "clear": 59,
+        "partially_occluded": 76,
+        "fully_occluded": 153,
+        "absent": 96
+      },
+      "val": {
+        "clear": 23,
+        "partially_occluded": 26,
+        "fully_occluded": 23,
+        "absent": 24
+      },
+      "test": {
+        "clear": 24,
+        "partially_occluded": 27,
+        "fully_occluded": 21,
+        "absent": 24
+      }
+    },
+    "bbox_source": "actual_visible_mask_pixels",
+    "billboard_images_used": false,
+    "renderer": "Blender 4.5.3 LTS / Cycles CPU / 8 samples",
+    "render_native_exit_code": 0
+  },
+  "geometry_holdout": {
+    "verified_from_sdf_primitives": true,
+    "test_geometry_disjoint": true,
+    "source_models": {
+      "simulation/gazebo/models/multidetect_search_target_v1/model.sdf": {
+        "path": "simulation/gazebo/models/multidetect_search_target_v1/model.sdf",
+        "sha256": "63093b55ea37c9734a4ac3456838619a7034a98863d062cdd7f682d62d1b1803",
+        "geometry_sha256": "936e02adfc80092113ef574b98c6eb870b5fa1329367ccacefdf6432d74b863e"
+      },
+      "simulation/gazebo/models/multidetect_search_rover_long_v1/model.sdf": {
+        "path": "simulation/gazebo/models/multidetect_search_rover_long_v1/model.sdf",
+        "sha256": "e1f7e41eaa21b47d5daca7b2fb7861e7a7505f129cabbf3f25ad81f14f394808",
+        "geometry_sha256": "e85a1c5bed9b70f0ec172d73c2952a8f86cd44dc52e0e6b78bed8b1870d929d5"
+      },
+      "simulation/gazebo/models/multidetect_search_cargo_cart_v1/model.sdf": {
+        "path": "simulation/gazebo/models/multidetect_search_cargo_cart_v1/model.sdf",
+        "sha256": "95cb2eb0c341fec6a5947fdd7cd96cec303e63b0527cef0203ce691e010ea8be",
+        "geometry_sha256": "de42efa1b6b0d77cdbd991352fae206a023239fe8029104d13198b27cecc1857"
+      },
+      "simulation/gazebo/models/multidetect_search_utility_van_v1/model.sdf": {
+        "path": "simulation/gazebo/models/multidetect_search_utility_van_v1/model.sdf",
+        "sha256": "1b5e0f75e9f277367f188f09cb55ba2d94a5b3fcf748fdd4ce588f48901b36b9",
+        "geometry_sha256": "5664762163275081e5422de16e0ae4f36afe705dd1ed51ae882e175de98acf90"
+      }
+    },
+    "test_models": [
+      "simulation/gazebo/models/multidetect_search_utility_van_v1/model.sdf"
+    ]
+  },
+  "training": {
+    "report": {
+      "path": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007/visual-training-report.json",
+      "sha256": "340382d0177642e7864a43c2bb5f9245bdfa7e21eedbc77b6afa6946f8b0e64e",
+      "bytes": 3537
+    },
+    "parent_checkpoint_sha256": "68aea39965d4e7a3bbc6a30dd527824d0583d4a317059583b0b4ae3ad1050854",
+    "parent_report_sha256": "08c208570273c1b8888c4018d3a9f5e89d507310f4da272a785deb9ac416314c",
+    "checkpoint": {
+      "path": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007/weights/best.pt",
+      "sha256": "0930ede267d03c8c90cad583de6641a2190b06e628b17d6385b9e1c44c14528d",
+      "bytes": 5371006
+    },
+    "onnx": {
+      "path": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007/weights/best.onnx",
+      "sha256": "2f45f2664588b6e4655fc4668b680b2f26d1141631f6f307e53f3d2d36ed3862",
+      "bytes": 9747514
+    },
+    "invocation_binding": {
+      "path": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007-inputs/invocation-binding.json",
+      "sha256": "26ed36436508e5b7010029611f9db64aee7c56e46973c7c6fac052e3cc3de3a9",
+      "bytes": 883
+    },
+    "export_receipt": {
+      "path": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007/weights/best.export-receipt.json",
+      "sha256": "3f370547cf7f290d3970bca9be91716a033a691774b59eb6c5fa71ea76370bf9",
+      "bytes": 291
+    },
+    "epochs_completed": 30,
+    "transferred_parameter_items": "708/708",
+    "seed": 20261009,
+    "device": "NVIDIA GeForce RTX 4060",
+    "native_exit_code": 0,
+    "names": {
+      "0": "search_target"
+    },
+    "pytorch_test_metrics": {
+      "metrics/precision(B)": 0.6742327642627894,
+      "metrics/recall(B)": 0.44650474421185327,
+      "metrics/mAP50(B)": 0.5715555408794668,
+      "metrics/mAP50-95(B)": 0.4421874959336981,
+      "fitness": 0.4421874959336981
+    },
+    "log": {
+      "path": "artifacts/evaluation/onboard-vision-sdf-r2-curriculum-20261007-training.log",
+      "sha256": "a72591bdc8009c19b00ed14bfd2eda43761064197af5c93b068bed497f187061",
+      "bytes": 440000
+    }
+  },
+  "paired_evaluation": {
+    "path": "artifacts/evaluation/onboard-vision-r1-r2-curriculum-paired-20261007.json",
+    "sha256": "de54e453324ad52569e560b63088ec0ee673f996236aca9953db13c5ac6415f4",
+    "bytes": 27967,
+    "frames": 96,
+    "confidence_threshold": 0.25,
+    "iou_threshold": 0.5,
+    "overall": {
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 4,
+        "false_positives": 25,
+        "false_negatives": 47,
+        "precision": 0.13793103448275862,
+        "recall": 0.0784313725490196
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 27,
+        "false_positives": 5,
+        "false_negatives": 24,
+        "precision": 0.84375,
+        "recall": 0.5294117647058824
+      }
+    },
+    "by_measured_condition": {
+      "parent": {
+        "absent": {
+          "label": "__overall__",
+          "true_positives": 0,
+          "false_positives": 8,
+          "false_negatives": 0,
+          "precision": 0,
+          "recall": null
+        },
+        "clear": {
+          "label": "__overall__",
+          "true_positives": 4,
+          "false_positives": 11,
+          "false_negatives": 20,
+          "precision": 0.26666666666666666,
+          "recall": 0.16666666666666666
+        },
+        "fully_occluded": {
+          "label": "__overall__",
+          "true_positives": 0,
+          "false_positives": 1,
+          "false_negatives": 0,
+          "precision": 0,
+          "recall": null
+        },
+        "partially_occluded": {
+          "label": "__overall__",
+          "true_positives": 0,
+          "false_positives": 5,
+          "false_negatives": 27,
+          "precision": 0,
+          "recall": 0
+        }
+      },
+      "candidate": {
+        "absent": {
+          "label": "__overall__",
+          "true_positives": 0,
+          "false_positives": 1,
+          "false_negatives": 0,
+          "precision": 0,
+          "recall": null
+        },
+        "clear": {
+          "label": "__overall__",
+          "true_positives": 11,
+          "false_positives": 2,
+          "false_negatives": 13,
+          "precision": 0.8461538461538461,
+          "recall": 0.4583333333333333
+        },
+        "fully_occluded": {
+          "label": "__overall__",
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "precision": null,
+          "recall": null
+        },
+        "partially_occluded": {
+          "label": "__overall__",
+          "true_positives": 16,
+          "false_positives": 2,
+          "false_negatives": 11,
+          "precision": 0.8888888888888888,
+          "recall": 0.5925925925925926
+        }
+      }
+    },
+    "native_exit_code": 0
+  },
+  "clips": {
+    "path": "artifacts/training/onboard-blender-sdf-clips-20261007-r2/manifest.json",
+    "sha256": "ab81c82eeab010f63ecf642048f59bf8b122788aa664744aa9508d82399b3aaa",
+    "bytes": 2735637,
+    "frames": 48,
+    "clip_count": 3,
+    "measured_conditions": {
+      "train-clip-00000": {
+        "clear": 6,
+        "partially_occluded": 6,
+        "fully_occluded": 4
+      },
+      "val-clip-00000": {
+        "clear": 6,
+        "partially_occluded": 6,
+        "fully_occluded": 4
+      },
+      "test-clip-00000": {
+        "clear": 6,
+        "partially_occluded": 6,
+        "fully_occluded": 4
+      }
+    },
+    "render_native_exit_code": 0,
+    "fps": 8,
+    "flight_action_labels_created": false
+  },
+  "clip_evaluation": {
+    "model_and_tracker_input_fields": [
+      "image_bgr",
+      "dt"
+    ],
+    "truth_into_runtime": false,
+    "same_runtime_sources": true,
+    "parent": {
+      "path": "artifacts/evaluation/onboard-visual-clips-r1-parent-20261007-r5.json",
+      "sha256": "fbbbcbc8521dc93e8715fb29bc8424b1d0b6e36009cc56493b2203d0584c4485",
+      "bytes": 33404,
+      "observed_counters": {
+        "frames": 16,
+        "detector_detections": 0,
+        "currently_observed_tracks": 0,
+        "visible_gt_frames": 12,
+        "detection_tp": 0,
+        "detection_fp": 0,
+        "detection_fn": 12,
+        "track_matched_frames": 0,
+        "track_fp": 0,
+        "track_missed_visible_frames": 12,
+        "fully_occluded_frames": 4,
+        "absent_frames": 0,
+        "out_of_frame_frames": 0,
+        "partial_occlusion_frames": 5,
+        "id_switches": 0,
+        "fragmentations": 0,
+        "occlusion_events": 1,
+        "reacquired_occlusion_events": 0,
+        "occlusion_events_with_preexisting_track": 0,
+        "same_identity_recovered_events": 0
+      },
+      "native_exit_code": 0
+    },
+    "candidate": {
+      "path": "artifacts/evaluation/onboard-visual-clips-r2-candidate-20261007-r1.json",
+      "sha256": "d03e8345b1c1cb1e0531a62d166fed678d1d64b20e3f93d8ebe649fce49511fa",
+      "bytes": 33415,
+      "observed_counters": {
+        "frames": 16,
+        "detector_detections": 0,
+        "currently_observed_tracks": 0,
+        "visible_gt_frames": 12,
+        "detection_tp": 0,
+        "detection_fp": 0,
+        "detection_fn": 12,
+        "track_matched_frames": 0,
+        "track_fp": 0,
+        "track_missed_visible_frames": 12,
+        "fully_occluded_frames": 4,
+        "absent_frames": 0,
+        "out_of_frame_frames": 0,
+        "partial_occlusion_frames": 5,
+        "id_switches": 0,
+        "fragmentations": 0,
+        "occlusion_events": 1,
+        "reacquired_occlusion_events": 0,
+        "occlusion_events_with_preexisting_track": 0,
+        "same_identity_recovered_events": 0
+      },
+      "native_exit_code": 0
+    },
+    "decision": "unseen_clip_failed_no_track_or_reacquisition_claim",
+    "note": "zero ID switches with zero matched frames is not tracking success"
+  },
+  "preserved_models": {
+    "policy_reference": {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+      "bytes": 1343
+    },
+    "original_coco_checkpoint": {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "bytes": 5544453
+    }
+  },
+  "limitations": [
+    "low_poly_offline_SDF_geometry_not_photorealistic_or_Gazebo_sensor_capture",
+    "static_camera_views_and_declared_clip_translation_not_PX4_flight",
+    "auxiliary_search_target_class_is_not_vehicle_or_color_semantic_acceptance",
+    "continuous_unseen_test_clip_has_12_visible_misses_for_both_models",
+    "no_calibrated_depth_navigation_or_flight_action_supervision",
+    "no_original_80_class_capability_preservation_claim",
+    "single_frame_visual_training_not_temporal_task_policy_training"
+  ],
+  "verification": {
+    "targeted_tests_passed": 239,
+    "full_dataset_pixel_and_source_audit_passed": true,
+    "new_core_parity_generated": false,
+    "independent_review_findings_closed": [
+      "recomputed_bound_SDF_primitive_geometry",
+      "initial_invocation_byte_identity_pinned",
+      "actual_parent_checkpoint_class_names_checked",
+      "existing_export_requires_checkpoint_bound_receipt",
+      "visible_pixels_outside_amodal_rejected",
+      "raw_ONNX_source_names_and_shape_verified"
+    ]
+  },
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "cluster_blender_preflight": {
+    "job_id": "a4918dc7-cbb2-4f87-8efd-2b79b26b7b60",
+    "source_snapshot": {
+      "type": "snapshot",
+      "digest": "sha256:8aef0eb5b3882991b79c09d28c459251ac76899582e8d2a06abd8c73a90fff53",
+      "sizeBytes": 4197996
+    },
+    "requirements": {
+      "os": "linux",
+      "arch": "x86_64",
+      "capabilities": [
+        "tool.blender"
+      ],
+      "minCpuCores": 4,
+      "minMemoryMiB": 4096,
+      "minDiskMiB": 1024
+    },
+    "plan_error": "no_eligible_node",
+    "submit_error": "no_eligible_node",
+    "executed": false,
+    "native_exit_code": null,
+    "returned_artifacts": [],
+    "local_fallback": "Blender CPU capture and RTX 4060 CUDA training",
+    "reason": "connected compatible worker lacks tool.blender; other worker is offline"
+  }
+}

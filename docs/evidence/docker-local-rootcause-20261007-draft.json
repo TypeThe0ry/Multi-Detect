@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "read_only_local_docker_rootcause_observation_draft",
+  "sealed_acceptance_evidence": false,
+  "observation_date": "2026-10-07",
+  "status_collected_at_host_time": "2026-10-07T13:54:30.7007033+08:00",
+  "repository_root": "D:/Projects/Multi-Detect",
+  "repository_head_short": "e0a6562",
+  "principal_finding": {
+    "classification": "explicit_backend_disk_space_stop_reason",
+    "log_event_at_utc": "2026-10-07T03:19:00.633177700Z",
+    "endpoint": "/backend/state",
+    "docker": "stopped",
+    "dockerAPI": "running",
+    "state": "stopped",
+    "stop_reason_redacted": "write \\\\?\\<HOME>\\AppData\\Local\\Docker\\log\\vm\\init.log: There is not enough space on the disk.",
+    "interpretation": "The log directly attributes this stopped state to a host log write failing for lack of disk space. An API proxy and Desktop/backend processes being present do not establish a running Linux Docker engine.",
+    "current_recovery_verified": false
+  },
+  "log_sources": [
+    {
+      "path": "C:/Users/admin/AppData/Local/Docker/log/host/com.docker.backend.exe.log.20261007-113525.047",
+      "bytes": 1048520,
+      "sha256": "be1df59dbaf6833e9e9f91213bdfd241878ca9112d36a4d48fd06430ec46a658",
+      "last_write_local": "2026-10-07T11:35:15+08:00",
+      "role": "explicit stopped state and disk-full reason"
+    },
+    {
+      "path": "C:/Users/admin/AppData/Local/Docker/log/vm/init.log",
+      "bytes": 638319,
+      "sha256": "55cdbabab405a463063f0b7d681e10623b9951d0d3e9d96637bce5fc1e3abe75",
+      "last_write_local": "2026-10-07T04:00:38+08:00",
+      "role": "component I/O and WSL crash-capture observations"
+    }
+  ],
+  "native_status_commands": [
+    {
+      "command": ["wsl.exe", "--status"],
+      "exit_code": 0,
+      "timed_out": false,
+      "default_distribution": "docker-desktop",
+      "default_version": 2,
+      "decode_limit": "The existing bounded UTF-8 collector did not fully decode the UTF-16 Chinese status text. The distro identifier and numeric version were readable; this is not a transcript of correctly decoded full output."
+    },
+    {
+      "command": ["wsl.exe", "--list", "--verbose"],
+      "exit_code": 0,
+      "timed_out": false,
+      "distributions": [{"name": "docker-desktop", "state": "Stopped", "version": 2}]
+    },
+    {
+      "command": ["docker.exe", "desktop", "status"],
+      "exit_code": 0,
+      "timed_out": false,
+      "status": "stopped",
+      "session_id": "bc9a8519-9650-41ba-b69d-c09ec0ba37d5"
+    }
+  ],
+  "daemon_diagnostic": {
+    "parent_reported_info_timeout_s": 15,
+    "info_repeated_by_this_subtask": false,
+    "daemon_ready": false,
+    "daemon_timeout_native_handle_authority": "parent agent's original diagnostic process result, not the exit status of these read-only status collectors"
+  },
+  "current_service_observations": [
+    {"name": "com.docker.service", "status": "Stopped", "start_type": "Manual"},
+    {"name": "hns", "status": "Running", "start_type": "Manual"},
+    {"name": "vmcompute", "status": "Running", "start_type": "Manual"},
+    {"name": "WslService", "status": "Running", "start_type": "Automatic"}
+  ],
+  "service_interpretation": "The stopped manual Windows Docker service is not independently established as the cause for this WSL2 Linux backend. No service was changed.",
+  "process_observations": {
+    "docker_backend_process_ids": [90824, 94372],
+    "docker_build_process_ids": [93300],
+    "desktop_process_ids": [70056, 78208, 80984, 81012, 84380, 101512, 107748, 108484, 109628],
+    "no_matching_wsl_wslhost_vmmemWSL_process_returned": true,
+    "process_existence_is_engine_readiness": false
+  },
+  "disk_observations": [
+    {"volume": "C:", "used_bytes": 998039126016, "free_bytes": 1078685696},
+    {"volume": "D:", "used_bytes": 1997797203968, "free_bytes": 50609639424}
+  ],
+  "docker_disk_metadata": [
+    {
+      "path": "C:/Users/admin/AppData/Local/Docker/wsl/disk/docker_data.vhdx",
+      "bytes": 130441805824,
+      "attributes": ["Archive"],
+      "last_write_local": "2026-10-07T04:03:39+08:00",
+      "content_read_or_modified": false
+    },
+    {
+      "path": "C:/Users/admin/AppData/Local/Docker/wsl/main/ext4.vhdx",
+      "bytes": 100663296,
+      "last_write_local": "2026-10-07T04:02:39+08:00",
+      "content_read_or_modified": false
+    }
+  ],
+  "storage_migration_assessment": {
+    "ordinary_full_copy_fits_current_D_free_space": false,
+    "data_vhdx_bytes_minus_D_free_bytes": 79832166400,
+    "physical_NTFS_allocation_measured": false,
+    "interpretation": "The data file length is about 121.49 GiB versus D: free space about 47.13 GiB. Its returned attributes were Archive, not SparseFile or Compressed. A normal full-size copy cannot fit under the observed capacity; no move, compact, mount or backup was attempted."
+  },
+  "additional_observations": [
+    {
+      "source": "vm/init.log",
+      "signal": "Repeated Docker container JSON-log writes reported input/output error.",
+      "filesystem_corruption_proven": false
+    },
+    {
+      "source": "vm/init.log",
+      "at_utc": "2026-10-06T20:00:38.736610268Z",
+      "signal": "WSL (63300 - CaptureCrash) ERROR: CaptureCrash:430: Error while trying read write dump, 32",
+      "filesystem_corruption_proven": false
+    },
+    {
+      "source": "existing monitor log, bounded filtered tail",
+      "signal": "Docker API proxy pings to the VM endpoint reported context cancellation and 15-second deadline expiry while Dashboard received stopped state.",
+      "interpretation": "Consistent with an unreachable/stopped VM daemon. Does not prove any Docker image is missing."
+    }
+  ],
+  "limits": [
+    "No engine startup or successful daemon connection was observed in this subtask.",
+    "No image inventory was queried after the failed daemon probe.",
+    "No VHDX or Linux filesystem integrity check was performed; I/O messages alone do not prove corruption.",
+    "A bounded System event-log query returned no records and its combined command exited 1; this was not counted as a filesystem-health pass.",
+    "Installed Docker version and applicability of upstream release-note fixes were not verified.",
+    "This observational draft is not a Gazebo, rendering, PX4 flight, HIL/REAL or release acceptance receipt."
+  ],
+  "operations": {
+    "read_only_diagnostics": true,
+    "bounded_log_filtering": true,
+    "full_settings_credentials_or_environment_dumped": false,
+    "docker_started_stopped_or_restarted": false,
+    "WSL_started_stopped_or_restarted": false,
+    "services_changed": false,
+    "user_processes_terminated": false,
+    "files_deleted_or_moved": false,
+    "docker_data_modified": false,
+    "cluster_job_submitted": false
+  },
+  "proposed_repair_not_executed": {
+    "first_decision": "Choose explicit recoverable user-owned C: files or directories to relocate or remove, with exact path, size and recovery location verified first. Preserve Docker VHDXs, models, repository, logs and journals.",
+    "second_decision": "After free space is rechecked, authorize one controlled Docker engine recovery attempt. This does not authorize a WSL shutdown, Windows reboot, factory reset, reinstall or broad cleanup.",
+    "engineering_headroom_estimate_GiB": [5, 10],
+    "headroom_is_official_minimum_or_guaranteed_fix": false,
+    "followup": "Verify the actual native daemon result, then existing images and the real simulator. If I/O faults persist after space recovery, investigate them separately instead of assuming factory reset is required."
+  },
+  "official_reference_links": [
+    "https://docs.docker.com/desktop/features/wsl/",
+    "https://docs.docker.com/engine/daemon/logs/",
+    "https://docs.docker.com/desktop/settings-and-maintenance/backup-and-restore/"
+  ],
+  "gazebo_runtime_verified": false,
+  "actual_flight_verified": false,
+  "candidate_promoted": false,
+  "final_release_allowed": false
+}

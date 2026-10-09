@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source_path": "docs\\evidence\\sim-dynamics-parameters-i-20260908.json",
+  "source_sha256": "fc4833fe3f646b336b4e0463db0e72ca23ac3bfcd88ff8330f8031e3a3921188",
+  "raw_mission_sha256_verified": "344bb54270729f3e78335f3b66e6e7ba5404aae7413e08acd4577615f3dd2398",
+  "parameter_semantics_reference": "https://docs.px4.io/v1.14/en/advanced_config/parameter_reference",
+  "parameter_documentation_version_matches_image_proven": false,
+  "reference_radius_m": 30,
+  "reports": [
+    {
+      "reference_parameter": "FW_AIRSPD_MIN",
+      "cas_to_tas_assumption": "TAS numerically equal to recorded CAS; atmospheric conversion not verified",
+      "model": "still_air_coordinated_level_turn",
+      "true_airspeed_mps": 10.0,
+      "requested_radius_m": 30.0,
+      "bank_limit_deg": 50.0,
+      "required_bank_deg": 18.773174770375906,
+      "minimum_radius_at_bank_limit_m": 8.556434982152723,
+      "maximum_speed_at_radius_mps": 18.724671187084173,
+      "required_load_factor": 1.0561892273120406,
+      "within_configured_bank_limit": true,
+      "aircraft_capability_proven": false,
+      "ground_track_feasibility_proven": false,
+      "flight_authorized": false
+    },
+    {
+      "reference_parameter": "FW_AIRSPD_TRIM",
+      "cas_to_tas_assumption": "TAS numerically equal to recorded CAS; atmospheric conversion not verified",
+      "model": "still_air_coordinated_level_turn",
+      "true_airspeed_mps": 15.0,
+      "requested_radius_m": 30.0,
+      "bank_limit_deg": 50.0,
+      "required_bank_deg": 37.40829500940208,
+      "minimum_radius_at_bank_limit_m": 19.251978709843627,
+      "maximum_speed_at_radius_mps": 18.724671187084173,
+      "required_load_factor": 1.2589278770815873,
+      "within_configured_bank_limit": true,
+      "aircraft_capability_proven": false,
+      "ground_track_feasibility_proven": false,
+      "flight_authorized": false
+    },
+    {
+      "reference_parameter": "FW_AIRSPD_MAX",
+      "cas_to_tas_assumption": "TAS numerically equal to recorded CAS; atmospheric conversion not verified",
+      "model": "still_air_coordinated_level_turn",
+      "true_airspeed_mps": 20.0,
+      "requested_radius_m": 30.0,
+      "bank_limit_deg": 50.0,
+      "required_bank_deg": 53.66556468264166,
+      "minimum_radius_at_bank_limit_m": 34.22573992861089,
+      "maximum_speed_at_radius_mps": 18.724671187084173,
+      "required_load_factor": 1.6877709981629867,
+      "within_configured_bank_limit": false,
+      "aircraft_capability_proven": false,
+      "ground_track_feasibility_proven": false,
+      "flight_authorized": false
+    }
+  ],
+  "mission_tracking_proven": false,
+  "physical_capability_proven": false,
+  "parameters_changed": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-exact-reload-evidence-v1",
+  "date": "2026-10-07",
+  "status": "fresh_saved_adapter_exact_reload_and_process_identity_verified_not_quality_or_flight_acceptance",
+  "native_executions": {
+    "original_training": {
+      "session_id": 13069,
+      "tool_chunk": "490d47",
+      "native_exit_code": 1,
+      "failure_type": "OutOfMemoryError"
+    },
+    "recovery_supervisor": {
+      "session_id": 9745,
+      "tool_chunk": "655de5",
+      "native_exit_code": 1,
+      "failure": "Recovery loader PID differs from the actual child process"
+    },
+    "recovery_worker": {
+      "native_exit_code": 0,
+      "child_returncode_raw": 0,
+      "actual_worker_pid": 34596
+    },
+    "process_observation": {
+      "tool_chunk": "45a8ff",
+      "native_exit_code": 0
+    },
+    "identity_followup": {
+      "session_id": 51170,
+      "tool_chunk": "503e19",
+      "native_exit_code": 0,
+      "model_reexecuted": false
+    },
+    "independent_final_audit": {
+      "session_id": 40915,
+      "tool_chunk": "234436",
+      "native_exit_code": 0,
+      "model_reexecuted": false
+    }
+  },
+  "bindings": [
+    {
+      "path": "configs/training/onboard-navigation-adapter-recovery-20261007-r1.json",
+      "bytes": 54442,
+      "sha256": "ca135b422985cd5c26d14d676c7c00449c9dd95f012977c65d9b8de9e0e9d9b5"
+    },
+    {
+      "path": "configs/training/onboard-navigation-recovery-identity-20261007-r1.json",
+      "bytes": 3127,
+      "sha256": "76f9d7a6484911dbb0489d8d2cb3cd277b4f7b3e8787962943e1ea2b7bbfcefc"
+    },
+    {
+      "path": "scripts/recover_onboard_navigation_adapter.py",
+      "bytes": 28085,
+      "sha256": "6d117e4656d285d40483a59c56faef7641ab191b3297e125a566a3c0174dbf3e"
+    },
+    {
+      "path": "tests/test_recover_onboard_navigation_adapter.py",
+      "bytes": 24198,
+      "sha256": "a23ca799740bcfb8d495121ae2786a1eadfb332eef4837d098c2f9bdd8af7726"
+    },
+    {
+      "path": "scripts/verify_onboard_navigation_recovery_identity.py",
+      "bytes": 18212,
+      "sha256": "a092e36b685addbd7e27d135b23264421efbe3917b72074a75899cc145afa5b5"
+    },
+    {
+      "path": "tests/test_verify_onboard_navigation_recovery_identity.py",
+      "bytes": 11776,
+      "sha256": "6b3af1b93117a62fdb13b9db4ee3ef54e70aa8b9608bfc356c3942dd9b0f69e9"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-trained-adapter-20261007-r2.json",
+      "bytes": 8626,
+      "sha256": "b2e7ac860c71ed44b3608147aae4a78729e1c40934a57fbc22c5d9cd914c72ed"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-20261007-r1/report.json",
+      "bytes": 49034,
+      "sha256": "838977aad1408e5a767c8639cdd1a2ccde8632172b5a29f10c10773a93f7e90b"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-20261007-r1/streaming-loader-report.json",
+      "bytes": 151586,
+      "sha256": "1f318401cdb2d578eeb430b4e7f222b49029e8d124b2fee94db485b468e6dd00"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-20261007-r1/allocator-warmup-report.json",
+      "bytes": 2924,
+      "sha256": "f099b7b07ca43009763f630a3edf50b897c189e31d1018a7ea1c2ea4a09f8d78"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-supervisor-20261007-r1/preflight.json",
+      "bytes": 46845,
+      "sha256": "c4f93f5e8865412f65b8bcfffa91c374ed3b63bbd4ea0505a1d313a72c56860d"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-supervisor-20261007-r1/completion.json",
+      "bytes": 92158,
+      "sha256": "493900cebb2580bc0ca2ed525d1a5e8c974e454f4bb9d75d256cfdce247283a5"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-supervisor-20261007-r1/process-observation.json",
+      "bytes": 3037,
+      "sha256": "6bc1767d31cf2eb71895d3ed2c0200722634280d7d0e8f082bb9a2ae6575c408"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-supervisor-20261007-r1/stdout.bin",
+      "bytes": 213136,
+      "sha256": "ae4994c766a55ed65d87ab8dabd9988eda79cb577e3064eaed91e60e53517dc7"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-adapter-recovery-supervisor-20261007-r1/stderr.bin",
+      "bytes": 204,
+      "sha256": "c692c5a771c2a5e2c4a69229330f155aed0f90c6205983f7202387bb32d7c5a9"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-recovery-identity-followup-20261007-r1/report.json",
+      "bytes": 147039,
+      "sha256": "e799977e287a905398274865605751727404f8ce9069c3e76bcc4a6b4b754bf9"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-recovery-final-audit-20261007-r1/independent-review.json",
+      "bytes": 125629,
+      "sha256": "f50a8fb7a4b5c46f91b1d6ae662efdb185e3f5f649d21b05874c1b58010b7349"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-recovery-final-audit-20261007-r1/independent_audit.py",
+      "bytes": 25637,
+      "sha256": "a247e2f28db2188d9331fa15193fe6b03fbec32ce9776cac59164e2dfcf7e3d6"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-recovery-independent-review-20261007-r1/cpu-validation.xml",
+      "bytes": 53486,
+      "sha256": "c2d73fa496c70facf214f738363531ae57feca5ab7983beac1676580e32f691d"
+    }
+  ],
+  "source_inventory": {
+    "recovery_manifest_explicit_sources": 224,
+    "recovery_admitted_sources_with_manifest": 225,
+    "identity_before": 236,
+    "identity_after": 236,
+    "independent_audit_unique_inputs": 340,
+    "sources_unchanged": true,
+    "audit_input_hashes_reverified_after": true
+  },
+  "process_identity": {
+    "captured_process_chain": [
+      36492,
+      42900,
+      7448,
+      34596
+    ],
+    "actual_supervisor_pid": 42900,
+    "worker_launcher_pid": 7448,
+    "actual_worker_pid": 34596,
+    "unique_direct_child_verified": true,
+    "captured_arguments_exact": true,
+    "runtime_executables_reverified": true,
+    "constructor_import_loader_and_warmup_pid_equal": true,
+    "launcher_parent_supervisor_invocation_verified": true,
+    "process_exit_time_independently_measured": false,
+    "pid_gate_removed": false
+  },
+  "reload": {
+    "fresh_saved_adapter_reload_verified": true,
+    "one_fresh_base_model_constructed": true,
+    "frozen_base_dtype": "BF16",
+    "base_tensor_reads_completed": 625,
+    "base_tensor_payload_bytes": 4255064064,
+    "reader_handles_opened": 5,
+    "reader_handles_closed": 5,
+    "base_parameter_sha256_before": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_parameter_sha256_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_parameter_bytes_unchanged": true,
+    "saved_adapter_dtype": "F32",
+    "saved_adapter_tensor_count": 112,
+    "saved_adapter_scalar_count": 802816,
+    "saved_adapter_payload_bytes": 3211264,
+    "saved_adapter_parameter_sha256": "e50249e3e9c87e0cdef6e7207ab75c2930fae6d17c10d05ff68aec652d0638ca",
+    "loaded_adapter_parameter_sha256": "e50249e3e9c87e0cdef6e7207ab75c2930fae6d17c10d05ff68aec652d0638ca",
+    "raw_adapter_parameter_digest_independently_reconstructed": true,
+    "exact_tensor_equality": true,
+    "dtype_conversion_performed": false,
+    "source_rgb_bytes_reverified": true,
+    "source_rgb_and_processor_tensors_equal": true,
+    "probe_count": 4,
+    "probe_generation_token_ids_and_raw_equal": true,
+    "warmup_and_constructor_hooks_restored": true
+  },
+  "optimizer": {
+    "original_steps_attempted": 86,
+    "original_steps_returned": 86,
+    "original_steps_synchronized": 86,
+    "original_steps_completed": 86,
+    "original_journal_rows": 344,
+    "recovery_steps": 0,
+    "identity_followup_steps": 0,
+    "audit_steps": 0
+  },
+  "diagnostics": {
+    "scope": "four_original_train_probes_one_scene_resubstitution_not_independent_holdout",
+    "total": 4,
+    "candidate_strict_valid": 1,
+    "candidate_action_correct": 1,
+    "candidate_metric_correct": 0,
+    "valid_forward_gold_m": 3,
+    "valid_forward_output_m": 10,
+    "valid_forward_error_m": 7,
+    "independent_holdout_available": false
+  },
+  "validation": {
+    "recovery_and_frozen_loader_cpu_tests": 335,
+    "identity_cpu_tests": 28,
+    "sampler_cpu_tests": 16,
+    "identity_and_sampler_joint_cpu_tests": 44,
+    "independent_audit_passed": true
+  },
+  "original_training_native_exit_code": 1,
+  "original_training_reload_gate_passed": false,
+  "original_recovery_supervisor_exit_code": 1,
+  "original_recovery_supervisor_gate_passed": false,
+  "original_failures_preserved": true,
+  "old_failed_attempts_reclassified_as_success": false,
+  "fresh_saved_adapter_reload_verified": true,
+  "training_acceptance_completed": false,
+  "forward_backward_performed_by_this_check": false,
+  "optimizer_performed_by_this_check": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "flight_acceptance": false,
+  "hil_acceptance": false,
+  "real_acceptance": false
+}

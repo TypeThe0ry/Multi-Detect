@@ -1,0 +1,40 @@
+{
+  "schema": "multidetect.external-onboard-model-3d-evidence.v1",
+  "generated_at_utc": "2026-10-05T04:26:48.551197Z",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "external_px4_gazebo_attempt",
+  "scenario": "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
+  "scenario_manifest_sha256": "a03b33f56e3a670ae0b6a92bdbe74995c350dfe8b53c5f2f3cbbf405a25c9c14",
+  "model": {
+    "id": "onboard-policy-r14-autonomy-transitions",
+    "path": "artifacts/models/onboard-policy-r14-autonomy-transitions/onboard_policy_r14.onnx",
+    "sha256": "7a50fb9669f46d78937ff89d261e63603373cd73c4840cf243603d4ded1edff8"
+  },
+  "raw_evidence": {
+    "path": "artifacts/evaluation/external-onboard-r14-urban-3d-20261005.json",
+    "bytes": 19251,
+    "sha256": "5ae2eb0ccfacd94369121ea04e3151423604f28fb152eb27a58aa9c709096908"
+  },
+  "execution": {
+    "command": "python scripts/run_external_onboard_model_acceptance.py --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json --model artifacts/models/onboard-policy-r14-autonomy-transitions/onboard_policy_r14.onnx --evidence artifacts/evaluation/external-onboard-r14-urban-3d-20261005.json --container-name multidetect-r14-urban-3d-20261005 --control-port 24838 --telemetry-port 24839 --sensor-frames 3 --sensor-frame-output-dir artifacts/evaluation/external-onboard-r14-urban-3d-frames --sensor-depth-output-dir artifacts/evaluation/external-onboard-r14-urban-3d-depth --timeout 240 --execute",
+    "exit_code": 0,
+    "status": "failed",
+    "failure": "docker container inspect timed out after 10.0 seconds",
+    "container_created_confirmed": false,
+    "sensor_frames_captured": 0,
+    "telemetry_started": false,
+    "flight_control_commands_sent": 0
+  },
+  "claims_boundary": {
+    "software_asset_and_preflight": true,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "description": "The 3-D external attempt was blocked before container inspection completed; no sensor or flight result is claimed."
+  }
+}

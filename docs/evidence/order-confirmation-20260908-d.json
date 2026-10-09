@@ -1,0 +1,21 @@
+{
+  "path": "artifacts/evaluation/order-confirmation-20260908-d/vtol-mission-acceptance.json",
+  "bytes": 316781,
+  "sha256": "cef85e4c39c0db723d8d7cf070ef93b640a08ea662a942a62dee7be1ca3f78e6",
+  "outcome": {
+    "elapsed_s": 24.655999999959022,
+    "mission_hash": "4d1959047c06cec72486fda04a2fbe05572597d5a2f62bd4f49679df0869a5f5",
+    "reason": "reached_confirmation_deadline_exceeded",
+    "status": "failed"
+  },
+  "missing": [
+    "observed_endurance_unavailable"
+  ],
+  "task_gate": true,
+  "cleanup": true,
+  "product_version": "0.3.0-pre.8",
+  "current_confirmation_delay_s": 0.40600000007543713,
+  "validation": "external_sim_new_run",
+  "limit_s": 0.25,
+  "next": "evaluate confirmation wait against existing 1.5s canonical feedback freshness; new evidence required"
+}

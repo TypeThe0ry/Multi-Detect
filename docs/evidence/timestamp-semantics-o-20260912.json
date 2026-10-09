@@ -1,0 +1,24 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-o\\vtol-mission-acceptance.json",
+  "source_sha256": "facab1c45ea7f00270add672dca3be6edc58b4f587738a96067b59a4bc3e62b2",
+  "timestamp_contract": {
+    "status": "legacy_capture_missing_explicit_timestamp_contract",
+    "contract_present": false,
+    "physical_synchrony_proven": false,
+    "publication_time_semantics_proven": false
+  },
+  "observed_fields": {
+    "attitude_source_label": "time_boot_ms",
+    "attitude_target_source_label": "time_boot_ms",
+    "host_receipt": "received_at_s",
+    "capture_clock": "observer_relative_host_receive_time"
+  },
+  "interpretation": "legacy capture is analyzable but cannot claim publication time, physical sample time, or source-to-host clock mapping",
+  "migration": "new MissionDynamicsCapture snapshots embed timestamp_contract schema 1",
+  "source_labels_are_publication_times": false,
+  "source_labels_are_physical_sample_times": false,
+  "host_receipts_are_source_clock": false,
+  "physical_synchrony_proven": false,
+  "controller_acceptance_proven": false,
+  "final_release_allowed": false
+}

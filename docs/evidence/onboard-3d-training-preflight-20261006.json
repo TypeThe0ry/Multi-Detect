@@ -1,0 +1,224 @@
+{
+  "capture_matrix": [
+    {
+      "command": [
+        "python",
+        "scripts/run_external_onboard_model_acceptance.py",
+        "--scenario",
+        "configs/scenarios/urban_inspection_multirotor_001.scenario.json",
+        "--model-reference",
+        "configs/training/onboard-policy-current-reference-v1.json",
+        "--sensor-frames",
+        "100",
+        "--sensor-frame-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/rgb",
+        "--sensor-depth-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/depth",
+        "--evidence",
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/acceptance.json",
+        "--execute"
+      ],
+      "not_executed_by_preflight": true,
+      "purpose": "capture actual Gazebo RGB + FLOAT32 depth + wire-bound telemetry; do not use truth.json",
+      "required_outputs": [
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/rgb/gazebo-bgr24-frame-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/depth/gazebo-depth-companion-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-urban_inspection_multirotor_001/acceptance.json"
+      ],
+      "runner": "scripts/run_external_onboard_model_acceptance.py",
+      "scenario_id": "urban_inspection_multirotor_001",
+      "scenario_manifest": "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/run_external_onboard_model_acceptance.py",
+        "--scenario",
+        "configs/scenarios/river_rescue_vtol_001.scenario.json",
+        "--model-reference",
+        "configs/training/onboard-policy-current-reference-v1.json",
+        "--sensor-frames",
+        "100",
+        "--sensor-frame-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/rgb",
+        "--sensor-depth-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/depth",
+        "--evidence",
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/acceptance.json",
+        "--execute"
+      ],
+      "not_executed_by_preflight": true,
+      "purpose": "capture actual Gazebo RGB + FLOAT32 depth + wire-bound telemetry; do not use truth.json",
+      "required_outputs": [
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/rgb/gazebo-bgr24-frame-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/depth/gazebo-depth-companion-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-river_rescue_vtol_001/acceptance.json"
+      ],
+      "runner": "scripts/run_external_onboard_model_acceptance.py",
+      "scenario_id": "river_rescue_vtol_001",
+      "scenario_manifest": "configs/scenarios/river_rescue_vtol_001.scenario.json"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/run_external_onboard_model_acceptance.py",
+        "--scenario",
+        "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json",
+        "--model-reference",
+        "configs/training/onboard-policy-current-reference-v1.json",
+        "--sensor-frames",
+        "100",
+        "--sensor-frame-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/rgb",
+        "--sensor-depth-output-dir",
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/depth",
+        "--evidence",
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/acceptance.json",
+        "--execute"
+      ],
+      "not_executed_by_preflight": true,
+      "purpose": "capture actual Gazebo RGB + FLOAT32 depth + wire-bound telemetry; do not use truth.json",
+      "required_outputs": [
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/rgb/gazebo-bgr24-frame-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/depth/gazebo-depth-companion-set.manifest.json",
+        "artifacts/evaluation/onboard-3d-capture-coastal_patrol_fixed_wing_001/acceptance.json"
+      ],
+      "runner": "scripts/run_external_onboard_model_acceptance.py",
+      "scenario_id": "coastal_patrol_fixed_wing_001",
+      "scenario_manifest": "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json"
+    }
+  ],
+  "claim_boundary": {
+    "external_gazebo_runtime": "not_executed",
+    "final_release": "not_claimed",
+    "hil_real_evidence": "not_claimed",
+    "jetson_evidence": "not_claimed",
+    "outdoor_gnss_evidence": "not_claimed",
+    "repository_3d_asset_audit": true
+  },
+  "contract": "multidetect.onboard-3d-training-preflight",
+  "gazebo_3d_manifest": {
+    "billboard_perception_fixtures_excluded": true,
+    "file_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "manifest_id": "gazebo-3d-mainline-v1",
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "scenario_count": 3,
+    "scenario_ids": [
+      "urban_inspection_multirotor_001",
+      "river_rescue_vtol_001",
+      "coastal_patrol_fixed_wing_001"
+    ]
+  },
+  "generated_by": "scripts/run_onboard_3d_training_preflight.py",
+  "next_stage": {
+    "capture": "execute one generated command only after Docker/PX4/Gazebo is available",
+    "dataset": "scripts/build_onboard_rendered_3d_dataset.py with RGB and paired FLOAT32 depth manifests",
+    "promotion": "not allowed from preflight; retain current reference until objective holdout improves",
+    "training": "scripts/train_onboard_model.py using the sealed rendered-3-D dataset and independent holdout"
+  },
+  "onboard_model_reference": {
+    "feature_width": 40,
+    "file_sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "model_version": "0.3.0-pre.8-onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "configs/training/onboard-policy-current-reference-v1.json",
+    "same_reference_for_sim_and_real": true,
+    "status": "development_reference_not_promoted"
+  },
+  "reasons": [
+    "Docker daemon is not reachable; external Gazebo/PX4 capture cannot start",
+    "local Gazebo CLI (gz or gazebo) is not installed; the pinned container route may supply it",
+    "local PX4 CLI is not installed; the pinned container route may supply it",
+    "training_ready remains false until sealed RGB/Depth/telemetry episodes and an independent holdout exist"
+  ],
+  "schema": 1,
+  "status": "blocked",
+  "tools": {
+    "docker": {
+      "client_available": true,
+      "error": "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.\n",
+      "path": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.EXE",
+      "server_available": false
+    },
+    "gazebo": {
+      "gazebo_path": null,
+      "gz_path": null,
+      "local_cli_available": false
+    },
+    "probe_scope": "visibility_and_docker_info_only",
+    "px4": {
+      "local_cli_available": false,
+      "path": null
+    }
+  },
+  "training_input_inventory": [
+    {
+      "contract": "multidetect.onboard-rendered-3d-dataset-v1",
+      "declared_training_ready": false,
+      "depth_measurement_rows": 0,
+      "detector_hits": 0,
+      "eligible_for_real_3d_training": false,
+      "exists": true,
+      "file_sha256": "d5f17fe1d2012c495c5ceb61caecad3c2e90558b6420f6caf4efa1e6d78aaaa6",
+      "kind": "rendered_3d",
+      "path": "artifacts/training/onboard-rendered-3d-depth-v3.json",
+      "reason": "dataset does not declare training_ready=true; fewer than 100 usable depth rows; no detector hits in persisted source rows; fewer than two approved 3-D scenarios",
+      "row_count": 9,
+      "scenario_ids": [
+        "river_rescue_vtol_001"
+      ],
+      "schema": null,
+      "source_manifest_count": 3,
+      "training_ready": false,
+      "truth_free": true,
+      "truth_injected": false
+    },
+    {
+      "contract": "multidetect.onboard-rendered-3d-dataset-v1",
+      "declared_training_ready": false,
+      "depth_measurement_rows": 0,
+      "detector_hits": 0,
+      "eligible_for_real_3d_training": false,
+      "exists": true,
+      "file_sha256": "f7e8a666d9e0a49d3047cddce6145ce4f6cc8fac015ad53be5d9f045b31a0153",
+      "kind": "rendered_3d",
+      "path": "artifacts/training/onboard-rendered-3d-mainline-v1.json",
+      "reason": "dataset does not declare training_ready=true; fewer than 100 usable depth rows; no detector hits in persisted source rows",
+      "row_count": 25,
+      "scenario_ids": [
+        "coastal_patrol_fixed_wing_001",
+        "river_rescue_vtol_001",
+        "urban_inspection_multirotor_001"
+      ],
+      "schema": null,
+      "source_manifest_count": 9,
+      "training_ready": false,
+      "truth_free": true,
+      "truth_injected": false
+    },
+    {
+      "contract": "multidetect.onboard-trajectory-staging-v1",
+      "declared_training_ready": false,
+      "eligible_for_real_3d_training": false,
+      "episode_count": 3,
+      "exists": true,
+      "file_sha256": "f34547f3d310ffe6f1b0184394ed6bf41175f13aaa46a7b17e39d191adec8468",
+      "kind": "trajectory",
+      "materialized_sources": false,
+      "path": "artifacts/training/onboard-trajectory-3d-staging-20261005.json",
+      "reason": "trajectory does not declare training_ready=true; recording-bound telemetry is missing; raw RGB/Depth sources are not materialized for review; fewer than 100 trajectory transitions",
+      "recording_bound": false,
+      "scenario_ids": [
+        "river_rescue_vtol_001"
+      ],
+      "schema": "multidetect.onboard-trajectory-staging",
+      "training_ready": false,
+      "transition_count": 9,
+      "truth_free": true,
+      "truth_injected": false
+    }
+  ],
+  "training_ready": false
+}

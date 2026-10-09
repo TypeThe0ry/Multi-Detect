@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-development-evidence-v1",
+  "event": "onboard_policy_geometry_low_weight_candidate",
+  "recorded_at_utc": "2026-10-06T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "status": "candidate_rejected_current_reference_retained",
+  "training": {
+    "model_id": "onboard-policy-r45-geometry-low-weight-dev",
+    "artifact": "artifacts/models/onboard-policy-r45-geometry-low-weight-dev/onboard_policy_r45.onnx",
+    "artifact_sha256": "b41437d8b3cb3e7e35281efd42ed269864239930169741c0cc0b0a086018396c",
+    "training_report": "artifacts/models/onboard-policy-r45-geometry-low-weight-dev/training-report.json",
+    "training_report_sha256": "be95d5c4a98b8f4f6a8ebdedc847009dcce9cb35476f2ea2d5540dd202cbd7ee",
+    "training_config": "artifacts/models/onboard-policy-r45-geometry-low-weight-dev/training-config.json",
+    "training_config_sha256": "19f9200f5eda7c9bd1661835d22bbd0e08a53236578fbca2fe775ebea7d68ff7",
+    "parent_model": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "feature_width": 40,
+    "device": "NVIDIA GeForce RTX 4060",
+    "learning_rate": 0.0015,
+    "regression_weight": 0.2,
+    "gazebo_3d_samples": 3000,
+    "bearing_anchor_samples": 6000,
+    "actual_rgb_depth_training": false,
+    "legacy_target_fixture": false,
+    "colour_identity_used": false
+  },
+  "independent_holdout": {
+    "artifact": "artifacts/evaluation/onboard-policy-r45-independent-holdout-20261006.json",
+    "sha256": "92e321514a6b6504d9181e8d812f242a6f4591dfdda486400482c5c2648a13ca",
+    "passed_cases": 7,
+    "case_count": 7,
+    "task_and_flight_accuracy": 1.0
+  },
+  "generalization": {
+    "artifact": "artifacts/evaluation/onboard-policy-r45-generalization-20261006.json",
+    "sha256": "c6a3ef259c54e1108fcf98c2397adce3bcf16a13b799bc1e7c095fdc73df4c6c",
+    "guarded_passed": 21,
+    "guarded_total": 22,
+    "guarded_failures": ["bearing-right"],
+    "status": "completed_with_failures"
+  },
+  "current_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reference": "configs/training/onboard-policy-current-reference-v1.json",
+    "candidate_promoted": false,
+    "reason": "right bearing navigation direction still fails without real rendered RGB/Depth and trajectory evidence"
+  },
+  "claims": {
+    "same_onboardai_contract": true,
+    "truth_free_structured_evaluation": true,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

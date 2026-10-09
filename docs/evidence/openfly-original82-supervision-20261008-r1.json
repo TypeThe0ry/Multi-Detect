@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-original82-supervision-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "product_version": "0.3.0-pre.8",
+  "status": "actual_source_only_original82_supervision_complete_native0",
+  "bindings": [
+    {
+      "path": "scripts/build_onboard_openfly_original82_supervision.py",
+      "bytes": 34827,
+      "sha256": "655113d9a27bd893f5de3617fbc7ce47433e705895c1c96591eb7ab64d6c7d59"
+    },
+    {
+      "path": "tests/test_build_onboard_openfly_original82_supervision.py",
+      "bytes": 28580,
+      "sha256": "83b1072faf07ceb0bbbc7b728cc8eb4c43089b8fd0a8299d88c9a96adfd02d46"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/report.json",
+      "bytes": 161949,
+      "sha256": "7d9afe58b273f06ef588c4d0905f9e9471620444eb87a0f181c75d24d0c3c3f5"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/samples.jsonl",
+      "bytes": 383478,
+      "sha256": "ec7b8261a889b3be0559d44d5a4bc12d651a19b5cb503ae36df08872737b7517"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/unit-verification.json",
+      "bytes": 2654,
+      "sha256": "8f79c41c967e760c6fc3156d298a50e7214d879a01867e48cbbf879aec3e684e"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/conversion/build_onboard_openfly_original82_supervision.py",
+      "bytes": 34827,
+      "sha256": "655113d9a27bd893f5de3617fbc7ce47433e705895c1c96591eb7ab64d6c7d59"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/alignment/a325ff9068a80f71ff5153bf78768b0a4de585c74e95347d9c9b679f93d7d98b.json",
+      "bytes": 11147,
+      "sha256": "a59c8da8ab9afe698548e693629beed4e42a370a2853a75bdf65266521a4de46"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/alignment/d3fd67edf50acfcf3724269cfec1f844abaeda224b14c3c8bc7513c5f73f1a39.json",
+      "bytes": 27116,
+      "sha256": "5651d324be67d4f9563780d02e76d8286cbb461dfc8767949a59e80fdad81b2e"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-original82-supervision-20261008-r1/alignment/f3b61aa87d83888778b1344b1383b933c27f3fae316e4471e068f2b6f75c43e9.json",
+      "bytes": 14322,
+      "sha256": "d8561b1a982d19b92109174793dce8f25281621bfee599a0bfea8c1f4b691289"
+    },
+    {
+      "path": "artifacts/training/openfly-multiscene-embedded-images-20261008-r1/receipt.json",
+      "bytes": 217338,
+      "sha256": "095eea5eed5136a07e89986bd971632392359f1d1d05f6b731b4bba0ec910a04"
+    },
+    {
+      "path": "artifacts/diagnostics/openfly-original82-geometry-20261008-r1/report.json",
+      "bytes": 215301,
+      "sha256": "a6543c62f7fee07e7eb8685d745c8cef635faba5bca8d7fedd95ce087db6a72c"
+    },
+    {
+      "path": "docs/evidence/openfly-original82-geometry-visual-audit-20261008-r1.json",
+      "bytes": 5387,
+      "sha256": "93450b4e24b5b604cdc35cf47c473fa7f8605bd35c0dd23233e32d805c8284d9"
+    },
+    {
+      "path": "docs/evidence/openfly-parquet-original-images-20261008-r1.json",
+      "bytes": 9091,
+      "sha256": "a6739c17c2cdf2bc0505e350f861317a4b16f85f3127c61b34f5a7871bdbc29a"
+    },
+    {
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r2.json",
+      "bytes": 92947,
+      "sha256": "b047040485da2a1cd5fd73f69e671fd73fc555a309d1113edac29d704c873740"
+    },
+    {
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+      "bytes": 142534,
+      "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/samples.jsonl",
+      "bytes": 402194,
+      "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+    }
+  ],
+  "actual_execution": {
+    "command": "C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe -I -B -X utf8 scripts/build_onboard_openfly_original82_supervision.py --output-dir artifacts/training/onboard-openfly-original82-supervision-20261008-r1 --entrypoint-sha256 655113d9a27bd893f5de3617fbc7ce47433e705895c1c96591eb7ab64d6c7d59",
+    "exec_session": 20656,
+    "native_exit_code": 0,
+    "terminal_tool_chunk": "858d15",
+    "identity_tool_chunk": "3e7bd5",
+    "worker_pid": 54224,
+    "parent_pid": 44504,
+    "creation_time_SGT": "2026-10-08T05:00:52.502206+08:00",
+    "worker_exited_readback_tool_chunk": "37244b",
+    "output_files_readback_native_exit_code": 0,
+    "output_files_readback_tool_chunk": "37244b",
+    "observed_working_set_bytes": 52326400,
+    "observed_private_commit_bytes": 45486080,
+    "full_process_peak_RSS_measured": false,
+    "samples": 82,
+    "repository_source_bindings": 201,
+    "runtime_source_bindings": 6,
+    "source_and_runtime_bindings_unchanged": true,
+    "closed_source_validation_session_verified": true,
+    "actor_target_bindings": 82,
+    "annotation_records_streamed_until_selections": 221,
+    "partition_counts": {
+      "train": 23,
+      "dev-validation": 17,
+      "dev-test": 42
+    },
+    "route_roles": [
+      {
+        "annotation_index": 139,
+        "scene": "env_airsim_26",
+        "partition": "train",
+        "samples": 23
+      },
+      {
+        "annotation_index": 220,
+        "scene": "env_airsim_16",
+        "partition": "dev-validation",
+        "samples": 17
+      },
+      {
+        "annotation_index": 90,
+        "scene": "env_airsim_23",
+        "partition": "dev-test",
+        "samples": 42
+      }
+    ],
+    "raw_primitive_counts": {
+      "go straight": 75,
+      "turn right": 2,
+      "go up": 1,
+      "go down": 1,
+      "stop": 3
+    },
+    "immediate_successor_planned_actions": 79,
+    "terminal_sequence_stops": 3,
+    "source_pose_origin": "planned_pose",
+    "dt_s": null,
+    "actor_input": "verbatim_original_prompt_and_current_plus_latest_past_original_RGB",
+    "pose_future_truth_or_gold_in_actor_input": false,
+    "visual_group_overlap_routes": [],
+    "runtime_inventory_scope": "actual_six_Pillow_YAML_module_paths_and_bytes_not_all_transitive_modules_or_DLLs"
+  },
+  "automated_verification": {
+    "targeted_tests": 62,
+    "author_native_exit_code": 0,
+    "author_tool_chunk": "f81a89",
+    "root_native_exit_code": 0,
+    "root_tool_chunk": "e5f73b",
+    "root_ruff_exit_code": 0,
+    "root_ruff_tool_chunk": "3f7e4f",
+    "root_format_exit_code": 0,
+    "root_format_tool_chunk": "7af727",
+    "root_scoped_diff_exit_code": 0,
+    "root_scoped_diff_tool_chunk": "3ab6f3",
+    "independent_source_review_native_exit_code": 0,
+    "independent_source_review_tool_chunk": "11797a",
+    "small_fixtures_not_actual_pipeline_evidence": true
+  },
+  "independent_terminal_audit": {
+    "native_exit_code": 0,
+    "tool_chunk": "542846",
+    "actual_typed_samples": 82,
+    "actual_typed_episode_validation_passed": true,
+    "input_binding_records": 207,
+    "small_input_records_SHA_verified": 202,
+    "large_input_records_stat_only": 5,
+    "large_stat_only_scope": "full_annotation_three_Parquet_shards_and_Pillow_native_extension",
+    "all_seven_output_files_bytes_and_SHA_verified": true,
+    "small_bindings_include_encoded_PNG_byte_hashes": true,
+    "PNG_decoding_repeated": false,
+    "three_small_original_pose_sequences_reparsed": true,
+    "all79_successor_geometry_recomputed": true,
+    "max_position_geometry_error": 5.684341886080802e-14,
+    "max_yaw_geometry_error": 1.8984813721090177e-14,
+    "actor_and_separate_target_metadata_order_and_current_latest_past_verified": true,
+    "actor_pixel_identity_independently_redecoded": false,
+    "Torch_model_processor_or_GPU_imported_or_run": false,
+    "old86_binding_chain_native_exit_code": 0,
+    "old86_binding_chain_tool_chunk": "ecb384",
+    "old86_dataset_current_bytes_and_SHA_verified": true,
+    "old86_sample_ids_unchanged": true,
+    "old86_new82_sample_ID_intersection": 0,
+    "partition_counter_native_exit_code": 0,
+    "partition_counter_tool_chunk": "a33255",
+    "partition_raw_counts": {
+      "train": {
+        "go straight": 21,
+        "turn right": 1,
+        "stop": 1
+      },
+      "dev-validation": {
+        "go straight": 16,
+        "stop": 1
+      },
+      "dev-test": {
+        "go straight": 38,
+        "turn right": 1,
+        "go up": 1,
+        "go down": 1,
+        "stop": 1
+      }
+    }
+  },
+  "limitations": [
+    "Development partitions originate from the original TRAIN split, not the publisher official seen/unseen holdout.",
+    "Cross-scene visual grouping uses the previously sealed RGB/dHash/mean-color rule, not proof of universal visual independence.",
+    "Fixed3m translations and30degree yaw, no left turns, one up and one down do not establish general navigation or arbitrary metric scales.",
+    "The dataset is source-planned supervision, not executed motion, verified task completion, measured velocity or physical calibration.",
+    "Actual source-only pipeline decoded and validated source RGB; no processor, model, optimizer or GPU was used by this pipeline.",
+    "Runtime inventory covers six actual imported Pillow/YAML files only, not all transitive modules, DLLs, interpreter or allocator behavior.",
+    "Observed memory snapshot is not a full process peak or runtime hard memory guarantee.",
+    "Original86 data, frozen NEW267 admission, default model and flight authority were not changed; vertical new samples are not silently admitted to the old four-class pool.",
+    "Use typed sample.partition and top-level partitions.assignment as effective roles; nested grouping metadata contains unapplied legacy split proposals, not training admission."
+  ],
+  "claims": {
+    "training_ready": false,
+    "optimizer_authorized": false,
+    "optimizer_performed": false,
+    "model_loaded": false,
+    "processor_used": false,
+    "GPU_used": false,
+    "network_io_performed": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false,
+    "official_seen_unseen_holdout_verified": false,
+    "generalization_verified": false,
+    "compatible_with_legacy86_training_admission": false,
+    "old_dataset_merged_or_modified": false,
+    "live_camera_color_orientation_parity_verified": false
+  }
+}

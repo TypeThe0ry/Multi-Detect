@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "container_id": "ee372c784da834065b83d35b5856e00486197534c55ad24a2c68cbb926242e6b",
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "isolation": {"network":"none","read_only":true,"cap_drop":"ALL","no_new_privileges":true,"mounts":[],"devices":[]},
+  "probe_fields": ["host_before_ns", "container_ns", "host_after_ns"],
+  "probes_ns": [
+    [892693281000000,410391407107771,892693531000000],
+    [892693531000000,410391750512258,892693875000000],
+    [892693875000000,410391995379192,892694125000000],
+    [892694125000000,410392218218259,892694343000000],
+    [892694343000000,410392432949934,892694562000000],
+    [892694562000000,410392653495538,892694781000000]
+  ],
+  "assumption": "host_ns = container_ns + constant_offset; equal rates, no resets",
+  "conditional_host_minus_container_interval_ns": [482301910050066,482302123892229],
+  "conditional_interval_width_ns": 213842163,
+  "round_trip_range_ns": [218000000,344000000],
+  "host_observation_span_ns": 1500000000,
+  "smoke_exit_code": 0,
+  "exact_container_cleanup_verified": true,
+  "focused_tests_passed": 223,
+  "new_tests": 18,
+  "full_regression_rerun": false,
+  "new_full_mission_run": false,
+  "equal_clock_rates_verified": false,
+  "gazebo_source_clock_aligned": false,
+  "px4_clock_aligned": false,
+  "training_label_eligible": false,
+  "release_ready": false
+}

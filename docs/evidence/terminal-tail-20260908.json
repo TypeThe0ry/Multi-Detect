@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "full_regression": {
+    "passed": 4126,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 280.230,
+    "exit_code": 0,
+    "junit": "artifacts/evaluation/terminal-tail-full-20260908.xml",
+    "bytes": 604261,
+    "sha256": "e794d50780d9ef61644e857bb7e7dbd335cc5b8250738cfcdd34921dbe713d42",
+    "post_documentation_checks_passed": 34,
+    "ruff_passed": true,
+    "diff_check_passed": true
+  },
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "status": "external_sim_passed",
+  "evidence": "docs/evidence/terminal-tail-20260908.json",
+  "focused_passed": 203,
+  "outer_passed": 170,
+  "new_tests": 7,
+  "completed_tasks": 2,
+  "energy_window_bracketed_tasks": 2,
+  "container_removed": true,
+  "physical_calibration_claimed": false,
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 122302,
+      "sha256": "28b550d45134eaf5036d7b76f3bef9dcb7e0be0bce28b03dfd435437715d89fd"
+    },
+    {
+      "path": "configs/scenarios/vtol-ranked-routes.synthetic-campaign.json",
+      "bytes": 6810,
+      "sha256": "3683338efbff915ea400503f95d257ab98d2ee7385aa2134c4c967f727205087"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-tail-20260908-a.json",
+      "bytes": 29249,
+      "sha256": "9aab473d4ae21a4a63cf52ee6ee54197af70cffcf40e5e2275efe30c22cd755e"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-tail-20260908-a/vtol-mission-acceptance.json",
+      "bytes": 964,
+      "sha256": "0fd34b7b4b7c1a6cf2611c9e70ff164cdbc2c03329a3847611be040d621c7604"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-tail-20260908-a/campaign-missions/mission-001.json",
+      "bytes": 2070717,
+      "sha256": "1e5b4cbf519cdbf6bb0154dee032f66519d856bf52754600a6c7fb5e06681937"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-tail-20260908-a/campaign-missions/mission-002.json",
+      "bytes": 5240141,
+      "sha256": "37b7c251ff6011beff6f6d376d567f07f8c23c508ad6d37f7075ed0fd75dfc3e"
+    },
+    {
+      "path": "artifacts/evaluation/planning-gap-tail1-20260908-a.json",
+      "bytes": 4023,
+      "sha256": "dfa89a7e55d9ee3fdf5eb6823831abe34d2735e9041d88ec897dee94e4567c4c"
+    },
+    {
+      "path": "artifacts/evaluation/planning-gap-tail2-20260908-a.json",
+      "bytes": 4045,
+      "sha256": "f1908a02f151b11bba6c3f434a321c69742614d28aab1720f9d675b63c8464a5"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-tail-focused-20260908.xml",
+      "bytes": 30276,
+      "sha256": "8c51e994b31025e7582634e08ef8ace9a12c438a2c09ed96dcec7433edaf5c99"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-tail-outer-20260908.xml",
+      "bytes": 33439,
+      "sha256": "57b3c8f5e2bca6a407544ce4cd7157e7ac5fa569ec9b18ffd362d8fd0081da8f"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "container_id": "20b9668e3a2b6de9fe69d5d37158ce8087f89400567045905cb12796005ee413",
+  "outer_exit_code": 0,
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-ranked-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-tail-20260908-a --evidence artifacts/evaluation/campaign-tail-20260908-a.json --container-name multidetect-campaign-tail-a --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "required_gates": {
+    "campaign_completed": true,
+    "exact_id_cleanup": true,
+    "final_artifact_integrity": true,
+    "per_sortie_full_journal_checks": true,
+    "post_remove_absence_proven": true
+  },
+  "results": [
+    {
+      "task": "synthetic-west",
+      "observer_duration_s": 123.797,
+      "host_arm_duration_s": 124.172,
+      "energy_window_lower_wh": 2.7025771999999475,
+      "energy_window_upper_wh": 2.7033771999999474,
+      "missing_boundaries": []
+    },
+    {
+      "task": "synthetic-east",
+      "observer_duration_s": 106.015,
+      "host_arm_duration_s": 106.422,
+      "energy_window_lower_wh": 2.2563315999999443,
+      "energy_window_upper_wh": 2.2568915999999444,
+      "missing_boundaries": []
+    }
+  ],
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "physical_battery_measurement": false,
+    "manual_visual": false,
+    "production_model": false,
+    "new_external_sim_run": true
+  },
+  "limitations": [
+    "Synthetic energy profile, not physical measurement or calibration.",
+    "Candidate right boundary is independently checked by canonical energy-window replay.",
+    "Camera and single-sortie sensor gates are out of scope in campaign mode; top-level final_integrity remains null, campaign post-cleanup gate is gates.final_artifact_integrity.",
+    "Historical u reports unchanged."
+  ]
+}

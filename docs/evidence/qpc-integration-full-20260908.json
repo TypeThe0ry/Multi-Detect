@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "scope": "Full local Python suite after QPC campaign wiring, receipt diagnostics, terminal energy gate and poll hash reuse",
+  "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/qpc-integration-full-20260908.xml",
+  "exit_code": 0,
+  "tests": 4332,
+  "passed": 4325,
+  "skipped": 7,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_s": 439.680,
+  "junit": {
+    "path": "artifacts/evaluation/qpc-integration-full-20260908.xml",
+    "bytes": 630860,
+    "sha256": "25116639d92a3626393023fb6e47956c871e0dd9765daf82de0b0062b8b14b38"
+  },
+  "release_parity_file_sha256": "e191137a3d1b8d5f297e9ae51ab90eb18cb4a733912d76fde81b282aed596f6c",
+  "core_algorithm_hash": "e6088acd697a541a7fd724ca4023106baa31c712dc63c984998c3c7e03318464",
+  "implementation_changed_during_test": false,
+  "skipped_reason": "Windows symbolic link creation unavailable; WinError 1314 insufficient privilege. These branches were not verified.",
+  "skipped_cases": [
+    "tests.test_evidence_bundle_transfer::test_symlink_and_nested_receipt_are_rejected",
+    "tests.test_live_runtime_observation_mission_binding::test_join_rejects_symlink_source",
+    "tests.test_replay_set::test_replay_set_rejects_manifest_and_artifact_symlinks",
+    "tests.test_runtime_profile_binding_set::test_profile_symlink_is_rejected_before_resolution",
+    "tests.test_runtime_report_binding_set::test_symbolic_link_source_is_rejected_before_resolution",
+    "tests.test_target_observation_diagnostics::test_input_symlink_is_rejected_when_supported",
+    "tests.test_target_observation_diagnostics_session::test_directory_input_rejects_snapshot_symlink_when_supported"
+  ],
+  "remaining": [
+    "Run skipped symlink checks in a suitable environment",
+    "Resolve telemetry receive coverage gaps and revalidate a complete QPC campaign against current parent gate",
+    "Migrate camera capture barrier producers and validators together",
+    "Validate source clock mapping instead of assuming constant host/container offset",
+    "Complete SIM/HIL/REAL same UI/core/contracts/safety/PX4 Mission release gates"
+  ],
+  "new_external_campaign_run": false,
+  "hil_real_acceptance_claimed": false,
+  "final_release_allowed": false
+}

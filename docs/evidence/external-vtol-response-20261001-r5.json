@@ -1,0 +1,96 @@
+{
+  "schema": "multidetect.external-vtol-response-evidence",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-30T19:21:23.965899Z",
+  "release_status": "v0.3.0-pre.8; final v0.3.0 remains blocked",
+  "runtime": {
+    "mode": "SIM",
+    "environment": "external_px4_gazebo_docker",
+    "qgc_process_started": false,
+    "hardware": "not_claimed",
+    "hil": "not_claimed",
+    "real": "not_claimed",
+    "outdoor_gnss": "not_claimed",
+    "physical_performance": "not_claimed",
+    "truth_loaded_by_runtime": false
+  },
+  "reference_profile": "fixed-wing-response",
+  "scenario_id": "river_rescue_vtol_001",
+  "mission_timeout_seconds": 700,
+  "observed_mission": {
+    "gate_passed": true,
+    "mission_current_sequences": [0, 2, 3, 4, 5, 6],
+    "mission_item_reached_sequences": [0, 1, 2, 3, 4, 5, 6],
+    "fixed_wing_observed": true,
+    "multicopter_observed": true,
+    "landed_observed": true,
+    "terminal_disarmed": true,
+    "maximum_distance_from_home_m": 275.388,
+    "maximum_relative_altitude_m": 25.791,
+    "flight_capture_interval_qualified": true
+  },
+  "gates": {
+    "docker_plan": true,
+    "container_identity": true,
+    "router_ready": true,
+    "same_container_sensor_capture": true,
+    "wire_v3_pixels": true,
+    "flight_capture_ready": true,
+    "flight_capture_complete_marker": true,
+    "flight_capture_interval": true,
+    "complete_vtol_mission": true,
+    "mission_journal_integrity": true,
+    "router_graceful_stop": true,
+    "exact_id_cleanup": true,
+    "final_artifact_integrity": true
+  },
+  "sensor_capture": {
+    "frame_count": 1,
+    "manifest_content_bound": true,
+    "manifest_canonical_integrity": true,
+    "frame_files_integrity": true,
+    "frame_provenance_bound": true,
+    "sensor_binding": true,
+    "truth_free": true,
+    "wire_version": 3,
+    "pixel_format": "BGR24"
+  },
+  "source_artifacts": {
+    "run_evidence": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/evidence.json",
+      "sha256": "235b94ae78c9c5e7118d8e12d9b903cebb0a5b9c612034f7961f63b231df995f"
+    },
+    "mission_result": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/vtol-mission.stdout.jsonl",
+      "sha256": "bef3429aa5c0e77a54610a1bdd5c713eb23f87ad33a640a04b41075f355a45ba"
+    },
+    "flight_capture_ready": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/vtol-flight-capture-ready.json",
+      "sha256": "a51834ddbb08ff784e7f4c8b9bfb0457ff007dedbc4d97398b784abe415a8b6f"
+    },
+    "sensor_capture_complete": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/vtol-sensor-capture-complete.json",
+      "sha256": "bdb323585d577b186bb649bee194756c7b77eace115286b0335d66062cba4584"
+    },
+    "mission_journal": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/vtol-mission.transaction.jsonl",
+      "sha256": "4dffbde4d3a185cbdd473421a367c8772349cb83cad1d0f67fa361ba44afd19d"
+    },
+    "frame_manifest": {
+      "path": "artifacts/evaluation/vtol-response-probe-20261001-r5/frames/gazebo-bgr24-frame-set.manifest.json",
+      "sha256": "399b8cd76512eea64033cdedae4ef633bd0650648425d5c4bce745441c7079cb"
+    }
+  },
+  "source_fix": {
+    "path": "src/multidetect/backends/gazebo_sim.py",
+    "change": "normalize depth_geometry tuple to a JSON list before strict manifest rebind",
+    "sha256": "edd8050c2dd3521a9b2717aa572f31b83dafd1be855d4e924fa266fbb7095ee2"
+  },
+  "acceptance_boundary": {
+    "external_sim_passed": true,
+    "shared_ui_core_algorithm_task_contract_safety_policy_claimed": false,
+    "hil_real_outdoor_gnss_final_release": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "multidetect.onboard-ai-preflight-evidence",
+  "schema_version": 1,
+  "status": "automated_verified_current_parity",
+  "release_label": "0.3.0-pre.8",
+  "source_evidence": "artifacts/evaluation/onboard-ai-preflight-20261003-r2-parity-r11-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12.json",
+  "source_evidence_bytes": 43670,
+  "source_evidence_sha256": "b542c36fe58704ede5b92c5f57a097179da8946551440a531a983c8fb9c7bb52",
+  "scenario": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "release_parity": "configs/release-parity.json",
+  "release_parity_sha256": "990fb315aff74255f6dc0634e7c67c8ad5a7fb05c3907d049b9dbfff8d455c31",
+  "execution_requested": false,
+  "preflight_gate_passed": true,
+  "deterministic_ai_fixture_passed": true,
+  "release_parity_snapshot_stable": true,
+  "external_process_started": false,
+  "external_px4_gazebo_evidence": false,
+  "qgc_visual_acceptance": false,
+  "hil_real_evidence": false,
+  "jetson_hardware_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "claims_boundary": "Current-parity Docker command and security preflight plus deterministic truth-free AI bridge fixture only; no external PX4/Gazebo process, vehicle motion, QGC visual acceptance, HIL, REAL, Jetson, hardware, outdoor GNSS, or final release claim.",
+  "verification": {
+    "command": "python scripts/run_simulator_docker_ai_acceptance.py --scenario-manifest configs/scenarios/river_rescue_vtol_001.scenario.json --evidence artifacts/evaluation/onboard-ai-preflight-20261003-r2.json --release-parity configs/release-parity.json",
+    "gate_passed": true,
+    "ai_policy_steps": 6,
+    "ai_rejected": 0,
+    "failsafe_steps": 1,
+    "truth_free": true
+  }
+}

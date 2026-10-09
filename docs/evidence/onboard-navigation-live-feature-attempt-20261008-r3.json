@@ -1,0 +1,143 @@
+{
+  "contract": "multidetect.navigation-live-feature-attempt-evidence-r3",
+  "date": "2026-10-08",
+  "status": "actual_native_model_load_failure_before_Gazebo_or_feature_capture",
+  "evidence_kind": "observed_local_attempt_not_success_or_quality",
+  "experiment_plan": {
+    "path": "configs/training/onboard-navigation-live-shadow-20261008-r3.json",
+    "bytes": 297995,
+    "sha256": "75951245c72e3189d545dc7cef866e98bd7bd7901c30273e9dec05fc5f6b9d5f"
+  },
+  "supervisor": {
+    "path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r3-supervisor.json",
+    "bytes": 1713,
+    "sha256": "509cf687c80691a8211a8f6aa98ffdf5d1453a9f518d7e603048ece4725c4ded"
+  },
+  "ownership_intent": {
+    "path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r3-ownership.json",
+    "bytes": 330,
+    "sha256": "ba032b0d8aab94622bda35a58f2499a502a8a5a7060742e6169b4a75c54ad5de"
+  },
+  "stdout": {
+    "path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r3.stdout.log",
+    "bytes": 8123,
+    "sha256": "5e08ff1c1ea60caf3be0632f03103a61fa902f3de3314d5d7a5ec9bf907d3ee7"
+  },
+  "stderr": {
+    "path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r3.stderr.log",
+    "bytes": 51,
+    "sha256": "5bfb03b81e62c1a971a7ce3c5c29bb8cd2680aa1bf28c9061d6dceb799497670"
+  },
+  "source_files_frozen_after_attempt": [
+    {"path": "scripts/run_onboard_navigation_gazebo_feature_shadow.py", "bytes": 22747, "sha256": "8cc27f71818b2738daa3b62f6b2db55a55b5ee77ea6d792d30d02ecd0f683add"},
+    {"path": "tests/test_onboard_navigation_gazebo_feature_shadow.py", "bytes": 13724, "sha256": "43f76c55669d5f0b94a549a1fcc0a38a0f4054271cfced5de8e8c86c6bc131a2"},
+    {"path": "scripts/onboard_navigation_feature_capture.py", "bytes": 16093, "sha256": "091175996d4f6d8342ed4da8edbf419f94ca1c677d492e891ef3414783eb6384"},
+    {"path": "tests/test_onboard_navigation_feature_capture.py", "bytes": 12030, "sha256": "6ffb999d334e5c34e704389bb78d3ea637ed032d6c1e0ed915461701f407e79b"}
+  ],
+  "actual_attempt": {
+    "launch_native_chunk": "2730f7",
+    "terminal_native_chunk": "625a89",
+    "outer_command_native_exit_code": 1,
+    "supervised_launcher_pid": 63988,
+    "native_model_child_pid": 39604,
+    "supervised_worker_native_exit_code": 3221225477,
+    "windows_exception_code": "0xc0000005",
+    "timeout_s": 600,
+    "watchdog_fired": false,
+    "worker_wait_completed": true,
+    "model_load_attempts": 1,
+    "completed_exact_model_loads": 0,
+    "safe_open_calls_attempted_and_returned": [5, 5],
+    "safe_open_return_proves_all_model_parameters_loaded": false,
+    "last_stdout_event": "allocator_warmup_override_restored",
+    "exact_R3_model_loaded_event_present": false,
+    "new_RGB": 0,
+    "new_depth": 0,
+    "new_live_feature_payloads": 0,
+    "new_fused_forward_returned": 0,
+    "new_head_forward_returned": 0,
+    "new_generation_calls": 0,
+    "new_optimizer_attempts": 0,
+    "flight_control_commands_sent": 0,
+    "output_directory_empty": true,
+    "worker_report_present": false,
+    "live_CPU_feature_audit_actually_run": false
+  },
+  "application_event_observation": {
+    "source": "Windows Application event log read-only query, not a persisted raw event-file projection",
+    "first_read_native_chunk": "73dfed",
+    "repeat_read_native_chunk": "628530",
+    "read_native_exit_codes": [0, 0],
+    "event_id": 1000,
+    "record_id": 268134,
+    "time_created": "2026-10-08T12:17:49.3031378+08:00",
+    "faulting_app": "python.exe",
+    "faulting_app_version": "3.12.7150.1013",
+    "faulting_app_path": "C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe",
+    "faulting_pid_decimal": 39604,
+    "faulting_module": "c10.dll",
+    "faulting_module_path": "C:/Users/admin/AppData/Local/Programs/Python/Python312/Lib/site-packages/torch/lib/c10.dll",
+    "faulting_module_bytes": 973312,
+    "faulting_module_sha256": "e7a4c71b4b96ab6ddb1ad426eccd4d5d889bca61fd6cd3e30882740a273ad437",
+    "exception_code": "0xc0000005",
+    "fault_offset": "0x000000000007f804",
+    "report_id": "ab826615-0aae-48ff-a997-4826753e9076",
+    "module_origin_matches_admitted_torch": true,
+    "transitive_DLL_identity_closed": false,
+    "root_cause_proven": false,
+    "memory_pressure_observed": true,
+    "memory_pressure_proves_crash_cause": false
+  },
+  "bounded_CPU_probe": {
+    "native_chunk": "1f54c4",
+    "native_exit_code": 0,
+    "pid": 56400,
+    "interpreter": "D:/Projects/Multi-Detect/.venv-vlm-navigation/Scripts/python.exe",
+    "torch_version": "2.6.0+cu124",
+    "scope": "4096-element CPU FP32-BF16-clone-FP32 plus frozen random 2048-to-6 Linear on two rows",
+    "clone_sha256": "10f91dd0871bd34724c2c0ad7e86c5573f9b642fd48107f7fc8b20cff3ec99e8",
+    "head_output_shape": [2, 6],
+    "head_output_finite": true,
+    "CUDA_allocation_requested": false,
+    "full_model_or_processor_loaded": false,
+    "optimizer_performed": false,
+    "full_load_fixed_or_navigation_quality_proven": false
+  },
+  "final_state_read": {
+    "native_chunk": "c20c48",
+    "native_exit_code": 0,
+    "named_launcher_and_model_child_absent": true,
+    "owned_container_absent_before": true,
+    "owned_container_absent_after": true,
+    "Gazebo_container_started_by_R3": false,
+    "owned_container_cleanup_needed": false,
+    "unrelated_running_container_names_count_unchanged": 13,
+    "independent_content_identity_native_chunk": "97bb03",
+    "independent_content_identity_native_exit_code": 0,
+    "independent_small_bindings_rechecked": 14,
+    "independent_model_reload_performed": false
+  },
+  "inherited_accounting_not_reset": {
+    "R1_R2_actual_camera_requests": 16,
+    "R2_fused_forward_returned": 8,
+    "R2_head_forward_returned": 8,
+    "head_optimizer_attempts": 3000,
+    "lora_optimizer_attempts": 280
+  },
+  "claims": {
+    "live_feature_capture_completed": false,
+    "model_load_runtime_closure_completed": false,
+    "causal_attribution_proven": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "teacher_flight_data_collected": false,
+    "training_ready": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_step": "NEW source-version diagnostics with native traceback and durable load-phase markers; no blind full-load rerun or frozen-R3 rewrite"
+}

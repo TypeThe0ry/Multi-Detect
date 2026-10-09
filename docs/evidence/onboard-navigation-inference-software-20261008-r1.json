@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-inference-software-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "status": "experimental_protocol_and_preloaded_backend_software_tests_passed_not_native_model_loader_or_flight_acceptance",
+  "scope": "pure_python_standin_orchestration_and_retained_cpu_receipt_metadata_checks",
+  "bindings": [
+    {
+      "path": "src/multidetect/autonomy/onboard_navigation_inference.py",
+      "bytes": 18843,
+      "sha256": "3838a9ee4ee1eef58a680369076157263cfe824bc75c6dcbfe265a977564954f"
+    },
+    {
+      "path": "tests/test_onboard_navigation_inference.py",
+      "bytes": 22008,
+      "sha256": "30413458361b850f1ba0a8c355433795c11fc4cae588c554b1386582698a1afe"
+    },
+    {
+      "path": "scripts/onboard_navigation_inference_backend.py",
+      "bytes": 10913,
+      "sha256": "1d489f2a803f88ed16a58efbe2796744e1b69096a2adc1a3892ddc977ccd2b38"
+    },
+    {
+      "path": "tests/test_onboard_navigation_inference_backend.py",
+      "bytes": 29589,
+      "sha256": "a3080d11365778117bf7457e883b8f2b6fb495179dd6db04a0a82d9f698f83c8"
+    },
+    {
+      "path": "tests/test_onboard_navigation_streamed_cpu_evidence.py",
+      "bytes": 17227,
+      "sha256": "7229300e3690b516af96c918bc255f2fbb34fd1bac4ee3e0dcf369d5e71e743e"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-inference-software-tests-20261008-r1.xml",
+      "bytes": 44396,
+      "sha256": "ea916d00307a816833bab82dddfd2448ab438c1eddc6ed345cb23cc5b5fe0442"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    }
+  ],
+  "unit_tests": {
+    "total": 270,
+    "passed": 270,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "native_exit_code": 0,
+    "native_terminal_tool_chunk": "575199",
+    "xml_testcases_independently_counted": true,
+    "suite_counts": {
+      "tests.test_onboard_navigation_inference": 158,
+      "tests.test_onboard_navigation_inference_backend": 89,
+      "tests.test_onboard_navigation_streamed_cpu_evidence": 15,
+      "tests.test_repository_progress_docs": 8
+    },
+    "new_inference_tests": 247,
+    "tests_are_native_model_or_flight_evidence": false
+  },
+  "warnings": {
+    "count": 1295,
+    "source": "root_verified_native_pytest_console_for_tool_chunk_575199_not_junit_warning_count",
+    "origin": "_pytest/assertion/rewrite_old_AST_API_deprecations",
+    "model_warning_count_claimed": false
+  },
+  "adapter_state_regression": {
+    "new_negative_cases": 9,
+    "pre_fix_native_exit_code": 1,
+    "pre_fix_native_tool_chunk": "b3bc60",
+    "post_fix_negative_cases_passed": 9,
+    "post_fix_native_exit_code": 0,
+    "post_fix_native_tool_chunk": "309c46",
+    "backend_suite_passed": 89,
+    "backend_suite_native_exit_code": 0,
+    "backend_suite_native_tool_chunk": "ad6487",
+    "persistent_default_adapter_state_drift_rejected_with_standins": true,
+    "concurrent_change_then_restore_excluded_by_tests": false
+  },
+  "ruff": {
+    "files_checked": 5,
+    "native_exit_code": 0,
+    "native_terminal_tool_chunk": "947d93"
+  },
+  "lightweight_binding_audit": {
+    "binding_count": 8,
+    "all_bytes_and_sha256_match": true,
+    "xml_suite_totals_match": true,
+    "default_reference_and_release_parity_unchanged": true,
+    "large_model_or_5GB_source_rehash_performed": false,
+    "processor_rerun": false,
+    "tensor_bytes_or_labels_independently_recomputed": false
+  },
+  "experimental_request_result_protocol_implemented": true,
+  "experimental_preloaded_backend_implemented": true,
+  "shared_actor_prefix_only_no_gold_input": true,
+  "standin_token_suffix_raw_output_and_latency_binding_tested": true,
+  "standin_stale_truncated_or_identity_mismatched_results_rejected": true,
+  "standin_enabled_default_lora_state_checked_before_and_after_generation": true,
+  "maximum_prefix_tokens": 4096,
+  "maximum_generated_tokens": 192,
+  "maximum_response_bytes": 65536,
+  "exact_weight_loader_and_owned_worker_implemented": false,
+  "exclusive_worker_and_absolute_process_deadline_implemented": false,
+  "actual_parameter_bytes_verified_by_this_backend": false,
+  "actual_sensor_authenticity_verified": false,
+  "pure_python_standins_only_for_new_inference_tests": true,
+  "real_torch_hf_pil_imported_for_this_regression": false,
+  "official_processor_rerun_for_this_regression": false,
+  "actual_model_loaded_for_this_regression": false,
+  "actual_model_inference_performed_for_this_regression": false,
+  "gpu_used_for_this_regression": false,
+  "optimizer_performed_for_this_regression": false,
+  "optimizer_state_restored": false,
+  "scheduler_state_restored": false,
+  "rng_state_restored": false,
+  "flight_or_px4_connection_created": false,
+  "production_navigation_backend_modified": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "independent_holdout_available": false,
+  "live_navigation_inference_accepted": false,
+  "actual_live_camera_parity_verified": false,
+  "sim_real_parity_verified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "training_completed": false,
+  "physical_performance_claimed": false,
+  "jetson_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "parallel_streamed_gpu_pipeline_snapshot": {
+    "scope": "last_root_reported_independent_pipeline_progress_not_this_software_test_result",
+    "native_session_id": 39122,
+    "status": "active_baseline_parent_generation_not_native_terminal_or_training_started",
+    "parent_generation_last_reported_completed": 70,
+    "generation_round_sample_count": 86,
+    "full_pipeline_native_exit_code": null,
+    "baseline_native_exit_code": null,
+    "baseline_inference_completed": false,
+    "balanced_280_draw_training_started": false,
+    "balanced_280_draw_training_completed": false,
+    "prior_r1_host_MemoryError_failure_preserved": true
+  },
+  "notes": [
+    "This is durable software evidence for an experimental protocol and a bridge around a caller-admitted preloaded engine, not an exact loader or native inference receipt.",
+    "Expected model/adapter/config file identities and enabled default LoRA state do not establish actual loaded parameter-byte equality.",
+    "The 15 CPU receipt tests inspect retained metadata; they do not run the official processor again or turn CPU encoding into inference or training acceptance.",
+    "Generation max_time is cooperative. A new exclusive worker and externally enforced process deadline remain unimplemented.",
+    "Persistent adapter drift is checked, but polling cannot exclude a concurrent mutation that changes and restores state; exclusive lifecycle ownership remains required.",
+    "The active streamed GPU pipeline is a separate run. Its incomplete baseline and all earlier failures remain preserved; fixture success cannot advance its optimizer or quality gates.",
+    "Default r33 model reference, release parity and 0.3.0-pre.8 remain unchanged. No request/result grants transport, Mission, execution, flight or release authority."
+  ]
+}

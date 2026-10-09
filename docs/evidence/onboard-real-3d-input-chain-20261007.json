@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-real-3d-input-chain-receipt-v1",
+  "status": "input_chain_verified_training_rejected",
+  "scope": "historical_actual_gazebo_rgb_depth_replay_not_new_external_sortie",
+  "fixes": [
+    "preserve_zero_based_mdgzsim3_sequence",
+    "accept_hash_sealed_mdgzdep1_schema_v1_and_v2",
+    "explicit_legacy_asset_provenance_without_current_mainline_claim",
+    "copy_read_only_depth_roi_before_optical_axis_to_ray_conversion",
+    "zero_trainer_exit_without_verified_outputs_is_not_success"
+  ],
+  "source": {
+    "rgb_manifest": "artifacts/evaluation/depth-companion-sim-20261003-r2/rgb/gazebo-bgr24-frame-set.manifest.json",
+    "depth_manifest": "artifacts/evaluation/depth-companion-sim-20261003-r2/depth/gazebo-depth-companion-set.manifest.json",
+    "scenario_id": "river_rescue_vtol_001",
+    "actual_gazebo_rgb_depth": true,
+    "capture_phase": "ground_capture",
+    "current_mainline_asset_binding": false,
+    "detector_confidence_threshold": 0.05,
+    "detector_outputs_are_reviewed_labels": false,
+    "manual_visual_review": "ground_scene_not_qualified_flight_training_episode"
+  },
+  "recording": {
+    "path": "artifacts/evaluation/onboard-neutral-3d-capture-20261006-r3/recording.manifest.json",
+    "sha256": "4f081d99f9b2a46cc3345f824c3886d18fa9e81a98740347e74be78c5583ad8e",
+    "recording_hash": "2e8029f98bd04a5b3a6bfb4b36d4e928c7bd8faecebc03e1a70b4eced6249167",
+    "frame_count": 3,
+    "depth_count": 3,
+    "telemetry_count": 3,
+    "source_first_sequence": 0,
+    "source_payloads_verified": true,
+    "lossless_png_replay_verified": true
+  },
+  "capture_binding": {
+    "path": "artifacts/evaluation/onboard-neutral-3d-capture-20261006-r3/gazebo_capture_binding.json",
+    "sha256": "7680d8abdf0c21177c47a3ba0b805ec56c58c50d25012b1f4e0881a59a148910",
+    "canonical_binding_sha256": "e253fa2cdbb1662e06bd7250d976230d0258b35f94271f98711ea7ad2c048778"
+  },
+  "rendered_dataset": {
+    "path": "artifacts/training/onboard-neutral-3d-historical-rendered-20261006-r3.json",
+    "sha256": "da49af6c359145ec3c7bd5568e5d202a3bd4f2dc7f5561ba59118d1e27326658",
+    "rows": 3,
+    "depth_measurement_rows": 3,
+    "calibrated_geometry_rows": 3,
+    "training_ready": false,
+    "labels_from": "sensor_contract_heuristic_plumbing_only"
+  },
+  "trajectory_staging": {
+    "path": "artifacts/training/onboard-neutral-3d-trajectory-staging-20261006-r3.json",
+    "sha256": "4042b70d746db889037d9a82dfde20d61dd50aad2b967965785a5ec9e817ed3b",
+    "episodes": 1,
+    "transitions": 3,
+    "recording_bound": true,
+    "training_ready": false,
+    "materialized_sources": false,
+    "reviewed_labels": false,
+    "independent_test_episode": false
+  },
+  "training_gate": {
+    "path": "artifacts/evaluation/onboard-3d-training-gate-20261007-r2.json",
+    "sha256": "85c69120784b5adddc46d6396574110e0048817f61b1e078e4ad13ccbe660205",
+    "requested_device": "cuda",
+    "trainer_exit_code": 1,
+    "status": "blocked",
+    "candidate_generated": false,
+    "synthetic_bootstrap_requested": false,
+    "synthetic_structured_teacher_requested": false,
+    "reason": "insufficient_multi_scene_rows_and_unreviewed_trajectory_without_independent_test"
+  },
+  "remote_capture_attempt": {
+    "job_id": "06b73df5-6115-4413-9d2b-be777d9f459c",
+    "native_exit_code": 1,
+    "state": "failed",
+    "capture_artifacts_returned": 0,
+    "root_cause_confirmed": false,
+    "diagnostic_job_id": "2ed9bf18-0672-427f-b5a9-fa4f766ca826",
+    "diagnostic_native_exit_code": 0,
+    "diagnostic_log_contents_retrieved": false,
+    "diagnostic_exit_is_runtime_acceptance": false
+  },
+  "validation": {
+    "targeted_tests_passed": 88,
+    "current_reference_changed": false,
+    "release_parity_sha256": "990fb315aff74255f6dc0634e7c67c8ad5a7fb05c3907d049b9dbfff8d455c31"
+  },
+  "truth_free": true,
+  "truth_injected": false,
+  "candidate_promoted": false,
+  "new_external_gazebo_sortie_passed": false,
+  "physical_performance_claimed": false,
+  "jetson_hardware_evidence": false,
+  "pixhawk_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

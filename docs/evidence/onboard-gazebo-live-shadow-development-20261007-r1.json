@@ -1,0 +1,315 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-gazebo-live-shadow-development-receipt-v1",
+  "product_version": "0.3.0-pre.8",
+  "recorded_at_utc": "2026-10-07 07:33:08 UTC",
+  "status": "live_camera_partial_state_input_and_long_episode_implemented_cpu_verified_preflight_only",
+  "scope": "development shadow input/recording; no model actuation or action training",
+  "team": {
+    "parallel_subagents": 3,
+    "workstreams": [
+      "source-bound live input and backend",
+      "long episode recorder",
+      "independent integration review"
+    ],
+    "integration_owner": "root"
+  },
+  "implementation": {
+    "actual_camera_callback_before_legacy_detection_filter": true,
+    "verbatim_prompt_preserved": true,
+    "all_source_rgb_recorded_without_detection_signature_deduplication": true,
+    "bounded_request_history_frames": {
+      "default": 2,
+      "minimum": 1,
+      "maximum": 4
+    },
+    "long_episode_separate_from_request_window": true,
+    "old_sensor_nanoseconds_retained_as_integers": true,
+    "host_source_receive_processing_completion_poll_times_separate": true,
+    "source_wire_and_retained_recording_exactly_joined": true,
+    "model_sensor_state": "wire-covered GPS and odometry; full safety context unknown",
+    "missing_state_not_fabricated": [
+      "HOME",
+      "flight mode",
+      "battery",
+      "health",
+      "wind",
+      "route clearance",
+      "configured GPS quality"
+    ],
+    "truth_or_training_labels_in_model_input": false,
+    "model_owns_transport": false,
+    "ordinary_new_frames_cancel_pending_inference": false,
+    "per_request_raw_and_success_backend_metrics_persisted": true,
+    "strict_rejected_raw_persisted": true,
+    "persistent_worker_error_detail_limitation": "Preprocessing child exceptions cross frozen IPC as error_type only; actual grid/tensor exception attrs not persisted at host.",
+    "submission_recorded_only_after_mailbox_success": true,
+    "mailbox_success_count_retained_on_recording_failure": true,
+    "cleanup_and_source_reopen_failures_preserve_report_and_exit_one": true,
+    "baseline_raw_payload_limit_bytes": 1073741824,
+    "baseline_not_vlm_prompt_execution": true
+  },
+  "processor_budget": {
+    "serializer_total_pixels": 200704,
+    "real_pinned_processor_cpu_tests_performed": true,
+    "review_reproductions": {
+      "two_frames_without_new_guard": 202752,
+      "four_frames_without_new_guard": 286720
+    },
+    "per_call_images_kwargs_min_max_pixels": true,
+    "actual_image_grid_total_validated_before_generation": true,
+    "actual_grid_schema": "one integer T/H/W row per source image; T=1",
+    "gpu_generation_performed": false
+  },
+  "validation": {
+    "joint": {
+      "native_exit_code": 0,
+      "tests": 444,
+      "passed": 443,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0,
+      "skip_reason": "Windows symlink creation privilege fixture",
+      "report": {
+        "path": "artifacts/evaluation/onboard-gazebo-live-shadow-development-20261007-r1/joint-validation.xml",
+        "bytes": 74125,
+        "sha256": "ecd97988d31f4536195f88db5ec3aae7bd095bfb53e6ade2c980ba7165f9f807"
+      }
+    },
+    "ruff_check_native_exit_code": 0,
+    "ruff_format_check_native_exit_code": 0,
+    "python_files": 10,
+    "real_entry_preflight": {
+      "native_exit_code": 0,
+      "status": "planned_not_executed",
+      "source_records_unchanged": true,
+      "execution_requested": false,
+      "report": {
+        "path": "artifacts/evaluation/onboard-gazebo-live-shadow-development-20261007-r1/preflight/report.json",
+        "bytes": 22469,
+        "sha256": "a144bd6bb52d03104add92b168f21a3e3b89f80f4a49f88b45c2d38362004da0"
+      },
+      "capture_plan": {
+        "path": "artifacts/evaluation/onboard-gazebo-live-shadow-development-20261007-r1/preflight/capture.json",
+        "bytes": 17343,
+        "sha256": "cffe0358187d17b5be08c4f0ddedcb178f14c1b64501f4f7574eeb48d0d5bf56"
+      }
+    },
+    "evidence_scope": "CPU fixtures plus official processor CPU tests and native no-process preflight; not new CUDA semantic/flight acceptance"
+  },
+  "model": {
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "base_weights_sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0",
+    "model_weights_loaded_this_stage": false,
+    "adapter_loaded": false,
+    "default_policy_reference_changed": false,
+    "original_detector_changed": false,
+    "previous_quality_failed_increment_not_promoted": true
+  },
+  "runtime": {
+    "latest_observed_at_utc": "2026-10-07T07:01:57.226982700Z",
+    "latest_placement": "no_eligible_node",
+    "worker_offline": true,
+    "new_capture_submitted": false,
+    "new_capture_native_exit_code": null,
+    "new_rgb_depth_frames_verified": 0,
+    "diagnostic_attempt": {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-diagnostic-attempt-20261007T070157Z/attempt.json",
+      "bytes": 4938,
+      "sha256": "498ab40e0723d19ed7f84be67e79b3664f0d9db560751b8caebadc840f7ecfea"
+    },
+    "fleet_plan_result": {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-diagnostic-attempt-20261007T070157Z/fleet-plan-result.json",
+      "bytes": 1845,
+      "sha256": "2cc9cdfb21a00f14c9357254db99749fde47d34191b2d673d437ec8625a8af7c"
+    },
+    "fleet_info_result": {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-diagnostic-attempt-20261007T070157Z/fleet-info-result.json",
+      "bytes": 206320,
+      "sha256": "fc180a21a7ab58f39c0880a1417e646a37144c6cc03a0fb7095516042d5263a8"
+    },
+    "previous_runtime_receipt": {
+      "path": "docs/evidence/gazebo-runtime-preparation-20261007-r1.json",
+      "bytes": 5173,
+      "sha256": "2473daf99a96419abdbf26fc2f403d1754187bfa5d31e34135e0c61d25fc7213"
+    },
+    "previous_increment_receipt": {
+      "path": "docs/evidence/onboard-vlm-grounding-increment-20261007-r2.json",
+      "bytes": 17980,
+      "sha256": "78879346d8fbcd12fb834a351f04d023098f6e44ec722d61ef0ce3cd98f60eef"
+    },
+    "old_receipts_overwritten": false
+  },
+  "next_work": [
+    "Native new-LiveBackend retained-wire RGB replay with original source timestamps and explicit replay-clock semantics; do not restamp as live.",
+    "Restore eligible runtime then run actual Gazebo callback, not synthetic frames.",
+    "Measured HOME/aircraft safety context/clearance and whole-sortie memory/action feedback.",
+    "Rejoin existing Mission compilation/upload/readback/permit/continuation and execution monitor.",
+    "Review independent action-aligned trajectories before flight-action training, quality comparison and deployment."
+  ],
+  "claims": {
+    "candidate_promoted": false,
+    "flight_action_training_performed": false,
+    "training_ready": false,
+    "autonomous_flight_verified": false,
+    "vlm_prompt_task_completed": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "jetson_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/onboard_live_vlm_contract.py",
+      "bytes": 15923,
+      "sha256": "42cf6d5decd16e5b501b19fcf98810e526113858612686f8a4c17977151a0c04"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_live_vlm_backend.py",
+      "bytes": 10762,
+      "sha256": "a93467e09f8b419cded6f96d1b8f19c83badb69d977c96e883719958a101c100"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_live_episode.py",
+      "bytes": 35648,
+      "sha256": "1a4a849fa531466f12fbb28ce4e2d47ae5c306020bd01258c21391d8ac897ee5"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_live_shadow.py",
+      "bytes": 16659,
+      "sha256": "3904b991e3c82ae3a7583149cc1c592049191301a9da675b0722072796429bc8"
+    },
+    {
+      "path": "scripts/run_onboard_gazebo_live_shadow.py",
+      "bytes": 15575,
+      "sha256": "f9b591eabf1b2d8b71172ff7829f61b1c12f41206df01b5ad6f2b255f78ec4f6"
+    },
+    {
+      "path": "tests/test_onboard_live_vlm_contract.py",
+      "bytes": 16006,
+      "sha256": "2a3880cc719c37e1e407bab3c36ba5e0b730fd4e2243b7cab8a9ecf0c14359aa"
+    },
+    {
+      "path": "tests/test_onboard_live_vlm_backend.py",
+      "bytes": 14471,
+      "sha256": "2ef213654423bbd91d0a031be9200594e0329118817991ef53692c435f63fa2b"
+    },
+    {
+      "path": "tests/test_onboard_live_episode.py",
+      "bytes": 38939,
+      "sha256": "d6355f84c6b34c389118ab52cffcc48d84a79211df1c61c5a1ecf1acccd35283"
+    },
+    {
+      "path": "tests/test_onboard_live_shadow.py",
+      "bytes": 11638,
+      "sha256": "b40b3012cbfdf9b4f4c25ba0464e8635efc5415c94f953dc6635228da09ec7f5"
+    },
+    {
+      "path": "tests/test_run_onboard_gazebo_live_shadow.py",
+      "bytes": 6864,
+      "sha256": "d6257e73a77c2ee1f88041a9f35642540f37bc6d527e74f141986c8ae7add770"
+    }
+  ],
+  "frozen_dependencies_and_defaults": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_runtime_contract.py",
+      "bytes": 22078,
+      "sha256": "f1321f1eee1c8fa96b38f154c74dcc077efec20007ae57f8e75ebf71fc5eeef6"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_worker.py",
+      "bytes": 14533,
+      "sha256": "b19039a8bcb7036f62c7e0a2098ded191ea3ed56813cdef00287b64a59a796dd"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_backend.py",
+      "bytes": 5910,
+      "sha256": "d11e419e2ba7309afd6afe6afd3cedba6ee173c74949f332a0d2002ea5fb1530"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_multimodal.py",
+      "bytes": 25597,
+      "sha256": "3dffd99197e1cdb204ef83862b00861d19ebe9e5ff1d20c95c46ae2d7227b659"
+    },
+    {
+      "path": "src/multidetect/backends/gazebo_sim.py",
+      "bytes": 91775,
+      "sha256": "652a5fef8311970f962d872aaa2e3669741be62697560bcfe6394ee114db62a6"
+    },
+    {
+      "path": "src/multidetect/clock.py",
+      "bytes": 8315,
+      "sha256": "9014a27a7ad34fe71425163486b85bfc028c9721e838e3b13ffda8c17a89d9ff"
+    },
+    {
+      "path": "scripts/run_simulator_docker_acceptance.py",
+      "bytes": 120016,
+      "sha256": "6607b4addb0281d583a394255fda69af8d2646a4000302153b5a9f1f540568ef"
+    }
+  ],
+  "legacy_baseline_verification": {
+    "native_exit_code": 0,
+    "records": [
+      {
+        "path": "configs/release-parity.json",
+        "unchanged": true
+      },
+      {
+        "path": "configs/training/onboard-policy-current-reference-v1.json",
+        "unchanged": true
+      },
+      {
+        "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+        "unchanged": true
+      },
+      {
+        "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+        "unchanged": true
+      },
+      {
+        "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/report.json",
+        "unchanged": true
+      },
+      {
+        "path": "artifacts/evaluation/onboard-vlm-grounding-adapter-reload-20261007-r1/report.json",
+        "unchanged": true
+      },
+      {
+        "path": "src/multidetect/autonomy/onboard_multimodal.py",
+        "unchanged": true
+      },
+      {
+        "path": "scripts/probe_onboard_vlm.py",
+        "unchanged": true
+      },
+      {
+        "path": "scripts/onboard_vlm_shadow_input.py",
+        "unchanged": true
+      },
+      {
+        "path": "configs/training/onboard-policy-current-reference-v1.json",
+        "unchanged": true
+      },
+      {
+        "path": "configs/release-parity.json",
+        "unchanged": true
+      },
+      {
+        "path": "docs/evidence/onboard-vlm-grounding-training-20261007-r1.json",
+        "unchanged": true
+      }
+    ]
+  }
+}

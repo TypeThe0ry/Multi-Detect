@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "scope": "session planning origin and independent live aircraft position",
+  "focused_passed": 276,
+  "new_tests": 4,
+  "ruff_all_passed": true,
+  "full_suite_status": "passed_with_skips",
+  "full_suite_command": "python -m pytest -q --junitxml=artifacts/evaluation/session-home-full-20260908.xml --disable-warnings",
+  "full_suite_exit_code": 0,
+  "full_suite_passed": 4006,
+  "full_suite_skipped": 7,
+  "full_suite_failures": 0,
+  "full_suite_errors": 0,
+  "full_suite_seconds": 185.467,
+  "full_suite_bytes": 587383,
+  "full_suite_sha256": "3ca53e724fcfc88186d06ffb1d01201c0f43e6849ad21f3b09ae33c4b860cd9a",
+  "full_suite_report": "artifacts/evaluation/session-home-full-20260908.xml",
+  "negative_cases": ["idle session", "failed session", "closed session"],
+  "claims": {"external_two_task": false, "PX4_home_position_observed": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

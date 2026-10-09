@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "scope": "Docker campaign orchestration and two failed external attempts",
+  "focused_passed": 304,
+  "new_tests": 7,
+  "campaign_input": "configs/scenarios/vtol-two-task.synthetic-campaign.json",
+  "campaign_input_sha256": "f9f45014c2819c27fb3b3966a5c7f5b70f04c6b6266890fefaf311eb363bbe4d",
+  "external_command_template": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-two-task.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-SUFFIX --evidence artifacts/evaluation/campaign-20260908-SUFFIX.json --container-name multidetect-campaign-SUFFIX --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:/Program Files/Docker/Docker/resources/bin/docker.exe\"",
+  "attempts": [
+    {"suffix": "m", "exit_code": 1, "path": "artifacts/evaluation/campaign-20260908-m.json", "bytes": 26860, "sha256": "92b07f39782e932b628c384124909b39fa407d700bb22dbad021cf1a503b8410", "first_task_completed": true, "second_planning_remaining_wh": 97.03852320000001, "failure": "AutonomyContractError: current must be at least 1", "cleanup_verified": true},
+    {"suffix": "n", "exit_code": 1, "path": "artifacts/evaluation/campaign-20260908-n.json", "bytes": 26843, "sha256": "d6d7bb3c08b89fe595a2ee9af42a7b10f4a576bb473b49661a4b8b02a5da8ec2", "first_task_completed": true, "failure": "continuous energy coverage required: load_or_receive_gap", "cleanup_verified": true}
+  ],
+  "latest_fixes_external_verified": false,
+  "negative_tests": ["campaign input hash changed", "armed cursor reset", "airborne cursor reset", "stale cursor reset", "wrong source cursor reset"],
+  "claims": {"external_two_task": false, "camera_capture": false, "full_suite": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

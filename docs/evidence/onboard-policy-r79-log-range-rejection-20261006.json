@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-rejection-v1",
+  "generated_at_utc": "2026-10-06T03:55:29Z",
+  "candidate": {
+    "model_id": "onboard-policy-r79-log-range-dev",
+    "model_path": "artifacts/models/onboard-policy-r79-log-range-dev/onboard_policy_r4.onnx",
+    "model_sha256": "b65f3c1d782e2a81b73a8e75409e86dad134e8337c812542432c403fe94c7339",
+    "model_bytes": 62145,
+    "training_report_path": "artifacts/models/onboard-policy-r79-log-range-dev/training-report.json",
+    "training_report_sha256": "ec00a87ee8d7446ce702109373227b4b671c8b4bb6fe750456af0fa30e0e3c9a",
+    "training_config_path": "artifacts/models/onboard-policy-r79-log-range-dev/training-config.json",
+    "training_config_sha256": "46a9d1a7fe1f65b53e540423a3739a3b0c9aed167d764582f29fcae3e89e9456",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "device": "NVIDIA GeForce RTX 4060",
+    "feature_width": 40,
+    "output_contract_unchanged": true,
+    "training_method": "incremental_structured_3d_curriculum_with_log_range_auxiliary_loss",
+    "structured_3d_rows": 24000,
+    "rendered_rgb_depth_rows": 0,
+    "reviewed_trajectory_rows": 0
+  },
+  "diagnostics": {
+    "independent_holdout_path": "artifacts/evaluation/onboard-policy-r79-holdout.json",
+    "independent_holdout_sha256": "3e84ddc8ea3477cc7b874a9375f3253185de1e297c2b2df0e7cfae9004e2eafe",
+    "independent_holdout_passed_cases": 7,
+    "independent_holdout_case_count": 7,
+    "inspect_geometry_path": "artifacts/evaluation/onboard-policy-r79-geometry-inspect.json",
+    "inspect_geometry_sha256": "b4b74033764d66e8ac9e79216e4f2fe9084989730e376936be99bc80833af5f8",
+    "inspect_geometry": {
+      "angle_mae_deg": 20.171134657551523,
+      "angle_p95_deg": 33.89296674800339,
+      "range_mae_m": 136.8512741387275,
+      "endpoint_mae_m": 152.16226546772575,
+      "diagnostic_pass": false
+    },
+    "search_geometry_path": "artifacts/evaluation/onboard-policy-r79-geometry-search.json",
+    "search_geometry_sha256": "cb871aab2982f373391b73f19ab98e69e40ae94441e059d8935f72f0d0381f35",
+    "search_geometry": {
+      "angle_mae_deg": 21.63184058043727,
+      "angle_p95_deg": 41.091909859486,
+      "range_mae_m": 134.05928377495755,
+      "endpoint_mae_m": 154.44099977026934,
+      "diagnostic_pass": false
+    }
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "rejection_reasons": [
+      "FOLLOW_TARGET geometry diagnostic exceeds the 20 degree / 30 metre gates",
+      "no pixel-level Gazebo RGB/Depth training rows were present",
+      "no recording-bound reviewed trajectory rows were present"
+    ],
+    "current_reference_unchanged": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "next_required_evidence": "real current-mainline Gazebo RGB + FLOAT32 Depth + CameraInfo + pose + PX4 telemetry episodes with independent trajectory review"
+  },
+  "claim_boundary": {
+    "synthetic_bootstrap": true,
+    "pixel_level_rendered": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

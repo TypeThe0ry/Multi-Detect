@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.cluster-docker-gazebo-preflight-layered-diagnostic-v1",
+  "generated_at_utc": "2026-10-06T01:10:00Z",
+  "purpose": "Separate source preparation, scheduler reservation, and runtime-step failures for the external 3-D campaign.",
+  "known_runtime_step_attempt": {
+    "job_id": "adf1a049-e1ea-4251-975f-76f34a7fe723",
+    "snapshot_sha256": "e08189f1cae400bbb3da3e7474a7964b822b4d32fd880ea58d205215410a462a",
+    "snapshot_bytes": 29072547,
+    "selected_node": "nuc",
+    "source_preparation": "completed_enough_to_start_step",
+    "step": "verify-and-run-external-3d-capture",
+    "step_started": true,
+    "run_state": "failed",
+    "exit_code": 1,
+    "error": "step terminated as ExecutionFailed",
+    "captured_stdout_or_stderr": false,
+    "artifact_ids": [],
+    "runtime_root_cause": "undetermined_without_step_logs",
+    "external_gazebo_runtime": false
+  },
+  "current_workspace_attempt": {
+    "snapshot_sha256": "f9855104cee40034e617b3105c216235b2e9e0017f184796cdcd7648614c90ab",
+    "snapshot_bytes": 30376129,
+    "snapshot_uploaded": true,
+    "job_id": "455df0e4-8258-459c-9991-45bc7bd18758",
+    "source_preparation": "failed",
+    "failure": "worker API returned HTTP 404 Not Found (not_found)",
+    "runtime_step_started": false
+  },
+  "current_retry": {
+    "placement": "no_eligible_node",
+    "nuc_scheduler_reason": "slot_limit_reached: 1 active plus 1 requested slots exceed configured maximum 1",
+    "fleet_observed_running_jobs": 0,
+    "fleet_observed_queue_depth": 0,
+    "controller_state_inconsistent": true
+  },
+  "result": {
+    "rgb_depth_capture": false,
+    "camera_info_capture": false,
+    "px4_telemetry_capture": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "next_action": "after the stale scheduler reservation clears, rerun the current snapshot with stdout/stderr artifacts before changing the Gazebo or OnboardAI code"
+  }
+}

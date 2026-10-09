@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-candidate208-feature-cache-software-evidence-v1",
+  "date": "2026-10-08",
+  "status": "entry_software_and_real_metadata_projection_verified_not_actual_model_feature_extraction",
+  "bindings": [
+    {
+      "path": "scripts/extract_onboard_navigation_feature_cache.py",
+      "bytes": 34331,
+      "sha256": "8bfc7e18a2edae131b3027695fd92c3879ab89acba9294897cfca43d57267712"
+    },
+    {
+      "path": "tests/test_extract_onboard_navigation_feature_cache.py",
+      "bytes": 26638,
+      "sha256": "91b93067a8c549e498cc13d4831fee0e765f33dbf0ce71b84af46495dbdcf98c"
+    }
+  ],
+  "verification": {
+    "new_CPU_fixture_tests_passed": 38,
+    "doc_and_parity_tests_passed": 36,
+    "root_combined_tests_passed": 74,
+    "root_checks_native_exit_code": 0,
+    "root_test_Ruff_format_and_identity_tool_chunk": "320042",
+    "actual_metadata_projection_native_exit_code": 0,
+    "actual_metadata_projection_tool_chunk": "1003df",
+    "metadata_sample_count": 208,
+    "metadata_episode_count": 9,
+    "metadata_scene_count": 2,
+    "metadata_source_binding_count": 512,
+    "metadata_runtime_source_binding_count": 69,
+    "metadata_probe_ML_packages_imported": [],
+    "source_session_failure_refuses_forward": true,
+    "wrong_model_nonfinite_wrong_shape_or_order_refused": true,
+    "late_source_or_owned_import_cleanup_failure_refuses_partial_cache": true,
+    "model_loaded_failure_fact_preserved": true,
+    "Windows_actual_CPU_file_binding_regression_covered": true,
+    "optional_import_actual_origins_checked_before_and_after": true
+  },
+  "experiment_boundaries": {
+    "selected_model": "exact_frozen_recovery267_candidate",
+    "old86_train_rows": 86,
+    "new122_train_rows": 122,
+    "development59_included": false,
+    "NEW82_train23_included": false,
+    "maximum_actual_fused_prefill_attempts": 208,
+    "maximum_new_optimizer_attempts": 0,
+    "inherited_head_optimizer_attempts": 800,
+    "inherited_base_lora_optimizer_attempts": 280,
+    "actual_training_budget_reset": false,
+    "host_only_gold_suffix_may_be_validated": true,
+    "gold_in_model_inputs": false,
+    "model_inputs": ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"],
+    "component_bundle_receipt_is_not_closed_worker_evidence": true
+  },
+  "claims": {
+    "actual_complete_navigation_feature_cache_admitted": false,
+    "actual_feature_model_execution_completed": false,
+    "actual_new_navigation_training_completed": false,
+    "quality_claim": false,
+    "generalization_verified": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

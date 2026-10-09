@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "status": "independent_file_audit_closed_with_duration_scope_correction_not_navigation_quality_or_flight",
+  "actual_evidence": {"path": "docs/evidence/onboard-navigation-gazebo-learned-shadow-actual-20261008-r2.json", "bytes": 5989, "sha256": "e4893a7c1997275f82abfdef877425067c37eefba88f45c5966b42c25d5d9ee9"},
+  "source_model_head_audit": {
+    "native_chunk": "8f532f", "native_exit_code": 0,
+    "unique_current_files_rehashed": 522,
+    "repository_runtime_capture_counts": [63, 22, 421],
+    "source_before_after_current_sha256_equal": true,
+    "complete_base_file_rehash_passes": 1,
+    "base_file_bytes": 4255140312,
+    "base_file_sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0",
+    "adapter_file_bytes": 3227648,
+    "adapter_file_sha256": "6b30a9753ed763a13755ac2666356ec2cdc439840c69a75392a31fca44076f19",
+    "reported_parameter_digests_match_plan_before_and_after": true,
+    "in_memory_parameter_digests_independently_recomputed": false,
+    "actual_runtime_origins_before_after_equal": 21,
+    "head_four_tensors_sha256_finite_positive_scale_and_TRAIN_208_identity_verified": true
+  },
+  "frame_raw_request_audit": {
+    "native_chunk": "34a1c9", "native_exit_code": 0,
+    "payload_files": 16, "payload_bytes": 68812800,
+    "payload_current_sha256_BGR_to_RGB_wire_Actor_request_source_receipt_recomputed": true,
+    "journal_report_stdout_callbacks_exact": 8,
+    "actual_fused_forward_and_head_returned": 8,
+    "protocol_accepted": 8, "protocol_rejected": 0,
+    "selected_sequence_stop": 8, "metric_targets_null": 8,
+    "unselected_negative_distance_count": 7, "unselected_negative_angle_count": 6,
+    "first_prefix_tokens": 333, "remaining_prefix_tokens_each": 389,
+    "future_frame_used": false
+  },
+  "process_and_recorded_ownership_audit": {
+    "named_process_query_native_chunk": "682a8e", "native_exit_code": 0,
+    "named_pids": [53648, 30036], "named_pids_absent": true,
+    "ownership_record_native_chunks": ["1d2314", "30d037"],
+    "ownership_record_native_exit_codes": [0, 0],
+    "claim_native_cid_and_capture_container_id_match": true,
+    "recorded_stop_remove_exit_codes": [0, 0],
+    "independent_Docker_query_or_stop_performed": false
+  },
+  "receipt_review": {
+    "native_chunks": ["a87eaa", "823f8d"], "native_exit_codes": [0, 0],
+    "small_bindings_verified": 13,
+    "R1_failure_8_reject_0_forward_and_raw_null_preserved": true,
+    "combined_16_camera_requests_is_not_16_forwards": true
+  },
+  "duration_scope_correction": {
+    "original_evidence_field": "timing.whole_container_runtime_s_not_model_latency",
+    "original_evidence_preserved_not_rewritten": true,
+    "canonical_field": "capture_acceptance_duration_s_not_model_latency",
+    "value_s": 24.281,
+    "actual_scope": "elapsed_capture_acceptance_call_including_plan_preflight_start_capture_cleanup_and_evidence_assembly",
+    "source": "scripts/run_simulator_docker_acceptance.py",
+    "source_start_line": 2209, "source_end_line": 2680,
+    "root_readonly_source_verification_native_chunk": "66dafc", "native_exit_code": 0,
+    "exact_container_lifetime_measured": false,
+    "model_inference_latency_measured_by_this_field": false
+  },
+  "timing_boundaries": {
+    "host_callback_min_median_max_ms": [551.1095, 624.3067, 1774.0945],
+    "host_receive_span_s": 9.4177622, "sensor_stamp_span_s": 0.232,
+    "exposure_to_host_epoch_mapping_verified": false,
+    "host_freshness_proves_exposure_freshness": false,
+    "end_to_end_realtime_verified": false
+  },
+  "actions_and_claims": {
+    "independent_audit_wrote_source_or_reran_model_or_Gazebo": false,
+    "new_optimizer_attempts": 0, "new_generation_calls": 0, "flight_control_commands_sent": 0,
+    "quality_claim": false, "candidate_promoted": false, "default_model_changed": false,
+    "execution_authority": false, "training_ready": false, "physical_performance_claimed": false,
+    "hil_real_evidence": false, "outdoor_gnss_evidence": false, "final_release_allowed": false
+  }
+}

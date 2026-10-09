@@ -1,0 +1,323 @@
+{
+  "contract": "multidetect.onboard-teacher-origin-window-and-normal-Mission-stage-v1",
+  "schema_version": 1,
+  "status": "actual_ground_window_and_retained_geometry_verified_normal_execution_CPU_only",
+  "release_label": "0.3.0-pre.8",
+  "canonical_deployment_and_default_reference_modified": false,
+  "sources": [
+    {
+      "path": "scripts/collect_onboard_teacher_gazebo_origin_window.py",
+      "bytes": 33682,
+      "sha256": "391f3ca3b507492712305e850698e5a1b4810ef4da0f217156132c2144ff7a62"
+    },
+    {
+      "path": "scripts/supervise_teacher_origin_window_v1.py",
+      "bytes": 5686,
+      "sha256": "a5ceb61cb8f84ceffd699d018761d900394bc1b8ff051411b06aea2d0171c9c9"
+    },
+    {
+      "path": "scripts/audit_teacher_loaded_world_v1.py",
+      "bytes": 3863,
+      "sha256": "75b18516fae0299da8e84c920fd0d10ff990a43321dd6b7988db12a3b7c2db09"
+    },
+    {
+      "path": "scripts/audit_teacher_navigation_window_v1.py",
+      "bytes": 5963,
+      "sha256": "014ee3e1f97086db136af0d9f3137fa0f00935cc440ec92ac617aad4ed833e4f"
+    },
+    {
+      "path": "scripts/onboard_teacher_mission_execution_v1.py",
+      "bytes": 36681,
+      "sha256": "b3bf068d8ccc91f598a71ac4eb0902cfee777faa7a881bd65e4173a036eeb6b6"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_loaded_world.py",
+      "bytes": 13232,
+      "sha256": "3c11ee70e3c445e89e20d8c3758d87f7523ecf251f9fb1c3fd87852eaa9f827c"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_navigation_reference.py",
+      "bytes": 50330,
+      "sha256": "3726f26d403daa4e8fb5a2c728a4667f11501d40b3c4c1c054ba446e0421d3f3"
+    },
+    {
+      "path": "tests/test_collect_onboard_teacher_gazebo_origin_window.py",
+      "bytes": 20668,
+      "sha256": "e0da322b09e69bfe2e81420c475731abc662247a3f90ebb5423cf8127c4dfcd3"
+    },
+    {
+      "path": "tests/test_supervise_teacher_origin_window_v1.py",
+      "bytes": 3849,
+      "sha256": "40ebf0d0931ca3fdf09e641446527ab444e7c778a70b76c59d92463d145bb151"
+    },
+    {
+      "path": "tests/test_sim_loaded_world.py",
+      "bytes": 7999,
+      "sha256": "b6bf650fafe732bd802b1ec3c1885a89f6da17e38a5b6e4b4b5844326d3d11b7"
+    },
+    {
+      "path": "tests/test_audit_teacher_navigation_window_v1.py",
+      "bytes": 4394,
+      "sha256": "0adecf3f99974725bf2b5dd141c2e1a700dc3c93f9fce38a23ffaa136c31946e"
+    },
+    {
+      "path": "tests/test_sim_navigation_reference.py",
+      "bytes": 23420,
+      "sha256": "c27965159c1f150dd3e871d708a075b0bfe81f1ba3001cd6e898e4bf003bdcbe"
+    },
+    {
+      "path": "tests/test_onboard_teacher_mission_execution_v1.py",
+      "bytes": 32086,
+      "sha256": "2606df58ac262e686dd5434ec6f08ccb161a7d62276547a584aec7df6ab76698"
+    },
+    {
+      "path": "docs/onboard-teacher-origin-window-and-normal-mission-20261008.md",
+      "bytes": 7104,
+      "sha256": "bf359cbc0aac78511b92c769972be6d19de7ddc863beabebf39f245ccf1044e2"
+    }
+  ],
+  "retained_artifact_bindings": [
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-20261008-r1/origin-window.json",
+      "bytes": 3415803,
+      "sha256": "68392acfde4985cfd16f3c8555609fcd6c0c94e210232e4b7b71f6015beb3025"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-supervisor-20261008-r1/supervised-run.json",
+      "bytes": 13641,
+      "sha256": "477e9564b942727b6919918b508483d32a91d5b4d853e5a13dd942fb40e0cfb8"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-loaded-world-audit-20261008-r1/loaded-world-audit.json",
+      "bytes": 2433,
+      "sha256": "da70acbd05c0d8cbd57f0f506ebc84c0f3fb1793590874d338997d15060d07fe"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-navigation-window-audit-20261008-r1/navigation-window-audit.json",
+      "bytes": 860,
+      "sha256": "b5ec2e7dec60c110a7c76f3d7fbe9e4aa213f6157c4dab5b2fa007e1f2b0af6c"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-navigation-window-audit-20261008-r2/navigation-window-audit.json",
+      "bytes": 16402,
+      "sha256": "06d2e30178aae40b52de38df25457fe99fddb973766ce7db7c28f307ed1e246b"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-independent-audit-20261008-r1.json",
+      "bytes": 9398,
+      "sha256": "414ac2763a48689d0a823582cdfc0dca8da7c2c52b4d0d84d60bae4456c8a571"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-preview-20261008-r1/gazebo-camera.png",
+      "bytes": 71915,
+      "sha256": "743ca6e484294e878fe74b4dc1d4771920dba76da700f679424b61aa4dd61e99"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-20261008-r1/telemetry/capture-receipt.json",
+      "bytes": 13643426,
+      "sha256": "54201ff72506c8ccf5b7232e6ca65de2818527d8311d6abf6174d4445a0ee395"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-20261008-r1/telemetry/raw-packets.journal",
+      "bytes": 1898614,
+      "sha256": "f07737fd32bc7871855993aadf3e4870ee393fb71ba006d28c7cc9bae3591488"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-origin-window-20261008-r1/telemetry/projections.jsonl",
+      "bytes": 12976117,
+      "sha256": "92343fc56b177acb92ae22b1c5d43d3adee030af5ad11fff2e31948521420ea4"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-navref-image-assets-20261008-r2/extraction.json",
+      "bytes": 20412,
+      "sha256": "5a5264d46d58c7c2f132f5436110e152eea4442e7815c1d624a2d0c1e575296f"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 14343,
+      "sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    }
+  ],
+  "scope": "New development source checks and one actual disposable PX4/Gazebo ground run; sealed windows do not grant current control.",
+  "validation": {
+    "root_combined_CPU": {
+      "native_exit_code": 0,
+      "test_count": 602,
+      "file_count": 16,
+      "elapsed_s": 77.52,
+      "scope": "CPU/fixtures and adjacent document/source regression, not airborne acceptance"
+    },
+    "ruff": {
+      "check_native_exit_code": 0,
+      "format_native_exit_code": 0,
+      "file_count": 13
+    },
+    "actual_capture": {
+      "root_and_child_native_exit_codes": [
+        0,
+        0
+      ],
+      "status": "origin-window-recorded",
+      "container_id": "cba445a101b51e29c9f4c4868030bb27033252db286fc5907bb431019b411e0b",
+      "frames_RGB": 4,
+      "frames_depth": 4,
+      "width": 1280,
+      "height": 960,
+      "native_readonly_commands": 37,
+      "original_streams": 74,
+      "packet_count": 5819,
+      "accepted_source_count": 5705,
+      "foreign_source_count": 114,
+      "orphan_packet_count": 0,
+      "raw_and_projection_batches": 3581,
+      "uncommitted_journal_tails": 0,
+      "record_limit": 16384,
+      "charged_data_bytes": 14910573,
+      "data_byte_limit": 67108864,
+      "queue_capacity": 512,
+      "queue_high_water": 44,
+      "queue_overflow": false,
+      "queue_remaining_after_drain": 0,
+      "producer_listed_source_count": 33,
+      "supervisor_listed_source_count": 30,
+      "listed_sources_unchanged_during_run": true,
+      "source_inventory_complete": false,
+      "parameters_before_after_equal": true,
+      "actual_IMU_and_GPS_offsets_m": 0,
+      "actual_SIM_GZ_EN_ODOM": 1,
+      "actual_EKF2_EV_CTRL": 0,
+      "host_camera_bracket_s": [
+        88881.0504132,
+        88886.6032079
+      ],
+      "listener_source_window_s": [
+        88880.5076063,
+        88887.1469906
+      ],
+      "owned_tree_empty": true,
+      "watchdog_fired": false,
+      "owned_container_cleanup_verified": true,
+      "root_independent_exact_container_inspect_exit_code": 1,
+      "root_independent_exact_container_inspect_result": "No such container; []",
+      "new_Mission_uploads": 0,
+      "new_ARM_commands": 0,
+      "new_control_mode_requests": 0,
+      "new_RTL_commands": 0
+    },
+    "loaded_world_audit": {
+      "native_exit_code": 0,
+      "status": "loaded-definitions-match",
+      "original_reply_bytes": 69995,
+      "expected_static_collisions": 15,
+      "actual_static_collisions": 15,
+      "geographic_reference_matches": true,
+      "vehicle_geometry_excluded": true,
+      "solver_contact_verified": false
+    },
+    "navigation_window_audit": {
+      "first_attempt_native_exit_code": 1,
+      "first_attempt_status": "retained-window-audit-refused",
+      "original_failure": "HOME/global origin identity changed within window",
+      "cause": "Consumer initially included pre-window HOME initialization changes; actual original files unchanged.",
+      "scoped_recomputation_native_exit_code": 0,
+      "scoped_recomputation_status": "retained-window-coordinates-verified",
+      "raw_sources_reopened": 45,
+      "window_coordinates_verified": true,
+      "matched_frames": 4,
+      "maximum_coordinate_residual_m": 0.12868296272064847,
+      "listener_LOCAL_position_residual_m": [
+        0.0003404296743993574,
+        0.0009560086928578605
+      ],
+      "model_to_navigation_body_offset_flu_m": [
+        0,
+        0,
+        0.24
+      ],
+      "HOME_source_window_records_checked": 20,
+      "HOME_camera_host_gap_records": 17,
+      "out_of_window_changed_HOME_records": 7,
+      "GPS_GLOBAL_ORIGIN_window_records": 0,
+      "GPS_GLOBAL_ORIGIN_original_received_at_s": 88871.911951,
+      "GPS_GLOBAL_ORIGIN_original_epoch_us": 4680000,
+      "EKF_reference_and_reset_continuity_verified": true,
+      "timestamp_renewed": false,
+      "exact_synchronization_claimed": false,
+      "origin_qualified": false,
+      "derived_origin": null,
+      "blocking_gates": [
+        "missing-live-observed-context-and-runtime-admission"
+      ],
+      "audit_source_unchanged_during_recomputation": true,
+      "physical_accuracy_acceptance": false
+    },
+    "independent_retained_file_audit": {
+      "native_exit_code": 0,
+      "unique_files": 226,
+      "all_original_streams_and_four_frame_payloads_verified": true,
+      "all_5819_raw_projection_slices_verified": true,
+      "all_3581_dual_commit_batches_accounted": true,
+      "depth_companion_header": "Reconstructed from bound saved session/camera metadata; original header not separately retained.",
+      "new_live_PID_or_Docker_check_performed": false
+    },
+    "normal_execution_component": {
+      "implementation": "scripts/onboard_teacher_mission_execution_v1.py",
+      "scope": "CPU protocol/owned lifecycle only; not invoked against actual PX4 in this stage.",
+      "targeted_CPU_tests": 48,
+      "shared_Mission_transfer_and_GCS_CPU_tests": 169,
+      "normal_ARM_command": 400,
+      "normal_ARM_param1": 1,
+      "normal_ARM_param2": 0,
+      "existing_START_PERMITTED_checkpoint_and_exact_permit_required": true,
+      "single_RX_send_queue": true,
+      "post_mode_current_health_and_latest_ACK_state_required": true,
+      "creates_Grant_or_PASS": false,
+      "force_ARM_used": false,
+      "expired_original_context_timestamp_renewed": false,
+      "longer_live_preparation_revalidation_implemented": false
+    },
+    "preview": {
+      "file": "artifacts/diagnostics/onboard-teacher-origin-window-preview-20261008-r1/gazebo-camera.png",
+      "actual_first_frame_RGB_sha256": "7fd6d725f77215cab6c5b2348a2269e2a4e98e4bdb54b5a96ee7c35874760261",
+      "conversion": "FFmpeg one-frame raw BGR24 1280x960 to PNG; create-only; original hash unchanged",
+      "native_exit_code": 0,
+      "AI_generated": false
+    }
+  },
+  "claims": {
+    "new_external_SIM_ground_capture": true,
+    "retained_window_coordinates_verified": true,
+    "loaded_static_definition_match": true,
+    "origin_qualified": false,
+    "current_live_context_created": false,
+    "route_clearance_passed": false,
+    "vehicle_envelope_qualified": false,
+    "Mission_approved": false,
+    "Mission_uploaded": false,
+    "ARM_sent": false,
+    "actual_airborne_flight": false,
+    "new_executed_action_training_data_admitted": false,
+    "new_weights_downloaded": false,
+    "new_model_inference": false,
+    "optimizer_updates": false,
+    "model_quality_improved": false,
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "jetson_runtime_proven": false,
+    "outdoor_gnss_evidence": false,
+    "execution_authority": false,
+    "final_release_allowed": false
+  },
+  "next": "Fresh live context/runtime revalidation separate from original plan binding; source-qualified current origin and vehicle envelope/full-route clearance; actual validation/Grant/persistent Mission upload/readback/commit/permit and normal ARM; actual action/pose/successor images, review, then fair model training."
+}

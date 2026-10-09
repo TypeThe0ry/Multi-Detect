@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "status": "external_sim_shadow_passed_not_release_acceptance",
+  "files": [
+    {
+      "path": "artifacts/evaluation/outcome-shadow-run-20260908-a.json",
+      "bytes": 29323,
+      "sha256": "0063a1c206fa47277fa7729c0d7ac8c56c21165e6659dca4f596dcc02b8148cb"
+    },
+    {
+      "path": "artifacts/evaluation/outcome-shadow-run-20260908-b.json",
+      "bytes": 410632,
+      "sha256": "0170ea93a17514cbbfdc608f90b0b6d762e009704629b3b883e8d2cfb476bbf4"
+    },
+    {
+      "path": "artifacts/evaluation/outcome-shadow-run-20260908-b/vtol-mission-acceptance.json",
+      "bytes": 290897,
+      "sha256": "55425360f1c43eac3f2493beb18114cdc94858b07c120956da5862c930d41dcc"
+    }
+  ],
+  "first_attempt": {
+    "exit_code": 1,
+    "failure": "manifest_content_bound: producer schema v2, pixel gate accepted only v1",
+    "cleanup_succeeded": true
+  },
+  "second_attempt": {
+    "exit_code": 0,
+    "gate_passed": true,
+    "mission_gate_passed": true,
+    "frames": 3,
+    "shadow_events": 269,
+    "shadow_status": "completed",
+    "duration_s": 86.42099999997299,
+    "mission_hash": "135a172e125e41dc2c4a1a720c9cf52b59a7a7768747c807882571212da4d16e",
+    "container_id": "e666e577620aac2f1551d73a4f2b2fe166c83b8279f5f8bc3a2841174e7e62f5",
+    "cleanup_succeeded": true
+  },
+  "replay": {
+    "events": 269,
+    "each_acceptance_decision_matches": true,
+    "final_outcome_matches": true,
+    "clock": "ManualClock",
+    "source": "documents.executable_mission.document and shared_outcome_shadow.events from bound mission report"
+  },
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/outcome-shadow-run-20260908-b --evidence artifacts/evaluation/outcome-shadow-run-20260908-b.json --container-name multidetect-outcome-shadow-20260908-b --frame-count 3 --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "claims": {
+    "qgc_started": false,
+    "physical_hardware": false,
+    "hil": false,
+    "real": false,
+    "trained_model": false,
+    "release_allowed": false,
+    "shadow_changes_acceptance_gate": false
+  },
+  "remaining": [
+    "connect observed outcomes to task episode progression",
+    "learned extension and parent model binding",
+    "new modules release parity binding and full release gate recomputation"
+  ]
+}

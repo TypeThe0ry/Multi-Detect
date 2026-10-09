@@ -1,0 +1,48 @@
+{
+  "schema": "multidetect.external-onboard-model-frame-evidence-summary",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-04T12:59:27Z",
+  "release_label": "0.3.0-pre.8",
+  "source_artifact": "artifacts/evaluation/external-onboard-model-frames-20261004-r1.json",
+  "source_artifact_sha256": "8a5a0a116fa15fccdb12749a8d6548dfbacab4e8716e5b41d85f5b31fbc93f5c",
+  "scenario": "urban_inspection_multirotor_001",
+  "external_software_sim": {
+    "docker_gate_passed": true,
+    "px4_telemetry_passed": true,
+    "sensor_transport_passed": true,
+    "container_cleanup_passed": true,
+    "flight_control_commands_sent": 0,
+    "mission_transaction": "not_requested"
+  },
+  "gazebo_sensor_frame": {
+    "frame_count": 1,
+    "rgb_manifest_sha256": "1f69bad743ff8ece2bd044d48e2e8fb4e8051fc4f0cfe5d6503fdccae8fa2b4e",
+    "depth_manifest_sha256": "85c414fc8cc27e4042ed5665860c96d5789dfff79a8a8560f69e5e1bfa004671",
+    "rgb_payload_sha256": "5632f9787d67e19a9226d9d10c827cf4948aaae0be9c1390408824b17525d6a1",
+    "depth_payload_sha256": "d60c4beeeaa4e0f691ff315d96b6e585802900ae30e2dd1c57836b2728f863b4",
+    "wire": "MDGZSIM3",
+    "rgb_encoding": "BGR24",
+    "depth_encoding": "FLOAT32_M",
+    "source": "actual_gazebo_camera_and_depth_sensor_payload"
+  },
+  "shared_onboard_model": {
+    "model_id": "onboard-policy-r4",
+    "model_sha256": "8ef33c3436b065065fff5b59c7cd3588900ce3374260940390c0dd460eeb7812",
+    "realtime_bridge_observations": 2,
+    "policy_applied_to_actuator": false
+  },
+  "claims_boundary": {
+    "rgb_frame_transport": "passed",
+    "depth_frame_transport": "passed",
+    "detector_input_binding": "frame_hashes_recorded_but_structured_fixture_still_drives_observations",
+    "visual_detection_accuracy": "not_claimed",
+    "color_classification_accuracy": "not_claimed",
+    "mission_upload_readback_commit_permit": "not_claimed",
+    "qgc_visual_acceptance": "not_claimed",
+    "hil": false,
+    "real_pixhawk": false,
+    "jetson": false,
+    "outdoor_gnss": false,
+    "final_release_allowed": false
+  }
+}

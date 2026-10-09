@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-original59-evaluation-software-evidence-v1",
+  "status": "new_offline_entrypoint_and_CPU_fixtures_passed_actual_model_evaluation_not_run",
+  "bindings": [
+    {
+      "path": "scripts/evaluate_onboard_navigation_original82.py",
+      "bytes": 45155,
+      "sha256": "6d3f502df0dbad6cc511634a06b70a97b84598451a4d83f1e1f15b6f53ff2b69"
+    },
+    {
+      "path": "tests/test_evaluate_onboard_navigation_original82.py",
+      "bytes": 40635,
+      "sha256": "c3004b853b73ab5a2daf112ff7acb5a95ef3ddacaebbea7e68c792a9c5d46a2d"
+    },
+    {
+      "path": "docs/onboard-navigation-original59-evaluation-20261008.md",
+      "bytes": 5624,
+      "sha256": "72186d123840dd056d7b3a5da098ddb4dae79a295260c2c4c6686b84722c23a1"
+    },
+    {
+      "path": "configs/training/onboard-navigation-recovery-20261008-r2.json",
+      "bytes": 124168,
+      "sha256": "0c50e812781e4cbbf0f4935714486ae78e65e252a7fd0e33d2c321bb10602979"
+    },
+    {
+      "path": "docs/evidence/openfly-original82-supervision-20261008-r1.json",
+      "bytes": 10460,
+      "sha256": "c020c2881b836b53bec51503d97b57b20658a4cd4b7c7845cd9ee389cad98978"
+    }
+  ],
+  "software_verification": {
+    "author_tests_passed": 83,
+    "author_tests_native_exit_code": 0,
+    "author_tests_tool_chunk": "0a9cc0",
+    "root_tests_passed": 83,
+    "root_tests_native_exit_code": 0,
+    "root_tests_tool_chunk": "7f88c7",
+    "root_ruff_and_format_native_exit_code": 0,
+    "root_ruff_and_format_tool_chunk": "28ec1d",
+    "independent_source_and_test_identity_native_exit_code": 0,
+    "independent_source_and_test_identity_tool_chunk": "03430d",
+    "independent_read_only_review_current_blockers": 0,
+    "independent_budget_fixture_native_exit_code": 0,
+    "independent_budget_fixture_tool_chunk": "529844",
+    "independent_budget_fixture_eligible_mask": [true, false, false, false],
+    "actual_missing_terminal_CLI_native_exit_code": 1,
+    "actual_missing_terminal_CLI_tool_chunk": "0dd229",
+    "actual_missing_terminal_CLI_expected_refusal": true,
+    "actual_missing_terminal_and_no_output_native_exit_code": 0,
+    "actual_missing_terminal_and_no_output_tool_chunk": "20b20e",
+    "actual_missing_terminal_receipt_exists": false,
+    "actual_NEW59_output_directory_created": false,
+    "test_scope": "small_files_and_CPU_model_processor_tensor_stand_ins_not_actual_model_results"
+  },
+  "implementation_scope": {
+    "only_17_dev_validation_and_42_dev_test_selected": true,
+    "original23_train_rows_excluded_before_model_encoding": true,
+    "same_shared_Actor_prefix_processor_loader_and_generate_path": true,
+    "original_r2_reload_path_is_read_only_loader_selector": true,
+    "one_unmodified_actual_generate_call_per_request_observed": true,
+    "full_output_prefix_and_suffix_ID_and_raw_decode_checked": true,
+    "instance_generation_hook_restored_on_success_and_failure": true,
+    "all_raw_predictions_durable_before_gold_scoring": true,
+    "generic_seven_field_3D_translation_yaw_stop_and_unknown_scorer": true,
+    "raw_diagnostics_and_budget_eligible_counts_separate": true,
+    "cap192_or_elapsed_over30_rejected_from_eligible_counts": true,
+    "cooperative_time_limit_is_not_a_hard_watchdog": true,
+    "source_drift_preserves_partial_predictions_but_cannot_publish_success": true,
+    "loader_cleanup_failure_preserves_observed_model_loaded_fact": true,
+    "create_only_source_and_parameter_closed_outputs": true,
+    "historical_source_capture_clock_unknown_no_fake_realtime_request": true,
+    "external_runtime_sources_are_read_only_not_repository_bootstrap_or_outputs": true
+  },
+  "declared_actual_development_data_scope": {
+    "source_evidence": "docs/evidence/openfly-original82-supervision-20261008-r1.json",
+    "original_publisher_split": "train",
+    "internal_development_partitions": {"dev-validation": 17, "dev-test": 42},
+    "sample_count": 59,
+    "gold_class_counts": {"forward": 54, "yaw_right": 1, "up": 1, "down": 1, "stop": 2},
+    "not_a_new_candidate_quality_result": true,
+    "nonobserved_left_backward_mixed_unknown_classes_fixture_only": true
+  },
+  "actual_NEW59_model_loaded": false,
+  "actual_NEW59_processor_used": false,
+  "actual_NEW59_GPU_used": false,
+  "actual_NEW59_PNG_decoding_performed": false,
+  "actual_NEW59_generated_prediction_count": 0,
+  "complete267_verified_by_this_evidence": false,
+  "fresh_saved_adapter_reload_verified_by_this_evidence": false,
+  "optimizer_performed_by_this_evidence": false,
+  "old_baseline_rerun": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "end_to_end_online_latency_measured": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

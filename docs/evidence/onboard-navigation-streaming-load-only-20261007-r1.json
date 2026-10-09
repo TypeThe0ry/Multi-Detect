@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-streaming-load-only-evidence-v1",
+  "status": "checkpoint_headers_opened_full_model_load_failed_cuda_allocation_before_tensor_reads",
+  "artifact_root": "D:/Projects/Multi-Detect",
+  "sealed_at_utc": "2026-10-07 11:50:37 UTC",
+  "tool_session_id": 42310,
+  "tool_terminal_chunk_id": "4c010b",
+  "tool_exit_code": 1,
+  "mode": "load-only",
+  "native_model_load_exit_code": 1,
+  "sealed_supervisor_exit_code": 1,
+  "streaming_supervisor_exit_code": 1,
+  "error_type": "OutOfMemoryError",
+  "reported_message": "CUDA out of memory. Tried to allocate 3.96 GiB. GPU 0 has a total capacity of 8.00 GiB of which 6.93 GiB is free. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)",
+  "reported_allocation_gib_rounded": 3.96,
+  "reported_device_free_gib_rounded": 6.93,
+  "rounded_message_not_exact_resource_measurement": true,
+  "safe_open_calls_attempted": 2,
+  "safe_open_calls_returned": 2,
+  "reader_header_bytes_each": 76248,
+  "reader_tensor_payload_bytes_each": [
+    0,
+    0
+  ],
+  "reader_payload_scope_excludes_source_hash_reads": true,
+  "backend_initialized": false,
+  "model_loading_completed": false,
+  "inference_performed": false,
+  "forward_backward_performed": false,
+  "optimizer_performed": false,
+  "optimizer_observed_counts": null,
+  "training_completed": false,
+  "source_binding_count": 55,
+  "source_bindings_unchanged": true,
+  "independent_read_only_audit_exit_code": 0,
+  "allocation_failure_exact_frame_captured": false,
+  "fragmentation_proven": false,
+  "prior_failure_cause_proven": false,
+  "no_mmap_scope": "checkpoint_reader_only",
+  "host_peak_memory_measured": false,
+  "frozen_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "runtime_manifest": {
+    "path": "configs/training/onboard-navigation-streaming-runtime-20261007-r1.json",
+    "bytes": 7794,
+    "sha256": "43cde5a7e491c2feb35e9fcee63f668b1075bdfaa0837c5adf1f2da1a018e40e"
+  },
+  "implementation": [
+    {
+      "path": "scripts/onboard_navigation_streaming_storage.py",
+      "bytes": 14703,
+      "sha256": "c4965fc589430d6a1a4cd37833057ee6f8051cc76ae8ad3cf235e837eb7e098c"
+    },
+    {
+      "path": "tests/test_onboard_navigation_streaming_storage.py",
+      "bytes": 16683,
+      "sha256": "96bf280127d1f37869d65260e862ac5d17cf04535e8721bf8076bb0b13ab5f08"
+    },
+    {
+      "path": "scripts/run_onboard_navigation_pilot_streaming.py",
+      "bytes": 25605,
+      "sha256": "5289c8fa44c342c1b689c702873bdbb7a2924932d51b8486b0ef15bae33a4c66"
+    },
+    {
+      "path": "tests/test_run_onboard_navigation_pilot_streaming.py",
+      "bytes": 27321,
+      "sha256": "54719b931f1e175657ad61164feed96273031c6e16dd0968c5e238a9fa961407"
+    },
+    {
+      "path": "scripts/run_onboard_navigation_pilot_supervised.py",
+      "bytes": 20276,
+      "sha256": "834f9ef07f2e1dfcaf032293e5b4795e9802f0b8c3b59058699f1ea05ac377d2"
+    },
+    {
+      "path": "tests/test_run_onboard_navigation_pilot_supervised.py",
+      "bytes": 17476,
+      "sha256": "495caae269d6df6bd84367b2de90d675a8edc0d9041bccd62f44c93ed93d8c43"
+    }
+  ],
+  "native_outputs": [
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/child-started.json",
+      "bytes": 13459,
+      "sha256": "822fcd2d4e305e7e5645d25175d5366b7d5f29daf5d43c7095c65763befb8269"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/completion.json",
+      "bytes": 26421,
+      "sha256": "77e463c2f054be456174368b372e01d833923a69de78c8347973ecc7d9f47eef"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/independent-review.json",
+      "bytes": 11687,
+      "sha256": "c782dd14980f9be54349985b73a7782e3515d94ac0920fc04a9d6a9d2159c9ea"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/post-run-host-resource-observation.json",
+      "bytes": 905,
+      "sha256": "dfd316ccf5a60de2c464fadcd40f5c77e8c4ad1336f1d18b570796222814c12f"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/preflight.json",
+      "bytes": 13458,
+      "sha256": "d2c484066fe8eb2df75e207bb5c303f4a2efe278c704d15957b40227e608ab9b"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/process-tree-observation.json",
+      "bytes": 791,
+      "sha256": "e880643d57aae0155c9ca89d9052594fdcd584746caa2da6f6e47ac3f61fb056"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/stderr.bin",
+      "bytes": 51,
+      "sha256": "5bfb03b81e62c1a971a7ce3c5c29bb8cd2680aa1bf28c9061d6dceb799497670"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/stdout.bin",
+      "bytes": 7280,
+      "sha256": "d7e6375f1f75f4ff6a89142b79528b92e49f93c557f900f6ac3486f853c8738a"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-supervisor-20261007-r1/streaming-completion.json",
+      "bytes": 1114,
+      "sha256": "41154c63341ff53e7bba955d625112865dde55247e4d8470aba2167ed380bf54"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-20261007-r1/load-only-report.json",
+      "bytes": 1582,
+      "sha256": "63bc300667fea0456174b46b18e9b9fd0ecc995fabad73b8b6b13c3eb143f2b7"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-load-only-20261007-r1/streaming-loader-report.json",
+      "bytes": 4070,
+      "sha256": "0296dae2bf85f2a41a52b32a83b93faeeba313e48c8905c9df6da7fdacb69f49"
+    }
+  ],
+  "cpu_validations": [
+    {
+      "scope": "streaming_reader_cpu_microtensor_and_stub_only",
+      "tests": 82,
+      "native_exit_code": 0,
+      "report": {
+        "path": "artifacts/evaluation/onboard-navigation-streaming-storage-development-20261007-r1/cpu-validation.xml",
+        "bytes": 11824,
+        "sha256": "f7bc5eb61896149d84efd719d19759ab57fecf7808a65f4270d517c9e340cbbb"
+      }
+    },
+    {
+      "scope": "joint_reader_wrapper_original_pread_and_supervisor_cpu_only_includes_reader_tests",
+      "tests": 236,
+      "native_exit_code": 0,
+      "report": {
+        "path": "artifacts/evaluation/onboard-navigation-streaming-driver-development-20261007-r1/cpu-validation.xml",
+        "bytes": 37309,
+        "sha256": "f82f36b0bd6723dfb6a76534e7ea2c3f9202313020af394a1cd56e84563cb077"
+      }
+    }
+  ],
+  "prior_failure_evidence": [
+    {
+      "sha256": "0ebf97716dc0c0d683e9b9dbdfff2f3d8f6b26ee46efe561519a274cdc1a0e37",
+      "bytes": 7967,
+      "path": "docs/evidence/onboard-navigation-pread-load-only-20261007-r1.json"
+    },
+    {
+      "bytes": 5658,
+      "path": "docs/evidence/onboard-navigation-load-only-failure-20261007-r1.json",
+      "sha256": "0631755e54e0e1d1ce35bb3683466e63aa729b907f47a5878a8a376acee0b1a3"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-native-load-failure-20261007-r1.json",
+      "bytes": 7323,
+      "sha256": "c8cc6bacad2e33dc4410599d350aa9db4b1a8f002ec62978a3b2b6d353ef5127"
+    }
+  ],
+  "resource_observation_is_post_run_not_exact_error_time": true,
+  "pagefile_settings_changed": false,
+  "external_processes_stopped": false,
+  "files_deleted": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "limitations": [
+    "Two checkpoint readers opened headers but materialized zero tensors; constructor success is not full model-load acceptance.",
+    "The reported allocation matches the size scale of the optional Transformers caching allocator warmup; this handled failure did not capture its exact runtime frame.",
+    "No fragmentation, host-commit, or prior native access-violation cause is proven by this run.",
+    "CPU tests and the successful read-only evidence audit remain separate from the failed native model initialization."
+  ],
+  "next_work": "new_child_only_skip_optional_allocator_warmup_variant_pending_tests_review_and_native_result"
+}

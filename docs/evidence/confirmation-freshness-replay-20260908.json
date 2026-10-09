@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "confirmation_budget_source": "Px4MissionFeedbackConfig.maximum_age_s",
+  "budget_s": 1.5,
+  "strict_deadline": true,
+  "max_pending": 1,
+  "max_ahead": 1,
+  "replays": [
+    {
+      "source": "postflight-observation-20260908-c",
+      "outcome": {
+        "mission_hash": "71459e516833542b165c02c0d783ddf4af0aa115716b38c8b00168c68ee3cb87",
+        "status": "completed",
+        "reason": "terminal_reached_landed_disarmed",
+        "elapsed_s": 101.141
+      },
+      "reconciliations": [
+        {
+          "sequence": 1,
+          "received_at_s": 31.015999999945052,
+          "confirmed_at_s": 31.046999999904074,
+          "delay_s": 0.030999999959021807,
+          "accepted": true
+        }
+      ]
+    },
+    {
+      "source": "order-confirmation-20260908-d",
+      "outcome": {
+        "mission_hash": "4d1959047c06cec72486fda04a2fbe05572597d5a2f62bd4f49679df0869a5f5",
+        "status": "completed",
+        "reason": "terminal_reached_landed_disarmed",
+        "elapsed_s": 87.73400000005495
+      },
+      "reconciliations": [
+        {
+          "sequence": 1,
+          "received_at_s": 24.405999999959022,
+          "confirmed_at_s": 24.81200000003446,
+          "delay_s": 0.40600000007543713,
+          "accepted": true
+        }
+      ]
+    }
+  ],
+  "validation_scope": "offline_replay_of_two_actual_runs; fresh live run pending",
+  "regression_before_budget_change": {
+    "tests": 3869,
+    "passed": 3862,
+    "skipped": 7,
+    "failed": 0,
+    "seconds": 216.351,
+    "junit": "artifacts/evaluation/order-confirmation-20260908-d-regression.xml"
+  },
+  "focused_after_budget_change": {
+    "passed": 99
+  }
+}

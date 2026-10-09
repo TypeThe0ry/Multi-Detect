@@ -1,0 +1,133 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-f\\vtol-mission-acceptance.json",
+  "source_sha256": "b9a317e9e1f24a45560643cdcacb8d9875d4dccf1da6889d6f26fad86dd0ac61",
+  "counterfactual_timing_assumptions": true,
+  "fit_to_observed_duration": false,
+  "result": {
+    "schema_version": 1,
+    "executable_mission_hash": "d6da9a4aef11e3d298bf26a3a67663f8a614cf2ec12ffcbc9eb6796a96238135",
+    "vehicle_class": "vtol",
+    "assumptions": {
+      "fixed_wing_airspeed_mps": 20,
+      "multirotor_airspeed_mps": 8,
+      "climb_rate_mps": 3,
+      "descent_rate_mps": 2,
+      "transition_to_fw_s": 12,
+      "transition_to_mc_s": 9,
+      "takeoff_settle_s": 4,
+      "landing_settle_s": 5,
+      "waypoint_turn_allowance_s": 2,
+      "provenance": "synthetic comparison assumptions, not fitted to F execution"
+    },
+    "wind_north_mps": 0,
+    "wind_east_mps": 0,
+    "phases": [
+      {
+        "sequence": 0,
+        "command": "MAV_CMD_NAV_VTOL_TAKEOFF",
+        "mode_before": "mc",
+        "mode_after": "mc",
+        "horizontal_s": 0,
+        "vertical_s": 6.666666666666667,
+        "hold_s": 0,
+        "transition_s": 0,
+        "allowance_s": 4,
+        "infeasible_reason": null,
+        "modeled_duration_s": 10.666666666666668
+      },
+      {
+        "sequence": 1,
+        "command": "MAV_CMD_DO_VTOL_TRANSITION",
+        "mode_before": "mc",
+        "mode_after": "fw",
+        "horizontal_s": 0,
+        "vertical_s": 0,
+        "hold_s": 0,
+        "transition_s": 12,
+        "allowance_s": 0,
+        "infeasible_reason": null,
+        "modeled_duration_s": 12
+      },
+      {
+        "sequence": 2,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "mode_before": "fw",
+        "mode_after": "fw",
+        "horizontal_s": 3.480477425994993,
+        "vertical_s": 1.6666666666666667,
+        "hold_s": 0,
+        "transition_s": 0,
+        "allowance_s": 2,
+        "infeasible_reason": null,
+        "modeled_duration_s": 7.14714409266166
+      },
+      {
+        "sequence": 3,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "mode_before": "fw",
+        "mode_after": "fw",
+        "horizontal_s": 3.5039211419168614,
+        "vertical_s": 0,
+        "hold_s": 0,
+        "transition_s": 0,
+        "allowance_s": 2,
+        "infeasible_reason": null,
+        "modeled_duration_s": 5.503921141916861
+      },
+      {
+        "sequence": 4,
+        "command": "MAV_CMD_NAV_LOITER_TIME",
+        "mode_before": "fw",
+        "mode_after": "fw",
+        "horizontal_s": 0,
+        "vertical_s": 0,
+        "hold_s": 5,
+        "transition_s": 0,
+        "allowance_s": 0,
+        "infeasible_reason": null,
+        "modeled_duration_s": 5
+      },
+      {
+        "sequence": 5,
+        "command": "MAV_CMD_DO_VTOL_TRANSITION",
+        "mode_before": "fw",
+        "mode_after": "mc",
+        "horizontal_s": 0,
+        "vertical_s": 0,
+        "hold_s": 0,
+        "transition_s": 9,
+        "allowance_s": 0,
+        "infeasible_reason": null,
+        "modeled_duration_s": 9
+      },
+      {
+        "sequence": 6,
+        "command": "MAV_CMD_NAV_VTOL_LAND",
+        "mode_before": "mc",
+        "mode_after": "mc",
+        "horizontal_s": 12.346859297841199,
+        "vertical_s": 12.5,
+        "hold_s": 0,
+        "transition_s": 0,
+        "allowance_s": 5,
+        "infeasible_reason": null,
+        "modeled_duration_s": 29.8468592978412
+      }
+    ],
+    "modeled_phases_feasible": true,
+    "modeled_total_s": 79.16459119908639,
+    "unmodeled_effects": [
+      "gusts",
+      "airspeed_tracking_error",
+      "loiter_path_feasibility",
+      "transition_dynamics",
+      "initial_position_error",
+      "turn_geometry"
+    ],
+    "horizontal_vertical_composition": "serial_not_measured_bound",
+    "start_assumption": "landed_at_first_takeoff_coordinate_relative_altitude_zero",
+    "physical_calibration_proven": false,
+    "production_budget_changed": false,
+    "flight_authorized": false
+  }
+}

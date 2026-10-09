@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-i\\vtol-mission-acceptance.json",
+  "source_sha256": "344bb54270729f3e78335f3b66e6e7ba5404aae7413e08acd4577615f3dd2398",
+  "container_id": "83bc91d3a3b3399dee6dd6b3f47adc9a3ea21e02694ced1e1a89cdf2391aeac9",
+  "operation": "read_only_px4_param_show",
+  "parameter_values": {
+    "FW_AIRSPD_MAX": 20,
+    "FW_AIRSPD_MIN": 10,
+    "FW_AIRSPD_TRIM": 15,
+    "FW_R_LIM": 50,
+    "MPC_LAND_SPEED": 0.7,
+    "MPC_XY_CRUISE": 5,
+    "NPFG_PERIOD": 12,
+    "VT_B_TRANS_DUR": 10,
+    "VT_F_TRANS_DUR": 5,
+    "VT_TRANS_MIN_TM": 2
+  },
+  "raw_parameter_outputs": {
+    "FW_AIRSPD_MAX": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     FW_AIRSPD_MAX [545,725] : 20.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "FW_AIRSPD_MIN": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     FW_AIRSPD_MIN [546,726] : 10.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "FW_AIRSPD_TRIM": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     FW_AIRSPD_TRIM [548,728] : 15.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "FW_R_LIM": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     FW_R_LIM [616,796] : 50.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "MPC_LAND_SPEED": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     MPC_LAND_SPEED [804,1092] : 0.7000\n\n 1335/2048 parameters used.\n"
+    },
+    "MPC_XY_CRUISE": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     MPC_XY_CRUISE [826,1114] : 5.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "NPFG_PERIOD": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     NPFG_PERIOD [865,1153] : 12.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "VT_B_TRANS_DUR": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     VT_B_TRANS_DUR [1304,2013] : 10.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "VT_F_TRANS_DUR": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     VT_F_TRANS_DUR [1317,2026] : 5.0000\n\n 1335/2048 parameters used.\n"
+    },
+    "VT_TRANS_MIN_TM": {
+      "output_truncated": false,
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Symbols: x = used, + = saved, * = unsaved, l = locked\nx     VT_TRANS_MIN_TM [1326,2038] : 2.0000\n\n 1335/2048 parameters used.\n"
+    }
+  },
+  "mission_gate_passed": false,
+  "failure": "VtolMissionAcceptanceError: mission completed without a valid flight-capture completion marker: VtolMissionAcceptanceError: vehicle left current FW/armed/in-air/AUTO.MISSION state during capture",
+  "first_invalid_capture_sample": {
+    "armed": true,
+    "auto_mission_active": true,
+    "captured_at_clock": "host_perf_counter",
+    "captured_at_monotonic_s": 908144.346754,
+    "extended_system_state_age_s": 1.511353,
+    "heartbeat_age_s": 0.093724,
+    "host_clock_identity": {
+      "accuracy_verified": false,
+      "implementation": "QueryPerformanceCounter()",
+      "legacy_monotonic_equivalent": false,
+      "resolution_ns": 100,
+      "schema_version": 1,
+      "session_id": "143dd362cbfe4b0a873c3ece74d31dcb",
+      "source": "python.perf_counter"
+    },
+    "in_air": true,
+    "maximum_state_age_s": 1.5,
+    "position_age_s": 0.033527,
+    "telemetry_fresh": false,
+    "valid": false,
+    "vtol_state": 4
+  },
+  "parallel_full_test_load": true,
+  "load_causation_proven": false,
+  "physical_airframe_capability_proven": false,
+  "flight_training_sample_eligible": false
+}

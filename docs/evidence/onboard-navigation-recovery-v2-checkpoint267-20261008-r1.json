@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-recovery267-saved-snapshot-evidence-v1",
+  "status": "actual267_updates_saved_and_immutable_snapshot_audited_train_phase_still_running",
+  "bindings": [
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/checkpoint.json",
+      "bytes": 991,
+      "sha256": "d6119e85cfd37b986160efb31bcdbc17b561c6aac31c6723df281ed1806bac9f"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/adapter_model.safetensors",
+      "bytes": 3227648,
+      "sha256": "6b30a9753ed763a13755ac2666356ec2cdc439840c69a75392a31fca44076f19"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/adapter_config.json",
+      "bytes": 931,
+      "sha256": "7b6be286e2eb42bbd2eb614c3ea754c2d14d7c394f1db60fa78d82cf949bd10d"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/training-events-prefix.jsonl",
+      "bytes": 367948,
+      "sha256": "fb07dbd64c9d7fcb2b8e411ca488e08f14e59ad955d8710c26478374bdc5c547"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/README.md",
+      "bytes": 5438,
+      "sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307"
+    },
+    {
+      "path": "configs/training/onboard-navigation-recovery-20261008-r2.json",
+      "bytes": 124168,
+      "sha256": "0c50e812781e4cbbf0f4935714486ae78e65e252a7fd0e33d2c321bb10602979"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/report.json",
+      "bytes": 57450,
+      "sha256": "996879ac7fc86f818487f2db831c0bdd09bbb61eaf8f181f3624e9148835f430"
+    },
+    {
+      "path": "scripts/audit_onboard_navigation_recovery267_terminal.py",
+      "bytes": 40489,
+      "sha256": "5f0b5989bba74ceb6c158f57b24904699b44e0335211bc2eb683839c928ae2c0"
+    },
+    {
+      "path": "scripts/train_onboard_navigation_recovery_v2.py",
+      "bytes": 60880,
+      "sha256": "03360b614a1199ca4c4de25f66a7defde16e319a5a3e9bf5b2fb2658cb2f5a65"
+    }
+  ],
+  "actual_training_observation": {
+    "session_id": 55116,
+    "completed267_progress_tool_chunk": "29214a",
+    "final_receipt_exists_observation_tool_chunk": "176a7e",
+    "train_phase_native_exit_code": null,
+    "train_worker_pid": 23976,
+    "train_launcher_pid": 15092,
+    "train_worker_still_running": true,
+    "latest_process_identity_tool_chunk": "1c0d8e",
+    "candidate_all86_file_exists": false,
+    "train_terminal_report_exists": false,
+    "active_phase_lock_exists": true
+  },
+  "independent_snapshot_audit": {
+    "native_exit_code": 0,
+    "tool_chunk": "36ed7c",
+    "four_core_snapshot_files_before_after_byte_SHA_equal": true,
+    "optimizer_steps_attempted": 267,
+    "optimizer_steps_returned": 267,
+    "optimizer_steps_synchronized": 267,
+    "optimizer_steps_completed": 267,
+    "optimizer_update_uncertain": false,
+    "immutable_prefix_event_count": 1068,
+    "original_spent_attempts": 13,
+    "cumulative_campaign_attempts": 280,
+    "actual_saved_FP32_tensor_count": 112,
+    "finite_saved_FP32_elements": 802816,
+    "digest_order_from_original_training_report": true,
+    "saved_parameter_sha256": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e",
+    "saved_raw_digest_equals_checkpoint_receipt": true,
+    "saved_parameters_changed_from_expected_warm_start": true,
+    "live_training_journal_read": false,
+    "model_loaded_by_audit": false,
+    "processor_used_by_audit": false,
+    "GPU_used_by_audit": false,
+    "all_training_sources_end_verified": false
+  },
+  "root_current_snapshot_binding_check": {
+    "native_exit_code": 0,
+    "tool_chunk": "0d7705",
+    "receipt_current_SHA_matches_independent_audit": true,
+    "weights_config_and_immutable_prefix_current_SHA_match_receipt": true,
+    "README_current_SHA_tool_chunk": "1c0d8e"
+  },
+  "actual_PEFT_modelcard_scope": {
+    "snapshot_directory_count": 34,
+    "periodic_directory_count": 33,
+    "all_snapshot_directories_have_exact_five_files": true,
+    "independent_metadata_native_exit_code": 0,
+    "independent_metadata_tool_chunks": ["35ef58", "9298ca"],
+    "all34_README_bytes": 5438,
+    "all34_README_sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307",
+    "README_binding_observed_by_this_audit_not_declared_by_original_checkpoint_receipt": true,
+    "README_is_not_parameter_or_quality_evidence": true,
+    "first_strict_four_file_preparation_native_exit_code": 1,
+    "first_strict_four_file_preparation_tool_chunk": "f1f9c6",
+    "frozen_terminal_auditor_r1_has_actual_five_file_schema_gap": true,
+    "new_terminal_auditor_v2_required": true,
+    "all34_weight_payloads_audited_by_this_evidence": false
+  },
+  "optimizer_state_saved": false,
+  "scheduler_rng_state_saved": false,
+  "exact_resume": false,
+  "complete267_phase_verified": false,
+  "candidate_all86_verified": false,
+  "fresh_saved_adapter_reload_verified": false,
+  "complete_training_phase_end_source_check_verified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,37 @@
+{
+  "schema": "multidetect.onboard-3d-capture-command-upgrade",
+  "schema_version": 1,
+  "release_label": "0.3.0-pre.8",
+  "status": "implemented_and_preflight_blocked",
+  "purpose": "Make the generated 3-D capture command collect post-takeoff RGB/Depth/telemetry with the existing detector and shared Mission path.",
+  "source_files": {
+    "scripts/run_onboard_3d_training_preflight.py": "a6657dfcaffbc205f6005213802c2e66acf53c95a73048ebf64eeaa67580b21c",
+    "tests/test_onboard_3d_training_preflight.py": "4710c10e34ad7ee6e67b3212cff6071a237f5cfc08136dd0c148e6acb12a0400"
+  },
+  "generated_preflight": {
+    "path": "artifacts/evaluation/onboard-3d-training-preflight-20261006-r3.json",
+    "sha256": "ea2728217e2c098b0abf1e71396ca8f77d99783954aac9fee66ed5700a18229c",
+    "status": "blocked",
+    "docker_server_available": false,
+    "training_ready": false
+  },
+  "capture_contract": {
+    "same_onboard_model_reference_for_sim_and_real": true,
+    "same_existing_yolo_detector_boundary": true,
+    "actual_rgb_depth_telemetry_required": true,
+    "mission_transactions_required": true,
+    "autonomous_flight_opt_in_required": true,
+    "truth_json_used": false,
+    "billboard_fixture_used": false,
+    "policy_applied_to_actuator": false,
+    "final_release_allowed": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false
+  },
+  "next_required_external_state": "A reachable Docker Linux daemon, then execute one generated disposable SITL command per approved 3-D scenario.",
+  "candidate_promoted": false,
+  "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev"
+}

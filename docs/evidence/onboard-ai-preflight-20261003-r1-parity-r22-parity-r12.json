@@ -1,0 +1,32 @@
+{
+  "schema": "multidetect.onboard-ai-preflight-evidence",
+  "schema_version": 1,
+  "status": "automated_verified",
+  "release_label": "0.3.0-pre.8",
+  "source_evidence": "artifacts/evaluation/onboard-ai-preflight-20261003-r1-parity-r11-parity-r12.json",
+  "source_evidence_bytes": 44991,
+  "source_evidence_sha256": "d9f805b5bb1a5083d764bcb4300ab3087d8de2bc470a457e785485eb873f5f3d",
+  "scenario": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "release_parity": "configs/release-parity.json",
+  "release_parity_sha256": "ef1cc97f238c01c4b89b83aea849dd641f4164eeb9b0fe46c8c55f6bd2ddb088",
+  "execution_requested": false,
+  "preflight_gate_passed": true,
+  "deterministic_ai_fixture_passed": true,
+  "release_parity_snapshot_stable": true,
+  "external_process_started": false,
+  "external_px4_gazebo_evidence": false,
+  "qgc_visual_acceptance": false,
+  "hil_real_evidence": false,
+  "jetson_hardware_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "claims_boundary": "Docker command and security preflight plus deterministic truth-free AI bridge fixture only; no external PX4/Gazebo process, vehicle motion, QGC visual acceptance, HIL, REAL, Jetson, hardware, outdoor GNSS, or final release claim.",
+  "verification": {
+    "command": "python scripts/run_simulator_docker_ai_acceptance.py --scenario-manifest configs/scenarios/river_rescue_vtol_001.scenario.json --evidence artifacts/evaluation/onboard-ai-preflight-20261003-r1.json --release-parity configs/release-parity.json",
+    "gate_passed": true,
+    "ai_policy_steps": 6,
+    "ai_rejected": 0,
+    "failsafe_steps": 1,
+    "truth_free": true
+  }
+}

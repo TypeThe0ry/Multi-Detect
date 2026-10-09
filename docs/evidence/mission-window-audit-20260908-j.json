@@ -1,0 +1,100 @@
+{
+  "gate": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "391e13b35e6efd551bcd5c96f76bb501d96b678281eab639685bcac17192b9be",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "duration": 101.594,
+  "samples": 5584,
+  "files": [
+    {
+      "path": "artifacts/evaluation/mission-clock-window-20260908-j.json",
+      "bytes": 2505601,
+      "sha256": "00278244e341320c185ae4decdf1878af636ae973747df56e79a957806efc0bf"
+    },
+    {
+      "path": "scripts/audit_mission_energy_window.py",
+      "bytes": 3507,
+      "sha256": "193ea4c2a67da2ad9e52fedbb41350793d5e19b674994f75df8c41ef5377af9a"
+    },
+    {
+      "path": "tests/test_mission_energy_window_audit.py",
+      "bytes": 3268,
+      "sha256": "983360924dd537d2dae47a1ebe1c228941eeca8d8414ae723ea57465a41ff28e"
+    },
+    {
+      "path": "artifacts/evaluation/mission-window-audit-20260908.xml",
+      "bytes": 2661,
+      "sha256": "0c4eb39b5620d4421cb5ab9744510fd440826e727e7425ad05a2197b7c8a8ab5"
+    }
+  ],
+  "audit": {
+    "schema_version": 1,
+    "receive_window_start_s": 18.04700000002049,
+    "receive_window_end_s": 120.75,
+    "left_sample": {
+      "at_s": 18.04700000002049,
+      "field": "time_boot_ms",
+      "field_valid": true,
+      "source_component": 1,
+      "source_is_expected_px4": true,
+      "source_system": 1,
+      "type": "GLOBAL_POSITION_INT",
+      "value": 11400
+    },
+    "right_sample": {
+      "at_s": 120.75,
+      "field": "time_boot_ms",
+      "field_valid": true,
+      "source_component": 1,
+      "source_is_expected_px4": true,
+      "source_system": 1,
+      "type": "GLOBAL_POSITION_INT",
+      "value": 107404
+    },
+    "receive_window_bracketed_by_valid_energy_prefix": true,
+    "missing_boundaries": [],
+    "replay": {
+      "schema_version": 1,
+      "reason": "covered_prefix_complete",
+      "segments": 5069,
+      "covered_boot_time_s": 101.38000000000419,
+      "first_covered_boot_ms": 6024,
+      "consumed_wh": 2.1668547999999483,
+      "profile": {
+        "capacity_wh": 10,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "engineering fixture; not calibrated"
+      },
+      "source_clock": "GLOBAL_POSITION_INT.time_boot_ms",
+      "stopped_at_receive_s": 120.75,
+      "gap_details": null,
+      "load_policy": "left_sample_zero_order_hold_max_age_1.5s",
+      "full_mission_coverage_claimed": false,
+      "physical_calibration_claimed": false,
+      "authorizes_next_task": false
+    },
+    "window_energy_wh": null,
+    "physical_clock_synchronization_claimed": false,
+    "full_mission_energy_claimed": false,
+    "authorizes_next_task": false,
+    "input": {
+      "path": "artifacts\\evaluation\\mission-clock-window-20260908-j\\vtol-mission-acceptance.json",
+      "bytes": 2147292,
+      "sha256": "f099caaa70d452090c19f3b82fbd56436463ecfd7b999c8ae66b740f65f76496"
+    }
+  },
+  "product_version": "0.3.0-pre.8",
+  "focused_tests_passed": 16,
+  "new_tests": 7,
+  "external_command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/mission-clock-window-20260908-j --evidence artifacts/evaluation/mission-clock-window-20260908-j.json --container-name multidetect-clock-20260908-j --frame-count 3",
+  "audit_command": "python scripts/audit_mission_energy_window.py artifacts/evaluation/mission-clock-window-20260908-j/vtol-mission-acceptance.json --capacity-wh 10 --avionics-w 36 --propulsion-w 324 --provenance \"engineering fixture; not calibrated\""
+}

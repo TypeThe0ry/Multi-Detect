@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "scope": "explicit campaign configuration loader and CLI startup",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings",
+  "exit_code": 0,
+  "passed": 297,
+  "new_tests": 6,
+  "help_command": "python -m scripts.vtol_selected_task_campaign --help",
+  "help_exit_code": 0,
+  "negative_cases": ["empty tasks", "duplicate task ID", "boolean schema", "extra root field", "negative priority"],
+  "claims": {"docker_outer_lifecycle_connected": false, "external_two_task": false, "full_suite": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

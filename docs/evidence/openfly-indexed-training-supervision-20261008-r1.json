@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-indexed-training-supervision-evidence-v1",
+  "status": "actual_six_original_TRAIN_3D_routes122_RGB_typed_supervision_CPU_native0_independently_verified_not_training_or_flight_admission",
+  "observed_at": "2026-10-08T07:37:09+08:00",
+  "bindings": [
+    {
+      "path": "scripts/audit_openfly_indexed_training_routes.py",
+      "bytes": 36020,
+      "sha256": "56fecb6cbff2bea3b07db92527d72506332983963d48ef28e0d23f22be0a1b64"
+    },
+    {
+      "path": "tests/test_audit_openfly_indexed_training_routes.py",
+      "bytes": 24658,
+      "sha256": "c91e0b9e4292d3757d0850a229f6e675379e275f19a07d5f37aab6f41d3ad21c"
+    },
+    {
+      "path": "configs/training/openfly-indexed-training-supervision-20261008-r1.json",
+      "bytes": 24529,
+      "sha256": "b4e3b9efaeaa3cdf9a844264d7f732f795e86a6aa6276c0608e0047f170f3ef5"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/143.json",
+      "bytes": 12178,
+      "sha256": "1e7d5ea592062476f682ba5302aaac15dbbe5cbbc46aaa3a6353b5af1b7ab34f"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/144.json",
+      "bytes": 16332,
+      "sha256": "d2e4c3d657181e8ff24f8c8cee7d3983a728dbec82b28df45e3462f49c595a2c"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/148.json",
+      "bytes": 11901,
+      "sha256": "7b42895c047d01bc683652ee565c00df543621ea5024c64789b5ea6b186762d5"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/150.json",
+      "bytes": 20670,
+      "sha256": "e6cf6218663267b02005b50bc0f1cbfaceb51f2596f4ef99eda27ce3e2be1a33"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/153.json",
+      "bytes": 13251,
+      "sha256": "45ae772c97ab381dc45f1532bbe135f858347096e42f66fef1676063a0784b10"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/alignment/154.json",
+      "bytes": 19427,
+      "sha256": "4f40f5d20d5214a970699f07ae98bf76380d9428c0bc68eea98361df4be66a6c"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/annotation-selection-provenance.json",
+      "bytes": 1706,
+      "sha256": "b65219aa6111931c12f02e1d5fae1c6179267f56a97555bb8760c6c1bc98dd95"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/annotation-selection.json",
+      "bytes": 7695,
+      "sha256": "f42922931aa52e3854f496be0fd8ac6f910131914424500423de7b5a9c027ddd"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/conversion/audit_openfly_indexed_training_routes.py",
+      "bytes": 36020,
+      "sha256": "56fecb6cbff2bea3b07db92527d72506332983963d48ef28e0d23f22be0a1b64"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/report.json",
+      "bytes": 360461,
+      "sha256": "b223a626a18528b392be8e2e146cdc02caeb169c469a1c456c501df3ea4e5c07"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/samples.jsonl",
+      "bytes": 566681,
+      "sha256": "95426e1eb1aa986630b9de2c15131538e156884fa3f8e63941935a62a325c6aa"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-training-supervision-20261008-r1/unit-verification.json",
+      "bytes": 1694,
+      "sha256": "65d57328e385fd6ba64cdc5f5c8bec0c2be6559fccec8c2ef7f71be5caf28672"
+    },
+    {
+      "path": "docs/evidence/openfly-indexed-route-payloads-20261008-r1.json",
+      "bytes": 5100,
+      "sha256": "846a4cfd477174342ca845ac834035bd00336cee127f054b26ed8de1c02f0a08"
+    },
+    {
+      "path": "docs/evidence/openfly-bounded-annotation-index-20261008-r1.json",
+      "bytes": 5036,
+      "sha256": "69c16c0e6be79c6cf1823b914a8f6063f184d48c19ee802d522bd4fd2db72156"
+    }
+  ],
+  "actual_execution": {
+    "plan_emission_native_exit_code": 0,
+    "plan_emission_tool_chunk": "04055a",
+    "actual_session_id": 33533,
+    "actual_start_tool_chunk": "7fa368",
+    "actual_native_exit_code": 0,
+    "actual_terminal_tool_chunk": "7f6c5c",
+    "root_closed_result_and_bindings_native_exit_code": 0,
+    "root_closed_result_and_bindings_tool_chunk": "58b082",
+    "root_small_control_output_binding_native_exit_code": 0,
+    "root_small_control_output_binding_tool_chunk": "052784",
+    "targeted_tests_passed": 37,
+    "author_tests_native_exit_code": 0,
+    "author_tests_terminal_tool_chunk": "846807",
+    "author_identity_and_scoped_diff_tool_chunk": "ed1cfc",
+    "root_tests_session_id": 76655,
+    "root_tests_native_exit_code": 0,
+    "root_tests_terminal_tool_chunk": "4f2666",
+    "root_Ruff_and_scoped_diff_native_exit_code": 0,
+    "root_Ruff_and_scoped_diff_tool_chunk": "71b626",
+    "independent_code_import_review_native_exit_code": 0,
+    "independent_code_import_review_tool_chunk": "59bba4",
+    "independent_actual_review_native_exit_code": 0,
+    "independent_actual_review_tool_chunk": "7e1450",
+    "independent_reviewer_reobserved_actual_native_tool_exit": false
+  },
+  "coverage": {
+    "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+    "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+    "publisher_split": "TRAIN",
+    "locked_development_role": "train",
+    "scene_id": "env_airsim_26",
+    "routes_in_original_plan_order": [
+      143,
+      150,
+      153,
+      154,
+      148,
+      144
+    ],
+    "route_frame_counts": [
+      15,
+      29,
+      17,
+      25,
+      15,
+      21
+    ],
+    "sample_count": 122,
+    "episode_count": 6,
+    "successor_count": 116,
+    "terminal_stop_count": 6,
+    "raw_primitive_counts": {
+      "go straight": 108,
+      "turn left": 4,
+      "turn right": 4,
+      "stop": 6
+    },
+    "original_PNG_count": 122,
+    "original_encoded_PNG_bytes": 83617855,
+    "original_encoded_PNG_bytes_preserved": true,
+    "actual_PNG_dimensions": {
+      "width": 853,
+      "height": 480,
+      "count": 122
+    },
+    "actual_schema_and_original_pose_alignment_verified": true,
+    "actual_PNG_integrity_and_decode_verified": true,
+    "actual_planned_pose_successor_FRD_targets_verified": true,
+    "actual_closed_source_session_completed": true,
+    "actor_input": "verbatim_prompt_current_and_latest_past_RGB_only",
+    "pose_future_truth_or_label_in_actor_input": false,
+    "same_scene_episodes_not_merged": true,
+    "units": "publisher_planned_pose_metres_and_clockwise_positive_body_FRD_yaw_radians_not_physical_calibration",
+    "sequence_STOP_is_not_landing_RTL_or_mission_completion": true,
+    "dt_s": null,
+    "output_file_count": 134,
+    "failure_or_extra_partial_output_count": 0
+  },
+  "source_and_review_scope": {
+    "repository_source_count": 47,
+    "CPU_runtime_entrypoint_and_extension_count": 10,
+    "source_bindings_before_after_equal": true,
+    "runtime_versions": {
+      "Pillow": "11.0.0",
+      "PyYAML": "6.0.2",
+      "pyarrow": "18.1.0"
+    },
+    "all_transitive_runtime_or_DLLs_bound": false,
+    "actual_annotation_prefix_bytes": 786432,
+    "actual_annotation_prefix_sha256": "221068e7506630ac33cedca7c922e069b35ae77372dc73f9054fee3d94f2e653",
+    "actual_annotation_prefix_before_after_equal": true,
+    "original_records_inspected_in_this_prefix_parse": 205,
+    "old_discovery_index_record_count196_is_a_separate_candidate_cap_stop": true,
+    "derived_selection_is_not_official_full_annotation": true,
+    "six_original_record_compact_canonical_SHA256_values_unchanged": true,
+    "whole_annotation_sha256_verified": false,
+    "full_annotation_array_syntax_verified": false,
+    "independent_current_repository_source_full_SHA256_count": 47,
+    "independent_current_CPU_runtime_full_SHA256_count": 10,
+    "independent_current_original_PNG_full_SHA256_count": 122,
+    "independent_distinct_verified_binding_count": 191,
+    "independent_compact_canonical_sorted_inventory_sha256": "3994d6aac319e9d13e641b06e1de996e0d64cb81ff2f2712dcf3356407eae4d4",
+    "independent_six_original_pose_and_target_geometry_rederived": true,
+    "independent_image_header_dimensions_checked_not_pixels_redecoded": true,
+    "actor_pixel_identity_independently_redecoded": false,
+    "independent_Parquet_schema_or_image_columns_reprocessed": false,
+    "independent_end_rehash_scope": "primary_and_small_control_outputs_rehashed_other_previously_hashed_files_stat_only",
+    "all191_bindings_second_full_SHA256_pass": false,
+    "memory_scope": "one_bounded_Parquet_row_group_one_row_one_actor_no_full_RGB_cache_RSS_not_measured",
+    "declared_shard_uncompressed_limit_bytes": 134217728,
+    "PNG_limit_bytes": 8388608,
+    "PNG_limit_pixels": 16777216,
+    "process_RSS_hard_limit_or_memory_performance_claimed": false,
+    "cross_dataset_visual_duplicate_and_future_training_split_review_complete": false
+  },
+  "training_ready": false,
+  "compatible_with_legacy86_training_admission": false,
+  "optimizer_authorized": false,
+  "optimizer_performed": false,
+  "processor_used": false,
+  "model_loaded": false,
+  "GPU_used": false,
+  "network_used": false,
+  "old_dataset_merged_or_modified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "execution_authority": false,
+  "flight_performed": false,
+  "live_camera_parity_verified": false,
+  "sim_real_parity_verified": false,
+  "physical_calibration_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

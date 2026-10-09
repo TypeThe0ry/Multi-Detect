@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.docker-desktop-socket-recovery-evidence-v1",
+  "generated_at_utc": "2026-10-06T06:25:00Z",
+  "scope": "local Docker Desktop runtime preflight only",
+  "observed": {
+    "docker_desktop_process_restart_requested": true,
+    "docker_server_available": false,
+    "docker_info_exit_code": 1,
+    "wsl_docker_desktop_state": "Stopped",
+    "backend_failure_kind": "docker_desktop_stale_socket",
+    "backend_error_sha256": "51827e0ea79eb4424960a0053f6fcc1e421689fd833a992a857c7baeb705709e",
+    "reported_socket": "C:/Users/admin/AppData/Local/Docker/run/sailor-ingest.sock",
+    "secondary_socket": "C:/Users/admin/AppData/Local/docker-secrets-engine/engine.sock",
+    "secondary_socket_backup": "C:/Users/admin/AppData/Local/docker-secrets-engine-recovery-backup-20261006-061629Z",
+    "secondary_backup_preserved_entry": "engine.sock"
+  },
+  "recovery_actions": {
+    "run_directory_rotation": true,
+    "secondary_socket_parent_rotation": true,
+    "last_level_reparse_delete_attempted": true,
+    "last_level_reparse_delete_result": "windows_winerror_1920_refused",
+    "images_containers_volumes_deleted": false,
+    "factory_reset": false,
+    "wsl_unregister": false
+  },
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "px4_runtime": false,
+    "rgb_depth_capture": false,
+    "onboard_training_ready": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_action": "resolve the Windows/Docker Desktop AF_UNIX reparse-point failure outside the repository, then rerun the read-only preflight before any Gazebo capture"
+}

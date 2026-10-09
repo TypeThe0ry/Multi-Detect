@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.cluster-gazebo-preflight-recovery-v1",
+  "verified_at_utc": "2026-10-07T03:46:14.3331780Z",
+  "repository_head": "e0a6562",
+  "job_id": "4fda8a03-1986-485d-ae7e-cd91a4dce4d6",
+  "run_id": "444be1b9-8ac3-449f-bab7-19430d3d8abc",
+  "original_job_finished_at_utc": "2026-10-07T03:35:05.680349900Z",
+  "original_source_snapshot": {
+    "digest": "sha256:d321d2cce7569b883f71661b1fb6de55b62397dabf797b6ec38ee93721725651",
+    "size_bytes": 5132
+  },
+  "retrieval": {
+    "method": "installed official cyc.exe artifacts/logs CLI with default authenticated loopback configuration",
+    "cli_path": "C:/Users/admin/AppData/Local/Programs/ClusterYourCodex/cyc.exe",
+    "downloaded_at_utc": "2026-10-07T03:46:04.2248517Z",
+    "destination_was_absent": true,
+    "artifact_download_native_exit_code": 0,
+    "stdout_download_native_exit_code": 0,
+    "credentials_read_or_passed_by_agent": false,
+    "new_job_submitted": false,
+    "worker_manually_selected": false,
+    "original_remote_artifact_modified": false
+  },
+  "artifact": {
+    "artifact_id": "2fcef1dc-1611-4929-8187-72b2ad692c04",
+    "remote_name": "artifacts/gazebo-runtime-preflight-20261007-r2.json",
+    "local_path": "artifacts/evaluation/cluster-gazebo-preflight-recovered-20261007-r1/gazebo-runtime-preflight.json",
+    "bytes": 945,
+    "sha256": "9222213a00c6540fd7ef8f20a04667163ad19ee1a6a558459f9ec3a42819d34b",
+    "controller_bytes_match": true,
+    "controller_sha256_match": true
+  },
+  "stdout": {
+    "local_path": "artifacts/evaluation/cluster-gazebo-preflight-recovered-20261007-r1/stdout.log",
+    "bytes": 883,
+    "sha256": "eb3c817048406149cb15d47119c7cb3277dcd40a234ac406cfb94a275d6db8d1",
+    "controller_bytes_match": true,
+    "controller_sha256_match": true,
+    "parsed_document_equals_artifact": true
+  },
+  "native_exit_semantics": {
+    "collector_job_native_exit_code": 0,
+    "gazebo_runtime_probe_native_exit_code": 2,
+    "collector_exit_semantics": "diagnostic_collected_not_prerequisites_passed",
+    "docker_info_native_exit_code": 1
+  },
+  "verified_probe_outcome": {
+    "docker_cli_available": true,
+    "docker_info_succeeded": false,
+    "docker_info_stderr": "cannot change profile for the next exec call: Operation not permitted",
+    "gazebo_cli_available": false,
+    "pinned_image_checked": false,
+    "pinned_image_availability": "unknown because Docker daemon access probe failed",
+    "container_capture_prerequisites_ready": false,
+    "sensor_capture_performed": false,
+    "rendering_verified": false,
+    "training_ready": false
+  },
+  "remaining_requirements": [
+    "An automatically scheduled Linux runtime must pass actual docker info, not just advertise tool.docker.",
+    "The exact pinned PX4/Gazebo image must be checked after daemon access succeeds.",
+    "Only then can a separately authorized owned simulator job provide real RGB and synchronized state/action evidence."
+  ],
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

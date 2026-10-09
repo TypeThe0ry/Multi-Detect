@@ -1,0 +1,77 @@
+{
+  "source_sha256": "facab1c45ea7f00270add672dca3be6edc58b4f587738a96067b59a4bc3e62b2",
+  "container_id": "2a8f914f9af1f9b0fa1f91f5eaa25bb078d065fcc899faf360383c4720319842",
+  "profile": "fixed-wing-response",
+  "observer_duration_s": 159.638883,
+  "exact_source_label_pairs": 127,
+  "mode_receipt_runs": [
+    {
+      "vtol_state": 3,
+      "first_received_at_s": 0.025964700034819543,
+      "last_received_at_s": 29.64898300007917,
+      "count": 85
+    },
+    {
+      "vtol_state": 1,
+      "first_received_at_s": 29.945678399992175,
+      "last_received_at_s": 33.11194410000462,
+      "count": 11
+    },
+    {
+      "vtol_state": 4,
+      "first_received_at_s": 33.458171500009485,
+      "last_received_at_s": 83.35229080007412,
+      "count": 168
+    },
+    {
+      "vtol_state": 2,
+      "first_received_at_s": 83.62626869999804,
+      "last_received_at_s": 87.50615750008728,
+      "count": 15
+    },
+    {
+      "vtol_state": 3,
+      "first_received_at_s": 87.76831519999541,
+      "last_received_at_s": 159.6388830000069,
+      "count": 244
+    }
+  ],
+  "largest_error_pairs": [
+    {
+      "time_boot_ms": 53968,
+      "target_roll_deg": 22.550758985014976,
+      "actual_roll_deg": -21.501940941198722,
+      "roll_error_deg": -44.052699926213705,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 63.62212327887076,
+      "target_received_at_s": 52.23155260004569,
+      "actual_received_at_s": 52.22381540003698,
+      "history_start_received_at_s": 49.72061239997856
+    },
+    {
+      "time_boot_ms": 60708,
+      "target_roll_deg": -14.422850286907584,
+      "actual_roll_deg": 15.822355193482563,
+      "roll_error_deg": 30.245205480390155,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 64.42285339959824,
+      "target_received_at_s": 59.74531929998193,
+      "actual_received_at_s": 59.72451040009037,
+      "history_start_received_at_s": 57.218164100078866
+    },
+    {
+      "time_boot_ms": 59708,
+      "target_roll_deg": 25.865511945940845,
+      "actual_roll_deg": 51.77431947484113,
+      "roll_error_deg": 25.908807528900297,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 24.134492340438044,
+      "target_received_at_s": 58.627575000049546,
+      "actual_received_at_s": 58.60705330001656,
+      "history_start_received_at_s": 56.160891300067306
+    }
+  ],
+  "diagnostic_only": true,
+  "controller_acceptance_proven": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 99883,
+      "sha256": "1cee3317772bdfa5676b3360ce7a2b8b52a9a893e0b6b1d2b93ca1b8f1cf2731"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 62422,
+      "sha256": "e7d1cbc59a4f381e4417b0df648ffb96b4f4a3d8568a6c17746cc5664cee5ebb"
+    },
+    {
+      "path": "artifacts/evaluation/mission-session-lifecycle-20260908-b.xml",
+      "bytes": 43639,
+      "sha256": "c0f86630487aebd63df99d1e573891f3470e389ad2ec039623026f0bbbc2a654"
+    }
+  ],
+  "passed": 238,
+  "new_tests": 7,
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings --junitxml=artifacts/evaluation/mission-session-lifecycle-20260908-b.xml",
+  "exit_code": 0,
+  "verified": [
+    "same collector and origin across sequential successful leases",
+    "single owner close, idempotent close",
+    "container/endpoint/active/failed/closed reuse rejected",
+    "real run_mission_acceptance failure records evidence and SystemExit(1), borrowed connection retained for owner cleanup"
+  ],
+  "remaining": [
+    "report publication still outside continuous pump",
+    "8192-sample history limit can truncate two-mission capture",
+    "external two-mission runner not connected"
+  ],
+  "external_run": false,
+  "full_suite_rerun": false,
+  "initial_failed_test": "Expected normal return, but existing failure path raises SystemExit(1); adjusted test to read emitted evidence and assert exit code."
+}

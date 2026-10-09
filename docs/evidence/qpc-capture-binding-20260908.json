@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "measurement": {
+    "probes": [
+      {
+        "host_before_ns": 894968347560800,
+        "host_after_ns": 894968348453200,
+        "container_ns": 412664324205216,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      },
+      {
+        "host_before_ns": 894968348565500,
+        "host_after_ns": 894968349354700,
+        "container_ns": 412664325083759,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      },
+      {
+        "host_before_ns": 894968349381000,
+        "host_after_ns": 894968350099900,
+        "container_ns": 412664325906705,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      },
+      {
+        "host_before_ns": 894968350118100,
+        "host_after_ns": 894968350717800,
+        "container_ns": 412664326565461,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      },
+      {
+        "host_before_ns": 894968350727900,
+        "host_after_ns": 894968351324000,
+        "container_ns": 412664327169033,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      },
+      {
+        "host_before_ns": 894968351339500,
+        "host_after_ns": 894968352118900,
+        "container_ns": 412664327824431,
+        "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+        "host_resolution_ns": 100,
+        "host_clock_identity": {
+          "schema_version": 1,
+          "source": "python.perf_counter",
+          "session_id": "clock-qpc-20260908-b",
+          "implementation": "QueryPerformanceCounter()",
+          "resolution_ns": 100,
+          "accuracy_verified": false,
+          "legacy_monotonic_equivalent": false
+        }
+      }
+    ],
+    "summary": {
+      "schema_version": 1,
+      "host_clock_identity": {
+        "schema_version": 1,
+        "source": "python.perf_counter",
+        "session_id": "clock-qpc-20260908-b",
+        "implementation": "QueryPerformanceCounter()",
+        "resolution_ns": 100,
+        "accuracy_verified": false,
+        "legacy_monotonic_equivalent": false
+      },
+      "container_id": "844fa25c259598a5eb9f708b89c4f2025a966f775daca871b8588d53fe353d55",
+      "sample_count": 6,
+      "assumption": "host_ns = container_ns + constant_offset; equal rates, no resets; host read error <= declared resolution",
+      "declared_host_resolution_ns": 100,
+      "timestamp_accuracy_verified": false,
+      "offset_direction": "host_minus_container_ns",
+      "per_probe_offset_intervals_ns": [
+        [
+          482304023355484,
+          482304024248084
+        ],
+        [
+          482304023481641,
+          482304024271041
+        ],
+        [
+          482304023474195,
+          482304024193295
+        ],
+        [
+          482304023552539,
+          482304024152439
+        ],
+        [
+          482304023558767,
+          482304024155067
+        ],
+        [
+          482304023514969,
+          482304024294569
+        ]
+      ],
+      "constant_offset_compatible": true,
+      "conditional_offset_interval_ns": [
+        482304023558767,
+        482304024152439
+      ],
+      "conditional_interval_width_ns": 593672,
+      "minimum_round_trip_ns": 596100,
+      "maximum_round_trip_ns": 892400,
+      "host_quantization_limited": false,
+      "observed_host_span_ns": 4558100,
+      "equal_clock_rates_verified": false,
+      "gazebo_source_clock_aligned": false,
+      "px4_clock_aligned": false,
+      "training_label_eligible": false
+    }
+  },
+  "smoke_exit_code": 0,
+  "exact_container_cleanup_verified": true,
+  "failed_setup": {
+    "container_id": "8339d90eec227cc35ae36621cf2fbfc6e6f9121c5b15d1e799ad697cba7ff713",
+    "reason": "Standalone smoke command omitted src import path; no probes executed",
+    "cleanup_verified": true
+  },
+  "focused_passed": 235,
+  "new_tests": 11,
+  "full_regression_rerun": false,
+  "full_external_mission_run": false,
+  "release_ready": false
+}

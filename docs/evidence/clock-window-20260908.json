@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "post_documentation_checks": {
+    "passed": 34,
+    "exit_code": 0,
+    "ruff_passed": true,
+    "diff_check_passed": true
+  },
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "status": "automated_verified",
+  "evidence": "docs/evidence/clock-window-20260908.json",
+  "focused_passed": 41,
+  "new_tests": 7,
+  "calibration_eligible": false,
+  "files": [
+    {
+      "path": "scripts/audit_planning_execution_gap.py",
+      "bytes": 7231,
+      "sha256": "bf4e17786da9905a942cc2f21e2d0d9b2f56ff70c3ca69b0a0bf9f23f81097b2"
+    },
+    {
+      "path": "artifacts/evaluation/clock-window-tail1-20260908.json",
+      "bytes": 4619,
+      "sha256": "e461fcb9123f7b9f3523ed41c195183cd94499f864fe8a25e22e0dad3304eba2"
+    },
+    {
+      "path": "artifacts/evaluation/clock-window-tail2-20260908.json",
+      "bytes": 4644,
+      "sha256": "ed2a8cde3554d673075bbf747a4e5c066a0c88c420a97b41f6d1334e4f817c0f"
+    },
+    {
+      "path": "artifacts/evaluation/clock-window-focused-20260908.xml",
+      "bytes": 5907,
+      "sha256": "492e1032416acd16a240e4f0246cb2b5960eb4f28e64ed08836879e542b6838d"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "results": [
+    {
+      "task": "synthetic-west",
+      "host_s": 124.172,
+      "boot_lower_s": 92.192,
+      "boot_upper_s": 92.272,
+      "ratio_lower": 0.7424540153978971,
+      "ratio_upper": 0.74309828302667
+    },
+    {
+      "task": "synthetic-east",
+      "host_s": 106.422,
+      "boot_lower_s": 80.704,
+      "boot_upper_s": 80.76,
+      "ratio_lower": 0.7583394410928727,
+      "ratio_upper": 0.7588656480801496
+    }
+  ],
+  "verification": {
+    "audit_cli_exit_codes": [
+      0,
+      0
+    ],
+    "focused_passed": 41,
+    "focused_failed": 0,
+    "focused_errors": 0,
+    "focused_skipped": 0,
+    "seconds": 0.447,
+    "full_suite_rerun": false
+  },
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "new_flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "clock_synchronization": false,
+    "gazebo_realtime_factor": false,
+    "physical_calibration": false
+  },
+  "limitations": [
+    "Receive-attributed intervals, not exact synchronized event timestamps.",
+    "Ratios must not be used as automatic training time conversion or planner scale factors.",
+    "No new SIM run; input report byte identities are retained in each bound audit output."
+  ]
+}

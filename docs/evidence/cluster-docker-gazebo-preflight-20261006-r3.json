@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.cluster-docker-gazebo-preflight-v1",
+  "generated_at_utc": "2026-10-06T01:02:00Z",
+  "purpose": "Record the current external Gazebo/PX4 preflight without overstating an unavailable runtime.",
+  "workspace_snapshot": {
+    "path": "artifacts/cluster/multidetect-gazebo-preflight-20261006.tar.zst",
+    "sha256": "f9855104cee40034e617b3105c216235b2e9e0017f184796cdcd7648614c90ab",
+    "bytes": 30376129,
+    "file_count": 570
+  },
+  "local_windows": {
+    "docker_desktop_start_requested": true,
+    "docker_info_exit": 1,
+    "docker_api_error": "dockerDesktopLinuxEngine pipe is unavailable",
+    "wsl_docker_desktop_state": "Stopped",
+    "gazebo_command_available": false,
+    "gz_command_available": false,
+    "px4_command_available": false
+  },
+  "cluster_submission": {
+    "controller": "ClusterYourCodex",
+    "selected_node": "nuc",
+    "node_os": "linux",
+    "node_capability": "tool.docker",
+    "snapshot_uploaded": true,
+    "job_id": "455df0e4-8258-459c-9991-45bc7bd18758",
+    "run_state": "failed",
+    "run_exit_code": null,
+    "failure_stage": "source_preparation",
+    "failure": "worker API returned HTTP 404 Not Found (not_found)",
+    "docker_step_started": false
+  },
+  "result": {
+    "external_gazebo_runtime": false,
+    "px4_telemetry": false,
+    "rgb_depth_capture": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "next_action": "repair Docker/worker source preparation, then rerun the same pinned 3-D world and capture RGB+Depth+CameraInfo+PX4 telemetry"
+  }
+}

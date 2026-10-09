@@ -1,0 +1,397 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-live-vlm-retained-replay-evidence-v1",
+  "product_version": "0.3.0-pre.8",
+  "recorded_at_utc": "2026-10-07 08:03:26 UTC",
+  "status": "native_retained_sensor_generation_and_cpu_integrity_verified_not_semantic_or_flight_acceptance",
+  "team": {
+    "parallel_subagents": 3,
+    "workstreams": [
+      "retained replay implementation and independent review",
+      "CPU tensor/token integrity audit",
+      "public navigation model and action data research"
+    ],
+    "native_generation_owner": "root"
+  },
+  "scope": {
+    "mode": "retained_sensor_replay_not_live_clock_or_current_Gazebo",
+    "original_prompt": "检查前方是否有可安全观察的目标",
+    "source_frames": 2,
+    "actual_rgb_bytes": 7372800,
+    "source_frame_indices": [
+      0,
+      1
+    ],
+    "original_capture_timestamps_s": [
+      351854.265,
+      351854.484
+    ],
+    "source_sensor_timestamps_ns": [
+      96492000000,
+      96528000000
+    ],
+    "clock_epoch": "retained-host-monotonic-replay:3a7dc74d8fe00f9096c00a19afd1382e75b0ec98b5140318136f579087aae4fc",
+    "live_clock_verified": false,
+    "sensor_to_host_clock_conversion_claimed": false,
+    "completion_time_semantics": "worker_measured_elapsed_projected_only_into_explicit_retained_replay_domain",
+    "original_source_run": {
+      "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\onboard-3d-flight-urban-20261007-r2.json",
+      "status": "failed",
+      "base_docker_acceptance_gate_passed": true,
+      "complete_autonomous_task_success_claimed": false
+    },
+    "truth_or_gold_in_model_input": false,
+    "missing_safety_context_not_fabricated": true
+  },
+  "model": {
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "base_weights": {
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/model.safetensors",
+      "bytes": 4255140312,
+      "sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0"
+    },
+    "adapter_loaded": false,
+    "failed_grounding_adapter_promoted": false
+  },
+  "native": {
+    "native_exit_code": 0,
+    "report": {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/report.json",
+      "bytes": 24158,
+      "sha256": "89af731d56ccd2876b81d33959380833e7705636513f80f1929553cc725dfd79"
+    },
+    "worker_closed": true,
+    "native_generation_observed": true,
+    "source_records_unchanged": true,
+    "strict_intent_accepted": true,
+    "response": "hold",
+    "task_action": null,
+    "flight_plan": null,
+    "input_sha256": "4e65e4ccaddb944c309b89f051ee1815a45f73a1a6d7fc7cf0cf52e7605dd628",
+    "request_sha256": "275f06bcd6289ceddcfd99b97eeeeb26b71543e2afac969c8f5e161f5b391e0e",
+    "inference_latency_ms": 9015.00000001397,
+    "complete_worker_prewarm_s": 32.03200000000652,
+    "backend_generation_s": 8.84399999998277,
+    "backend_local_load_s": 2.25,
+    "full_prewarm_not_inferred_from_local_load": true,
+    "input_tokens": 2646,
+    "generated_tokens": 156,
+    "actual_image_grid_thw": [
+      [
+        1,
+        16,
+        22
+      ],
+      [
+        1,
+        16,
+        22
+      ]
+    ],
+    "actual_processor_total_pixels": 180224,
+    "maximum_total_processor_pixels": 200704,
+    "peak_allocated_bytes": 5767296000,
+    "peak_reserved_bytes": 5869928448,
+    "single_case_not_latency_distribution_or_real_time_control": true,
+    "original_processor_images_kwargs_after_call": {},
+    "runtime": {
+      "python": "3.12.7 (tags/v3.12.7:0b05ead, Oct  1 2024, 03:06:41) [MSC v.1941 64 bit (AMD64)]",
+      "executable": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Scripts\\python.exe",
+      "platform": "win32",
+      "package_versions": {
+        "torch": "2.6.0+cu124",
+        "transformers": "4.57.6",
+        "Pillow": "11.0.0",
+        "numpy": "2.1.3"
+      }
+    },
+    "errors": []
+  },
+  "independent_cpu_audit": {
+    "native_exit_code": 0,
+    "report": {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-cpu-audit-20261007-r1/audit.json",
+      "bytes": 19020,
+      "sha256": "d0220e531510462fcccf2d0ef79eef4ef7fd1e785d7d6305d2f98475a46e8594"
+    },
+    "audit_verified": true,
+    "verified_file_bindings": 31,
+    "actual_processor_messages_sha256": "11a3adedf45b6bfd45125ee301eeb39157fd282650859420cef6c89d71957779",
+    "input_tensors": {
+      "input_ids": {
+        "shape": [
+          1,
+          2646
+        ],
+        "dtype": "torch.int64",
+        "sha256": "496e170fe46ee3ebe49ee4eb2003234f13679dee8c852b50b0efc5821540cdfa"
+      },
+      "attention_mask": {
+        "shape": [
+          1,
+          2646
+        ],
+        "dtype": "torch.int64",
+        "sha256": "71aa25b51f929d725dd9d78aad2ed81f75a10ecbf0f48aa6cd6c9db3f9009c5a"
+      },
+      "pixel_values": {
+        "shape": [
+          704,
+          1536
+        ],
+        "dtype": "torch.float32",
+        "sha256": "d7a290e36a9f2968ccdbfbb2a0da4f28aeac0a96740f6e8c5ba7643682807ce3"
+      },
+      "image_grid_thw": {
+        "shape": [
+          2,
+          3
+        ],
+        "dtype": "torch.int64",
+        "sha256": "034e7ae9a4cdee11a99019d7042a658ebf32ca63149f6f8e9d0e0851a2b7e7a1"
+      }
+    },
+    "token_decode_equals_exact_raw": true,
+    "processor_images_kwargs_reconstructed_before_call": {
+      "min_pixels": 1024,
+      "max_pixels": 100352
+    },
+    "processor_images_kwargs_observed_after_call": {},
+    "native_processor_kwargs_were_recorded_after_call": true,
+    "reconstruction_is_not_a_native_pre_call_receipt": true,
+    "model_weights_loaded": false,
+    "gpu_used": false,
+    "generation_repeated": false,
+    "errors": []
+  },
+  "semantic_review": {
+    "semantic_quality_passed": false,
+    "semantic_accuracy_measured": false,
+    "task_target_definition_or_gold_available": false,
+    "unsupported_reason_claims": [
+      "The system is in a safe state",
+      "no target is present"
+    ],
+    "reason_not_repaired": true,
+    "confidence_is_model_self_report_not_calibrated_accuracy": 0.95,
+    "current_frames_not_evidence_of_target_absence_or_flight_safety": true,
+    "reviewer_observed_scene_entities_not_an_independently_labeled_accuracy_benchmark": true
+  },
+  "limitations": [
+    "The frozen worker only transmits preprocessing exception error_type, not failed-grid/tensor attributes.",
+    "Native backend only retained the post-call processor kwargs object; pre-call values are independently reconstructed, not a native receipt.",
+    "Replay CLI enumerates existing outputs at completion; deletion before enumeration still needs additional hardening. This actual result explicitly reopened all four required outputs.",
+    "Only one two-frame retained example; no semantic quality, history-ablation, long-run throughput or Jetson inference evidence.",
+    "The original capture whole-sortie report remains failed; this replay has no new/current Gazebo lifecycle or actuation.",
+    "HOME, flight mode, battery, health, route clearance, wind and measured GPS quality remain unknown."
+  ],
+  "validation": {
+    "joint": {
+      "native_exit_code": 0,
+      "tests": 51,
+      "passed": 51,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "report": {
+        "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/joint-validation.xml",
+        "bytes": 8478,
+        "sha256": "f9a0bbc5a8a9b56a9812e26970db6f2af0157c12279d034246d0ffa42ea742c5"
+      }
+    },
+    "ruff_check_native_exit_code": 0,
+    "ruff_format_check_native_exit_code": 0,
+    "python_files": 4,
+    "git_diff_check_native_exit_code": 0,
+    "unrelated_qgc_line_ending_warning_only": true
+  },
+  "research": {
+    "documents": [
+      {
+        "path": "docs/research/onboard-uav-action-model-candidates-20261007.md",
+        "bytes": 15950,
+        "sha256": "9fba3c158faaa451dd4bd607d41a57f769db186bb8c12ca04f94594f5d3db0b4"
+      },
+      {
+        "path": "docs/research/onboard-action-training-admission-20261007.md",
+        "bytes": 8748,
+        "sha256": "49886f95a3d569e08c988f8af180cc6b31a2a94c42fd29e3df8284451872449b"
+      }
+    ],
+    "preferred_next_development_route": "Review train-only OpenFly causal RGB/prompt/planned-navigation episodes and train a separate action-supervised adapter/head on the current Qwen base.",
+    "large_models_or_datasets_downloaded_this_research": false,
+    "public_foreign_lora_merged_into_qwen": false,
+    "action_dataset_imported_or_approved": false,
+    "units_future_history_alignment_and_licenses_require_admission": true,
+    "unknown_dt_not_defaulted": true,
+    "stop_not_land_or_task_completed": true,
+    "external_planned_not_px4_executed": true,
+    "yaw_only_not_supported_by_current_flight_intent": true
+  },
+  "sources": [
+    {
+      "path": "scripts/run_onboard_live_vlm_retained_replay.py",
+      "bytes": 21367,
+      "sha256": "3b3e51d1680d3d77867b34758a83d0a25e02fe7d32297a767e25828ed696d5be"
+    },
+    {
+      "path": "tests/test_run_onboard_live_vlm_retained_replay.py",
+      "bytes": 16768,
+      "sha256": "73474abd01d967757121620ddf3cd56578e0b1bc80804ec0d7b96fbe2ba8b01a"
+    },
+    {
+      "path": "scripts/audit_onboard_live_vlm_retained_replay.py",
+      "bytes": 22580,
+      "sha256": "7e31d1693be34b38ffaba3287ced7b2a43387fa3dc097aac799753a8182ae2e3"
+    },
+    {
+      "path": "tests/test_audit_onboard_live_vlm_retained_replay.py",
+      "bytes": 13527,
+      "sha256": "459a478a01d8a6b4b51eae2a80d885af4508537a0ecd71a59a8ce5f97b59c597"
+    }
+  ],
+  "source_inputs": [
+    {
+      "path": "artifacts/evaluation/onboard-3d-flight-urban-20261007-r2/rgb/gazebo-bgr24-frame-set.manifest.json",
+      "bytes": 484858,
+      "sha256": "3a7dc74d8fe00f9096c00a19afd1382e75b0ec98b5140318136f579087aae4fc"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-3d-flight-urban-20261007-r2/rgb/frame-000000.bgr24",
+      "bytes": 3686400,
+      "sha256": "83785e898341dde2b6097a6b37bffd88fa90c8a2d110b36c3d06ed78e74de5ab"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-3d-flight-urban-20261007-r2/rgb/frame-000001.bgr24",
+      "bytes": 3686400,
+      "sha256": "9575bba1249e38a841104663a7222902115f59042f8d5179a03636efdce35af3"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-3d-flight-urban-20261007-r2.json",
+      "bytes": 2207987,
+      "sha256": "59d1322c12df5e1a10f7e571dacd4695973867406d56898818da6279c6f0c0f3"
+    }
+  ],
+  "native_outputs": [
+    {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/prepared-input.json",
+      "bytes": 25576,
+      "sha256": "83adfaa3e655057b99053ba1bb14f03a00333736be89ef919466528c3469df2d"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/native-attempt.json",
+      "bytes": 5851,
+      "sha256": "baf7f0b5b4d2ff66925ffdd801b5acfbfb2ec0c1f59c17e7a24ed9b7e1f21ac6"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/raw-output.txt",
+      "bytes": 626,
+      "sha256": "b70db0289e9306cd17be6e90002c184b0c4bc3f84cc973d9666c63cf6b62d3fa"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/report.json",
+      "bytes": 24158,
+      "sha256": "89af731d56ccd2876b81d33959380833e7705636513f80f1929553cc725dfd79"
+    }
+  ],
+  "frozen_defaults": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+      "bytes": 62145,
+      "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    }
+  ],
+  "previous_receipts": [
+    {
+      "path": "docs/evidence/onboard-gazebo-live-shadow-development-20261007-r1.json",
+      "bytes": 11952,
+      "sha256": "0e896b6e4973674d902bde8facc10cc22f0bd056e3f6d1320e3837553d1ae3da"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-gazebo-live-shadow-development-20261007-r1/postseal-validation.json",
+      "bytes": 2342,
+      "sha256": "0eaf1a866bfc8b0760f8315921048fc1506472b6de80820bfe906d381ae86a58"
+    }
+  ],
+  "stage1_documentation_snapshots": [
+    {
+      "original_path": "README.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/README.md",
+      "bytes": 49590,
+      "sha256": "c4ea54515848dc73faf93e2c4df77bbf9f9776a22d62912ecac9f72fed02691a"
+    },
+    {
+      "original_path": "docs/onboard-gazebo-live-shadow.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/docs/onboard-gazebo-live-shadow.md",
+      "bytes": 4975,
+      "sha256": "af3b2987a12c863d5612f0ec50b703fa3d09539aa102af8b503e8c8c373c0d54"
+    },
+    {
+      "original_path": "docs/current-progress.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/docs/current-progress.md",
+      "bytes": 684410,
+      "sha256": "fba09e4627ec02e91fe6aedc0ca4c6f49542117730c59b489153e905a232ec17"
+    },
+    {
+      "original_path": "docs/implementation-roadmap.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/docs/implementation-roadmap.md",
+      "bytes": 241194,
+      "sha256": "bc4b3759fd64441ecfbef08de7c3b396fc248d4c0b75b9392b9d962c37243b61"
+    },
+    {
+      "original_path": "docs/product-goals-and-roadmap.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/docs/product-goals-and-roadmap.md",
+      "bytes": 21400,
+      "sha256": "c46c032af9864ff2b1329ffa7adb46873d805f361d7ee0a8fe1eb2e59ecdb23f"
+    },
+    {
+      "original_path": "CHANGELOG.md",
+      "path": "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/stage1-documentation-snapshot/CHANGELOG.md",
+      "bytes": 932185,
+      "sha256": "ba2e95ce2582f7629cb8cd00dd2857a02fd7a8ead86cf63c3e403e7ea1fc3019"
+    }
+  ],
+  "claims": {
+    "gpu_generation_performed": true,
+    "cpu_integrity_verified": true,
+    "training_performed": false,
+    "flight_action_training_performed": false,
+    "training_ready": false,
+    "candidate_promoted": false,
+    "default_policy_reference_changed": false,
+    "original_detector_changed": false,
+    "autonomous_flight_verified": false,
+    "vlm_prompt_task_completed": false,
+    "current_gazebo_verified": false,
+    "mission_compiled": false,
+    "transport_created": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "jetson_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_work": [
+    "Implement bounded train-only source/causal/unit admission loader; freeze episode/scene development split before optimizer.",
+    "Review metric planned action labels; train an independent Qwen navigation adapter/head only after data and resource budget pass; do not reuse foreign LoRA tensors.",
+    "Restore eligible Gazebo runtime and run actual callback; collect measured safety state and own-sortie accepted/executed/next-RGB feedback.",
+    "Close action intent support and repeated Mission continuation safely; validate real task performance, SIM/Jetson parity, HIL/REAL and release gates separately."
+  ]
+}

@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-closed-sample-cpu-profile-evidence-v1",
+  "status": "closed_actual_official_CPU_paired10_native0_exact_metadata_sources_unchanged_not_training_recovery",
+  "observed_date_sgt": "2026-10-08",
+  "scope": "five_original_train_samples_fixed_old_then_new_one_pair_each_not_all86_reencoding_holdout_or_GPU_acceptance",
+  "plan": {
+    "path": "configs/training/onboard-navigation-closed-sample-cpu-profile-20261008-r1.json",
+    "bytes": 3926,
+    "sha256": "d6d5e9473a6bbe8d64490c9bf6602a476f9a1c3c857bc13a2454b2ca6eb72c52"
+  },
+  "report": {
+    "path": "artifacts/diagnostics/onboard-navigation-closed-sample-cpu-profile-20261008-r1/report.json",
+    "bytes": 200977,
+    "sha256": "986543a7245a825d472796e6b36da530d931aedcb994bbae4554df03978ad5fe"
+  },
+  "source_files": [
+    {
+      "bytes": 5165,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\onboard_navigation_closed_sample_encoding.py",
+      "sha256": "5f3bc0e7284c5a92bca1a4781898546eda2ec30c58626b1f321a023a179455b9"
+    },
+    {
+      "bytes": 24252,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_onboard_navigation_closed_sample_encoding.py",
+      "sha256": "9585ed29cd6921bdc270c2a990754af986d69248c8679df3d3b9b75db655da04"
+    },
+    {
+      "bytes": 4407,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\onboard_navigation_host_memory.py",
+      "sha256": "9298e17ef626ceea4b1e2f2abec6304a8846e537e29d5555db4fc02a4954690a"
+    },
+    {
+      "bytes": 3445,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_onboard_navigation_host_memory.py",
+      "sha256": "b41c5abd815e0453733e7e69d547c14187f224217345a242eeaef974a55ff51c"
+    },
+    {
+      "bytes": 19376,
+      "path": "D:\\Projects\\Multi-Detect\\scripts\\profile_onboard_navigation_closed_samples.py",
+      "sha256": "ebd6fb5a276462d688fdc8483a78ddd7ec0b717fc98e2a6b73fda6dcc9ec6467"
+    },
+    {
+      "bytes": 25233,
+      "path": "D:\\Projects\\Multi-Detect\\tests\\test_profile_onboard_navigation_closed_samples.py",
+      "sha256": "91549f60e27f3a3cbe6dbf249c5664848578f9a8c4455b59312806ec7e5b49e1"
+    }
+  ],
+  "execution": {
+    "tool_session_id": 49894,
+    "native_exit_code": 0,
+    "worker_pid": 46324,
+    "venv_launcher_pid": 53092,
+    "live_process_observed": true,
+    "live_worker_and_launcher_commandline_matched_plan": true,
+    "worker_executable": "C:/Users/admin/AppData/Local/Programs/Python/Python312/python.exe",
+    "launcher_executable": "D:/Projects/Multi-Detect/.venv-vlm-navigation/Scripts/python.exe",
+    "worker_and_launcher_absent_after_native_exit": true,
+    "launch_chunk": "a0c53a",
+    "worker_observation_chunk": "98b932",
+    "launcher_observation_chunk": "f78678",
+    "terminal_chunk": "eddaac",
+    "official_processor_used": true,
+    "processor_contract": "Qwen3VLProcessor_from_pinned_local_snapshot_Transformers4.57.6_local_files_only_trust_remote_code_false",
+    "unique_samples": 5,
+    "encoded_rows": 10,
+    "repetitions_per_mode_per_sample": 1,
+    "paired_order": [
+      "legacy_owned",
+      "closed_sample"
+    ],
+    "CUDA_uninitialized_before_processor": true,
+    "CUDA_uninitialized_after_encoding": true,
+    "observations": 93,
+    "source_binding_count": 192,
+    "source_bindings_before_after_equal": true,
+    "closed_session_final_SHA_verified_count": 5
+  },
+  "saved_input_verification": {
+    "full86_prepared_metadata_admitted_before_subset": true,
+    "ten_actual_rows_equal_retained_prepared_metadata": true,
+    "actor_identity_and_four_prefix_full_tensor_records_equal": true,
+    "response_only_mask_labels_target_token_counts_equal": true,
+    "new_result_consumed_only_after_normal_session_exit_verified_and_full_metadata_equal": true,
+    "source_validation_images_closed_on_successful_tuple_return": true,
+    "partial_decode_before_tuple_cleanup_proven": false,
+    "root_independent_saved_metadata_and_record_arrays_checked": true,
+    "root_reencoded_tensors": false,
+    "root_rehashed_full192_sources_after_worker": false,
+    "root_followup_chunk": "07d924"
+  },
+  "timings": {
+    "sample_pairs": [
+      {
+        "sample_id": "08ce0ede040351b629c4bd060d3c401e483de7321905b004a8137b0d5b429108",
+        "roles": [
+          "failed_draw14"
+        ],
+        "legacy_owned_elapsed_s": 31.46827140000096,
+        "closed_sample_elapsed_s": 16.643384000002698
+      },
+      {
+        "sample_id": "b9a7dc7ae3d73f513aff4b294bf103bccf0285a7a038705263288283b7bcaf29",
+        "roles": [
+          "original_probe_forward"
+        ],
+        "legacy_owned_elapsed_s": 32.52574880000611,
+        "closed_sample_elapsed_s": 16.59771400000318
+      },
+      {
+        "sample_id": "be0955922d101b5902e3f92b5203b7ce92dd1d7c71892c5d03a0854ea864cda0",
+        "roles": [
+          "original_probe_left"
+        ],
+        "legacy_owned_elapsed_s": 33.192541399999755,
+        "closed_sample_elapsed_s": 17.09671669999807
+      },
+      {
+        "sample_id": "101d52252d2f4d9761f08c82a9ce1c7a791e69150b176b1cfbeacd1ca06ed743",
+        "roles": [
+          "original_probe_right"
+        ],
+        "legacy_owned_elapsed_s": 32.36155770000187,
+        "closed_sample_elapsed_s": 16.848113800006104
+      },
+      {
+        "sample_id": "8a54a8f9d52b8deb8a8329cb2fc0057ae1d1126dcb6391a1c44c911ff352bc44",
+        "roles": [
+          "original_probe_stop"
+        ],
+        "legacy_owned_elapsed_s": 33.359133799996926,
+        "closed_sample_elapsed_s": 16.533261899996432
+      }
+    ],
+    "legacy_owned_mean_elapsed_s": 32.58145062000112,
+    "closed_sample_mean_elapsed_s": 16.743838080001296,
+    "scope": "inclusive_nested_wall_time_not_exclusive_or_additive",
+    "stage": "complete_sample_CPU_encoding_including_source_validation_processor_and_full_metadata_gate",
+    "order_randomized": false,
+    "fair_performance_benchmark": false,
+    "camera_to_execution_latency_measured": false,
+    "exclusive_vision_prefill_decode_times_measured": false
+  },
+  "memory": {
+    "source": "K32GetProcessMemoryInfo_PROCESS_MEMORY_COUNTERS_EX_and_GlobalMemoryStatusEx",
+    "scope": "boundary_snapshots_and_process_lifetime_OS_peaks_not_continuous",
+    "os_peak_scope": "process_lifetime",
+    "continuous_sampling": false,
+    "process_lifetime_peak_working_set_bytes": 786944000,
+    "process_lifetime_peak_commit_bytes": 2330398720,
+    "min_observed_host_physical_available_bytes": 14129807360,
+    "min_observed_process_available_commit_bytes": 12804775936,
+    "commit_is_resident_memory": false,
+    "commit_fields_are_systemwide_commit_totals": false,
+    "stage_memory_peak_proven": false,
+    "GPU_memory_measured": false,
+    "old_failure_instant_memory_measured": false
+  },
+  "software_checks": {
+    "actor_supervision_closed_helper_host_tests": 163,
+    "actor_supervision_closed_helper_host_native_exit_code": 0,
+    "actor_supervision_closed_helper_host_chunk": "c84da6",
+    "profiler_tests": 51,
+    "profiler_native_exit_code": 0,
+    "profiler_chunk": "98b932",
+    "recovery_budget_tests": 63,
+    "recovery_budget_native_exit_code": 0,
+    "recovery_budget_chunk": "feb971",
+    "fixture_checks_are_official_processor_acceptance": false
+  },
+  "recovery_budget_implementation": {
+    "source_files": [
+      {
+        "path": "scripts/onboard_navigation_recovery_budget.py",
+        "bytes": 8223,
+        "sha256": "56580ea056279027867c82ff70e2e2da0162424fd225fc4f58e1e1b22d9bac71"
+      },
+      {
+        "path": "tests/test_onboard_navigation_recovery_budget.py",
+        "bytes": 10628,
+        "sha256": "37e8dc488a33baf6b487993a4061258c9b6fd2a489c0660f46140b21ba60db00"
+      }
+    ],
+    "contract": "multidetect.onboard-navigation-recovery-coverage-first-schedule-v1",
+    "spent_optimizer_attempts": 13,
+    "max_new_optimizer_attempts": 267,
+    "campaign_attempt_cap": 280,
+    "per_class_quotas": {
+      "forward": 70,
+      "left": 66,
+      "right": 66,
+      "stop": 65
+    },
+    "all86_coverage_software_tested": true,
+    "actual_source_bound_schedule_created": false,
+    "new_training_runner_implemented": false,
+    "optimizer_authorized": false,
+    "exact_resume": false
+  },
+  "historical_failure_preserved": {
+    "bytes": 6517,
+    "path": "D:\\Projects\\Multi-Detect\\docs\\evidence\\onboard-navigation-streamed-training-failure-20261008-r1.json",
+    "sha256": "0d7575dc7cf39ae363087e28ed06f09e4dd879432f26e1e18d49f7bf6de2bb69"
+  },
+  "claims": {
+    "model_loaded": false,
+    "GPU_used": false,
+    "optimizer_created": false,
+    "forward_backward_performed": false,
+    "optimizer_steps_attempted": 0,
+    "training_recovered": false,
+    "all86_reencoded": false,
+    "prior_memory_error_cause_proven": false,
+    "memory_benefit_proven": false,
+    "independent_holdout": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "transport_created": false,
+    "PX4_command_sent": false,
+    "Gazebo_flight_executed": false,
+    "Jetson_verified": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false,
+    "budget_reset": false
+  },
+  "next_steps": [
+    "Bind_actual_original_sources_and_failed_attempt_to_NEW267_schedule_and_new_runner_journal",
+    "Require_full86_closed_sample_CPU_acceptance_before_any_NEW_GPU_attempt",
+    "Measure_host_memory_with_actual_model_and_save_explicit_checkpoints_in_NEW_execution_contract",
+    "Audit_new82_original_images_for_visual_grouping_FRD_labels_and_independent_scene_evaluation"
+  ]
+}

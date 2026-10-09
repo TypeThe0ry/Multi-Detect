@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison",
+  "status": "candidate_rejected_current_reference_retained",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "parent_model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r52-3d-curriculum-dev",
+    "model": "artifacts/models/onboard-policy-r52-3d-curriculum-dev/onboard_policy_r52.onnx",
+    "model_sha256": "3a772947280a977d065256bbcb7510a507a4b4cada1c18125e89b37dfc2a9dff",
+    "training_config": "artifacts/models/onboard-policy-r52-3d-curriculum-dev/training-config.json",
+    "training_config_sha256": "ded6facef5864093f020c948fa4487d1d65e8dff16b82337a912fc86037e4063",
+    "training_report": "artifacts/models/onboard-policy-r52-3d-curriculum-dev/training-report.json",
+    "training_report_sha256": "bafa13ffb1911d9ed09175856711ec0133b9edb2373438e75319a90fcd49f52b",
+    "generalization_report": "artifacts/evaluation/onboard-policy-r52-generalization-20261006.json",
+    "generalization_report_sha256": "4a694e79e6693c5812c1db883a341ad75add07cb35f37bff15f8a1db90b9ab55",
+    "sensor_holdout": "artifacts/evaluation/onboard-policy-r52-3d-sensor-holdout-20261006.json",
+    "sensor_holdout_sha256": "d58b0d1776ae966310e5b27e437d4a3bad522fc0dca894ce80b0f89eab87d5ee",
+    "independent_holdout": "artifacts/evaluation/onboard-policy-r52-independent-holdout-20261006.json",
+    "independent_holdout_sha256": "2a4c3916ace9e0b35fbd07bd70fc12692482af3b544174428d612c427c9e851c",
+    "policy_chain": "artifacts/evaluation/onboard-policy-chain-r52-20261006.json",
+    "policy_chain_sha256": "2d2ab3fbe8b80d81bf33524ee3f2ba0f804530c2c35a1876f0df741735630029",
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "training_samples": 93200,
+    "training_epochs": 18,
+    "independent_structured_holdout": "7/7",
+    "structured_3d_sensor_holdout": {
+      "case_count": 900,
+      "task_accuracy": 0.9966666666666667,
+      "flight_accuracy": 0.9944444444444445,
+      "compatible_output_rate": 0.9977777777777778
+    },
+    "generalization": {
+      "raw_head_passed": 16,
+      "guarded_passed": 21,
+      "guarded_failures": ["bearing-left"],
+      "navigation_direction_passed": 21,
+      "navigation_range_passed": 22
+    },
+    "policy_chain": {
+      "phase_sequence": ["search", "match_target", "record_location", "return_home", "report"],
+      "movement_mission_count": 2,
+      "planner_revalidated": true,
+      "model_decision_used": true,
+      "fixed_colour_label_used": false,
+      "truth_json_used": false,
+      "software_sim_only": true
+    },
+    "same_40_feature_contract": true,
+    "pixel_level_rendered_training": false,
+    "rendered_rgb_depth_rows": 0,
+    "external_gazebo_runtime": false,
+    "candidate_promoted": false
+  },
+  "training_data_boundary": {
+    "source": "current_entity_sdf_geometry_teacher_and_shared_lifecycle_curriculum",
+    "gazebo_3d_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "gazebo_3d_manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "truth_json_used": false,
+    "red_green_fixture_used_as_visual_training": false,
+    "training_ready_real_3d_dataset": false,
+    "reason_for_rejection": "bearing-left generalized pressure case failed and no reviewed pixel-level RGB/Depth episode exists"
+  },
+  "release_boundary": {
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

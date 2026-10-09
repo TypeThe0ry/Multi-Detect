@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-vlm-grounding-cluster-preflight-v1",
+  "observed_at_utc": "2026-10-07 02:37:32 UTC",
+  "scope": "optional_remote_CUDA_capacity_preflight_local_8GB_training_can_continue",
+  "requested_job": {
+    "apiVersion": "cyc.dev/v1",
+    "id": "d83e3b9a-6ed7-47f2-8f26-d9ea9c3955bf",
+    "kind": "gpu",
+    "source": {
+      "type": "git",
+      "repository": "https://github.com/TypeThe0ry/Multi-Detect.git",
+      "revision": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b"
+    },
+    "requirements": {
+      "arch": "x86_64",
+      "capabilities": [
+        "tool.python",
+        "gpu.nvidia"
+      ],
+      "gpu": {
+        "vendor": "nvidia",
+        "minVramMiB": 10240,
+        "exclusive": true
+      },
+      "minMemoryMiB": 12288,
+      "minDiskMiB": 8192
+    },
+    "resourceRequest": {
+      "slots": 1,
+      "cpuCores": 2,
+      "memoryMiB": 12288,
+      "diskMiB": 8192,
+      "gpu": {
+        "vendor": "nvidia",
+        "vramMiB": 10240,
+        "exclusive": true
+      }
+    },
+    "steps": [
+      {
+        "name": "cuda-vlm-training-capability-preflight",
+        "script": "python -c \"import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0)); print(torch.cuda.mem_get_info())\"",
+        "timeoutSeconds": 120
+      }
+    ],
+    "timeoutSeconds": 180,
+    "placementPolicy": "performance",
+    "artifacts": {
+      "include": [],
+      "retentionDays": 1
+    }
+  },
+  "placement_error": {
+    "code": "no_eligible_node",
+    "message": "No connected computer satisfies the job requirements",
+    "placement": {
+      "policy": "performance",
+      "candidates": [
+        {
+          "nodeId": "7e207f14-6f4c-4d49-8c4c-26de7b2f9e16",
+          "nodeName": "Helio live usability",
+          "eligible": false,
+          "scoreComponents": [],
+          "rejectionReasons": [
+            {
+              "code": "offline",
+              "detail": "node is offline"
+            },
+            {
+              "code": "stale_node",
+              "detail": "last heartbeat is 201700 seconds old; freshness TTL is 15 seconds"
+            },
+            {
+              "code": "policy_job_kind_denied",
+              "detail": "node policy does not allow Gpu jobs"
+            },
+            {
+              "code": "insufficient_vram",
+              "detail": "requires 10240 MiB available VRAM, best matching GPU has 6530 MiB"
+            }
+          ]
+        },
+        {
+          "nodeId": "8cc47cff-5c6c-47e9-a777-f46d30c6fa3a",
+          "nodeName": "nuc",
+          "eligible": false,
+          "scoreComponents": [],
+          "rejectionReasons": [
+            {
+              "code": "missing_capability",
+              "detail": "missing capability `gpu.nvidia`"
+            },
+            {
+              "code": "gpu_required",
+              "detail": "node has no GPU"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "remote_job_submitted": false,
+  "remote_training_executed": false,
+  "chosen_fallback": "local_RTX4060_8GB_backward_memory_preflight",
+  "candidate_promoted": false,
+  "final_release_allowed": false
+}

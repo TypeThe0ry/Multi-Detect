@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-action-readout-loader-failure-evidence-v1",
+  "date": "2026-10-08",
+  "scope": "actual_candidate_model_load_failed_before_any_feature_or_head_update",
+  "actual_execution": {
+    "plan_emission_native_exit_code": 0,
+    "plan_emission_tool_chunk": "e407b3",
+    "started_tool_chunk": "e36a82",
+    "session_id": 10533,
+    "terminal_tool_chunk": "253d54",
+    "actual_native_exit_code": 1,
+    "worker_pid": 7244,
+    "worker_pid_absent": true,
+    "relevant_model_processes_at_exit_check": 0,
+    "process_exit_check_tool_chunk": "37e6c5",
+    "output_files": [
+      "report.json"
+    ]
+  },
+  "observations": {
+    "success": false,
+    "model_loaded": true,
+    "base_parameter_sha256": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "adapter_parameter_sha256": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e",
+    "exact_saved_adapter_tensor_equality": true,
+    "complete_base_streaming_read_observed": false,
+    "complete_adapter_streaming_read_observed": true,
+    "reader_kinds": [
+      "adapter"
+    ],
+    "safe_open_calls_attempted": 1,
+    "safe_open_calls_returned": 1,
+    "loader_aliases_restored": true,
+    "outer_hook_fallbacks_restored": true,
+    "features": 0,
+    "raw_predictions": 0,
+    "optimizer_steps": {
+      "attempted": 0,
+      "returned": 0,
+      "synchronized": 0,
+      "completed": 0
+    },
+    "error_type": "ValueError",
+    "error_message": "Exactly one complete base and saved adapter load are required",
+    "source_inventory_after_full_verification_completed": false
+  },
+  "diagnosis": {
+    "status": "source_and_observation_supported_import_order_cause_pending_corrected_actual_run",
+    "cached_alias": "transformers.modeling_utils.safe_open",
+    "new_behavior": "Actual PEFT import validation happened before the frozen streaming loader scope.",
+    "frozen_loader_scope": "Patches safetensors.safe_open and safetensors.torch.safe_open; a previously imported modeling_utils.safe_open retains its earlier alias.",
+    "interpretation": "Exact base and adapter parameter identities were observed, but the required base streaming reader evidence was absent. Do not claim the weights were skipped or a successful admitted load.",
+    "minimal_correction": "Authenticate interpreter/versions first; verify actual imported entrypoints inside the installed streaming scope, before backend construction. Preserve the cleanup guard; move head import after admitted loader completion.",
+    "frozen_dependency_changed": false
+  },
+  "cumulative_budget": {
+    "experiment_family": "onboard-navigation-action-readout-20261008",
+    "maximum_total_head_optimizer_attempts": 800,
+    "this_failed_attempt_head_optimizer_attempts": 0,
+    "remaining_maximum_head_optimizer_attempts": 800,
+    "inherited_base_lora_optimizer_attempts": 280,
+    "inherited_base_lora_budget_reset": false,
+    "new_attempt_may_not_grant_a_second_800_budget": true
+  },
+  "bindings": [
+    {
+      "path": "D:/Projects/Multi-Detect/scripts/experiment_onboard_navigation_action_readout.py",
+      "bytes": 48027,
+      "sha256": "afe7cee154f3353e3005b7c6fa0893f8e655bbcc54040f37128cec418df81c35"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/tests/test_experiment_onboard_navigation_action_readout.py",
+      "bytes": 46016,
+      "sha256": "ea34257f005348cba3ca9c0457a31bce315eb484d328d40ee8d19d4522b6aa31"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/configs/training/onboard-navigation-action-readout-20261008-r1.json",
+      "bytes": 239372,
+      "sha256": "70d8234fd108a467f223e31c4ec51e87bdfdae4b33b0679d24552774b65a498c"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/evaluation/onboard-navigation-action-readout-20261008-r1/report.json",
+      "bytes": 155058,
+      "sha256": "fdbd5292ee66440ef4bd91fce8ddb85bd75edc3edc85569933c50cfb4511cf86"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    }
+  ],
+  "claims": {
+    "feature_extraction_completed": false,
+    "head_training_completed": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "flight_performed": false,
+    "execution_authority": false,
+    "final_release_allowed": false,
+    "pristine_base_or_warm_comparison": false,
+    "generation_only_cause_proven": false,
+    "end_to_end_realtime_latency_verified": false,
+    "official_holdout_verified": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false
+  }
+}

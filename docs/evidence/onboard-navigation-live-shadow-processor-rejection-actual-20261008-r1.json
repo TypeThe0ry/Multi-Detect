@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "status": "actual_exact_load_and_camera_closed_processor_container_gate_rejected_before_fusion",
+  "root_native_terminal_chunk": "bb9af6",
+  "root_native_exit_code": 0,
+  "native_exit_scope": "owned_process_capture_and_rejection_journal_closed_not_successful_navigation_inference",
+  "plan": {"path": "configs/training/onboard-navigation-live-shadow-20261008-r1.json", "bytes": 295308, "sha256": "8904c9b2b14216e1befcb867098680ef2a194ecd1c11e7fc82c904dc4423d77a"},
+  "artifacts": [
+    {"path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r1/worker-report.json", "bytes": 778475, "sha256": "a2e472f7d3159555b9b42bdc40eca8e8afe450cf9329dcdbcd0c6999f6591a6d"},
+    {"path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r1-supervisor.json", "bytes": 1955, "sha256": "3cbdc3234506b6665588434baa9d21ab9a29421b3618863c53f24c8dcd45a059"},
+    {"path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r1/observations.jsonl", "bytes": 14467, "sha256": "97f777583d7e5857f9e4ae2654728c63c5a7509cdd23e53f20ba30f8edec412e"},
+    {"path": "artifacts/evaluation/onboard-navigation-live-shadow-20261008-r1/capture/capture.json", "bytes": 189667, "sha256": "386fe66554738f3bcfab4158538ce817c9bef0fee2d10658f624643deb7b244d"}
+  ],
+  "actual_exact_loader": {
+    "base_parameter_sha256_before_and_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "adapter_parameter_sha256_before_and_after": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e",
+    "load_succeeded": true,
+    "closed_successfully": true,
+    "source_bindings_unchanged": true
+  },
+  "observation": {
+    "new_actual_camera_requests": 8,
+    "processor_attempts": 8,
+    "accepted_results": 0,
+    "rejected_results": 8,
+    "fused_forward_attempts": 0,
+    "head_readout_attempts": 0,
+    "raw_action_predictions": 0,
+    "reason": "Only four actual prefix tensors may reach the fusion trunk",
+    "cause": "native Transformers BatchFeature rejected by built-in dict type gate",
+    "processor_compatibility_gate_passed": false
+  },
+  "CPU_native_cause_probe": {
+    "native_terminal_chunk": "1bab1f",
+    "native_exit_code": 0,
+    "report": {"path": "artifacts/diagnostics/onboard-navigation-native-prefix-20261008-r1/report.json", "bytes": 2915, "sha256": "df1e2c9ed0f71ed1347a4b56cac4e1e9d31d72fcdc42e27bf24a4759439b6739"},
+    "retained_actual_Actor_identity_matches": true,
+    "actual_container_type": "transformers.feature_extraction_utils.BatchFeature",
+    "exact_four_native_fields": true,
+    "all_tensors_CPU": true,
+    "model_loaded": false,
+    "fused_forward_performed": false,
+    "is_not_fresh_runtime_acceptance": true
+  },
+  "new_optimizer_attempts": 0,
+  "new_generation_calls": 0,
+  "inherited_head_optimizer_attempts": 3000,
+  "inherited_base_lora_optimizer_attempts": 280,
+  "claims": {
+    "navigation_inference_accepted": false,
+    "end_to_end_realtime_verified": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "flight_actuated": false,
+    "training_ready": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

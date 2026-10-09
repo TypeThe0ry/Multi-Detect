@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "event": "onboard_policy_3d_scene_contract_incremental_training",
+  "release_label": "0.3.0-pre.8",
+  "candidate_id": "onboard-policy-r26-gazebo3d-scene-dev",
+  "candidate_promoted": false,
+  "training_ready_source": false,
+  "training_method": "shared_3d_scene_contract_plus_rendered_sensor_plumbing_finetune",
+  "device": "NVIDIA GeForce RTX 4060",
+  "parent_model": {
+    "path": "artifacts/models/onboard-policy-r25-3d-depth-gated-dev/onboard_policy_r25.onnx",
+    "sha256": "803554f474c78a7094021bd6e4f7b6f85292818ca7ce399e142bf7a83593dd05"
+  },
+  "candidate_model": {
+    "path": "artifacts/models/onboard-policy-r26-gazebo3d-scene-dev/onboard_policy_r26.onnx",
+    "bytes": 62145,
+    "sha256": "25bef8e8486d5307a993b20cf51fa056073bb5f4f3bf186ddc15cc49fd5d96b5"
+  },
+  "training_config": {
+    "path": "artifacts/models/onboard-policy-r26-gazebo3d-scene-dev/training-config.json",
+    "bytes": 5151,
+    "sha256": "01016329ad39ca427a0fb7eff4a9741c9fd304cd422c3420904f5ed7586b7588"
+  },
+  "training_report": {
+    "path": "artifacts/models/onboard-policy-r26-gazebo3d-scene-dev/training-report.json",
+    "bytes": 7360,
+    "sha256": "c662802b103e6d653a476c595220d498b853251fe34e84d57f6039cd29c497e7"
+  },
+  "scene_contract": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "b1bc7d2b71654b8eb1ce8e66db311001de7d59d5bb86871da9d498c8a34dcd30",
+    "vehicle_world_families": [
+      "urban_inspection_multirotor_001",
+      "river_rescue_vtol_001",
+      "coastal_patrol_fixed_wing_001"
+    ],
+    "rgb_depth_telemetry_contract": true,
+    "world_truth_injected": false
+  },
+  "training_source_breakdown": {
+    "total_rows": 34344,
+    "structured_3d_scene_teacher_rows": 12000,
+    "rendered_sensor_rows": 144,
+    "rendered_source_unique_frames": 9,
+    "rendered_rows_are_repeated_weight": true,
+    "rendered_source_training_ready": false,
+    "independent_test_rows": 0,
+    "semantic_fixture_rows_from_legacy_red_car_path": 0,
+    "synthetic_contract_rows_are_not_pixel_supervision": true
+  },
+  "rendered_source_dataset": {
+    "path": "artifacts/training/onboard-rendered-3d-depth-v3.json",
+    "sha256": "d5f17fe1d2012c495c5ceb61caecad3c2e90558b6420f6caf4efa1e6d78aaaa6",
+    "bytes": 19659,
+    "rows": 9,
+    "unique_frame_rows": 3,
+    "detector_hits": 0,
+    "depth_median_values": "all_null",
+    "obstacle_observation_valid": 0.0,
+    "training_ready": false
+  },
+  "training": {
+    "feature_width": 40,
+    "epochs": 45,
+    "learning_rate": 0.0004,
+    "split_strategy": "source_group_hash",
+    "train_rows": 27643,
+    "evaluation_rows": 6701,
+    "test_rows": 0,
+    "train_task_accuracy": 0.8849256592989183,
+    "evaluation_task_accuracy": 0.7824205342486196,
+    "train_flight_accuracy": 0.8949462793473936,
+    "evaluation_flight_accuracy": 0.8125652887628713,
+    "regression_clip_rate": 0.0,
+    "parent_weight_inherited": true,
+    "gpu_training_completed": true
+  },
+  "independent_structured_holdout": {
+    "path": "artifacts/evaluation/onboard-policy-r26-3d-sensor-holdout.json",
+    "bytes": 1117,
+    "sha256": "76b1e14e3b076a8c4ab224425b8ef3cee11c37e3e1d2693f0db29e4fffdb5bc4",
+    "seed": 20261019,
+    "cases": 2100,
+    "task_accuracy": 0.7461904761904762,
+    "flight_accuracy": 0.7795238095238095,
+    "compatible_output_rate": 0.95,
+    "training_used": false,
+    "pixel_level_rendered": false,
+    "source_breakdown": {
+      "structured_3d_scene_teacher_rows": 12000,
+      "rendered_sensor_rows_after_repeat": 144,
+      "rendered_sensor_rows_before_repeat": 9,
+      "rendered_rows_are_repeated_weight": true,
+      "reviewed_trajectory_rows": 0,
+      "independent_test_rows": 0
+    }
+  },
+  "claims": {
+    "same_onboardai_contract": true,
+    "same_parent_model_family": true,
+    "real_3d_scene_assets_used": true,
+    "external_gazebo_runtime_rerun": false,
+    "pixel_level_visual_generalization": false,
+    "reviewed_trajectory_labels": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "reason_not_promoted": "The candidate improves a truth-free structured 3-D sensor holdout, but the persisted RGB/Depth source is only nine unique frames with no reviewed continuous trajectory, no independent pixel test split, and no fresh external Gazebo runtime rerun."
+  }
+}

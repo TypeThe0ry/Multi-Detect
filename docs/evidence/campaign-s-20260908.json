@@ -1,0 +1,53 @@
+{
+  "report_level_negative_verified": true,
+  "rejected": [
+    {
+      "task_id": "synthetic-west",
+      "reason": "estimated mission duration exceeds energy budget above return reserve"
+    }
+  ],
+  "first_task": "synthetic-east",
+  "second_context_sha256": "946d8dc9a6b6e6403e9c6ba9de8e50bbb48a41b27e9749b45540dc05b0afee59",
+  "first_endurance_s": 334.59200000000004,
+  "second_endurance_s": 308.17022800000024,
+  "packet_capture_claimed": false,
+  "physical_calibration_claimed": false,
+  "inputs": [
+    {
+      "path": "configs\\scenarios\\vtol-diverse-routes.synthetic-campaign.json",
+      "bytes": 6457,
+      "sha256": "27c8900223c927d9e0ed8839971c4411c261d9d4bb84b9dbb244b3e4861ce67e"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-s\\campaign-missions\\mission-001.json",
+      "bytes": 1685873,
+      "sha256": "5f2945668ff878f25158845d5ea6e3925364471f0d3bcfa8e9ed947fe8fceadf"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-s\\campaign-missions\\mission-002.json",
+      "bytes": 67204,
+      "sha256": "5638bd91f787c48df9f16e8a29e92818f27efa9010c9fc0c6ad449b7f2da0fe3"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-s.json",
+      "bytes": 26850,
+      "sha256": "97a5d0cac8fd4d561a5bd76f6af8223d5db862592f257c185b3a0746c42edb75"
+    }
+  ],
+  "product_version": "0.3.0-pre.8",
+  "generated_at": "2026-09-08",
+  "status": "external_sim_passed",
+  "scope": "External SIM report-level rejection, shared selector recomputation, no second journal on disk",
+  "first_completed_seconds": 92.235,
+  "initial_energy_wh": 33.5,
+  "container_id": "dba32a34ba51eecb5fc087acfa0eb64912d977ab830c4d40bc7910133e8021fd",
+  "outer_execution_exit_code": 1,
+  "audit_exit_code": 0,
+  "focused_passed": 317,
+  "limitations": [
+    "Outer campaign success gate remains false because all tasks did not complete; this is a separate negative acceptance.",
+    "Second planning energy raw history is not retained in the rejection report; exact energy integration was not independently replayed here.",
+    "No HIL, REAL, manual UI, training or production model claim."
+  ],
+  "audit_command": "python scripts/audit_campaign_rejection.py --campaign configs/scenarios/vtol-diverse-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-s --outer-report artifacts/evaluation/campaign-20260908-s.json"
+}

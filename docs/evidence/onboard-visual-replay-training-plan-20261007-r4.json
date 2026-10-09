@@ -1,0 +1,83 @@
+{
+  "contract": "multidetect.onboard-visual-replay-training-plan-v1",
+  "created_at_utc": "2026-10-07T01:32:52Z",
+  "scope": "incremental_single_frame_visual_training_with_original_train_clip_frames_and_static_replay",
+  "reason": "Current canonical policy trajectories lack diverse target observations and independent partitions; speed-only next-latent loss is not a useful autonomy experiment.",
+  "parent": {
+    "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.pt",
+    "bytes": 5370942,
+    "sha256": "578827f7b5aa236eeeab51a9e9b7188a39b4df872d0186f6245b0631fcb8bc9b"
+  },
+  "parent_training_report": {
+    "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/visual-training-report.json",
+    "bytes": 3513,
+    "sha256": "4804c1a0905d9b38b2a645a1a8a245f2297d10dacd79590a477a26a626d221f0"
+  },
+  "source_manifests": [
+    {
+      "path": "artifacts/training/onboard-blender-sdf-curriculum-20261007-r2/manifest.json",
+      "bytes": 35481784,
+      "sha256": "d1c110067474e661ca217229a87e3b9f2c6777cd1260f539b19ce84a09bbd836"
+    },
+    {
+      "path": "artifacts/training/onboard-blender-sdf-far-curriculum-20261007-r3/manifest.json",
+      "bytes": 35886327,
+      "sha256": "6361d0daddf2f54d0e07df72efb3e9f24edcc12d441fab730c51fe128cf8a1dd"
+    },
+    {
+      "path": "artifacts/training/onboard-blender-sdf-clips-20261007-r2/manifest.json",
+      "bytes": 2735637,
+      "sha256": "ab81c82eeab010f63ecf642048f59bf8b122788aa664744aa9508d82399b3aaa"
+    },
+    {
+      "path": "artifacts/training/onboard-blender-sdf-clip-suite-20261007-r3/manifest.json",
+      "bytes": 9150136,
+      "sha256": "acc3ce0c867a78255fd7e2a1ef4c454d35da9fc97c6d2b8285520f6c8aac3f6e"
+    }
+  ],
+  "configuration": {
+    "epochs": 12,
+    "batch": 4,
+    "imgsz": 640,
+    "seed": 20261017,
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "workers": 0,
+    "amp": false,
+    "confidence_threshold": 0.25,
+    "iou_threshold": 0.5
+  },
+  "evaluation_rules_frozen_before_training": {
+    "same_parent_and_candidate_pixels_runtime_thresholds": true,
+    "separate_old_and_far_static_and_two_clip_evaluations": true,
+    "test_frames_never_added_to_train": true,
+    "no_threshold_tuning": true,
+    "development_holdout_not_untouched_blind_test": true,
+    "far_static": {"tp_min": 33, "fp_max": 5},
+    "old_static": {"tp_min": 27, "fp_max": 8},
+    "old_partial_occlusion": {"tp_min": 14, "fp_max": 6},
+    "far_clips": {"tp_min": 11, "fp_max": 18, "id_switches_max": 2, "same_id_reacquisitions_min": 1},
+    "old_clips": {"tp_min": 6, "fp_max": 2, "id_switches_max": 2, "same_id_reacquisitions_min": 1}
+  },
+  "interpretation": {
+    "learned_component": "existing_YOLO26n_auxiliary_search_target_detector",
+    "temporal_model_training": false,
+    "prompt_understanding_training": false,
+    "flight_action_training": false,
+    "class_name": "search_target",
+    "class_alias_to_car_or_person": false,
+    "source": "offline_Blender_RGB_from_repository_entity_SDF_geometry_not_Gazebo_capture",
+    "masks": "offline_visual_supervision_only_never_runtime_input"
+  },
+  "candidate_promoted": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,41 @@
+{
+  "contract": "multidetect.gazebo-3d-capture-runtime-blockers-v1",
+  "date": "2026-10-07",
+  "read_only_diagnosis": true,
+  "local": {
+    "probe": "artifacts/evaluation/gazebo-capture-local-runtime-probe-20261007-r1.json",
+    "docker_info": "8 second timeout",
+    "wsl": "docker-desktop stopped; no independent Linux distribution",
+    "native_gazebo": "not found",
+    "confirmed_failure": "Docker Desktop backend explicitly reported Disk full at 2026-10-07 04:02:46 +08; VM buffer write errors and annotation collector I/O error followed",
+    "disk_free_bytes_snapshot": {"C": 588017664, "D": 59368562688, "E": 89431756800},
+    "docker_vhd_bytes": 130441805824,
+    "recovery_proposal": "back up only the verified torch 2.6.0+cu124 pip HTTP cache pair to D, verify hashes, remove those exact cache originals, then controlled Docker Desktop restart",
+    "recoverable_cache_bytes": 2532302971,
+    "user_approval": "requested_pending",
+    "cache_removed": false,
+    "docker_restarted": false,
+    "docker_images_or_volumes_deleted": false
+  },
+  "cluster": {
+    "flow": "fleet_plan then fleet_plan_submit; Controller automatic placement",
+    "job_id": "16b9192e-524a-4ba7-928c-1d76ea9bd3b1",
+    "run_id": "b34ca89d-2752-4281-8f2e-186ee581c81b",
+    "native_exit_code": 2,
+    "probe_executed": true,
+    "stdout_bytes": 777,
+    "stdout_sha256": "f5d49de6160583409c51c8f2bfdfca93ab5595985feaba79650c128dffafbe0a",
+    "docker_native_exit_code": 1,
+    "docker_error": "cannot change profile for the next exec call: Operation not permitted",
+    "artifact_ids": [],
+    "diagnosis": "not a source snapshot or cwd failure; actual probe JSON persisted in Controller stdout log",
+    "safety_isolation_changed": false,
+    "next_action": "diagnose supported Docker CLI/profile compatibility; do not disable worker security isolation"
+  },
+  "fallback_executed": "actual offline Blender SDF pixel rendering and auxiliary visual training; separate provenance",
+  "gazebo_capture": false,
+  "candidate_promoted": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

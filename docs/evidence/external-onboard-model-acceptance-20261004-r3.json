@@ -1,0 +1,72 @@
+{
+  "schema": "multidetect.external-onboard-model-evidence-summary",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-04T12:47:23Z",
+  "release_label": "0.3.0-pre.8",
+  "source_artifact": "artifacts/evaluation/external-onboard-model-acceptance-20261004-r3.json",
+  "source_artifact_sha256": "92a8a0b7a7aef5212c5077ccfcc9f6845aa40bf3ffa6d6c92b04af74f33e172d",
+  "scenario": "urban_inspection_multirotor_001",
+  "external_software_sim": {
+    "docker_gate_passed": true,
+    "px4_heartbeat_observed": true,
+    "gps_observed": true,
+    "container_cleanup_passed": true,
+    "flight_control_commands_sent": 0,
+    "mission_transaction": "not_requested",
+    "sensor_transport": "not_requested"
+  },
+  "shared_onboard_model": {
+    "model_id": "onboard-policy-r4",
+    "model_sha256": "8ef33c3436b065065fff5b59c7cd3588900ce3374260940390c0dd460eeb7812",
+    "provider": "onnxruntime:CPUExecutionProvider",
+    "realtime_bridge_observations": 2,
+    "planner_revalidation_for_search_replan": true,
+    "policy_applied_to_actuator": false
+  },
+  "live_context": {
+    "battery_remaining_pct": 99.0,
+    "ground_speed_mps": 0.0017096980009227991,
+    "airspeed_mps": 0.0,
+    "airspeed_source": "multirotor_groundspeed_proxy_no_pitot",
+    "estimated_flight_time_source": "configured_nominal_flight_time_scaled_by_live_battery",
+    "wind_source": "not_observed_assumed_zero_for_control_plane_only"
+  },
+  "decision_trace": [
+    {
+      "sequence": 0,
+      "event": "prepare",
+      "response": "execute",
+      "reason": "mission_selected",
+      "planner_revalidated": true
+    },
+    {
+      "sequence": 1,
+      "event": "external-green-mismatch",
+      "response": "replan",
+      "task_action": "search",
+      "flight_plan_action": "move_relative",
+      "planner_revalidated": true,
+      "mission_replaced": true
+    },
+    {
+      "sequence": 2,
+      "event": "external-red-match",
+      "response": "return",
+      "task_action": "record_location",
+      "flight_plan_action": "return_home",
+      "safety_dispatched": true
+    }
+  ],
+  "claims_boundary": {
+    "structured_perception_source": "synthetic_fixture",
+    "gazebo_rgb_accuracy": "not_claimed",
+    "gazebo_depth_accuracy": "not_claimed",
+    "qgc_visual_acceptance": "not_claimed",
+    "mission_upload_readback_commit_permit": "not_claimed",
+    "hil": false,
+    "real_pixhawk": false,
+    "jetson": false,
+    "outdoor_gnss": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "campaign": "vtol-one-task-ranked-pre.8",
+  "runtime_mode": "SIM",
+  "external_stack": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "top_level_evidence": "artifacts/evaluation/vtol-one-task-policy-run-20260919-d.json",
+  "top_level_evidence_sha256": "e34d0691dc4d3ede53e382f3d6d6dd1dff6b23ef55f47d8f24c3769374db3626",
+  "gate_passed": true,
+  "cleanup_failures": [],
+  "container_cleanup": {
+    "exact_id_removal": true,
+    "post_remove_absence_proven": true
+  },
+  "policy_artifact": {
+    "file": "artifacts/evaluation/vtol-one-task-policy-pre.8.json",
+    "file_sha256": "e77aea4d98ce262621e45bb5e034aa02b5bf39b0d696c31eb7cbe43484de1614",
+    "canonical_sha256": "2ad1c1bb825d04915379f29357704accc1567a2079fb6688e8eaf0a1bf2303ed",
+    "stable_airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f"
+  },
+  "mission": {
+    "task_id": "synthetic-east",
+    "armed_after_permit": true,
+    "auto_mission_confirmed": true,
+    "in_air_observed": true,
+    "landed_observed": true,
+    "terminal_disarmed": true,
+    "policy_evidence_sha256": "85818efde0ba3d5bf7239fa8c4c506adf051f0daa25f0f18c7254be2bbb0e5d7",
+    "journal_sha256": "fe1784cecc66210d720f36b84de04c5683f52dd6807928bc18fe4ae53208947e"
+  },
+  "claims": {
+    "external_sim_evidence": true,
+    "candidate_promoted": false,
+    "learned_weights_loaded": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  },
+  "notes": [
+    "The first attempts exposed a telemetry energy-window gap; the existing PX4 SITL state streams were raised from 4 Hz to 10 Hz without changing freshness thresholds.",
+    "This is a single-task external SIM acceptance, not a parent/candidate performance comparison and not HIL/REAL acceptance."
+  ]
+}

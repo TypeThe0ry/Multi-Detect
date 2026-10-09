@@ -1,0 +1,70 @@
+{
+  "status": "passed_truth_free_external_px4_gazebo_ai_flight_response",
+  "release_label": "0.3.0-pre.8",
+  "source_evidence": "artifacts/evaluation/simulator-docker-ai-flight-20261002-gnss-display-r2.json",
+  "source_evidence_sha256": "4a27af6b7178a685dd479f9035579f713d306d1dc6817905bedb206e1e950d52",
+  "scenario_id": "river_rescue_vtol_001",
+  "scenario_manifest_sha256": "fead91ba6dae297545fd02041257f7232483ab55ebc654e4df51fc19195ee02f",
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "container_name": "multidetect-ai-gnss-display-r2",
+  "execution_requested": true,
+  "duration_s": 27.031,
+  "gates": {
+    "gate_passed": true,
+    "runtime_gate_passed": true,
+    "preflight_gate_passed": true,
+    "sensor_transport_gate_passed": true,
+    "mission_transaction_gate_passed": true,
+    "mission_transaction_requested": false,
+    "mission_transaction_status": "not_requested",
+    "ai_policy_gate_passed": true,
+    "target_policy_gate_passed": true,
+    "flight_response_gate_passed": true,
+    "flight_response_status": "passed"
+  },
+  "arm_exercise": {
+    "armed_observed": true,
+    "arm_attempts": 6,
+    "accepted_arm_ack_count": 1,
+    "preflight_parameters": [
+      "COM_ARM_HFLT_CHK=0",
+      "COM_MODE_ARM_CHK=0",
+      "CBRK_VTOLARMING=22027",
+      "NAV_DLL_ACT=0",
+      "COM_RC_IN_MODE=1"
+    ],
+    "scope": "owned disposable PX4/Gazebo SITL container only"
+  },
+  "target_exercise": {
+    "requested": true,
+    "sent": true,
+    "accepted": true,
+    "truth_free": true,
+    "mode": "track",
+    "confidence": 0.9,
+    "distance_m": 120.0
+  },
+  "flight_exercise": {
+    "duration_s": 5.0,
+    "status": "passed",
+    "target_updates_accepted": 47,
+    "target_updates_rejected": 0,
+    "maximum_target_refresh_gap_s": 0.125,
+    "target_refresh_gate_passed": true
+  },
+  "cleanup": {
+    "container_removed": true,
+    "stop_exit_code": 0,
+    "remove_exit_code": 0
+  },
+  "claims_boundary": {
+    "truth_free": true,
+    "hardware_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "visual_accuracy": "not_claimed",
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "mission_upload_or_commit": "not_claimed"
+  }
+}

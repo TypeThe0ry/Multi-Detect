@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "junit_path": "artifacts/evaluation/current-full-wind-phase-20260908.xml",
+  "sha256": "57e198aae2135da9e678c78618162e02befcfdcec5dfd332575af8c884f5ed68",
+  "bytes": 688735,
+  "tests": 4706,
+  "passed": 4699,
+  "skipped": 7,
+  "failures": 0,
+  "errors": 0,
+  "time_s": 443.192,
+  "process_exit_code": 0,
+  "session_id": 52219,
+  "skip_reason": "Windows symbolic-link creation unavailable",
+  "parser_tests_added_after_collection": 11,
+  "parser_tests_separately_passed": 11,
+  "external_run_i_parallel_load": true,
+  "full_objective_proven": false
+}

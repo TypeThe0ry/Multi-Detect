@@ -1,0 +1,59 @@
+{
+  "schema": "multidetect.onboard-3d-cluster-preflight-v1",
+  "release_label": "0.3.0-pre.8",
+  "status": "blocked_before_external_gazebo_runtime",
+  "purpose": "Record the controller-backed attempt to run the current dirty 3-D worktree on a Linux Docker node.",
+  "source_snapshot": {
+    "digest": "sha256:e08189f1cae400bbb3da3e7474a7964b822b4d32fd880ea58d205215410a462a",
+    "size_bytes": 29072547,
+    "file_count": 519,
+    "expanded_size_bytes": 28669445
+  },
+  "placement": {
+    "node_name": "nuc",
+    "node_os": "linux",
+    "node_arch": "x86_64",
+    "docker_capability_declared": true,
+    "gpu_present": false,
+    "selection_policy": "performance"
+  },
+  "jobs": {
+    "docker_daemon_probe": {
+      "job_id": "49d52c96-3338-49bc-91e6-f960dae5f1f3",
+      "state": "failed",
+      "exit_code": 1,
+      "controller_error": "step 0 `docker-daemon-probe` terminated as ExecutionFailed"
+    },
+    "external_3d_capture": {
+      "job_id": "adf1a049-e1ea-4251-975f-76f34a7fe723",
+      "state": "failed",
+      "exit_code": 1,
+      "controller_error": "step 0 `verify-and-run-external-3d-capture` terminated as ExecutionFailed",
+      "artifact_ids": []
+    },
+    "diagnostic_probe": {
+      "job_id": "13d96540-e670-4791-b702-2e67cf742500",
+      "state": "succeeded",
+      "exit_code": 0,
+      "stdout_artifact_returned": false
+    }
+  },
+  "capture": {
+    "container_created_confirmed": false,
+    "px4_telemetry_observed": false,
+    "rgb_frames_captured": 0,
+    "depth_frames_captured": 0,
+    "training_data_created": false,
+    "external_gazebo_runtime": false
+  },
+  "claim_boundary": {
+    "software_sim": "not_run",
+    "external_gazebo": "not_claimed",
+    "jetson_hardware": "not_claimed",
+    "pixhawk_hardware": "not_claimed",
+    "hil_real": "not_claimed",
+    "outdoor_gnss": "not_claimed",
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

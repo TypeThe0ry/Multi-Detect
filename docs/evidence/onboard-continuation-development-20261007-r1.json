@@ -1,0 +1,419 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-continuation-development-receipt-v1",
+  "verified_at_utc": "2026-10-07T04:55:21Z",
+  "repository_head": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+  "worktree_has_preexisting_changes": true,
+  "status": "software_continuation_source_parent_runtime_receive_admission_verified_not_live_flight",
+  "release_label": "0.3.0-pre.8",
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation.py",
+      "bytes": 25694,
+      "sha256": "135b3ae2a4d99bb556491724dd289b37512e44d2fe62929216b4658543abfd67"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation_binding.py",
+      "bytes": 34891,
+      "sha256": "e465c627ecd500dd336713d5699496fb30352b4f5fd69228c299f7bc5eb41d86"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation_admission.py",
+      "bytes": 21224,
+      "sha256": "bd7ab41744c24aeab9e700d3e384e39170cef884aef5990c8b3c9bacefeddb70"
+    },
+    {
+      "path": "scripts/probe_cluster_docker_access.py",
+      "bytes": 10788,
+      "sha256": "11fefd1b5b5dffdcaf4e317610e6289525ad76423f1ca8030a4896e3bd5d62d9"
+    },
+    {
+      "path": "tests/test_onboard_continuation.py",
+      "bytes": 18921,
+      "sha256": "1f8d7562f9b2a13978a756bf5f0154f3e11e6659933d825ec09efe059bb5bf55"
+    },
+    {
+      "path": "tests/test_onboard_continuation_binding.py",
+      "bytes": 35400,
+      "sha256": "cd2bcf06c30e61854935bc1e00221673170b74f460ab40607e356b67aace5d6b"
+    },
+    {
+      "path": "tests/test_onboard_continuation_admission.py",
+      "bytes": 18322,
+      "sha256": "278901834e76376200f1e4d7d99c76de52708b6a5d217c99a130ebc9a7c8f41e"
+    },
+    {
+      "path": "tests/test_probe_cluster_docker_access.py",
+      "bytes": 13024,
+      "sha256": "18a466f81f01145d25d1e03fdf4e2d82484e28a1ddf0fda1bfffb9c15263947f"
+    },
+    {
+      "path": "tests/test_onboard_continuation_evidence.py",
+      "bytes": 5763,
+      "sha256": "733b4a3d339bf9ac7edf8eac30392fd70360251c00484aa9d7f466a1a0bd44b3"
+    },
+    {
+      "path": "docs/onboard-continuation.md",
+      "bytes": 6214,
+      "sha256": "2616f56edfcc2755f3924101c53716b87515e20f8683d242a208d98dcc08a7c1"
+    }
+  ],
+  "baselines": [
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_admission.py",
+      "bytes": 27701,
+      "sha256": "1e4d497f843438ce3521ae2ab3e239f6e30e1024dcd38f737a629745bdc898d9"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_execution.py",
+      "bytes": 34320,
+      "sha256": "888eb9efbbd0c47a2de7d24373693383cd6400bf377f0b1b7e004265a1078125"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_evidence_collector.py",
+      "bytes": 43179,
+      "sha256": "7a591c07422e1340a28acd7145d4fa3f5d1b1b652b5315604e88ebeda9845646"
+    },
+    {
+      "path": "tests/test_onboard_vlm_admission.py",
+      "bytes": 19403,
+      "sha256": "70d656e30fe8bf6ab22f8c34e18328fed2b33b572d7d48a7348e365434b3f97d"
+    },
+    {
+      "path": "tests/test_onboard_vlm_execution.py",
+      "bytes": 43213,
+      "sha256": "721e5399f71ca3f9004e9228f24f38fb5a9f3619e85810f62c07803e6946248d"
+    },
+    {
+      "path": "tests/test_onboard_evidence_collector.py",
+      "bytes": 43744,
+      "sha256": "4b4cf6850f430f55e352bf9bbb920eebd187a7d2fc4aa79302dd7227e982ea8c"
+    },
+    {
+      "bytes": 22078,
+      "sha256": "f1321f1eee1c8fa96b38f154c74dcc077efec20007ae57f8e75ebf71fc5eeef6",
+      "path": "src/multidetect/autonomy/onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 14533,
+      "sha256": "b19039a8bcb7036f62c7e0a2098ded191ea3ed56813cdef00287b64a59a796dd",
+      "path": "src/multidetect/autonomy/onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 5910,
+      "sha256": "d11e419e2ba7309afd6afe6afd3cedba6ee173c74949f332a0d2002ea5fb1530",
+      "path": "src/multidetect/autonomy/onboard_vlm_backend.py"
+    },
+    {
+      "bytes": 8614,
+      "sha256": "bf350fee9a7bdc20d15b5c7be090e27f0d15cf2dc49dbc41a3620b20b8d4bab7",
+      "path": "scripts/run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "bytes": 22862,
+      "sha256": "d000bf8ff89a84d47cc00f27a7e503797e4c97dafeea8ab1a82daf89a5273034",
+      "path": "tests/test_onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 8838,
+      "sha256": "642c81bfc55cf741ab99db3e7c0b01ab8fc9e7a07db5c624bc7b36a2d7e37d5a",
+      "path": "tests/test_onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 1875,
+      "sha256": "977844f503acef44ee90f4212f6f39eeadee89a458c6d5466054f12002bc6fc0",
+      "path": "tests/test_run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_provider.py",
+      "bytes": 21816,
+      "sha256": "88bb9b940122069b5ea5b96e86ce5f641d0200b15493749d016a6f0390eda01e"
+    },
+    {
+      "path": "tests/test_onboard_vlm_provider.py",
+      "bytes": 25925,
+      "sha256": "9fe04107dc14388cd34402c9ec86eb0ea7776e5f62ece507b37a640a11ed69a1"
+    },
+    {
+      "bytes": 25597,
+      "sha256": "3dffd99197e1cdb204ef83862b00861d19ebe9e5ff1d20c95c46ae2d7227b659",
+      "path": "src/multidetect/autonomy/onboard_multimodal.py"
+    },
+    {
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4",
+      "path": "scripts/probe_onboard_vlm.py"
+    },
+    {
+      "bytes": 6872,
+      "sha256": "0d631d854a2a8edca55f02b5dbe984c2234e9d8338e06f86d7a27df7170ce777",
+      "path": "scripts/onboard_vlm_shadow_input.py"
+    },
+    {
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+      "path": "configs/training/onboard-policy-current-reference-v1.json"
+    },
+    {
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c",
+      "path": "configs/release-parity.json"
+    },
+    {
+      "bytes": 159768,
+      "sha256": "8089f3aa2bc7768b44f030b214bfbba423e0370102a578b38f13d0969053399d",
+      "path": "docs/evidence/onboard-vlm-grounding-training-20261007-r1.json"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_agent.py",
+      "bytes": 63449,
+      "sha256": "ec2750f72d57f1c9322aec13c0aef0b2a91d35e80801d0bde8a39264b2929cc1"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_adapter.py",
+      "bytes": 41574,
+      "sha256": "a516e731f82885a0c8063c2078ed5ed7a00085d0e0cc7b0979c2d027981fd322"
+    },
+    {
+      "path": "src/multidetect/autonomy/realtime_bridge.py",
+      "bytes": 39293,
+      "sha256": "16fdcc5b8b8530414bc221c533356414d6929066d37e0194ee94f46d37ea41c5"
+    },
+    {
+      "path": "src/multidetect/autonomy/mission_outcome.py",
+      "bytes": 12697,
+      "sha256": "8dc87940f03bc6fb9daeb203d9ade6c423c989277bd12c0372ed7e27d82cfcdb"
+    },
+    {
+      "path": "src/multidetect/mission_planning.py",
+      "bytes": 10516,
+      "sha256": "fe613bbb84669d75d8520158554308c5ea0c2ace4076ee92ab8a4bee51672e9b"
+    },
+    {
+      "path": "src/multidetect/mission_journal.py",
+      "bytes": 72318,
+      "sha256": "05150200fd60d434b3b61effe165f971c44d44ac7995bb1d02797b86432ca551"
+    },
+    {
+      "path": "src/multidetect/px4_mission.py",
+      "bytes": 98111,
+      "sha256": "cb389de53a528470891dccb54c6a1206f9adf18dd2a88c1f714d4c8fff0240a2"
+    },
+    {
+      "path": "src/multidetect/px4_mission_feedback.py",
+      "bytes": 32334,
+      "sha256": "44e458b480316a5c215d721bf433f21c58922e4b0f66a0687118b0124ef3bc41"
+    },
+    {
+      "path": "docs/research/onboard-vlm-candidates-20261007.md",
+      "bytes": 12793,
+      "sha256": "703c15e7cdccf6dc7582e0e14c03793a88a449c8162d642802653ae1a95817af"
+    },
+    {
+      "path": "docs/research/onboard-world-model-candidates-20261007.md",
+      "bytes": 14266,
+      "sha256": "6aec2a631a913e673dc9b1897e1ddd2d9b7c3d6f423d15b45cb9eba81ae90052"
+    },
+    {
+      "path": "docs/research/onboard-vlm-integration-review-20261007.md",
+      "bytes": 18430,
+      "sha256": "a28a041ada4e45917addcfb2ba7cd44dbd97ecaa5cc4fe129e31b403e326f08f"
+    }
+  ],
+  "prior_execution_receipt": {
+    "path": "docs/evidence/onboard-vlm-execution-admission-20261007-r1.json",
+    "bytes": 13790,
+    "sha256": "8457f3dba5c0eb9684f1a98029d5a965fdd4e68a432a946ed0f4bd5320a3926f"
+  },
+  "parallel_agents": 3,
+  "software_validation": {
+    "native_exit_code": 0,
+    "root_tests_passed": 911,
+    "root_duration_s": 56.68,
+    "test_files": [
+      "tests/test_onboard_continuation.py",
+      "tests/test_onboard_continuation_binding.py",
+      "tests/test_onboard_continuation_admission.py",
+      "tests/test_probe_cluster_docker_access.py",
+      "tests/test_probe_gazebo_capture_runtime.py",
+      "tests/test_onboard_vlm_admission.py",
+      "tests/test_onboard_vlm_execution.py",
+      "tests/test_onboard_evidence_collector.py",
+      "tests/test_onboard_vlm_runtime_contract.py",
+      "tests/test_onboard_vlm_worker.py",
+      "tests/test_onboard_vlm_provider.py",
+      "tests/test_run_onboard_vlm_runtime_replay.py",
+      "tests/test_onboard_realtime_bridge.py",
+      "tests/test_mission_planning.py",
+      "tests/test_autonomy_planner.py",
+      "tests/test_px4_multirotor_mission.py",
+      "tests/test_mission_journal.py",
+      "tests/test_mission_replacement.py",
+      "tests/test_onboard_vlm_execution_evidence.py",
+      "tests/test_onboard_vlm_runtime_evidence.py",
+      "tests/test_release_parity.py",
+      "tests/test_repository_progress_docs.py",
+      "tests/test_current_progress_index.py"
+    ],
+    "junit_artifact": {
+      "path": "artifacts/evaluation/onboard-continuation-development-20261007-r1/software-validation.xml",
+      "bytes": 138330,
+      "sha256": "1ac94e57fb8d0725313111eec01200b56a4fc5c845a82078aadc5e09fd8e8dd9"
+    },
+    "independent_admission_tests_passed": 54,
+    "independent_binding_tests_passed": 146,
+    "independent_native_exit_codes": [
+      0,
+      0
+    ],
+    "independent_same_binding_second_review_tests_passed": 146,
+    "independent_compiler_tests_passed": 85,
+    "independent_compiler_combined_with_prior_admission_tests_passed": 111,
+    "independent_counts_are_overlapping_not_added_to_root_count": true,
+    "ruff_check_native_exit_code": 0,
+    "ruff_format_check_native_exit_code": 0,
+    "new_python_files_checked": 9,
+    "continuation_compiler_implemented": true,
+    "source_fixed_target_software_verified": true,
+    "original_parent_receive_admission_implemented": true,
+    "child_readback_cursor_admission_implemented": true,
+    "full_original_task_identity_bound": true,
+    "full_runtime_body_identity_bound": true,
+    "source_model_request_RGB_raw_and_time_preserved": true,
+    "pure_child_route_commands": [
+      16,
+      16,
+      19
+    ],
+    "resume_sequence": 1,
+    "return_vertical_loiter_wait_and_landing_budget_included": true,
+    "development_budget_policy_only_tightens_defaults": true,
+    "known_HOME_relative_height_and_fresh_inair_auto_armed_required": true,
+    "full_current_three_dimensional_route_clearance_required": true,
+    "actual_readback_GCS_recipient_and_execution_current_software_compatible": true,
+    "readback_comparison_normalization_fields": [
+      "target_system",
+      "target_component",
+      "current"
+    ],
+    "original_receive_bytes_and_outbound_wire_preserved": true,
+    "prior_execution_sources_and_baselines_unchanged": true,
+    "production_parity_sources_recomputed": true
+  },
+  "closed_software_findings": [
+    "Budget override cannot loosen default climb, descent, maximum speed, waiting or planner safety assumptions.",
+    "Matching task IDs alone do not prove matching complete task requirements.",
+    "Matching parent Mission wire alone does not prove unchanged original context or full runtime safety policy.",
+    "Original trusted-host authoring declaration binds exact full runtime, task, parent Mission, journal, transaction, context and shared artifact; does not reinterpret older algorithm contract hashes.",
+    "Original model requested altitude outside envelope is rejected, not silently clamped to another target.",
+    "Clearance must bind the exact child wire and full 3-D route; horizontal-only coverage is insufficient.",
+    "PX4 inbound readback recipient and active cursor differ from outbound canonical fields; only independently admitted comparison copies normalize those three fields."
+  ],
+  "cluster_diagnostic": {
+    "scope": "readonly_launcher_context_daemon_probe_only",
+    "placement": "Controller_fleet_plan_then_fleet_plan_submit",
+    "job_id": "1e73f118-f7fd-4cf9-952f-91c8b263aa4a",
+    "run_id": "dbc84425-3c1b-4b7c-87c9-814e1ec149da",
+    "job_digest": "6bc3f8a8094a8f21259cd9d2af007ffb3e161a831cec7c75ac2ee7b193f8434c",
+    "plan_id": "4f2059ce-3e91-42dd-834b-23c37506660a",
+    "source_snapshot": {
+      "digest": "sha256:8e4bcbfcae5a8e13801d58d39890eb35731b3f0b44ee6d079aa483b6327a2b4a",
+      "bytes": 26636,
+      "expanded_bytes": 23812,
+      "files": 2
+    },
+    "started_at_utc": "2026-10-07T04:33:53.081576600Z",
+    "finished_at_utc": "2026-10-07T04:33:53.498640Z",
+    "collector_native_exit_code": 0,
+    "probe_native_exit_code": 2,
+    "diagnosis": "launcher_profile_restriction_before_daemon_query",
+    "daemon_availability": "unknown",
+    "client_version_native_exit_code": 1,
+    "docker_info_native_exit_code": 1,
+    "artifact_download_method": "formal_authenticated_CLI_artifacts_download_no_credentials_in_command",
+    "artifacts": [
+      {
+        "path": "artifacts/evaluation/cluster-docker-access-20261007-r1/docker-access.json",
+        "bytes": 1684,
+        "sha256": "b4411ed3980eefbf5820ae3c57d056a3d90c54270d055d5a29e84f2d675c3b1e",
+        "artifact_id": "1a324af2-9811-492c-a045-3d45f3c4f8e5",
+        "controller_hash_and_bytes_verified": true
+      },
+      {
+        "path": "artifacts/evaluation/cluster-docker-access-20261007-r1/probe-native-exit.txt",
+        "bytes": 2,
+        "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "artifact_id": "e00737ed-3589-4740-be25-d679e73e79bc",
+        "controller_hash_and_bytes_verified": true
+      }
+    ],
+    "service_lifecycle_changed": false,
+    "image_inspection_performed": false,
+    "gazebo_started": false
+  },
+  "local_diagnostic": {
+    "scope": "readonly_launcher_context_daemon_probe_only",
+    "collector_native_exit_code": 0,
+    "probe_native_exit_code": 2,
+    "native_exit_observation": "actual_python_subprocess_returncode_preserved_separately_from_PowerShell_wrapper",
+    "artifact": {
+      "path": "artifacts/evaluation/local-docker-access-20261007-r2/docker-access.json",
+      "bytes": 2293,
+      "sha256": "035cadde72e120092c733e265aba033216fe392e4f18ca1675c5d6e4d360c214"
+    },
+    "diagnosis": "daemon_query_timed_out_state_unknown",
+    "client_version_native_exit_code": 0,
+    "context_show_native_exit_code": 0,
+    "context_inspect_native_exit_code": 0,
+    "docker_info_native_exit_code": null,
+    "docker_info_timed_out": true,
+    "service_lifecycle_changed": false,
+    "image_inspection_performed": false,
+    "gazebo_started": false
+  },
+  "implementation_limits": {
+    "vehicle_class": "multirotor_only",
+    "parent_scope": "initial_canonical_ordinary_START_PERMITTED_parent_only",
+    "model_task_scope": "one_unchanged_registered_task_and_runtime",
+    "movement_intents": "source_anchored_local_search_or_relative_move",
+    "trusted_authoring_and_clearance_sources_default": [],
+    "receiver_source_authentication": "host_owned_pending_live_producer_hashes_only_establish_integrity",
+    "actual_readback_receiver": "explicit_registered_GCS_system_component_required_unknown_rejected",
+    "actual_PX4_source": "system1_component1_only_in_current_version",
+    "actual_parameter_gate": "MIS_TKO_LAND_REQ_INT32_value0_only_no_parameter_write",
+    "original_authoring_declaration": "strict_exact_host_origin_scope_task_full_runtime_artifact_context_parent_journal_transaction_not_an_execution_grant",
+    "segment_completion": "not_task_completion_or_return_landing_proof",
+    "budget_calibration": "conservative_development_assumptions_not_airframe_battery_or_Jetson_measurements",
+    "causal_runtime": "live_original_authoring_route_clearance_receiver_scheduler_transport_and_watchdog_pending",
+    "production_parity": "new_development_modules_not_added_to_production_source_list_or_promoted",
+    "runtime_blocker": "remote_Snap_launcher_profile_denial_before_daemon_query_local_daemon_probe_timeout",
+    "source_snapshot_issue": "preexisting_test_reparse_path_preserved_sourcepack_built_from_two_explicit_copies_no_deletion"
+  },
+  "execution_authority": false,
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "physical_performance_claimed": false,
+  "actual_flight_verified": false,
+  "gazebo_flight_performed": false,
+  "flight_action_training_performed": false,
+  "vlm_finetuning_performed": false,
+  "native_vlm_generation_performed": false,
+  "world_model_local_inference_measured": false,
+  "host_replacement_transport_implemented": false,
+  "replacement_parent_chain_verified": false,
+  "generation_cancellation_verified": false,
+  "hold_watchdog_implemented": false,
+  "live_route_clearance_producer_implemented": false,
+  "live_collector_receiver_join_implemented": false,
+  "live_original_authoring_producer_implemented": false,
+  "authenticated_original_authoring_source_verified": false,
+  "compile_dispatch_causal_lineage_verified": false,
+  "arbitrary_prompt_task_resolution_verified": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "production_parity_source_list_extended": false,
+  "development_modules_promoted": false
+}

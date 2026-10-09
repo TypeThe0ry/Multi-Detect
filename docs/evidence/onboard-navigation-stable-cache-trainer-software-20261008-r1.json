@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-stable-cache-trainer-software-evidence-v1",
+  "date": "2026-10-08",
+  "status": "CPU_entry_software_verified_not_actual_navigation_cache_training",
+  "bindings": [
+    {
+      "path": "scripts/train_onboard_navigation_stable_cache.py",
+      "bytes": 41124,
+      "sha256": "fc7c1f79de1e521b3738874b0f245063e55562cee208cb155dc3b60368cc7cda"
+    },
+    {
+      "path": "tests/test_train_onboard_navigation_stable_cache.py",
+      "bytes": 26182,
+      "sha256": "064350dc2c0a86a27ee9f2a82412e9118e994d61bfc8aeb4389bf7add5ae2686"
+    }
+  ],
+  "verification": {
+    "root_CPU_fixture_tests_passed": 46,
+    "root_fixture_native_exit_code": 0,
+    "root_fixture_terminal_tool_chunk": "6646a3",
+    "root_Ruff_format_source_identity_native_exit_code": 0,
+    "root_Ruff_format_source_identity_tool_chunk": "b90500",
+    "independent_stdlib_static_Windows_binding_schedule_WAL_identity_native_exit_code": 0,
+    "independent_stdlib_diagnostic_tool_chunk": "122010",
+    "fixtures_include_small_CPU_tensor_200_update_numerical_test": true,
+    "fixtures_are_not_actual_navigation_campaign_data": true,
+    "actual_cached_feature_matrix_read": false,
+    "actual_navigation_heads_trained": false,
+    "actual_training_plan_emitted": false
+  },
+  "precommitted_design_not_actual_budget_spend": {
+    "episode_out_heads": 9,
+    "final_TRAIN_only_descriptive_heads": ["final-old86", "final-all208"],
+    "updates_per_head": 200,
+    "optimizer": "CPU_FP32_AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "normalization_epsilon": 0.000001,
+    "seed": 0,
+    "new_family_attempt_cap": 2200,
+    "maximum_four_stage_WAL_events": 8800,
+    "ordered_raw_prediction_count": 502,
+    "inherited_head_attempts": 800,
+    "cumulative_head_attempt_cap": 3000,
+    "inherited_base_lora_attempts": 280,
+    "new_base_lora_updates": 0,
+    "best_checkpoint_early_stop_resume_retry_or_budget_refund": false,
+    "train_only_normalization_and_class_weights": true,
+    "raw_all_durable_before_gold_scoring": true,
+    "root_closed_extractor_terminal_receipt_required": true,
+    "actual_backbone_prefix_provenance_inherited_not_reobserved": true,
+    "CPU_runtime_scope": "four_imported_entrypoints_and_AdamW_export_not_transitive_DLL_audit"
+  },
+  "claims": {
+    "actual_navigation_training_completed": false,
+    "quality_claim": false,
+    "official_holdout_verified": false,
+    "independent_backbone_holdout": false,
+    "data_help_proven": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

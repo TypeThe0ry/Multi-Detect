@@ -1,0 +1,81 @@
+{
+  "schema": "multidetect.historical-target-card-reconstruction.report",
+  "schema_version": 1,
+  "bundle": {
+    "schema": "multidetect.historical-target-card-reconstruction",
+    "schema_version": 1,
+    "evidence_kind": "historical_observation_cards_only",
+    "card_reconstruction_passed": true,
+    "source": {
+      "combined_evidence": {
+        "path": "artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/combined-evidence.json",
+        "bytes": 259353,
+        "sha256": "5031eefe75cf78d42aeccc04e990bb8f9975fbc6ebb12d4087f685c18652c8b6"
+      },
+      "integrated_audit": {
+        "path": "artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/integrated-sim-qgc.audit.jsonl",
+        "bytes": 3175365,
+        "sha256": "1ba52e5f8a947f54c143262cebd3df99070ff7580026165407ddfc23cfeb6289"
+      },
+      "source_gate_passed": true,
+      "source_run_identity_sha256": "a6636ab143631b91b5e39271ebd8b097bad4ad64295369a165c3c62c38b8f9e1",
+      "source_run_id": "20260905T175019Z-64536",
+      "source_generated_at_utc": "2026-09-05T17:58:14.5039905Z",
+      "source_release_parity": {
+        "path": "D:\\Projects\\Multi-Detect\\configs\\release-parity.json",
+        "bytes": 5146,
+        "sha256": "663951814523AF015B001968429F0B82C5AEB643E24E3342600C8DD4EA3EF5CE",
+        "parity": {
+          "core_algorithm_hash": "505e5e8d623761287e86a9c69e4573f75238ffd5d1f88b7c89469dad7e0f0ad9",
+          "px4_mission_path_hash": "f0804feb609a9cbbbce6e3932ed77bd7852c9af71bdb612a76bbd56ead12247a",
+          "safety_policy_hash": "daf5af662f058820b01b33256847d1d5cd578790fb49aa9ff30dcad8264d710a",
+          "task_contract_hash": "edb04927663bc828a8fcf5e10cee498f907bc5528d0c9c387541d178375e1792",
+          "ui_contract_hash": "e94a670ec2a79b8c6d7f196a9acb9cffc5d60e6a080f7def665df3b8a6753a66"
+        }
+      }
+    },
+    "derivation": {
+      "current_parity_is_tool_context_only": true,
+      "current_parity": {
+        "core_algorithm_hash": "5d0ab0462b023241b2515f0ae40becc66bb4f8d48eda8582d453b3cb695e5fc9",
+        "px4_mission_path_hash": "58b94395805924cf78af386355be9952c2aaeb49c7404bcf11c73371450eb8fc",
+        "safety_policy_hash": "8808fe934c07328436313878cf8b4e8d0f655d4de8326e8a0fdb4ab6281ec69b",
+        "task_contract_hash": "eb5d78f252a2e853f99baee5fdf51fd2227682ee0b96adbb4917fb97cb2e0158",
+        "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+      },
+      "current_parity_file": {
+        "path": "configs/release-parity.json",
+        "bytes": 12417,
+        "sha256": "ccff9282a858e871238a3cc4c315811ba498d31e8ed4a0fd06cb9517aa4d238c"
+      },
+      "tool_file": {
+        "path": "scripts/rebind_combined_target_evidence_cards.py",
+        "bytes": 20731,
+        "sha256": "bfb0035ada6199aa656dcf54b5f2890c3bdc4de4f7d994cd436f329a4e09598b"
+      },
+      "runtime_reexecuted": false
+    },
+    "audit_event_count": 5362,
+    "available_geolocation_count": 336,
+    "target_evidence_card_count": 336,
+    "target_evidence_cards_read_only": true,
+    "claims": {
+      "current_external_sim_acceptance": false,
+      "physical_performance_claimed": false,
+      "hil_real_evidence": false,
+      "outdoor_gnss_evidence": false,
+      "operator_visual_acceptance": "not_claimed",
+      "release_allowed": false,
+      "final_release_allowed": false
+    }
+  },
+  "output": {
+    "path": "artifacts/evaluation/combined-target-card-reconstruction-20260930-r1/bundle.json",
+    "bytes": 487863,
+    "sha256": "bf8f387b0e62efcd5a8fe4b1c0eb06742d3957ce561decccf5da67566084a699"
+  },
+  "target_evidence_card_count": 336,
+  "runtime_reexecuted": false,
+  "current_external_sim_acceptance": false,
+  "release_allowed": false
+}

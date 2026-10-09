@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-development-evidence-v1",
+  "event": "onboard_policy_geometry_aware_3d_candidate_comparison",
+  "recorded_at_utc": "2026-10-06T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "status": "candidates_rejected_current_reference_retained",
+  "training_change": {
+    "source": "scripts/train_onboard_model.py",
+    "geometry_binding": "approved entity SDF visual primitives only",
+    "geometry_statistics": [
+      "primitive_count",
+      "radial_extent_m",
+      "height_m"
+    ],
+    "used_as": "synthetic observation-scale perturbation",
+    "not_used_as": [
+      "target world pose",
+      "scenario truth",
+      "colour identity",
+      "expected answer",
+      "actuator command"
+    ],
+    "feature_width": 40,
+    "parent_model": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "device": "NVIDIA GeForce RTX 4060",
+    "legacy_target_fixture": false,
+    "colour_identity_used": false
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r38-geometry-aware-3d-dev",
+      "artifact": "artifacts/models/onboard-policy-r38-geometry-aware-3d-dev/onboard_policy_r38.onnx",
+      "artifact_sha256": "66133f8b8ed71749ca4d39540f400c521d4a547d9f9e9b28f9343563e27d9442",
+      "training_report": "artifacts/models/onboard-policy-r38-geometry-aware-3d-dev/training-report.json",
+      "training_report_sha256": "6b8b13a136dfc86dae6fe56ad201640eaf1b9a1001bb257113d73df1f4e1690b",
+      "structured_holdout": {
+        "task_accuracy": 0.9903333333333333,
+        "flight_accuracy": 0.988,
+        "compatible_output_rate": 0.992
+      },
+      "generalization": {
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-left"]
+      },
+      "promoted": false,
+      "rejection_reason": "left bearing navigation direction failure"
+    },
+    {
+      "model_id": "onboard-policy-r39-geometry-aware-bearing-balanced-dev",
+      "artifact": "artifacts/models/onboard-policy-r39-geometry-aware-bearing-balanced-dev/onboard_policy_r39.onnx",
+      "artifact_sha256": "a2b0f269ea5ce0defd010db34357e20f4ddaab450f87212f44d70a831ddce030",
+      "training_report": "artifacts/models/onboard-policy-r39-geometry-aware-bearing-balanced-dev/training-report.json",
+      "training_report_sha256": "f26e26d37fadf4f0ad0ae2f969b5538b4be7e0903cf3ee1119df234f00a62c8",
+      "structured_holdout": {
+        "task_accuracy": 0.993,
+        "flight_accuracy": 0.9913333333333333,
+        "compatible_output_rate": 0.9943333333333333
+      },
+      "generalization": {
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-right"]
+      },
+      "promoted": false,
+      "rejection_reason": "right bearing navigation direction failure"
+    },
+    {
+      "model_id": "onboard-policy-r40-geometry-aware-navigation-dev",
+      "artifact": "artifacts/models/onboard-policy-r40-geometry-aware-navigation-dev/onboard_policy_r40.onnx",
+      "artifact_sha256": "e9c4910e73cbd8752b3dcf567ba31b24b4e0b5e2b458d0efcfec2e938b151f17",
+      "training_report": "artifacts/models/onboard-policy-r40-geometry-aware-navigation-dev/training-report.json",
+      "training_report_sha256": "a3f913877a399a4ec3d9b44e31d30169def023adba00592a3e964ae88dca92ab",
+      "training_config_sha256": "27caf84c3ab1d9d8fee2a919d50a08a17d6afff129093b32b545df039bac4e60",
+      "training": {
+        "samples": 80200,
+        "epochs": 35,
+        "learning_rate": 0.00015,
+        "regression_weight": 0.6
+      },
+      "structured_holdout": {
+        "task_accuracy": 0.996,
+        "flight_accuracy": 0.996,
+        "compatible_output_rate": 0.9966666666666667
+      },
+      "generalization": {
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-left"]
+      },
+      "promoted": false,
+      "rejection_reason": "bearing direction still fails; high regression weight also reduced training-evaluation flight accuracy to 0.8999907313"
+    }
+  ],
+  "current_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reference": "configs/training/onboard-policy-current-reference-v1.json",
+    "candidate_replacement_allowed": false,
+    "reason": "no candidate passed the existing navigation-direction and lifecycle generalization gates"
+  },
+  "claims": {
+    "same_onboardai_contract": true,
+    "truth_free_structured_evaluation": true,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

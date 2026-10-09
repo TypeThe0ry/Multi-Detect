@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scope": "Consecutive load-gap audit and duplicate-hash removal; not a root-cause fix claim",
+  "gap_audit": {
+    "path": "artifacts/evaluation/qpc-consecutive-gaps-20260908.json",
+    "source_mission_sha256": "c30415dc48e30e604e638cb08e860c974563f76c92d247b4f793aa54f798adf6",
+    "largest_consecutive_throttle_gap_s": 2.2505573000526056,
+    "from_at_s": 195.08672179991845,
+    "to_at_s": 197.33727909997106,
+    "router_decode_from_host_s": 897423.834739,
+    "router_decode_to_host_s": 897425.4975142,
+    "collector_between_pumps_at_end_s": 0.413228299934417,
+    "collector_inside_pump_at_end_s": 0.0002226000651717186
+  },
+  "optimization": {
+    "method": "Use feedback.mission_hash from this poll snapshot; no persistent cache",
+    "fixture": "C mission-002 ExecutableMission, ManualClock, 1000 waiting polls under cProfile",
+    "before_hash_calls": 2000,
+    "after_hash_calls": 1000,
+    "before_profile_s": 0.351,
+    "after_profile_s": 0.229,
+    "scope": "single local microprofile; no flight speedup or lag cure claim"
+  },
+  "tests": {
+    "passed": 239,
+    "failures": 0,
+    "errors": 0,
+    "junit": "artifacts/evaluation/poll-hash-reuse-20260908.xml",
+    "sha256": "046885fbf033626d902d26f2d6b03c9dc57e854625bf5fddf31310b102ab2577",
+    "command": "python -m pytest -q tests/test_telemetry_receipt_audit.py tests/test_px4_mission_feedback.py tests/test_vtol_sitl_mission_acceptance.py --disable-warnings --junitxml=artifacts/evaluation/poll-hash-reuse-20260908.xml"
+  },
+  "release_parity_audit": "docs/evidence/poll-hash-parity-audit-20260908.json",
+  "new_external_run": false,
+  "gap_root_cause_proven": false,
+  "full_regression_rerun": false,
+  "release_ready": false
+}

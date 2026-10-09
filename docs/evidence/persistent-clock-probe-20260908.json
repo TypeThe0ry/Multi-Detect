@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "focused_tests_passed": 235,
+  "new_tests": 12,
+  "host_quantization_limited": true,
+  "note": "Stored measurement is the exact smoke output before the explicit host_quantization_limited reporting field was added; raw probes are unchanged.",
+  "version": "0.3.0-pre.8",
+  "measurement": {
+    "exec": {
+      "probes": [
+        {
+          "host_before_ns": 893058328000000,
+          "container_ns": 410756472576893,
+          "host_after_ns": 893058578000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893058578000000,
+          "container_ns": 410756730212921,
+          "host_after_ns": 893058828000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893058828000000,
+          "container_ns": 410756975753642,
+          "host_after_ns": 893059078000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059078000000,
+          "container_ns": 410757220240553,
+          "host_after_ns": 893059328000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059328000000,
+          "container_ns": 410757458543919,
+          "host_after_ns": 893059562000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059562000000,
+          "container_ns": 410757708464864,
+          "host_after_ns": 893059812000000,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        }
+      ],
+      "summary": {
+        "schema_version": 1,
+        "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+        "sample_count": 6,
+        "assumption": "host_ns = container_ns + constant_offset; equal rates, no resets; host read error <= declared resolution",
+        "declared_host_resolution_ns": 15625000,
+        "timestamp_accuracy_verified": false,
+        "offset_direction": "host_minus_container_ns",
+        "per_probe_offset_intervals_ns": [
+          [
+            482301839798107,
+            482302121048107
+          ],
+          [
+            482301832162079,
+            482302113412079
+          ],
+          [
+            482301836621358,
+            482302117871358
+          ],
+          [
+            482301842134447,
+            482302123384447
+          ],
+          [
+            482301853831081,
+            482302119081081
+          ],
+          [
+            482301837910136,
+            482302119160136
+          ]
+        ],
+        "constant_offset_compatible": true,
+        "conditional_offset_interval_ns": [
+          482301853831081,
+          482302113412079
+        ],
+        "conditional_interval_width_ns": 259580998,
+        "minimum_round_trip_ns": 234000000,
+        "maximum_round_trip_ns": 250000000,
+        "observed_host_span_ns": 1484000000,
+        "equal_clock_rates_verified": false,
+        "gazebo_source_clock_aligned": false,
+        "px4_clock_aligned": false,
+        "training_label_eligible": false
+      }
+    },
+    "persistent": {
+      "probes": [
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757961251643,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757962067548,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757963035298,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757964080659,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757964763001,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        },
+        {
+          "host_before_ns": 893059953000000,
+          "host_after_ns": 893059953000000,
+          "container_ns": 410757965406084,
+          "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+          "host_resolution_ns": 15625000
+        }
+      ],
+      "summary": {
+        "schema_version": 1,
+        "container_id": "bda88a16ab90cdfaed82aa5a1f095c69f2e99ddc9a209451313c3434acc8e854",
+        "sample_count": 6,
+        "assumption": "host_ns = container_ns + constant_offset; equal rates, no resets; host read error <= declared resolution",
+        "declared_host_resolution_ns": 15625000,
+        "timestamp_accuracy_verified": false,
+        "offset_direction": "host_minus_container_ns",
+        "per_probe_offset_intervals_ns": [
+          [
+            482301976123357,
+            482302007373357
+          ],
+          [
+            482301975307452,
+            482302006557452
+          ],
+          [
+            482301974339702,
+            482302005589702
+          ],
+          [
+            482301973294341,
+            482302004544341
+          ],
+          [
+            482301972611999,
+            482302003861999
+          ],
+          [
+            482301971968916,
+            482302003218916
+          ]
+        ],
+        "constant_offset_compatible": true,
+        "conditional_offset_interval_ns": [
+          482301976123357,
+          482302003218916
+        ],
+        "conditional_interval_width_ns": 27095559,
+        "minimum_round_trip_ns": 0,
+        "maximum_round_trip_ns": 0,
+        "observed_host_span_ns": 0,
+        "equal_clock_rates_verified": false,
+        "gazebo_source_clock_aligned": false,
+        "px4_clock_aligned": false,
+        "training_label_eligible": false
+      }
+    }
+  },
+  "smoke_exit_code": 0,
+  "exact_cleanup_verified": true,
+  "failed_pre_crlf_run": {
+    "container_id": "89f5e067d71c16bae92dc8c271b007afe70d9c8a4f852c64053dd5317643efa3",
+    "exit_code": 1,
+    "cleanup_verified": true
+  },
+  "clock_info": {
+    "implementation": "GetTickCount64()",
+    "resolution_ns": 15625000
+  },
+  "assumption_note": "Resolution is not certified timestamp accuracy. Padding by declared resolution is an explicit conditional error assumption; zero measured RTT is quantization-limited, not zero latency.",
+  "new_mission_run": false,
+  "full_regression_rerun": false,
+  "release_ready": false
+}

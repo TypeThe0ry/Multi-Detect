@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "method": "hash_bound_shared_policy_simulator_runner_binding_v1",
+  "scenario": {
+    "path": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+    "manifest_sha256": "fead91ba6dae297545fd02041257f7232483ab55ebc654e4df51fc19195ee02f",
+    "runtime_input_sha256": "eae43feca55c9d9c125f452eebb0592a88b6b45e0d1aab91f73e58190f663587",
+    "scenario_id": "river_rescue_vtol_001",
+    "mode": "vtol"
+  },
+  "runtime_descriptor_hash": "87cb25f8725422afccd97a627b63561abbd9860f2a6e064445a000a725613c12",
+  "runner_evidence_hash": "c0ff941ed6fa5aea18e2079b6dcea9a88ab7c8000182577181d8cc4247b5fde0",
+  "shared_task_policy": {
+    "status": "identity_bound_only",
+    "policy_id": "task-ranker-independent-sim-v1",
+    "policy_version": "0.3.0-pre.8",
+    "policy_artifact_sha256": "3dc8853f18c74d77bbd334c010dfd2123cd9be769075e16387f16ff537e01ca2",
+    "ranker_sha256": "6ef9312ef005c0c7e7e0db61d4bd8b6c69ad6cf5a7bcadad745679cc90920d8a",
+    "airframe_profile_hash": "8c8cba4c79d80d32d7eea74f05255383af509b91046883ac614f297eb8c47a90",
+    "mission_contract_hash": "b50408f8a2998cafb50e6b738aea357d3e8aff0ec589d413c35873b8302ead1d",
+    "safety_policy_hash": "57d0146cf3f2d8ac21342d1fe22545567c762870df3ad6ac2893a1de8c987692",
+    "ranker_artifact_bound": true,
+    "truth_free": true,
+    "planner_revalidation_required": true,
+    "planner_revalidated": false,
+    "policy_applied_to_actuator": false,
+    "low_level_actuator_policy_separate": true
+  },
+  "truth_free": true,
+  "planner_revalidation_required": true,
+  "planner_revalidated": false,
+  "policy_applied_to_actuator": false,
+  "low_level_actuator_policy_separate": true,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

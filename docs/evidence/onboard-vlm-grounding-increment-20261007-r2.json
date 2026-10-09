@@ -1,0 +1,454 @@
+{
+  "contract": "multidetect.onboard-vlm-grounding-increment-evidence-v1",
+  "product_version": "0.3.0-pre.8",
+  "recorded_at_utc": "2026-10-07T06:55:43Z",
+  "status": "native_training_and_independent_audit_completed_quality_rejected",
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "flight_action_training_performed": false,
+  "identity_recovery_claimed": false,
+  "autonomous_flight_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "default_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "transport_created": false,
+  "execution_authority": false,
+  "world_model_local_inference_measured": false,
+  "checkpoint_selection_performed": false,
+  "scope": "Development RGB grounding increment of the saved Qwen3-VL r1 adapter. Not action learning, temporal identity, Gazebo flight, or hardware acceptance.",
+  "model": {
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "gpu": "NVIDIA GeForce RTX 4060",
+    "gpu_memory_mib": 8188,
+    "trainable_parameters": 802816,
+    "trainable_tensor_count": 112,
+    "trainable_dtype": "float32",
+    "frozen_base_dtype": "bfloat16",
+    "frozen_parameters": 2127532032
+  },
+  "native_training": {
+    "native_exit_code": 0,
+    "report": {
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r2/report.json",
+      "bytes": 1329309,
+      "sha256": "1ebddf2e3bc58aa7a89267fa49fdcacc801671a71baeb83836bf342e777c1a9a"
+    },
+    "optimizer_steps_completed": 154,
+    "each_train_id_exactly_once": true,
+    "holdout_optimizer_rows": 0,
+    "epochs": 1,
+    "plan": {
+      "path": "configs/training/onboard-vlm-grounding-increment-plan-20261007-r2.json",
+      "bytes": 2489,
+      "sha256": "3563c3c502fefe298cbff4b0f9e26c43e4c5ecd8e6b993b2858a2d54d70c12b2"
+    },
+    "warm_start_exact_saved_parent_fp32_adapter": true,
+    "base_parameter_bytes_unchanged": true,
+    "saved_adapter_exact_reload": true,
+    "saved_adapter_token_ids_and_raw_output_exact_reload": true,
+    "reload_dtype_conversion_performed": false,
+    "parent_adapter_tensor_sha256": "0bba168141f016d7162d46c9d50e97d93393fef57c6382d9beb64cf4a3d6ca7b",
+    "candidate_adapter_tensor_sha256": "a90bec076641f34474544d61c541819ec483d98fd8b0b78c19bc56adf19e6495",
+    "base_before_tensor_sha256": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_after_tensor_sha256": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "optimizer_step_elapsed_sum_seconds": 68.41320929990616,
+    "optimizer_step_time_is_whole_invocation_time": false,
+    "peak_cuda_allocated_bytes": 4506647040,
+    "peak_cuda_reserved_bytes": 4676648960,
+    "parent_mean_generation_phase_seconds": 2.3694593797630485,
+    "candidate_mean_generation_phase_seconds": 2.3681941797611734,
+    "generation_phase_is_end_to_end_latency": false,
+    "realtime_or_jetson_performance_claimed": false
+  },
+  "independent_result_audit": {
+    "native_exit_code": 0,
+    "report": {
+      "sha256": "12f1f1cf47a5a29346d2c49cc414dc95a8ba595b12635f1df853c4877bef2ef7",
+      "bytes": 415837,
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/independent-audit.json"
+    },
+    "native_verification_completed": true,
+    "quality_passed": false,
+    "successfully_learned_gate": false,
+    "paired_holdout_count": 84,
+    "unique_file_bindings_reopened": 709,
+    "official_model_file_records_reopened": 11,
+    "raw_replies_reparsed_per_role": 84,
+    "saved_fp32_digest_verified": true,
+    "base_unchanged": true,
+    "adapter_changed": true,
+    "independent_gpu_replay_performed": false,
+    "optimizer_execution_independently_replayed": false,
+    "source_authentication_granted": false
+  },
+  "dataset": {
+    "manifest": {
+      "path": "artifacts/training/onboard-vlm-grounding-20261007-r2/manifest.pending-review.json",
+      "bytes": 2488216,
+      "sha256": "047dcbe737c7bec48b5d5d0a363e4c4cc40cddff2b967b64d1ae23820a89ef6b"
+    },
+    "independent_review_receipt": {
+      "path": "artifacts/training/onboard-vlm-grounding-20261007-r2/review-receipt.json",
+      "bytes": 10237,
+      "sha256": "d971bcb54ac6deeb95ddb55f10c0f54967a191e82b90b12f50331fc839f259f2"
+    },
+    "independent_data_review_passed": true,
+    "split_counts": {
+      "train": 154,
+      "val": 41,
+      "test": 43
+    },
+    "new_train_samples": 128,
+    "original_train_replay_samples": 26,
+    "new_train_visibility": {
+      "visible": 43,
+      "fully_occluded": 43,
+      "absent": 42
+    },
+    "holdout_inputs_unchanged": true,
+    "known_development_holdout_not_blind": true,
+    "temporal_identity_training_claimed": false,
+    "model_inputs_include_world_truth": false,
+    "same_reference_pairs_are_independent_episodes": false,
+    "source": "Rendered RGB from repository SDF scenes through Blender; not flight capture.",
+    "limitations": [
+      "Visible positives use a current-frame crop reference; they do not prove temporal identity.",
+      "Some negatives contain a wall or black frame; no causal shortcut diagnosis is claimed.",
+      "Original development holdout inputs are reused; not a fresh blind benchmark.",
+      "No action/state/execution trajectory labels are trained."
+    ]
+  },
+  "metrics": {
+    "candidate": {
+      "count": 84,
+      "strict_reply_count": 70,
+      "exact_match_count": 53,
+      "visibility_confusion": {
+        "tp": 36,
+        "tn": 17,
+        "fp": 9,
+        "fn": 22,
+        "invalid": 14
+      },
+      "per_split_visibility": {
+        "val": {
+          "tp": 17,
+          "tn": 13,
+          "fp": 0,
+          "fn": 11,
+          "invalid": 0
+        },
+        "test": {
+          "tp": 19,
+          "tn": 4,
+          "fp": 9,
+          "fn": 11,
+          "invalid": 14
+        }
+      },
+      "unknown_navigation_fact_count": 84,
+      "raw_target_reference_id_correct_count": 70
+    },
+    "parent": {
+      "count": 84,
+      "strict_reply_count": 73,
+      "exact_match_count": 61,
+      "visibility_confusion": {
+        "tp": 47,
+        "tn": 14,
+        "fp": 12,
+        "fn": 11,
+        "invalid": 11
+      },
+      "per_split_visibility": {
+        "val": {
+          "tp": 26,
+          "tn": 7,
+          "fp": 6,
+          "fn": 2,
+          "invalid": 0
+        },
+        "test": {
+          "tp": 21,
+          "tn": 7,
+          "fp": 6,
+          "fn": 9,
+          "invalid": 11
+        }
+      },
+      "unknown_navigation_fact_count": 84,
+      "raw_target_reference_id_correct_count": 73
+    }
+  },
+  "quality_gates": {
+    "strict_reply_count_nonregression": false,
+    "exact_match_count_nonregression": false,
+    "val_visible_nonregression": false,
+    "val_not_confirmed_nonregression": true,
+    "test_visible_nonregression": false,
+    "test_not_confirmed_nonregression": false,
+    "at_least_one_extra_correct_zero_pixel_holdout": true,
+    "all_navigation_fields_remain_unknown": true
+  },
+  "failed_quality_gates": [
+    "exact_match_count_nonregression",
+    "strict_reply_count_nonregression",
+    "test_not_confirmed_nonregression",
+    "test_visible_nonregression",
+    "val_visible_nonregression"
+  ],
+  "decision": "Retain the unpromoted development adapter and exact outputs for analysis. Do not replace default r33 or original COCO detector. No holdout-driven retry or checkpoint selection.",
+  "validation": {
+    "initial_storage_environment_failure": {
+      "native_exit_code": 1,
+      "report": {
+        "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/source-and-parent-regression.xml",
+        "bytes": 19075,
+        "sha256": "9bf04d84b29c90ba085db8473dfcb6e8d3c234f8c9ced83f461f495c1475fc8e"
+      },
+      "tests": 111,
+      "failures": 1,
+      "reason": "Immutable parent recovery requires D storage; first test used the default C temporary directory. No source fix was made for this environment failure."
+    },
+    "source_parent_regression": {
+      "native_exit_code": 0,
+      "report": {
+        "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/source-and-parent-regression-nativeD.xml",
+        "bytes": 17277,
+        "sha256": "e04aae332a1f267ef497557122dbf3fd8bfbd559dd30cc3dea43fd48ca745565"
+      },
+      "tests": 111,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "temporary_storage": "Fresh D workspace basetemp."
+    },
+    "auditor_final_regression": {
+      "native_exit_code": 0,
+      "report": {
+        "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/auditor-final-tests.junit.xml",
+        "bytes": 13287,
+        "sha256": "b4fae51b7d87ac8132d9dbcc09a296289de2a333b4d800605a995dc25169a619"
+      },
+      "tests": 82,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "first_actual_audit_failure": {
+      "native_exit_code": 1,
+      "captured_diagnostic": {
+        "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/audit-attempt-1-captured-diagnostic.txt",
+        "bytes": 1424,
+        "sha256": "4e7231ceb681857c6f24c0c085067221175ef29d78cc62036ad7bf93374f3a0d"
+      },
+      "captured_copy_not_original_process_log": true,
+      "reason": "Actual official model provenance has a five-field per-file interface, not the generic three-field binding. Fixed by a dedicated strict Git/LFS verifier; native report and saved model were not rewritten."
+    },
+    "ruff_check_and_format": {
+      "native_exit_code": 0,
+      "python_files": 8,
+      "measured_at_utc": "2026-10-07T06:51:51Z"
+    },
+    "postseal_validation_not_bound_to_avoid_receipt_cycle": true
+  },
+  "gazebo_runtime": {
+    "preparation_evidence": {
+      "path": "docs/evidence/gazebo-runtime-preparation-20261007-r1.json",
+      "bytes": 5173,
+      "sha256": "2473daf99a96419abdbf26fc2f403d1754187bfa5d31e34135e0c61d25fc7213"
+    },
+    "image_pull_native_exit_code": 0,
+    "image_inspect_native_exit_code": 0,
+    "passive_capture_native_exit_code": 1,
+    "eight_rgb_depth_frames_verified": false,
+    "gazebo_flight_verified": false,
+    "failed_capture_inner_cause_recovered": false,
+    "latest_placement_attempt": {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-capture-20261007-r1/diagnostic-placement-attempt-20261007T064856Z.json",
+      "bytes": 3412,
+      "sha256": "5a6a61814d1ac7300ecbe67db6266e7896abcab9280ca70aedb37f8864a79c34"
+    },
+    "latest_controller_observed_at_utc": "2026-10-07T06:49:05.463231200Z",
+    "latest_placement_status": "no_eligible_node",
+    "latest_attempt_submitted": false,
+    "services_restarted": false,
+    "user_data_deleted_moved_or_compacted": false
+  },
+  "next_work": "Collect causally aligned actual Gazebo RGB/depth/state with baseline flight and VLM shadow, then validated observation -> decision -> executed action -> successor state episodes. Integrate repeated continuation, full swept-volume clearance and independent wait/return watchdog before action fine-tuning.",
+  "sources": [
+    {
+      "path": "configs/training/onboard-vlm-grounding-increment-plan-20261007-r2.json",
+      "bytes": 2489,
+      "sha256": "3563c3c502fefe298cbff4b0f9e26c43e4c5ecd8e6b993b2858a2d54d70c12b2"
+    },
+    {
+      "path": "scripts/build_onboard_vlm_grounding_increment_dataset.py",
+      "bytes": 27227,
+      "sha256": "2654e65c9295df8910a2316c16783e656cb1f83cc423c628fd55715598c47e80"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_grounding_increment.py",
+      "bytes": 20130,
+      "sha256": "7d2faf6ce6bf3103689dd3f45c7f75a38279f0332408ed37f3fba743019b2b2e"
+    },
+    {
+      "path": "scripts/audit_onboard_vlm_grounding_increment_result.py",
+      "bytes": 36345,
+      "sha256": "eae2e67af639ab492bdd5929c1ada4749039a03bb8cf5248c8346e0eb71a49ce"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "bytes": 49187,
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "scripts/verify_onboard_vlm_grounding_adapter.py",
+      "bytes": 16642,
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "path": "scripts/probe_onboard_vlm.py",
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "tests/test_build_onboard_vlm_grounding_increment_dataset.py",
+      "bytes": 16574,
+      "sha256": "af2ad4faf4b636f3b6868ae4ae62761bafb4f6092af6ee7808bddc36bb495cae"
+    },
+    {
+      "path": "tests/test_train_onboard_vlm_grounding_increment.py",
+      "bytes": 5429,
+      "sha256": "4602b967c89d23dbec997f0579ba9ae2269c0457ae4e4d288bc43f230f3fdbf8"
+    },
+    {
+      "path": "tests/test_train_onboard_vlm_grounding_increment_failure_accounting.py",
+      "bytes": 10293,
+      "sha256": "112368b816f026d37af7e419929299fd437c9b886c7ac6a31771aa4dfe75fb83"
+    },
+    {
+      "path": "tests/test_audit_onboard_vlm_grounding_increment_result.py",
+      "bytes": 35549,
+      "sha256": "f48275fd5c3d738112d87081443be473bf0b62e5cb99f9f2cae30bedcde410f6"
+    },
+    {
+      "path": "tests/test_onboard_vlm_grounding_increment_evidence.py",
+      "bytes": 7008,
+      "sha256": "285d422742efff6069a467ac8f99c245e230b4cb527fd1ab73c2b698eb767a9b"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "artifacts/training/onboard-vlm-grounding-20261007-r2/manifest.pending-review.json",
+      "bytes": 2488216,
+      "sha256": "047dcbe737c7bec48b5d5d0a363e4c4cc40cddff2b967b64d1ae23820a89ef6b"
+    },
+    {
+      "path": "artifacts/training/onboard-vlm-grounding-20261007-r2/review-receipt.json",
+      "bytes": 10237,
+      "sha256": "d971bcb54ac6deeb95ddb55f10c0f54967a191e82b90b12f50331fc839f259f2"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r2/report.json",
+      "bytes": 1329309,
+      "sha256": "1ebddf2e3bc58aa7a89267fa49fdcacc801671a71baeb83836bf342e777c1a9a"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/source-and-parent-regression.xml",
+      "bytes": 19075,
+      "sha256": "9bf04d84b29c90ba085db8473dfcb6e8d3c234f8c9ced83f461f495c1475fc8e"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/source-and-parent-regression-nativeD.xml",
+      "bytes": 17277,
+      "sha256": "e04aae332a1f267ef497557122dbf3fd8bfbd559dd30cc3dea43fd48ca745565"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/auditor-boundary-tests.junit.xml",
+      "bytes": 2315,
+      "sha256": "b32c6c24a000208ba1be92fd63cde8c0b60a26a0c238923dbe18f30e62f314ae"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/auditor-provenance-fix-tests.junit.xml",
+      "bytes": 5105,
+      "sha256": "7724cbd0afe0ac8772789b1634931a81468bed95d8c7ab31cc4b88ad299792e3"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/audit-attempt-1-captured-diagnostic.txt",
+      "bytes": 1424,
+      "sha256": "4e7231ceb681857c6f24c0c085067221175ef29d78cc62036ad7bf93374f3a0d"
+    },
+    {
+      "bytes": 931,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r2/adapter/adapter_config.json",
+      "sha256": "e482e532cc3dff1766864c38d9bf56545819305bd98f3edef8f95a102e06ca30"
+    },
+    {
+      "bytes": 3227648,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r2/adapter/adapter_model.safetensors",
+      "sha256": "d1a64f7771e80ff79691fd869efdf95ef60857d39f0c6a2b2db191f9c772e13d"
+    },
+    {
+      "bytes": 5438,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r2/adapter/README.md",
+      "sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307"
+    },
+    {
+      "sha256": "12f1f1cf47a5a29346d2c49cc414dc95a8ba595b12635f1df853c4877bef2ef7",
+      "bytes": 415837,
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/independent-audit.json"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-increment-20261007-r2/auditor-final-tests.junit.xml",
+      "bytes": 13287,
+      "sha256": "b4fae51b7d87ac8132d9dbcc09a296289de2a333b4d800605a995dc25169a619"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-capture-20261007-r1/diagnostic-placement-attempt-20261007T064856Z.json",
+      "bytes": 3412,
+      "sha256": "5a6a61814d1ac7300ecbe67db6266e7896abcab9280ca70aedb37f8864a79c34"
+    },
+    {
+      "path": "docs/evidence/gazebo-runtime-preparation-20261007-r1.json",
+      "bytes": 5173,
+      "sha256": "2473daf99a96419abdbf26fc2f403d1754187bfa5d31e34135e0c61d25fc7213"
+    }
+  ],
+  "legacy_baselines": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+      "bytes": 62145,
+      "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/report.json",
+      "bytes": 957405,
+      "sha256": "6cfb56135f1f2d489565e2eedc8f3e31467b1f073cc6bee15018169f59916871"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-grounding-adapter-reload-20261007-r1/report.json",
+      "bytes": 234939,
+      "sha256": "d790559bef872510f0795fe927b7e06c363a2dd0ca7a90174da14a64f6ca8973"
+    }
+  ]
+}

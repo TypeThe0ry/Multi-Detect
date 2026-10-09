@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison",
+  "status": "candidates_rejected_current_reference_retained",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "parent_model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r48-geometry-label-repair-dev",
+      "model": "artifacts/models/onboard-policy-r48-geometry-label-repair-dev/onboard_policy_r48.onnx",
+      "model_sha256": "a3da33c1fac87788413dd1ececcf157114df05a99e1e56d0e41a45d7fffcf93d",
+      "training_config": "artifacts/models/onboard-policy-r48-geometry-label-repair-dev/training-config.json",
+      "training_config_sha256": "119794e9c7bb90f97479684416a3add4d85e5f258135cca3c806e1c7899438db",
+      "training_report": "artifacts/models/onboard-policy-r48-geometry-label-repair-dev/training-report.json",
+      "training_report_sha256": "c5c933e3c2e43f7bb5d0e143e2cd0dee749463b5fcc3e866e67053c2f9cd0d31",
+      "generalization_report": "artifacts/evaluation/onboard-policy-r48-generalization-20261006.json",
+      "generalization_report_sha256": "75032c4f8d133c33232b6feac056b83420236742091ec05d120d44cf43fa77ba",
+      "independent_holdout": "artifacts/evaluation/onboard-policy-r48-independent-holdout-20261006.json",
+      "independent_holdout_sha256": "58640005c7672f1018c34260a49ad01e042d24d620921145b849736557d25cf3",
+      "sensor_holdout": "artifacts/evaluation/onboard-policy-r48-3d-sensor-holdout-20261006.json",
+      "sensor_holdout_sha256": "5cf5b77f088e0442f1c48179f560ea11931631c91b3c2c9f52efef89ea715032",
+      "generalization": {
+        "raw_head_passed": 16,
+        "guarded_passed": 21,
+        "guarded_failures": ["bearing-left"],
+        "navigation_direction_passed": 21,
+        "navigation_range_passed": 22,
+        "masked_success_count": 6
+      },
+      "structured_3d_sensor_holdout": {
+        "case_count": 900,
+        "task_accuracy": 0.9833333333333333,
+        "flight_accuracy": 0.9755555555555555,
+        "compatible_output_rate": 0.9844444444444445
+      },
+      "same_40_feature_contract": true,
+      "training_device": "NVIDIA GeForce RTX 4060",
+      "pixel_level_rendered_training": false,
+      "external_gazebo_runtime": false,
+      "candidate_promoted": false
+    },
+    {
+      "model_id": "onboard-policy-r49-bearing-sign-dev",
+      "model": "artifacts/models/onboard-policy-r49-bearing-sign-dev/onboard_policy_r49.onnx",
+      "model_sha256": "30af068261b38dfb2e5ac9896f0b85f2b6a4ff11ffda02761ca51f9322c945dc",
+      "training_config": "artifacts/models/onboard-policy-r49-bearing-sign-dev/training-config.json",
+      "training_config_sha256": "e58740385a491b37fe45b03843390020c94d6a2699373c5f159c39e937464321",
+      "training_report": "artifacts/models/onboard-policy-r49-bearing-sign-dev/training-report.json",
+      "training_report_sha256": "3b0e94eb196892a353d0cfdc7613a253d32d8733402b1c388024eba4bc4f4cfa",
+      "generalization_report": "artifacts/evaluation/onboard-policy-r49-generalization-20261006.json",
+      "generalization_report_sha256": "1b4fcaa3bdfa70f5d32cb73bebe03082f43cca9450cde9bef531c39018db7b85",
+      "independent_holdout": "artifacts/evaluation/onboard-policy-r49-independent-holdout-20261006.json",
+      "independent_holdout_sha256": "ff58a3449ce1cab6264efca3fcebd70d1e62ec230b613b3da1fadcc7a252f780",
+      "sensor_holdout": "artifacts/evaluation/onboard-policy-r49-3d-sensor-holdout-20261006.json",
+      "sensor_holdout_sha256": "5f2fd716cf9c3555d90d1f14ab9d605bed813d7fa6955b52e3473c46080826df",
+      "generalization": {
+        "raw_head_passed": 18,
+        "guarded_passed": 21,
+        "guarded_failures": ["bearing-left"],
+        "navigation_direction_passed": 21,
+        "navigation_range_passed": 22,
+        "masked_success_count": 4
+      },
+      "structured_3d_sensor_holdout": {
+        "case_count": 900,
+        "task_accuracy": 0.9933333333333333,
+        "flight_accuracy": 0.99,
+        "compatible_output_rate": 0.99
+      },
+      "same_40_feature_contract": true,
+      "training_device": "NVIDIA GeForce RTX 4060",
+      "pixel_level_rendered_training": false,
+      "external_gazebo_runtime": false,
+      "candidate_promoted": false
+    }
+  ],
+  "training_data_boundary": {
+    "source": "corrected_geometry_consistent_structured_teacher_and_gazebo_3d_manifest_rows",
+    "truth_json_used": false,
+    "red_green_fixture_used_as_visual_training": false,
+    "rendered_rgb_depth_rows": 0,
+    "training_ready_real_3d_dataset": false,
+    "same_reference_for_sim_and_jetson": "current r33 retained until pixel-level 3-D capture and independent review"
+  },
+  "release_boundary": {
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "jetson_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

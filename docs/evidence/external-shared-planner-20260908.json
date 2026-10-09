@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 103521,
+      "sha256": "b234aa91700ce5b9491c1bdd664db9dba732a8ede6117f43212ac765ed70bb0e"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 70136,
+      "sha256": "d668c5ff944d384922787a5071fd1a027da722c10dee45b50afc85d78ede6a85"
+    },
+    {
+      "path": "artifacts/evaluation/external-shared-planner-20260908-c.xml",
+      "bytes": 51445,
+      "sha256": "5034e959cb849d5baca631bcad48a755540cc12978be01f560e4386451d88694"
+    }
+  ],
+  "passed": 292,
+  "new_tests": 12,
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_mission_planning.py --disable-warnings --junitxml=artifacts/evaluation/external-shared-planner-20260908-c.xml",
+  "exit_code": 0,
+  "changes": [
+    "replace hand-assembled external plan with shared plan_task",
+    "remove mission timeout as endurance fallback",
+    "qualified observed endurance requires same-source fresh BATTERY_STATUS",
+    "session explicit profile plus initial Wh projects cumulative energy before planning and hash binding"
+  ],
+  "fixture_change": "Protocol test fixture now states endurance=1800s and task maximum=600s; explicit short-duration/low-endurance negative tests retained. Runtime planner limits unchanged.",
+  "external_rerun": false,
+  "full_suite_rerun": false,
+  "compatibility": "Existing CLI has no explicit energy-profile arguments yet. With unavailable PX4 endurance it now rejects before upload instead of using timeout as a budget.",
+  "remaining": [
+    "CLI/orchestrator explicit profile and initial Wh input",
+    "same-home binding across actual missions",
+    "external two-mission execution"
+  ]
+}

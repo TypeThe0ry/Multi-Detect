@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "completed_no_improvement_parent_retained",
+  "dataset": "configs/training/task-ranker-heterogeneous-development-v2.json",
+  "dataset_sha256": "c230261b7c5d3aa3a245420923f510610199fd8349b5d472394a6a6df627de64",
+  "report": "artifacts/evaluation/ranker-development-36-20260908/report.json",
+  "report_sha256": "057a8684e50608db9e06dc1e461bbf28cb4f6a600b49ec989ca65bc85ff43387",
+  "parent_file_sha256": "8945e35c7d123cbb3e6522c82be6b8c699ad4ad242dd8e0773ebe2c3166171c6",
+  "coefficient_candidates": 36,
+  "evaluations_including_parent": 37,
+  "selected_trial": 0,
+  "parent_candidate_reward_each_split": 40,
+  "distinct_training_objectives": [
+    {"reward": 40, "completed": 6, "estimated_elapsed_s": 1464.683038},
+    {"reward": 29, "completed": 6, "estimated_elapsed_s": 1437.653855}
+  ],
+  "cases_changed_relative_to_source": false,
+  "previously_inspected_development_cases": true,
+  "unseen_holdout_claimed": false,
+  "physical_performance_claimed": false,
+  "candidate_promoted": false,
+  "final_release_allowed": false
+}

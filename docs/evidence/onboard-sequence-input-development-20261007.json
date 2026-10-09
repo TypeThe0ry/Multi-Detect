@@ -1,0 +1,57 @@
+{
+  "contract": "multidetect.onboard-sequence-input-development-evidence-v1",
+  "status": "episode_preserving_windows_implemented_and_fixture_verified_not_temporal_model_training",
+  "observed_at_utc": "2026-10-07T00:15:49Z",
+  "sources": [
+    {
+      "path": "scripts/onboard_sequence_windows.py",
+      "bytes": 17359,
+      "sha256": "45d6d2471b9b7a00fe38ea305d83bded8b4379c38fd86650a6ce6e0476ac10f5"
+    },
+    {
+      "path": "tests/test_onboard_sequence_windows.py",
+      "bytes": 15173,
+      "sha256": "8f6d0861ce2c8803e9ca4efc2301fc42e531c6ca896ad28cf0fa354a7cfa796c"
+    }
+  ],
+  "existing_dataset_contract": "multidetect.onboard-trajectory-dataset-v1",
+  "admission_parser": "scripts.train_onboard_model._trajectory_samples",
+  "sample_type": "scripts.train_onboard_model.BootstrapSample",
+  "properties": {
+    "windows_cross_episode": false,
+    "original_sample_objects_preserved": true,
+    "padding_labels": null,
+    "episode_reset_and_independent_window_reset_separate": true,
+    "original_dt_preserved": true,
+    "unreviewed_opt_in_training_ready": false,
+    "missing_actions_generated": false,
+    "planned_visual_condition_used_for_action_labels": false,
+    "mutable_sample_aliases_accepted": false
+  },
+  "verification": {
+    "focused_tests_passed": 43,
+    "existing_parser_key_regressions_passed": 3,
+    "ruff_passed": true,
+    "format_check_passed": true,
+    "independent_read_only_review": "no_substantive_blocker_found",
+    "evidence_type": "existing_trajectory_fixtures_not_real_Gazebo_admission"
+  },
+  "remaining": [
+    "History encoder and versioned shared model input/output are not implemented by this helper.",
+    "No new reviewed action-supervision episodes were materialized.",
+    "Current 40-feature MLP has not gained temporal memory.",
+    "No visual candidate is silently aliased to car or deployed."
+  ],
+  "current_model_reference_changed": false,
+  "current_single_step_mlp_changed": false,
+  "temporal_model_training_performed": false,
+  "flight_action_labels_created": false,
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

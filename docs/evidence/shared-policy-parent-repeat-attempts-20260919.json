@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "purpose": "record-clean-repeatability-audit",
+  "parent_policy_artifact": "artifacts/evaluation/vtol-two-task-parent-policy-pre.8.json",
+  "campaign_artifact": "artifacts/evaluation/vtol-two-task-parent-campaign-pre.8.json",
+  "attempts": [
+    {
+      "run": "artifacts/evaluation/vtol-two-task-parent-run-20260919-d.json",
+      "sha256": "5d13fdd571d1ff2bd38cfa743008dc6d467805b5bb6d42e0fcdd5a0c5f2a53c7",
+      "gate_passed": false,
+      "failure_class": "mission_timeout_below_task_budget",
+      "router_duration_s": 22.39,
+      "mission_frames_forwarded": 0,
+      "control_commands_forwarded": 0,
+      "cleanup_failures": ["mission_frames_forwarded", "control_forwarded"]
+    },
+    {
+      "run": "artifacts/evaluation/vtol-two-task-parent-run-20260919-e.json",
+      "sha256": "7bb338c79b905bb88b8749c5b227eba2e5280e714861301984ae1adf12c5a62f",
+      "gate_passed": false,
+      "failure_class": "mission_timeout_below_task_budget",
+      "router_duration_s": 22.516,
+      "mission_frames_forwarded": 0,
+      "control_commands_forwarded": 0,
+      "cleanup_failures": ["mission_frames_forwarded", "control_forwarded"]
+    },
+    {
+      "run": "artifacts/evaluation/vtol-two-task-parent-run-20260919-f.json",
+      "sha256": "9af60c1f465d4ff41c70796daa2d889a7fe40460b3ae1fefbe174cab0dcca002",
+      "gate_passed": false,
+      "failure_class": "outer_router_duration_cap_reached",
+      "router_duration_s": 600.0,
+      "mission_frames_forwarded": 35,
+      "control_commands_forwarded": 2,
+      "cleanup_failures": ["graceful_stop"]
+    }
+  ],
+  "claims": {
+    "clean_independent_parent_repeat_proven": false,
+    "candidate_gain_proven": false,
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "notes": [
+    "The first two attempts exposed an explicit mission timeout mismatch: the task contract allows 600 seconds while the outer default was 30 seconds.",
+    "The third attempt used a 600 second mission timeout and forwarded a complete mission transaction, but the outer router duration cap expired before graceful stop.",
+    "All disposable containers were removed by exact identity cleanup; no attempt is admitted as a clean performance sample."
+  ]
+}

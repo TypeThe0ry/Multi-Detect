@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-vlm-execution-admission-development-receipt-v1",
+  "verified_at_utc": "2026-10-07T04:18:58Z",
+  "repository_head": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+  "worktree_has_preexisting_changes": true,
+  "status": "software_source_current_admission_receive_only_memory_verified_not_live_flight",
+  "release_label": "0.3.0-pre.8",
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_admission.py",
+      "bytes": 27701,
+      "sha256": "1e4d497f843438ce3521ae2ab3e239f6e30e1024dcd38f737a629745bdc898d9"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_execution.py",
+      "bytes": 34320,
+      "sha256": "888eb9efbbd0c47a2de7d24373693383cd6400bf377f0b1b7e004265a1078125"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_evidence_collector.py",
+      "bytes": 43179,
+      "sha256": "7a591c07422e1340a28acd7145d4fa3f5d1b1b652b5315604e88ebeda9845646"
+    },
+    {
+      "path": "tests/test_onboard_vlm_admission.py",
+      "bytes": 19403,
+      "sha256": "70d656e30fe8bf6ab22f8c34e18328fed2b33b572d7d48a7348e365434b3f97d"
+    },
+    {
+      "path": "tests/test_onboard_vlm_execution.py",
+      "bytes": 43213,
+      "sha256": "721e5399f71ca3f9004e9228f24f38fb5a9f3619e85810f62c07803e6946248d"
+    },
+    {
+      "path": "tests/test_onboard_evidence_collector.py",
+      "bytes": 43744,
+      "sha256": "4b4cf6850f430f55e352bf9bbb920eebd187a7d2fc4aa79302dd7227e982ea8c"
+    }
+  ],
+  "baselines": [
+    {
+      "bytes": 22078,
+      "sha256": "f1321f1eee1c8fa96b38f154c74dcc077efec20007ae57f8e75ebf71fc5eeef6",
+      "path": "src/multidetect/autonomy/onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 14533,
+      "sha256": "b19039a8bcb7036f62c7e0a2098ded191ea3ed56813cdef00287b64a59a796dd",
+      "path": "src/multidetect/autonomy/onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 5910,
+      "sha256": "d11e419e2ba7309afd6afe6afd3cedba6ee173c74949f332a0d2002ea5fb1530",
+      "path": "src/multidetect/autonomy/onboard_vlm_backend.py"
+    },
+    {
+      "bytes": 8614,
+      "sha256": "bf350fee9a7bdc20d15b5c7be090e27f0d15cf2dc49dbc41a3620b20b8d4bab7",
+      "path": "scripts/run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "bytes": 22862,
+      "sha256": "d000bf8ff89a84d47cc00f27a7e503797e4c97dafeea8ab1a82daf89a5273034",
+      "path": "tests/test_onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 8838,
+      "sha256": "642c81bfc55cf741ab99db3e7c0b01ab8fc9e7a07db5c624bc7b36a2d7e37d5a",
+      "path": "tests/test_onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 1875,
+      "sha256": "977844f503acef44ee90f4212f6f39eeadee89a458c6d5466054f12002bc6fc0",
+      "path": "tests/test_run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_provider.py",
+      "bytes": 21816,
+      "sha256": "88bb9b940122069b5ea5b96e86ce5f641d0200b15493749d016a6f0390eda01e"
+    },
+    {
+      "path": "tests/test_onboard_vlm_provider.py",
+      "bytes": 25925,
+      "sha256": "9fe04107dc14388cd34402c9ec86eb0ea7776e5f62ece507b37a640a11ed69a1"
+    },
+    {
+      "bytes": 25597,
+      "sha256": "3dffd99197e1cdb204ef83862b00861d19ebe9e5ff1d20c95c46ae2d7227b659",
+      "path": "src/multidetect/autonomy/onboard_multimodal.py"
+    },
+    {
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4",
+      "path": "scripts/probe_onboard_vlm.py"
+    },
+    {
+      "bytes": 6872,
+      "sha256": "0d631d854a2a8edca55f02b5dbe984c2234e9d8338e06f86d7a27df7170ce777",
+      "path": "scripts/onboard_vlm_shadow_input.py"
+    },
+    {
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+      "path": "configs/training/onboard-policy-current-reference-v1.json"
+    },
+    {
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c",
+      "path": "configs/release-parity.json"
+    },
+    {
+      "bytes": 159768,
+      "sha256": "8089f3aa2bc7768b44f030b214bfbba423e0370102a578b38f13d0969053399d",
+      "path": "docs/evidence/onboard-vlm-grounding-training-20261007-r1.json"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_agent.py",
+      "bytes": 63449,
+      "sha256": "ec2750f72d57f1c9322aec13c0aef0b2a91d35e80801d0bde8a39264b2929cc1"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_adapter.py",
+      "bytes": 41574,
+      "sha256": "a516e731f82885a0c8063c2078ed5ed7a00085d0e0cc7b0979c2d027981fd322"
+    },
+    {
+      "path": "src/multidetect/autonomy/realtime_bridge.py",
+      "bytes": 39293,
+      "sha256": "16fdcc5b8b8530414bc221c533356414d6929066d37e0194ee94f46d37ea41c5"
+    },
+    {
+      "path": "src/multidetect/autonomy/mission_outcome.py",
+      "bytes": 12697,
+      "sha256": "8dc87940f03bc6fb9daeb203d9ade6c423c989277bd12c0372ed7e27d82cfcdb"
+    },
+    {
+      "path": "src/multidetect/mission_planning.py",
+      "bytes": 10516,
+      "sha256": "fe613bbb84669d75d8520158554308c5ea0c2ace4076ee92ab8a4bee51672e9b"
+    },
+    {
+      "path": "src/multidetect/mission_journal.py",
+      "bytes": 72318,
+      "sha256": "05150200fd60d434b3b61effe165f971c44d44ac7995bb1d02797b86432ca551"
+    },
+    {
+      "path": "src/multidetect/px4_mission.py",
+      "bytes": 98111,
+      "sha256": "cb389de53a528470891dccb54c6a1206f9adf18dd2a88c1f714d4c8fff0240a2"
+    },
+    {
+      "path": "src/multidetect/px4_mission_feedback.py",
+      "bytes": 32334,
+      "sha256": "44e458b480316a5c215d721bf433f21c58922e4b0f66a0687118b0124ef3bc41"
+    },
+    {
+      "path": "docs/research/onboard-vlm-candidates-20261007.md",
+      "bytes": 12793,
+      "sha256": "703c15e7cdccf6dc7582e0e14c03793a88a449c8162d642802653ae1a95817af"
+    },
+    {
+      "path": "docs/research/onboard-world-model-candidates-20261007.md",
+      "bytes": 14266,
+      "sha256": "6aec2a631a913e673dc9b1897e1ddd2d9b7c3d6f423d15b45cb9eba81ae90052"
+    },
+    {
+      "path": "docs/research/onboard-vlm-integration-review-20261007.md",
+      "bytes": 18430,
+      "sha256": "a28a041ada4e45917addcfb2ba7cd44dbd97ecaa5cc4fe129e31b403e326f08f"
+    }
+  ],
+  "prior_runtime_receipt": {
+    "path": "docs/evidence/onboard-vlm-runtime-20261007-r1.json",
+    "bytes": 7169,
+    "sha256": "60b7250723e15c867ece008d7332ae1f831e1343b18228adba0ac768ac7afb8f"
+  },
+  "cluster_diagnostic_receipt": {
+    "path": "docs/evidence/cluster-gazebo-preflight-recovered-20261007-r1.json",
+    "bytes": 3122,
+    "sha256": "c21830e670b5e361aac35ca56f482d1d8634dd84ace1ade29e47538e0fa57e8d"
+  },
+  "software_validation": {
+    "evidence_kind": "CPU_software_fixtures_and_existing_native_proof_reopening_not_new_model_generation",
+    "native_exit_code": 0,
+    "root_combined_tests_passed": 617,
+    "root_combined_duration_s": 33.09,
+    "root_command": ".venv-vlm/Scripts/python.exe -m pytest tests/test_onboard_vlm_admission.py tests/test_onboard_vlm_execution.py tests/test_onboard_evidence_collector.py tests/test_onboard_vlm_runtime_contract.py tests/test_onboard_vlm_worker.py tests/test_onboard_vlm_provider.py tests/test_run_onboard_vlm_runtime_replay.py tests/test_onboard_agent.py tests/test_onboard_multimodal.py tests/test_onboard_realtime_bridge.py tests/test_mission_execution_adapter.py tests/test_mission_replacement.py tests/test_release_parity.py tests/test_repository_progress_docs.py tests/test_onboard_vlm_runtime_evidence.py tests/test_current_progress_index.py -o addopts='' -q --disable-warnings --basetemp D:/CodexTemp/pytest-vlm-execution-final-20261007-r2",
+    "root_test_files": [
+      "tests/test_onboard_vlm_admission.py",
+      "tests/test_onboard_vlm_execution.py",
+      "tests/test_onboard_evidence_collector.py",
+      "tests/test_onboard_vlm_runtime_contract.py",
+      "tests/test_onboard_vlm_worker.py",
+      "tests/test_onboard_vlm_provider.py",
+      "tests/test_run_onboard_vlm_runtime_replay.py",
+      "tests/test_onboard_agent.py",
+      "tests/test_onboard_multimodal.py",
+      "tests/test_onboard_realtime_bridge.py",
+      "tests/test_mission_execution_adapter.py",
+      "tests/test_mission_replacement.py",
+      "tests/test_release_parity.py",
+      "tests/test_repository_progress_docs.py",
+      "tests/test_onboard_vlm_runtime_evidence.py",
+      "tests/test_current_progress_index.py"
+    ],
+    "independent_focused_tests_passed": 195,
+    "independent_focused_duration_s": 3.59,
+    "independent_focused_native_exit_code": 0,
+    "new_focused_test_counts": {
+      "admission": 68,
+      "execution_scheduler": 68,
+      "receive_only_collector": 59
+    },
+    "ruff_check_native_exit_code": 0,
+    "ruff_format_check_native_exit_code": 0,
+    "new_python_files_checked": 7,
+    "source_vs_current_async_admission_verified": true,
+    "source_WGS84_target_preserved_at_MISSION_ITEM_INT_precision": true,
+    "original_RGB_raw_response_request_and_timestamps_preserved": true,
+    "full_mission_wire_clearance_required": true,
+    "known_current_relative_home_height_required": true,
+    "current_navigation_resources_energy_and_registered_task_revalidated": true,
+    "ready_only_single_consumption_verified": true,
+    "pending_has_no_adapter_HOLD_or_Mission_side_effects": true,
+    "source_expiry_preserves_fresh_queue": true,
+    "consume_time_unavailability_does_not_clear_mission": true,
+    "neutral_cancellation_scope": "host_provider_to_legacy_executor_to_exact_scheduler_catch_returning_None",
+    "ordinary_model_and_original_binding_faults_keep_existing_safety_handling": true,
+    "receive_only_evidence_collector_implemented": true,
+    "source_and_processing_clock_domains_separated": true,
+    "execution_and_completion_require_committed_readback_journal_and_source_bound_vehicle_feedback": true,
+    "source_ledger_prefix_allows_new_RGB_without_rewriting_model_request": true,
+    "old_acceptance_retry_cannot_restore_superseded_Mission": true,
+    "original_core_runtime_proof_and_production_parity_unchanged": true
+  },
+  "independently_reproduced_cases": {
+    "consume_time_clearance_expiry": {
+      "clearance_observed_at_s": 1.25,
+      "armed_at_s": 2.2,
+      "actual_consumed_at_s": 2.3,
+      "scheduler_returned": "None",
+      "current_Mission_unchanged": true,
+      "adapter_history_unchanged": true,
+      "task_receipts_unchanged": true,
+      "processed_event_count_unchanged": true,
+      "safety_state_unchanged": true,
+      "later_current_at_s": 2.35,
+      "later_host_at_s": 2.4,
+      "same_original_anchor_dispatched_once": true,
+      "worker_submission_count": 1
+    },
+    "receive_queue_delay": {
+      "delay_s": 0.02,
+      "original_receive_times_s": [
+        10.1,
+        10.11,
+        10.12
+      ],
+      "processing_times_s": [
+        10.12,
+        10.13,
+        10.14
+      ],
+      "original_source_bytes_unchanged": true,
+      "software_executed_and_full_completion_chain_verified": true,
+      "canonical_source_age_budget_s": 1.5,
+      "old_lifecycle_and_pending_REACHED_are_not_freshened_by_queue_delay": true
+    }
+  },
+  "implementation_limits": {
+    "vehicle_class": "multirotor",
+    "task_scope": "one_unchanged_registered_task_and_runtime",
+    "movement_intents": "search_or_move_relative_on_SEARCH_replan",
+    "trusted_clearance_source_ids_default": [],
+    "clearance_source_authentication": "caller_owned_host_receiver_required_hash_is_integrity_not_authentication",
+    "geometric_coverage": "entire_compiled_Mission_including_3D_climb_HOME_takeoff_loiter_and_landing_not_just_horizontal_segment",
+    "retained_compiler": "full_lifecycle_sortie_not_continuous_inflight_action_Mission",
+    "collector": "receive_only_explicit_host_receipts_not_automatic_transport_or_control_permission",
+    "receipt_revision_join": "scheduler_task_state_receipt_count_and_collector_receipt_revision_not_yet_online_joined",
+    "sensor_clock_mapping": "explicit_epoch_not_a_measured_UTC_boot_host_mapping",
+    "route_clearance_measurements_in_tests": "explicit_software_fixtures_not_physical_sensor_evidence"
+  },
+  "remaining_work": [
+    "Pass the actual Docker daemon and pinned PX4/Gazebo image preflight on a compatible runtime before capturing real 3D simulator flight.",
+    "Implement shared in-flight continuation Mission semantics instead of repeatedly authoring HOME takeoff and landing.",
+    "Join the real HOME_POSITION, sensor/host clock provenance, current aircraft state, and route-clearance receiver.",
+    "Connect collector to actual transport reception and atomically join its receipt revision with scheduler task/Mission head.",
+    "Resolve arbitrary Prompt task constraints, collect and review synchronized RGB/state/actually-executed-action episodes, then train flight intents and independent holdout campaigns.",
+    "Verify the same accepted model/contracts on Jetson, HIL/REAL, outdoor GNSS and range accuracy before promotion or final release."
+  ],
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "physical_performance_claimed": false,
+  "autonomous_flight_verified": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "vlm_finetuning_performed": false,
+  "native_vlm_generation_performed": false,
+  "flight_action_training_performed": false,
+  "world_model_local_inference_measured": false,
+  "world_model_finetuning_performed": false,
+  "execution_authority": false,
+  "live_route_clearance_producer_implemented": false,
+  "live_collector_receiver_join_implemented": false,
+  "collector_scheduler_revision_join_implemented": false,
+  "inflight_continuation_mission_implemented": false,
+  "arbitrary_prompt_task_resolution_verified": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "commit_created": false,
+  "remote_push_performed": false
+}

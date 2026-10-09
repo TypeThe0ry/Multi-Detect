@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "comparison": "parent-candidate-policy-ordering-corrected-repeat",
+  "scenario_manifest": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "pinned_sim_image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "stable_airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
+  "parent": {
+    "campaign_sha256": "e2a4ce5c387520406e03895cc4f5ac8fd4d881e921cd81d318751e5cde4ccfb1",
+    "policy_file_sha256": "9afbd3c9c2fab444af77dd723a75e4c848c9adbce25ff6b4de1f1062c967995c",
+    "policy_canonical_sha256": "4af0b485a20f8f3aee8c3eebe80b06855186bd7a4e80f45c02ceb7c95b54d791",
+    "top_level_evidence": "artifacts/evaluation/vtol-two-task-parent-run-20260919-g.json",
+    "top_level_evidence_sha256": "0e0cc0423ffecb5e40d27fdc1f325ba73fdc6f5bb97102c4916b2dd498085dee",
+    "gate_passed": true,
+    "cleanup_failures": [],
+    "task_order": ["synthetic-low", "synthetic-high"],
+    "router_duration_seconds": 253.297,
+    "maximum_router_duration_seconds": 1440.0,
+    "evaluator_mission_frames_forwarded": 35,
+    "evaluator_control_commands_forwarded": 2
+  },
+  "candidate": {
+    "campaign_sha256": "a5951e24da60fb2c8415072c7c9d21d6ea42110efee55a5324eeb7bca79e8a44",
+    "policy_file_sha256": "7c7932635e3024dc7a4fe6aceda5ae278ebc48d0ef2b8ba2ce3118de7df0b2b1",
+    "policy_canonical_sha256": "d6f0c963daf4158793f4a2070088d5277a0ff5579fe9967ced510745816d2943",
+    "top_level_evidence": "artifacts/evaluation/vtol-two-task-candidate-run-20260919-c.json",
+    "top_level_evidence_sha256": "2099ca9ae24866f807cfe57382944a6482cd6f14437ded3be2bc7151cea20a5b",
+    "gate_passed": true,
+    "cleanup_failures": [],
+    "task_order": ["synthetic-high", "synthetic-low"],
+    "router_duration_seconds": 215.063,
+    "maximum_router_duration_seconds": 1440.0,
+    "evaluator_mission_frames_forwarded": 35,
+    "evaluator_control_commands_forwarded": 2
+  },
+  "claims": {
+    "same_core_algorithm": true,
+    "same_contract": true,
+    "same_safety_policy": true,
+    "same_px4_mission_path": true,
+    "same_ui": false,
+    "task_order_difference_observed": true,
+    "aggregate_router_timeout_fix_exercised": true,
+    "clean_parent_repeat_proven": true,
+    "clean_candidate_repeat_proven": true,
+    "independent_candidate_gain_proven": false,
+    "candidate_promoted": false,
+    "learned_weights_loaded": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "notes": [
+    "Both corrected runs used the explicit multi-task router budget and completed the full Mission lifecycle with exact-ID container cleanup.",
+    "The different task order confirms that the two policy artifacts entered the same external Mission path, but elapsed time is not a causal performance metric in this pair.",
+    "A corrected repeat establishes execution repeatability only; independent candidate performance gain still requires a predeclared multi-run evaluation and remains unproven."
+  ]
+}

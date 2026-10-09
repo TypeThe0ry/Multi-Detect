@@ -1,0 +1,85 @@
+{
+  "schema": "multidetect.combined-sim-qgc-vtol-evidence",
+  "schema_version": 1,
+  "status": "passed_external_px4_gazebo_qgc_combined_sim",
+  "release_label": "0.3.0-pre.8",
+  "generated_at_utc": "2026-09-30T20:57:53.8746906Z",
+  "run_directory": "artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500",
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_px4_gazebo_qgc_combined_sim_acceptance.ps1 -Frames 600 -RouterDurationSeconds 600 -MissionTimeoutSeconds 240 -MissionSetupAllowanceSeconds 120 -FixedWingHoldSeconds 12 -MissionCaptureSequenceAdvance 5",
+  "source_files": {
+    "combined_evidence": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500/combined-evidence.json",
+      "bytes": 928440,
+      "sha256": "8655da689319cdaf74a6b198850dfcf491d8fa1ff65e933e825301e4990dd272"
+    },
+    "integrated_result": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500/integrated-sim-qgc.result.json",
+      "bytes": 301501,
+      "sha256": "0c055bf493a3ee2c0e7f4757727e629c3c826238f8be37c7a6204bf8881207f8"
+    },
+    "mission_result": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500/vtol-mission.result.json",
+      "bytes": 5015744,
+      "sha256": "389e6ba73deaeace63ed8d734c079499cb55f1ede7f083c163d74dec0265a26e"
+    },
+    "mission_transaction": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500/vtol-mission.transaction.jsonl",
+      "bytes": 9508,
+      "sha256": "313a898709481c6a6ef4e4a712eb1ee46cabed3a71534bee5e6c464f855a462a"
+    }
+  },
+  "gates": {
+    "combined_gate_passed": true,
+    "integrated_sim_qgc_gate_passed": true,
+    "sensor_transport_gate_passed": true,
+    "mission_gate_passed": true,
+    "target_geolocation_claimed": true,
+    "operator_visual_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  },
+  "sensor_transport": {
+    "requested_frames": 600,
+    "received_frames": 600,
+    "emitted_frames": 600,
+    "video_frame_count": 600,
+    "metadata_acceptance_ack_count": 600,
+    "metadata_barrier_count": 600,
+    "odometry_timestamp_frame_count": 600,
+    "depth_companion_count": 600,
+    "depth_camera_info_frame_count": 600,
+    "full_odometry_pose_velocity_fusion_claimed": true,
+    "stream_timeout_seconds": 510,
+    "helper_exit_code": 0
+  },
+  "mission": {
+    "mission_current_sequences": [0, 2, 3, 4, 5, 6],
+    "mission_item_reached_sequences": [0, 1, 2, 3, 4, 5, 6],
+    "duration_s": 152.688,
+    "maximum_distance_from_home_m": 130.358,
+    "maximum_relative_altitude_m": 23.526,
+    "in_air_observed": true,
+    "fixed_wing_observed": true,
+    "multicopter_observed": true,
+    "landed_observed": true,
+    "terminal_disarmed": true
+  },
+  "identity": {
+    "release_parity_file_sha256": "ec1f0daf58feb47df02051599f98b949d670718d7ca7363fd500c2a5cf6f51b4",
+    "release_parity_core_algorithm_hash": "48710a548731cee9720b7b16a33f2205c5d211025ac1115d6f0e4c7319bdc9db",
+    "release_parity_px4_mission_path_hash": "b2aa59b43c30ef2445f6860fe0d4961c6a7ad15c0dfdf7cecb25120876d163a3",
+    "model_assets_composite_sha256": "b7f5b1b13e631999b8990d7fff35485c326a80e0fb7ad56e5971b63d1d6f23bb",
+    "qgc_executable_sha256": "41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b",
+    "pinned_px4_gazebo_image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
+  },
+  "cleanup": {
+    "container_stopped_and_removed": true,
+    "exactly_one_px4_gazebo_container": true,
+    "all_test_ports_released": true,
+    "protected_udp_14550_unchanged": true,
+    "router_termination_reason": "duration_elapsed"
+  },
+  "interpretation": "This is a software-only external PX4/Gazebo/QGC combined SIM acceptance. It proves the current model asset can complete the bounded VTOL Mission and synchronized RGB/depth/odometry transport under the pinned container. It does not prove HIL, REAL, outdoor GNSS, hardware performance, human visual acceptance, or final v0.3.0 release readiness."
+}

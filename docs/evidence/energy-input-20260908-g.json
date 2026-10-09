@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "gate": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "a44bc48b580fb423a19495cdb91e394a0f680b74de81408cdcca895d48f9e659",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "outcome": {
+    "elapsed_s": 130.48399999993853,
+    "mission_hash": "1af2b7019090371c23abcf30f762426e32df1d9ecebc37561ea0f68fcca7baec",
+    "reason": "terminal_reached_landed_disarmed",
+    "status": "completed"
+  },
+  "history": {
+    "seen": 6066,
+    "invalid": 0,
+    "dropped": 0,
+    "foreign": 0,
+    "groups": [
+      {
+        "first": {
+          "at_s": 13.297000000020489,
+          "field": "time_boot_ms",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "GLOBAL_POSITION_INT",
+          "value": 6244
+        },
+        "type": "GLOBAL_POSITION_INT",
+        "min": 6244,
+        "max": 117660,
+        "last": {
+          "at_s": 150.25,
+          "field": "time_boot_ms",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "GLOBAL_POSITION_INT",
+          "value": 117660
+        },
+        "count": 5508
+      },
+      {
+        "first": {
+          "at_s": 12.547000000020489,
+          "field": "base_mode",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "HEARTBEAT",
+          "value": 29
+        },
+        "type": "HEARTBEAT",
+        "min": 29,
+        "max": 157,
+        "last": {
+          "at_s": 150.26599999994505,
+          "field": "base_mode",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "HEARTBEAT",
+          "value": 29
+        },
+        "count": 112
+      },
+      {
+        "first": {
+          "at_s": 11.719000000040978,
+          "field": "throttle",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "VFR_HUD",
+          "value": 0
+        },
+        "type": "VFR_HUD",
+        "min": 0,
+        "max": 93,
+        "last": {
+          "at_s": 149.96900000004098,
+          "field": "throttle",
+          "field_valid": true,
+          "source_component": 1,
+          "source_is_expected_px4": true,
+          "source_system": 1,
+          "type": "VFR_HUD",
+          "value": 0
+        },
+        "count": 446
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "bytes": 2293103,
+      "sha256": "596845f7f826cf3f08f99bfbfc29a7fb4d0e178d7201441038f383dbb6586eb0",
+      "path": "artifacts/evaluation/energy-input-20260908-g/vtol-mission-acceptance.json"
+    },
+    {
+      "bytes": 2670001,
+      "sha256": "add55bdbf9e5237e9ed01b8a206ed9624bd8c2914e35daf6d76f9a918d1991aa",
+      "path": "artifacts/evaluation/energy-input-20260908-g.json"
+    }
+  ],
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/energy-input-20260908-g --evidence artifacts/evaluation/energy-input-20260908-g.json --container-name multidetect-energy-input-20260908-g --frame-count 3 --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "exit_code": 0,
+  "clock_audit": {
+    "source": "GLOBAL_POSITION_INT.time_boot_ms",
+    "backwards": 0,
+    "duplicates": 0,
+    "boot_span_s": 111.416,
+    "receive_span_s": 136.9529999999795,
+    "SYSTEM_TIME_received": false,
+    "gazebo_clock_equivalence_proven": false
+  },
+  "tests": {
+    "passed": 223,
+    "failed": 0,
+    "junit": "artifacts/evaluation/energy-input-history-20260908.xml",
+    "full_after_change": false
+  },
+  "claims": {
+    "input_capture": true,
+    "energy_integration": false,
+    "continuous_multitask": false,
+    "physical_calibration": false,
+    "trained_weights": false,
+    "hardware": false,
+    "release_allowed": false
+  }
+}

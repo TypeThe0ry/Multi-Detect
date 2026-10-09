@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "evaluated_at_utc": "2026-09-26T08:49:00.000000Z",
+  "gate_passed": false,
+  "release_allowed": false,
+  "blocker_count": 45,
+  "release_blocked_reasons": [
+    "replay_set: replay_set gate_passed is false",
+    "replay_set: replay_set accuracy evidence gate_passed is false",
+    "replay_set: replay_set accuracy evidence accuracy_validated is false",
+    "replay_set: replay_set accuracy evidence artifact gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact accuracy_validated is not true",
+    "replay_set: replay_set accuracy evidence artifact deployment_domain_evidence_complete is not true",
+    "replay_set: replay_set accuracy evidence artifact metrics_gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact reviewed is not true",
+    "replay_set: replay_set accuracy evidence artifact contains failure_reasons",
+    "replay_set: replay_set deployment coverage is incomplete",
+    "real_field_link: real_field_link gate_passed is false",
+    "real_field_link: real_field_link: field-link preflight report is stale: age 103855.368s exceeds max 900.000s",
+    "real_field_link: real_field_link: field-link preflight hardware_link_ready is false",
+    "px4_reported_position_response_matrix: px4_reported_position_response_matrix: release_identity",
+    "px4_reported_position_response_matrix: px4_reported_position_response_matrix: matrix_sha256",
+    "px4_reported_position_response_matrix: px4_reported_position_response_matrix digest does not match verifier",
+    "px4_reported_position_response_matrix: px4_reported_position_response_matrix checks do not match verifier",
+    "px4_reported_position_response_campaign: px4_reported_position_response_campaign: release_identity",
+    "px4_reported_position_response_campaign: px4_reported_position_response_campaign: campaign_sha256",
+    "px4_reported_position_response_campaign: px4 response campaign digest does not match verifier",
+    "px4_reported_position_response_campaign: px4 response campaign checks do not match verifier",
+    "simulator_external_evidence: simulator_external_evidence parity does not match the join",
+    "simulator_external_evidence: simulator_external_evidence: join: stored summary does not match source recomputation",
+    "simulator_external_evidence: simulator_external_evidence revalidation summary does not match recomputation",
+    "simulator_external_evidence: simulator_external_evidence checks do not match recomputed checks",
+    "simulator_external_evidence: simulator_external_evidence checks must all be true",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for HIL",
+    "real_control_acceptance is 'not_claimed', required for HIL",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for REAL",
+    "real_control_acceptance is 'not_claimed', required for REAL",
+    "referenced artifact gate_passed is not true",
+    "product channel is 'prerelease'; final release requires channel 'release'",
+    "final release version surfaces do not equal numeric version"
+  ],
+  "report_path": "artifacts/evaluation/release-gate-positive-replay-20260926-r1/release-gate-pre.8-current-20260926T084900Z-v6-bound-report.json",
+  "report_bytes": 74454,
+  "report_sha256": "98231ec1a7a04e49b200aeb4a9c6d7c554e1f952fce7c7de77e8ecd55cc7fe34",
+  "manifest_path": "artifacts/evaluation/release-gate-positive-replay-20260925-r1/release-gate-pre.8-current-20260925T040042Z-v6-bound.json",
+  "manifest_bytes": 23630,
+  "manifest_sha256": "847de603b59ed3ecc1f3c9ea59e48e0fa138d6110e67e9c19102245b86d59f66",
+  "current_parity": {
+    "core_algorithm_hash": "93a63722f20e216690328a6c1aeaf211c5f58210c8d3e32bec75bee5af2378c3",
+    "px4_mission_path_hash": "d85534cdd823c535fd4bd8ecc7a0c2214c59d9f6f3175bc98f9c1ee1d7b185fe",
+    "safety_policy_hash": "6dfde8ae223a92a97d6cec7568f63fff5ceb80ec5ebc75cdb0d3d3a90553d1bd",
+    "task_contract_hash": "33f59cb1489cabec2f28715a7add12c8d4593e19a5aec5da77e4a9c6672a951a",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "mode_parity_mismatches": {
+    "replay": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "task_contract_hash"
+    ],
+    "sim": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "task_contract_hash"
+    ],
+    "hil": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "task_contract_hash"
+    ],
+    "real": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "task_contract_hash"
+    ]
+  },
+  "current_release_parity_bound": false,
+  "scope": "Current prerelease diagnostic; old mode parity and external source drift remain release blockers.",
+  "field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-refresh-20260925-r1/preflight.json",
+    "preflight_bytes": 15759,
+    "preflight_sha256": "2c1c1cb29cc022201e3aa33b7a64b2208e85ae8653d82c427fa6b2d3669e5f67",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-refresh-20260925-r1/interface-diagnostic.json",
+    "interface_diagnostic_bytes": 4383,
+    "interface_diagnostic_sha256": "da0c6c8ccb9072259bbe2fe20e3d6908305b454a8809d730d600cb256fd71f41",
+    "hardware_link_ready": false,
+    "read_only": true
+  },
+  "current_field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-live-20260927-r1/preflight-bound.json",
+    "preflight_bytes": 4641,
+    "preflight_sha256": "f04230469f72b01b23306d241f1a809cb7bc66380a58c076998a1ef98aca592f",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-live-20260927-r1/interface-diagnostic.json",
+    "interface_diagnostic_bytes": 4380,
+    "interface_diagnostic_sha256": "e405f2744e3e24249ad18da915a5b14600ec75392d4fb1f40edcb239b5278f1d",
+    "hardware_link_ready": false,
+    "read_only": true
+  }
+}

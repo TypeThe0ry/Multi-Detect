@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "status": "software_components_closed_not_actual_model_or_Gazebo_evidence",
+  "sources": [
+    {"path": "scripts/onboard_navigation_live_loader.py", "bytes": 38493, "sha256": "5024308f500596a060186874804c9c0179c778c61b3f6eefe6b3cc73b29b56fe"},
+    {"path": "tests/test_onboard_navigation_live_loader.py", "bytes": 27468, "sha256": "a98da3aba261fcacd3566b6691e90aeba2f88cfa5472107301db64facfaaf92b"},
+    {"path": "scripts/onboard_navigation_live_shadow_plan.py", "bytes": 25152, "sha256": "e259f5ea6d9ac8e53681615a17e9f2d01dd620c90f5715cb627367ff14a1386f"},
+    {"path": "tests/test_onboard_navigation_live_shadow_plan.py", "bytes": 19184, "sha256": "abf22a87ae88d87aafdf34f1497c619451b6f15a9e39b6d89baaef4550a0560e"},
+    {"path": "scripts/run_onboard_navigation_gazebo_learned_shadow.py", "bytes": 29064, "sha256": "6924b530db516a167a7fad19fcbbd57f73fed7fe0b3993db99b8bb1c2997bd1b"},
+    {"path": "tests/test_onboard_navigation_gazebo_learned_shadow.py", "bytes": 14372, "sha256": "49e288d3d35087abbe6a901c841a106f2b4737e7b351ee8cba43dbb3b5c6ab86"}
+  ],
+  "validation": {
+    "loader_fixture_count": 59,
+    "loader_native_exit_code": 0,
+    "loader_terminal_chunk": "478c95",
+    "plan_fixture_count": 66,
+    "plan_native_exit_code": 0,
+    "plan_author_terminal_chunk": "f4880a",
+    "plan_root_recheck_terminal_chunk": "0a455c",
+    "worker_fixture_count": 25,
+    "worker_native_exit_code": 0,
+    "worker_root_terminal_chunk": "20d176",
+    "worker_independent_terminal_chunk": "71b976",
+    "earlier_six_component_root_regression_count": 264,
+    "earlier_six_component_terminal_chunk": "a7cfc4",
+    "final_plan_six_additional_fixtures_rechecked_separately": true,
+    "ruff_native_exit_code": 0,
+    "ruff_terminal_chunk": "17392f",
+    "independent_final_source_review_native_exit_code": 0,
+    "independent_final_source_review_chunk": "23b277",
+    "metadata_only_native_exit_code": 0,
+    "metadata_only_chunk": "c216aa",
+    "metadata_only_repository_file_count": 58,
+    "metadata_only_runtime_file_count": 22,
+    "metadata_only_capture_file_count": 421,
+    "metadata_only_model_loaded": false
+  },
+  "rules": {
+    "new_optimizer_attempts": 0,
+    "generation_calls": 0,
+    "inherited_head_optimizer_attempts": 3000,
+    "inherited_base_lora_optimizer_attempts": 280,
+    "maximum_new_camera_frames": 8,
+    "worker_process_watchdog_s": 600,
+    "capture_timeout_s": 120,
+    "host_receive_frame_age_s": 5,
+    "request_deadline_s": 5,
+    "input": "verbatim_prompt_and_current_latest_past_RGB_only",
+    "no_recursive_training_or_gold_reads": true,
+    "source_inventory_scope": "listed_entrypoints_not_complete_transitive_or_DLL_authentication"
+  },
+  "claims": {
+    "actual_model_or_Gazebo_executed_here": false,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "flight_actuated": false,
+    "execution_authority": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

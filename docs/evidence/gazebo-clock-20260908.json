@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "status": "automated_verified",
+  "external_sim_smoke_passed": true,
+  "post_documentation_checks_passed": 34,
+  "ruff_passed": true,
+  "diff_check_passed": true,
+  "evidence": "docs/evidence/gazebo-clock-20260908.json",
+  "focused_passed": 52,
+  "new_tests": 11,
+  "samples": 20,
+  "mission_clock_alignment": false,
+  "files": [
+    {
+      "path": "scripts/gazebo_clock_capture.py",
+      "bytes": 4710,
+      "sha256": "ad4df09bee53b3266ebe659af3d85a527de1cce0b0ee80e002e89c09b7c9b390"
+    },
+    {
+      "path": "artifacts/evaluation/gazebo-clock-smoke-20260908.log",
+      "bytes": 6186,
+      "sha256": "7db9b84b2a8feb75148619675feefbb3df1f15bd29992dbd4858b37ce6ec37a8"
+    },
+    {
+      "path": "artifacts/evaluation/gazebo-clock-smoke-20260908.jsonl",
+      "bytes": 4862,
+      "sha256": "23ca77778ec43386e5c341023c374dd7494097ce6b4f4a1d1652e4d754551980"
+    },
+    {
+      "path": "artifacts/evaluation/gazebo-clock-focused-20260908.xml",
+      "bytes": 7144,
+      "sha256": "d9c0eca64cec45d02dfd8fff2b825e68998d25841f3c0149c2a3bc586e45acf0"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "smoke": {
+    "world": "empty",
+    "topic": "/world/empty/clock",
+    "container_name": "multidetect-clock-smoke-a",
+    "network": "none",
+    "scripts_mount": "readonly",
+    "docker_rm": true,
+    "post_run_named_container_absent": true,
+    "exit_code": 0,
+    "sim_delta_ns": 19000000,
+    "real_delta_ns": 19002669,
+    "receiver_delta_ns": 18928767,
+    "observed_sim_per_gazebo_real": 0.9998595460458739,
+    "host_replay_exit_code": 0
+  },
+  "command_inside_container": "gz sim -s -r /usr/share/gz/gz-sim8/worlds/empty.sdf & python3 /workspace/scripts/gazebo_clock_capture.py --world empty --samples 20 --timeout-seconds 15 (actual run redirected Gazebo logs and used EXIT trap to stop owned simulator)",
+  "tests": {
+    "passed": 52,
+    "full_suite_rerun": false
+  },
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "mission_clock_alignment": false,
+    "physical_calibration": false
+  },
+  "limitations": [
+    "19 ms short smoke, not mission-scale performance evidence.",
+    "Tool capture combines stdout/stderr; raw combined log preserved. JSONL records extracted verbatim without parsing nanosecond integers through JavaScript.",
+    "No bridge between container monotonic and host/PX4 clocks.",
+    "Network-none transport emitted loopback selection warnings; actual subscription completed."
+  ]
+}

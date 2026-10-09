@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "scope": "selected compilation verification and transaction document binding",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings",
+  "exit_code": 0,
+  "passed": 282,
+  "new_tests": 6,
+  "positive": "original compilation, plan, context object identities retained and grant bound",
+  "negative_cases": ["stale context", "future context", "changed context", "changed airframe hash", "changed geometry"],
+  "claims": {"external_driver_connected": false, "external_two_task": false, "full_suite": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

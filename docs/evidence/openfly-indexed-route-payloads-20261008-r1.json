@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-indexed-training-route-payloads-evidence-v1",
+  "status": "actual_twelve_original_TRAIN_payloads_downloaded_and_verified_not_schema_RGB_or_training_admission",
+  "bindings": [
+    {
+      "path": "scripts/fetch_openfly_indexed_training_routes.py",
+      "bytes": 21114,
+      "sha256": "d9b7def95b237e8ad47543aa260c876dc4fa90426c05add0eb0d14b2389a4a9e"
+    },
+    {
+      "path": "tests/test_fetch_openfly_indexed_training_routes.py",
+      "bytes": 20286,
+      "sha256": "3dc4a39473f957a70375802a724cee166e9fe3e818314c2baedbdddbfc8d72d6"
+    },
+    {
+      "path": "configs/training/openfly-indexed-route-payloads-20261008-r1.json",
+      "bytes": 12407,
+      "sha256": "91f8439716baf3845019841b3916f787f7e1d17934d47e7b2d672fa030840853"
+    },
+    {
+      "path": "artifacts/training/openfly-indexed-route-payloads-20261008-r1/report.json",
+      "bytes": 20498,
+      "sha256": "e822b412d22743cc655dedb601861ca9261ea34f5f17efb3b1f6cce0006c9d31"
+    },
+    {
+      "path": "artifacts/diagnostics/openfly-bounded-annotation-index-20261008-r1/report.json",
+      "bytes": 189868,
+      "sha256": "74af3937f614ee78400a3c42cd4087c01a79d8a8d4fd712c57319e3bade25f1c"
+    },
+    {
+      "path": "docs/evidence/openfly-bounded-annotation-index-20261008-r1.json",
+      "bytes": 5036,
+      "sha256": "69c16c0e6be79c6cf1823b914a8f6063f184d48c19ee802d522bd4fd2db72156"
+    }
+  ],
+  "actual_execution": {
+    "source_plan_emission_native_exit_code": 0,
+    "source_plan_emission_tool_chunk": "419c7b",
+    "actual_session_id": 59626,
+    "actual_native_exit_code": 0,
+    "actual_terminal_tool_chunk": "29fe60",
+    "root_current_closed_report_binding_native_exit_code": 0,
+    "root_current_closed_report_binding_tool_chunk": "a42935",
+    "targeted_fetch_tests_passed": 49,
+    "root_doc_and_parity_tests_passed": 36,
+    "root_combined_tests_passed": 85,
+    "root_combined_tests_output_tool_chunk": "58e93e",
+    "root_combined_tests_native_exit_code": 0,
+    "root_combined_tests_terminal_tool_chunk": "0e18d2",
+    "root_Ruff_and_scoped_diff_native_exit_code": 0,
+    "root_Ruff_and_scoped_diff_tool_chunk": "f9b11c",
+    "author49_tests_Ruff_format_native_exit_code": 0,
+    "author49_tests_Ruff_format_tool_chunk": "02f402",
+    "independent_code_review_current_blockers": 0,
+    "independent_code_review_native_exit_code": 0,
+    "independent_code_review_tool_chunk": "823dfc",
+    "independent_actual_payload_review_native_exit_code": 0,
+    "independent_actual_payload_review_tool_chunk": "84d1cc"
+  },
+  "publisher": {
+    "dataset": "IPEC-COMMUNITY/OpenFly",
+    "revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+    "source_split": "TRAIN",
+    "locked_development_role": "train",
+    "scene_id": "env_airsim_26",
+    "selected_annotation_indices": [
+      143,
+      150,
+      153,
+      154,
+      148,
+      144
+    ],
+    "exact_files": 12,
+    "parquet_files": 6,
+    "pose_files": 6,
+    "LFS_SHA256_verified": 6,
+    "Git_blob_SHA1_verified": 6,
+    "computed_file_SHA256_recorded": true,
+    "verified_payload_bytes": 83692236,
+    "max_total_payload_bytes": 134217728,
+    "initial_payload_requests_attempted": 12,
+    "http_responses_observed": 24,
+    "http_evidence_contains_only_redirect_hosts_and_pinned_initial_URLs": true,
+    "source_fields_from_metadata_not_new_parquet_parse": true,
+    "declared_candidate_frames_not_actual_verified_rows": 122
+  },
+  "scope": {
+    "bounded_index_only_no405MB_annotation_read": true,
+    "whole_annotation_SHA256_reverified": false,
+    "create_only": true,
+    "partial_bytes_preserved_on_failure": true,
+    "no_payload_retry_or_overwrite": true,
+    "listed_repository_small_source_count": 16,
+    "requests_entrypoint_count": 4,
+    "all_transitive_HTTP_TLS_runtime_bound": false,
+    "payload_acquisition_not_schema_image_or_geometry_acceptance": true
+  },
+  "schema_read": false,
+  "images_extracted": false,
+  "images_decoded": false,
+  "pose_geometry_verified": false,
+  "frd_targets_verified": false,
+  "samples_created": false,
+  "training_ready": false,
+  "model_loaded": false,
+  "gpu_used": false,
+  "optimizer_authorized": false,
+  "optimizer_performed": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "observed_at": "2026-10-08T07:15:00+08:00",
+  "independent_payload_review": {
+    "file_count": 12,
+    "full_payload_bytes_streamed": 83692236,
+    "all_file_SHA256_and_sizes_match": true,
+    "parquet_LFS_SHA256_count": 6,
+    "pose_Git_blob_SHA1_count": 6,
+    "repository_source_and_plan_bindings_verified": 17,
+    "requests_entrypoint_bindings_verified": 4,
+    "final_file_count_in_output": 13,
+    "dangling_partial_file_count": 0,
+    "schema_or_image_or_pose_fields_parsed": false,
+    "network_called": false,
+    "model_or_GPU_used": false
+  }
+}

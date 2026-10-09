@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-rejection-v1",
+  "generated_at_utc": "2026-10-06T04:15:36Z",
+  "candidate": {
+    "model_id": "onboard-policy-r80-world-geometry-dev",
+    "model_path": "artifacts/models/onboard-policy-r80-world-geometry-dev/onboard_policy_r4.onnx",
+    "model_sha256": "a53eb1247e952b20ca31bb3ddc79c93c841bf8e20b18d3f164f216b859d3437d",
+    "model_bytes": 62145,
+    "training_report_path": "artifacts/models/onboard-policy-r80-world-geometry-dev/training-report.json",
+    "training_report_sha256": "4727be8e9de42e70124dd8d6e6781a0f9ba74bb9b2fa2b498bfb79ab072b35da",
+    "training_config_path": "artifacts/models/onboard-policy-r80-world-geometry-dev/training-config.json",
+    "training_config_sha256": "24d9f627404879bcc77d89ddd08d5bd9ee09635a1298e5cadb6980c392d86dff",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "device": "NVIDIA GeForce RTX 4060",
+    "feature_width": 40,
+    "output_contract_unchanged": true,
+    "training_method": "incremental_scene_sdf_geometry_curriculum",
+    "scene_geometry_source": "repository_owned_gazebo_world_sdf",
+    "scene_ids": [
+      "urban_inspection_multirotor_001",
+      "river_rescue_vtol_001",
+      "coastal_patrol_fixed_wing_001"
+    ],
+    "structured_3d_rows": 12000,
+    "rendered_rgb_depth_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "colour_identity_used": false,
+    "red_green_fixture_used": false
+  },
+  "diagnostics": {
+    "independent_3d_holdout_path": "artifacts/evaluation/onboard-policy-r80-3d-holdout-20261006.json",
+    "independent_3d_holdout_sha256": "8e2db024826a16a4f69c5ee08368d406012f3df3e493325dd9b1efa0e3237571",
+    "independent_3d_holdout_case_count": 1200,
+    "independent_3d_holdout_task_accuracy": 0.9958333333333333,
+    "independent_3d_holdout_flight_accuracy": 0.995,
+    "independent_3d_holdout_compatible_output_rate": 0.9966666666666667,
+    "generalization_path": "artifacts/evaluation/onboard-policy-r80-generalization-20261006.json",
+    "generalization_sha256": "3199f187b591955881162fbb165e04b40382c729f95d1791eb7c5f621f93c698",
+    "generalization_case_count": 22,
+    "generalization_raw_head_passed": 20,
+    "generalization_guarded_passed": 22,
+    "generalization_navigation_direction_passed": 22,
+    "generalization_navigation_range_passed": 22,
+    "generalization_class_color_invariance": true
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "rejection_reasons": [
+      "no pixel-level Gazebo RGB/Depth training rows were present",
+      "no recording-bound reviewed trajectory rows were present",
+      "generalization guarded pass includes safety masking and is not a claim of raw model perfection"
+    ],
+    "current_reference_unchanged": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "next_required_evidence": "real current-mainline Gazebo RGB + FLOAT32 Depth + CameraInfo + pose + PX4 telemetry episodes with independent trajectory review"
+  },
+  "claim_boundary": {
+    "synthetic_bootstrap": true,
+    "pixel_level_rendered": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

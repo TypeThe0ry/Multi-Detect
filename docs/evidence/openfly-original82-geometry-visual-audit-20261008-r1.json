@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-original82-geometry-visual-stage-receipt-v1",
+  "recorded_at": "2026-10-08",
+  "product_version": "0.3.0-pre.8",
+  "status": "actual_original82_offline_geometry_and_cross_scene_visual_heuristic_native0",
+  "scope": "original_TRAIN_planned_steps_only_not_training_samples_independent_holdout_or_Gazebo_flight",
+  "bindings": [
+    {
+      "path": "scripts/audit_openfly_multiscene_navigation_geometry.py",
+      "bytes": 12526,
+      "sha256": "f6d4a72140cd57d0862f2e0471f2cbb058f6cd9c309e10dc8ae856987f0d23b6"
+    },
+    {
+      "path": "tests/test_audit_openfly_multiscene_navigation_geometry.py",
+      "bytes": 5662,
+      "sha256": "62caa21642f64432600e4ccf33da28f7f9cd895e92a13c2bf2aca5826ed29968"
+    },
+    {
+      "path": "artifacts/diagnostics/openfly-original82-geometry-20261008-r1/report.json",
+      "bytes": 215301,
+      "sha256": "a6543c62f7fee07e7eb8685d745c8cef635faba5bca8d7fedd95ce087db6a72c"
+    },
+    {
+      "path": "artifacts/training/openfly-multiscene-embedded-images-20261008-r1/receipt.json",
+      "bytes": 217338,
+      "sha256": "095eea5eed5136a07e89986bd971632392359f1d1d05f6b731b4bba0ec910a04"
+    },
+    {
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r2.json",
+      "bytes": 92947,
+      "sha256": "b047040485da2a1cd5fd73f69e671fd73fc555a309d1113edac29d704c873740"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    }
+  ],
+  "actual_execution": {
+    "command": ".venv-vlm-navigation/Scripts/python.exe -I -B -X utf8 scripts/audit_openfly_multiscene_navigation_geometry.py --output-dir artifacts/diagnostics/openfly-original82-geometry-20261008-r1",
+    "native_exit_code": 0,
+    "terminal_tool_chunk": "e31da0",
+    "all_original_RGB_files_decoded": 168,
+    "new_RGB_files": 82,
+    "old_RGB_files": 86,
+    "new_source_scenes": 3,
+    "immediate_successor_geometry_checks": 79,
+    "terminal_zero_STOP_checks": 3,
+    "source_record_count": 182,
+    "actual_source_bytes_rehashed_before_and_after": true,
+    "source_records_unchanged": true,
+    "cross_scene_pairs_compared": 6,
+    "cross_scene_visual_edges": 0,
+    "visual_rule": {
+      "exact_RGB_SHA256": true,
+      "dhash64_hamming_max": 3,
+      "mean_RGB_component_difference_max": 10
+    },
+    "geometry": {
+      "source_position_frame": "OpenFly_world_XY_Z_up_not_geographic",
+      "source_yaw": "counter_clockwise_radians",
+      "reviewed_unit_scale_only": true,
+      "offline_target_translation": "body_FRD_metres",
+      "offline_target_yaw": "clockwise_right_positive_radians",
+      "raw_primitive_next_pose_tolerance_m": 0.0001,
+      "yaw_tolerance_rad": 0.000001,
+      "dt_s": null,
+      "velocity_inferred": false,
+      "STOP_interpreted_as_landing_or_task_completion": false
+    },
+    "action_counts": {
+      "go straight": 75,
+      "turn right": 2,
+      "go up": 1,
+      "go down": 1,
+      "stop": 3
+    },
+    "all_translation_values_m": [3],
+    "all_turn_values_deg": [30],
+    "left_turn_examples": 0
+  },
+  "automated_verification": {
+    "targeted_tests": 27,
+    "native_exit_code": 0,
+    "tool_chunk": "dda9bf",
+    "ruff_check_exit_code": 0,
+    "negative_paths": [
+      "pose_or_primitive_metadata_mismatch_rejected_before_derivation",
+      "conflicting_next_pose_not_fitted_or_rescaled",
+      "incomplete_source_sequences_rejected",
+      "source_byte_SHA_size_escape_or_cap_mismatch_rejected",
+      "duplicate_and_nonfinite_JSON_rejected",
+      "existing_output_preserved",
+      "visual_heuristic_threshold_boundaries_checked"
+    ]
+  },
+  "independent_read_only_review": {
+    "native_exit_code": 0,
+    "tool_chunk": "b17e35",
+    "raw_report_and_small_binding_SHA_verified": true,
+    "small_non_PNG_binding_count": 14,
+    "all182_current_sizes_and_recorded_before_after_checked": true,
+    "cached_visual_records_recompared": true,
+    "source_image_bytes_rehashed_by_reviewer": false,
+    "source_images_redecoded_by_reviewer": false,
+    "raw_pose_conversion_rerun_by_reviewer": false
+  },
+  "limitations": [
+    "No edge under this exact RGB/dHash/mean rule is not universal scene independence or a generalization result.",
+    "Proposed train/dev-validation/dev-test route roles are not promoted into an accepted split or training samples.",
+    "182 bindings cover audited repository and asset bytes, not a complete Pillow/PyYAML parser-runtime seal.",
+    "Original publisher plans are offline supervision, not executed PX4 trajectories, real hardware or local Gazebo observations.",
+    "The batch still lacks left turns, varied translation or yaw scales, obstacles/fault labels and complete autonomous-task examples."
+  ],
+  "training_ready": false,
+  "samples_created": false,
+  "independent_holdout_verified": false,
+  "model_loaded": false,
+  "GPU_used": false,
+  "optimizer_performed": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "execution_authority": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

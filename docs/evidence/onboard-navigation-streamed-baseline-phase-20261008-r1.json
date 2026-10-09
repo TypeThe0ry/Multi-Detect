@@ -1,0 +1,680 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-streamed-baseline-phase-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "audited_at_utc": "2026-10-07T18:06:15.106772+00:00",
+  "status": "actual_base_and_original_LoRA_all86_GPU_baseline_phase_accepted_native0_metric_quality_not_accepted_pipeline_not_terminal",
+  "scope": "sealed_baseline_phase_only_not_balanced_training_candidate_quality_fresh_reload_live_camera_or_flight_acceptance",
+  "bindings": [
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-accepted.json",
+      "bytes": 5513,
+      "sha256": "4182e4ab45993ba18bc6fa69e967b50b458208a0ddf6a1ea01f56c4822b434d8"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline/report.json",
+      "bytes": 282396,
+      "sha256": "cb35e592471bf3caea2f6c1f7e3eae761bf669af8102ace03c6147ff3bbfc416"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline/base-all86.json",
+      "bytes": 201633,
+      "sha256": "f298e54c4da7014a67a41bdf02cdeee954a1147f3a6d20febb1da04c12120f0a"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline/warm_start-all86.json",
+      "bytes": 186372,
+      "sha256": "f28885a814e09db0641127c7f6b06b0601000ec725e8dbff94d0186f3603d897"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline/prepared-inputs.json",
+      "bytes": 143019,
+      "sha256": "49f32a217a22482e8261e19a4c6c216fc8aec934613351164fb1b65d5e0810eb"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-process-observation.json",
+      "bytes": 1519,
+      "sha256": "29508aadad052e0e857263626ad0fcf4854620a7fb26c5fc2c160a6ff8cf9bc7"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-stdout.bin",
+      "bytes": 10463,
+      "sha256": "9583e2e9561cb5d0028b5d657637182df7f1241498340d776ccf5fd6660dd655"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-stderr.bin",
+      "bytes": 204,
+      "sha256": "c692c5a771c2a5e2c4a69229330f155aed0f90c6205983f7202387bb32d7c5a9"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-request.json",
+      "bytes": 158,
+      "sha256": "d287be5f7515888643467b76cabbee754285e62e979445aee2fd99184e01ad7e"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/invocation.json",
+      "bytes": 372,
+      "sha256": "24363a367b94fc9b2e7da97a5484e07ee0ffc2b279fbe7e7b46cde047afe79e1"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode-accepted.json",
+      "bytes": 3236,
+      "sha256": "6bd7ead48212515c8bb538eb908112c1b588aa3850a0187f12e3c6ed3cd67491"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode/prepared-inputs.json",
+      "bytes": 143019,
+      "sha256": "49f32a217a22482e8261e19a4c6c216fc8aec934613351164fb1b65d5e0810eb"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode/report.json",
+      "bytes": 94733,
+      "sha256": "df1a724c3603d0bf3c1ad3d572f485c6b5f79a45f430fd021b7e91a880ef46cc"
+    },
+    {
+      "path": "configs/training/onboard-navigation-streamed-continuation-20261008-r1.json",
+      "bytes": 54471,
+      "sha256": "eac75d2def168f5daa44b3bba713456c71f80d00a1b91933b8075a1dd32c20cc"
+    },
+    {
+      "path": "scripts/train_onboard_navigation_streamed.py",
+      "bytes": 75216,
+      "sha256": "c1f115af558374a333e75ea662eb11035d13b48f5a96db97629f753b9fbcef0d"
+    },
+    {
+      "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "bytes": 13152,
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-actor-inputs-20261007-r1/report.json",
+      "bytes": 297585,
+      "sha256": "53aaaf7feeb878a35d0d3573115cb816c8290f008e5ca9b0f30a1cf520382c36"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/samples.jsonl",
+      "bytes": 402194,
+      "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/report.json",
+      "bytes": 47422,
+      "sha256": "07b1502334e503884ef403322bbd9ad4d18c9e6a0e4f09676334e267437b45fd"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/training-review.json",
+      "bytes": 757,
+      "sha256": "add2f7819e14843e57d7df7db1b8712fa377f8efc2b1f2a38e2d0e3c07e92506"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_navigation_pilot.py",
+      "bytes": 40430,
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "bytes": 49187,
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-streamed-continuation-cpu-20261008-r1.json",
+      "bytes": 6116,
+      "sha256": "107c33b46c434b0cabd9672b351fc56f5b4647ade8daa5cdd81eedc2ff1b9de4"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-streamed-base-round-20261008-r1.json",
+      "bytes": 11235,
+      "sha256": "0467abd42ef799e0a77d264b9da734cd40d1a28f0d82abdb8908fe179376fcd4"
+    }
+  ],
+  "native_followup": {
+    "exit_code": 0,
+    "tool_chunk": "c0edff",
+    "scope": "stdlib_reopened_26_small_bindings_172_raw_diagnostics_CPU_metadata_CIM_argv_chronology_finished_events_and_bounded_checkpoint_headers_no_tensor_or_model_rerun",
+    "heavy_import_guard_enforced": true,
+    "forbidden_heavy_imports": [
+      "torch",
+      "transformers",
+      "peft",
+      "safetensors",
+      "PIL",
+      "numpy",
+      "cv2",
+      "pyarrow",
+      "yaml"
+    ],
+    "forbidden_heavy_import_occurred": false,
+    "prior_followup_harness_tuple_admission_error": {
+      "native_exit_code": 1,
+      "tool_chunk": "cca321",
+      "scope": "temporary_readonly_audit_list_vs_required_tuple_not_baseline_runtime_failure",
+      "corrected_without_changing_frozen_sources": true
+    },
+    "all172_raw_diagnostics_recomputed_with_unchanged_pilot_diagnose": true,
+    "accepted_output_summaries_recomputed_exactly": true,
+    "raw_output_repaired_unfenced_or_rewritten": false,
+    "all86_sample_order_and_original_train_identity_verified": true,
+    "all86_target_canonical_SHA_matches_saved_CPU_metadata": true,
+    "all172_actor_identity_and_four_prefix_records_match_saved_CPU_metadata": true,
+    "baseline_full_chat_metadata_equals_accepted_CPU_metadata": true,
+    "actual_tensor_bytes_or_original_pose_labels_recomputed": false,
+    "RGB_source_bytes_reopened": false,
+    "bounded_checkpoint_header_bytes_reopened": true,
+    "checkpoint_tensor_payload_reopened": false,
+    "base_or_adapter_parameter_digest_recomputed_by_followup": false,
+    "full_5GB_source_inventory_rehashed_by_followup": false,
+    "processor_or_model_rerun": false,
+    "GPU_used_by_followup": false
+  },
+  "actual_phase": {
+    "native_session_id": 39122,
+    "phase": "baseline",
+    "phase_started_at": "2026-10-07T16:09:50.732785+00:00",
+    "phase_ended_at": "2026-10-07T18:01:52.642080+00:00",
+    "worker_native_exit_code": 0,
+    "supervisor_observed_child_native_exit_code": 0,
+    "supervisor_baseline_accepted_file_exists": true,
+    "model_loaded": true,
+    "GPU_generation_performed": true,
+    "fixture_only": false,
+    "completed_base_rows": 86,
+    "completed_original_LoRA_rows": 86,
+    "all86_full_chat_encoding_verified": true,
+    "streamed_sample_accesses": 172,
+    "streamed_unique_accessed_samples": 86,
+    "input_residency": "one_sample_reencoded_on_access_without_full_dataset_tensor_cache",
+    "full_dataset_tensor_cache_retained": false,
+    "live_tensor_residency_independently_measured": false,
+    "prepared_inputs_SHA256": "49f32a217a22482e8261e19a4c6c216fc8aec934613351164fb1b65d5e0810eb",
+    "source_binding_count": 180,
+    "recorded_source_bytes_sum": 4993288005,
+    "worker_source_bindings_before_after_equal": true,
+    "baseline_source_arrays_equal_accepted_CPU_arrays": true,
+    "full_phase_source_byte_reverification_completed_by_worker": true,
+    "full_phase_sources_independently_rehashed_by_followup": false,
+    "base_parameter_sha256_before": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_parameter_sha256_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "original_adapter_parameter_sha256_before": "e50249e3e9c87e0cdef6e7207ab75c2930fae6d17c10d05ff68aec652d0638ca",
+    "original_adapter_parameter_sha256_after": "e50249e3e9c87e0cdef6e7207ab75c2930fae6d17c10d05ff68aec652d0638ca",
+    "worker_base_and_original_adapter_post_phase_parameter_checks_completed": true,
+    "frozen_base_and_original_LoRA_parameter_bytes_unchanged_observed": true,
+    "exact_original_adapter_FP32_tensor_count": 112,
+    "original_adapter_exact_load_dtype_conversion_performed": false,
+    "original_adapter_exact_load_tensor_equality": true,
+    "forward_backward_performed": false,
+    "optimizer_performed": false,
+    "optimizer_update_uncertain": false,
+    "optimizer_state_restored": false,
+    "scheduler_state_restored": false,
+    "RNG_state_restored": false,
+    "training_completed": false
+  },
+  "process_identity": {
+    "supervisor_pid": 53024,
+    "launcher_pid": 28644,
+    "actual_worker_pid": 16492,
+    "live_CIM_ancestry_and_exact_argv_reverified": true,
+    "process_creation_observation_and_phase_chronology_verified": true,
+    "unique_worker_admission_and_native0_finished_event_bound_to_actual_report": true,
+    "observation": {
+      "observed_at": "2026-10-07T16:09:51.3189831Z",
+      "processes": [
+        {
+          "command_line": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe -I -B -X utf8 D:\\Projects\\Multi-Detect\\scripts\\train_onboard_navigation_streamed.py --worker --phase baseline --plan D:\\Projects\\Multi-Detect\\configs\\training\\onboard-navigation-streamed-continuation-20261008-r1.json --plan-sha256 eac75d2def168f5daa44b3bba713456c71f80d00a1b91933b8075a1dd32c20cc --output-dir D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-navigation-balanced-streamed-20261008-r1 --invocation-id eb321368b51a47768dc70abe2e56a4bd",
+          "created_at": "2026-10-07T16:09:50.7349980Z",
+          "executable": "D:\\Projects\\Multi-Detect\\.venv-vlm-navigation\\Scripts\\python.exe",
+          "parent_pid": 53024,
+          "pid": 28644
+        },
+        {
+          "command_line": "\"C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -I -B -X utf8 D:\\Projects\\Multi-Detect\\scripts\\train_onboard_navigation_streamed.py --worker --phase baseline --plan D:\\Projects\\Multi-Detect\\configs\\training\\onboard-navigation-streamed-continuation-20261008-r1.json --plan-sha256 eac75d2def168f5daa44b3bba713456c71f80d00a1b91933b8075a1dd32c20cc --output-dir D:\\Projects\\Multi-Detect\\artifacts\\models\\onboard-navigation-balanced-streamed-20261008-r1 --invocation-id eb321368b51a47768dc70abe2e56a4bd",
+          "created_at": "2026-10-07T16:09:50.7465830Z",
+          "executable": "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+          "parent_pid": 28644,
+          "pid": 16492
+        }
+      ]
+    }
+  },
+  "checkpoint_loading": {
+    "loader_counts": {
+      "safe_open_calls_attempted": 5,
+      "safe_open_calls_returned": 5
+    },
+    "recorded_reader_opening_count": 5,
+    "every_reader_closed": true,
+    "complete_base_tensor_reads": 625,
+    "actual_BF16_base_payload_bytes_read_by_worker": 4255064064,
+    "actual_FP32_original_adapter_payload_bytes_read_by_worker": 3211264,
+    "bounded_header_followup_is_not_tensor_or_model_reload": true,
+    "reader_summaries": [
+      {
+        "kind": "adapter",
+        "header": {
+          "file_bytes": 3227648,
+          "header_declared_bytes": 16376,
+          "header_sha256": "90a50751078fd02899cfc2f4e4f7d5e6cf424277e2d153a79a553daddb1b95d7"
+        },
+        "tensor_calls_completed": 112,
+        "tensor_payload_bytes_read": 3211264,
+        "normalized_device": "cpu",
+        "closed": true
+      },
+      {
+        "kind": "base",
+        "header": {
+          "file_bytes": 4255140312,
+          "header_declared_bytes": 76240,
+          "header_sha256": "a4c22c14e0d987dd572a283e92643374babeccc2f86cf2f8020e6144389c3f4d"
+        },
+        "tensor_calls_completed": 0,
+        "tensor_payload_bytes_read": 0,
+        "normalized_device": "cpu",
+        "closed": true
+      },
+      {
+        "kind": "base",
+        "header": {
+          "file_bytes": 4255140312,
+          "header_declared_bytes": 76240,
+          "header_sha256": "a4c22c14e0d987dd572a283e92643374babeccc2f86cf2f8020e6144389c3f4d"
+        },
+        "tensor_calls_completed": 0,
+        "tensor_payload_bytes_read": 0,
+        "normalized_device": "cpu",
+        "closed": true
+      },
+      {
+        "kind": "base",
+        "header": {
+          "file_bytes": 4255140312,
+          "header_declared_bytes": 76240,
+          "header_sha256": "a4c22c14e0d987dd572a283e92643374babeccc2f86cf2f8020e6144389c3f4d"
+        },
+        "tensor_calls_completed": 0,
+        "tensor_payload_bytes_read": 0,
+        "normalized_device": "cpu",
+        "closed": true
+      },
+      {
+        "kind": "base",
+        "header": {
+          "file_bytes": 4255140312,
+          "header_declared_bytes": 76240,
+          "header_sha256": "a4c22c14e0d987dd572a283e92643374babeccc2f86cf2f8020e6144389c3f4d"
+        },
+        "tensor_calls_completed": 625,
+        "tensor_payload_bytes_read": 4255064064,
+        "normalized_device": "cuda:0",
+        "closed": true
+      }
+    ],
+    "constructor": {
+      "calls_attempted": 1,
+      "constructor_source_sha256": "2eedf41c1b25abfcc686dc79617b15686c2802b2930884e44dd2fe0ab02ef16f",
+      "exceptions_observed": 0,
+      "installed": true,
+      "restored": true,
+      "scope": "this_child_only_original_init_passthrough_traceback",
+      "source": {
+        "bytes": 40430,
+        "path": "D:\\Projects\\Multi-Detect\\scripts\\train_onboard_vlm_navigation_pilot.py",
+        "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+      }
+    },
+    "warmup": {
+      "allocator_warmup_function_sha256": "c2760d2ecbead7dc6a7f081eed2f48187dc6c67507ce23e9b03ff28924cbe2c6",
+      "allocator_warmup_parameter_names": [
+        "model",
+        "expanded_device_map",
+        "hf_quantizer"
+      ],
+      "allocator_warmup_source": {
+        "bytes": 308964,
+        "path": "D:\\Projects\\Multi-Detect\\.venv-vlm\\Lib\\site-packages\\transformers\\modeling_utils.py",
+        "sha256": "bf1c6b2a43cf7c36fb79f37c981424dd6ae78eb863fcaa5d2a37e76c9828611d"
+      },
+      "backend_initialization_changed": false,
+      "constructor_observability_scope": "this_child_only_original_init_passthrough_traceback",
+      "device_map_changed": false,
+      "entrypoint_dispatch_only": true,
+      "model_weights_loading_skipped": false,
+      "pid": 16492,
+      "quantization_changed": false,
+      "training_budget_changed": true,
+      "warmup_calls_attempted": 1,
+      "warmup_calls_skipped": 1,
+      "warmup_override_installed": true,
+      "warmup_override_restored": true,
+      "warmup_policy": "skip_optional_caching_allocator_warmup",
+      "warmup_scope": "this_child_only_performance_preallocation"
+    },
+    "child_only_loader_aliases_and_outer_hook_fallbacks_restored": true,
+    "model_weights_loading_skipped": false,
+    "quantization_changed": false,
+    "device_map_changed": false
+  },
+  "rounds": {
+    "base-all86.json": {
+      "summary": {
+        "sample_count": 86,
+        "strict_contract_valid": 0,
+        "json_syntax_valid": 0,
+        "action_class_correct": 0,
+        "metric_correct": 0,
+        "unknown_translation": 0,
+        "unknown_yaw": 0,
+        "token_cap_reached": 0,
+        "elapsed_at_or_above_30s_generation_bound": 0,
+        "translation_l2_errors_m": [],
+        "yaw_absolute_errors_rad": [],
+        "confusion": {
+          "forward": {
+            "forward": 0,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 70,
+            "other": 0
+          },
+          "left": {
+            "forward": 0,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 6,
+            "other": 0
+          },
+          "right": {
+            "forward": 0,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 7,
+            "other": 0
+          },
+          "stop": {
+            "forward": 0,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 3,
+            "other": 0
+          }
+        },
+        "resubstitution_only": true,
+        "quality_claim": false
+      },
+      "by_class": {
+        "forward": {
+          "total": 70,
+          "strict_json_valid": 0,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        },
+        "left": {
+          "total": 6,
+          "strict_json_valid": 0,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        },
+        "right": {
+          "total": 7,
+          "strict_json_valid": 0,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        },
+        "stop": {
+          "total": 3,
+          "strict_json_valid": 0,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        }
+      },
+      "actual_recorded_generated_elapsed_s": {
+        "count": 86,
+        "mean": 7.396002272093028,
+        "min": 6.393587199996546,
+        "max": 9.422212800000125,
+        "p50": 7.2987812499995925,
+        "p95": 8.350900599998567,
+        "sum": 636.0561954000004,
+        "percentile_method": "linear_interpolation_at_(n_minus_1)_times_p",
+        "elapsed_gt_5s": 86,
+        "generated_tokens_min": 84,
+        "generated_tokens_max": 99,
+        "peak_allocated_bytes_max": 4382947328,
+        "peak_reserved_bytes_max": 4456448000
+      },
+      "translation_l2_error_distribution_m": {}
+    },
+    "warm_start-all86.json": {
+      "summary": {
+        "sample_count": 86,
+        "strict_contract_valid": 69,
+        "json_syntax_valid": 69,
+        "action_class_correct": 55,
+        "metric_correct": 0,
+        "unknown_translation": 0,
+        "unknown_yaw": 0,
+        "token_cap_reached": 0,
+        "elapsed_at_or_above_30s_generation_bound": 0,
+        "translation_l2_errors_m": [
+          97,
+          97,
+          7,
+          97,
+          97,
+          7,
+          97,
+          7,
+          7,
+          7,
+          7,
+          97,
+          97,
+          7,
+          97,
+          97,
+          7,
+          7,
+          7,
+          97,
+          97,
+          7,
+          97,
+          97,
+          97,
+          7,
+          7,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97,
+          97
+        ],
+        "yaw_absolute_errors_rad": [],
+        "confusion": {
+          "forward": {
+            "forward": 55,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 15,
+            "other": 0
+          },
+          "left": {
+            "forward": 4,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 2,
+            "other": 0
+          },
+          "right": {
+            "forward": 7,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 0,
+            "other": 0
+          },
+          "stop": {
+            "forward": 3,
+            "left": 0,
+            "right": 0,
+            "stop": 0,
+            "invalid": 0,
+            "other": 0
+          }
+        },
+        "resubstitution_only": true,
+        "quality_claim": false
+      },
+      "by_class": {
+        "forward": {
+          "total": 70,
+          "strict_json_valid": 55,
+          "action_class_correct": 55,
+          "metric_correct": 0
+        },
+        "left": {
+          "total": 6,
+          "strict_json_valid": 4,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        },
+        "right": {
+          "total": 7,
+          "strict_json_valid": 7,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        },
+        "stop": {
+          "total": 3,
+          "strict_json_valid": 3,
+          "action_class_correct": 0,
+          "metric_correct": 0
+        }
+      },
+      "actual_recorded_generated_elapsed_s": {
+        "count": 86,
+        "mean": 6.342778731395557,
+        "min": 5.169964500000788,
+        "max": 9.85896490000232,
+        "p50": 5.46753764999994,
+        "p95": 9.15913667500081,
+        "sum": 545.4789709000179,
+        "percentile_method": "linear_interpolation_at_(n_minus_1)_times_p",
+        "elapsed_gt_5s": 86,
+        "generated_tokens_min": 57,
+        "generated_tokens_max": 96,
+        "peak_allocated_bytes_max": 4382947328,
+        "peak_reserved_bytes_max": 4456448000
+      },
+      "translation_l2_error_distribution_m": {
+        "97.0": 42,
+        "7.0": 13
+      }
+    }
+  },
+  "timer_boundary": {
+    "starts_after_prefix_H2D": true,
+    "includes": [
+      "generate",
+      "cuda_synchronize",
+      "suffix_D2H",
+      "tokenizer_decode"
+    ],
+    "includes_CPU_actor_and_processor_prefix_time": false,
+    "vision_prefill_and_incremental_decode_separately_measured": false,
+    "camera_to_action_end_to_end_latency_measured": false,
+    "progress_log_interval_is_generate_latency": false,
+    "live_camera_used": false,
+    "actual_five_second_frame_age_gate_executed": false,
+    "five_second_freshness_conflict_is_conditional_not_live_acceptance": true
+  },
+  "pipeline_state_at_audit": {
+    "native_session_id": 39122,
+    "full_pipeline_native_exit_code": null,
+    "completion_report_present": false,
+    "train_request_present": true,
+    "train_report_present": false,
+    "optimizer_steps_attempted": null,
+    "optimizer_steps_returned": null,
+    "optimizer_steps_synchronized": null,
+    "optimizer_steps_completed": null,
+    "status": "baseline_accepted_native0_subsequent_train_requested_full_pipeline_not_terminal",
+    "balanced_280_draw_training_started": null,
+    "balanced_280_draw_training_completed": false,
+    "fresh_saved_candidate_adapter_reload_verified": false,
+    "baseline_optimizer_performed": false,
+    "pipeline_optimizer_execution_inferred_from_baseline": false
+  },
+  "prior_base_round_receipt_and_failure_history_preserved": true,
+  "prior_r1_host_MemoryError_failure_rewritten_as_pass": false,
+  "frozen_training_sources_budget_or_plan_modified": false,
+  "production_navigation_backend_modified": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "resubstitution_only": true,
+  "source_planned_not_executed": true,
+  "independent_holdout_available": false,
+  "live_navigation_inference_accepted": false,
+  "actual_live_camera_parity_verified": false,
+  "sim_real_parity_verified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "training_completed": false,
+  "physical_performance_claimed": false,
+  "jetson_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "notes": [
+    "This is an actual GPU baseline observation plus a separate guarded stdlib follow-up, not fixture-only inference evidence.",
+    "Native0 and baseline acceptance prove execution, exact identity and unchanged-parameter/source gates; they do not make metric correctness or navigation quality pass.",
+    "All69 strict warm-start outputs predict forward:55 are forward-class matches,4 left,7 right and3 stop are incorrect;55 matching-forward metric errors are97m for42 rows and7m for13 rows.",
+    "Both rounds are the same86 original TRAIN samples; no independent holdout or live camera is admitted.",
+    "Targets were reconstructed from the reviewed saved sample action metadata and matched saved CPU target hashes; follow-up did not rerun original pose-to-metric label conversion or official processor.",
+    "Worker measurements contain unchanged base and original adapter post-phase digests; stdlib follow-up verifies the bound records and small headers, not current model parameter memory.",
+    "All172 recorded generation timers exceed5s, but the live freshness gate was not exercised and full camera/CPU preprocessing latency is unmeasured.",
+    "Subsequent train request exists while its final report and whole-pipeline completion are absent at this audit; optimizer counts remain null rather than fabricated zeros."
+  ]
+}

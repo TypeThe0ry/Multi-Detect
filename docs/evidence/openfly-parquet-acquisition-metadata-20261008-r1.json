@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-parquet-acquisition-metadata-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "status": "actual_three_original_train_shards_and_six_pose_config_files_downloaded_byte_verified_and_metadata_pose_aligned_images_and_training_not_accepted",
+  "scope": "public_original_AirSim_3D_navigation_source_acquisition_and_CPU_Parquet_metadata_audit_not_Gazebo_closed_loop_model_training_or_hardware",
+  "native_acquisition": {
+    "session_id": 59955,
+    "exit_code": 0,
+    "terminal_tool_chunk": "e61b98"
+  },
+  "native_tests": {
+    "passed": 27,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "terminal_tool_chunk": "a43a91",
+    "scope": "local_CPU_Parquet_fixtures_not_official_payload_or_valid_PNG_evidence"
+  },
+  "repository_source_binding_count": 161,
+  "repository_sources_before_after_equal": true,
+  "explicit_runtime_entrypoint_binding_count": 5,
+  "runtime_sources_before_after_equal": true,
+  "runtime_binding_scope": "listed_PyArrow_PyYAML_entrypoints_and_parquet_extension_not_all_transitive_DLLs",
+  "root_followup": {
+    "exit_code": 0,
+    "tool_chunk": "e7a47d",
+    "all_nine_output_files_reopened_byte_hashed": true,
+    "source_files_not_rehashed_by_root_followup": true,
+    "metadata_rows_read_from_retained_receipt_not_recomputed_by_root": true
+  },
+  "bindings": [
+    {
+      "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/receipt.json",
+      "bytes": 114695,
+      "sha256": "72be0f673a14cc56af2eb650e69d5039f29dfb6951eb45b58b69cf10ab21875c"
+    },
+    {
+      "path": "scripts/fetch_and_audit_openfly_parquet.py",
+      "bytes": 27895,
+      "sha256": "0b5312f57a1e5813c1b7cef0e37de762d1c94e90376bd3d55000e727d862f6e9"
+    },
+    {
+      "path": "tests/test_fetch_and_audit_openfly_parquet.py",
+      "bytes": 13404,
+      "sha256": "50694d90826aba2b7c2d7c6e59ca9c0b993b57d0b0cbf6297dc4b56e1d099209"
+    },
+    {
+      "path": "configs/training/openfly-parquet-acquisition-20261008-r1.json",
+      "bytes": 54352,
+      "sha256": "199bb4cb062bf5c9914afcc921744212e0a5ebe057c02e3505bc422bf426dee4"
+    }
+  ],
+  "payloads": [
+    {
+      "role": "pose",
+      "annotation_index": 139,
+      "file": {
+        "bytes": 6122,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383/pose.jsonl",
+        "sha256": "151298514252c13c024491376673cec41cf7d99f2ca97a1f4f3e5020e7bd9fb2"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "config",
+      "annotation_index": 139,
+      "file": {
+        "bytes": 773,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_26.yaml",
+        "sha256": "82ed8317535f84b83f95fdaae8c29c18b07aa860d56a210a760d6cae93a2ad73"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "shard",
+      "annotation_index": 139,
+      "file": {
+        "bytes": 14935853,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+        "sha256": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "pose",
+      "annotation_index": 220,
+      "file": {
+        "bytes": 4627,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921/pose.jsonl",
+        "sha256": "9ce2bff218da8bb485a566779c0738cf3be344f98fa39885c59a374b4dca8e31"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "config",
+      "annotation_index": 220,
+      "file": {
+        "bytes": 3791,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_16.yaml",
+        "sha256": "cb85865814d06dadd41cbb9a7b0b3ff156949ba083dc3188ba0515d005ecd475"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "shard",
+      "annotation_index": 220,
+      "file": {
+        "bytes": 14859023,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+        "sha256": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "pose",
+      "annotation_index": 90,
+      "file": {
+        "bytes": 11094,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/Image/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985/pose.jsonl",
+        "sha256": "0321d88003b7e9bd0af08f1a5ce64a483b52fc8ce65f863c6e08375f779be9d6"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "config",
+      "annotation_index": 90,
+      "file": {
+        "bytes": 763,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/configs/env_airsim_23.yaml",
+        "sha256": "3d528e397b7189113b11d700c3c91cfefd365453eb937aec52432b344ae3f878"
+      },
+      "publisher_digest_verified": true
+    },
+    {
+      "role": "shard",
+      "annotation_index": 90,
+      "file": {
+        "bytes": 26269042,
+        "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+        "sha256": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f"
+      },
+      "publisher_digest_verified": true
+    }
+  ],
+  "actual_metadata_audits": [
+    {
+      "annotation_index": 139,
+      "scene_id": "env_airsim_26",
+      "development_partition": "train",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 14931369,
+        "row_groups": 1,
+        "rows": 23,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "metadata_row_count": 23,
+      "raw_pose_matches_all_metadata_rows": true,
+      "annotation_sparse_filename_pose_yaw_match": true,
+      "embedded_image_validity_verified": false
+    },
+    {
+      "annotation_index": 220,
+      "scene_id": "env_airsim_16",
+      "development_partition": "dev-validation",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 14854329,
+        "row_groups": 1,
+        "rows": 17,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "metadata_row_count": 17,
+      "raw_pose_matches_all_metadata_rows": true,
+      "annotation_sparse_filename_pose_yaw_match": true,
+      "embedded_image_validity_verified": false
+    },
+    {
+      "annotation_index": 90,
+      "scene_id": "env_airsim_23",
+      "development_partition": "dev-test",
+      "schema_metadata": {
+        "declared_uncompressed_bytes": 26264725,
+        "row_groups": 1,
+        "rows": 42,
+        "schema": "env_id: string\ntraj_id: string\nimage_id: string\nframe_index: int32\nimage: struct<bytes: binary, path: string>\n  child 0, bytes: binary\n  child 1, path: string\npos: fixed_size_list<element: double>[3]\n  child 0, element: double\nyaw: double\naction_type: string\naction_value: int32\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"env_id\": {\"dtype\": \"string\", \"_type' + 446",
+        "schema_without_metadata_sha256": "b050677d28a600b553bb3b23a42bcf3357d72e5a1fd8468b57648dddc71abc61"
+      },
+      "metadata_row_count": 42,
+      "raw_pose_matches_all_metadata_rows": true,
+      "annotation_sparse_filename_pose_yaw_match": true,
+      "embedded_image_validity_verified": false
+    }
+  ],
+  "verified_payload_count": 9,
+  "verified_payload_bytes": 56091088,
+  "planned_payload_cap_bytes": 134217728,
+  "initial_payload_files": 9,
+  "successful_payload_http_response_count": 15,
+  "max_http_attempts_per_file": 6,
+  "max_http_attempts_total_upper_bound": 54,
+  "full_shard_bytes_including_embedded_image_data_downloaded_and_hashed": true,
+  "embedded_image_column_materialized_or_extracted": false,
+  "embedded_image_validity_verified": false,
+  "source_metadata_rows": 82,
+  "development_roles": {
+    "train": {
+      "scene": "env_airsim_26",
+      "frames": 23
+    },
+    "validation": {
+      "scene": "env_airsim_16",
+      "frames": 17
+    },
+    "test": {
+      "scene": "env_airsim_23",
+      "frames": 42
+    }
+  },
+  "source_annotation_split": "original_train",
+  "official_seen_unseen_read_or_downloaded": false,
+  "original_pose_and_annotation_filename_yaw_alignment_verified_by_actual_stage": true,
+  "planned_action_next_pose_physical_FRD_mapping_independently_validated": false,
+  "actual_motion_executed": false,
+  "source_timestamps_or_dt_inferred": false,
+  "source_dataset_scale_rescaled_or_guessed": false,
+  "independent_image_or_visual_duplicate_holdout_accepted": false,
+  "samples_created": false,
+  "training_ready": false,
+  "new_extraction_review_required": true,
+  "reviewed_receipt_drift_bug_fixed_before_plan_seal": true,
+  "old_legacy_missing_RGB_failure_and_historical_metadata_snapshots_preserved": true,
+  "old_86_sample_dataset_or_frozen_GPU_plan_modified": false,
+  "model_loaded": false,
+  "gpu_used_for_this_acquisition": false,
+  "optimizer_performed": false,
+  "weights_downloaded": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "notes": [
+    "Actual native0 acquisition is separate from 27 CPU fixture tests and root follow-up.",
+    "Whole original shards include embedded image bytes; hashing them is not equivalent to reading the image column or validating PNG pixels.",
+    "All82 metadata rows match exact original pose and episode identities; image decode, visual duplicate grouping and physical next-action mapping remain separate gates.",
+    "Development scene roles derive only from pinned original train; no official seen or unseen data was used.",
+    "Fresh output paths preserve previous failures, previous preflights and the active frozen model pipeline."
+  ]
+}

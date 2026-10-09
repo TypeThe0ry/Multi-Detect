@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-training-evidence-v1",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "status": "candidate_quarantined_no_promotion",
+  "training": {
+    "method": "incremental_finetune_from_existing_onboard_policy",
+    "parent_reference": "configs/training/onboard-policy-current-reference-v1.json",
+    "parent_model": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "candidate_model": "artifacts/models/onboard-policy-r33-range-focused-cuda-20261006/onboard_policy_r33_range_focused_cuda_20261006.onnx",
+    "candidate_model_sha256": "7256576469665e7f3173e2563345646075ee4277e095f2032286836ca9e39588",
+    "training_report": "artifacts/models/onboard-policy-r33-range-focused-cuda-20261006/training-report.json",
+    "training_report_sha256": "e97fd1d442a8c60983eca8027749e1487954706c7a8da89bbb4ad5cd0d966fa7",
+    "training_config": "artifacts/models/onboard-policy-r33-range-focused-cuda-20261006/training-config.json",
+    "training_config_sha256": "a5d47659e5044ca39ccde7ecb51c2a8769e191e44a7ce4e305d6304ca8bc9c85",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": "12.4",
+    "torch": "2.6.0+cu124",
+    "epochs": 35,
+    "samples": 121000,
+    "structured_3d_scene_teacher_rows": 63000,
+    "rendered_rgb_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "independent_test_rows": 0,
+    "same_40_feature_contract": true,
+    "same_20_output_contract": true,
+    "synthetic_bootstrap": true,
+    "red_green_fixture_used": false
+  },
+  "independent_diagnostics": {
+    "navigation_geometry": {
+      "report": "artifacts/evaluation/onboard-r33-range-focused-cuda-20261006/navigation.json",
+      "report_sha256": "273b3c9ca38a32599fd0a6b6463eb24638e511056e9d5037ed0cb48f599999ce",
+      "sample_count": 300,
+      "angle_mae_deg": 11.049575699453678,
+      "angle_p95_deg": 24.935638268486784,
+      "direction_within_20deg_rate": 0.8533333333333334,
+      "endpoint_mae_m": 135.7064368630045,
+      "range_mae_m": 126.99796085735863,
+      "diagnostic_pass": false,
+      "physical_performance_claimed": false
+    },
+    "policy_generalization": {
+      "report": "artifacts/evaluation/onboard-r33-range-focused-cuda-20261006/generalization.json",
+      "report_sha256": "10903f5226682e60d20ae92938f8d64bee4bc6e8318803e04dbd432928ae7095",
+      "guarded_passed": 22,
+      "guarded_failures": [],
+      "training_used": false,
+      "gazebo_truth_used": false
+    }
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "reference_retained": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reason": "independent continuous distance error remains above the promotion threshold; the corpus has no rendered RGB/depth rows, reviewed trajectories, or independent test split",
+    "required_next_data": [
+      "actual Gazebo 3-D RGB frames",
+      "registered FLOAT32 optical-axis depth with CameraInfo",
+      "same-frame vehicle pose and PX4 telemetry",
+      "independently reviewed continuous episodes",
+      "disjoint train/evaluation/test scenes",
+      "at least one independent test episode and transition"
+    ]
+  },
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-cache-worker-placement-preflight-v1",
+  "date": "2026-10-08",
+  "purpose": "Check controller placement for a Windows NVIDIA worker before candidate feature extraction; no remote model or training job was started.",
+  "snapshot": {
+    "digest": "sha256:680eacde388ac2e04627e566657ebb6a1fc14056a356fa9b69eb9947e4f7dae0",
+    "size_bytes": 45068,
+    "file_count": 2,
+    "expanded_size_bytes": 42812,
+    "contents": [
+      "onboard_navigation_action_readout.py",
+      "onboard_navigation_stable_readout.py"
+    ],
+    "scope": "Readiness-only source snapshot, not a complete model/data/runtime extraction snapshot"
+  },
+  "requirements": {
+    "os": "windows",
+    "arch": "x86_64",
+    "capabilities": ["tool.python", "tool.nvidia-smi"],
+    "nvidia_available_vram_mib": 7168,
+    "available_cpu_cores": 4,
+    "available_memory_mib": 16384,
+    "available_disk_mib": 12288,
+    "gpu_exclusive": true
+  },
+  "controller_result": {
+    "error_code": "no_eligible_node",
+    "eligible_node_count": 0,
+    "windows_gpu_worker_reasons": ["offline", "stale_node", "insufficient_memory", "insufficient_vram"],
+    "linux_cpu_worker_reasons": ["offline", "stale_node", "wrong_os", "missing_capability", "gpu_required"]
+  },
+  "remote_job_submitted": false,
+  "remote_native_exit_observed": false,
+  "actual_features_extracted": false,
+  "actual_training_executed": false,
+  "fallback": "Use the local admitted runtime with a single GPU model after source/test admission.",
+  "claims": {
+    "quality_passed": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "flight_authorized": false,
+    "final_release_allowed": false,
+    "jetson_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false
+  }
+}

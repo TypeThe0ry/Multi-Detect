@@ -1,0 +1,36 @@
+{
+  "verification": {
+    "passed": 112,
+    "failed": 0,
+    "junit": "artifacts/evaluation/causal-energy-replay-20260908.xml",
+    "full_suite_rerun": false
+  },
+  "source_path": "artifacts/evaluation/energy-input-20260908-g/vtol-mission-acceptance.json",
+  "source_sha256": "596845f7f826cf3f08f99bfbfc29a7fb4d0e178d7201441038f383dbb6586eb0",
+  "result": {
+    "schema_version": 1,
+    "reason": "load_or_receive_gap",
+    "segments": 131,
+    "covered_boot_time_s": 2.620000000000002,
+    "first_covered_boot_ms": 6244,
+    "consumed_wh": 0.026200000000000036,
+    "profile": {
+      "capacity_wh": 10,
+      "avionics_power_w": 36,
+      "propulsion_max_power_w": 324,
+      "provenance": "replay engineering fixture only; not calibrated"
+    },
+    "source_clock": "GLOBAL_POSITION_INT.time_boot_ms",
+    "stopped_at_receive_s": 18.10999999998603,
+    "gap_details": {
+      "receive_gap_s": 1.515999999945052,
+      "left_heartbeat_age_s": 1.7190000000409782,
+      "left_throttle_age_s": 1.7190000000409782,
+      "current_load_ready": false
+    },
+    "load_policy": "left_sample_zero_order_hold_max_age_1.5s",
+    "full_mission_coverage_claimed": false,
+    "physical_calibration_claimed": false,
+    "authorizes_next_task": false
+  }
+}

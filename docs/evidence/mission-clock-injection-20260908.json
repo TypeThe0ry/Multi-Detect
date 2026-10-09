@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "source": "scripts/vtol_sitl_mission_acceptance.py",
+  "source_sha256": "ec58800014b9c1f757a0a544e655e0577a8653620e0732bc83d372f258d7c4b9",
+  "new_tests_path": "tests/test_mission_clock_injection.py",
+  "new_tests_sha256": "2e08e1065a693628577aa538b42452b26af750cc031d9e46ea3338751381d4ae",
+  "focused_passed": 370,
+  "focused_exit_code": 0,
+  "new_tests": 8,
+  "legacy_test_fixture_change": "Set fake monotonic before constructing collector, rather than rewinding an initialized collector.",
+  "default_clock_changed": false,
+  "legacy_direct_os_clock_fallbacks": 1,
+  "high_resolution_missing_history_identity_rejected": true,
+  "session_initialization_failure_closes_connection": true,
+  "external_clock_boundaries_migrated": false,
+  "high_resolution_cli_exposed": false,
+  "new_external_sim_run": false,
+  "full_regression_rerun": false,
+  "release_ready": false
+}

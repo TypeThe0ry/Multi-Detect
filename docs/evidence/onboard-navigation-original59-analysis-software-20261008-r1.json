@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-original59-analysis-software-evidence-v1",
+  "status": "small_result_analysis_software_passed_actual59_model_results_not_available",
+  "bindings": [
+    {
+      "path": "scripts/analyze_onboard_navigation_original59.py",
+      "bytes": 28246,
+      "sha256": "6ddb90202732e02a7c88196293de25adc55135385e544b0cbbe8fe4e55e21bee"
+    },
+    {
+      "path": "tests/test_analyze_onboard_navigation_original59.py",
+      "bytes": 20538,
+      "sha256": "e834c21a0c6c36a2d4df995bb7d58630e82c5a9f4aa2b257ce666776ff8516e6"
+    },
+    {
+      "path": "scripts/evaluate_onboard_navigation_original82.py",
+      "bytes": 45155,
+      "sha256": "6d3f502df0dbad6cc511634a06b70a97b84598451a4d83f1e1f15b6f53ff2b69"
+    },
+    {
+      "path": "tests/test_evaluate_onboard_navigation_original82.py",
+      "bytes": 40635,
+      "sha256": "c3004b853b73ab5a2daf112ff7acb5a95ef3ddacaebbea7e68c792a9c5d46a2d"
+    },
+    {
+      "path": "docs/onboard-navigation-result-interpretation-20261008.md",
+      "bytes": 3705,
+      "sha256": "a11c38a52625ad5fdeea5d0eb5feb2bdf8974b7d7a04aa7faee4db50affe89bc"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-original59-evaluation-software-20261008-r1.json",
+      "bytes": 4951,
+      "sha256": "0a7ab477c6e23be145fb0ca7d1a23da5d46890a4374a79551d4400b71a03a3e5"
+    }
+  ],
+  "software_verification": {
+    "author_targeted_tests_passed": 56,
+    "author_targeted_tests_native_exit_code": 0,
+    "author_targeted_tests_terminal_tool_chunk": "c581da",
+    "root_targeted_tests_passed": 56,
+    "root_targeted_tests_native_exit_code": 0,
+    "root_targeted_tests_terminal_tool_chunk": "79ae17",
+    "root_ruff_and_format_native_exit_code": 0,
+    "root_ruff_and_format_tool_chunk": "859cbd",
+    "independent_final_identity_native_exit_code": 0,
+    "independent_final_identity_tool_chunk": "edd715",
+    "independent_read_only_review_current_blockers": 0,
+    "independent_isolated_stdlib_math_diagnostic_native_exit_codes": [0, 0],
+    "independent_isolated_stdlib_math_diagnostic_tool_chunks": ["a8bc85", "a67c51"],
+    "root_final_source_identity_native_exit_code": 0,
+    "root_final_source_identity_tool_chunk": "eb1a5b",
+    "actual_missing_eval_report_CLI_native_exit_code": 1,
+    "actual_missing_eval_report_CLI_tool_chunk": "3fc2b2",
+    "actual_missing_eval_report_expected_refusal": true,
+    "actual_no_eval_report_or_analysis_output_native_exit_code": 0,
+    "actual_no_eval_report_or_analysis_output_tool_chunk": "2e5b32",
+    "test_scope": "small_synthetic_CPU_result_fixtures_not_actual59_model_predictions"
+  },
+  "implemented_analysis": {
+    "explicit_closed_eval_report_SHA_required": true,
+    "reported_native0_complete59_counters_and_chronology_required": true,
+    "phase_before_after_arrays_equal_full_bound_plan_inventory": true,
+    "only_original17_plus42_selected_and_original23_train_excluded": true,
+    "raw_predictions_gold_stored_scores_and_summaries_independently_rederived": true,
+    "per_class_support_precision_recall_F1_and_gold_present_macro": true,
+    "minority_nonforward5_and_STOP2_shown_separately": true,
+    "raw_and_budget_qualified_counts_separate": true,
+    "cap_or_timeout_is_failure_in_candidate_budget_qualified_paired_comparison": true,
+    "metric_comparability_wrong_kind_unknown_and_error_coverage_explicit": true,
+    "noncomparable_error_not_filled_with_zero": true,
+    "strict_metric_threshold_is_label_reproduction_not_flight_tolerance": true,
+    "mathematical_always_forward_reference_has_no_fake_execution_tokens_latency_or_budget": true,
+    "nine_selected_scoring_source_identities_authenticated_not_all_transitive_dependencies": true,
+    "small_consumed_bindings_rechecked_before_publication": true,
+    "new_diagnostics_output_is_create_only": true,
+    "reported_phase_native_code_not_independent_tool_or_process_proof": true
+  },
+  "mathematical_fixture_not_model_result": {
+    "gold_counts": {"forward": 54, "yaw_right": 1, "up": 1, "down": 1, "stop": 2},
+    "always_forward_action_correct_count": 54,
+    "sample_count": 59,
+    "macro_recall_of_five_gold_present_classes": 0.2,
+    "nonforward_action_correct_count": 0,
+    "nonforward_support": 5,
+    "model_executed": false
+  },
+  "actual59_analysis_executed": false,
+  "actual59_model_prediction_count_verified_by_this_stage": 0,
+  "actual59_analysis_output_created": false,
+  "model_loaded_by_this_stage": false,
+  "processor_called_by_this_stage": false,
+  "image_decoded_by_this_stage": false,
+  "GPU_used_by_this_stage": false,
+  "actual_live_WAL_or_weights_read_by_this_stage": false,
+  "original_large_annotations_rehashed_by_this_stage": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

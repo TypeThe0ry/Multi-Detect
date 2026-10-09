@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "event": "onboard_policy_3d_depth_incremental_training",
+  "release_label": "0.3.0-pre.8",
+  "candidate_id": "onboard-policy-r25-3d-depth-gated-dev",
+  "candidate_promoted": false,
+  "training_ready_source": false,
+  "training_method": "rendered_3d_sensor_contract_plumbing_finetune",
+  "device": "NVIDIA GeForce RTX 4060",
+  "parent_model": {
+    "path": "artifacts/models/onboard-policy-r23-3d-depth-plumbing/onboard_policy_r23.onnx",
+    "sha256": "69da862e02fb7757135e433c54e45f16aaeb48054ecd85fd3a930402a4af8af5"
+  },
+  "candidate_model": {
+    "path": "artifacts/models/onboard-policy-r25-3d-depth-gated-dev/onboard_policy_r25.onnx",
+    "bytes": 62145,
+    "sha256": "803554f474c78a7094021bd6e4f7b6f85292818ca7ce399e142bf7a83593dd05"
+  },
+  "training_config": {
+    "path": "artifacts/models/onboard-policy-r25-3d-depth-gated-dev/training-config.json",
+    "bytes": 3844,
+    "sha256": "0916fdabdc7766645fd408a531cbf0e7afb36c49c769802a910b968b823e04a2"
+  },
+  "training_report": {
+    "path": "artifacts/models/onboard-policy-r25-3d-depth-gated-dev/training-report.json",
+    "bytes": 6050,
+    "sha256": "7ea2a189d61e9328c7f2b423216745637c6da434b0363734519629148198db7a"
+  },
+  "source_dataset": {
+    "path": "artifacts/training/onboard-rendered-3d-depth-v2.json",
+    "sha256": "0293677c3524d73a8bc12aa3a4b51d779dca33ab31e4464af7611a17200bb06b",
+    "rows": 9,
+    "pixel_level_rendered": true,
+    "rgb_depth_bound": true,
+    "training_ready": false,
+    "allow_unreviewed_rendered": true
+  },
+  "training": {
+    "feature_width": 40,
+    "samples": 21409,
+    "epochs": 12,
+    "learning_rate": 0.0005,
+    "train_task_accuracy": 0.997628138377878,
+    "evaluation_task_accuracy": 0.8733931603201552,
+    "train_flight_accuracy": 0.9975702880944116,
+    "evaluation_flight_accuracy": 0.8695124909046811,
+    "independent_test_samples": 0,
+    "split_strategy": "source_group_hash"
+  },
+  "claims": {
+    "same_onboardai_contract": true,
+    "parent_weights_inherited": true,
+    "physical_performance_claimed": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false,
+    "reason_not_promoted": "The persisted 3-D source is a nine-row plumbing set with unreviewed labels and no independent test split; evaluation accuracy is not sufficient evidence for visual generalization."
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison-v1",
+  "generated_at_utc": "2026-10-06T04:51:36Z",
+  "objective": "incremental OnboardAI training from the existing reference using repository-owned Gazebo SDF geometry",
+  "common_contract": {
+    "reference_model": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reference_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "feature_width": 40,
+    "output_width": 20,
+    "gazebo_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "gazebo_manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "scene_geometry_source": "repository_owned_gazebo_world_sdf",
+    "scene_ids": ["urban_inspection_multirotor_001", "river_rescue_vtol_001", "coastal_patrol_fixed_wing_001"],
+    "structured_3d_rows": 30000,
+    "rendered_rgb_depth_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "red_green_fixture_used": false,
+    "truth_pose_used_as_model_input": false
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r81-3d-geometry-focus-dev",
+      "model_path": "artifacts/models/onboard-policy-r81-3d-geometry-focus-dev/onboard_policy_r5.onnx",
+      "model_sha256": "0c35ad4d89662939beb98df24e22c9f2ea5a2dcc6923393ccf396136d8979568",
+      "training_report_sha256": "d2b8cd08da927fde8f7ad13f4adf6288981a054f196a5ca297607de182fcba92",
+      "training_config_sha256": "be80015a089db35a09b55a8a95fbc8ea1f79325676f4f1868c14c864804b10c7",
+      "parent_model_sha256": "a53eb1247e952b20ca31bb3ddc79c93c841bf8e20b18d3f164f216b859d3437d",
+      "training_device": "NVIDIA GeForce RTX 4060",
+      "navigation_geometry_weight": 0.65,
+      "generalization_report": "artifacts/evaluation/onboard-policy-r81-generalization-20261006.json",
+      "generalization_report_sha256": "8b1d19391b33663e2c265d6aa8378f95c05cd841aa25e69456552e889c57fbba",
+      "generalization": {"case_count": 22, "raw_head_passed": 19, "raw_head_pass_rate": 0.8636363636363636, "guarded_passed": 22, "guarded_pass_rate": 1.0, "navigation_direction_passed": 22, "class_color_invariance": true},
+      "decision": "rejected_no_promotion",
+      "rejection_reasons": ["raw head rate is below the r80 comparison candidate", "no rendered Gazebo RGB/Depth rows", "no reviewed trajectory rows"]
+    },
+    {
+      "model_id": "onboard-policy-r82-3d-geometry-focus-dev",
+      "model_path": "artifacts/models/onboard-policy-r82-3d-geometry-focus-dev/onboard_policy_r6.onnx",
+      "model_sha256": "5479e53a5519d0b1360f05ba3a980001662dd2156fcc9defc5aa72294b836e4b",
+      "training_report_sha256": "f44eb66aeda33fb345228762c5a3c9bddff7cde4e17d143e3203b767ea16ff78",
+      "training_config_sha256": "3d325c2227931abad8e79096bd290838edc1576a9b74195e410ee180e8d8aef3",
+      "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+      "training_device": "NVIDIA GeForce RTX 4060",
+      "navigation_geometry_weight": 0.35,
+      "generalization_report": "artifacts/evaluation/onboard-policy-r82-generalization-20261006.json",
+      "generalization_report_sha256": "fe95040b0c3991b662582b6abe26c91cf91bc5f64ecb3f2d709455212aba4306",
+      "generalization": {"case_count": 22, "raw_head_passed": 20, "raw_head_pass_rate": 0.9090909090909091, "guarded_passed": 21, "guarded_pass_rate": 0.9545454545454546, "navigation_direction_passed": 21, "class_color_invariance": true},
+      "decision": "rejected_no_promotion",
+      "rejection_reasons": ["bearing-left guarded case failed", "no rendered Gazebo RGB/Depth rows", "no reviewed trajectory rows"]
+    }
+  ],
+  "reference_unchanged": "onboard-policy-r33-balanced-bearing-3d-dev",
+  "candidate_promoted": false,
+  "claim_boundary": {"structured_3d_training": true, "pixel_level_rendered_training": false, "external_gazebo_runtime": false, "jetson_evidence": false, "hil_real_evidence": false, "outdoor_gnss_evidence": false, "physical_performance_claimed": false, "final_release_allowed": false},
+  "next_required_step": "restore a usable Gazebo/PX4 runtime, capture current-mainline RGB + FLOAT32 depth + CameraInfo + pose + telemetry with the actual detector, then train and review an independent pixel-level holdout"
+}

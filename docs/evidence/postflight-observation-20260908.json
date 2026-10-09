@@ -1,0 +1,79 @@
+{
+  "path": "artifacts/evaluation/postflight-observation-20260908-c/vtol-mission-acceptance.json",
+  "bytes": 550895,
+  "sha256": "33b320cde53fc65e5527ad41ea657967e3be242edc1b49bcec92e8cc2ebc2e58",
+  "postflight": {
+    "authorizes_next_task": false,
+    "battery_remaining_pct": 50,
+    "clock": "host_monotonic",
+    "endurance_source": "BATTERY_STATUS.time_remaining_no_fallback",
+    "gps": {
+      "alt_mm": 5180,
+      "fix_type": 3,
+      "lat": 13000002,
+      "lon": 1038005005,
+      "satellites_visible": 10
+    },
+    "missing_reasons": [
+      "observed_endurance_unavailable"
+    ],
+    "observed_at_s": 872192.125,
+    "observed_endurance_s": null,
+    "position": {
+      "heading_cdeg": 24468,
+      "latitude_deg": 1.3000002,
+      "longitude_deg": 103.8005002,
+      "relative_altitude_m": -0.167
+    },
+    "sample_ages_s": {
+      "BATTERY_STATUS": 1.390999999945052,
+      "EXTENDED_SYS_STATE": 0,
+      "GLOBAL_POSITION_INT": 0.015999999945051968,
+      "GPS_RAW_INT": 0.2970000000204891,
+      "HEARTBEAT": 0
+    },
+    "sources": {
+      "BATTERY_STATUS": [
+        1,
+        1
+      ],
+      "EXTENDED_SYS_STATE": [
+        1,
+        1
+      ],
+      "GLOBAL_POSITION_INT": [
+        1,
+        1
+      ],
+      "GPS_RAW_INT": [
+        1,
+        1
+      ],
+      "HEARTBEAT": [
+        1,
+        1
+      ]
+    },
+    "telemetry_complete_and_fresh": false
+  },
+  "shadow": {
+    "elapsed_s": 31.015999999945052,
+    "mission_hash": "71459e516833542b165c02c0d783ddf4af0aa115716b38c8b00168c68ee3cb87",
+    "reason": "mission_item_reached_ahead_of_current_sequence",
+    "status": "failed"
+  },
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "external_task_gate_passed": true,
+  "cleanup_succeeded": true,
+  "not_claimed": [
+    "multitask_execution",
+    "trained_model",
+    "hardware",
+    "release"
+  ],
+  "next": [
+    "bounded mission message order reconciliation backed by observed events",
+    "explicit endurance estimator with calibration/provenance; no timeout fallback"
+  ]
+}

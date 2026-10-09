@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-current-reference-binding-diagnostic-v1",
+  "status": "current_protected_files_verified_historical_nested_reference_digest_mismatch_preserved",
+  "bindings": [
+    {
+      "path": "docs/evidence/onboard-model-reference-20261006.json",
+      "bytes": 1902,
+      "sha256": "32353dba835e56e6f47a7c6fb6b6acf57312ff1c4c91dcc572ad104aa52c43a8"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    }
+  ],
+  "historical_mismatch": {
+    "historical_reference_sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eacdc530bdb70e6808ed",
+    "current_reference_sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+    "historical_nested_digest_matches_current_file": false,
+    "difference_is_adjacent_character_transposition": true,
+    "when_or_why_historical_mismatch_arose_verified": false,
+    "historical_receipt_modified": false,
+    "initial_combined_verification_native_exit_code": 1,
+    "initial_combined_verification_tool_chunk": "84946a",
+    "followup_diagnostic_native_exit_code": 0,
+    "followup_diagnostic_tool_chunk": "7cb6b4",
+    "root_direct_current_read_native_exit_code": 0,
+    "root_direct_current_read_tool_chunk": "e2d55f"
+  },
+  "current_protection_observation": {
+    "independent_current_small_file_review_native_exit_code": 0,
+    "independent_current_small_file_review_tool_chunk": "9cc73b",
+    "root_protected_file_binding_native_exit_code": 0,
+    "root_protected_file_binding_tool_chunk": "d8499d",
+    "current_reference_matches_this_run_preceding_observation_tool_chunk": "85aca6",
+    "product_release_label": "0.3.0-pre.8",
+    "selected_reference_model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "declared_selected_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "selected_model_weights_read_by_this_diagnostic": false,
+    "new_navigation_LoRA_selected_as_default": false,
+    "current_reference_claim_boundaries_remain_false": true,
+    "existing_parity_file_identity_verified_not_new_runtime_parity": true
+  },
+  "partial_snapshot_review_scope": {
+    "checkpoint267_evidence_current_bytes_and_SHA_verified": true,
+    "eight_small_bindings_current_SHA_and_before_after_verified": true,
+    "saved_weights_current_bytes_stat_only": true,
+    "saved_weights_declared_SHA_compared_to_prior_actual_audit_tool_chunk": "36ed7c",
+    "saved_weights_rehashed_by_this_review": false,
+    "live_training_WAL_read": false,
+    "candidate86_or_fresh_reload_verified": false,
+    "actual_worker_liveness_independently_verified_by_this_review": false
+  },
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

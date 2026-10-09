@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "iteration": "v197",
+  "product_version": "0.3.0-pre.8",
+  "evaluated_at_utc": "2026-09-08T02:13:49Z",
+  "gate_passed": false,
+  "release_allowed": false,
+  "blocker_count": 32,
+  "release_blocked_reasons": [
+    "replay_set: replay_set gate_passed is false",
+    "replay_set: replay_set accuracy evidence gate_passed is false",
+    "replay_set: replay_set accuracy evidence accuracy_validated is false",
+    "replay_set: replay_set accuracy evidence artifact gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact accuracy_validated is not true",
+    "replay_set: replay_set accuracy evidence artifact deployment_domain_evidence_complete is not true",
+    "replay_set: replay_set accuracy evidence artifact metrics_gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact reviewed is not true",
+    "replay_set: replay_set accuracy evidence artifact contains failure_reasons",
+    "replay_set: replay_set deployment coverage is incomplete",
+    "real_field_link: real_field_link gate_passed is false",
+    "real_field_link: real_field_link: field-link preflight report is stale: age 326336.585s exceeds max 900.000s",
+    "real_field_link: real_field_link: field-link preflight hardware_link_ready is false",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for HIL",
+    "real_control_acceptance is 'not_claimed', required for HIL",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for REAL",
+    "real_control_acceptance is 'not_claimed', required for REAL",
+    "referenced artifact gate_passed is not true",
+    "product channel is 'prerelease'; final release requires channel 'release'",
+    "final release version surfaces do not equal numeric version"
+  ],
+  "report_path": "artifacts/evaluation/terminal-continuation-v197/release-gate/release-gate-pre.8-current-20260908T022000Z-v6-bound-report.json",
+  "report_bytes": 73395,
+  "report_sha256": "ac58c3a9adb27630337c030960dba436035cabae967de38b9ec3e641cbf09397",
+  "manifest_path": "artifacts/evaluation/terminal-continuation-v197/release-gate/release-gate-pre.8-current-20260908T022000Z-v6-bound.json",
+  "manifest_bytes": 23479,
+  "manifest_sha256": "ab1cf8036174062f38d83f5b8ff0967691f0eac95eb12f6d3d85eb2105c14939",
+  "strict_report_path": "artifacts/evaluation/terminal-continuation-v197/release-gate/release-gate-pre.8-current-20260908T022000Z-v6-bound-strict.json",
+  "strict_report_sha256": "2cef30366a7e68fddcae7cf3669e9c36e1af286e7b4ed61a2436bd007c689ba1",
+  "strict_exit_code": 2,
+  "current_parity": {
+    "core_algorithm_hash": "77fd1cc6697df10208ce059f1642823dfde9f6eee07d258aca0a73bfda6d1c57",
+    "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+    "task_contract_hash": "edefc86cf046d5f885ec250799418990273cf05e2ef24d3e7674f955b6108cd0",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "mode_parity_mismatches": {
+    "replay": [
+      "core_algorithm_hash",
+      "task_contract_hash"
+    ],
+    "real": [
+      "core_algorithm_hash",
+      "task_contract_hash"
+    ],
+    "sim": [
+      "core_algorithm_hash",
+      "task_contract_hash"
+    ],
+    "hil": [
+      "core_algorithm_hash",
+      "task_contract_hash"
+    ]
+  },
+  "current_release_parity_bound": false,
+  "scope": "Historical v197 report compared with per-poll snapshot hash reuse; no fresh E7 execution.",
+  "statuses": {
+    "replay": {
+      "evidence_path": "../release-mode-replay.json",
+      "evidence_sha256": "9dc39b5689a75f0a5c53e03ef6e48515f869d04d1a3b60d3d39930f88ea1c124",
+      "gate_passed": false,
+      "parity": {
+        "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
+        "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+        "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+        "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+        "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8"
+      },
+      "operator_visual_acceptance": "not_claimed",
+      "hardware_acceptance": "not_required",
+      "real_control_acceptance": "not_required",
+      "mission_path_acceptance": "not_claimed",
+      "artifact_event": "replay_release_mode_evidence_prepared"
+    },
+    "sim": {
+      "evidence_path": "../release-mode-sim.json",
+      "evidence_sha256": "a453f2d9bc03b3c1a96c3cf2fe9ffb4d7148e327351c5113c51182553abe690a",
+      "gate_passed": false,
+      "parity": {
+        "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
+        "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+        "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+        "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+        "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8"
+      },
+      "operator_visual_acceptance": "not_claimed",
+      "hardware_acceptance": "not_required",
+      "real_control_acceptance": "not_required",
+      "mission_path_acceptance": "not_claimed",
+      "artifact_event": "sim_release_mode_evidence_prepared"
+    },
+    "hil": {
+      "evidence_path": "../release-mode-hil.json",
+      "evidence_sha256": "604cc2bf7095a90cafa674c10ffd168fdd2ccabaceb0a9f74fb21d3666fd2c69",
+      "gate_passed": false,
+      "parity": {
+        "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
+        "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+        "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+        "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+        "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8"
+      },
+      "operator_visual_acceptance": "not_claimed",
+      "hardware_acceptance": "not_claimed",
+      "real_control_acceptance": "not_claimed",
+      "mission_path_acceptance": "not_claimed",
+      "artifact_event": "hil_release_mode_evidence_prepared"
+    },
+    "real": {
+      "evidence_path": "../release-mode-real.json",
+      "evidence_sha256": "43c07d5c616753c8dfb9566605a954099753d37af058abe12f3e2a022a0dcb57",
+      "gate_passed": false,
+      "parity": {
+        "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9",
+        "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+        "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+        "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+        "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8"
+      },
+      "operator_visual_acceptance": "not_claimed",
+      "hardware_acceptance": "not_claimed",
+      "real_control_acceptance": "not_claimed",
+      "mission_path_acceptance": "not_claimed",
+      "artifact_event": "real_release_mode_evidence_prepared"
+    }
+  },
+  "fresh_hardware_run": false,
+  "commands": [
+    "python scripts/create_release_mode_evidence.py --mode replay --source artifacts/evaluation/integrated-replay-20260901-pre.8.json --out artifacts/evaluation/terminal-continuation-v197/release-mode-replay.json --allow-missing-source-runtime-mode --allow-incomplete --no-overwrite --notes \"Historical source envelope regenerated; no new runtime or hardware acceptance; unreviewed gates remain blocked.\"",
+    "python scripts/create_release_mode_evidence.py --mode sim --source artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/combined-evidence.json --out artifacts/evaluation/terminal-continuation-v197/release-mode-sim.json --allow-missing-source-runtime-mode --allow-incomplete --no-overwrite --notes \"Historical source envelope regenerated; no new runtime or hardware acceptance; unreviewed gates remain blocked.\"",
+    "python scripts/create_release_mode_evidence.py --mode hil --source artifacts/evaluation/fixed-wing-software-acceptance-latest.json --out artifacts/evaluation/terminal-continuation-v197/release-mode-hil.json --allow-missing-source-runtime-mode --allow-incomplete --no-overwrite --notes \"Historical source envelope regenerated; no new runtime or hardware acceptance; unreviewed gates remain blocked.\"",
+    "python scripts/create_release_mode_evidence.py --mode real --source artifacts/evaluation/field-link-preflight-20260901-continue-latest.json --out artifacts/evaluation/terminal-continuation-v197/release-mode-real.json --allow-missing-source-runtime-mode --allow-incomplete --no-overwrite --notes \"Historical source envelope regenerated; no new runtime or hardware acceptance; unreviewed gates remain blocked.\"",
+    "./scripts/run_current_release_gate_pre8.ps1 -Python python -ReplayEvidence artifacts/evaluation/terminal-continuation-v197/release-mode-replay.json -SimEvidence artifacts/evaluation/terminal-continuation-v197/release-mode-sim.json -HilEvidence artifacts/evaluation/terminal-continuation-v197/release-mode-hil.json -RealEvidence artifacts/evaluation/terminal-continuation-v197/release-mode-real.json -SimulatorCombinedReleaseModeEvidence artifacts/evaluation/terminal-continuation-v197/release-mode-sim.json -SimulatorExternalEvidence artifacts/evaluation/terminal-continuation-v196/external-join.json -SimulatorExternalEvidenceRevalidation artifacts/evaluation/terminal-continuation-v196/external-revalidation.json -Px4ReportedPositionResponseMatrixEvidence artifacts/evaluation/terminal-continuation-v196/matrix.json -Px4ReportedPositionResponseCampaignEvidence artifacts/evaluation/terminal-continuation-v196/campaign.json -OutputDirectory artifacts/evaluation/terminal-continuation-v197/release-gate -Stamp 20260908T022000Z -Strict"
+  ],
+  "audit_scope": "Historical v197 report compared with frame-set clock consumers; no fresh E7 execution.",
+  "parity_rechecked_at": "2026-09-08"
+}

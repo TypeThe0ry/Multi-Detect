@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-load-only-failure-evidence-v1",
+  "status": "native_model_load_failed_storage_slice_localized_not_root_cause_proven",
+  "artifact_root": "D:/Projects/Multi-Detect",
+  "receipt_finalized_at_utc": "2026-10-07T11:11:42Z",
+  "tool_session_id": 27227,
+  "tool_terminal_chunk_id": "6298de",
+  "tool_exit_code": 1,
+  "mode": "load-only",
+  "supervisor_exit_code": 1,
+  "native_child_exit_code": 3221225477,
+  "native_child_exit_hex": "0xc0000005",
+  "launcher_pid": 7828,
+  "worker_pid": 41400,
+  "worker_pid_exactly_correlated_to_windows_event": true,
+  "fault_stack": [
+    "torch/storage.py:469 __getitem__",
+    "transformers/modeling_utils.py:748 _load_state_dict_into_meta_model",
+    "transformers/modeling_utils.py:843 load_shard_file",
+    "transformers/modeling_utils.py:5468 _load_pretrained_model",
+    "transformers/modeling_utils.py:5048 from_pretrained",
+    "scripts/train_onboard_vlm_grounding.py:349 GroundingBackend.__init__",
+    "scripts/train_onboard_vlm_navigation_pilot.py:394 NavigationBackend.__init__",
+    "scripts/run_onboard_navigation_pilot_supervised.py:439 worker_load_only"
+  ],
+  "failure_before_base_from_pretrained_returned": true,
+  "failure_before_lora_attachment": true,
+  "root_cause_proven": false,
+  "out_of_memory_confirmed": false,
+  "source_binding_count": 26,
+  "source_bindings_unchanged": true,
+  "load_only_report_available": false,
+  "optimizer_journal_available": false,
+  "optimizer_observed_counts": null,
+  "unknown_counts_not_zero": true,
+  "optimizer_execution_path_reached": false,
+  "model_loading_completed": false,
+  "training_completed": false,
+  "original_training_failure_receipt": {
+    "path": "docs/evidence/onboard-navigation-native-load-failure-20261007-r1.json",
+    "bytes": 7323,
+    "sha256": "c8cc6bacad2e33dc4410599d350aa9db4b1a8f002ec62978a3b2b6d353ef5127"
+  },
+  "frozen_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "native_evidence": [
+    {
+      "sha256": "3714e32217ce1f09dccfe24776f065793eb61eb2b7f9c8b2d3d0964860d35cd7",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/application-event-observation.json",
+      "bytes": 853
+    },
+    {
+      "sha256": "5bd24f03e192095d97400ec6bb143404ab404b101144a485a814b5c3a539397f",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/child-started.json",
+      "bytes": 7312
+    },
+    {
+      "sha256": "100ece20baa3f8d74277b022b4dead80fa294eb7ef641566d12efc6fc4f2636a",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/completion.json",
+      "bytes": 13998
+    },
+    {
+      "sha256": "b0974d97cba30ded38f328bd6027ed4e71e348e36493d1798f198b659591f17f",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/independent-review.json",
+      "bytes": 9274
+    },
+    {
+      "sha256": "bceaab322aa252d296b6144237be8b8ffa311ac05df42ff10ad9dad88bb97053",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/preflight.json",
+      "bytes": 7312
+    },
+    {
+      "sha256": "ecea94c42781f42d758a99ae9c4b7da6d3682c26384d0bfc2bcecd85c196f749",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/process-tree-observation.json",
+      "bytes": 783
+    },
+    {
+      "sha256": "a68401059edc9aaa50baaf94ee0e060b603783813e6af0ffb37a6635a9a54ae9",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/stderr.bin",
+      "bytes": 1560
+    },
+    {
+      "sha256": "eafa7042bbcf0b0ae81ce61e375d8e34f9c765fdc7ec45682cdacf58bc8218bb",
+      "path": "artifacts/evaluation/onboard-navigation-load-only-supervisor-20261007-r1/stdout.bin",
+      "bytes": 744
+    }
+  ],
+  "supervisor_source": [
+    {
+      "sha256": "834f9ef07f2e1dfcaf032293e5b4795e9802f0b8c3b59058699f1ea05ac377d2",
+      "path": "scripts/run_onboard_navigation_pilot_supervised.py",
+      "bytes": 20276
+    },
+    {
+      "sha256": "495caae269d6df6bd84367b2de90d675a8edc0d9041bccd62f44c93ed93d8c43",
+      "path": "tests/test_run_onboard_navigation_pilot_supervised.py",
+      "bytes": 17476
+    }
+  ],
+  "cpu_validation": {
+    "native_exit_code": 0,
+    "tests": 40,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "report": {
+      "sha256": "9cdcfd0259938c9552f1a1dfa97852a416387d6f57fcc2943b83403f43d06f92",
+      "path": "artifacts/evaluation/onboard-navigation-supervisor-development-20261007-r1/cpu-validation.xml",
+      "bytes": 7003
+    }
+  },
+  "independent_review_passed_for_failure_evidence_not_model_load": true,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "next_diagnostic": "fresh_CPU_checkpoint_slice_comparison_then_isolated_explicit_pread_full_load_only_if_reviewed; no frozen plan, dataset, base, or budget changes",
+  "limitations": [
+    "Windows stack localizes torch/storage.py __getitem__ during base weight reading; exact native C++ cause is not proven.",
+    "Supervisor launcher PID differs from actual CPython worker PID; original live process-tree and matching Event 1000 are separately bound.",
+    "No new inference, optimizer, adapter, external Gazebo, hardware acceptance, or model promotion is demonstrated."
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-balanced-continuation-cpu-evidence-v1",
+  "recorded_at": "2026-10-07",
+  "status": "experimental_balanced_training_entry_and_official_full_cpu86_verified_not_optimizer_model_quality_or_flight_acceptance",
+  "bindings": [
+    {
+      "path": "configs/training/onboard-navigation-balanced-continuation-20261007-r1.json",
+      "bytes": 54019,
+      "sha256": "da04570bbe0f0f5b55a4911a4426a2bf41ef6697141239d15a84d8816dc9a788"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/completion.json",
+      "bytes": 96102,
+      "sha256": "36ccbd92266c1e89f951ba8abbcc0598dc82b8d7838cd5d1d1b73a99e84161d6"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/cpu-encode/report.json",
+      "bytes": 93801,
+      "sha256": "7971ff4840f2251b516163503021a822bc6097eccaac22290a7af25fbb05b530"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/cpu-encode/prepared-inputs.json",
+      "bytes": 143019,
+      "sha256": "49f32a217a22482e8261e19a4c6c216fc8aec934613351164fb1b65d5e0810eb"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/cpu-encode-process-observation.json",
+      "bytes": 1512,
+      "sha256": "be5eb4bf0276c28ba9b771b812736b022dc3dc0b3ba1d62fffa1a908ceaf97bc"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/cpu-encode-accepted.json",
+      "bytes": 3205,
+      "sha256": "1d96e47d5d6b0e641a139245a31b13fad9b7d4af70f056acb28264f2dd7d96d4"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-cpu-20261007-r1/cpu-encode-stdout.bin",
+      "bytes": 1033,
+      "sha256": "480dea3e3d95f85a65f0930666591ddb06a11216d6eeb3fa447f2bf3af2faff0"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-balanced-implementation-tests-20261007-r3.xml",
+      "bytes": 41090,
+      "sha256": "50d43473a912d25fe5ca2006f48acebeac6f9d08cb08e5037c32f76e8c5f2ca9"
+    },
+    {
+      "path": "scripts/train_onboard_navigation_balanced.py",
+      "bytes": 72311,
+      "sha256": "2a8903157caeb91fd1c7bbea0b801baca464e1f7390bb7c4f98d45e05d1e44cb"
+    },
+    {
+      "path": "tests/test_train_onboard_navigation_balanced.py",
+      "bytes": 19805,
+      "sha256": "80b91060ba595c785f0397f7f4e73d7913383dd8c2cd902acd7be8652517aceb"
+    },
+    {
+      "path": "scripts/onboard_navigation_balanced_encoding.py",
+      "bytes": 8277,
+      "sha256": "622db7200a634237451ae01d8d4c4b1a2433a8a7ce7191fa0437cf811b9c6198"
+    },
+    {
+      "path": "tests/test_onboard_navigation_balanced_encoding.py",
+      "bytes": 18493,
+      "sha256": "8cb5df7fbc4117e90bf825f0349e50ada8242793daea578fdc7f7b3ff8e3e43c"
+    },
+    {
+      "path": "scripts/onboard_navigation_balanced_journal.py",
+      "bytes": 15613,
+      "sha256": "4c9871fe743ef81dcb09e417f429e9c0aa8ea124a0f823a4995de5dca1bbe736"
+    },
+    {
+      "path": "tests/test_onboard_navigation_balanced_journal.py",
+      "bytes": 16709,
+      "sha256": "e3ca6f7d4fbbc050c6afa5c997ceb68f71c6b0c9363300bd6dc91a1240cecb9a"
+    }
+  ],
+  "native_supervisor_exit_code": 0,
+  "native_worker_exit_code": 0,
+  "native_terminal_tool_chunk": "d217f4",
+  "launcher_pid": 49156,
+  "actual_worker_pid": 44848,
+  "live_process_identity_verified": true,
+  "unique_admitted_and_finished_events_verified": true,
+  "worker_report_bound_by_actual_finished_event": true,
+  "source_binding_count": 178,
+  "source_bindings_unchanged": true,
+  "sample_count": 86,
+  "unique_sample_count": 86,
+  "all86_full_chat_encoding_verified": true,
+  "all_actual_prefix_tensor_records_match_frozen_official_cpu86": true,
+  "full_chat_visual_tensor_records_equal_prefix": true,
+  "prompt_image_padding_labels_masked": true,
+  "max_prefix_tokens": 453,
+  "max_total_tokens": 524,
+  "response_tokens_min": 53,
+  "response_tokens_max": 71,
+  "max_actual_image_pixels": 46080,
+  "cpu_only": true,
+  "official_local_processor_used": true,
+  "processor": "Qwen3VLProcessor/Transformers4.57.6/Torch2.6.0+cu124",
+  "unit_tests": 238,
+  "unit_tests_passed": 238,
+  "unit_tests_failed": 0,
+  "unit_tests_errors": 0,
+  "unit_tests_skipped": 0,
+  "unit_tests_native_exit_code": 0,
+  "independent_read_only_audit": {
+    "native_exit_code": 0,
+    "native_tool_chunk": "a6275a",
+    "unique_bindings_reopened": 178,
+    "streamed_source_bytes": 4993175214,
+    "current_source_drift": [],
+    "issues": [],
+    "target_sha256_independently_recomputed_for_all86": true,
+    "processor_rerun": false,
+    "torch_hf_pil_imported": false
+  },
+  "code_review_completed": true,
+  "experimental_training_entry_implemented": true,
+  "continuation_kind": "warm_start_adapter_weights_with_fresh_optimizer",
+  "declared_draw_count": 280,
+  "declared_draw_class_counts": {
+    "forward": 70,
+    "left": 70,
+    "right": 70,
+    "stop": 70
+  },
+  "optimizer_steps_completed_in_this_cpu_run": 0,
+  "prior_optimizer_steps_observed": 86,
+  "optimizer_state_restored": false,
+  "scheduler_state_restored": false,
+  "rng_state_restored": false,
+  "independent_holdout_available": false,
+  "resubstitution_only": true,
+  "new_live_navigation_backend_integrated": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "cuda_initialized": false,
+  "model_loaded": false,
+  "model_inference_performed": false,
+  "optimizer_performed": false,
+  "forward_backward_performed": false,
+  "training_completed": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "actual_live_camera_parity_verified": false,
+  "sim_real_parity_verified": false,
+  "notes": [
+    "This is the sealed CPU-only preparation run, not the concurrently executing full GPU pipeline.",
+    "All86 samples are train data from one scene; repeats are not additional independent samples.",
+    "Original experiment/checkpoint/failure reports and the old100-step budget were preserved.",
+    "CLI implementation and retained-source input equivalence do not prove live Gazebo/Jetson behavior."
+  ]
+}

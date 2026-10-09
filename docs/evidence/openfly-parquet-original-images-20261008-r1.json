@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-original-embedded-image-stage-receipt-v1",
+  "recorded_at": "2026-10-08",
+  "status": "actual_cpu_original82_png_extraction_native0_independently_byte_and_provenance_audited",
+  "scope": "three_exact_original_TRAIN_routes_only_offline_create_only_original_encoded_bytes_not_flight_labels_training_holdout_or_Gazebo_closed_loop",
+  "bindings": [
+    {
+      "path": "scripts/extract_openfly_parquet_images.py",
+      "bytes": 26806,
+      "sha256": "fb071ac675892d97dabf0dd7781ca7397daf04c3a5306c90769b550906775b36"
+    },
+    {
+      "path": "tests/test_extract_openfly_parquet_images.py",
+      "bytes": 15363,
+      "sha256": "2de61d27799389ef72ec89c33e490bbfb3a289276b10de18409c2bed2749e105"
+    },
+    {
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r1.json",
+      "bytes": 92933,
+      "sha256": "d4dfc9abf1b4c7683b069e3c79b285ace9cf080afcfa853939391ac60b91ebaa"
+    },
+    {
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r2.json",
+      "bytes": 92947,
+      "sha256": "b047040485da2a1cd5fd73f69e671fd73fc555a309d1113edac29d704c873740"
+    },
+    {
+      "path": "artifacts/training/openfly-multiscene-embedded-images-20261008-r1/receipt.json",
+      "bytes": 217338,
+      "sha256": "095eea5eed5136a07e89986bd971632392359f1d1d05f6b731b4bba0ec910a04"
+    },
+    {
+      "path": "docs/evidence/openfly-parquet-acquisition-metadata-20261008-r1.json",
+      "bytes": 11267,
+      "sha256": "93d003ee58f1e2f5a0cc029ca60f35ba49187cfd85e337bb2bc6dc9298e47dd6"
+    }
+  ],
+  "actual_execution": {
+    "plan": {
+      "bytes": 92947,
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r2.json",
+      "sha256": "b047040485da2a1cd5fd73f69e671fd73fc555a309d1113edac29d704c873740"
+    },
+    "native_session_id": 89352,
+    "tool_chunk": "0c7f46",
+    "native_exit_code": 0,
+    "original_images_extracted": 82,
+    "original_encoded_bytes_extracted": 56041231,
+    "scene_count": 3,
+    "completed_routes": [
+      {
+        "annotation_index": 139,
+        "original_images_extracted": 23,
+        "source_shard": {
+          "bytes": 14935853,
+          "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+          "sha256": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538"
+        }
+      },
+      {
+        "annotation_index": 220,
+        "original_images_extracted": 17,
+        "source_shard": {
+          "bytes": 14859023,
+          "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+          "sha256": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4"
+        }
+      },
+      {
+        "annotation_index": 90,
+        "original_images_extracted": 42,
+        "source_shard": {
+          "bytes": 26269042,
+          "path": "artifacts/training/openfly-multiscene-parquet-source-20261008-r1/payload/traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+          "sha256": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f"
+        }
+      }
+    ],
+    "all_images": {
+      "encoding": "PNG",
+      "mode": "RGB",
+      "bit_depth": 8,
+      "width": 853,
+      "height": 480,
+      "decoded_pixels": 409440,
+      "all_chunk_CRCs_verified": true,
+      "complete_single_zlib_stream_verified": true,
+      "exact_scanline_byte_count_verified": true,
+      "actual_Pillow_decode_succeeded": true,
+      "transcoded": false,
+      "output_file_bytes_match_embedded_encoded_SHA": true
+    },
+    "sources": {
+      "repository_bindings_count": 174,
+      "listed_CPU_runtime_bindings_count": 10,
+      "before_after_recorded_arrays_equal": true,
+      "worker_all_current_source_sizes_and_SHAs_reverified": true,
+      "owner_followup_current_all_sources_and82_output_files_reverified": true,
+      "owner_followup_native_exit_code": 0,
+      "owner_followup_tool_chunk": "e8fc7b",
+      "runtime_inventory_scope": "listed_package_entrypoints_extensions_not_all_transitive_DLLs"
+    },
+    "failures": [],
+    "unverified_output_files": []
+  },
+  "validation": {
+    "targeted_tests": {
+      "passed": 35,
+      "skipped": 0,
+      "native_exit_code": 0,
+      "native_session_id": 94148,
+      "tool_chunk": "8bbc92",
+      "scope": "CPU_fixture_tests_not_model_or_flight_acceptance"
+    },
+    "readonly_reviewer": {
+      "source_and_all35_test_cases_reviewed": true,
+      "independent_six_in_memory_PNG_diagnostics_native_exit_code": 0,
+      "tool_chunk": "d129b5",
+      "normal_RGB8_accepted": true,
+      "bad_Adler_missing_Adler_trailing_garbage_extra_pixels_second_zlib_stream_rejected": true,
+      "actual_shards_or_extraction_rerun": false
+    },
+    "root_followup": {
+      "native_exit_code": 0,
+      "tool_chunk": "2cccb3",
+      "actual_image_files_byte_hashed": 82,
+      "actual_source_and_plan_files_byte_hashed": 5,
+      "independent_PNG_decode": false,
+      "independent_original_Parquet_image_column_reload": false
+    },
+    "journal_followup": {
+      "native_exit_code": 0,
+      "tool_chunk": "df7986",
+      "strict_JSON_duplicate_key_and_nonfinite_rejection_verified": true,
+      "all82_current_encoded_image_SHAs_independently_recomputed": true,
+      "all82_output_paths_and_shard_row_frame_identity_verified": true,
+      "all82_PNG_IHDR_chunks_CRC_and_IEND_independently_verified": true,
+      "three_small_original_pose_payload_SHAs_and_publisher_Git_blob_SHA_verified": true,
+      "all82_recorded_metadata_pos_yaw_action_match_original_pose": true,
+      "PNG_decoded": false,
+      "Parquet_reopened": false,
+      "model_or_GPU_used": false,
+      "full_source_inventory_independently_rehashed": false
+    }
+  },
+  "prior_failure_preserved": {
+    "plan": {
+      "path": "configs/training/openfly-parquet-image-extraction-20261008-r1.json",
+      "bytes": 92933,
+      "sha256": "d4dfc9abf1b4c7683b069e3c79b285ace9cf080afcfa853939391ac60b91ebaa"
+    },
+    "native_exit_code": 1,
+    "tool_chunk": "b3f240",
+    "image_output_directory_created": false,
+    "diagnosis_native_exit_code": 0,
+    "diagnosis_tool_chunk": "de2c44",
+    "cause": "JS_numeric_reserialization_changed_seven_original_yaw_float_0.0_values_to_integer_0_and_strict_source_authority_admission_rejected",
+    "r1_plan_entry_and_tests_modified_after_execution": false,
+    "recovery": "create_only_r2_plan_retaining_original_Python_emit_plan_JSON_bytes_without_relaxing_source_equality",
+    "journal_exact_seven_r1_r2_type_differences_verified": true
+  },
+  "image_inspection": {
+    "original_file": {
+      "bytes": 557612,
+      "path": "artifacts/training/openfly-multiscene-embedded-images-20261008-r1/images/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383/20250101_175035_2.png",
+      "sha256": "2a0c89ae586ae666e6a2dda9615f5ef26c2971cf1aa8b5977013587e324bf850"
+    },
+    "scene_id": "env_airsim_26",
+    "annotation_index": 139,
+    "parquet_row_index": 2,
+    "frame_index": 2,
+    "root_viewed_original_image": true,
+    "image_pixels_edited": false,
+    "represents": "public_AirSim_3D_city_training_source_not_local_Gazebo_closed_loop_or_physical_flight"
+  },
+  "network_io_in_phase": false,
+  "opaque_embedded_path_used_as_source": false,
+  "reserved_seen_unseen_read": false,
+  "original_annotation_split": "train",
+  "development_partition_proposals_accepted": false,
+  "visual_duplicate_or_independent_split_verified": false,
+  "FRD_flight_labels_verified": false,
+  "training_ready": false,
+  "samples_created": 0,
+  "old86_dataset_merged_or_modified": false,
+  "frozen_running_GPU_training_plan_modified": false,
+  "weights_downloaded": false,
+  "model_loaded": false,
+  "optimizer_performed": false,
+  "optimizer_updates": 0,
+  "GPU_used_in_this_phase": false,
+  "model_quality_claim": false,
+  "candidate_promoted": false,
+  "execution_authority": false,
+  "local_Gazebo_live_flight_verified_by_this_phase": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "release_label": "0.3.0-pre.8",
+  "next_required_gate": "source_pose_to_next_action_FRD_geometry_and_scene_visual_duplicate_partition_review_before_any_new_training_or_independent_evaluation",
+  "notes": [
+    "Actual Stage1 whole shard acquisition and metadata receipt remains separately sealed; this phase adds original embedded PNG extraction and validation.",
+    "The actual extraction owner decoded all82 original PNGs. Independent followups checked bytes, PNG structure, source declarations and original small pose records but did not rerun Pillow, Parquet extraction or model inference.",
+    "Encoded image integrity does not establish physically valid flight labels, independent holdout or model capability.",
+    "No running GPU phase, base/adapter weights, default flight model, PX4 Mission path or release parity was changed."
+  ]
+}

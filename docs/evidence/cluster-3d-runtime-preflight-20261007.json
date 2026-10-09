@@ -1,0 +1,52 @@
+{
+  "schema": "multidetect.cluster-3d-runtime-preflight-v1",
+  "generated_by": "Codex controlled read-only runtime probe",
+  "generated_at": "2026-10-07",
+  "workspace": "D:/Projects/Multi-Detect",
+  "source_snapshot": {
+    "digest": "sha256:a2e547b466af9de530a19deac57a8d538653aaf6ac20a46b239c24d4d1d5845a",
+    "size_bytes": 15454059,
+    "contents": "repository-owned 3-D manifest, worlds, models, maps, terrain and verifier"
+  },
+  "local_runtime_probe": {
+    "docker_client": "29.7.2",
+    "docker_context": "desktop-linux",
+    "docker_server_reachable": false,
+    "docker_error": "dockerDesktopLinuxEngine pipe is missing",
+    "local_gz_or_gazebo_cli": false,
+    "local_px4_cli": false,
+    "stale_entry_inventory": {
+      "path": "C:/Users/admin/AppData/Local/Docker/run/sailor-ingest.sock",
+      "present": true,
+      "reparse_point": true,
+      "changed": false
+    }
+  },
+  "remote_runtime_probe": {
+    "controller": "ClusterYourCodex",
+    "selected_node": "nuc",
+    "job_id": "62d6394c-884b-4e6c-af86-44d48f43a31e",
+    "placement": "selected",
+    "source_preparation": "failed",
+    "failure": "worker API returned HTTP 404 Not Found before the probe step",
+    "snapshot_uploaded_after_first_failure": true,
+    "retry": {
+      "submitted": false,
+      "failure": "no eligible node: nuc retained one active slot from the failed source-preparation job",
+      "no_gazebo_started": true
+    }
+  },
+  "training_boundary": {
+    "rgb_depth_capture": false,
+    "trajectory_capture": false,
+    "onboard_training_started": false,
+    "candidate_model_created": false,
+    "candidate_promoted": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

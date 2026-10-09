@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-early-import-failure-evidence-v1",
+  "date": "2026-10-07",
+  "status": "failed_before_backend_constructor_repository_src_import_order_identified",
+  "mode": "load-only",
+  "execution": {
+    "session_id": 58439,
+    "tool_chunk": "30a57a",
+    "native_exit_code": 1
+  },
+  "frozen_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "runtime_manifest": {
+    "path": "configs/training/onboard-navigation-streaming-no-warmup-runtime-20261007-r1.json",
+    "bytes": 9043,
+    "sha256": "a724e85e14f610d63271bb150c7ec913ed1c2d2fd0fc26cb57c5b02f60995fda"
+  },
+  "entrypoint": {
+    "path": "scripts/run_onboard_navigation_pilot_streaming_no_warmup.py",
+    "bytes": 20413,
+    "sha256": "5e46b8b025175ad53da211b31eef81f7dabb7586ec8b2f7ba35f3e8a249005e2"
+  },
+  "cpu_validation": {
+    "tests": 281,
+    "native_exit_code": 0,
+    "report": {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-development-20261007-r1/cpu-validation.xml",
+      "bytes": 44861,
+      "sha256": "afb3d361ad534571fc93b701ea5a4012a61fc11657a3523bb081438b0963729e"
+    }
+  },
+  "error_type": "ModuleNotFoundError",
+  "error_message": "No module named 'multidetect'",
+  "failure_scope": "Early constructor-observability package import occurs before the original load-only worker installs repository/src",
+  "backend_constructor_entered": false,
+  "model_loading_completed": false,
+  "worker_report_exists": false,
+  "optimizer_observed_counts": null,
+  "missing_report_fields_are_not_observed_zero_or_false": true,
+  "observed_safe_open_counts_at_installer": {
+    "attempted": 0,
+    "returned": 0
+  },
+  "streaming_finished_observed_calls": null,
+  "warmup_calls_attempted": 0,
+  "warmup_calls_skipped": 0,
+  "warmup_hook_restored": true,
+  "source_binding_count": 57,
+  "source_bindings_unchanged": true,
+  "supervisor_exit_codes": {
+    "original": 1,
+    "streaming": 1,
+    "warmup": 1
+  },
+  "independent_read_only_audit_exit_code": 0,
+  "independent_audit_is_not_native_model_success": true,
+  "native_outputs": [
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/allocator-warmup-completion.json",
+      "bytes": 1113,
+      "sha256": "10f4004510595241df670e2f7f86ad9bcd93ee5ff5ad78e95dd41691a2438340"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/child-started.json",
+      "bytes": 13894,
+      "sha256": "a2b40c5e6dba44d8b5537a5137e74761ce3ed3cf1b880f84315169133489d095"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/completion.json",
+      "bytes": 26908,
+      "sha256": "50a76995add33bb7027783ef5d45e9b28451065b689307c5ed17891d87b0b823"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/preflight.json",
+      "bytes": 13893,
+      "sha256": "60fe8b289d6167a80de99dfd6cdd4f94b507a37001fd2d77984dbd1df0f09f46"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/process-observation.json",
+      "bytes": 825,
+      "sha256": "a24f73701fdf87a452b903d3d054d51b7f7e024ca16b7a423ecf5413677cbb44"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/stderr.bin",
+      "bytes": 2032,
+      "sha256": "8b87c683e68f279a325f52df260a08b3d07294e8457224c9dd87818ea326fdd6"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/stdout.bin",
+      "bytes": 5577,
+      "sha256": "e44f755cde427fdd22a47e05145c8abd54bd56323f39d65428ddbfe45b55d4cc"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/streaming-completion.json",
+      "bytes": 811,
+      "sha256": "ef2ef82edef2eab91fbc94f699ad9f5b3eae2ef7fbdb4f267acc2c1cfc392b96"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-streaming-no-warmup-load-only-supervisor-20261007-r1/independent-review.json",
+      "bytes": 7449,
+      "sha256": "170b3758881a19e95daae4bb5ddd11dd74743b5e9bafa18443635a137bc425c0"
+    }
+  ],
+  "next_change_scope": "Separate thin importpath entrypoint plus real isolated subprocess regression; original frozen experiment remains unchanged",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "external_processes_stopped": false,
+  "pagefile_settings_changed": false,
+  "files_deleted": false
+}

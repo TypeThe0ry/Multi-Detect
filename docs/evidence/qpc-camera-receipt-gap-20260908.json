@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "source_outer_sha256": "b66d2507da889c90bde767cd1ca1680c2067f01d6f352b2ef85b783137ff7ab9",
+  "source_mission_sha256": "fa705adeeb8f0d249ad71f1768f0dbf6a003af4cb2153e1c64f119c43ef970c4",
+  "audit_path": "artifacts/evaluation/qpc-camera-telemetry-audit-20260908.json",
+  "unique_matches": 5800,
+  "ambiguous_records": 323,
+  "stop_adjacent_throttle_pair": {
+    "from_sha256": "c89855ee3df8fdfc8009e2af97a465eebe6040eeb345b9c347fdf2a363a57dd3",
+    "to_sha256": "ba264e4b0d400e9b417dc4cea9abc6b9ef03a7b94c5a049df385d6add6ec3713",
+    "from_collector_at_s": 22.64856019988656,
+    "to_collector_at_s": 24.134743599919602,
+    "from_router_decoded_host_s": 900647.4390945,
+    "to_router_decoded_host_s": 900647.9392667,
+    "collector_gap_s": 1.4861834000330418,
+    "router_decode_gap_s": 0.5001722,
+    "from_decode_to_collect_s": 0.038163799908943474,
+    "to_decode_to_collect_s": 1.0241750000277534
+  },
+  "maximum_unique_decode_to_collect_s": 5.18900080001913,
+  "maximum_delay_frame_sha256": "219389ce813c7b369b3e2e1aa5efca78089ec43c314ae6a3e8f5d3ba93e4e23e",
+  "interpretation": "At the stopping interval, collector spacing exceeds router spacing; not solely an upstream inter-message gap. Queue, scheduling and processing components remain unresolved.",
+  "heartbeat_pair_unique": false,
+  "root_cause_proven": false,
+  "source_send_timing_claimed": false,
+  "kernel_receive_timing_claimed": false,
+  "new_external_run": false,
+  "training_label_eligible": false
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "multidetect.target-evidence-card-integration-evidence",
+  "schema_version": 1,
+  "release_label": "0.3.0-pre.8",
+  "status": "passed_source_bound_read_only_card_verification",
+  "scope": "Integrated SIM/QGC ranging acceptance materializes TargetEvidenceCard and combined-SIM verifier revalidates the card contract.",
+  "implementation": {
+    "target_evidence_card": {
+      "path": "src/multidetect/target_evidence_card.py",
+      "sha256": "037607302BA51025BDB81A3ED3674C639323E48CB16A1BAD21C14462EE1EDF16"
+    },
+    "integrated_acceptance": {
+      "path": "src/multidetect/cli.py",
+      "sha256": "F91C4B2B73BF499BB730A634FBDA132FB0A15B957BA5BEF084CE7F63B2E545CC"
+    },
+    "live_observation_binding": {
+      "path": "src/multidetect/live.py",
+      "sha256": "899B56B7C3925BB205DB7A173970883DB59056570EF57D9F5E470574271D0188"
+    },
+    "combined_verifier": {
+      "path": "src/multidetect/simulator_combined_evidence.py",
+      "sha256": "2B62BB985D95277FA9D83F28050A3111E12A830C09621B13C9EF6FC48A3B4469"
+    }
+  },
+  "tests": {
+    "target_card": {
+      "path": "tests/test_target_evidence_card.py",
+      "sha256": "15A5ABF8600EC8742E2086A05DD4AF831B85625327B0D519EE1F26CC9F19436A"
+    },
+    "combined_verifier": {
+      "path": "tests/test_simulator_combined_evidence.py",
+      "sha256": "80B6A891C5DAB8F218C9B139B2E071460B8A9DF01F1BC58B03B1BEF97200C47D"
+    },
+    "targeted_result": {
+      "command": "python -m pytest -q tests/test_simulator_combined_evidence.py tests/test_integrated_sim_qgc_cli.py tests/test_target_evidence_card.py tests/test_live.py tests/test_repository_progress_docs.py tests/test_current_progress_index.py tests/test_current_release_gate_wrapper.py",
+      "passed": true,
+      "failed": 0
+    }
+  },
+  "checks": {
+    "card_canonical_schema_revalidated": true,
+    "read_only_claims_revalidated": true,
+    "coordinate_completeness_revalidated": true,
+    "card_count_matches_available_geolocation_count": true,
+    "card_error_count_matches_error_array": true,
+    "run_identity_binding_revalidated": true,
+    "tampered_claim_rejected": true,
+    "tampered_run_identity_rejected": true,
+    "historical_unconfigured_artifact_compatible": true
+  },
+  "claims": {
+    "contains_flight_control": false,
+    "contains_truth": false,
+    "operator_visual_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "full_regression": {
+    "passed": 4099,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 331.461,
+    "exit_code": 0,
+    "junit": "artifacts/evaluation/ranker-faults-full-20260908.xml",
+    "bytes": 600729,
+    "sha256": "7b2681d135738f22f7c11bd5ec691de7f82ce6ddbed75e3acf5aae762c5a246f",
+    "post_documentation_checks_passed": 34,
+    "ruff_passed": true,
+    "diff_check_passed": true
+  },
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "runtime_mode": "synthetic_budget_planning_inputs",
+  "status": "automated_verified",
+  "evidence": "docs/evidence/ranker-faults-20260908.json",
+  "checks": 81,
+  "failed_checks": 0,
+  "focused_passed": 13,
+  "candidate_promoted": false,
+  "physical_fault_injection": false,
+  "prerelease": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "configs/training/task-ranker-budget-v1.json",
+      "bytes": 141311,
+      "sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+    },
+    {
+      "path": "artifacts/evaluation/ranker-fit-20260908-a/candidate.json",
+      "bytes": 334,
+      "sha256": "9dccfc3391a228b093df58e7aabe3867c977c081d5ec61d0519b6215901cec23"
+    },
+    {
+      "path": "scripts/evaluate_task_ranker_faults.py",
+      "bytes": 4640,
+      "sha256": "640f92f198dc82bcdd1395dd61d9887bfd68e4be3f15c8529164cc0edf690246"
+    },
+    {
+      "path": "artifacts/evaluation/ranker-faults-20260908-a.json",
+      "bytes": 145926,
+      "sha256": "14501d8d8a4ef4943bcedc2624ae4ec7da90cbfff85e983a40f7bc733d31fbbc"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "command": "python scripts/evaluate_task_ranker_faults.py --dataset configs/training/task-ranker-budget-v1.json --candidate artifacts/evaluation/ranker-fit-20260908-a/candidate.json --candidate-sha256 9dccfc3391a228b093df58e7aabe3867c977c081d5ec61d0519b6215901cec23 --output artifacts/evaluation/ranker-faults-20260908-a.json",
+  "exit_code": 0,
+  "verification": "Recomputed same planner/episode for nominal and perturbed inputs; all expected task IDs/reasons checked, no learned safety override.",
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "dynamic_failure_recovery": false,
+    "unseen_holdout": false
+  },
+  "limitations": [
+    "Reuses all original training/validation/test cases as regression, not independent holdout.",
+    "Faults occur at planning input only, not in live telemetry.",
+    "No candidate retraining, promotion or real deployment."
+  ]
+}

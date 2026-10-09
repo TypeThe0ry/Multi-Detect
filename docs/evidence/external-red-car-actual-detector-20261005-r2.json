@@ -1,0 +1,72 @@
+{
+  "schema": "multidetect.external-red-car-actual-detector-summary",
+  "schema_version": 1,
+  "run_id": "external-red-car-actual-detector-20261005-r2",
+  "source_evidence": {
+    "path": "artifacts/evaluation/external-red-car-actual-detector-20261005-r2.json",
+    "sha256": "bcf8e2f11c0003897801977e7d24f342930a983539a8ccd1e82e69d04da47341"
+  },
+  "scenario": {
+    "manifest": "configs/scenarios/validation/gazebo_red_car_positive_control_001.scenario.json",
+    "scenario_id": "gazebo_red_car_positive_control_001",
+    "world": "simulation/gazebo/worlds/gazebo_red_car_positive_control_001.sdf",
+    "world_sha256": "d350a3b893832c65939ca2f845c24974664c36a777091c71ac1d6f6563b44eba",
+    "manifest_sha256": "b8edfe993c0d9d9740715ff081d36192295861da5bb7522e1f72ff6dc30210c7"
+  },
+  "sensor_evidence": {
+    "rgb_manifest": "artifacts/evaluation/external-red-car-actual-rgb-20261005-r2/gazebo-bgr24-frame-set.manifest.json",
+    "rgb_manifest_sha256": "8ac350213f431fcf8facc59dc1f6bbc85a77019ed7a9f7eea76cbc56e4cb364d",
+    "depth_manifest": "artifacts/evaluation/external-red-car-actual-depth-20261005-r2/gazebo-depth-companion-set.manifest.json",
+    "depth_manifest_sha256": "38d745ab4b31a16fae0cfa3254a6161382e425969e091fc262a5331434e401e8",
+    "rgb_frames": 2,
+    "depth_frames": 2,
+    "rgb_depth_pairing": "passed",
+    "px4_gps_telemetry": "passed",
+    "container_cleanup": "passed"
+  },
+  "detector": {
+    "model": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx",
+    "model_sha256": "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410",
+    "candidate_status": "quarantined",
+    "actual_rgb_used": true,
+    "observations": [
+      {
+        "frame_id": "gazebo-sim-000000",
+        "detector_label": "car",
+        "canonical_label": "vehicle",
+        "detector_confidence": 0.8016097545623779,
+        "color_label": "red",
+        "color_confidence": 1.0,
+        "target_color_match": true,
+        "target_distance_m": 5.057119846343994,
+        "target_bearing_deg": -0.40285431095441143,
+        "task_phase": "match_target",
+        "source_frame_sha256": "f2da8f887b550b814fa1b5c2d9540dfde7bca341887fa8513daa41f044106d2b",
+        "depth_payload_sha256": "ac3b0b9cfa42e4d9ae374fed9bf9d1c91d04605ff4df88bec95080e082bed5fa"
+      }
+    ]
+  },
+  "shared_onboard_model": {
+    "model": "artifacts/models/onboard-policy-r4/onboard_policy_r4.onnx",
+    "model_sha256": "8ef33c3436b065065fff5b59c7cd3588900ce3374260940390c0dd460eeb7812",
+    "airframe_profile_sha256": "5bd121275d285e27adef2a8f4b4242b481dffb8368ec4dd231089eeac8732d47",
+    "policy_artifact_sha256": "2bcd53a21147477b91e04392cb4d6085f22370007d75983f4aa6ba28f453e02e",
+    "ranker_sha256": "7fb41875267eef984b16ad583103da93366637ef108e1a8a8e0a97e98fa96d88",
+    "policy_applied_to_actuator": false
+  },
+  "result": {
+    "external_gazebo_software_sim": true,
+    "sensor_transport_gate_passed": true,
+    "actual_red_detection_and_depth_gate_passed": true,
+    "probe_status": "failed",
+    "failure_reason": "safety response engaged; create a new adapter session before resuming",
+    "why_not_passed": "The first live frame entered as match_target while the task state was still TAKEOFF; the shared adapter correctly refused to skip the SEARCH phase and engaged fail-closed safety.",
+    "mission_upload_readback_commit_permit": "not_requested",
+    "gps_target_geolocation": "not_committed_because_task_phase_gate_failed",
+    "hil_real_evidence": false,
+    "jetson_hardware_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false,
+    "truth_free": true
+  }
+}

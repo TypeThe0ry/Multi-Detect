@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-streamed-base-round-partial-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "status": "actual_cuda_base_all86_round_observed_strict_action_metric_all_zero_baseline_and_pipeline_not_terminal",
+  "scope": "partial_parent_base_round_with_adapter_disabled_not_warm_adapter_quality_training_or_phase_acceptance",
+  "audited_at_utc": "2026-10-07T17:18:12.924413+00:00",
+  "bindings": [
+    {
+      "bytes": 201633,
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline/base-all86.json",
+      "sha256": "f298e54c4da7014a67a41bdf02cdeee954a1147f3a6d20febb1da04c12120f0a"
+    },
+    {
+      "bytes": 54471,
+      "path": "configs/training/onboard-navigation-streamed-continuation-20261008-r1.json",
+      "sha256": "eac75d2def168f5daa44b3bba713456c71f80d00a1b91933b8075a1dd32c20cc"
+    },
+    {
+      "bytes": 75216,
+      "path": "scripts/train_onboard_navigation_streamed.py",
+      "sha256": "c1f115af558374a333e75ea662eb11035d13b48f5a96db97629f753b9fbcef0d"
+    },
+    {
+      "bytes": 3236,
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode-accepted.json",
+      "sha256": "6bd7ead48212515c8bb538eb908112c1b588aa3850a0187f12e3c6ed3cd67491"
+    },
+    {
+      "bytes": 143019,
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode/prepared-inputs.json",
+      "sha256": "49f32a217a22482e8261e19a4c6c216fc8aec934613351164fb1b65d5e0810eb"
+    },
+    {
+      "bytes": 13874,
+      "path": "configs/release-parity.json",
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "bytes": 13152,
+      "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "bytes": 402194,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/samples.jsonl",
+      "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+    },
+    {
+      "bytes": 47422,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/report.json",
+      "sha256": "07b1502334e503884ef403322bbd9ad4d18c9e6a0e4f09676334e267437b45fd"
+    },
+    {
+      "bytes": 757,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/training-review.json",
+      "sha256": "add2f7819e14843e57d7df7db1b8712fa377f8efc2b1f2a38e2d0e3c07e92506"
+    },
+    {
+      "bytes": 94733,
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/cpu-encode/report.json",
+      "sha256": "df1a724c3603d0bf3c1ad3d572f485c6b5f79a45f430fd021b7e91a880ef46cc"
+    },
+    {
+      "bytes": 40430,
+      "path": "scripts/train_onboard_vlm_navigation_pilot.py",
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "bytes": 49187,
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    }
+  ],
+  "native_audit": {
+    "native_exit_code": 0,
+    "native_terminal_tool_chunk": "d9d374",
+    "stdlib_only": true,
+    "heavy_import_guard_enforced": true,
+    "heavy_modules_imported": [],
+    "diagnostic_function": "scripts.train_onboard_vlm_navigation_pilot.diagnose",
+    "diagnostics_independently_recomputed": true,
+    "original_dataset_sample_metadata_and_episode_order_revalidated": true,
+    "bound_original_dataset_report_and_training_review_verified": true,
+    "saved_dataset_targets_reserialized_and_sha_checked": true,
+    "actual_processor_tensor_bytes_recomputed": false,
+    "original_raw_pose_to_metric_label_derivation_repeated": false,
+    "rgb_source_bytes_reopened": false,
+    "processor_or_model_rerun": false,
+    "large_model_or_5GB_source_rehash_performed": false,
+    "small_binding_count": 13,
+    "small_bindings_unchanged_during_audit": true
+  },
+  "actual_round": {
+    "sample_count": 86,
+    "unique_sample_count": 86,
+    "same_original_train_sample_order_verified": true,
+    "class_counts": {
+      "forward": 70,
+      "left": 6,
+      "right": 7,
+      "stop": 3
+    },
+    "strict_json_valid": 0,
+    "action_class_correct": 0,
+    "metric_correct": 0,
+    "token_cap_reached": 0,
+    "by_class": {
+      "forward": {
+        "action_class_correct": 0,
+        "count": 70,
+        "metric_correct": 0,
+        "strict_json_valid": 0,
+        "token_cap_reached": 0
+      },
+      "left": {
+        "action_class_correct": 0,
+        "count": 6,
+        "metric_correct": 0,
+        "strict_json_valid": 0,
+        "token_cap_reached": 0
+      },
+      "right": {
+        "action_class_correct": 0,
+        "count": 7,
+        "metric_correct": 0,
+        "strict_json_valid": 0,
+        "token_cap_reached": 0
+      },
+      "stop": {
+        "action_class_correct": 0,
+        "count": 3,
+        "metric_correct": 0,
+        "strict_json_valid": 0,
+        "token_cap_reached": 0
+      }
+    },
+    "rejection_counts": {
+      "not_a_strict_supported_planned_navigation_target": 86
+    },
+    "actual_gpu_generation_observed_in_retained_worker_rows": true,
+    "new_gpu_or_model_execution_started_by_this_audit": false,
+    "parent_true_for_all_rows": true,
+    "adapter_disabled_for_base_generation": true,
+    "resubstitution_only": true,
+    "source_planned_not_executed": true,
+    "raw_outputs_and_output_token_ids_retained_unmodified_in_bound_rows": true,
+    "raw_outputs_not_repaired_or_unfenced": true,
+    "all_output_token_id_lengths_match_generated_tokens": true,
+    "generated_tokens": {
+      "max": 99,
+      "mean": 93.17441860465117,
+      "min": 84
+    },
+    "declared_max_new_tokens": 192,
+    "declared_generation_max_time_s": 30,
+    "generated_peak_allocated_bytes_max": 4382947328,
+    "generated_peak_reserved_bytes_max": 4456448000,
+    "reported_other_device_usage_is_estimate_not_process_attribution": true
+  },
+  "actual_recorded_generated_elapsed_s": {
+    "all86_elapsed_gt_5s": true,
+    "count": 86,
+    "max": 9.422212800000125,
+    "mean": 7.396002272093028,
+    "min": 6.393587199996546,
+    "p50": 7.2987812499995925,
+    "p95": 8.350900599998567,
+    "percentile_method": "linear_interpolation_at_(n_minus_1)_times_p",
+    "sum": 636.0561954000004
+  },
+  "timer_boundary": {
+    "source": "scripts/train_onboard_vlm_grounding.py:503",
+    "start": "after_prefix_tensor_transfer_to_cuda_0_and_peak_memory_reset",
+    "includes": [
+      "model.generate",
+      "cuda.synchronize",
+      "suffix_token_ids_to_host",
+      "tokenizer.decode_before_elapsed_s_field_evaluation"
+    ],
+    "excludes": [
+      "actor_RGB_decode_and_source_validation",
+      "CPU_processor_prefix_encoding",
+      "prefix_H2D_transfer_before_timer_start"
+    ],
+    "vision_prefill_and_incremental_decode_separately_measured": false,
+    "full_camera_to_action_latency_measured": false,
+    "live_camera_used": false,
+    "progress_log_intervals_are_not_generated_elapsed_s": true,
+    "thirty_second_limit_is_cooperative_not_absolute_process_deadline": true,
+    "actual_five_second_frame_age_gate_executed": false,
+    "conditional_freshness_observation": "All86 recorded post-H2D elapsed_s exceed 5 seconds. If an otherwise equivalent live request uses max_frame_age_s=5 and RGB was captured before this timer starts, it would be stale at completion; this retained offline round is not a live freshness test."
+  },
+  "cpu_metadata_link": {
+    "accepted_cpu_phase_native_exit_code": 0,
+    "sample_count": 86,
+    "source_binding_count_in_retained_cpu_report": 180,
+    "retained_cpu_source_bindings_before_after_equal": true,
+    "actor_identity_matches": 86,
+    "all_four_prefix_tensor_records_match": 86,
+    "target_sha256_matches": 86,
+    "all86_prefix_and_target_coverage_verified": true,
+    "comparison_is_saved_metadata_not_new_processor_tensor_or_raw_source_recomputation": true
+  },
+  "parallel_pipeline_state_at_audit": {
+    "native_session_id": 39122,
+    "status": "baseline_worker_active_warm_start_round_not_complete_pipeline_not_terminal",
+    "warm_start_all86_round_completed": false,
+    "baseline_native_exit_code": null,
+    "full_pipeline_native_exit_code": null,
+    "baseline_phase_accepted": false,
+    "full_phase_source_reverification_completed": false,
+    "base_and_adapter_post_phase_parameter_digest_checks_completed": false,
+    "source_bindings_current_full_phase_drift_ruled_out": false,
+    "terminal_files_present": {
+      "baseline-accepted.json": false,
+      "baseline/report.json": false,
+      "baseline/warm_start-all86.json": false,
+      "completion.json": false,
+      "train/report.json": false
+    },
+    "balanced_280_draw_training_started": false,
+    "balanced_280_draw_training_completed": false,
+    "optimizer_performed_in_this_base_round": false,
+    "optimizer_steps_attempted": null,
+    "optimizer_steps_returned": null,
+    "optimizer_steps_synchronized": null,
+    "optimizer_steps_completed": null,
+    "fresh_saved_adapter_reload_verified": false,
+    "prior_r1_host_MemoryError_failure_and_frozen_sources_preserved": true
+  },
+  "frozen_training_plan_or_source_modified": false,
+  "production_navigation_backend_modified": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "independent_holdout_available": false,
+  "live_navigation_inference_accepted": false,
+  "actual_live_camera_parity_verified": false,
+  "sim_real_parity_verified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "training_completed": false,
+  "physical_performance_claimed": false,
+  "jetson_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "notes": [
+    "This receipt records real retained CUDA base generation, not pure-Python fixtures. Only the independent follow-up audit is stdlib-only and imports no Torch/HF/PEFT/PIL/NumPy.",
+    "Base means parent=True generation with the adapter disabled. The warm-start adapter's separate all86 round is not scored or accepted by this receipt.",
+    "All86 raw outputs are rejected by the unchanged strict target diagnostic; consequently action and metric correctness also remain zero. No raw output repair, threshold relaxation or budget change was performed.",
+    "The original reviewed train-only labels, sample chronology and exact target serialization hashes were checked against bound CPU metadata. RGB/pose source validation and tensor production were not rerun.",
+    "Latency is the actual generated.elapsed_s field, not a progress-log interval or a pure decoder measurement. Mean7.396002272093028s replaces any interpretation of tens-of-seconds log gaps as generation latency.",
+    "Partial rows do not replace native phase completion, final source rechecks, post-phase parameter-byte checks, warm-start comparison or full pipeline acceptance.",
+    "One-scene train resubstitution and an active pipeline cannot establish independent quality, real-time control, physical performance, flight or release authority."
+  ]
+}

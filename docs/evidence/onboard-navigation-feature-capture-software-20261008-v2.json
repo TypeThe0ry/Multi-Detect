@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "status": "NEW_v2_atime_false_drift_fix_CPU_verified_not_actual_live_capture",
+  "sources": [
+    {"path": "scripts/onboard_navigation_feature_capture_v2.py", "bytes": 16462, "sha256": "8aadd43ecbbb3a4e27cdb35cedd6276a2b2dc022f3cace7a334bbe437edfe55f"},
+    {"path": "tests/test_onboard_navigation_feature_capture_v2.py", "bytes": 15516, "sha256": "82c21585339cc67670239086ae3b54e6ab2eba2cec74828391f12aa0b28025df"}
+  ],
+  "unchanged_frozen_v1": [
+    {"path": "scripts/onboard_navigation_feature_capture.py", "bytes": 16093, "sha256": "091175996d4f6d8342ed4da8edbf419f94ca1c677d492e891ef3414783eb6384"},
+    {"path": "tests/test_onboard_navigation_feature_capture.py", "bytes": 12030, "sha256": "6ffb999d334e5c34e704389bb78d3ea637ed032d6c1e0ed915461701f407e79b"}
+  ],
+  "validation": {
+    "original_CPU_fixtures_retained": 20,
+    "new_CPU_fixture_cases": 6,
+    "author_fixture_count": 26,
+    "author_native_chunk": "d216c9",
+    "author_native_exit_code": 0,
+    "independent_fixture_count": 26,
+    "independent_native_chunk": "f8ed70",
+    "independent_native_exit_code": 0,
+    "author_Ruff_native_chunk": "6b9355",
+    "author_Ruff_native_exit_code": 0,
+    "independent_Ruff_native_chunk": "ab96a8",
+    "independent_Ruff_native_exit_code": 0,
+    "independent_format_check_native_chunk": "6a9f28",
+    "independent_format_check_native_exit_code": 0,
+    "independent_AST_and_v1_consumer_boundary_native_chunk": "8fef45",
+    "independent_AST_and_v1_consumer_boundary_native_exit_code": 0
+  },
+  "fix": {
+    "content_stat_identity": ["st_size", "st_mtime_ns", "st_dev", "st_ino"],
+    "access_time_is_content_identity": false,
+    "actual_bytes_and_SHA_still_checked": true,
+    "same_size_changed_bytes_with_restored_mtime_rejected": true,
+    "one_head_call_payload_shape_fsync_outcome_and_abort_semantics_unchanged": true,
+    "hidden_frozen_module_global_patch": false,
+    "receipt_contract": "multidetect.navigation-same-call-feature-capture-v2",
+    "frozen_R3_worker_still_consumes_v1": true,
+    "frozen_v1_audit_rejects_v2_receipts": true,
+    "future_worker_and_audit_require_explicit_NEW_version_binding": true
+  },
+  "claims": {
+    "actual_live_capture_run": false,
+    "actual_model_loaded": false,
+    "actual_GPU_or_Gazebo_run": false,
+    "new_optimizer_attempts": 0,
+    "flight_control_commands_sent": 0,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "training_ready": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

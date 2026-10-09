@@ -1,0 +1,101 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-o\\vtol-mission-acceptance.json",
+  "source_sha256": "facab1c45ea7f00270add672dca3be6edc58b4f587738a96067b59a4bc3e62b2",
+  "windows": [
+    {
+      "lookback_ms": 500,
+      "selection": {
+        "rejected_samples": 89,
+        "required_state": 4,
+        "maximum_gap_s": 1.5,
+        "source_phase_boundaries_proven": false,
+        "physical_mode_continuity_proven": false
+      },
+      "retained_count": 38,
+      "groups": {
+        "insufficient_history": {
+          "count": 0,
+          "max_error_deg": null,
+          "rms_error_deg": null
+        },
+        "sampled_near_current_target": {
+          "count": 12,
+          "max_error_deg": 11.230728994471463,
+          "rms_error_deg": 4.9379385132134965
+        },
+        "sampled_changing_target": {
+          "count": 26,
+          "max_error_deg": 44.052699926213705,
+          "rms_error_deg": 14.738351712154717
+        }
+      }
+    },
+    {
+      "lookback_ms": 1000,
+      "selection": {
+        "rejected_samples": 90,
+        "required_state": 4,
+        "maximum_gap_s": 1.5,
+        "source_phase_boundaries_proven": false,
+        "physical_mode_continuity_proven": false
+      },
+      "retained_count": 37,
+      "groups": {
+        "insufficient_history": {
+          "count": 0,
+          "max_error_deg": null,
+          "rms_error_deg": null
+        },
+        "sampled_near_current_target": {
+          "count": 6,
+          "max_error_deg": 8.888807656493498,
+          "rms_error_deg": 4.463929882425746
+        },
+        "sampled_changing_target": {
+          "count": 31,
+          "max_error_deg": 44.052699926213705,
+          "rms_error_deg": 13.695708782612973
+        }
+      }
+    },
+    {
+      "lookback_ms": 2000,
+      "selection": {
+        "rejected_samples": 91,
+        "required_state": 4,
+        "maximum_gap_s": 1.5,
+        "source_phase_boundaries_proven": false,
+        "physical_mode_continuity_proven": false
+      },
+      "retained_count": 36,
+      "groups": {
+        "insufficient_history": {
+          "count": 0,
+          "max_error_deg": null,
+          "rms_error_deg": null
+        },
+        "sampled_near_current_target": {
+          "count": 0,
+          "max_error_deg": null,
+          "rms_error_deg": null
+        },
+        "sampled_changing_target": {
+          "count": 36,
+          "max_error_deg": 44.052699926213705,
+          "rms_error_deg": 12.714105908755375
+        }
+      }
+    }
+  ],
+  "options": {
+    "maximum_gap_ms": 300,
+    "maximum_target_deviation_deg": 2,
+    "quaternion_norm_tolerance": 0.00001,
+    "required_state": 4,
+    "maximum_gap_s": 1.5
+  },
+  "selection_scope": "strict EXTENDED_SYS_STATE receipt brackets around history and both pair receipts",
+  "diagnostic_only": true,
+  "controller_acceptance_proven": false,
+  "final_release_allowed": false
+}

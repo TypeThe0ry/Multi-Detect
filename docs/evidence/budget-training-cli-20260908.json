@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "runtime_mode": "synthetic_budget",
+  "status": "automated_verified",
+  "evidence": "docs/evidence/budget-training-cli-20260908.json",
+  "focused_passed": 96,
+  "full_passed": 4093,
+  "full_skipped": 7,
+  "full_failures": 0,
+  "full_errors": 0,
+  "selected_trial": 0,
+  "rewards": {
+    "train": 26,
+    "validation": 28,
+    "test": 35
+  },
+  "candidate_promoted": false,
+  "improvement_demonstrated": false,
+  "external_dynamics_run": false,
+  "inputs_outputs": [
+    {
+      "path": "configs/training/task-ranker-baseline-v1.json",
+      "bytes": 328,
+      "sha256": "8945e35c7d123cbb3e6522c82be6b8c699ad4ad242dd8e0773ebe2c3166171c6"
+    },
+    {
+      "path": "configs/training/task-ranker-budget-v1.json",
+      "bytes": 141311,
+      "sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+    },
+    {
+      "path": "artifacts/evaluation/ranker-fit-20260908-a/candidate.json",
+      "bytes": 334,
+      "sha256": "9dccfc3391a228b093df58e7aabe3867c977c081d5ec61d0519b6215901cec23"
+    },
+    {
+      "path": "artifacts/evaluation/ranker-fit-20260908-a/report.json",
+      "bytes": 42159,
+      "sha256": "661d2ed4c1db024997428775888cc20c93677686addbf3db03788d84b880eac7"
+    },
+    {
+      "path": "artifacts/evaluation/budget-training-cli-full-20260908.xml",
+      "bytes": 599994,
+      "sha256": "c35af090776167ddfa79fdc8c09bb99c877f2d7b8727047694946df5dd50a847"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "search": {
+    "cases": 9,
+    "cases_per_split": 3,
+    "parameter_candidates": 8,
+    "parent_evaluated": true,
+    "parent_retained": true,
+    "parent_and_selected_canonical_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8"
+  },
+  "commands": [
+    {
+      "command": "python scripts/train_task_ranker.py --dataset configs/training/task-ranker-budget-v1.json --parent configs/training/task-ranker-baseline-v1.json --parent-sha256 8945e35c7d123cbb3e6522c82be6b8c699ad4ad242dd8e0773ebe2c3166171c6 --output-directory artifacts/evaluation/ranker-fit-20260908-a",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/budget-training-cli-full-20260908.xml",
+      "junit_failures": 0,
+      "junit_errors": 0,
+      "seconds": 206.404,
+      "terminal_exit_code_recovered": false
+    }
+  ],
+  "negative_tests": [
+    "existing output rejected without overwrite",
+    "cross-split family rejected",
+    "duplicate inputs rejected",
+    "missing split rejected",
+    "unknown context field rejected",
+    "nonfinite coefficient rejected",
+    "wrong parent SHA rejected"
+  ],
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "generalization": false
+  },
+  "limitations": [
+    "Related rotated synthetic families; declared split and exact hashes do not establish semantic independence.",
+    "No new dynamics evaluation or candidate promotion. Test split has now been viewed.",
+    "Full-test terminal handle was lost during context compaction; completed JUnit independently read, no active pytest remained."
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-streamed-training-failure-receipt-v1",
+  "recorded_at": "2026-10-08",
+  "status": "closed_native1_after13_synchronized_optimizer_updates_host_MemoryError_no_saved_candidate",
+  "bindings": [
+    {
+      "path": "scripts/train_onboard_navigation_streamed.py",
+      "bytes": 75216,
+      "sha256": "c1f115af558374a333e75ea662eb11035d13b48f5a96db97629f753b9fbcef0d"
+    },
+    {
+      "path": "tests/test_train_onboard_navigation_streamed.py",
+      "bytes": 37123,
+      "sha256": "45f5844a9b0db638f1a35b44be6cd8a330ec9add5140bad43965907ec50ee955"
+    },
+    {
+      "path": "configs/training/onboard-navigation-streamed-continuation-20261008-r1.json",
+      "bytes": 54471,
+      "sha256": "eac75d2def168f5daa44b3bba713456c71f80d00a1b91933b8075a1dd32c20cc"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/invocation.json",
+      "bytes": 372,
+      "sha256": "24363a367b94fc9b2e7da97a5484e07ee0ffc2b279fbe7e7b46cde047afe79e1"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train-request.json",
+      "bytes": 155,
+      "sha256": "27c95f8448328ff2bbe963cb4e6d847491857e5f588f10fe2bbde7c18f5f4ce1"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train-process-observation.json",
+      "bytes": 1513,
+      "sha256": "290e4521d39b0a56b8f22d590dbbec7dffd13126b2a8ed9740365ab290e719ab"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train-stdout.bin",
+      "bytes": 10167,
+      "sha256": "09ba26af40ebd63447e18b149cfbae5d608a48f7746a662dcbed05e6babbdb69"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train-stderr.bin",
+      "bytes": 1962,
+      "sha256": "ad9b9466d27047495959f293fa1a6d3a825577a80db92623200456b963a9bf67"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train/report.json",
+      "bytes": 237476,
+      "sha256": "a6085b69948341e61987bdbd6ad80c8ab7ad9dfd0c4e95fdb9b3b9df70f68e47"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/train/training-events.jsonl",
+      "bytes": 18543,
+      "sha256": "2f247580e4c010fa544bf9c607bb61288a57f727406572eaae2064fea0c09d68"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/completion.json",
+      "bytes": 58385,
+      "sha256": "10d468b52dc945f7dc16e2f212dd95ad409554a2bb2648139f1cfd79b4866565"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-balanced-streamed-20261008-r1/baseline-accepted.json",
+      "bytes": 5513,
+      "sha256": "4182e4ab45993ba18bc6fa69e967b50b458208a0ddf6a1ea01f56c4822b434d8"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-streamed-baseline-phase-20261008-r1.json",
+      "bytes": 25758,
+      "sha256": "63a9f8470f24fa403fd262e6fa5112d44f2bacd673f1271ccd0cb145c68a99af"
+    },
+    {
+      "path": "docs/evidence/openfly-parquet-original-images-20261008-r1.json",
+      "bytes": 9091,
+      "sha256": "a6739c17c2cdf2bc0505e350f861317a4b16f85f3127c61b34f5a7871bdbc29a"
+    }
+  ],
+  "actual_pipeline": {
+    "native_session_id": 39122,
+    "supervisor_native_exit_code": 1,
+    "root_terminal_tool_chunk": "461da3",
+    "started_at": "2026-10-08T00:07:40.46434+08:00",
+    "ended_at": "2026-10-08T02:14:41.851009+08:00",
+    "CPU_phase_native_exit_code": 0,
+    "baseline_phase_native_exit_code": 0,
+    "train_worker_native_exit_code": 1,
+    "supervisor_pid": 53024,
+    "launcher_pid": 51336,
+    "worker_pid": 45216,
+    "reload_started": false,
+    "automatic_retry_performed": false
+  },
+  "optimizer": {
+    "counts": {
+      "synchronized": 13,
+      "completed": 13,
+      "returned": 13,
+      "attempted": 13
+    },
+    "journal_events": 52,
+    "journal_complete": false,
+    "optimizer_update_uncertain": false,
+    "backward_only_preflights": 4,
+    "preflight_optimizer_updates": 0,
+    "prior_saved_model_updates_observed": 86,
+    "planned_new_updates": 280,
+    "planned_new_training_completed": false,
+    "formal_updates_returned_and_synchronized_before_failure": true,
+    "saved_candidate_exists": false,
+    "candidate_evaluated": false,
+    "independent_candidate_reload_verified": false,
+    "post_training_base_parameter_digest_available": false,
+    "post_training_adapter_parameter_digest_available": false
+  },
+  "failure": {
+    "type": "MemoryError",
+    "location": "NavigationSourceValidationSession.__exit__ -> bound.verify -> stream.read(1024*1024)",
+    "during": "next_streamed_sample_source_validation_before_next_optimizer_attempt",
+    "CUDA_OOM_reported": false,
+    "source_bindings_before_count": 180,
+    "source_bindings_after_null": true,
+    "source_bindings_unchanged_recorded": false,
+    "source_byte_drift_proven": false,
+    "retention_or_system_commit_root_cause_proven": false,
+    "unbounded_retry_or_budget_reset_performed": false
+  },
+  "independent_audit": {
+    "native_exit_code": 0,
+    "tool_chunk": "4348ba",
+    "scope": "stdlib_small_bindings_journal_schedule_backward_preflights_process_identity_chronology_native_completion_and_no_candidate_paths",
+    "all13_draws_match_frozen_schedule_prefix": true,
+    "forced_280_complete_verifier_rejected": true,
+    "process_CIM_argv_and_unique_failed_finished_event_verified": true,
+    "model_or_GPU_rerun": false,
+    "full_5GB_source_inventory_rehashed": false
+  },
+  "root_followup": {
+    "native_exit_code": 0,
+    "tool_chunk": "1cb9a2",
+    "current_small_bindings_hashed": 14,
+    "frozen_training_entry_tests_and_plan_unchanged": true
+  },
+  "preserved_successful_stages": {
+    "full_baseline_native0": true,
+    "original82_PNG_extraction_native0": true,
+    "original_success_receipts_rewritten": false
+  },
+  "diagnostic_policy": {
+    "OS_pagefile_or_active_app_changes": false,
+    "frozen_implementation_or_executed_plan_changes": false,
+    "next_step": "profile_and_bound_CPU_source_validation_memory_then_prepare_separate_budget_explicit_recovery_not_replay_the280_plan",
+    "same_sample_closed_validation_session_is_only_an_unmeasured_candidate_optimization": true
+  },
+  "release_label": "0.3.0-pre.8",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "execution_authority": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

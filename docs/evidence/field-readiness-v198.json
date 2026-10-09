@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "iteration": "v198",
+  "product_version": "0.3.0-pre.8",
+  "scope": "Current controller read-only field readiness and local artifact inventory; no network configuration or flight commands",
+  "command": "python scripts/run_field_link_preflight.py --timeout-s 0.5 --samples 1 --expected-source-cidr 192.168.144.0/24 --require-route --out artifacts/evaluation/terminal-continuation-v198/field-link-preflight.json --require-all",
+  "exit_code": 1,
+  "report_path": "artifacts/evaluation/terminal-continuation-v198/field-link-preflight.json",
+  "report_bytes": 3882,
+  "report_sha256": "c6c526764a4e177dd2dfd440ff5350162190d0c372592c6b37fc4246ffa0055c",
+  "hardware_link_ready": false,
+  "route_checks_passed": false,
+  "selected_source_address": "192.168.1.13",
+  "expected_source_cidr": "192.168.144.0/24",
+  "local_udp_ports_available": true,
+  "serial_ports_enumerated": [],
+  "failed_tcp_endpoints": ["192.168.144.20:22", "192.168.144.11:5760", "192.168.144.108:554"],
+  "probe_limit": "One 0.5-second TCP probe per configured endpoint; timeout is not proof the device is powered off",
+  "inventory_scope": "artifacts/**/*.json filenames matching attestation|campaign.plan|field.replay|deployment.replay",
+  "matching_inventory_files": [],
+  "inventory_limit": "Filename inventory only; does not establish absence of user recordings elsewhere or under different names",
+  "current_release_dataset": {
+    "path": "artifacts/evaluation/terminal-continuation-v34/replay-set-sim-gazebo-2026/accuracy-report-20260904-pre8.json",
+    "frame_count": 30,
+    "precision": null,
+    "recall": null,
+    "accuracy_validated": false,
+    "gate_passed": false,
+    "limitation": "No positive truth/prediction in required positive strata; deployment coverage and independent review incomplete"
+  },
+  "required_external_inputs": [
+    "Connect this controller to the actual field network and provide the correct endpoint/interface mapping if different",
+    "Provide six-stratum deployment recordings with source attestations, target annotations and independent review",
+    "Perform required operator visual and HIL/REAL three-airframe acceptance with the actual devices"
+  ],
+  "release_allowed": false
+}

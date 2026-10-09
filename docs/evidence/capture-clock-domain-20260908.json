@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "scope": "ready/complete validator APIs only; not end-to-end camera acceptance",
+  "test_report": {
+    "path": "artifacts/evaluation/capture-clock-domain-expanded-20260908.xml",
+    "sha256": "7f21cf6fd310550a002fb5db2b5f868c1decd8b1e1ad6f8ac3a843d136213c97",
+    "tests": 416,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_s": 8.743,
+    "process_exit_code": 0
+  },
+  "verified": [
+    "caller-selected QPC identity accepted by both barrier validators",
+    "missing/null/session/label/resolution tampering rejected",
+    "legacy absent identity remains legacy; explicit contradictory identity rejected",
+    "existing thirty ready safety rejection conditions checked in both clock modes",
+    "ruff check passed for both scripts and both changed test files"
+  ],
+  "remaining": [
+    "wire all camera producers and consumers to the same selected clock",
+    "new external camera acceptance after coordinated integration",
+    "telemetry energy coverage gap and source clock mapping remain unresolved",
+    "SIM/HIL/REAL release acceptance remains incomplete"
+  ],
+  "new_external_run": false,
+  "final_release_allowed": false
+}

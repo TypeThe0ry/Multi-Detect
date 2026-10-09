@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "scope": "New QPC campaign C, independent receipt/energy audits, and missing terminal energy gate repair",
+  "external": {
+    "report": "artifacts/evaluation/campaign-qpc-20260908-c.json",
+    "sha256": "04bd00d90fb5e29147be27d5d43e04b61f2eba2644a54be704f285e1b894d7fa",
+    "container_id": "b39f6b34f55aee924ba8ed4c7e823f5118f6fc294e4227b30c42c59cee6e66ce",
+    "process_exit_code": 0,
+    "historical_outer_gate_passed": true,
+    "current_parent_revalidation_passed": false,
+    "current_parent_revalidation_error": "campaign sortie 2 has incomplete energy receive-window coverage",
+    "completed_tasks": ["synthetic-west", "synthetic-east"],
+    "journals_verified_by_parent": true,
+    "cleanup_verified": true,
+    "original_report_modified": false,
+    "router_receipts": 12571,
+    "router_receipts_dropped": 0,
+    "clock_records": 2734,
+    "clock_sha256": "9029d41bdadc6001463ce26988cf3857b8e0b2dcd394d56f33794faa6e9da215"
+  },
+  "independent_audits": {
+    "mission_001_sha256": "e97852a2be574cea330e738cadd34ef51d9765f19f5313246d6da1f088962e77",
+    "mission_002_sha256": "c30415dc48e30e604e638cb08e860c974563f76c92d247b4f793aa54f798adf6",
+    "clock_outputs": ["artifacts/evaluation/qpc-clock-001-20260908.json", "artifacts/evaluation/qpc-clock-002-20260908.json"],
+    "both_clock_receipt_windows_covered": true,
+    "receipt_outputs": ["artifacts/evaluation/qpc-telemetry-001-20260908.json", "artifacts/evaluation/qpc-telemetry-002-20260908.json"],
+    "first_history_unique_matches": 6309,
+    "first_history_ambiguous": 427,
+    "cumulative_history_unique_matches": 11593,
+    "cumulative_history_ambiguous": 767,
+    "cumulative_history_missing": 0,
+    "max_unique_router_decode_to_collect_s": 1.659381499979645,
+    "max_unique_frame_sha256": "a4825c642c0a5760352e5a88328b86f5c34ea32982fff3d2d015f0f63c734e59",
+    "max_unique_frame_at_s": 203.97442869993392,
+    "first_energy_window_covered": true,
+    "second_energy_window_covered": false,
+    "energy_gap_at_s": 196.77512899995781,
+    "energy_gap_heartbeat_age_s": 1.71085699996911,
+    "energy_gap_throttle_age_s": 1.6884072000393644,
+    "energy_threshold_s": 1.5
+  },
+  "clock_probe": {
+    "constant_offset_compatible": false,
+    "host_span_ns": 289375997400,
+    "sample_count": 6,
+    "conditional_offset_interval_ns": null,
+    "training_label_eligible": false
+  },
+  "repairs": [
+    "Parent campaign validation now requires explicit energy profile for QPC and audits each sortie receive-window coverage at completion and after cleanup",
+    "Current validator rejects unchanged C output rather than accepting historical outer green",
+    "New SHA-bound userspace receipt auditor excludes duplicate frame hashes from guessed matches"
+  ],
+  "tests": {
+    "passed": 406,
+    "failures": 0,
+    "errors": 0,
+    "junit": "artifacts/evaluation/telemetry-audit-gate-20260908.xml",
+    "sha256": "51dc0463070d9c28bfcc61e90383596c586bfc7c58727b57aa0cb32bc01771f9",
+    "command": "python -m pytest -q tests/test_telemetry_receipt_audit.py tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_mission_energy_window_audit.py --disable-warnings --junitxml=artifacts/evaluation/telemetry-audit-gate-20260908.xml"
+  },
+  "limitations": [
+    "Largest matched-load gaps exclude ambiguous hashes and are not necessarily consecutive message gaps",
+    "Downstream userspace processing delay observed; socket queue versus scheduling root cause not separated",
+    "B root cause not proven by C",
+    "No source-send/kernel-receive/network-latency or physical synchronization claim",
+    "No full regression rerun or final release acceptance"
+  ],
+  "release_ready": false
+}

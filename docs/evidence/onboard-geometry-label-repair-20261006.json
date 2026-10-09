@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "contract": "multidetect.onboard-geometry-label-repair",
+  "status": "implemented_and_tested_not_trained",
+  "date": "2026-10-06",
+  "purpose": "Keep the existing OnboardAI 40-feature teacher geometrically consistent before real Gazebo RGB/Depth fine-tuning.",
+  "changes": [
+    {
+      "path": "scripts/train_onboard_model.py",
+      "sha256": "5c8ab5214a285449e5a81acaa5bcca1e979cb887e964c140f69fee54d4d098e5",
+      "items": [
+        "neutral target distance, bearing and N/E regression share one metric scale",
+        "INSPECT/FOLLOW and MATCH/FOLLOW phase labels derive N/E from observed bearing and range",
+        "bearing anchors cover symmetric angles with independent source groups"
+      ]
+    },
+    {
+      "path": "scripts/build_onboard_rendered_3d_dataset.py",
+      "sha256": "140ac05460067218b1c9d15b8fae41e1c5a26448a0abec6278321e222b179e2c",
+      "items": [
+        "bearing comes from CameraInfo-bound calibration when available",
+        "NED labels reuse the runtime target-ray and camera-lever-arm transform",
+        "missing calibration never receives a fabricated direction label"
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "command": "python -m pytest -q tests/test_train_onboard_model.py tests/test_onboard_rendered_3d_dataset.py tests/test_onboard_3d_training_preflight.py tests/test_onboard_model_reference.py tests/test_external_onboard_model_acceptance.py",
+      "status": "passed"
+    },
+    {
+      "command": "ruff check scripts/train_onboard_model.py scripts/build_onboard_rendered_3d_dataset.py tests/test_train_onboard_model.py tests/test_onboard_rendered_3d_dataset.py",
+      "status": "passed"
+    }
+  ],
+  "training_boundary": {
+    "real_rgb_depth_training_completed": false,
+    "training_ready_dataset_present": false,
+    "current_reference_changed": false,
+    "candidate_promoted": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_required_input": "Three approved entity-based Gazebo scenes with sealed RGB, metric FLOAT32 depth, CameraInfo, synchronized PX4 telemetry, detector/tracker outputs, and independently reviewed train/evaluation episodes."
+}

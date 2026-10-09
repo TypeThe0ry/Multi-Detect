@@ -1,0 +1,65 @@
+{
+  "schema": "multidetect.onboard-policy-training-evidence",
+  "schema_version": 1,
+  "event": "incremental_structured_3d_training_reviewed",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "status": "candidate_quarantined_no_promotion",
+  "training_boundary": {
+    "method": "synthetic_expert_distillation_bootstrap",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda_version": "12.4",
+    "torch_version": "2.6.0+cu124",
+    "parent_model": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "candidate_model": "artifacts/models/onboard-policy-r33-incremental-3d-cuda-20261006/onboard_policy_r33_incremental_3d_cuda_20261006.onnx",
+    "candidate_model_sha256": "43389c168fb9d1293b83bdd4678869e89ff7340bcc5e9a8ccf64c35983b79b93",
+    "training_report_sha256": "e523eae9e41349107712ae79def9d4d15813be05124214c3e1e5f40047793e57",
+    "training_config_sha256": "b4d55aa7ac1b08f9a6357cf5711344c28a35484e104594247a69324ee8d5d2a0",
+    "same_40_feature_contract": true,
+    "same_20_output_contract": true,
+    "samples": 66000,
+    "epochs": 8
+  },
+  "data_boundary": {
+    "gazebo_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "gazebo_manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "structured_scene_teacher_rows": 24000,
+    "rendered_rgb_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "synthetic_bootstrap": true,
+    "pixel_level_rendered": false,
+    "test_rows": 0,
+    "red_green_fixture_used": false,
+    "truth_injected": false
+  },
+  "independent_diagnostics": {
+    "parent_generalization": "artifacts/evaluation/onboard-r33-incremental-3d-cuda-20261006/parent-generalization.json",
+    "candidate_generalization": "artifacts/evaluation/onboard-r33-incremental-3d-cuda-20261006/candidate-generalization.json",
+    "candidate_generalization_sha256": "f28fe0b22eb8593490fdae7b7baa00ab42981be9509cd32310f1d09ad4b824e0",
+    "parent_navigation": "artifacts/evaluation/onboard-r33-incremental-3d-cuda-20261006/parent-navigation.json",
+    "candidate_navigation": "artifacts/evaluation/onboard-r33-incremental-3d-cuda-20261006/candidate-navigation.json",
+    "candidate_navigation_sha256": "b518bc036bad495740fe78c07d919179ff12bf83ee795d94b371a4f9a8608c53",
+    "candidate_navigation_direction_within_20deg_rate": 0.18333333333333332,
+    "candidate_navigation_angle_mae_deg": 60.330996872747576,
+    "candidate_navigation_range_mae_m": 191.72007379759654,
+    "candidate_not_promoted": true,
+    "reference_remains": "onboard-policy-r33-balanced-bearing-3d-dev"
+  },
+  "next_required_data": [
+    "actual Gazebo RGB frame payloads",
+    "registered FLOAT32 depth payloads with CameraInfo semantics",
+    "same-frame aircraft pose and PX4 telemetry",
+    "reviewed continuous trajectories with planner revalidation",
+    "episode-level train/evaluation/test split"
+  ],
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

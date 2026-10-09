@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "status": "software_parent_Mission_intervals_and_CPU_live_feature_audit_verified_not_actual_teacher_or_live_replay",
+  "sources": [
+    {"path": "scripts/onboard_teacher_mission_intervals.py", "bytes": 21071, "sha256": "54c1037441e1cb4b8389853bb48fc2efd84fdd0f49a46c40286c42e1a543724f"},
+    {"path": "tests/test_onboard_teacher_mission_intervals.py", "bytes": 17935, "sha256": "50c09c1d7a74f9658ffe7543778fcec6a39128318dab389cffe279d0bde00661"},
+    {"path": "scripts/audit_onboard_navigation_live_features.py", "bytes": 18317, "sha256": "d3e8de82699f2b3c754e27e87e51a6a431c44583c7c4a0b79ab0d61564a068f7"},
+    {"path": "tests/test_audit_onboard_navigation_live_features.py", "bytes": 18057, "sha256": "9cd678b79abd4d56b17416095d1dfde9eb6b6a7eecb6b7cf5a6c462de190ce14"}
+  ],
+  "validation": {
+    "interval_author_fixture_count": 72,
+    "interval_author_native_chunk": "74c7e8",
+    "interval_author_native_exit_code": 0,
+    "interval_independent_fixture_count": 72,
+    "interval_independent_native_chunk": "816599",
+    "interval_independent_native_exit_code": 0,
+    "live_audit_author_fixture_count": 19,
+    "live_audit_author_native_chunk": "069340",
+    "live_audit_author_native_exit_code": 0,
+    "live_audit_independent_fixture_count": 19,
+    "live_audit_independent_native_chunk": "8e7297",
+    "live_audit_independent_native_exit_code": 0,
+    "tests_run_in_separate_fresh_interpreters": true,
+    "independent_Ruff_native_chunk": "64805f",
+    "independent_Ruff_native_exit_code": 0,
+    "independent_final_identity_and_scoped_diff_native_chunk": "936dd8",
+    "independent_final_identity_and_scoped_diff_native_exit_code": 0,
+    "combined_137_fixture_attempt_native_chunk": "e18854",
+    "combined_137_fixture_attempt_native_exit_code": 1,
+    "combined_137_fixture_attempt_passed": false,
+    "combined_attempt_failures": {
+      "audit_tests_Torch_already_imported_guard": 5,
+      "frozen_v1_capture_full_stat_atime_false_drift": 1
+    },
+    "production_no_Torch_guard_weakened": false,
+    "frozen_v1_capture_rewritten": false
+  },
+  "interval_capabilities": {
+    "one_actual_parent_Mission_submission_separate_from_later_leg_activation": true,
+    "original_CURRENT_REACHED_and_LOCAL_POSITION_NED_packets_bound": true,
+    "transaction_vehicle_system_component_clock_and_local_origin_checked": true,
+    "duplicate_boot_ms_rejected": true,
+    "settlement_host_and_boot_duration_gap_checked_separately": true,
+    "settlement_default_min_duration_s": 1.0,
+    "settlement_default_min_samples": 5,
+    "settlement_default_max_speed_mps": 0.2,
+    "settlement_default_max_position_span_m": 0.15,
+    "settlement_default_max_sample_gap_s": 0.3,
+    "bounded_event_and_state_counts": [256, 2048],
+    "before_after_actual_observations_require_stable_window": true,
+    "missing_or_incomplete_intervals_retained_not_fabricated_success": true,
+    "parent_upload_faked_as_per_leg_send": false
+  },
+  "live_audit_capabilities": {
+    "requires_successful_bound_worker_report_and_eight_complete_feature_payloads": true,
+    "actual_feature_raw_six_output_and_same_head_FP32_CPU_replay_checked": true,
+    "stale_or_partial_missing_worker_report_rejected": true,
+    "optional_reference_TRAIN_feature_comparison_is_zero_training": true,
+    "imports_Torch_VLM_processor_or_GPU": false,
+    "native_status_from_report_is_independent_process_observation": false,
+    "actually_run_on_R3_feature_data": false,
+    "R3_worker_report_absent": true
+  },
+  "remaining_teacher_gates": [
+    "NEW_reviewed_Mission_authoring_for_intermediate_hold_and_explicit_yaw_not_frozen_flythrough_wire",
+    "raw_RGB_full_quaternion_original_stamps_and_verified_clock_origin_transforms",
+    "parent_transaction_journal_readback_commit_permit_and_actual_mode_arm_in_air_sources",
+    "same_receive_owner_and_source_packet_filters",
+    "expert_label_review_world_groups_and_train_admission"
+  ],
+  "claims": {
+    "actual_teacher_trajectory_collected": false,
+    "source_producer_authenticated": false,
+    "expert_labels_reviewed": false,
+    "training_ready": false,
+    "train_admitted": false,
+    "continuous_path_safety_proven": false,
+    "cross_clock_or_origin_mapping_proven": false,
+    "attitude_stability_proven": false,
+    "execution_causality_proven": false,
+    "new_optimizer_attempts": 0,
+    "flight_control_commands_sent": 0,
+    "quality_claim": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-f\\vtol-mission-acceptance.json",
+  "source_sha256": "b9a317e9e1f24a45560643cdcacb8d9875d4dccf1da6889d6f26fad86dd0ac61",
+  "host_clock_identity": {
+    "accuracy_verified": false,
+    "implementation": "QueryPerformanceCounter()",
+    "legacy_monotonic_equivalent": false,
+    "resolution_ns": 100,
+    "schema_version": 1,
+    "session_id": "b0f9235fc77c4ee0989b650d5e8f11c4",
+    "source": "python.perf_counter"
+  },
+  "observer_origin_host_monotonic_s": 903337.5428176,
+  "duration_source": "full_precision_completion_minus_observer_origin",
+  "journal_revalidated_in_this_audit": false,
+  "result": {
+    "schema_version": 1,
+    "executable_mission_hash": "d6da9a4aef11e3d298bf26a3a67663f8a614cf2ec12ffcbc9eb6796a96238135",
+    "clock_semantics": "observer_relative_host_receive_time",
+    "observer_duration_s": 102.51213030004874,
+    "current_runs": [
+      {
+        "sequence": 0,
+        "command": "MAV_CMD_NAV_VTOL_TAKEOFF",
+        "first_received_s": 1.0534018999896944,
+        "last_received_s": 29.216172100044787,
+        "sample_count": 23,
+        "receive_span_s": 28.162770200055093
+      },
+      {
+        "sequence": 2,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "first_received_s": 29.59327400010079,
+        "last_received_s": 29.59327400010079,
+        "sample_count": 1,
+        "receive_span_s": 0
+      },
+      {
+        "sequence": 3,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "first_received_s": 30.268286200007424,
+        "last_received_s": 32.866481300094165,
+        "sample_count": 4,
+        "receive_span_s": 2.598195100086741
+      },
+      {
+        "sequence": 4,
+        "command": "MAV_CMD_NAV_LOITER_TIME",
+        "first_received_s": 34.0457250000909,
+        "last_received_s": 38.87241170008201,
+        "sample_count": 5,
+        "receive_span_s": 4.826686699991114
+      },
+      {
+        "sequence": 5,
+        "command": "MAV_CMD_DO_VTOL_TRANSITION",
+        "first_received_s": 39.94439640000928,
+        "last_received_s": 46.532806100090966,
+        "sample_count": 6,
+        "receive_span_s": 6.588409700081684
+      },
+      {
+        "sequence": 6,
+        "command": "MAV_CMD_NAV_VTOL_LAND",
+        "first_received_s": 46.83986070007086,
+        "last_received_s": 102.07432060001884,
+        "sample_count": 48,
+        "receive_span_s": 55.23445989994798
+      }
+    ],
+    "current_change_receipts": [
+      {
+        "from_sequence": 0,
+        "to_sequence": 2,
+        "previous_last_received_s": 29.216172100044787,
+        "next_first_received_s": 29.59327400010079,
+        "receive_gap_s": 0.3771019000560045,
+        "adjacent_forward": false
+      },
+      {
+        "from_sequence": 2,
+        "to_sequence": 3,
+        "previous_last_received_s": 29.59327400010079,
+        "next_first_received_s": 30.268286200007424,
+        "receive_gap_s": 0.6750121999066323,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 3,
+        "to_sequence": 4,
+        "previous_last_received_s": 32.866481300094165,
+        "next_first_received_s": 34.0457250000909,
+        "receive_gap_s": 1.1792436999967322,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 4,
+        "to_sequence": 5,
+        "previous_last_received_s": 38.87241170008201,
+        "next_first_received_s": 39.94439640000928,
+        "receive_gap_s": 1.0719846999272704,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 5,
+        "to_sequence": 6,
+        "previous_last_received_s": 46.532806100090966,
+        "next_first_received_s": 46.83986070007086,
+        "receive_gap_s": 0.3070545999798924,
+        "adjacent_forward": true
+      }
+    ],
+    "reached_receipts": [
+      {
+        "sequence": 0,
+        "first_received_s": 26.18743270006962,
+        "last_received_s": 29.216892100055702,
+        "count": 4
+      },
+      {
+        "sequence": 1,
+        "first_received_s": 29.59396970004309,
+        "last_received_s": 29.59396970004309,
+        "count": 1
+      },
+      {
+        "sequence": 2,
+        "first_received_s": 30.269132300047204,
+        "last_received_s": 32.86745710007381,
+        "count": 4
+      },
+      {
+        "sequence": 3,
+        "first_received_s": 33.67064130003564,
+        "last_received_s": 38.8731015000958,
+        "count": 6
+      },
+      {
+        "sequence": 4,
+        "first_received_s": 39.55396789999213,
+        "last_received_s": 46.533605200005695,
+        "count": 7
+      },
+      {
+        "sequence": 5,
+        "first_received_s": 46.84093780000694,
+        "last_received_s": 59.68549540010281,
+        "count": 11
+      },
+      {
+        "sequence": 6,
+        "first_received_s": 75.90981910005212,
+        "last_received_s": 85.95505430002231,
+        "count": 11
+      }
+    ],
+    "missing_current_sequences": [
+      1
+    ],
+    "rejected_events_excluded": 0,
+    "source_transition_bounds_proven": false,
+    "execution_phase_durations_proven": false,
+    "training_phase_labels_eligible": false
+  }
+}

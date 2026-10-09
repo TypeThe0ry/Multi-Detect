@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-action-readout-software-evidence-v1",
+  "status": "small_linear_readout_software_passed_no_actual_model_probe_or_training",
+  "bindings": [
+    {
+      "path": "scripts/onboard_navigation_action_readout.py",
+      "bytes": 11143,
+      "sha256": "b4191c30b7e927fad7845347932f699e32c928ed45bca291d2f526b5e8860367"
+    },
+    {
+      "path": "tests/test_onboard_navigation_action_readout.py",
+      "bytes": 16046,
+      "sha256": "e1b45d46fdd4e81ee573ec9efe8878d4f93802c6502ac5d716c5e81d4b603eb4"
+    }
+  ],
+  "component": {
+    "input_feature_dimension": 2048,
+    "output_dimension": 6,
+    "parameter_count": 12294,
+    "class_order": [
+      "forward",
+      "turn_yaw_left",
+      "turn_yaw_right",
+      "sequence_stop"
+    ],
+    "numeric_outputs": [
+      "distance_magnitude_m",
+      "yaw_magnitude_rad"
+    ],
+    "last_nonzero_mask_position_not_sum_minus_one": true,
+    "feature_detached_and_FP32_cloned": true,
+    "class_weights_preserved_for_singleton_batches": true,
+    "optional_numeric_labels_not_replaced_with_zero": true,
+    "selected_invalid_scale_rejected_without_clipping": true,
+    "raw_outputs_and_caller_declared_provenance_separate_from_generated_tokens": true,
+    "host_packaging_is_not_model_format_accuracy": true,
+    "STOP_does_not_mean_land_hover_return_or_task_completion": true,
+    "unsupported_vertical_and_lateral_actions_not_trained": true
+  },
+  "verification": {
+    "author_tests_passed": 89,
+    "author_tests_native_exit_code": 0,
+    "author_tests_tool_chunk": "efb7af",
+    "root_tests_passed": 89,
+    "root_tests_native_exit_code": 0,
+    "root_tests_tool_chunk": "629707",
+    "root_Ruff_native_exit_code": 0,
+    "root_Ruff_tool_chunk": "b6bf56",
+    "independent_read_only_review_current_blockers": 0,
+    "independent_CE_weight_defect_reproduced_before_fix": true,
+    "independent_CE_defect_reproduction_tool_chunk": "c8c9eb",
+    "independent_CE_regression_native_exit_code": 0,
+    "independent_CE_regression_tool_chunk": "2834ca",
+    "independent_final_identity_native_exit_code": 0,
+    "independent_final_identity_tool_chunk": "717c56",
+    "CPU_small_tensor_and_head_update_fixtures_only": true,
+    "CUDA_initialized_by_tests": false
+  },
+  "actual_frozen_base_or_LoRA_loaded": false,
+  "actual_prefix_features_extracted": false,
+  "actual_probe_trained": false,
+  "actual_sidecar_saved_and_reloaded": false,
+  "actual_model_identity_verified": false,
+  "prefix_only_verified": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}
+

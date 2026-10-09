@@ -1,0 +1,21 @@
+{
+  "status": "passed_native_window_start_and_graceful_close_observation",
+  "release_label": "0.3.0-pre.8",
+  "executable": "build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe",
+  "executable_sha256": "cddb0f08d5707b56139a1d69f535bef10607beae7e6229152990649c7470879f",
+  "command": "MultiDetectGCS.exe --offline --simple-boot-test --allow-multiple --no-windows-assert-ui",
+  "observed_process_path": "D:/Projects/Multi-Detect/build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe",
+  "observed_main_window_title": "MultiDetectGCS",
+  "observed_responding": true,
+  "close_request_accepted": true,
+  "process_exited_after_close_request": true,
+  "observed_at_utc": "2026-10-02T05:17:49Z",
+  "simple_boot_exit_contract_verified": false,
+  "manual_visual_review": false,
+  "mission_link_used": false,
+  "external_sim_rerun_performed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "claims_boundary": "native QGC process created a responsive window and closed cleanly; this is not a complete simple-boot exit proof, QGC manual visual sign-off, PX4/Gazebo, HIL, REAL, hardware or outdoor GNSS acceptance"
+}

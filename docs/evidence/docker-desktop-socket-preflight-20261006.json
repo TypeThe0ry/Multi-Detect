@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.docker-desktop-socket-preflight-v1",
+  "status": "blocked_before_gazebo_runtime",
+  "observed_at_utc": "2026-10-05T22:38:00Z",
+  "repository": "D:/Projects/Multi-Detect",
+  "docker_context": "desktop-linux",
+  "docker_cli_visible": true,
+  "docker_server_available": false,
+  "docker_pipe": "npipe:////./pipe/dockerDesktopLinuxEngine",
+  "wsl_distribution": "docker-desktop",
+  "wsl_state_after_start_attempt": "stopped_or_unavailable",
+  "backend_log": {
+    "path": "C:/Users/admin/AppData/Local/Docker/log/host/com.docker.backend.exe.log",
+    "observed_failure": "initializing Ingest server could not rename sailor-ingest.sock to sailor-ingest.sock.stale because the file could not be accessed by the system"
+  },
+  "recovery_attempt": {
+    "docker_desktop_start_attempted": true,
+    "stale_socket_backup_move": "failed_system_cannot_access_file",
+    "stale_socket_removal": "not_completed_without_elevated_access",
+    "factory_reset_requested": false,
+    "images_or_containers_deleted": false,
+    "repository_files_changed": false
+  },
+  "external_gazebo_runtime": false,
+  "training_ready": false,
+  "candidate_promoted": false,
+  "jetson_evidence": false,
+  "pixhawk_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

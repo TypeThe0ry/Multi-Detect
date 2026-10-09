@@ -1,0 +1,39 @@
+{
+  "schema": "multidetect.docker-desktop-stale-socket-recovery-v1",
+  "generated_at_utc": "2026-10-06T11:40:18Z",
+  "docker_client": {
+    "version": "29.7.2",
+    "context": "desktop-linux",
+    "server_available": false
+  },
+  "observed_failures": [
+    {
+      "path": "C:/Users/admin/AppData/Local/Docker/run/sailor-ingest.sock",
+      "operation": "rename to sailor-ingest.sock.stale",
+      "error": "WinError 1920: The file cannot be accessed by the system"
+    },
+    {
+      "path": "C:/Users/admin/AppData/Local/docker-secrets-engine/engine.sock",
+      "operation": "rename to engine.sock.stale",
+      "error": "WinError 1920: The file cannot be accessed by the system"
+    }
+  ],
+  "reversible_backups": [
+    "C:/Users/admin/AppData/Local/Docker/run-recovery-backup-20261006-112638Z",
+    "C:/Users/admin/AppData/Local/docker-secrets-engine-recovery-backup-20261006-113305Z"
+  ],
+  "entry_clear_attempted": true,
+  "entry_clear_succeeded": false,
+  "factory_reset": false,
+  "docker_data_deleted": false,
+  "external_gazebo_runtime": false,
+  "onboard_training_started": false,
+  "claim_boundary": {
+    "candidate_promoted": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

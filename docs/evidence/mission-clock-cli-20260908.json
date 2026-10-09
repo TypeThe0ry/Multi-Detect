@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "scope": "Explicit QPC campaign parent/child wiring and two new disposable external attempts",
+  "tests": {
+    "passed": 403,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit": "artifacts/evaluation/mission-clock-cli-final-20260908.xml",
+    "sha256": "b3193b8bfce95fba9a40312eaa1ba6537a3d8f999a4bcdc0df2ef0833cebee7d",
+    "command": "python -m pytest -q tests/test_mission_clock_cli.py tests/test_mission_clock_injection.py tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_repository_progress_docs.py tests/test_release_parity.py --disable-warnings --junitxml=artifacts/evaluation/mission-clock-cli-final-20260908.xml"
+  },
+  "external_attempts": [
+    {
+      "report": "artifacts/evaluation/campaign-qpc-20260908-a.json",
+      "sha256": "6bf1710260c13ed8dbeac74001fac2bf2df05a81d17d34c3e5d6723d9d9e8cd8",
+      "container_id": "6490cefe920f5d36fa898d258f8a3c95743f2f733caacb4d30484bcd79b03fbd",
+      "exit_code": 1,
+      "gate_passed": false,
+      "failure": "ValueError: invalid host clock identity fields",
+      "cause": "Actual terminal flight return omitted host_clock_identity; window/observation/history contained matching QPC identity",
+      "repair": "Add identity to observe_mission_flight terminal return and test actual legacy/QPC lifecycle return",
+      "exact_id_cleanup_verified": true,
+      "original_report_modified": false
+    },
+    {
+      "report": "artifacts/evaluation/campaign-qpc-20260908-b.json",
+      "sha256": "53422ec71522843791bda087c3f3113949d26eef222c21448609ebff44202ff8",
+      "container_id": "26baf91f9d32c2dcf471e0543373b0fb1dbfe3e1bb68a045e2b28312f8ea2f23",
+      "exit_code": 1,
+      "gate_passed": false,
+      "failure": "Second sortie refused before transaction creation: continuous energy coverage required: load_or_receive_gap",
+      "first_sortie_report": "artifacts/evaluation/campaign-qpc-20260908-b/campaign-missions/mission-001.json",
+      "first_sortie_sha256": "e7ec3d1f97c2b59cd6513c33974172ee2bcaeb69849fa1375ed1a6d8bc0c918a",
+      "qpc_identity_validation_passed": true,
+      "energy_window_end_covered": false,
+      "gap_at_receive_s": 21.58516839996446,
+      "position_receive_gap_s": 0.056644099997356534,
+      "left_heartbeat_age_s": 1.5326603999128565,
+      "left_throttle_age_s": 1.528686299920082,
+      "heartbeat_receive_before_s": 20.052508000051603,
+      "heartbeat_receive_after_s": 21.67123990005348,
+      "threshold_s": 1.5,
+      "threshold_changed": false,
+      "sender_router_or_host_scheduling_cause_proven": false,
+      "exact_id_cleanup_verified": true
+    }
+  ],
+  "full_regression_rerun": false,
+  "complete_qpc_campaign_verified": false,
+  "camera_barriers_migrated": false,
+  "physical_clock_synchronization_claimed": false,
+  "release_ready": false,
+  "next": "Diagnose heartbeat/throttle receive gap using independent sender/router/host timing evidence; rerun complete campaign after justified fix; migrate camera barriers separately"
+}

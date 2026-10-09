@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-stable-cache-training-actual-evidence-v1",
+  "date": "2026-10-08",
+  "status": "actual_CPU_11_head_training_closed_numerically_improved_navigation_quality_failed",
+  "actual_execution": {
+    "actual_native_exit_code": 0,
+    "terminal_tool_chunk": "decfdc",
+    "process_exit_check_tool_chunk": "9d0283",
+    "session_id": 21604,
+    "start_tool_chunk": "806f00",
+    "worker_pid": 53236,
+    "launcher_pid": 36224,
+    "worker_pid_absent": true,
+    "launcher_pid_absent": true,
+    "relevant_model_processes_at_exit_check": 0,
+    "started_at_utc": "2026-10-08T02:00:32.734396+00:00",
+    "ended_at_utc": "2026-10-08T02:00:59.319323+00:00",
+    "duration_s": 26.584927,
+    "placement": "local_CPU_only",
+    "GPU_used": false,
+    "backbone_loaded": false,
+    "feature_extraction_reperformed": false,
+    "processor_or_PNG_used": false
+  },
+  "observations": {
+    "success": true,
+    "actual_navigation_training_completed": true,
+    "head_count": 11,
+    "episode_out_diagnostic_heads": 9,
+    "TRAIN_only_descriptive_final_heads": ["final-old86", "final-all208"],
+    "updates_per_head": 200,
+    "optimizer": "CPU_FP32_AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "normalization_epsilon": 0.000001,
+    "seed": 0,
+    "optimizer_steps": {"attempted": 2200, "returned": 2200, "synchronized": 2200, "completed": 2200},
+    "WAL_event_count": 8800,
+    "optimizer_update_uncertain": false,
+    "remaining_new_family_attempts": 0,
+    "inherited_head_optimizer_attempts": 800,
+    "combined_head_optimizer_steps": {"attempted": 3000, "returned": 3000, "synchronized": 3000, "completed": 3000},
+    "inherited_base_lora_optimizer_attempts": 280,
+    "new_base_lora_optimizer_updates": 0,
+    "budget_reset_or_refund": false,
+    "best_checkpoint_early_stop_resume_or_retry_used": false,
+    "numerical_training_loss_gate_passed": true,
+    "all_11_final_train_losses_recomputed_after_last_update_and_improved": true,
+    "train_only_normalization_and_class_weights": true,
+    "all_saved_heads_exactly_reloaded": true,
+    "raw_prediction_count": 502,
+    "raw_durable_before_gold_scoring": true,
+    "source_bindings_unchanged": true,
+    "repository_source_bindings": 76,
+    "runtime_entrypoint_bindings": 4,
+    "runtime_scope": "torch_numpy_safetensors_torch_torch_optim_adamw_and_AdamW_export_not_transitive_DLL_audit",
+    "backbone_and_Actor_provenance": "inherited_from_root_closed_candidate208_extractor_not_reobserved_by_CPU_trainer"
+  },
+  "quality_results": {
+    "criterion": "accepted_action_plus_strict_label_reproduction_not_flight_tolerance",
+    "translation_L2_threshold_m": 0.0001,
+    "yaw_threshold_rad": 0.000001,
+    "episode_out_208": {
+      "scope": "head_diagnostic_not_independent_backbone_or_official_holdout",
+      "support": 208,
+      "raw_classifier_correct": 53,
+      "accepted_action_correct": 46,
+      "joint_correct": 5,
+      "joint_correct_all_STOP": true,
+      "selected_scale_rejected": 55,
+      "macro_accepted_action_recall": 0.3502780615140171,
+      "accepted_action_correct_by_class": {"forward": 34, "yaw_left": 2, "yaw_right": 5, "stop": 5},
+      "gold_support_by_class": {"forward": 178, "yaw_left": 10, "yaw_right": 11, "stop": 9},
+      "selected_scale_rejection_causes": {"nonpositive_distance": 6, "nonpositive_angle": 49, "above_cap": 0}
+    },
+    "final_old86": {
+      "scope": "same_TRAIN_descriptive_not_data_help_or_holdout",
+      "support": 86,
+      "raw_classifier_correct": 52,
+      "accepted_action_correct": 51,
+      "joint_correct": 3,
+      "joint_correct_all_STOP": true,
+      "selected_scale_rejected": 6,
+      "initial_train_loss_total": 4.345536231994629,
+      "final_train_loss_total": 1.9516679048538208
+    },
+    "final_all208": {
+      "scope": "same_TRAIN_descriptive_not_data_help_or_holdout",
+      "support": 208,
+      "raw_classifier_correct": 83,
+      "accepted_action_correct": 82,
+      "joint_correct": 9,
+      "joint_correct_all_STOP": true,
+      "selected_scale_rejected": 9,
+      "initial_train_loss_total": 4.332423210144043,
+      "final_train_loss_total": 2.4363436698913574
+    },
+    "constant_forward_3m_reference": {
+      "kind": "gold_derived_mathematical_reference_not_model_predictions",
+      "action_and_joint_correct_for_208": 178,
+      "support": 208,
+      "four_class_macro_recall": 0.25,
+      "model_tokens_or_latency_fabricated": false
+    },
+    "data_coverage": {
+      "publisher_partition": "TRAIN",
+      "scene_count": 2,
+      "episode_and_prompt_count": 9,
+      "forward_distance_m": 3,
+      "yaw_magnitude_rad": 0.5235987755982988,
+      "vertical_lateral_varied_scale_blocked_recovery_and_complete_return_task_supervision_present": false,
+      "development59_or_NEW82_train23_included": false
+    }
+  },
+  "independent_file_audits": {
+    "journal_bundles_sources_native_exit_code": 0,
+    "journal_bundles_sources_tool_chunk": "21008a",
+    "journal_final_readback_tool_chunk": "6aca32",
+    "score_recomputation_native_exit_code": 0,
+    "score_recomputation_tool_chunk": "b0857f",
+    "score_bindings_and_class_detail_tool_chunk": "9a75a7",
+    "all_8800_WAL_stages_replayed_and_exact": true,
+    "all_11_head_three_file_bundles_SHA_verified": true,
+    "normalization_training_ids_and_source_closure_verified": true,
+    "saved_F32_tensors_checked": 44,
+    "saved_finite_F32_scalars_checked": 180290,
+    "normalization_scale_values_positive": true,
+    "unique_small_bindings_rehashed": 118,
+    "small_binding_bytes_rehashed": 13495132,
+    "all_502_raw_predictions_independently_reprojected_and_rescored": true,
+    "all_11_stored_summaries_equal_recomputation": true,
+    "native_PID_head_forward_or_train_loss_reexecuted_by_auditors": false,
+    "real_time_fsync_observed_by_auditors": false,
+    "durable_before_score_audit_scope": "authenticated_implementation_order_and_complete_closed_file_binding_not_independent_live_fsync_witness"
+  },
+  "bindings": [
+    {
+      "path": "configs/training/onboard-navigation-stable-cache-20261008-r1.json",
+      "bytes": 197704,
+      "sha256": "687b8f168784a3e1a1b9f962ae344a6b71d0aeb4a9a0abd81ee608e18c844a51"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-stable-cache-20261008-r1/report.json",
+      "bytes": 499854,
+      "sha256": "0d55e9c22cbec62a8b567ba273d36da7700f5c50e42743639b3faec7c0ca5b1c"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-stable-cache-20261008-r1/scores.json",
+      "bytes": 1544382,
+      "sha256": "1fa376b42dc6d2176ef79aed41456bf3955f976df7a6c96533b74998d0955878"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-stable-cache-20261008-r1/predictions.jsonl",
+      "bytes": 1299897,
+      "sha256": "31a14e52e465aceec03c1fcc7c3fb8e5af40d1b733175fbfdf21b347fd0d1edf"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-stable-cache-20261008-r1/head-updates.jsonl",
+      "bytes": 1007568,
+      "sha256": "398ccc1362542e9859989071165144d1918891a4da81d6e5705d13bd87da1061"
+    },
+    {
+      "path": "scripts/train_onboard_navigation_stable_cache.py",
+      "bytes": 41124,
+      "sha256": "fc7c1f79de1e521b3738874b0f245063e55562cee208cb155dc3b60368cc7cda"
+    },
+    {
+      "path": "tests/test_train_onboard_navigation_stable_cache.py",
+      "bytes": 26182,
+      "sha256": "064350dc2c0a86a27ee9f2a82412e9118e994d61bfc8aeb4389bf7add5ae2686"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-candidate208-feature-cache-actual-20261008-r1.json",
+      "bytes": 5456,
+      "sha256": "d48bb8831f558f4363f36cb889701b79760fb0e5b086b9c1e77e61552ea92569"
+    }
+  ],
+  "claims": {
+    "quality_claim": false,
+    "data_help_proven": false,
+    "official_holdout_verified": false,
+    "independent_backbone_holdout": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "end_to_end_realtime_verified": false,
+    "Gazebo_learned_head_closed_loop_flight_passed": false,
+    "Jetson_runtime_verified": false,
+    "execution_authority": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false,
+    "full_goal_complete": false
+  }
+}

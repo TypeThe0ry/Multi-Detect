@@ -1,0 +1,15 @@
+{
+  "tests": 3950,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 7,
+  "duration_s": 192.581,
+  "path": "artifacts/evaluation/window-energy-full-20260908.xml",
+  "bytes": 578327,
+  "sha256": "326734f87190ce48d25cab393aeb5bf43d4164deedab880274db8c75529f9cd4",
+  "passed": 3943,
+  "product_version": "0.3.0-pre.8",
+  "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/window-energy-full-20260908.xml",
+  "exit_code": 0,
+  "scope": "full Python suite; no new external/HIL/REAL/UI acceptance"
+}

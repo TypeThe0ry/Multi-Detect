@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "status": "local_regression_passed_with_environment_skips",
+  "junit_path": "artifacts/evaluation/current-qpc-full-20260908-v2.xml",
+  "junit_sha256": "b65e45da778ec1cfb65d781a7860bfbfe780add368a1b883695c7473206ac8f3",
+  "junit_bytes": 644860,
+  "tests": 4416,
+  "passed": 4409,
+  "skipped": 7,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_s": 356.711,
+  "exit_code": 0,
+  "skip_reason": "Windows symbolic link creation unavailable; no privilege changes made",
+  "scope": "Collection preceded new affine diagnostic tests; existing runtime code remained unchanged during run. New affine tests ran separately, 8 passed; combined old/new probe selection 38 passed. Documentation/parity/new affine post-edit selection 42 passed.",
+  "product_version": "0.3.0-pre.8",
+  "python_version_form": "0.3.0rc8",
+  "hardware_acceptance_claimed": false,
+  "final_release_allowed": false
+}

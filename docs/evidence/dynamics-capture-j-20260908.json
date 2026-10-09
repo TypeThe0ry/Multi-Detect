@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "outer_path": "artifacts\\evaluation\\qpc-camera-20260908-j.json",
+  "outer_sha256": "9f982535927ee8c126206ef08c8b03a6d0f59d139a598bc2ab229cc5578197ea",
+  "mission_path": "artifacts\\evaluation\\qpc-camera-20260908-j\\vtol-mission-acceptance.json",
+  "mission_sha256": "f813ed5702c5b5a4772239fa32a95e002eb28c6075471736d1ff72685c428bfe",
+  "journal_path": "artifacts\\evaluation\\qpc-camera-20260908-j\\vtol-mission.transaction.jsonl",
+  "journal_sha256": "c7bb3e56bff513f6847bfc254882bbee5e154e9fbea29bb7ff1ae97937fe7152",
+  "container_id": "4f365e399c9cea2a483bd8ffca9b7085df96ad8f3578bbd01bbdc185c9c4f09e",
+  "host_clock_identity": {
+    "accuracy_verified": false,
+    "implementation": "QueryPerformanceCounter()",
+    "legacy_monotonic_equivalent": false,
+    "resolution_ns": 100,
+    "schema_version": 1,
+    "session_id": "ecd679655c924ebbb26d646d616e67a5",
+    "source": "python.perf_counter"
+  },
+  "outer_gate_passed": true,
+  "mission_gate_passed": true,
+  "cleanup_failures": [],
+  "observer_duration_s": 111.40354510000907,
+  "streams": {
+    "ATTITUDE": {
+      "rejected_source_count": 0,
+      "samples_dropped": 0,
+      "samples_seen": 4188,
+      "truncated": false,
+      "first_receipt_s": 0.015828600036911666,
+      "last_receipt_s": 111.40184940001927,
+      "invalid_sample_count": 0,
+      "maximum_receipt_gap_s": 0.0717958000022918,
+      "roll_range": [
+        -0.9164491295814514,
+        0.927088737487793
+      ],
+      "time_boot_ms_range": [
+        15464,
+        99208
+      ]
+    },
+    "VFR_HUD": {
+      "rejected_source_count": 0,
+      "samples_dropped": 0,
+      "samples_seen": 335,
+      "truncated": false,
+      "first_receipt_s": 0.0035869000712409616,
+      "last_receipt_s": 111.0445387000218,
+      "invalid_sample_count": 0,
+      "maximum_receipt_gap_s": 0.43952959997113794,
+      "airspeed_range": [
+        -2.051560640335083,
+        21.110319137573242
+      ],
+      "groundspeed_range": [
+        0.0010282424045726657,
+        22.045719146728516
+      ]
+    }
+  },
+  "position_sample_count": 4187,
+  "parallel_full_test_load": false,
+  "true_airspeed_semantics_proven": false,
+  "source_clock_mapping_proven": false,
+  "trajectory_tracking_quality_proven": false,
+  "final_release_allowed": false
+}

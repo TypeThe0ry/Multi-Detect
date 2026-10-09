@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "iteration": "v196",
+  "product_version": "0.3.0-pre.8",
+  "scope": "Offline recomputation of historical immutable SIM records with current builders, not a fresh simulator or hardware run",
+  "current_parity": {
+    "core_algorithm_hash": "155a5011aa27042d587dd50ae29236a02db4e7f42864ccf2607cb21aac626d0a",
+    "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+    "task_contract_hash": "13abab7a566d9d8fad00dbb7016eb31ca7765035b3442673467911d2f5b9d376",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "matrix_sources": 3,
+  "campaign_positive_runs": 6,
+  "campaign_fault_runs": 9,
+  "source_bytes_match_historical_bindings": true,
+  "response_sources": [
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/fixed-wing-positive-v2.json",
+      "bytes": 724969,
+      "sha256": "837146f6120d8a58cc8552fe7d55dbbfa7dfd6861af037270fee5e69c49fc0ca"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/multirotor-positive-v2.json",
+      "bytes": 691748,
+      "sha256": "eaf3dff87c2d7915331f023b315e107e40c9bf62378dbd12774ec6494132c4e7"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/vtol-positive-v2.json",
+      "bytes": 707130,
+      "sha256": "bf28c7fb4fa2c631da2371fa3d175af44a2d7e33892c2e618b539409982bd172"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v62/fixed-wing-flight-response-probe-v1.json",
+      "bytes": 691827,
+      "sha256": "f54e5a97efaed84eb161ed99c41ac4c6fecfdeea15d53a0992a798d9ba3f7e65"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/fixed-wing-positive-v2.json",
+      "bytes": 724969,
+      "sha256": "837146f6120d8a58cc8552fe7d55dbbfa7dfd6861af037270fee5e69c49fc0ca"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v62/multirotor-flight-response-v62-pre8-v1.json",
+      "bytes": 679289,
+      "sha256": "6ed1ba2acc64f318944d45b211b9a0619485a33c15fd4fa2ef126146a11884fd"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/multirotor-positive-v2.json",
+      "bytes": 691748,
+      "sha256": "eaf3dff87c2d7915331f023b315e107e40c9bf62378dbd12774ec6494132c4e7"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v62/vtol-flight-response-probe-v1.json",
+      "bytes": 699765,
+      "sha256": "f1ee3a5a7fd34fa746902e1668392e7cda85de2138d17f1ced222c58fe7a6753"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/vtol-positive-v2.json",
+      "bytes": 707130,
+      "sha256": "bf28c7fb4fa2c631da2371fa3d175af44a2d7e33892c2e618b539409982bd172"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/fixed-wing-fault-flight_mode_loss.json",
+      "bytes": 653070,
+      "sha256": "ee6fd0680f1fb4beb28e41337dd145bf2c842f52bb179dd531764bd326c05557"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/fixed-wing-fault-heartbeat_dropout.json",
+      "bytes": 639990,
+      "sha256": "cae77c6b4f8f2ccc8c494312f75df83b7d3508517ccdeef5d1cac64060701177"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/fixed-wing-fault-target_refresh_dropout.json",
+      "bytes": 555141,
+      "sha256": "62c1ffb4374ca3d83eb7e7480c398017c663c09b6e1116ab87d75c55a784ffd5"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/multirotor-fault-flight_mode_loss.json",
+      "bytes": 592689,
+      "sha256": "30f21fb9897b7400105a8eb01f59267985d04a3196b3526927218ca6fe92bcfb"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/multirotor-fault-heartbeat_dropout.json",
+      "bytes": 653580,
+      "sha256": "d4b5a63271ac6020a9449a0fc1f00ee697542133e67bf96495493b0c8d16ac95"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/multirotor-fault-target_refresh_dropout.json",
+      "bytes": 537094,
+      "sha256": "7bd5ecac6a123d656a8eb92428d8d5b83d10e0f36236b226262809dc6c35a767"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/vtol-fault-flight_mode_loss.json",
+      "bytes": 595803,
+      "sha256": "91e4fcee7abb61f4d8257029eb711c4b2b4a055076a35fd44e2ce8dd1ad34b80"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/vtol-fault-heartbeat_dropout.json",
+      "bytes": 659740,
+      "sha256": "44a6f7e2d22c6f4b5b3c9e88087526d505a460ff18ec84b2981fec489116e8e3"
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v63/vtol-fault-target_refresh_dropout.json",
+      "bytes": 555972,
+      "sha256": "9348d265cee693124e1be96757a8364e34967f9acec9fcc51bd71060c122951b"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v196/matrix-parity-r16-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12.json",
+      "bytes": 6985,
+      "sha256": "a15ca121633041dfb30b13835e1e366e6998380cdd926f685db5ae480719af9e",
+      "gate_passed": true
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v196/campaign-parity-r16-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12.json",
+      "bytes": 26120,
+      "sha256": "eb28b7e7380e96ce466d8cffdbd2f65e0f2fbec6086b0771b05e7811fb430d2a",
+      "gate_passed": true
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v196/external-join-parity-r16-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r18-parity-r12.json",
+      "bytes": 5492,
+      "sha256": "6d60522244266fcc97a7b2325d2187303645c090d1b7ebd8aa022242548bcaef",
+      "gate_passed": true
+    },
+    {
+      "path": "artifacts/evaluation/terminal-continuation-v196/external-revalidation.json",
+      "bytes": 519,
+      "sha256": "ebcabf1a7730c944b317ac1522ed3293ef48789efacbf03e9e622b1fd2411a7d",
+      "gate_passed": true
+    }
+  ],
+  "external_source_inventory": {
+    "vtol": {
+      "runtime": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v29\\simulator-external-runtime-20260904-vtol.json",
+        "sha256": "07fdadca5c6daca14d951e58d9f961d317f3c72aa87e7ff11dafce3b4e9402c9",
+        "bytes": 22001,
+        "scenario_id": "river_rescue_vtol_001",
+        "scenario_manifest_sha256": "b845131073a435c7f49f2b784b16f7c175a3bc55bbaffa52bcf91b26d447a296",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true
+      },
+      "ai": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v32\\simulator-external-runtime-ai-evidence-20260904-current.json",
+        "sha256": "081b922cd725acd1f42ed218f142e7ae1e8e5a684ca02f622b4aece738e12da2",
+        "bytes": 118148,
+        "scenario_id": "river_rescue_vtol_001",
+        "scenario_manifest_sha256": "b845131073a435c7f49f2b784b16f7c175a3bc55bbaffa52bcf91b26d447a296",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true,
+        "ai_policy_gate_passed": true,
+        "target_policy_gate_passed": true,
+        "target_exercise_accepted": true
+      }
+    },
+    "fixed-wing": {
+      "runtime": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v29\\simulator-external-runtime-20260904-fixed-wing.json",
+        "sha256": "90f37c153141ff62b9cde816ef77f85e6097eac7cbbd86a8c5197b11f2d5557f",
+        "bytes": 22187,
+        "scenario_id": "coastal_patrol_fixed_wing_001",
+        "scenario_manifest_sha256": "8a606b86b201ff247ae3c1c9bd6467522342f3d4dad46fea01dd03673200f21b",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true
+      },
+      "ai": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v29\\simulator-external-runtime-ai-20260904-fixed-wing.json",
+        "sha256": "b942dd099f36a9fcabcc5327319b4df44a8964dee64e28302850f3d526b5273b",
+        "bytes": 104742,
+        "scenario_id": "coastal_patrol_fixed_wing_001",
+        "scenario_manifest_sha256": "8a606b86b201ff247ae3c1c9bd6467522342f3d4dad46fea01dd03673200f21b",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true,
+        "ai_policy_gate_passed": true,
+        "target_policy_gate_passed": true,
+        "target_exercise_accepted": true
+      }
+    },
+    "multirotor": {
+      "runtime": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v29\\simulator-external-runtime-20260904-multirotor.json",
+        "sha256": "1a7df45e9cc5a257760dc608304e6826f75e7bd958403df15d2600121f76198f",
+        "bytes": 22189,
+        "scenario_id": "urban_inspection_multirotor_001",
+        "scenario_manifest_sha256": "50c43a17cc04433401f5d0cf6b6c36fa3b8245a06f70c8615b50a7021a2d14ac",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true
+      },
+      "ai": {
+        "path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\terminal-continuation-v29\\simulator-external-runtime-ai-20260904-multirotor.json",
+        "sha256": "a963a915ce5a5e9596867a1236601d182e89995ca0472b16924dbfac3a46b846",
+        "bytes": 104168,
+        "scenario_id": "urban_inspection_multirotor_001",
+        "scenario_manifest_sha256": "50c43a17cc04433401f5d0cf6b6c36fa3b8245a06f70c8615b50a7021a2d14ac",
+        "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+        "gate_passed": true,
+        "ai_policy_gate_passed": true,
+        "target_policy_gate_passed": true,
+        "target_exercise_accepted": true
+      }
+    }
+  },
+  "final_release_allowed": false,
+  "e7_integration": "pending; v195 audit remains authoritative until a new complete manifest is evaluated"
+}

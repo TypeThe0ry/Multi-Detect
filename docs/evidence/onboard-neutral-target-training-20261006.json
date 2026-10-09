@@ -1,0 +1,72 @@
+{
+  "schema": "multidetect.onboard-neutral-target-training-comparison.v1",
+  "release_label": "0.3.0-pre.8",
+  "purpose": "Record the neutral 3-D target adapter change and isolated incremental candidates without promoting a model.",
+  "shared_contract": {
+    "feature_width": 40,
+    "parent_model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "same_sim_jetson_policy_contract": true,
+    "colour_is_optional_task_constraint": true,
+    "neutral_target_colour_feature": 0.5,
+    "truth_free": true
+  },
+  "runtime_change": {
+    "perception_adapter": "src/multidetect/autonomy/perception_adapter.py",
+    "realtime_bridge": "src/multidetect/autonomy/realtime_bridge.py",
+    "default_target_colour": null,
+    "class_match_with_unknown_colour_not_suppressed": true,
+    "safety_and_planner_gates_unchanged": true
+  },
+  "software_chain": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "evidence": "artifacts/evaluation/onboard-policy-chain-neutral-r33.json",
+    "evidence_sha256": "bb8cbb7a117b58f821d0a3e0a8a062a8d8ab05be8ffca8ffe086544256b88320",
+    "phase_sequence": ["search", "match_target", "record_location", "return_home", "report"],
+    "software_sim_only": true,
+    "external_gazebo_runtime": false
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r46-neutral-target-3d-dev",
+      "model_sha256": "25026b448606bb5cb7093b4c0f9e9bba5b9461480f798d78decb2fad631c433d",
+      "training_config_sha256": "5e86deb29fd054a36d872c8fad9c709add4a2f27c09c8c48569133635b710ac1",
+      "training_report_sha256": "a95988a5994de24216923bd8ef70a4a07edb76f349837f380414ca48bc8aa72c",
+      "neutral_target_augment": true,
+      "structured_3d_holdout": {
+        "task_accuracy": 0.98,
+        "flight_accuracy": 0.9825,
+        "compatible_output_rate": 0.985
+      },
+      "generalization_guarded_failures": ["bearing-right"],
+      "candidate_promoted": false
+    },
+    {
+      "model_id": "onboard-policy-r47-neutral-bearing-3d-dev",
+      "model_sha256": "39d428be04c53ad0b9374305e13d022753b85849b6cc789a24b58fb3e3e4036e",
+      "training_config_sha256": "6c0d056305e9aa8eebd0ea0887826a25404aae0a6871e121b77c9a07fa388a19",
+      "training_report_sha256": "66c3567fe7e873cdea34d59c8efd9ced03d9aecfe535353f1560f79c1a3124a4",
+      "neutral_target_augment": true,
+      "structured_3d_holdout": {
+        "task_accuracy": 0.9875,
+        "flight_accuracy": 0.985,
+        "compatible_output_rate": 0.99
+      },
+      "generalization_guarded_failures": ["bearing-right"],
+      "candidate_promoted": false
+    }
+  ],
+  "claim_boundary": {
+    "selected_reference_unchanged": true,
+    "candidate_promoted": false,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

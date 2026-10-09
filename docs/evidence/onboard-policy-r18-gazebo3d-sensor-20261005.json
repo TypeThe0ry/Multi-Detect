@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "evidence_id": "onboard-policy-r18-gazebo3d-sensor-20261005",
+  "product_version": "0.3.0-pre.8",
+  "status": "candidate_not_promoted",
+  "scope": "synthetic_3d_scene_sensor_contract_training",
+  "model": {
+    "id": "onboard-policy-r18-gazebo3d-sensor",
+    "path": "artifacts/models/onboard-policy-r18-gazebo3d-sensor/onboard_policy_r18.onnx",
+    "bytes": 62145,
+    "sha256": "c49ddd7c88f5217957886ccd0203373b071b7a6f947c294d0bd1ec7b7715eef2",
+    "parent_sha256": "7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3",
+    "feature_width": 40,
+    "same_task_head": true,
+    "same_flight_head": true,
+    "same_model_contract": true
+  },
+  "training": {
+    "device": "NVIDIA GeForce RTX 4060",
+    "epochs": 80,
+    "sample_count": 35100,
+    "seed": 20261008,
+    "config_path": "artifacts/models/onboard-policy-r18-gazebo3d-sensor/training-config.json",
+    "config_bytes": 4322,
+    "config_sha256": "2fa27e6d35b3d07a216e53532a0f0fc442e5697303cc160b2bdf9e4bee2a463c",
+    "report_path": "artifacts/models/onboard-policy-r18-gazebo3d-sensor/training-report.json",
+    "report_bytes": 6408,
+    "report_sha256": "14399b90043a2d808ec48739ec7c23c021b3ea00ad8527cd00e1708a586c1c36",
+    "augmentations": {
+      "temporal": true,
+      "semantic": true,
+      "phase": true,
+      "gazebo_3d_sensor_contract": true,
+      "legacy_target_fixture": false
+    },
+    "gazebo_3d_manifest": {
+      "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+      "sha256": "b1bc7d2b71654b8eb1ce8e66db311001de7d59d5bb86871da9d498c8a34dcd30",
+      "vehicle_profiles": [
+        "px4_multirotor_gazebo_v1",
+        "px4_vtol_gazebo_v1",
+        "px4_fixed_wing_gazebo_v1"
+      ],
+      "sensor_contract": ["rgb_camera", "depth_camera", "mavlink_telemetry"],
+      "airspeed_profile_present": true
+    }
+  },
+  "metrics": {
+    "evaluation_samples": 7020,
+    "task_accuracy": 0.9908831908831909,
+    "flight_accuracy": 0.9914529914529915,
+    "regression_mae": {
+      "north_m": 10.851442337036133,
+      "east_m": 23.66779327392578,
+      "altitude_m": 5.528204917907715,
+      "speed_mps": 1.5797456502914429
+    },
+    "regression_p95": {
+      "north_m": 30.848875045776367,
+      "east_m": 96.47711944580078,
+      "altitude_m": 28.6710147857666,
+      "speed_mps": 8.725363731384277
+    },
+    "regression_clip_rate": 0.0
+  },
+  "independent_holdout": {
+    "path": "artifacts/evaluation/onboard-policy-r18-independent-holdout.json",
+    "sha256": "3d102e98a543e5337f67e666e9f0d3a865f941adabd3c74a7df6aea59dd2f5df",
+    "cases": 7,
+    "passed": 7,
+    "training_used": false
+  },
+  "generalization": {
+    "path": "artifacts/evaluation/onboard-r18-generalization-20261005.json",
+    "sha256": "402142ce383dfe6e869e6ea42d46f0c5efeb91d68d9f6833d7564a7fbe93f8db",
+    "cases": 22,
+    "raw_head_passed": 17,
+    "guarded_passed": 22,
+    "masked_success_count": 5,
+    "navigation_direction_passed": 20,
+    "navigation_range_passed": 22,
+    "class_color_invariance_passed": true,
+    "training_used": false,
+    "status": "completed_no_guarded_failures"
+  },
+  "3d_sensor_holdout": {
+    "path": "artifacts/evaluation/onboard-policy-r18-3d-sensor-holdout.json",
+    "sha256": "48d6a0424bbb6fdfbae8a271ec6cf4f13732f72a49107761be0c5ae76f620b5b",
+    "cases": 900,
+    "task_accuracy": 0.9911111111111112,
+    "flight_accuracy": 0.9888888888888889,
+    "compatible_output_rate": 0.99,
+    "training_used": false,
+    "structured_sensor_contract": true,
+    "pixel_level_rendered": false
+  },
+  "claim_boundary": {
+    "synthetic_training": true,
+    "truth_free_runtime_input": true,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 13332,
+    "sha256": "61eef1e7320706d382a06f71936a18472ac0467384970eb98a2c5074fdd9d0af",
+    "core_algorithm_hash": "8635241c8f7093d73e41b52a171b3df5aebdf4c5aa13df01f1d21280fd6d1534"
+  }
+}

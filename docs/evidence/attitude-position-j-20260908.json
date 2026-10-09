@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-j\\vtol-mission-acceptance.json",
+  "source_sha256": "f813ed5702c5b5a4772239fa32a95e002eb28c6075471736d1ff72685c428bfe",
+  "join_summary": {
+    "join_key": "exact_source_system_component_boot_millisecond",
+    "matched_count": 2028,
+    "unmatched_positions": 2159,
+    "unmatched_attitudes": 2160,
+    "physical_simultaneity_proven": false,
+    "source_host_clock_mapping_proven": false,
+    "flight_tracking_gate_passed": false,
+    "interpolated": false
+  },
+  "receive_window_summaries": [
+    {
+      "sequence": 0,
+      "command": "MAV_CMD_NAV_VTOL_TAKEOFF",
+      "receive_window_start_s": 1.1411616000114009,
+      "receive_window_end_s": 31.144113600021228,
+      "matched_samples": 523,
+      "roll_deg_range": [
+        -1.828334919106632,
+        2.2355902844539313
+      ],
+      "altitude_m_range": [
+        0.088,
+        19.301
+      ],
+      "groundspeed_mps_range": [
+        0.0,
+        13.93301833774721
+      ]
+    },
+    {
+      "sequence": 2,
+      "command": "MAV_CMD_NAV_WAYPOINT",
+      "receive_window_start_s": 31.144113600021228,
+      "receive_window_end_s": 44.02413949999027,
+      "matched_samples": 244,
+      "roll_deg_range": [
+        -52.49132882824697,
+        17.359060671823514
+      ],
+      "altitude_m_range": [
+        11.254,
+        25.653
+      ],
+      "groundspeed_mps_range": [
+        11.207176272371198,
+        22.054772726101714
+      ]
+    },
+    {
+      "sequence": 3,
+      "command": "MAV_CMD_NAV_WAYPOINT",
+      "receive_window_start_s": 44.02413949999027,
+      "receive_window_end_s": 48.38628500001505,
+      "matched_samples": 80,
+      "roll_deg_range": [
+        16.461372324303323,
+        53.117151741138564
+      ],
+      "altitude_m_range": [
+        22.036,
+        25.375
+      ],
+      "groundspeed_mps_range": [
+        13.401705115394831,
+        19.735987434126525
+      ]
+    },
+    {
+      "sequence": 4,
+      "command": "MAV_CMD_NAV_LOITER_TIME",
+      "receive_window_start_s": 48.38628500001505,
+      "receive_window_end_s": 54.27282309997827,
+      "matched_samples": 121,
+      "roll_deg_range": [
+        13.436289224867492,
+        52.83992802310608
+      ],
+      "altitude_m_range": [
+        21.495,
+        26.284
+      ],
+      "groundspeed_mps_range": [
+        16.579215904257957,
+        20.82226932877394
+      ],
+      "requested_radius_m": 30.0,
+      "requested_altitude_m": 25.0,
+      "distance_to_center_m_range": [
+        29.794791624194442,
+        49.71510640501144
+      ],
+      "radius_absolute_error_max_m": 19.71510640501144,
+      "radius_absolute_error_rms_m": 7.325253716044742,
+      "altitude_absolute_error_max_m": 3.504999999999999
+    },
+    {
+      "sequence": 5,
+      "command": "MAV_CMD_DO_VTOL_TRANSITION",
+      "receive_window_start_s": 54.27282309997827,
+      "receive_window_end_s": 59.770578199997544,
+      "matched_samples": 100,
+      "roll_deg_range": [
+        1.224415248944511,
+        49.76742548158379
+      ],
+      "altitude_m_range": [
+        18.765,
+        22.163
+      ],
+      "groundspeed_mps_range": [
+        5.135883565658396,
+        17.582718788628796
+      ]
+    },
+    {
+      "sequence": 6,
+      "command": "MAV_CMD_NAV_VTOL_LAND",
+      "receive_window_start_s": 59.770578199997544,
+      "receive_window_end_s": 111.40354510000907,
+      "matched_samples": 939,
+      "roll_deg_range": [
+        -6.2156633900083635,
+        3.535737923863603
+      ],
+      "altitude_m_range": [
+        0.051,
+        22.389
+      ],
+      "groundspeed_mps_range": [
+        0.0,
+        5.412651845445078
+      ]
+    }
+  ],
+  "window_selection": "both paired receipts inside successive accepted MISSION_CURRENT receive windows",
+  "source_phase_boundaries_proven": false,
+  "physical_simultaneity_proven": false,
+  "trajectory_tracking_gate_passed": false,
+  "final_release_allowed": false
+}

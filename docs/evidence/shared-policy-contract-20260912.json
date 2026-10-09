@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-09-12",
+  "status": "software_contract_implemented_automated_verified",
+  "policy_contract": {
+    "artifact": "src/multidetect/autonomy/policy_artifact.py",
+    "shared_policy": "src/multidetect/autonomy/policy_contract.py",
+    "sim_budget_path": "src/multidetect/simulation/task_episode.py",
+    "observed_session_path": "src/multidetect/autonomy/task_session.py",
+    "training_path": "src/multidetect/simulation/task_training.py",
+    "truth_free": true,
+    "planner_revalidated": true,
+    "actuator_or_flight_authority": false
+  },
+  "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "policy_artifact_sha256": "39e26f6f078432317ecd40df52d01b99b6dc891d0534f155f89c1bae9b930e0c",
+  "parent_model_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "training_dataset_sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6",
+  "airframe_profile_hash": "35c32c0313a86f59584c35e5531730654d6ac189f9a5a9d1a742e39f64a94e33",
+  "mission_contract_hash": "b50408f8a2998cafb50e6b738aea357d3e8aff0ec589d413c35873b8302ead1d",
+  "safety_policy_hash": "57d0146cf3f2d8ac21342d1fe22545567c762870df3ad6ac2893a1de8c987692",
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 11783,
+    "sha256": "4bed80a7417b6d26c02ae223b3b63dcd1dcf92f05636038abab9772229696c4c",
+    "core_algorithm_hash": "8f1fbbc7a6688d6a955faf71e71bcd9ba1147ae1d0dfeb007ed2f74689a53bd2",
+    "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+    "task_contract_hash": "4137ce9a79d2ca3b5d39963abae4571853423899ccd5901241258ef282eca58c",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "verification": {
+    "tests": [
+      "tests/test_autonomy_planner.py",
+      "tests/test_mission_planning.py",
+      "tests/test_budget_episode_accounting.py",
+    "tests/test_task_ranker_training_cli.py",
+      "tests/test_release_parity.py",
+      "tests/test_repository_progress_docs.py"
+    ],
+    "ruff": true,
+    "git_diff_check_source_files": true,
+    "training_cli_artifact_files_loadable": true,
+    "training_cli_artifact_files": [
+      "parent-policy-artifact.json",
+      "candidate-policy-artifact.json"
+    ]
+  },
+  "learned_weights_loaded": false,
+  "candidate_promoted": false,
+  "external_sim_revalidated": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

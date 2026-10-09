@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "src/multidetect/simulation/energy_replay.py",
+      "bytes": 11573,
+      "sha256": "867b7ac573e5e29608c7cf795e81f42fc05fdbcb68164a787f43930f1dab173f"
+    },
+    {
+      "path": "tests/test_mission_planning.py",
+      "bytes": 26442,
+      "sha256": "7117b39ad59bf76f956878f93092aa9ec0be537d8e418388e8d0fe94ca959eb0"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11288,
+      "sha256": "6fe74a41733df3077d419976ce0d6e51c9162e10d7bc161a006114d80d736166"
+    },
+    {
+      "path": "artifacts/evaluation/sim-energy-context-20260908-b.xml",
+      "bytes": 12172,
+      "sha256": "51d51d12510a1bf27720b751390a5a504cbed530be177cc50a64151fc91c3924"
+    }
+  ],
+  "command": "python -m pytest -q tests/test_mission_planning.py tests/test_simulation_energy_replay.py tests/test_repository_progress_docs.py tests/test_release_parity.py --disable-warnings --junitxml=artifacts/evaluation/sim-energy-context-20260908-b.xml",
+  "exit_code": 0,
+  "passed": 84,
+  "new_tests": 10,
+  "scope": "SIM energy observation adapter and two-task callback fixture using existing planner/compiler/outcome monitor",
+  "checks": [
+    "energy-only ContextSnapshot replacement",
+    "same planner consumes first post-task context hash for second task",
+    "stale/UTC/future/session/mode rejection",
+    "sensor quality unchanged",
+    "new heartbeat cannot refresh old energy timestamp",
+    "rejected join does not consume state"
+  ],
+  "external_two_mission_run": false,
+  "full_suite_rerun": false,
+  "physical_calibration": false,
+  "training_completed": false
+}

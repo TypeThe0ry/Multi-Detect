@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "scope": "Mission observer and parent interval evidence clock binding; not end-to-end pixel capture",
+  "test_report": {
+    "path": "artifacts/evaluation/capture-clock-consumers-20260908.xml",
+    "sha256": "046c774798006666132d1df589d32fde3855de63b2034a5b9834ac7cd0a07d24",
+    "tests": 424,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_s": 8.812,
+    "process_exit_code": 0
+  },
+  "verified": [
+    "actual observer function creates ready and consumes complete in both clock modes",
+    "parent validates ready/complete/interval sample identity against caller-selected domain",
+    "tampered identities rejected in both legacy and QPC modes",
+    "ruff check passed on both scripts and both changed test files"
+  ],
+  "remaining": [
+    "shared Gazebo pixel provenance producer and detector/geolocation consumers",
+    "outer waiter, capture timing and completion producer integration",
+    "external image capture acceptance",
+    "energy receive coverage and source-clock mapping",
+    "SIM/HIL/REAL final release gates"
+  ],
+  "new_external_run": false,
+  "final_release_allowed": false
+}

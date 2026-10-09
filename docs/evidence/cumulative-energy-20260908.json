@@ -1,0 +1,101 @@
+{
+  "input": {
+    "path": "artifacts\\evaluation\\mission-clock-window-20260908-j\\vtol-mission-acceptance.json",
+    "sha256": "f099caaa70d452090c19f3b82fbd56436463ecfd7b999c8ae66b740f65f76496",
+    "bytes": 2147292
+  },
+  "initialization": "10Wh fixture at first complete replay sample; not observed real energy",
+  "first": {
+    "source": "cumulative_simulation_energy_assumption_v1",
+    "session_id": "391e13b35e6efd551bcd5c96f76bb501d96b678281eab639685bcac17192b9be",
+    "profile": {
+      "capacity_wh": 10,
+      "avionics_power_w": 36,
+      "propulsion_max_power_w": 324,
+      "provenance": "engineering fixture; not calibrated"
+    },
+    "initial_remaining_wh": 10,
+    "initial_energy_at_boot_ms": 6024,
+    "consumed_wh": 1.2245003999999986,
+    "newly_consumed_wh": 1.2245003999999986,
+    "remaining_wh": 8.775499600000002,
+    "battery_remaining_pct": 87.75499600000002,
+    "estimated_flight_time_s": 87.75499600000002,
+    "unserved_energy_wh": 0,
+    "observed_prefix_boot_s": 50.615999999999225,
+    "reserve_deducted": false,
+    "physical_calibration_claimed": false,
+    "authorizes_next_task": false
+  },
+  "final": {
+    "source": "cumulative_simulation_energy_assumption_v1",
+    "session_id": "391e13b35e6efd551bcd5c96f76bb501d96b678281eab639685bcac17192b9be",
+    "profile": {
+      "capacity_wh": 10,
+      "avionics_power_w": 36,
+      "propulsion_max_power_w": 324,
+      "provenance": "engineering fixture; not calibrated"
+    },
+    "initial_remaining_wh": 10,
+    "initial_energy_at_boot_ms": 6024,
+    "consumed_wh": 2.1668547999999483,
+    "newly_consumed_wh": 0.9423543999999497,
+    "remaining_wh": 7.833145200000052,
+    "battery_remaining_pct": 78.33145200000052,
+    "estimated_flight_time_s": 78.33145200000052,
+    "unserved_energy_wh": 0,
+    "observed_prefix_boot_s": 101.38000000000419,
+    "reserve_deducted": false,
+    "physical_calibration_claimed": false,
+    "authorizes_next_task": false
+  },
+  "duplicate": {
+    "source": "cumulative_simulation_energy_assumption_v1",
+    "session_id": "391e13b35e6efd551bcd5c96f76bb501d96b678281eab639685bcac17192b9be",
+    "profile": {
+      "capacity_wh": 10,
+      "avionics_power_w": 36,
+      "propulsion_max_power_w": 324,
+      "provenance": "engineering fixture; not calibrated"
+    },
+    "initial_remaining_wh": 10,
+    "initial_energy_at_boot_ms": 6024,
+    "consumed_wh": 2.1668547999999483,
+    "newly_consumed_wh": 0,
+    "remaining_wh": 7.833145200000052,
+    "battery_remaining_pct": 78.33145200000052,
+    "estimated_flight_time_s": 78.33145200000052,
+    "unserved_energy_wh": 0,
+    "observed_prefix_boot_s": 101.38000000000419,
+    "reserve_deducted": false,
+    "physical_calibration_claimed": false,
+    "authorizes_next_task": false
+  },
+  "new_external_run": false,
+  "files": [
+    {
+      "path": "src/multidetect/simulation/energy_replay.py",
+      "bytes": 8714,
+      "sha256": "83c7aed55caa1b5229988e38e656deb18682f8a5e7c53fa34e3e30b8f305aad7"
+    },
+    {
+      "path": "tests/test_simulation_energy_replay.py",
+      "bytes": 5068,
+      "sha256": "6f88f81127efe5f1cfefe24bd303cdc31b87348241a3b3f573b3ce0e77312867"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11288,
+      "sha256": "beed054fc5342b9095af17a4a3d2534a375a80f9bca2d5641a975d11b0bceadb"
+    },
+    {
+      "path": "artifacts/evaluation/cumulative-energy-20260908.xml",
+      "bytes": 8012,
+      "sha256": "d26484a96ebea0b2cc154759095e2276c1394c9a609a7c49e3dc57bfe8629d4b"
+    }
+  ],
+  "product_version": "0.3.0-pre.8",
+  "focused_passed": 55,
+  "new_tests": 8,
+  "full_suite_rerun": false
+}

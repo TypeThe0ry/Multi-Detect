@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "gate": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "2c2519b083abb15544e52c0067078418382bc07c6c2557caea1698fc76b19bbd",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "outcome": {
+    "elapsed_s": 88.57799999997951,
+    "mission_hash": "240d8473355c8c1a1c3d25f2856cc7280fd23ed51890122102c3f4e0fcc397eb",
+    "reason": "terminal_reached_landed_disarmed",
+    "status": "completed"
+  },
+  "history_summary": {
+    "dropped": 0,
+    "charge_raw": 0,
+    "time_raw": 0,
+    "energy_raw": -1,
+    "current_raw": -1,
+    "seen": 42,
+    "first": {
+      "at_s": 13.531000000075437,
+      "battery_id": 0,
+      "battery_remaining_pct": 99,
+      "current_battery_cA_raw": -1,
+      "current_consumed_mAh_raw": 0,
+      "energy_consumed_hJ_raw": -1,
+      "source_component": 1,
+      "source_system": 1,
+      "time_remaining_s_raw": 0
+    },
+    "battery_pct": {
+      "Count": 42,
+      "Average": null,
+      "Sum": null,
+      "Maximum": 100,
+      "Minimum": 50,
+      "StandardDeviation": null,
+      "Property": null
+    },
+    "last": {
+      "at_s": 107.10900000005495,
+      "battery_id": 0,
+      "battery_remaining_pct": 50,
+      "current_battery_cA_raw": -1,
+      "current_consumed_mAh_raw": 0,
+      "energy_consumed_hJ_raw": -1,
+      "source_component": 1,
+      "source_system": 1,
+      "time_remaining_s_raw": 0
+    }
+  },
+  "inputs": [
+    {
+      "sha256": "a55791facd4b2abec3868acf5b4cd623f08b406ba9dc0b7c31ff5c3e94332a5b",
+      "bytes": 354390,
+      "path": "artifacts/evaluation/battery-history-20260908-f/vtol-mission-acceptance.json"
+    },
+    {
+      "sha256": "b1603a0faee5b415a592f19bd50dc5689a8e8274589b9a347c79008cd04013f0",
+      "bytes": 482298,
+      "path": "artifacts/evaluation/battery-history-20260908-f.json"
+    }
+  ],
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/battery-history-20260908-f --evidence artifacts/evaluation/battery-history-20260908-f.json --container-name multidetect-battery-history-20260908-f --frame-count 3 --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "exit_code": 0,
+  "px4_version_probe": {
+    "command": "docker exec -w /opt/px4-gazebo multidetect-battery-history-20260908-f /opt/px4-gazebo/bin/px4-ver all",
+    "git_hash": "83c4f4e580558816f0e398918f66358988004696",
+    "version": "1.18.0 80",
+    "source_url": "https://raw.githubusercontent.com/PX4/PX4-Autopilot/83c4f4e580558816f0e398918f66358988004696/src/modules/simulation/battery_simulator/BatterySimulator.cpp",
+    "findings": [
+      "armed: fixed drain using hrt_absolute_time, not actuator load",
+      "disarmed: internal battery percentage reset to 1",
+      "no simulated current sensor",
+      "percentage lower-bounded by SIM_BAT_MIN_PCT"
+    ],
+    "scope": "Source at firmware-reported commit; no independent reproducible binary build proof; not a physical battery calibration."
+  },
+  "tests": {
+    "passed": 212,
+    "failed": 0,
+    "skipped": 0,
+    "junit": "artifacts/evaluation/battery-history-20260908.xml",
+    "ruff": "passed"
+  },
+  "next_requirement": "Persistent per-session simulation energy state across sorties, explicit recharge only, simulation clock and calibrated provenance; never infer endurance from disarm-reset PX4 percentage.",
+  "claims": {
+    "trained_model": false,
+    "continuous_multitask": false,
+    "calibrated_endurance": false,
+    "hardware": false,
+    "release_allowed": false
+  }
+}

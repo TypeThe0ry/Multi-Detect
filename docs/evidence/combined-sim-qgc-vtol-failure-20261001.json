@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "status": "failed_external_vtol_mission_after_position_stream_proved",
+  "release_label": "0.3.0-pre.8",
+  "run_directory": "artifacts/evaluation/combined-sim-qgc-20260930T180857Z-57764",
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_px4_gazebo_qgc_combined_sim_acceptance.ps1 -Frames 900 -RouterDurationSeconds 420 -MissionTimeoutSeconds 240 -MissionSetupAllowanceSeconds 120 -FixedWingHoldSeconds 12",
+  "source_files": {
+    "vtol_mission_result": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T180857Z-57764/vtol-mission.result.json",
+      "sha256": "0e6a45c7e9690adfcb3d3d17c99f8770b9054a9136a4a43c4716dd46158c4ae3"
+    },
+    "vtol_mission_active_ready": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T180857Z-57764/vtol-mission-active-ready.json",
+      "sha256": "da4b2086e652cfadf048ed6d60d34e69c1f36cd472c31750839ad57af28589b0"
+    },
+    "vtol_attached_result": {
+      "path": "artifacts/evaluation/combined-sim-qgc-20260930T180857Z-57764/vtol-attached.result.json",
+      "sha256": "518188a31222840378d353523af922aa6992ef3ea9922048bd0890702eb7f5d0"
+    }
+  },
+  "gates": {
+    "attached_vtol_gate_passed": true,
+    "position_stream_received": true,
+    "mission_gate_passed": false,
+    "combined_gate_passed": false,
+    "target_geolocation_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  },
+  "mission_observation": {
+    "mission_current_sequences_observed": [0, 1, 2],
+    "mission_item_reached_sequences_observed": [0, 1],
+    "last_mission_current_sequence": 2,
+    "required_next_sequence": 3,
+    "vtol_land_sequence_observed": false,
+    "terminal_disarmed_observed": false,
+    "failure_reason": "reached_confirmation_deadline_exceeded",
+    "failure_message": "VTOL mission did not prove progress, movement, flight, FW/MC, VTOL_LAND, and disarm within 240.0s"
+  },
+  "position_summary": {
+    "valid_global_position_int_samples": 1036,
+    "first_observed_position": {
+      "at_s": 0.062000000005355105,
+      "latitude_deg": 1.2999997,
+      "longitude_deg": 103.8005004,
+      "relative_altitude_m": -0.144
+    },
+    "last_observed_position": {
+      "at_s": 239.5,
+      "latitude_deg": 1.3001059,
+      "longitude_deg": 103.7998007,
+      "relative_altitude_m": -0.022
+    },
+    "maximum_displacement_from_first_observed_position_m": 79.51276496242679,
+    "maximum_relative_altitude_m": 19.44,
+    "minimum_relative_altitude_m": -1.474,
+    "interpretation": "Position telemetry was present. The vehicle moved west/south, descended to ground level, and remained near the displaced location instead of reaching the north/east route waypoint."
+  },
+  "integrated_depth_observation": {
+    "first_direct_candidate_slant_range_m": 0.20894397308456691,
+    "first_direct_candidate_rejection": "range_out_of_bounds",
+    "configured_minimum_slant_range_m": 0.4,
+    "later_direct_candidate_slant_range_m": 42.8568341441147,
+    "later_candidate_accepted_by_range_bounds": true,
+    "target_identity_proven": false,
+    "interpretation": "The constant synthetic detector box is not a target-associated detector; accepting the later range candidate does not prove target geolocation."
+  },
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "file_sha256": "7d187ba0707c81e49d8aaef070218d5010657f346a11899bd474574379ff6519",
+    "core_algorithm_hash": "3008b9020e774cd2f943f04e7e14d068900eef410fafe7a0e9c7b8e4f3cf3270",
+    "px4_mission_path_hash": "55aaead247cec7d41d3a41a62a0834ea0e3ffad5364d776c74cb107772eae72f"
+  }
+}

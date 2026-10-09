@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "source": "scripts/vtol_sitl_scenario_acceptance.py",
+  "source_sha256": "f83953a9d470b791243c241814f1677f356dd48e019f4912dc1bcbb9fcd8e97b",
+  "tests": "tests/test_collector_clock_injection.py",
+  "tests_sha256": "dc04503ea561a15a569bfdb4c2d4d9ce9684476ba3803d95c5c1d5c802d9208a",
+  "focused_command": "python -m pytest -q tests/test_collector_clock_injection.py tests/test_vtol_sitl_scenario_acceptance.py tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_sitl_attached_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings",
+  "focused_passed": 362,
+  "focused_exit_code": 0,
+  "new_tests": 9,
+  "direct_os_clock_reads_in_collector": 0,
+  "high_resolution_external_now_rejected": true,
+  "default_clock_changed": false,
+  "mission_upper_layer_migrated": false,
+  "full_regression_rerun": false,
+  "new_external_sim_run": false,
+  "hardware_contacted": false,
+  "release_ready": false
+}

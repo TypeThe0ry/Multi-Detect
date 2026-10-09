@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "scope": "same-session two synthetic tasks, not learned policy evaluation",
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-two-task.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-q --evidence artifacts/evaluation/campaign-20260908-q.json --container-name multidetect-campaign-q --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:/Program Files/Docker/Docker/resources/bin/docker.exe\"",
+  "exit_code": 0,
+  "gate_passed": true,
+  "container_id": "6061349063ece2d43531250aff1fed2e67c7aae0844e6ec2dd439f262697a2a4",
+  "cleanup_verified": true,
+  "collector_origin_host_monotonic_s": 882482.125,
+  "home": {"latitude_deg": 1.3, "longitude_deg": 103.8005001},
+  "sorties": [
+    {"task_id": "synthetic-high", "duration_s": 95.015, "planning_remaining_wh": 99.95604, "outcome": "completed", "bytes": 1781755, "sha256": "be3180f374bb7a9526a8fc8bac525622a653a4db9d5dbab89ec3a2b659001a78", "path": "artifacts/evaluation/campaign-20260908-q/campaign-missions/mission-001.json"},
+    {"task_id": "synthetic-low", "duration_s": 120.578, "planning_remaining_wh": 97.50804600000004, "outcome": "completed", "bytes": 3812297, "sha256": "07b890da96eba4c450cecd741440c2ab83dcf7e756659cb99fbd9300ba005968", "path": "artifacts/evaluation/campaign-20260908-q/campaign-missions/mission-002.json"}
+  ],
+  "outer_report": {"path": "artifacts/evaluation/campaign-20260908-q.json", "bytes": 29163, "sha256": "dfe7b559563ecfa93b185f8f888f39f3365e34e15c5ff16c351d20092851ab2a"},
+  "available_history_replay": {"reason": "covered_prefix_complete", "segments": 9719, "covered_boot_time_s": 194.37999999999727, "consumed_wh": 5.062382799999964, "gap_details": null, "full_mission_time_mapping_claimed": false},
+  "prior_attempts": [
+    {"suffix": "o", "path": "artifacts/evaluation/campaign-20260908-o.json", "bytes": 26844, "sha256": "12dfc4961964153f6607e6fd2a0e8767d95f7562847d608b8ce46be48b540222", "failure": "load_or_receive_gap", "left_heartbeat_age_s": 1.5150000000139698, "receive_gap_s": 0.030999999959021807, "cleanup_verified": true},
+    {"suffix": "p", "path": "artifacts/evaluation/campaign-20260908-p.json", "bytes": 25836, "sha256": "407b5026324d6ad21b6d047216ab322969f8998b74f5c37bddcb32471478919f", "failure": "fixed stream port 18570 not running; energy coverage gap", "superseded_by": "inspected dynamic port and explicit rejection check"}
+  ],
+  "focused_passed": 307,
+  "regression_report": "artifacts/evaluation/campaign-q-regression-20260908.xml",
+  "claims": {"camera_capture": false, "physical_calibration": false, "training": false, "HIL": false, "REAL": false, "full_suite": false, "final_release": false}
+}

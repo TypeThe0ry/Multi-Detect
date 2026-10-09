@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "outer_path": "artifacts\\evaluation\\qpc-camera-20260908-l.json",
+  "outer_sha256": "92990c76fe0c157cfd8f4d46ba5637c8819ad46924fdad7c7d1f44062e6e91cd",
+  "mission_path": "artifacts\\evaluation\\qpc-camera-20260908-l\\vtol-mission-acceptance.json",
+  "mission_sha256": "77a30f045768e9bd2a79267fffca4086b1850bbfbe605719b7d223caf2fd87f1",
+  "journal_path": "artifacts\\evaluation\\qpc-camera-20260908-l\\vtol-mission.transaction.jsonl",
+  "journal_sha256": "e0bd2b2db49b006f9b0904f2aec81341bd920db0b6395aa701c0a9a047fe6aa3",
+  "outer_gate_passed": true,
+  "mission_gate_passed": true,
+  "failure": null,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "323c19bc8c14f28cb3c4282b5ecd85a8b927283e15ec4ba95f360d2013136d70",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "firmware": {
+    "operation": "read_only_px4_ver_all",
+    "output_truncated": false,
+    "reproducible_binary_source_binding_proven": false,
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "HW arch: PX4_SITL\nPX4 git-hash: 83c4f4e580558816f0e398918f66358988004696\nPX4 version: 1.18.0 80 (17956992)\nOS: Linux\nOS version: Release 6.6.87 (101079039)\nBuild datetime: Aug  9 2026 04:08:10\nBuild uri: localhost\nBuild variant: default\nToolchain: GNU GCC, 13.3.0\nPX4GUID: 1006554d49534954414c44494e4f30303030\nUNKNOWN MCU\n"
+  },
+  "state_stream_configuration": {
+    "SIM_EXTENDED_SYS_STATE_STREAM_HZ": {
+      "freshness_threshold_changed": false,
+      "host_receive_rate_proven": false,
+      "output_truncated": false,
+      "scope": "exact owned disposable SITL MAVLink instance 36154",
+      "stdout": "",
+      "value": 4
+    },
+    "SIM_HEARTBEAT_STREAM_HZ": {
+      "freshness_threshold_changed": false,
+      "host_receive_rate_proven": false,
+      "output_truncated": false,
+      "scope": "exact owned disposable SITL MAVLink instance 36154",
+      "stdout": "",
+      "value": 4
+    }
+  },
+  "extended_state_samples": 406,
+  "maximum_extended_state_receipt_gap_s": 0.44091959996148944,
+  "extended_state_gaps_over_1_5s": 0,
+  "streams": {
+    "ATTITUDE": {
+      "rejected_source_count": 0,
+      "samples_dropped": 0,
+      "samples_seen": 5063,
+      "truncated": false,
+      "invalid_sample_count": 0,
+      "maximum_receipt_gap_s": 0.07506479998119175
+    },
+    "NAV_CONTROLLER_OUTPUT": {
+      "rejected_source_count": 0,
+      "samples_dropped": 0,
+      "samples_seen": 0,
+      "truncated": false,
+      "invalid_sample_count": 0
+    },
+    "VFR_HUD": {
+      "rejected_source_count": 0,
+      "samples_dropped": 0,
+      "samples_seen": 406,
+      "truncated": false,
+      "invalid_sample_count": 0,
+      "maximum_receipt_gap_s": 0.45751690003089607
+    }
+  },
+  "host_clock_identity": {
+    "accuracy_verified": false,
+    "implementation": "QueryPerformanceCounter()",
+    "legacy_monotonic_equivalent": false,
+    "resolution_ns": 100,
+    "schema_version": 1,
+    "session_id": "bc39ce7c0eef4569830b2188b7cc0545",
+    "source": "python.perf_counter"
+  },
+  "failed_observer_capture": null,
+  "trajectory_tracking_quality_proven": false,
+  "causal_rate_improvement_proven": false,
+  "final_release_allowed": false
+}

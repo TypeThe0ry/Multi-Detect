@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "comparison": "same-policy-repeatability-not-candidate-promotion",
+  "scenario_manifest": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "campaign_input": "artifacts/evaluation/vtol-one-task-ranked-pre.8.json",
+  "campaign_input_sha256": "49f4354ca5c86b60be0546960f5358dc4ba55b240fafb87e80dbdf21ff8e591d",
+  "policy_artifact_file_sha256": "e77aea4d98ce262621e45bb5e034aa02b5bf39b0d696c31eb7cbe43484de1614",
+  "policy_artifact_canonical_sha256": "2ad1c1bb825d04915379f29357704accc1567a2079fb6688e8eaf0a1bf2303ed",
+  "stable_airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
+  "runs": [
+    {
+      "role": "parent_repeat",
+      "top_level_evidence": "artifacts/evaluation/vtol-one-task-policy-run-20260919-d.json",
+      "top_level_evidence_sha256": "e34d0691dc4d3ede53e382f3d6d6dd1dff6b23ef55f47d8f24c3769374db3626",
+      "gate_passed": true,
+      "task_id": "synthetic-east",
+      "mission_report_sha256": "e214fd6ea242460dc2f987e7e88b1234f975ab8f2ac34bf5730c7049971a85ae",
+      "policy_evidence_sha256": "85818efde0ba3d5bf7239fa8c4c506adf051f0daa25f0f18c7254be2bbb0e5d7",
+      "journal_sha256": "fe1784cecc66210d720f36b84de04c5683f52dd6807928bc18fe4ae53208947e",
+      "mission_receive_end_s": 145.73399999999674,
+      "newly_consumed_wh": 0.07195999999999982,
+      "exact_id_cleanup": true
+    },
+    {
+      "role": "candidate_repeat",
+      "top_level_evidence": "artifacts/evaluation/vtol-one-task-policy-run-20260919-e.json",
+      "top_level_evidence_sha256": "0007f5a9c5a573994ff5262936024768ad175042a735297de9422c890a6c8db1",
+      "gate_passed": true,
+      "task_id": "synthetic-east",
+      "mission_report_sha256": "fb910693b16274443b4a0f0e0108e7a393b50862a9ade30767bba308ad29cd95",
+      "policy_evidence_sha256": "9f26c32fc6f7fe4171484dae26cbfd3cc332fb70463464c1d8e2ce46367c93d3",
+      "journal_sha256": "690d08d6fdab60111ac9b518324179582e49414e1cfc96f931ce6d492377a17c",
+      "mission_receive_end_s": 110.625,
+      "newly_consumed_wh": 0.07239999999999987,
+      "exact_id_cleanup": true
+    }
+  ],
+  "claims": {
+    "same_ui": false,
+    "same_core_algorithm": true,
+    "same_contract": true,
+    "same_safety_policy": true,
+    "same_px4_mission_path": true,
+    "learned_weights_loaded": false,
+    "independent_candidate_gain_proven": false,
+    "candidate_promoted": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "interpretation": "Both repeated external SIM runs passed the same high-level policy and PX4 Mission path. Timing and energy differ between runs, so this evidence is repeatability only and is not a candidate performance claim."
+}

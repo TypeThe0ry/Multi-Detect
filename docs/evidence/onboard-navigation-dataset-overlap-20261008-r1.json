@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-dataset-overlap-actual-evidence-v1",
+  "date": "2026-10-08",
+  "scope": "actual_bounded_original_PNG_and_exact_RGB_whole_episode_analysis_not_training_admission",
+  "actual_execution": {
+    "plan_emission_native_exit_code": 0,
+    "plan_emission_tool_chunk": "bf848a",
+    "session_id": 6082,
+    "started_tool_chunk": "edcb4c",
+    "terminal_tool_chunk": "689be7",
+    "actual_native_exit_code": 0,
+    "cli_completed": true,
+    "root_result_identity_tool_chunk": "e8889d"
+  },
+  "observations": {
+    "decoded_original_image_count": 290,
+    "current_frame_reference_occurrences": 290,
+    "past_frame_reference_occurrences": 278,
+    "actor_frame_reference_occurrences": 568,
+    "actor_current_past_closure_verified": true,
+    "original_encoded_PNG_SHA_and_exact_RGB_SHA_separate": true,
+    "pixel_identity_includes_width_and_height": true,
+    "all_original_images_byte_and_pixel_verified": true,
+    "exact_RGB_duplicate_groups": 0,
+    "episode_identity_overlap_groups": 0,
+    "cross_train_development_conflicts": 0,
+    "cross_dataset_train_repeat_components": 0,
+    "candidate_exact_overlap_gate_passed": true,
+    "repository_small_sources": 54,
+    "Pillow_runtime_files": 5,
+    "sources_unchanged": true,
+    "partial_failures": 0,
+    "datasets": [
+      {
+        "alias": "old86",
+        "samples": 86,
+        "episodes": 3,
+        "partitions": {
+          "train": 86
+        }
+      },
+      {
+        "alias": "new82",
+        "samples": 82,
+        "episodes": 3,
+        "partitions": {
+          "train": 23,
+          "dev-validation": 17,
+          "dev-test": 42
+        }
+      },
+      {
+        "alias": "new122",
+        "samples": 122,
+        "episodes": 6,
+        "partitions": {
+          "train": 122
+        }
+      }
+    ]
+  },
+  "independent_review": {
+    "actual_native_exit_code": 0,
+    "tool_chunk": "0a2084",
+    "primary_artifact_bytes_and_SHA_verified": true,
+    "repository_small_sources_full_SHA_verified": 54,
+    "repository_small_sources_bytes": 2751903,
+    "current_Pillow_runtime_files_full_SHA_verified": 5,
+    "current_Pillow_runtime_bytes": 2580699,
+    "saved_identity_graph_and_metadata_counts_rederived": true,
+    "episodes": 12,
+    "preserved_group_components": 10,
+    "original_PNG_encoded_bytes_independently_reread": false,
+    "RGB_pixels_independently_redecoded": false,
+    "scope": "Current small controls and listed CPU runtime hashes, original typed episode/current-past metadata and saved image-identity graph. Not a second PNG decode, model run or native-exit observation."
+  },
+  "constraints": {
+    "max_encoded_image_bytes": 8388608,
+    "max_decoded_pixels": 16777216,
+    "resident_decoded_images": 1,
+    "process_RSS_hard_limit_verified": false,
+    "no_automatic_sample_removal_or_merge_or_split_change": true,
+    "prior_whole_episode_groups_preserved": true,
+    "observed59_remains_development": true,
+    "absence_of_exact_overlap_proves_generalization_or_independence": false,
+    "near_duplicate_analysis_performed": false
+  },
+  "bindings": [
+    {
+      "path": "D:/Projects/Multi-Detect/scripts/audit_onboard_navigation_dataset_overlap.py",
+      "bytes": 30254,
+      "sha256": "e86490dabaecce6bdc518b995d0ab2cf541ea8991ac55a6755fb81a3e189ebff"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/tests/test_audit_onboard_navigation_dataset_overlap.py",
+      "bytes": 19036,
+      "sha256": "0329a34ff39fec7d6b2f18a83948bfc8cc2e1fbc4fda485b61a5c9697989ab68"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/configs/training/onboard-navigation-dataset-overlap-20261008-r1.json",
+      "bytes": 343298,
+      "sha256": "4c6a19290f55f8a646be9f060c38728485049dc91a51769b027a0837aee790ab"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/diagnostics/onboard-navigation-dataset-overlap-20261008-r1/report.json",
+      "bytes": 67667,
+      "sha256": "314f09a4e4d3497397aa22230bda041a416bebb6546062747969e0e4d009dd69"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/diagnostics/onboard-navigation-dataset-overlap-20261008-r1/image-identities.json",
+      "bytes": 128577,
+      "sha256": "5c3e9c83adeb2121c4945883b0198daaf7fbe34f7a5af58acf641160128266eb"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/docs/evidence/openfly-indexed-training-supervision-20261008-r1.json",
+      "bytes": 9671,
+      "sha256": "9eb51ec796269363fda0c2586c0c11d0bb34f022badce1ec8f2e07f1c5c0a295"
+    }
+  ],
+  "claims": {
+    "training_ready": false,
+    "processor_admission_passed": false,
+    "model_loaded_in_this_analysis": false,
+    "GPU_used_by_this_analysis": false,
+    "optimizer_performed": false,
+    "quality_claim": false,
+    "generalization_verified": false,
+    "official_holdout_verified": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "execution_authority": false,
+    "final_release_allowed": false
+  }
+}

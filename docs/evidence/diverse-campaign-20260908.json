@@ -1,0 +1,73 @@
+{
+  "gate_passed": true,
+  "container_id": "94cabc89c3128eae0a97e9038a912a25c820d70f49299ff792085a64415a0abb",
+  "cleanup_verified": true,
+  "sorties": [
+    {
+      "task": "synthetic-east",
+      "duration_s": 92.031,
+      "remaining_wh": 99.9558,
+      "wire_hash": "597ed8561641f8c431835f594440b54bbecff636d64cecb6ac7324250dfc9d14",
+      "home": {
+        "latitude_deg": 1.3000001,
+        "longitude_deg": 103.8005
+      },
+      "outcome": "completed",
+      "path": "artifacts/evaluation/campaign-20260908-r/campaign-missions/mission-001.json",
+      "bytes": 1826984,
+      "sha256": "829b40371540d63ed42937932bf4be00f567c3ac92e30253323bd9820a617fbb"
+    },
+    {
+      "task": "synthetic-west",
+      "duration_s": 100.157,
+      "remaining_wh": 98.41165560000005,
+      "wire_hash": "8a3c68a743b7f83d1bcdd562ec9dec8f8f13009b9867c2fd84c32e4d10164dd8",
+      "home": {
+        "latitude_deg": 1.3000001,
+        "longitude_deg": 103.8005
+      },
+      "outcome": "completed",
+      "path": "artifacts/evaluation/campaign-20260908-r/campaign-missions/mission-002.json",
+      "bytes": 3532750,
+      "sha256": "158d93012d112296d59805e0f85de23b0e2d5b0b6ed43d36d0ab9526115439f2"
+    }
+  ],
+  "files": [
+    {
+      "path": "artifacts/evaluation/campaign-20260908-r.json",
+      "bytes": 29170,
+      "sha256": "10a67952c408117bff4343260154d5bd7afb62d706c0cc644f0e96ff2f76383f"
+    },
+    {
+      "path": "configs/scenarios/vtol-diverse-routes.synthetic-campaign.json",
+      "bytes": 6457,
+      "sha256": "27c8900223c927d9e0ed8839971c4411c261d9d4bb84b9dbb244b3e4861ce67e"
+    },
+    {
+      "path": "artifacts/evaluation/diverse-campaign-regression-20260908.xml",
+      "bytes": 54337,
+      "sha256": "a7ab745e965e9b09d4244f382d2500d96d4d0109a655485e16e1fd29642521cb"
+    }
+  ],
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "scope": "two distinct synthetic route geometries and fixture energy rejection",
+  "focused_passed": 310,
+  "new_tests": 3,
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-diverse-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-r --evidence artifacts/evaluation/campaign-20260908-r.json --container-name multidetect-campaign-r --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:/Program Files/Docker/Docker/resources/bin/docker.exe\"",
+  "exit_code": 0,
+  "negative_fixture_cases": [
+    "after first task battery below reserve stops selection",
+    "after first task endurance too low stops selection"
+  ],
+  "claims": {
+    "external_low_energy_rejection": false,
+    "training": false,
+    "physical_calibration": false,
+    "HIL": false,
+    "REAL": false,
+    "full_suite": false,
+    "final_release": false
+  }
+}

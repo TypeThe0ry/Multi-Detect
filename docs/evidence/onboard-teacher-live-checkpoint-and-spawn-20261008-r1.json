@@ -1,0 +1,586 @@
+{
+  "contract": "multidetect.onboard-teacher-live-checkpoint-and-spawn-stage-v1",
+  "schema_version": 1,
+  "status": "actual_spawn_ground_probe_and_retained_geometry_verified_live_components_CPU_only",
+  "release_label": "0.3.0-pre.8",
+  "canonical_deployment_and_default_reference_modified": false,
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/sim_teacher_environment.py",
+      "bytes": 7729,
+      "sha256": "ea78b4c661181dd26375a85dce138b2835e7001ca0bb26536a2056c452aaf2f9"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_airframe_envelope.py",
+      "bytes": 21368,
+      "sha256": "d310bead6a3f7c37eb89fb0cb4a9e789755aa9f4c64e210833c5166514f4a8e5"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_ground_contact_geometry.py",
+      "bytes": 11790,
+      "sha256": "f0af1498441c2ec00df21e36d8968c13572f777c2171064bfe6d19d96cae994d"
+    },
+    {
+      "path": "src/multidetect/autonomy/teacher_live_navigation_checkpoint.py",
+      "bytes": 65331,
+      "sha256": "21255e8d62c2279df0be9f6b5ef8315e75af7f190165ffe84010308a431b6d46"
+    },
+    {
+      "path": "scripts/audit_teacher_environment_v1.py",
+      "bytes": 5205,
+      "sha256": "04705957f1908a618e36ea077a9e8c10ab5fc793afb49d1f040fcd47fc08c447"
+    },
+    {
+      "path": "scripts/onboard_teacher_mission_live_revalidation_v1.py",
+      "bytes": 24318,
+      "sha256": "04521b6c47dea93e3b2e33ee0683fb1826efad1c8e45f222d279d8a3dadc400c"
+    },
+    {
+      "path": "scripts/onboard_teacher_mission_execution_v2.py",
+      "bytes": 12598,
+      "sha256": "eacbb3c4fec9f02f1914000aad28b09e35dd4f886d0209aa72692c27f9ff7130"
+    },
+    {
+      "path": "scripts/supervise_teacher_spawn_probe_v1.py",
+      "bytes": 5837,
+      "sha256": "0835022e9b623de9b37d2cd241e86d38bdfbfb5742cac725801830b157e7e525"
+    },
+    {
+      "path": "tests/test_sim_teacher_environment.py",
+      "bytes": 4729,
+      "sha256": "e73f65a381850aa98a95b263d4c57815314a60b7cc198b75de353c11c0a555c4"
+    },
+    {
+      "path": "tests/test_sim_airframe_envelope.py",
+      "bytes": 19567,
+      "sha256": "2349f47c876e7f5a2a3294b8ceeb3857413b97f7547a8d62dc8d3cb107218522"
+    },
+    {
+      "path": "tests/test_sim_ground_contact_geometry.py",
+      "bytes": 11308,
+      "sha256": "96821c350421da3fd24cc0b281e71a4d70d2843dcf3470378d66c2fefff7f3ef"
+    },
+    {
+      "path": "tests/test_teacher_live_navigation_checkpoint.py",
+      "bytes": 26999,
+      "sha256": "844bc7679b215b4cca44bdc83e7d092a0c50febb01248c2c0b4df46f48e9abae"
+    },
+    {
+      "path": "tests/test_audit_teacher_environment_v1.py",
+      "bytes": 2438,
+      "sha256": "d4bfbead80d76f0c063fedbd89c143cb6f726dabd73f6f2b357ef4cf4350a3fb"
+    },
+    {
+      "path": "tests/test_onboard_teacher_mission_live_revalidation_v1.py",
+      "bytes": 17573,
+      "sha256": "81297267f35117267734f6d8aaf5d4727a63799cac1623f31bd6d44b835038f8"
+    },
+    {
+      "path": "tests/test_onboard_teacher_mission_execution_v2.py",
+      "bytes": 9912,
+      "sha256": "876f4eabcbb2544ed07a5488904812cb4de5e31e365b88c9c67a62b19cb6e306"
+    },
+    {
+      "path": "tests/test_supervise_teacher_spawn_probe_v1.py",
+      "bytes": 3749,
+      "sha256": "2a72df0101eb66118473aec91c6d1e1f546e2e9e60797d610576ebfe7caab201"
+    },
+    {
+      "path": "tests/test_onboard_teacher_live_checkpoint_stage_evidence.py",
+      "bytes": 5605,
+      "sha256": "613c3051b53be4b58ad775caea612532122ea9413665e999c303eec1fefc9e18"
+    },
+    {
+      "path": "configs/scenarios/urban_inspection_multirotor_001.teacher_spawn_probe_r1.runtime.json",
+      "bytes": 1643,
+      "sha256": "f3ca66a4242c378c06bfa0e49ae571df3e723b78dd8a23dffc49852436de41d1"
+    },
+    {
+      "path": "configs/scenarios/urban_inspection_multirotor_001.teacher_spawn_probe_r1.scenario.json",
+      "bytes": 665,
+      "sha256": "1db8fcf516c83d0a574f5c17d14621479b2691d94db6f15741908519d91c0d8c"
+    },
+    {
+      "path": "docs/onboard-teacher-live-checkpoint-and-spawn-20261008.md",
+      "bytes": 7803,
+      "sha256": "d095194467b8a5b36fa8d1de33caaf28cba7f965b8ce6784e8f07e296b4cacd9"
+    }
+  ],
+  "retained_artifact_bindings": [
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r1/supervised-run.json",
+      "bytes": 14934,
+      "sha256": "2c01dab3d4e6dbd3032ac227f866b065ed8e1b1ddbfacf3345dbfa2fb3fc736f"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r1/teacher-spawn-probe-stderr.log",
+      "bytes": 3279,
+      "sha256": "fa110138944fcf376c900cc68f961b5ee87a53651d9f75c6767be8980b7cde58"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r1/preflight-manifest-original.json",
+      "bytes": 665,
+      "sha256": "c7a8f3b996043214003ef63962c2e595b1de21e563579c61d70cbfa0c43b0249"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r2/supervised-run.json",
+      "bytes": 15161,
+      "sha256": "da47c1830f2e473c91f52e5411e92a119a5e9be60cb439966994107d3b53f610"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/origin-window.json",
+      "bytes": 3103718,
+      "sha256": "d7776dc55570757f35511be4efb2b3582c8339c4b551f3ad2718ae43fa4fad07"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/telemetry/capture-receipt.json",
+      "bytes": 12190666,
+      "sha256": "e9051b194197490725052a7ee39de50da0b28840ef7332a4dbddab91ad23e8cf"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/telemetry/raw-packets.journal",
+      "bytes": 1703678,
+      "sha256": "18561a0acdb70e4180c6be56dd328e473142155493986e7be22c723079161cfc"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/telemetry/projections.jsonl",
+      "bytes": 11637602,
+      "sha256": "14d083b8c1561e9eb77efe91ef314f0bf4ffe9941c9fe5d193f5c7bf097195d5"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/native/native-21.stdout.bin",
+      "bytes": 69994,
+      "sha256": "a715c01756d81032ac50822f57832f7432e358e683291e15e48c6dc5f459d045"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-airframe-audit-20261008-r1.json",
+      "bytes": 17656,
+      "sha256": "ed0355a03bc027809736009c5a57393e7c23aadbb7222a1c11324bc34889db0d"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-signed-ground-geometry-audit-20261008-r1.json",
+      "bytes": 12885,
+      "sha256": "5f4a397ce98be1b4145909ef39d981546c72805d723226ca0ae378b2a7e9b20e"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-navigation-audit-20261008-r1/navigation-window-audit.json",
+      "bytes": 16395,
+      "sha256": "7ccd6f5394942420b128e33e3e87171fe74b362712417609f95c42184442c732"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-loaded-world-audit-20261008-r1/loaded-world-audit.json",
+      "bytes": 2429,
+      "sha256": "161f1b6f6a0f29348b855ab4dc3ba6af4706530c2f4afbebc32c4a720037180a"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-static-environment-20261008-r1/environment-audit.json",
+      "bytes": 11980,
+      "sha256": "0f02475e6df27120e82e3596f7290faff96b3881b60d417d13d5d71bb7f2ea5e"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-preview-20261008-r1/gazebo-camera.png",
+      "bytes": 43867,
+      "sha256": "4c2cb1d8f7eb8515b62bc03c44af107838a80a4f1f0bdb5145a305988a14abfb"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-000/camera.json",
+      "bytes": 5732,
+      "sha256": "a4d81d0cb33175669638fb46bb4d81c8c1fc4229ed04abadc47056eb521f7d7c"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-000/rgb-bgr24.bin",
+      "bytes": 3686400,
+      "sha256": "e1173e942c1f1673d727f56f16c4eecc6a1afd2647d4cc96383c1566254e4d18"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-000/depth.bin",
+      "bytes": 4915200,
+      "sha256": "ffe875e15c642ae0e93b5775c749134e3074fcd4929a8b2f779af0dcd0c6d079"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-001/camera.json",
+      "bytes": 5723,
+      "sha256": "f1fe9349895bdc89250c7ec324c62d8563c871b5dcdb505185a55a9b062ba4fe"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-001/rgb-bgr24.bin",
+      "bytes": 3686400,
+      "sha256": "e1173e942c1f1673d727f56f16c4eecc6a1afd2647d4cc96383c1566254e4d18"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-000-001/depth.bin",
+      "bytes": 4915200,
+      "sha256": "ffe875e15c642ae0e93b5775c749134e3074fcd4929a8b2f779af0dcd0c6d079"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-000/camera.json",
+      "bytes": 5724,
+      "sha256": "547b991356d5c42517f8c43b3ba3ffbdf5db373e90e535ff5d9671ef161132d0"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-000/rgb-bgr24.bin",
+      "bytes": 3686400,
+      "sha256": "e1173e942c1f1673d727f56f16c4eecc6a1afd2647d4cc96383c1566254e4d18"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-000/depth.bin",
+      "bytes": 4915200,
+      "sha256": "ffe875e15c642ae0e93b5775c749134e3074fcd4929a8b2f779af0dcd0c6d079"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-001/camera.json",
+      "bytes": 5723,
+      "sha256": "3d7a4efd1ef8cc4bf12d769d43649fb573261d0c76915b2a89ded3fcfd82f69d"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-001/rgb-bgr24.bin",
+      "bytes": 3686400,
+      "sha256": "e1173e942c1f1673d727f56f16c4eecc6a1afd2647d4cc96383c1566254e4d18"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/camera-window-001-001/depth.bin",
+      "bytes": 4915200,
+      "sha256": "ffe875e15c642ae0e93b5775c749134e3074fcd4929a8b2f779af0dcd0c6d079"
+    }
+  ],
+  "protected_baseline_files": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 14343,
+      "sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    }
+  ],
+  "validation": {
+    "root_combined_CPU_tests": 715,
+    "root_combined_native_exit_code": 0,
+    "root_combined_scope": "19 named CPU test files after final source revisions; no external execution by these tests",
+    "initial_pre_review_combined_CPU_tests": 701,
+    "initial_pre_review_native_exit_code": 0,
+    "initial_pre_review_not_final_acceptance": true,
+    "actual_capture": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-ground-20261008-r2/origin-window.json",
+      "supervisor_receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r2/supervised-run.json",
+      "root_and_child_native_exit_codes": [
+        0,
+        0
+      ],
+      "tool_chunk": "c7575b",
+      "container_id": "301c917a45baadd5080525322df78655878b51327ec6ed95136925686837621c",
+      "RGB_frames": 4,
+      "depth_frames": 4,
+      "RGB_payload_unique_count": 1,
+      "depth_payload_unique_count": 1,
+      "stationary_capture_not_action_trajectory": true,
+      "motion_training_samples_created": 0,
+      "packet_count": 5222,
+      "accepted_source_count": 5120,
+      "foreign_source_count": 102,
+      "orphan_packet_count": 0,
+      "raw_and_projection_dual_commit_batches": [
+        3189,
+        3189
+      ],
+      "journal_uncommitted_tail_bytes": [
+        0,
+        0
+      ],
+      "data_budget_charged_bytes": 13377055,
+      "maximum_packets": 16384,
+      "maximum_data_bytes": 67108864,
+      "receiver_queue_capacity": 512,
+      "receiver_queue_high_water": 38,
+      "receiver_queue_overflow": false,
+      "MAVLink_readonly_request_calls": 11,
+      "MAVLink_stream_request_calls": 11,
+      "producer_and_supervisor_listed_sources": [
+        33,
+        33
+      ],
+      "selected_sources_unchanged_during_run": true,
+      "source_inventory_complete_dependency_attestation": false,
+      "owned_container_cleanup_verified": true,
+      "owned_tree_empty": true,
+      "watchdog_fired": false,
+      "independent_exact_container_inspect_native_exit_code": 1,
+      "independent_exact_container_inspect_expected_absent": true,
+      "independent_exact_container_inspect_tool_chunk": "9a8d59",
+      "host_camera_window_s": [
+        90958.2070972,
+        90963.0374416
+      ],
+      "loaded_SDF_host_bracket_s": [
+        90966.8100864,
+        90968.2415598
+      ],
+      "sensor_SDF_exact_coevality_claimed": false,
+      "ARM_sent": 0,
+      "Mission_uploaded": 0,
+      "Mission_started": 0,
+      "new_model_inference": 0,
+      "optimizer_updates": 0
+    },
+    "preflight_failure": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-ground-supervisor-20261008-r1/supervised-run.json",
+      "native_exit_code": 1,
+      "Docker_started": false,
+      "cause": "candidate manifest used raw runtime JSON SHA; actual loader requires canonical channel JSON SHA",
+      "original_bad_manifest_retained": true,
+      "error_output_retained": true,
+      "current_actual_loader_regression_passed": true,
+      "raw_runtime_file_sha256": "f3ca66a4242c378c06bfa0e49ae571df3e723b78dd8a23dffc49852436de41d1",
+      "canonical_runtime_channel_sha256": "db4ca2d7138bce1e2a42711a875fe40d0b6affc041c1a1033910206fc1f46be8"
+    },
+    "experiment_boundary": {
+      "runtime_change": "explicit initial model spawn at ENU (0, 0, 0.15) m; same neutral urban world, seed, faults, camera and vehicle profile",
+      "default_runtime_replaced": false,
+      "default_manifest_replaced": false,
+      "new_independent_holdout_world": false,
+      "data_partition_changed": false,
+      "actual_operator_intent_reused_from_prior_ground_collector": true,
+      "same_saved_stable_camera_pose_across_four_frames": true,
+      "saved_model_up_m": 0.06699981651620895,
+      "source_derived_body_reference_up_m": 0.3069998165162089,
+      "source_derived_rigid_collision_bottom_up_m": 0.07999981391206687,
+      "support_top_up_m": 0.08,
+      "gap_up_m": -1.860879331322396e-7,
+      "conclusion": "supports initial spawn penetration explanation; not solver backend, contact force or flight acceptance"
+    },
+    "navigation_window_audit": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-navigation-audit-20261008-r1/navigation-window-audit.json",
+      "native_exit_code": 0,
+      "tool_chunk": "5e4ba9",
+      "status": "retained-window-coordinates-verified",
+      "origin_qualified": false,
+      "derived_origin": null,
+      "current_freshness_claimed": false,
+      "actual_SIM_co_window_source_identity_recomputed": true,
+      "hardware_GNSS_accuracy_acceptance": false
+    },
+    "static_environment": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-static-environment-20261008-r1/environment-audit.json",
+      "loaded_world_receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-loaded-world-audit-20261008-r1/loaded-world-audit.json",
+      "consumer_native_exit_codes": [
+        0,
+        0
+      ],
+      "static_collision_count": 15,
+      "surface_queries_ENU_east_north_and_upper_up_m": [
+        [
+          0,
+          0,
+          0.08
+        ],
+        [
+          70,
+          35,
+          14
+        ],
+        [
+          125,
+          -42,
+          20
+        ],
+        [
+          -15,
+          -15,
+          0
+        ]
+      ],
+      "scope": "source-derived static collision inventory and finite-covered height upper bounds; not a measured DEM, Actor input or legacy health flag",
+      "legacy_resource_flags_changed": false,
+      "whole_route_clearance_passed": false
+    },
+    "airframe_geometry": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-spawn-ground-airframe-audit-20261008-r1.json",
+      "new_CPU_tests": 50,
+      "exact_source_model_merge_chain": [
+        "x500_mono_cam",
+        "x500",
+        "x500_base"
+      ],
+      "collision_count": 9,
+      "complete_rotor_revolute_sweeps": 4,
+      "all_orientation_envelope_radius_m": 0.3906460712965413,
+      "body_reference_offset_from_model_m": [
+        0,
+        0,
+        0.24
+      ],
+      "default_orientation_domain_degrees": 180,
+      "small_tilt_domain_is_design_assumption_only": true,
+      "actual_source_recomputation_native_exit_code": 0,
+      "independent_CPU_review_passed": true,
+      "contact_force_or_solver_backend_proven": false
+    },
+    "signed_ground_geometry": {
+      "receipt_path": "artifacts/diagnostics/onboard-teacher-signed-ground-geometry-audit-20261008-r1.json",
+      "new_CPU_tests": 30,
+      "predeclared_interval_m": [
+        -0.000001,
+        0.001
+      ],
+      "allowance_basis": "explicit numerical geometry policy, not an inferred active physics-engine setting",
+      "saved_tilt_domain_deg": 1,
+      "old_gap_m": -0.06442898014826774,
+      "old_geometry_compatible": false,
+      "new_gap_m": -1.860879331322396e-7,
+      "new_geometry_compatible": true,
+      "independent_source_files_reopened": 18,
+      "independent_retained_source_recomputation_native_exit_code": 0,
+      "independent_source_review_tool_chunk": "0303af",
+      "independent_CPU_review_native_exit_code": 0,
+      "independent_CPU_review_tool_chunk": "16bb54",
+      "geometry_only_not_current_ground_authority": true,
+      "complete_route_clearance_passed": false
+    },
+    "live_checkpoint_component": {
+      "new_CPU_tests": 36,
+      "CPU_native_exit_code": 0,
+      "actual_external_runtime_used_with_NEW_qualifier": false,
+      "same_actual_open_main_writer_and_clock_required": true,
+      "original_dual_committed_prefixes_verified": true,
+      "journal_appends_allowed_for_historical_identity": true,
+      "original_TTL_renewed": false,
+      "source_wind_from_bound_SDF": true,
+      "historical_runtime_wind_difference_retained": true,
+      "SDF_configured_wind_NE_mps": [
+        -0.4,
+        1
+      ],
+      "historical_runtime_declared_wind_NE_mps": [
+        1,
+        -0.4
+      ],
+      "wind_is_measured_or_force_verified": false,
+      "current_map_dem_geofence_qualified": false
+    },
+    "V8_execution_component": {
+      "new_CPU_tests": 63,
+      "CPU_native_exit_code": 0,
+      "new_targeted_test_tool_chunk": "aca4f9",
+      "normal_ARM_param2": 0,
+      "force_ARM_used": false,
+      "original_plan_context_not_renewed": true,
+      "source_finding_contract": "multidetect.teacher-plan-source-admission-v1",
+      "unique_canonical_source_finding_required": true,
+      "source_finding_or_Grant_created_here": false,
+      "real_original_draft_and_Grant_path_complete": false,
+      "actual_main_owned_live_input_provider_integrated": false,
+      "independent_review_found_owner_and_original_time_bugs": true,
+      "independent_final_fixed_source_review_passed": true,
+      "independent_final_review_did_not_run_external_SIM": true,
+      "actual_distinct_RX_thread_and_distinct_CP_phase_time_tests_added": true,
+      "readonly_receipt_reproduction_does_not_call_main_owned_writer_API": true,
+      "exact_known_raw_projection_committed_generation_required": true,
+      "updates_not_received_or_committed_are_not_detected": true,
+      "finite_deadline_after_source_checks_and_intention_fsync": true,
+      "complete_route_energy_fixed_return_reserve_recomputed": true,
+      "existing_intent_maximum_s": 60,
+      "exact_transport_maximum_packets": 8192,
+      "complete_sortie_available": false,
+      "ARM_sent": false
+    },
+    "pretrained_public_research": {
+      "scope": "current official pages only; no new weights, gated terms acceptance, inference or GPU training",
+      "models_and_primary_URLs": [
+        {
+          "model": "OpenFly-Agent-7B",
+          "URL": "https://huggingface.co/IPEC-COMMUNITY/openfly-agent-7b",
+          "role": "aviation navigation action comparison"
+        },
+        {
+          "model": "MiniCPM-RobotManip",
+          "URL": "https://huggingface.co/openbmb/MiniCPM-RobotManip",
+          "role": "robot manipulation action architecture, not a pretrained drone pilot"
+        },
+        {
+          "model": "MolmoAct2",
+          "URL": "https://github.com/allenai/molmoact2",
+          "role": "continuous robot action and post-training reference"
+        },
+        {
+          "model": "Cosmos3-Edge",
+          "URL": "https://huggingface.co/nvidia/Cosmos3-Edge",
+          "role": "independent offline action-conditioned world prediction/teacher candidate, not PX4 acceptance"
+        }
+      ],
+      "Cosmos_embedded_benchmark_URL": "https://github.com/NVIDIA/cosmos/blob/main/inference_benchmarks.md",
+      "Cosmos_AGX_Orin_result_is_not_Orin_Nano_or_RTX4060_8GB_acceptance": true,
+      "Cosmos_current_license_label": "OpenMDW-1.1",
+      "world_generated_video_used_as_actual_flight_label": false,
+      "actual_local_GPU": "NVIDIA GeForce RTX 4060, 8188 MiB total",
+      "new_downloads_or_optimizer_updates": 0,
+      "candidate_promoted": false
+    },
+    "root_combined_tool_chunk": "5fc250",
+    "root_combined_duration_s": 108.47,
+    "root_combined_test_files": [
+      "tests/test_sim_teacher_environment.py",
+      "tests/test_audit_teacher_environment_v1.py",
+      "tests/test_sim_airframe_envelope.py",
+      "tests/test_sim_ground_contact_geometry.py",
+      "tests/test_teacher_live_navigation_checkpoint.py",
+      "tests/test_onboard_teacher_mission_live_revalidation_v1.py",
+      "tests/test_onboard_teacher_mission_execution_v2.py",
+      "tests/test_supervise_teacher_spawn_probe_v1.py",
+      "tests/test_supervise_teacher_origin_window_v1.py",
+      "tests/test_sim_static_route_clearance.py",
+      "tests/test_sim_navigation_reference.py",
+      "tests/test_sim_planning_inputs.py",
+      "tests/test_sim_teacher_compilation.py",
+      "tests/test_onboard_teacher_telemetry_capture_v3.py",
+      "tests/test_onboard_teacher_observed_context_v2.py",
+      "tests/test_onboard_teacher_mission_transport_v1.py",
+      "tests/test_onboard_teacher_mission_execution_v1.py",
+      "tests/test_onboard_teacher_gazebo_session_v4.py",
+      "tests/test_collect_onboard_teacher_gazebo_origin_window.py"
+    ],
+    "selected_sources_unchanged_during_final_CPU_regression": true,
+    "current_sources_Ruff_native_exit_code": 0,
+    "current_sources_Ruff_tool_chunk": "2715c9"
+  },
+  "remaining_gates": [
+    "NEW actual open session checkpoint/native/camera/world capture, not revival of closed retained files",
+    "explicit static map/DEM/geofence capability qualification without forging legacy flags",
+    "current ground state and settled motion with source-bound reference uncertainty; scoped takeoff/landing and complete airborne swept route",
+    "true original source finding/report/Grant, persistent transaction and permit",
+    "NEW bounded total lifecycle resource contract covering preflight, upload/readback, live phases, flight, RTL/landing, cleanup, packet/byte/queue/fsync and closing reserve before ARM",
+    "actual command/ACK/movement/post-action RGB and failure recovery data, then episode-isolated reviewed training and fair evaluation",
+    "Jetson, HIL/REAL, outdoor GNSS, model promotion and final release gates"
+  ],
+  "claims": {
+    "current_live_origin_qualified": false,
+    "current_live_ground_state_qualified": false,
+    "complete_route_clearance_passed": false,
+    "real_original_draft_and_Grant_path_complete": false,
+    "Mission_approved": false,
+    "Mission_uploaded": false,
+    "ARM_sent": false,
+    "actual_airborne_flight": false,
+    "actual_action_trajectory": false,
+    "motion_training_samples_created": false,
+    "new_model_inference": false,
+    "optimizer_updates": false,
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "jetson_runtime_proven": false,
+    "outdoor_gnss_evidence": false,
+    "exact_sensor_SDF_synchronization": false,
+    "source_authenticated": false,
+    "execution_authority": false,
+    "final_release_allowed": false
+  },
+  "created_at_utc": "2026-10-08T11:38:46Z",
+  "source_inventory_scope": "20 selected current development sources and 27 retained artifact files; not complete transitive dependency attestation or current execution authority"
+}

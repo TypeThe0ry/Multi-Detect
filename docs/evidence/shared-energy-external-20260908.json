@@ -1,0 +1,26 @@
+{
+  "product_version": "0.3.0-pre.8",
+  "date": "2026-09-08",
+  "runtime_mode": "SIM",
+  "scenario": "river_rescue_vtol_001",
+  "airframe": "vtol",
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/shared-energy-20260908-l --evidence artifacts/evaluation/shared-energy-20260908-l.json --container-name multidetect-shared-energy-l --frame-count 3 --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+  "exit_code": 0,
+  "gate_passed": true,
+  "mission_gate_passed": true,
+  "duration_s": 81.859,
+  "outcome": "terminal_reached_landed_disarmed",
+  "cleanup_verified": true,
+  "container_id": "6cf7a7d52a02b37457745a83061b47b8494cb08e538ffd33a4ecc33faba54f43",
+  "planning_remaining_wh": 99.95784,
+  "planning_estimated_flight_time_s": 999.5784,
+  "focused_tests_passed": 272,
+  "new_tests": 8,
+  "regression_extended": "live context preserves unrounded collector timestamp",
+  "reports": [
+    {"path": "artifacts/evaluation/shared-energy-20260908-l.json", "bytes": 2034650, "sha256": "d652481effac4151bea36a108ad1765ed6b1553a5782c752055f00ad874e6bf6"},
+    {"path": "artifacts/evaluation/shared-energy-20260908-l/vtol-mission-acceptance.json", "bytes": 1730362, "sha256": "42cccde02b401a37b9b377ddcac7a17aec8ded561553ac7dec90e9d1b46da65d"}
+  ],
+  "prior_failure": {"path": "artifacts/evaluation/shared-energy-20260908-k.json", "bytes": 25720, "sha256": "01c703517cf205773e9b0d1bae16ebbff99c9693347d0fab285e43f4a4d3e06b", "error": "energy sample is stale or newer than context", "cleanup_verified": true},
+  "claims": {"multiple_missions": false, "training": false, "physical_calibration": false, "HIL": false, "REAL": false, "manual_visual": false, "final_release": false}
+}

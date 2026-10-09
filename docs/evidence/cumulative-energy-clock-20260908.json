@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "scope": "Shared clock identity validation and online cumulative SIM energy receive-domain support",
+  "focused_tests": {
+    "tests": 132,
+    "failures": 0,
+    "errors": 0,
+    "junit_path": "artifacts/evaluation/cumulative-energy-clock-20260908.xml",
+    "junit_sha256": "ba876ecc9ec9c256ff816664616d9e894d557ccff1d22a41b941a35040a32d60",
+    "command": "python -m pytest -q tests/test_simulation_energy_replay.py tests/test_clock.py tests/test_clock_offset_probe.py tests/test_mission_energy_window_audit.py tests/test_mission_clock_injection.py tests/test_host_clock_capture_binding.py --disable-warnings --junitxml=artifacts/evaluation/cumulative-energy-clock-20260908.xml"
+  },
+  "integration_regression": {
+    "tests": 212,
+    "command": "python -m pytest -q tests/test_repository_progress_docs.py tests/test_release_parity.py tests/test_vtol_sitl_mission_acceptance.py tests/test_collector_clock_injection.py --disable-warnings",
+    "passed": true
+  },
+  "verified": [
+    "QPC identity validator moved from script to shared clock module; script API remains import-compatible",
+    "Cumulative energy accepts validated QPC receive histories without changing boot-time integration",
+    "Identity, source, resolution, implementation and origin changes fail before state commit",
+    "Returned identity does not alias internal state or caller history",
+    "Legacy sessions cannot switch into QPC even with equal numeric origin"
+  ],
+  "core_algorithm_hash": "379622f2fb8a432d2fff9d33b1ad1a77f8f523f13e142bf5c3bed7928e185f1f",
+  "release_parity_file_sha256": "a879ecd21f1fdf50994a7bfe0a92e1827d46ec908d82edda62e3e8d64d106348",
+  "release_audit": "docs/evidence/cumulative-clock-parity-audit-20260908.json",
+  "full_regression_rerun": false,
+  "new_external_mission": false,
+  "release_ready": false,
+  "remaining": ["Outer runner source/session propagation", "Camera barrier migration", "New complete QPC Mission verification", "SIM/HIL/REAL release gates"]
+}

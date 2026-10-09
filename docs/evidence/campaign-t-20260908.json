@@ -1,0 +1,108 @@
+{
+  "report_level_negative_verified": true,
+  "rejected": [
+    {
+      "task_id": "synthetic-west",
+      "reason": "estimated mission duration exceeds energy budget above return reserve"
+    }
+  ],
+  "energy_independently_replayed": true,
+  "energy_replay": [
+    {
+      "source": "cumulative_simulation_energy_assumption_v1",
+      "session_id": "3c1d884600b5080d809a8df4f695677ae99b62f1d8ec4f4e16f9eb73e46b7ed4",
+      "profile": {
+        "capacity_wh": 100,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "synthetic-integration-fixture-not-physical-calibration"
+      },
+      "initial_remaining_wh": 33.5,
+      "initial_energy_at_boot_ms": 6188,
+      "consumed_wh": 0.044639999999999964,
+      "newly_consumed_wh": 0.044639999999999964,
+      "remaining_wh": 33.45536,
+      "battery_remaining_pct": 33.45536,
+      "estimated_flight_time_s": 334.5536,
+      "unserved_energy_wh": 0,
+      "observed_prefix_boot_s": 4.464000000000001,
+      "reserve_deducted": false,
+      "physical_calibration_claimed": false,
+      "authorizes_next_task": false
+    },
+    {
+      "source": "cumulative_simulation_energy_assumption_v1",
+      "session_id": "3c1d884600b5080d809a8df4f695677ae99b62f1d8ec4f4e16f9eb73e46b7ed4",
+      "profile": {
+        "capacity_wh": 100,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "synthetic-integration-fixture-not-physical-calibration"
+      },
+      "initial_remaining_wh": 33.5,
+      "initial_energy_at_boot_ms": 6188,
+      "consumed_wh": 2.5244367999999273,
+      "newly_consumed_wh": 2.4797967999999275,
+      "remaining_wh": 30.975563200000074,
+      "battery_remaining_pct": 30.975563200000074,
+      "estimated_flight_time_s": 309.75563200000073,
+      "unserved_energy_wh": 0,
+      "observed_prefix_boot_s": 117.05200000000642,
+      "reserve_deducted": false,
+      "physical_calibration_claimed": false,
+      "authorizes_next_task": false
+    }
+  ],
+  "first_task": "synthetic-east",
+  "second_context_sha256": "653ba6c6410e41d5fb9d3bf927ae426c12b422c502cb51ab99f691ea9d9d8720",
+  "first_endurance_s": 334.5536,
+  "second_endurance_s": 309.75563200000073,
+  "packet_capture_claimed": false,
+  "physical_calibration_claimed": false,
+  "inputs": [
+    {
+      "path": "configs\\scenarios\\vtol-diverse-routes.synthetic-campaign.json",
+      "bytes": 6457,
+      "sha256": "27c8900223c927d9e0ed8839971c4411c261d9d4bb84b9dbb244b3e4861ce67e"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-t\\campaign-missions\\mission-001.json",
+      "bytes": 2398055,
+      "sha256": "94407d3703b97b88e81c89db580335fad20e01f71f60ea51fe6bb76131162619"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-t\\campaign-missions\\mission-002.json",
+      "bytes": 2052720,
+      "sha256": "70a62deeacd1cdc8d808a22c9ce736ae909039e1b42a2ae30334d88d0dbf8744"
+    },
+    {
+      "path": "artifacts\\evaluation\\campaign-20260908-t.json",
+      "bytes": 26862,
+      "sha256": "97335fc0bafc3dd1f1fccaf729f15b65eb69712e3b4ed60439a8561da2e1a72f"
+    }
+  ],
+  "product_version": "0.3.0-pre.8",
+  "generated_at": "2026-09-08",
+  "status": "external_sim_passed",
+  "first_completed_seconds": 133.656,
+  "exact_container_cleanup_verified": true,
+  "outer_execution_exit_code": 1,
+  "outer_success_gate": false,
+  "audit_exit_code": 0,
+  "audit_command": "python scripts/audit_campaign_rejection.py --campaign configs/scenarios/vtol-diverse-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-t --outer-report artifacts/evaluation/campaign-20260908-t.json --require-energy",
+  "execution_command": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-diverse-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-t --evidence artifacts/evaluation/campaign-20260908-t.json --container-name multidetect-campaign-t --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 33.5 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "training": false,
+    "production_model_changed": false,
+    "manual_UI": false,
+    "final_release": false
+  },
+  "limitations": [
+    "Negative acceptance is separate from all-tasks-completed success.",
+    "Boot-time energy coverage is not host-time mission duration or physical calibration.",
+    "This audit checks raw energy replay and report-level protocol evidence, not a network packet capture."
+  ]
+}

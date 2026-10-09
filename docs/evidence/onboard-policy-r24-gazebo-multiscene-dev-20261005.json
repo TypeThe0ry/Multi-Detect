@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-evidence",
+  "candidate": {
+    "model_id": "onboard-policy-r24-gazebo-multiscene-dev",
+    "model_version": "0.3.0-pre.8-onboard-policy-r24-gazebo-multiscene-dev",
+    "model_path": "artifacts/models/onboard-policy-r24-gazebo-multiscene-dev/onboard_policy_r24.onnx",
+    "model_sha256": "c764e08a46208802315898b853404b6455a6f99995a09b438c2f5be31f42f8ae",
+    "training_config_path": "artifacts/models/onboard-policy-r24-gazebo-multiscene-dev/training-config.json",
+    "training_config_sha256": "2b752d9a2d167fe412b2132164ee9a1e0415671a11137f6b5f764c2721ea17db",
+    "training_report_path": "artifacts/models/onboard-policy-r24-gazebo-multiscene-dev/training-report.json",
+    "training_report_sha256": "8eb4b52687f1b7d32d457b3e489740f9bbb7a5c039240cedddf4eefa3e14a0ec",
+    "parent_model_path": "artifacts/models/onboard-policy-r23-3d-depth-plumbing/onboard_policy_r23.onnx",
+    "parent_model_sha256": "69da862e02fb7757135e433c54e45f16aaeb48054ecd85fd3a930402a4af8af5",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": true,
+    "epochs": 30,
+    "learning_rate": 0.0002,
+    "samples": 12944,
+    "train_samples": 10510,
+    "evaluation_samples": 2434,
+    "evaluation_task_accuracy": 0.9170090386195563,
+    "evaluation_flight_accuracy": 0.9207066557107642,
+    "same_40_feature_contract": true,
+    "pixel_level_rendered": true,
+    "rendered_rows_are_reviewed": false,
+    "materialized_trajectory_sources_required": true
+  },
+  "rendered_3d_dataset": {
+    "path": "artifacts/training/onboard-rendered-3d-depth-v2.json",
+    "sha256": "0293677c3524d73a8bc12aa3a4b51d779dca33ab31e4464af7611a17200bb06b",
+    "raw_frame_count": 9,
+    "depth_bound_frame_count": 9,
+    "unique_split_groups": 7,
+    "detector_hits": 0,
+    "training_ready": false,
+    "labels_from": "sensor_contract_heuristic_plumbing_only",
+    "limitation": "The current rendered set has no reviewed continuous target lifecycle labels and is not a promotion dataset."
+  },
+  "independent_structured_holdout": {
+    "candidate_path": "artifacts/evaluation/onboard-policy-r24-gazebo-multiscene-dev-holdout.json",
+    "candidate_sha256": "8d36efb946e2ebb921c7bff44f05a2ee1e9eb95d03dc34c619205690335fa952",
+    "parent_path": "artifacts/evaluation/onboard-policy-r23-3d-depth-plumbing-holdout-20261006.json",
+    "parent_sha256": "fb78b3cf2118511fbf4a7aab9dd5cfcf97b0cf9bdc1045335e66a185ac764883",
+    "seed": 20261006,
+    "cases": 1200,
+    "candidate_task_accuracy": 0.7183333333333334,
+    "parent_task_accuracy": 0.6766666666666666,
+    "candidate_flight_accuracy": 0.8,
+    "parent_flight_accuracy": 0.7775,
+    "candidate_compatible_output_rate": 0.9708333333333333,
+    "parent_compatible_output_rate": 0.9491666666666667,
+    "pixel_level_rendered": false,
+    "training_used": false
+  },
+  "decision": {
+    "selected_reference": "onboard-policy-r17-teacher-consistent",
+    "candidate_promoted": false,
+    "reason": "The candidate improves the deterministic structured holdout over r23, but the rendered RGB/Depth rows remain unreviewed plumbing data, detector hits are zero, and no independent rendered-pixel or external Gazebo flight holdout exists."
+  },
+  "claims": {
+    "software_gpu_training": true,
+    "deterministic_structured_holdout": true,
+    "pixel_level_rendered_generalization": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-development-evidence-v1",
+  "event": "onboard_policy_geometry_bearing_candidate_comparison",
+  "recorded_at_utc": "2026-10-06T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "status": "candidates_rejected_current_reference_retained",
+  "training_change": {
+    "source": "scripts/train_onboard_model.py",
+    "geometry_binding": "approved entity SDF visual primitives only",
+    "geometry_source": "simulation/gazebo/models/multidetect_search_target_v1/model.sdf",
+    "geometry_statistics": [
+      "primitive_count",
+      "radial_extent_m",
+      "height_m"
+    ],
+    "used_as": "synthetic observation-scale perturbation",
+    "not_used_as": [
+      "target world pose",
+      "scenario truth",
+      "colour identity",
+      "expected answer",
+      "actuator command"
+    ],
+    "feature_width": 40,
+    "parent_model": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "device": "NVIDIA GeForce RTX 4060",
+    "same_40_feature_contract": true,
+    "legacy_target_fixture": false,
+    "colour_identity_used": false,
+    "navigation_sign_loss_added_as_optional": true,
+    "actual_rgb_depth_training": false
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r41-geometry-bearing-symmetric-dev",
+      "artifact": "artifacts/models/onboard-policy-r41-geometry-bearing-symmetric-dev/onboard_policy_r41.onnx",
+      "artifact_sha256": "483602ce7c61a958bd4fe373ab4ae779f039ba1569875c41a356d75106129d4c",
+      "training_report": "artifacts/models/onboard-policy-r41-geometry-bearing-symmetric-dev/training-report.json",
+      "training_report_sha256": "492241229693977b085d1c23c49ce2eb8689cb17052b1173a69a6f07b0198782",
+      "training_config_sha256": "976bf18cd4b9f720e59bd6acabbd5b7e16ee8ee3b06677a698acac83d08128f1",
+      "independent_holdout": {
+        "artifact": "artifacts/evaluation/onboard-policy-r41-independent-holdout-20261006.json",
+        "sha256": "1ed9356ad3e1afb226b532fd92167f7f84b07576a115dd1f2a7377b95973c122",
+        "passed": 7,
+        "total": 7
+      },
+      "generalization": {
+        "artifact": "artifacts/evaluation/onboard-policy-r41-generalization-20261006.json",
+        "sha256": "700b595e81498f9526cd9c16297cec1537a937a87d05da3934840b3c2abb404e",
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-left"]
+      },
+      "promoted": false,
+      "rejection_reason": "left bearing navigation direction failure"
+    },
+    {
+      "model_id": "onboard-policy-r42-geometry-bearing-sign-dev",
+      "artifact": "artifacts/models/onboard-policy-r42-geometry-bearing-sign-dev/onboard_policy_r42.onnx",
+      "artifact_sha256": "9d7f433a604e8d4b4df4ccbac070fac8b9820ed9dbcbf597d5ff91fe1214e356",
+      "training_report": "artifacts/models/onboard-policy-r42-geometry-bearing-sign-dev/training-report.json",
+      "training_report_sha256": "d4e88a2d461900f3af2a8057e6a6ec0583f4da18a27909721499e680871980aa",
+      "training_config_sha256": "fde56f72583cfe6c2ba33d50707461b9eda5ec1ae8fc8e3654b87226a0225408",
+      "independent_holdout": {
+        "artifact": "artifacts/evaluation/onboard-policy-r42-independent-holdout-20261006.json",
+        "sha256": "4134ce5735fb5d24a528a05522997e489230c0d09d575c5b4f36bfe9fb609d9e",
+        "passed": 7,
+        "total": 7
+      },
+      "generalization": {
+        "artifact": "artifacts/evaluation/onboard-policy-r42-generalization-20261006.json",
+        "sha256": "6702831a5e97c72f995def25a463db3a7859f527dc109a2eb9077b4721cfaac9",
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-left"]
+      },
+      "promoted": false,
+      "rejection_reason": "optional navigation-sign loss did not remove the left bearing failure and worsened regression error"
+    },
+    {
+      "model_id": "onboard-policy-r43-geometry-bearing-sign-lr-dev",
+      "artifact": "artifacts/models/onboard-policy-r43-geometry-bearing-sign-lr-dev/onboard_policy_r43.onnx",
+      "artifact_sha256": "c407073162a9290c96274bcaeda5efa20a89fd45e1c410637e5a011c3c44c8e0",
+      "training_report": "artifacts/models/onboard-policy-r43-geometry-bearing-sign-lr-dev/training-report.json",
+      "training_report_sha256": "6f1e558c187d9bcc474a36da59ff4d982527eaaa6c3b6990f29e771cb4575993",
+      "training_config_sha256": "6b364894fb46d5989e1c3869ed427a7e0b55872a8d21336eacbc2e5b4c08bf28",
+      "independent_holdout": {
+        "artifact": "artifacts/evaluation/onboard-policy-r43-independent-holdout-20261006.json",
+        "sha256": "7a17843b1da2ef3e257af38a99f0bfc7c1a44f4c57f7f80a43fd1a1146350f89",
+        "passed": 7,
+        "total": 7
+      },
+      "generalization": {
+        "artifact": "artifacts/evaluation/onboard-policy-r43-generalization-20261006.json",
+        "sha256": "818ef891554d61d4b83c5262d37a4c3bed85b19856a45bd9ab448117dc64447f",
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-left"]
+      },
+      "promoted": false,
+      "rejection_reason": "lower-learning-rate/sign-loss candidate still failed left bearing and produced materially worse navigation regression"
+    },
+    {
+      "model_id": "onboard-policy-r44-geometry-bearing-converged-dev",
+      "artifact": "artifacts/models/onboard-policy-r44-geometry-bearing-converged-dev/onboard_policy_r44.onnx",
+      "artifact_sha256": "7dee532cabd1aad30f1d838e30d896e4416b7a0b10e2a5a9e5e819cd12dbf1d7",
+      "training_report": "artifacts/models/onboard-policy-r44-geometry-bearing-converged-dev/training-report.json",
+      "training_report_sha256": "260e1f612259707b055aaf5962491ef218756cafa76ef0ccbd75408a6d03e1ff",
+      "training_config_sha256": "25391cf530b0ef41031de2f939d7900b1ef3d1d98d57db75a12f3e4841b36b4e",
+      "independent_holdout": {
+        "artifact": "artifacts/evaluation/onboard-policy-r44-independent-holdout-20261006.json",
+        "sha256": "f10102481e066f63d458a316a503e1646fa358a6eb1f428df50fa3aa2a66c429",
+        "passed": 7,
+        "total": 7
+      },
+      "generalization": {
+        "artifact": "artifacts/evaluation/onboard-policy-r44-generalization-20261006.json",
+        "sha256": "ecd61a21e7d89c53192de49d58b158badc21adfa1a9cc3301949e2a922528eb2",
+        "guarded_passed": 21,
+        "guarded_total": 22,
+        "guarded_failures": ["bearing-right"]
+      },
+      "promoted": false,
+      "rejection_reason": "extended training overfit the structured data; right bearing still failed and evaluation flight accuracy fell"
+    }
+  ],
+  "current_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reference": "configs/training/onboard-policy-current-reference-v1.json",
+    "candidate_replacement_allowed": false,
+    "reason": "no candidate passed the existing navigation-direction and lifecycle generalization gates"
+  },
+  "claims": {
+    "same_onboardai_contract": true,
+    "truth_free_structured_evaluation": true,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

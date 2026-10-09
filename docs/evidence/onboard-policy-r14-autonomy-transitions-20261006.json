@@ -1,0 +1,88 @@
+{
+  "schema": "multidetect.onboard-policy-training-evidence.v1",
+  "generated_at_utc": "2026-10-05T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "software_sim_and_independent_structured_holdout",
+  "model": {
+    "id": "onboard-policy-r14-autonomy-transitions",
+    "version": "0.3.0-pre.8-onboard-policy-r14-autonomy-transitions",
+    "path": "artifacts/models/onboard-policy-r14-autonomy-transitions/onboard_policy_r14.onnx",
+    "bytes": 62145,
+    "sha256": "7a50fb9669f46d78937ff89d261e63603373cd73c4840cf243603d4ded1edff8",
+    "parent_path": "artifacts/models/onboard-policy-r13-temporal-transition/onboard_policy_r13.onnx",
+    "parent_sha256": "7db556f6916fac45d3ab64dda9cd2684d4664a9579c615cdc2bc757c413a2027",
+    "same_40_feature_contract": true,
+    "same_task_and_flight_heads": true,
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "epochs": 100,
+    "training_samples": 416000,
+    "evaluation_samples": 104000,
+    "evaluation_task_accuracy": 0.9772115384615384,
+    "evaluation_flight_accuracy": 0.975701923076923
+  },
+  "training": {
+    "script": "scripts/train_onboard_model.py",
+    "config_path": "artifacts/models/onboard-policy-r14-autonomy-transitions/training-config.json",
+    "config_bytes": 2758,
+    "config_sha256": "51d3d9f48b426a146647a9c55bd8eff10bda9de2a99417d1d5ed078d6b439e27",
+    "temporal_augmentation": true,
+    "temporal_families": [
+      "temporal_green_mismatch_search",
+      "temporal_red_match_follow",
+      "temporal_record_location_return",
+      "temporal_return_report",
+      "temporal_gps_degraded_hold",
+      "temporal_battery_return",
+      "temporal_obstacle_hold"
+    ],
+    "training_report_path": "artifacts/models/onboard-policy-r14-autonomy-transitions/training-report.json",
+    "training_report_bytes": 4002,
+    "training_report_sha256": "c8d6fe0b08d3adb4481324c9fa8880f55d9b8a46457d9abb41e2fe40b1115897"
+  },
+  "independent_holdout": {
+    "config_path": "configs/training/onboard-policy-independent-holdout-v1.json",
+    "config_bytes": 3054,
+    "config_sha256": "b2fa2459009900dc45b160de80fb13c2dfa91c14809d276bd78e0dea358652c6",
+    "report_path": "artifacts/evaluation/onboard-policy-r14-independent-holdout.json",
+    "report_bytes": 3810,
+    "report_sha256": "dfac0f7f0e7b1c7942bbe054d3a2707cdc1ae25e0fd99f97d01b7f9d1e5d825e",
+    "training_used": false,
+    "case_count": 7,
+    "passed_cases": 7,
+    "task_and_flight_accuracy": 1.0
+  },
+  "software_sortie": {
+    "report_path": "artifacts/evaluation/onboard-policy-chain-autonomous-20261006-r14-temporal.json",
+    "report_bytes": 30887,
+    "report_sha256": "b1e014aac33a00057d2162962ede2fffcb57c9e86fba5255b6530fc8ae2a95d8",
+    "phase_sequence": [
+      "search",
+      "match_target",
+      "record_location",
+      "return_home",
+      "report"
+    ],
+    "planner_revalidated": true,
+    "mission_start_count": 3,
+    "return_request_count": 1,
+    "report_count": 1,
+    "policy_applied_to_actuator": false,
+    "truth_free": true
+  },
+  "runner_change": {
+    "path": "src/multidetect/autonomy/onboard_onnx.py",
+    "health_event_phase_interrupt": true,
+    "description": "GPS, battery, obstacle and inference health events now expose the model's HOLD/RETURN/LAND semantic choices even when the current perception phase is SEARCH or INSPECT_TARGET; the adapter-owned safety supervisor remains final authority."
+  },
+  "claims_boundary": {
+    "software_sim_passed": true,
+    "external_gazebo_run_for_r14": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

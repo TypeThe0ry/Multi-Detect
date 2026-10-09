@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-09-08T14:33:13+08:00",
+  "product_version": "0.3.0-pre.8",
+  "status": "automated_verified",
+  "scope": "Shared selector rejection and owned-SIM Mission failure report serialization",
+  "runtime_mode": "SIM fixtures",
+  "airframe": "vtol",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings --junitxml=artifacts/evaluation/selection-rejection-final-20260908.xml",
+  "exit_code": 0,
+  "focused_passed": 311,
+  "full_regression": {
+    "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/selection-rejection-full-20260908.xml",
+    "exit_code": 0,
+    "tests": 4048,
+    "passed": 4041,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 210.942,
+    "path": "artifacts/evaluation/selection-rejection-full-20260908.xml",
+    "bytes": 592582,
+    "sha256": "f99689d07ee080e07cbd02e911a9020b12a9e89f9b427d354f6ba1e1b88192b1"
+  },
+  "parity_and_documentation_passed": 34,
+  "bound_inputs":
+  [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 118547,
+      "sha256": "94ba7f115c78a4028af5a5aa4279575982b2858e7c6bc8e74bf4b91155107227"
+    },
+    {
+      "path": "scripts/vtol_selected_task_campaign.py",
+      "bytes": 10137,
+      "sha256": "619360c938691c2fc1a65804008d0fb11f5fbb0a79eaef8593ca939d06ced05f"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 90739,
+      "sha256": "9ba910e4b5348da4103086fe3f67a6c91788122b616cdc85db19ba4f23eb93e3"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11288,
+      "sha256": "6fe74a41733df3077d419976ce0d6e51c9162e10d7bc161a006114d80d736166"
+    }
+  ],
+  "junit": {
+    "path": "artifacts/evaluation/selection-rejection-final-20260908.xml",
+    "bytes": 54498,
+    "sha256": "2a469e52cbdf5381757f7d5f40dc41c1dd6db0efa86cd126c3f6fde995b74605"
+  },
+  "checks": {
+    "second_selection_low_battery_rejected": true,
+    "second_selection_low_endurance_rejected": true,
+    "context_roundtrip_hash_verified": true,
+    "candidate_reason_retained": true,
+    "injected_rejection_serialized_by_original_report": true,
+    "ordinary_failure_has_null_rejection": true,
+    "ruff_whole_repository": true
+  },
+  "claims": {
+    "external_low_energy_rejection": false,
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model_changed": false,
+    "training_started": false,
+    "manual_visual": false,
+    "final_release": false
+  },
+  "remaining": "External low-energy test must independently replay selection and verify transaction/control evidence; full objective remains open."
+}

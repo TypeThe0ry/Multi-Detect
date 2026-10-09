@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-training-campaign-v1",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "purpose": "Short RTX 4060 smoke fine-tune of the shared OnboardAI from the current r33 parent using the neutral 3-D SDF curriculum.",
+  "training_device": "NVIDIA GeForce RTX 4060",
+  "device": "cuda",
+  "same_40_feature_contract": true,
+  "red_green_fixture_used": false,
+  "pixel_level_rendered_training": false,
+  "parent_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r72-neutral-3d-distilled-smoke",
+    "model_path": "artifacts/models/onboard-policy-r72-neutral-3d-distilled-smoke/onboard_policy_r4.onnx",
+    "model_sha256": "035819405a5056efb122940191a8bc0522597bdf0096938242c4ddb03dd5716c",
+    "training_config": "artifacts/models/onboard-policy-r72-neutral-3d-distilled-smoke/training-config.json",
+    "training_config_sha256": "28f89ab0a863097ffe17c71bc5f88d39db28db7f0390558710bab9689883a540",
+    "training_report": "artifacts/models/onboard-policy-r72-neutral-3d-distilled-smoke/training-report.json",
+    "training_report_sha256": "a8d0ae158f05eeba8d1376a6a37e5d254351445e55a85454cd7c3e75c30d7b10",
+    "epochs": 8,
+    "samples": 30000,
+    "parent_distillation_weight": 0.5,
+    "navigation_geometry_weight": 0.5
+  },
+  "evaluation": {
+    "independent_policy_holdout": {
+      "report": "artifacts/evaluation/onboard-policy-r72-policy-holdout.json",
+      "sha256": "e4081a889c600528f1a920a6d8953534691fc442b24f7340d6672a77a61c7960",
+      "passed_cases": 7,
+      "case_count": 7
+    },
+    "structured_3d_sensor_holdout": {
+      "report": "artifacts/evaluation/onboard-policy-r72-3d-holdout.json",
+      "sha256": "a39002a2dcff1ac3cd27654f1b6b76c10bfec73f7e5faab17ce494708cd82d67",
+      "seed": 20261017,
+      "case_count": 900,
+      "task_accuracy": 0.8788888888888889,
+      "flight_accuracy": 0.8833333333333333,
+      "compatible_output_rate": 0.9655555555555555
+    },
+    "generalization": {
+      "report": "artifacts/evaluation/onboard-policy-r72-generalization.json",
+      "sha256": "40653aa2fbf0c6a98fe8ef7ed1810c9518278fb16bf76625cf0d2bca76484246",
+      "guarded_failures": ["bearing-right"]
+    },
+    "geometry_diagnostic": {
+      "report": "artifacts/evaluation/onboard-navigation-geometry-r72.json",
+      "sha256": "e31849d47400a5a149b22766f4f5d23b81beee9d0f4fd91fa93fd32960f0f49d",
+      "sample_count": 128,
+      "angle_mae_deg": 75.14499501111074,
+      "range_mae_m": 151.32062936776802,
+      "diagnostic_pass": false
+    }
+  },
+  "decision": "candidate_rejected_parent_retained",
+  "reason": "the short neutral 3-D smoke fine-tune preserved the 7-case semantic holdout but regressed the independent structured 3-D holdout and failed direction generalization; it must not replace r33",
+  "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+  "rendered_rgb_depth_rows": 0,
+  "external_gazebo_runtime": false,
+  "jetson_evidence": false,
+  "pixhawk_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "final_release_allowed": false
+}

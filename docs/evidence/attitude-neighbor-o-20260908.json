@@ -1,0 +1,39 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-o\\vtol-mission-acceptance.json",
+  "source_sha256": "facab1c45ea7f00270add672dca3be6edc58b4f587738a96067b59a4bc3e62b2",
+  "selection": {
+    "lookback_ms": 2000,
+    "maximum_gap_ms": 300,
+    "maximum_target_deviation_deg": 2,
+    "quaternion_norm_tolerance": 0.00001,
+    "required_state": 4,
+    "maximum_gap_s": 1.5,
+    "scope": "fixed-wing target-history receipts only, then unpaired quiet targets"
+  },
+  "quiet_unpaired_count": 10,
+  "summary": {
+    "bracket_width_ms_min": 20,
+    "bracket_width_ms_max": 24,
+    "source_offset_ms_abs_max": 16,
+    "receipt_offset_s_abs_max": 0.04029570007696748,
+    "observed_endpoint_roll_change_abs_max_deg": 0.49944050758426783,
+    "observed_endpoint_roll_change_rms_deg": 0.2300846591147203
+  },
+  "rows": [
+    {"time_boot_ms": 46964, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.015118196841001463},
+    {"time_boot_ms": 47212, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.0011047830982420237},
+    {"time_boot_ms": 47460, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": 0.013167324059310204},
+    {"time_boot_ms": 47716, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": 0.02991067903596445},
+    {"time_boot_ms": 50724, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.029728398362465214},
+    {"time_boot_ms": 58220, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.49944050758426783},
+    {"time_boot_ms": 58476, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.39539965105203123},
+    {"time_boot_ms": 58716, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": -0.12029329166227853},
+    {"time_boot_ms": 58964, "status": "bracketed_labels", "bracket_width_ms": 24, "observed_endpoint_roll_change_deg": 0.1448853877689089},
+    {"time_boot_ms": 59220, "status": "bracketed_labels", "bracket_width_ms": 20, "observed_endpoint_roll_change_deg": 0.2931961154065448}
+  ],
+  "interpolation_performed": false,
+  "intermediate_error_bound_proven": false,
+  "physical_simultaneity_proven": false,
+  "controller_acceptance_proven": false,
+  "final_release_allowed": false
+}

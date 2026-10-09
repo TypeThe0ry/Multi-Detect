@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-history-policy-development-v1",
+  "observed_at_utc": "2026-10-07T01:12:37Z",
+  "status": "history_extension_migrated_and_executed_not_temporally_trained",
+  "evidence_type": "development_model_migration_runtime_contract_checks_and_rejected_training_admission",
+  "history_contract": {
+    "steps": 8,
+    "feature_width": 40,
+    "output_width": 20,
+    "task_actions": 9,
+    "flight_actions": 7,
+    "input_names": [
+      "features",
+      "valid_mask",
+      "dt_s",
+      "reset_mask"
+    ],
+    "input_dtype": "float32",
+    "input_shapes": {
+      "features": [
+        1,
+        8,
+        40
+      ],
+      "valid_mask": [
+        1,
+        8
+      ],
+      "dt_s": [
+        1,
+        8
+      ],
+      "reset_mask": [
+        1,
+        8
+      ]
+    },
+    "alignment": "right_current_last_zero_padding",
+    "dt_units": "seconds",
+    "reset_policy": "actual_session_or_episode_origin_only",
+    "future_observation_inputs": false,
+    "training_label_policy": "current_slot_only_one_prefix_window_per_labeled_transition",
+    "architecture": "existing_parent_body_and_heads_with_order_sensitive_full_window_conv1d_residual",
+    "short_window_is_long_term_task_memory": false,
+    "arbitrary_prompt_or_raw_pixel_understanding_claimed": false
+  },
+  "scaffold": {
+    "native_exit_code": 0,
+    "method": "parent_weight_migration_only",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "inherited_parameters": 15188,
+    "temporal_residual_zero_initialized": true,
+    "temporal_training_performed": false,
+    "optimizer_created": false,
+    "epochs": 0,
+    "artifacts": [
+      {
+        "path": "artifacts/models/onboard-policy-r33-history-scaffold-20261007-r2/onboard_history_policy.onnx",
+        "bytes": 296318,
+        "sha256": "97949556fffa526a8cbaadf894593784d6df65cc941bf96812e01eeb7ce0cf15"
+      },
+      {
+        "path": "artifacts/models/onboard-policy-r33-history-scaffold-20261007-r2/training-report.json",
+        "bytes": 5020,
+        "sha256": "73a4f60b3707d3beaad97c8fc87949accaf1fd8d4bf709f14e0a3ccf5d8505ce"
+      }
+    ],
+    "training_report": {
+      "path": "artifacts/models/onboard-policy-r33-history-scaffold-20261007-r2/training-report.json",
+      "bytes": 5020,
+      "sha256": "73a4f60b3707d3beaad97c8fc87949accaf1fd8d4bf709f14e0a3ccf5d8505ce"
+    },
+    "command": "$env:TEMP = 'D:/Projects/Multi-Detect/artifacts/render-temp/onboard-sdf-r3-20261007'; $env:TMP = $env:TEMP; & .venv-train/Scripts/python.exe -B -m scripts.train_onboard_history_model --parent-model artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx --parent-sha256 727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6 --output-directory artifacts/models/onboard-policy-r33-history-scaffold-20261007-r2 --export-scaffold --device cpu"
+  },
+  "runtime_verification": {
+    "native_exit_code": 0,
+    "report": {
+      "path": "artifacts/evaluation/onboard-history-r33-migration-20261007-r2.json",
+      "bytes": 2285,
+      "sha256": "5b9df5e1eb7ba790549484b3b9c31c49859b8f4894af3577df8ca34973071dac"
+    },
+    "raw_parent_parity_probes": 128,
+    "typed_scoped_inference_observations": 12,
+    "maximum_absolute_logit_error": 0,
+    "execution_provider": "CPUExecutionProvider",
+    "onnxruntime_version": "1.29.0",
+    "metadata_bound_to_actual_parent_and_report": true,
+    "history_bound_to_session_prompt_task_aircraft_home_profile_clock_epoch": true,
+    "idempotent_retry_did_not_advance_history": true,
+    "explicit_reset_discarded_history": true,
+    "passed": true,
+    "flight_or_learning_evidence": false,
+    "command": "$env:TEMP = 'D:/Projects/Multi-Detect/artifacts/render-temp/onboard-sdf-r3-20261007'; $env:TMP = $env:TEMP; & .venv-train/Scripts/python.exe -B -m scripts.verify_onboard_history_migration --candidate-directory artifacts/models/onboard-policy-r33-history-scaffold-20261007-r2 --parent-reference configs/training/onboard-policy-current-reference-v1.json --output artifacts/evaluation/onboard-history-r33-migration-20261007-r2.json"
+  },
+  "formal_training_attempt": {
+    "native_exit_code": 1,
+    "command": "$env:TEMP = 'D:/Projects/Multi-Detect/artifacts/render-temp/onboard-sdf-r3-20261007'; $env:TMP = $env:TEMP; & .venv-train/Scripts/python.exe -B -m scripts.train_onboard_history_model --parent-model artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx --parent-sha256 727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6 --output-directory artifacts/models/onboard-policy-r33-history-reviewed-attempt-20261007-r2 --trajectory-dataset artifacts/evaluation/onboard-3d-flight-urban-20261007-r1/trajectory-staging.json --epochs 20 --device cuda",
+    "dataset": {
+      "path": "artifacts/evaluation/onboard-3d-flight-urban-20261007-r1/trajectory-staging.json",
+      "bytes": 528347,
+      "sha256": "ac6425ba5793a9192903786efadd83c707bad82d8eb312042c7a65a2a814a6f8"
+    },
+    "error": "Onboard trajectory review receipt is missing",
+    "output_directory": "artifacts/models/onboard-policy-r33-history-reviewed-attempt-20261007-r2",
+    "output_directory_created": false,
+    "optimizer_created": false,
+    "training_performed": false,
+    "staging_episodes": 1,
+    "staging_transitions": 100,
+    "staging_splits": [
+      "train"
+    ],
+    "staging_source_manifests": 1,
+    "staging_materialized_sources": false
+  },
+  "current_reference": {
+    "path": "configs/training/onboard-policy-current-reference-v1.json",
+    "bytes": 1343,
+    "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+  },
+  "source_files": [
+    {
+      "path": "src/multidetect/autonomy/onboard_onnx.py",
+      "bytes": 16220,
+      "sha256": "fae9113ba25da1e88cd17f0176fa726e4d986f1baae5510dd561e7ff699e704a"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_agent.py",
+      "bytes": 63449,
+      "sha256": "ec2750f72d57f1c9322aec13c0aef0b2a91d35e80801d0bde8a39264b2929cc1"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_adapter.py",
+      "bytes": 41574,
+      "sha256": "a516e731f82885a0c8063c2078ed5ed7a00085d0e0cc7b0979c2d027981fd322"
+    },
+    {
+      "path": "src/multidetect/autonomy/realtime_bridge.py",
+      "bytes": 39293,
+      "sha256": "16fdcc5b8b8530414bc221c533356414d6929066d37e0194ee94f46d37ea41c5"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_history.py",
+      "bytes": 12216,
+      "sha256": "76d9c780306e773f8f32a1c528c031b1614773d4773885d2c335d854e2706dbb"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_history_onnx.py",
+      "bytes": 8335,
+      "sha256": "e9ec028ad7e2c7c3f936c12915e42b1fcce66ec2b5a728b505062feffd40b87f"
+    },
+    {
+      "path": "scripts/train_onboard_model.py",
+      "bytes": 215099,
+      "sha256": "4b14f8c42531822518c20a7186c32acf1772efd8bb977f03341d29bcff0b4d10"
+    },
+    {
+      "path": "scripts/onboard_sequence_windows.py",
+      "bytes": 17359,
+      "sha256": "45d6d2471b9b7a00fe38ea305d83bded8b4379c38fd86650a6ce6e0476ac10f5"
+    },
+    {
+      "path": "scripts/train_onboard_history_model.py",
+      "bytes": 28955,
+      "sha256": "b7b8f95e462a22e9cbecff359fae34fd57e96d5fb56695d1495a52a56cb609ba"
+    },
+    {
+      "path": "scripts/verify_onboard_history_migration.py",
+      "bytes": 10846,
+      "sha256": "3f2406a0c9499fdb02f97813a018cf439ec8b2e95465b8a516d940ef8ee5de94"
+    },
+    {
+      "path": "tests/test_onboard_history.py",
+      "bytes": 22907,
+      "sha256": "1971d35257edd22e833222508329418a8da575f6967c5df367770f1131c8a613"
+    },
+    {
+      "path": "tests/test_onboard_history_onnx.py",
+      "bytes": 15103,
+      "sha256": "e51451717bc46f3a113ec48219916df67defbf4035d6af4226e1d88c1880c02c"
+    },
+    {
+      "path": "tests/test_train_onboard_history_model.py",
+      "bytes": 23259,
+      "sha256": "86029cb93e789ea21c77a7cdd3905bf9bbdd64040c8f136c45d620f9379f1e06"
+    },
+    {
+      "path": "tests/test_verify_onboard_history_migration.py",
+      "bytes": 1429,
+      "sha256": "9f6055ae8dd78612070bb9d9c6630529ba2c74cf73609362b40c361015940446"
+    },
+    {
+      "path": "tests/test_onboard_history_loop.py",
+      "bytes": 1848,
+      "sha256": "17e797146f9fef97442c2b22fae11b83de11098ae61bf5ded88eca8b785d11b7"
+    },
+    {
+      "path": "tests/test_onboard_history_development_evidence.py",
+      "bytes": 4092,
+      "sha256": "bd474e3373bbcfb1c672e14516ec10ef74a03077009ca333c397a676f8e7643a"
+    },
+    {
+      "path": "scripts/rebind_current_release_parity_r11.py",
+      "bytes": 27845,
+      "sha256": "ef6d417b96f9d22f6ea747c6c3472cf04b6dd320fec258d07e3d2defa785dbca"
+    },
+    {
+      "path": "scripts/finalize_onboard_training_progress.py",
+      "bytes": 12607,
+      "sha256": "955cf5d7c751d9f2c5e80c99dd464a9cd3d3428195e5f00e52759f99535155a1"
+    },
+    {
+      "path": "tests/test_staged_release_parity_rebind.py",
+      "bytes": 19123,
+      "sha256": "5c03167c0d5d9d061799a1b5959de76a10989d6bb6890e48bcf8836b62145e67"
+    }
+  ],
+  "next_training_gate": [
+    "audit source-bound observation-only temporal representation pretraining without action labels; this is distinct from formal action finetuning",
+    "materialize independent continuous 3D observation and reviewed action episodes",
+    "separate complete train/evaluation/test episodes with provenance",
+    "finetune the shared history candidate rather than create another flight-control model",
+    "evaluate full history versus current-only and shuffled-history inputs",
+    "check complete task outcomes, false actions, identity recovery and runtime latency"
+  ],
+  "temporal_training_performed": false,
+  "history_learning_verified": false,
+  "flight_action_labels_created": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "integration_fixes": {
+    "same_frame_gps_match_record_requires_next_real_observation": true,
+    "same_frame_return_report_requires_next_real_observation": true,
+    "second_phase_preflight_rejects_duplicate_regressed_changed_home_profile_or_excessive_gap": true,
+    "task_switch_history_reset_after_successful_transport_and_task_receipt_commit": true,
+    "failed_reset_requires_transaction_recovery_not_successful_revision": true,
+    "failed_compile_install_or_task_receipt_does_not_reset_history": true,
+    "episode_home_change_rejected_not_silently_split": true,
+    "search_passive_sampling_does_not_add_mission_or_task_receipt": true
+  },
+  "verification": {
+    "code_and_staged_parity_utility_tests_passed": 319,
+    "code_test_native_exit_code": 0,
+    "independent_history_runtime_review_tests_passed": 86,
+    "independent_review_native_exit_code": 0,
+    "review_findings_resolved": true,
+    "contract_fixture_checks_are_not_learning_or_flight_evidence": true
+  },
+  "previous_migration_artifacts_retained": {
+    "directory": "artifacts/models/onboard-policy-r33-history-scaffold-20261007",
+    "verification_report": "artifacts/evaluation/onboard-history-r33-migration-20261007.json",
+    "reason": "preserve_original_source_snapshot_before_episode_home_boundary_guard"
+  }
+}

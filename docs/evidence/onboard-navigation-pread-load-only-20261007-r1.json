@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-pread-load-only-evidence-v1",
+  "status": "cpu_storage_comparison_verified_full_pread_model_load_failed_windows1455",
+  "artifact_root": "D:/Projects/Multi-Detect",
+  "tool_session_id": 24226,
+  "tool_terminal_chunk_id": "5f9cee",
+  "tool_exit_code": 1,
+  "mode": "load-only",
+  "native_model_load_exit_code": 1,
+  "sealed_supervisor_exit_code": 1,
+  "pread_supervisor_exit_code": 1,
+  "error_type": "OSError",
+  "windows_os_error": 1455,
+  "reported_message": "页面文件太小，无法完成操作。 (os error 1455)",
+  "safe_open_calls_attempted": 1,
+  "safe_open_calls_returned": 0,
+  "backend_initialized": false,
+  "model_loading_completed": false,
+  "inference_performed": false,
+  "forward_backward_performed": false,
+  "optimizer_performed": false,
+  "optimizer_observed_counts": null,
+  "training_completed": false,
+  "native_error_is_not_prior_access_violation": true,
+  "prior_access_violation_cause_proven": false,
+  "source_binding_count": 53,
+  "source_bindings_unchanged": true,
+  "independent_read_only_audit_exit_code": 0,
+  "frozen_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "runtime_manifest": {
+    "path": "configs/training/onboard-navigation-pread-runtime-20261007-r1.json",
+    "bytes": 7337,
+    "sha256": "fe6ef73711dc2359524e6d194a82a55628b50fe3c8061c171c857c63f14beab3"
+  },
+  "implementation": [
+    {
+      "sha256": "9873c81ca9c70fa394a4e164beb00547fe519322a00bc18254079e07bb26303e",
+      "bytes": 16684,
+      "path": "scripts/run_onboard_navigation_pilot_pread.py"
+    },
+    {
+      "sha256": "ca638d4a9b46d69f84426ca138371c4bfa22db4aa77288a08cfe76b4810d590f",
+      "bytes": 18586,
+      "path": "tests/test_run_onboard_navigation_pilot_pread.py"
+    },
+    {
+      "sha256": "834f9ef07f2e1dfcaf032293e5b4795e9802f0b8c3b59058699f1ea05ac377d2",
+      "bytes": 20276,
+      "path": "scripts/run_onboard_navigation_pilot_supervised.py"
+    },
+    {
+      "sha256": "495caae269d6df6bd84367b2de90d675a8edc0d9041bccd62f44c93ed93d8c43",
+      "bytes": 17476,
+      "path": "tests/test_run_onboard_navigation_pilot_supervised.py"
+    }
+  ],
+  "native_outputs": [
+    {
+      "sha256": "56c688708c36629e35835425e093ccf5dbf1700b6fde8cef83951d99ae94ce06",
+      "bytes": 13064,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/child-started.json"
+    },
+    {
+      "sha256": "15624d3bd809650c70b50bf9992faf91842d4bcea5d9b186596d6b994e2c2232",
+      "bytes": 25627,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/completion.json"
+    },
+    {
+      "sha256": "9ea289ea52aa7071d4595fcda9b21d2ca2eb7985d4a2296afb38da18c7ead075",
+      "bytes": 8513,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/independent-review.json"
+    },
+    {
+      "sha256": "dbb0ce6820bcff1323950d2f37e40506725a535549356cad3516796c0f3a70b2",
+      "bytes": 1460,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/post-run-host-resource-observation.json"
+    },
+    {
+      "sha256": "486c02eec5a259812664ef4e1d3f8cc4fdd3c0f67ef40976d3368fa28793eebe",
+      "bytes": 989,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/pread-completion.json"
+    },
+    {
+      "sha256": "ead3fefbd808186473dd87893f835fad918fbe4c487eb9a22a3a22b73a6d0e07",
+      "bytes": 13063,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/preflight.json"
+    },
+    {
+      "sha256": "14da0c4f5ebe5464b5dcc62e097f498d5e2c487923f05f83ca33d9d692970468",
+      "bytes": 775,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/process-tree-observation.json"
+    },
+    {
+      "sha256": "5bfb03b81e62c1a971a7ce3c5c29bb8cd2680aa1bf28c9061d6dceb799497670",
+      "bytes": 51,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/stderr.bin"
+    },
+    {
+      "sha256": "ddfbb994edbfcca387fecd6abdae7f3d57dd2239f267d21a30070ecaff2555fd",
+      "bytes": 2304,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-supervisor-20261007-r1/stdout.bin"
+    },
+    {
+      "sha256": "a170f6f2e3898c8e083d8fc0939c68429d5a1e8da982dd79a120ba2eb640f1ce",
+      "bytes": 1166,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-20261007-r1/load-only-report.json"
+    },
+    {
+      "sha256": "197fc425f151b1940169880cb76c7777afa613c4193a083c91fbde8de3a64241",
+      "bytes": 761,
+      "path": "artifacts/evaluation/onboard-navigation-pread-load-only-20261007-r1/pread-loader-report.json"
+    }
+  ],
+  "storage_comparison_review": {
+    "sha256": "be1cf11f689623c0e49b1ddb04741a9a536033f02c051690d61f383f5893ffa7",
+    "bytes": 12811,
+    "path": "artifacts/evaluation/onboard-navigation-storage-probe-development-20261007-r1/independent-native-comparison-review.json"
+  },
+  "cpu_validations": [
+    {
+      "scope": "storage_probe_stub_only",
+      "tests": 50,
+      "native_exit_code": 0,
+      "report": {
+        "sha256": "1688db16c332751fbedb714c41b2ea42a458e1329ed3a84338791c88b872e4c2",
+        "bytes": 7884,
+        "path": "artifacts/evaluation/onboard-navigation-storage-probe-development-20261007-r1/cpu-validation.xml"
+      }
+    },
+    {
+      "scope": "pread_wrapper_stub_only",
+      "tests": 44,
+      "native_exit_code": 0,
+      "report": {
+        "sha256": "236882aa2a9d2c9feac41c20173e66251438dd8cffaea9bcbfc93cc67cffd37c",
+        "bytes": 7333,
+        "path": "artifacts/evaluation/onboard-navigation-pread-development-20261007-r1/cpu-validation.xml"
+      }
+    }
+  ],
+  "original_load_only_failure_evidence": {
+    "bytes": 5658,
+    "path": "docs/evidence/onboard-navigation-load-only-failure-20261007-r1.json",
+    "sha256": "0631755e54e0e1d1ce35bb3683466e63aa729b907f47a5878a8a376acee0b1a3"
+  },
+  "old_and_new_cpu_slices_equal_original_gold": true,
+  "cpu_slice_success_is_not_full_model_load_acceptance": true,
+  "post_run_host_C_free_bytes": 213458944,
+  "post_run_commit_limit_bytes": 66963247104,
+  "post_run_committed_bytes": 56609714176,
+  "resource_observation_is_post_run_not_exact_error_time": true,
+  "whole_file_copy_on_write_mapping_is_supported_workaround_hypothesis_not_proven_error_frame": true,
+  "official_diagnostic_sources": [
+    {
+      "url": "https://raw.githubusercontent.com/safetensors/safetensors/v0.8.0/bindings/python/src/lib.rs",
+      "relevance": "Open::new map_copy_read_only before returning the pread branch"
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile",
+      "relevance": "Windows FILE_MAP_COPY takes commit charge for the whole view"
+    }
+  ],
+  "next_variant": "new_header_only_and_per_tensor_streaming_loader_pending_tests_and_independent_review; not a weight, dataset, dtype, pixel, optimizer, or budget change",
+  "pagefile_settings_changed": false,
+  "external_processes_stopped": false,
+  "files_deleted": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "limitations": [
+    "The first safe_open constructor failed; the native C++ error frame was not captured for this handled OSError.",
+    "Version and backend both changed, so the CPU comparison is not an isolated causal experiment.",
+    "The resource snapshot was collected after process exit and does not describe its peak.",
+    "All original failures, sources, model weights, dataset and training budget remain unchanged."
+  ]
+}

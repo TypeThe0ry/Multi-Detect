@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-recovery267-terminal-v1",
+  "status": "actual_train_and_fresh_saved_adapter_reload_native0_terminal_verified_quality_not_accepted",
+  "observed_at": "2026-10-08T07:06:45+08:00",
+  "bindings": [
+    {
+      "path": "configs/training/onboard-navigation-recovery-20261008-r2.json",
+      "bytes": 124168,
+      "sha256": "0c50e812781e4cbbf0f4935714486ae78e65e252a7fd0e33d2c321bb10602979"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/report.json",
+      "bytes": 758464,
+      "sha256": "a0d4752c7d9d382288033c8f000c42bb3d5440edc4ced6eb0f4226921a232ff2"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/reload/report.json",
+      "bytes": 284842,
+      "sha256": "a4a4c4ac6b144bef428dd28399998aba257fbc9449575ccbfd8dae92d9e035c0"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/training-events.jsonl",
+      "bytes": 367948,
+      "sha256": "fb07dbd64c9d7fcb2b8e411ca488e08f14e59ad955d8710c26478374bdc5c547"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/adapter_model.safetensors",
+      "bytes": 3227648,
+      "sha256": "6b30a9753ed763a13755ac2666356ec2cdc439840c69a75392a31fca44076f19"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/adapter/adapter_config.json",
+      "bytes": 931,
+      "sha256": "7b6be286e2eb42bbd2eb614c3ea754c2d14d7c394f1db60fa78d82cf949bd10d"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/train/candidate-all86.json",
+      "bytes": 149859,
+      "sha256": "2382db9806ccc8700276a3420452f729800c229fd1d34c355147511b80baabc7"
+    },
+    {
+      "path": "artifacts/models/onboard-navigation-recovery-20261008-r2/reload/reloaded-all86.json",
+      "bytes": 149855,
+      "sha256": "9442c371a3c5bd26202abf22b53493177409db51566c81a6dcfe6bd84e1cebe4"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-recovery267-terminal-v2-20261008-r1/report.json",
+      "bytes": 136283,
+      "sha256": "651fad7a8f58bad37ed86d431fa06f5bb7bc729b965e5f3947f3a70acd7e10d5"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-recovery267-train-closed-20261008-r1.json",
+      "bytes": 7037,
+      "sha256": "f3acaa6473c95b2c76d0548198c87a3e56cad9d0b28463ee9edd4f0bfe137ea0"
+    }
+  ],
+  "actual_execution": {
+    "train_session_id": 55116,
+    "train_native_exit_code": 0,
+    "train_terminal_tool_chunk": "aa1ca2",
+    "train_launcher_pid": 15092,
+    "train_worker_pid": 23976,
+    "train_process_exit_observation_tool_chunk": "19892a",
+    "reload_session_id": 63880,
+    "reload_native_exit_code": 0,
+    "reload_terminal_tool_chunk": "b40874",
+    "reload_launcher_pid": 15352,
+    "reload_worker_pid": 51156,
+    "reload_process_exit_observation_tool_chunk": "3f27e1",
+    "processes_terminated": true,
+    "active_phase_lock_absent": true,
+    "active_phase_lock_observation_tool_chunk": "68cdeb",
+    "fresh_reload_started_at": "2026-10-08T06:26:01.377816+08:00",
+    "fresh_reload_ended_at": "2026-10-08T07:00:07.749007+08:00",
+    "terminal_audit_native_exit_code": 0,
+    "terminal_audit_tool_chunk": "ea780c",
+    "root_actual_small_artifact_bindings_native_exit_code": 0,
+    "root_actual_small_artifact_bindings_tool_chunk": "727817",
+    "independent_terminal_review_native_exit_code": 0,
+    "independent_terminal_review_tool_chunk": "fcece8"
+  },
+  "complete267_verified": true,
+  "fresh_saved_adapter_reload_verified": true,
+  "saved_parameter_digest_verified": true,
+  "source_bindings_unchanged": true,
+  "accounting": {
+    "optimizer_steps_attempted": 267,
+    "optimizer_steps_returned": 267,
+    "optimizer_steps_synchronized": 267,
+    "optimizer_steps_completed": 267,
+    "old_spent_optimizer_attempts": 13,
+    "cumulative_campaign_attempts": 280,
+    "budget_reset": false,
+    "journal_events": 1068,
+    "draw_events": 534,
+    "snapshots": 34,
+    "periodic_snapshots": 33,
+    "exact_PEFT_five_files_and_README_rechecked": true,
+    "raw_FP32_tensors": 112,
+    "train_closed_sample_accesses": 357,
+    "reload_closed_sample_accesses": 86,
+    "optimizer_update_uncertain": false
+  },
+  "identity_checks": {
+    "base_parameter_digest_reported_unchanged": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "final_ordered_saved_adapter_parameter_sha256": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e",
+    "reload_parameter_digest_before_after_matches_saved": true,
+    "candidate_reload_all86_raw_tokens_actor_prefix_exact": true,
+    "baseline_same_actor_inputs_verified": true,
+    "raw_diagnostics_rederived": true,
+    "current_byte_hashed_small_sources": 206,
+    "current_stat_only_sources": 6,
+    "explicit_warm_adapter_byte_hashed": 1,
+    "all_original_source_bytes_independently_rehashed": false,
+    "original_5GB_base_parameters_independently_rehashed": false,
+    "parameter_files_hashed_by_audit_not_backbone_model_loaded": true
+  },
+  "retained_training_resubstitution": {
+    "sample_count": 86,
+    "unique_scene_count": 1,
+    "unique_episode_and_prompt_count": 3,
+    "strict_contract_valid": 86,
+    "action_class_correct": 27,
+    "metric_correct": 8,
+    "STOP_correct": 0,
+    "STOP_support": 3,
+    "overall_direction_accuracy_improved": false,
+    "official_holdout": false,
+    "generation_timing_is_not_end_to_end_realtime_evidence": true
+  },
+  "exact_resume": false,
+  "optimizer_state_restored": false,
+  "scheduler_rng_state_restored": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "independent_review_scope": {
+    "current_small_source_SHA256_count": 206,
+    "current_large_source_stat_only_count": 6,
+    "output_bindings_non_model_body_SHA256_count": 144,
+    "output_bindings_model_body_stat_only_count": 35,
+    "model_payload_rehashed_by_independent_reviewer": false,
+    "closed_WAL_and_all_snapshot_prefixes_reverified": true,
+    "candidate_and_reload_raw_tokens_actor_prefix_and_diagnostics_equal": true
+  }
+}

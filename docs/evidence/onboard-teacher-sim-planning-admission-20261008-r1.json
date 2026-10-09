@@ -1,0 +1,235 @@
+{
+  "contract": "multidetect.onboard-teacher-sim-planning-admission-development-evidence-v1",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-08T09:04:16Z",
+  "evidence_scope": "source_bound_CPU_structural_and_protocol_checks_not_external_SIM",
+  "release_label": "0.3.0-pre.8",
+  "implementation": {
+    "qualified_inputs": "Exact-path/bytes/SHA original observation and listed source references are re-read; explicit fixed-scope SIM energy/capability estimates fill only missing inputs.",
+    "preserved_observations": [
+      "airspeed_unknown",
+      "GPS",
+      "HOME",
+      "sampled_battery",
+      "original_receive_times",
+      "resource_flags"
+    ],
+    "source_identity_scope": "Content binding and stat identity stable inside each read window; not a retained inode identity across calls, independent packet decoder, or sender authentication.",
+    "compilation": "Current-time requalification returns the new budget receipt alongside the shared v2 held-Mission draft. Exact context/task/geometry/policy/profile/runtime/clock/deadline binding; MR SIM only.",
+    "resource_adjustment": "Only explicitly bound v2 MR SURVEY with no detection, RETURN and geofence constraints may omit an active perception engine; camera/map/DEM/GPS/geofence/energy/wind gates remain.",
+    "budget": "(E - receive_age) * usable_fraction - receive_age * (1 - usable_fraction) = E * usable_fraction - receive_age. Return reserve deducted once; original sampled battery unchanged.",
+    "budget_example": {
+      "sampled_battery_pct": 90,
+      "reserve_plus_margin_pct": 30,
+      "sampled_endurance_s": 540,
+      "receive_age_s": [
+        0,
+        1,
+        1.9,
+        1.999
+      ],
+      "available_s": [
+        360,
+        359,
+        358.1,
+        358.001
+      ]
+    },
+    "transport": "INT upload/readback parameterize and validate actual GCS sender identity; 255/190 accepted only with matching MAVLink source, foreign/broadcast never advance. Legacy 250/191 remains compatible."
+  },
+  "validation": {
+    "final_root_combined": {
+      "native_exit_code": 0,
+      "tool_chunk_id": "6f9793",
+      "passed": 669,
+      "pytest_warnings": 1629,
+      "scope": "CPU fixtures and source/protocol regressions"
+    },
+    "independent_review": {
+      "tool_chunk_id": "b532a5",
+      "native_exit_code": 0,
+      "scope": "pure-memory reference energy ledger, scope and v1 compatibility"
+    },
+    "corrected_findings": [
+      "Recompute remaining endurance at current compilation time rather than original qualification time.",
+      "Deduct full receive age without proportionally shrinking the reserved energy.",
+      "Low-level modeled-budget compilation cannot reuse an older qualification time, even inside the observation TTL."
+    ],
+    "reserve_regression_reproduced_before_assertion_update": {
+      "native_exit_code": 1,
+      "tool_chunk_id": "353571",
+      "passed": 82,
+      "failed": 1,
+      "meaning": "Old headroom formula fails under corrected accounting; preserved as development test failure, not runtime evidence."
+    },
+    "new_budget_and_compilation_tests": {
+      "native_exit_code": 0,
+      "tool_chunk_id": "ac6b81",
+      "passed": 85
+    },
+    "runtime_reexecuted": false,
+    "retained_index_maintenance_tests": {
+      "passed": 106,
+      "native_exit_code": 0,
+      "tool_chunk_id": "37a885",
+      "scope": "retained-files/index/software checks; not external runtime reexecution"
+    },
+    "source_index_verification": {
+      "native_exit_code": 0,
+      "tool_chunk_id": "cb8bf4",
+      "current_source_recomputed": true,
+      "scope": "before new development-summary top entry"
+    },
+    "document_and_parity_regressions": {
+      "passed": 122,
+      "native_exit_code": 0,
+      "tool_chunk_id": "75608f",
+      "scope": "document/source parity/retained matrix/index regression tests, no runtime reexecution"
+    },
+    "source_index_verification_after_new_top_entry": {
+      "native_exit_code": 0,
+      "tool_chunk_id": "f33fec",
+      "current_source_recomputed": true,
+      "release_allowed": false
+    }
+  },
+  "pretrained_research": {
+    "document": "docs/onboard-pretrained-action-research-20261008-r3.md",
+    "families": [
+      "MiniCPM-Robot",
+      "MolmoAct2",
+      "GR00T N1.7"
+    ],
+    "purpose": "Primary-source checkpoint/action/resource/license audit; not flight quality, downloaded weight identity or hardware admission."
+  },
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/mission_context_admission.py",
+      "bytes": 5796,
+      "sha256": "d2a4033eb8a97717c73b9f3d7b0143fbe748a5c6bff3968d716deb82e99eeb4d"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_planning_inputs.py",
+      "bytes": 25803,
+      "sha256": "ec444b3e0f7bf53632825acf93258d4cc755f98c635ebe8bd196a03f0196e3de"
+    },
+    {
+      "path": "src/multidetect/autonomy/sim_teacher_compilation.py",
+      "bytes": 4176,
+      "sha256": "886e836c5095fa6067326da644d0d0c4296f5bf2eaf9880719d15428fcfae858"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_teacher_mission.py",
+      "bytes": 22266,
+      "sha256": "4bcd96d4b11ed90e1d9c62500beef1339dcdf742711d9e624480979a2e22e8a8"
+    },
+    {
+      "path": "src/multidetect/autonomy/planner.py",
+      "bytes": 30753,
+      "sha256": "2b24eebb5195ba55bdd1896265e94004fb2bfc0f03d8d225d18f2006cc9f93c3"
+    },
+    {
+      "path": "src/multidetect/px4_mission.py",
+      "bytes": 100372,
+      "sha256": "b9f3caca92537d84d95bfb52b305b6a5d07ebc734ea89570bf40c004c463a6dd"
+    },
+    {
+      "path": "src/multidetect/px4_external_mission.py",
+      "bytes": 33017,
+      "sha256": "450a9390431fa60891e857a410aa4df7ec194ef0550c9cf1baba53a07fee161a"
+    },
+    {
+      "path": "src/multidetect/release_parity.py",
+      "bytes": 44582,
+      "sha256": "cf0171ff0817d98fcf154995558702644e71d05e659e7f134b3a4d7941c83275"
+    },
+    {
+      "path": "tests/test_sim_planning_inputs.py",
+      "bytes": 22387,
+      "sha256": "52a738294a4c9179a76ef6d29e9d6d3b22858a7531c556f9d495df9edf3bf5c4"
+    },
+    {
+      "path": "tests/test_sim_teacher_compilation.py",
+      "bytes": 11961,
+      "sha256": "685a2fc0a030f7a488d5f2eb2819f892b2b9b8ba1c766e1388056c9019c38880"
+    },
+    {
+      "path": "tests/test_sim_mission_context_admission.py",
+      "bytes": 7941,
+      "sha256": "c47f55d7cd1e7f84d9b052bd1ec4c7013f7e001d4bdee62853b51c6359e760bb"
+    },
+    {
+      "path": "tests/test_px4_external_mission_gcs_identity.py",
+      "bytes": 11404,
+      "sha256": "b2da3d6ac3e11c64589eb7f8b79a1f1ec15ac00963c63e313ab011dd6afe3679"
+    },
+    {
+      "path": "docs/onboard-pretrained-action-research-20261008-r3.md",
+      "bytes": 8410,
+      "sha256": "c5ea987cf226a409c42e6aeb1978f4328330614cd9385b2408bac1bff344e7e0"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 14343,
+      "sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa"
+    }
+  ],
+  "remaining_gates": [
+    "Fresh actual observation and owned-container inspection in the same new session/clock.",
+    "Reviewed and declared exact-scope SIM energy/capability source for the actual scenario.",
+    "Fresh camera/geofence sources, verified EKF/map origin, complete 3-D collision/route-clearance review including takeoff/return/landing and uncertainty margins.",
+    "Narrow Mission sender facade owned by unique RX/send worker and persisted source-filtered response consumer.",
+    "Real validation report, explicit disposable-SIM intent/grant, persistent upload/readback/commit/permit, normal preflight/ARM and actual motion.",
+    "Actual command/settled attitude/displacement/post-action-image intervals reviewed before new action/history training.",
+    "Independent scene holdout, shared model deployment identity, Jetson/HIL/REAL/outdoor GNSS and final release gates."
+  ],
+  "claims": {
+    "source_authenticated": false,
+    "current_live_runtime_proven": false,
+    "new_external_SIM_run": false,
+    "mission_approved": false,
+    "mission_uploaded": false,
+    "ARM_sent": false,
+    "actual_flight": false,
+    "actual_action_trajectory": false,
+    "new_weights_downloaded": false,
+    "new_model_loaded": false,
+    "new_model_inference": false,
+    "optimizer_updates": false,
+    "model_quality_improved": false,
+    "candidate_promoted": false,
+    "default_policy_modified": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "jetson_runtime_proven": false,
+    "outdoor_gnss_evidence": false,
+    "execution_authority": false,
+    "physical_output_enabled": false,
+    "final_release_allowed": false
+  },
+  "current_source_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 14343,
+    "sha256": "8d34b9246dc74f6ac2e6c9ba94e5b22c5022ea0d8710bd7d208ee10780424afa",
+    "hashes": {
+      "core_algorithm_hash": "1827cf83da04167f8c88610179510ff7db698de57915882376c98ee4c821d10b",
+      "px4_mission_path_hash": "a3f40f93b912b427e5d6bb20c1828f1edaaeddc8b0f70d0a2c1119d16751d4d3",
+      "safety_policy_hash": "df15ef2e2dc1492d5fdae2a4a1b814fa12542b5d2c65f663a868385f17e3f5a5",
+      "task_contract_hash": "c7628b1f34411814add4d245c87b301706310e3a2e23ec3c84aec39a705cc0f9",
+      "ui_contract_hash": "ddb3b9088cfbd411c963baea376e9de69b6c6f0a8064eeff8959c7b1fe745896"
+    },
+    "release_label": "0.3.0-pre.8",
+    "scope": "current source computation and retained-file audit only; not a current external SIM/HIL/REAL rerun"
+  },
+  "updated_at_utc": "2026-10-08T09:15:15Z"
+}

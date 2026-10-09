@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "status": "actual_CPU_linear_replay_and_descriptive_diagnostics_not_new_training_or_navigation_quality",
+  "report": {"path": "artifacts/diagnostics/onboard-navigation-head-diagnostics-20261008-r1.json", "bytes": 92108, "sha256": "8606e84804bba76bd13c5617e4c9564c3acc10b4513f0504304d68d04664ec13"},
+  "sources": [
+    {"path": "scripts/audit_onboard_navigation_head_diagnostics.py", "bytes": 16658, "sha256": "050db0abb7f6df40d406b7bd696e1c09bfa4dc3f76991fd8e6ff2fd8c2fe39ca"},
+    {"path": "tests/test_audit_onboard_navigation_head_diagnostics.py", "bytes": 6896, "sha256": "3b8ecf1eee1fbd54649b6b06776f2a8d0cee6b401ea79b5bbe3747b5927cd011"}
+  ],
+  "execution": {
+    "stdout_only_first_run_native_chunk": "02621f",
+    "stdout_only_first_run_native_exit_code": 0,
+    "first_full_report_durable": false,
+    "durable_second_recompute_native_chunk": "1c8c50",
+    "durable_second_recompute_native_exit_code": 0,
+    "actual_feature_matrix_read_passes_across_both_runs": 2,
+    "matrix_read_passes_per_run": 1,
+    "root_report_and_source_file_verification_chunks": ["1f87db", "df1608"],
+    "root_report_and_source_file_verification_exit_codes": [0, 0],
+    "optimizer_calls": 0,
+    "backbone_or_processor_loaded": false,
+    "heavy_modules_imported": [],
+    "actual_Gazebo_rerun": false,
+    "CPU_runtime_version_and_origin_reported_not_full_runtime_authentication": true
+  },
+  "diagnostics": {
+    "cache_shape": [208, 2048],
+    "saved_heads": 11,
+    "sealed_raw_rows_CPU_replayed": 502,
+    "raw_argmax_matches_sealed_outputs": true,
+    "largest_absolute_replay_difference": 0.00000286102294921875,
+    "NumPy_FP32_tolerance_replay_not_PyTorch_BLAS_bitwise": true,
+    "class_order": ["forward", "turn_yaw_left", "turn_yaw_right", "sequence_stop"],
+    "final_all208_TRAIN_gold_counts": [178, 10, 11, 9],
+    "final_all208_TRAIN_raw_prediction_counts": [53, 54, 56, 45],
+    "final_all208_TRAIN_raw_classifier_correct": 83,
+    "episode_out_raw_prediction_counts": [42, 43, 70, 53],
+    "episode_out_raw_classifier_correct": 53,
+    "raw_classification_is_not_metric_validity_or_prior_legal_action_score": true,
+    "final_all208_class_bias": [0.027054673060774803, -0.017361167818307877, -0.020375844091176987, -0.039584118872880936],
+    "all_11_STOP_bias_below_other_classes": true,
+    "final_all208_STOP_winner_bias_margin_mean": -0.04115941027800242,
+    "final_all208_STOP_winner_feature_margin_mean": 1.1417702307303748,
+    "episode_out_05_predictions": {"sequence_stop": 17},
+    "episode_out_07_predictions": {"turn_yaw_left": 15},
+    "live_R2_predictions": {"sequence_stop": 8},
+    "live_R2_STOP_margin_min_max": [3.314825654029846, 5.773542046546936],
+    "live_R2_feature_bytes_available": false,
+    "live_R2_feature_distribution_or_weight_contribution_recomputed": false,
+    "live_R2_correctness_scored": false,
+    "constant_STOP_or_favorable_STOP_bias_hypothesis_supported": false,
+    "causal_attribution_proven": false,
+    "checkpoint_selected_or_hyperparameters_tuned": false
+  },
+  "software_validation": {
+    "targeted_fixture_count": 20,
+    "targeted_test_Ruff_format_native_chunk": "05b253",
+    "targeted_test_Ruff_format_native_exit_code": 0,
+    "AST_identity_scoped_diff_native_chunk": "a52e1a",
+    "AST_identity_scoped_diff_native_exit_code": 0,
+    "root_combined_160_CPU_fixture_chunk": "4af995",
+    "root_combined_160_CPU_fixture_exit_code": 0,
+    "independent_combined_160_CPU_fixture_chunk": "6fc676",
+    "independent_combined_160_CPU_fixture_exit_code": 0
+  },
+  "claims": {
+    "quality_claim": false, "candidate_promoted": false, "default_model_changed": false,
+    "new_training_performed": false, "execution_authority": false, "flight_actuated": false,
+    "physical_performance_claimed": false, "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false, "final_release_allowed": false
+  }
+}

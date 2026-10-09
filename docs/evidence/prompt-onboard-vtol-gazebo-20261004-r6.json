@@ -1,0 +1,72 @@
+{
+  "schema": "multidetect.prompt-onboard-vtol-gazebo-evidence",
+  "schema_version": 1,
+  "release_label": "0.3.0-pre.8",
+  "evaluated_at_utc": "2026-10-03T19:59:12Z",
+  "runtime_mode": "external_px4_gazebo_software_sim",
+  "campaign_input": "configs/scenarios/vtol-shared-policy-routes-prompt-v1.synthetic-campaign.json",
+  "campaign_input_sha256": "6f1d810a2d5ebc73530526fceea6887a2e4f114b0ae20db9a41f3417e2b51b4e",
+  "evidence": "artifacts/evaluation/continuation-shared-policy-vtol-prompt-onboard-sensor-20261004-current-r6.json",
+  "evidence_bytes": 6583748,
+  "evidence_sha256": "524beb880bb6141131dd07445dcf801362f55dbefcb7c1af5f577833b4cd7d09",
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 12919,
+    "file_sha256": "21f12f2c9be38b7bad9c7b99aee345b1e416af9305c3a301497a211861c9c055",
+    "core_algorithm_hash": "69fd08e3275e52d1a1d6d5f93bbe2ab581677557abb1975ece32770b6fe1fa5c",
+    "px4_mission_path_hash": "a244c172119df746c4dd1d8e42dc8cdce5c3e8fa292ec6993d1eb4c92624be27"
+  },
+  "policy": {
+    "artifact": "configs/evaluation/vtol-shared-policy-v1.json",
+    "artifact_file_sha256": "46da2a0576b4d27759d38436bb81458a0befccfc67a3bebf048bf2af9b492ce9",
+    "artifact_canonical_sha256": "9a6ac988d5f4527f8903151dfd0947653d5d3b69781ec283b00c867348f6e27",
+    "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "airframe_profile_sha256": "deff802efea71ae996f5fb0b2aae0ce6997ed9443d6255b935f313120c1c1e7f",
+    "shared_policy_used": true,
+    "planner_revalidated": true,
+    "policy_applied_to_actuator": false
+  },
+  "prompt": {
+    "prompt_id": "prompt-vtol-shared-policy-east-west-v1",
+    "prompt_sha256": "7b5880fd4147958846c311f5e7f355a3c3299bf4654f1066173cee30a82fe264",
+    "provenance_bound": true,
+    "onboard_ai_used": true,
+    "prompt_resolution_bound": true,
+    "resolution_mode": "approved_prompt_id_to_static_task_catalog",
+    "free_form_natural_language_task_generation": false
+  },
+  "mission": {
+    "sorties": 2,
+    "tasks": ["synthetic-east", "synthetic-west"],
+    "upload_readback_commit_permit": true,
+    "journal_hash_chain_verified": true,
+    "router_mission_frames_forwarded": 35,
+    "router_control_commands_forwarded": 2,
+    "container_cleanup_removed": true
+  },
+  "sensor_capture": {
+    "same_container_as_flight_barrier": true,
+    "qualified": true,
+    "frame_count": 3,
+    "wire_version": 3,
+    "pixel_format": "BGR24",
+    "depth_companion_frames": 3,
+    "sensor_binding_hash": "a4ecfa7069112fcf51a99e888c8d51c72e4014fd33a7f7803ab6c789a909ab7b",
+    "first_sortie_task": "synthetic-east",
+    "first_sortie_mission_sha256": "5faa2d3e4485f96d7644156ac4f1005bf96820825eedb053efda78840554d5c7",
+    "pixels_persisted": true,
+    "raw_payload_hashes_verified": true,
+    "truth_free": true
+  },
+  "safety_boundary": {
+    "software_sim_only": true,
+    "qgc_visual_acceptance": "not_claimed",
+    "jetson_hardware": "not_claimed",
+    "pixhawk_hardware": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "claims_boundary": "Fresh pinned PX4/Gazebo software simulation proves the shared Prompt provenance, approved catalog dispatch, OnboardAI/planner/Mission hash binding, two completed Mission sorties and same-container image/depth sensor capture. It does not prove free-form natural-language mission generation, external event replanning, QGC visual acceptance, Jetson/Pixhawk hardware, HIL, REAL, outdoor GNSS or final 0.3.0 release."
+}

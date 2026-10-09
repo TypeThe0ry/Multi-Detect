@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-recovery267-terminal-audit-software-evidence-v2",
+  "status": "five_file_PEFT_snapshot_auditor_software_passed_actual_terminal_audit_not_run",
+  "bindings": [
+    {
+      "path": "scripts/audit_onboard_navigation_recovery267_terminal_v2.py",
+      "bytes": 11861,
+      "sha256": "d89c97e3110ee11fe0252dca8ec7f5ad0f8de5e6f82716be0b38b26a041a24bb"
+    },
+    {
+      "path": "tests/test_audit_onboard_navigation_recovery267_terminal_v2.py",
+      "bytes": 12835,
+      "sha256": "5724f0effcf34254e98da93eaa29b995274183685bf317ff6cc22a63db43a304"
+    },
+    {
+      "path": "scripts/audit_onboard_navigation_recovery267_terminal.py",
+      "bytes": 40489,
+      "sha256": "5f0b5989bba74ceb6c158f57b24904699b44e0335211bc2eb683839c928ae2c0"
+    },
+    {
+      "path": "tests/test_audit_onboard_navigation_recovery267_terminal.py",
+      "bytes": 28212,
+      "sha256": "be90ad9ea520da96c5b18be749f73863a80c015acddc2972f6711eebd0eb404d"
+    },
+    {
+      "path": "configs/training/onboard-navigation-recovery-20261008-r2.json",
+      "bytes": 124168,
+      "sha256": "0c50e812781e4cbbf0f4935714486ae78e65e252a7fd0e33d2c321bb10602979"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-recovery267-terminal-audit-software-20261008-r1.json",
+      "bytes": 4086,
+      "sha256": "baa3f5e846322f742fb53efbd0522b4bb9efa640512e0f4c10e769cbc56bc648"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-recovery-v2-checkpoint267-20261008-r1.json",
+      "bytes": 5473,
+      "sha256": "293b25b22fdfe5b55522e76426b4927a9064dd75f7fc4f9de5ffe19722932ef5"
+    }
+  ],
+  "preserved_actual_format_gap": {
+    "frozen_r1_required_exact_four_snapshot_files": true,
+    "actual_PEFT_snapshot_directories_have_exact_five_files": true,
+    "actual_snapshot_directory_count": 34,
+    "actual_periodic_directory_count": 33,
+    "observed_README_bytes": 5438,
+    "observed_README_sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307",
+    "independent_metadata_native_exit_codes": [0, 0],
+    "independent_metadata_tool_chunks": ["35ef58", "9298ca"],
+    "first_exact_four_preparation_failure_native_exit_code": 1,
+    "first_exact_four_preparation_failure_tool_chunk": "f1f9c6",
+    "old_failure_and_sealed_r1_sources_tests_evidence_preserved": true
+  },
+  "software_verification": {
+    "author_final_full_tests_passed": 50,
+    "author_final_full_tests_native_exit_code": 0,
+    "author_final_full_tests_terminal_tool_chunk": "15e7fb",
+    "root_final_full_tests_passed": 50,
+    "root_final_full_tests_native_exit_code": 0,
+    "root_final_full_tests_terminal_tool_chunk": "7af9f6",
+    "root_ruff_and_format_native_exit_code": 0,
+    "root_ruff_and_format_tool_chunk": "d1185d",
+    "independent_final_identity_native_exit_code": 0,
+    "independent_final_identity_tool_chunk": "9db098",
+    "independent_read_only_review_current_blockers": 0,
+    "independent_isolated_stdlib_import_native_exit_code": 0,
+    "independent_isolated_stdlib_import_tool_chunk": "4ee82e",
+    "actual_active_phase_CLI_native_exit_code": 1,
+    "actual_active_phase_CLI_tool_chunk": "233a60",
+    "actual_active_phase_CLI_expected_refusal": true,
+    "actual_active_lock_and_no_output_native_exit_code": 0,
+    "actual_active_lock_and_no_output_tool_chunk": "273023",
+    "actual_terminal_audit_output_created": false,
+    "test_scope": "synthetic_CPU_terminal_fixtures_plus_one_actual_small_README_not_actual_terminal_model_audit"
+  },
+  "implemented_extension": {
+    "frozen_r1_source_and_test_SHA_authenticated_before_isolated_import": true,
+    "only_private_snapshot_function_replaced_and_restored_in_finally": true,
+    "exact_five_files_required_no_unknown_extras_ignored": true,
+    "all34_README_bindings_checked_at_snapshot_and_final_recheck": true,
+    "READMEs_are_current_audit_observations_not_invented_historical_receipt_fields": true,
+    "READMEs_are_not_parameter_or_quality_evidence": true,
+    "four_audit_source_bindings_rechecked_before_after": true,
+    "all_other_r1_phase_source_WAL_parameter_reload_and_raw_diagnostic_gates_retained": true,
+    "actual_process_native_exit_must_still_be_verified_separately": true,
+    "new_create_only_v2_output_prefix_required": true
+  },
+  "actual_terminal_filesystem_audit_performed": false,
+  "actual_live_WAL_read_by_this_stage": false,
+  "actual_training_weights_read_by_this_stage": false,
+  "actual_model_loaded_by_this_stage": false,
+  "actual_processor_used_by_this_stage": false,
+  "actual_GPU_used_by_this_stage": false,
+  "complete267_verified_by_this_stage": false,
+  "fresh_saved_adapter_reload_verified_by_this_stage": false,
+  "actual_train_native_exit_code": null,
+  "actual_reload_native_exit_code": null,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

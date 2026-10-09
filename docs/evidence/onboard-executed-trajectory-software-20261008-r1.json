@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "status": "software_executed_trajectory_contract_and_source_projection_closed_not_actual_teacher_collection_or_training",
+  "sources": [
+    {"path": "src/multidetect/autonomy/onboard_executed_trajectory.py", "bytes": 23616, "sha256": "d8d5ee64d5c6f1d3d7968328a914a0477174387f4748b6f00082a4ddd548aefc"},
+    {"path": "tests/test_onboard_executed_trajectory.py", "bytes": 19681, "sha256": "07e21386d44749b68ab4d36932f5a28db5f7e35d3fa538f665c1a18865ad4536"},
+    {"path": "scripts/build_onboard_executed_trajectory_bundle.py", "bytes": 15190, "sha256": "ca63df2b19779dfc5ea9dd7d38800a844f61a6333464afbf9b00a4feced28c70"},
+    {"path": "tests/test_build_onboard_executed_trajectory_bundle.py", "bytes": 14996, "sha256": "1f9259d86dd4a5e452a5199dea68d51c838f926df28c2c886bc1277b3e49b018"}
+  ],
+  "validation": {
+    "contract_fixture_count": 107, "bundle_fixture_count": 33,
+    "contract_author_native_chunk": "be1e49", "contract_author_native_exit_code": 0,
+    "root_combined_contract_bundle_diagnostic_fixture_count": 160,
+    "root_combined_native_chunk": "4af995", "root_combined_native_exit_code": 0,
+    "independent_combined_fixture_count": 160,
+    "independent_combined_native_chunk": "6fc676", "independent_combined_native_exit_code": 0,
+    "independent_Ruff_native_chunk": "7e4e40", "independent_Ruff_native_exit_code": 0,
+    "independent_final_identity_native_chunk": "131c41", "independent_final_identity_native_exit_code": 0,
+    "independent_three_original_failure_reproductions_closed_native_chunk": "15f636",
+    "independent_three_original_failure_reproductions_closed_native_exit_code": 0,
+    "tests_use_tiny_software_fixtures_not_actual_flight_or_camera": true
+  },
+  "capabilities": {
+    "proposed_approved_submitted_and_outcome_separate": true,
+    "command_UUID_bound_not_MAV_CMD_number": true,
+    "changed_approved_target_rejected_not_hidden": true,
+    "original_teacher_target_not_replaced_with_actual_displacement": true,
+    "full_quaternion_and_explicit_FRD_NED_ENU_Gazebo_FLU_conversion": true,
+    "common_observer_clock_and_pose_skew_checked": true,
+    "RGB_metadata_and_pose_each_have_original_JSON_record_projection": true,
+    "endpoint_hashes_bound_to_outcome": true,
+    "only_endpoint_difference_not_continuous_path_or_execution_causality": true,
+    "source_file_SHA_and_exact_JSON_fields_reopened_under_bounded_root": true,
+    "duplicate_vehicle_command_execution_rejected": true,
+    "episode_vehicle_and_clock_domain_consistent": true,
+    "original_JSON_numeric_representation_preserved": true,
+    "expected_output_bytes_SHA_checked_not_tampered_output_rebound": true,
+    "output_create_only_and_failure_artifacts_not_overwritten": true,
+    "STOP_not_hover_wait_land_RTL_or_mission_completion": true,
+    "source_hashes_are_integrity_not_producer_authentication": true
+  },
+  "remaining_real_data_requirements": [
+    "NEW_owned_Gazebo_teacher_collector_with_single_sortie_and_explicit_Mission_sequence",
+    "actual_send_ACK_wire_transaction_and_settled_endpoint_records",
+    "qualified_SIM_route_geometry_or_independent_clearance_never_Actor_input",
+    "original_sensor_stamps_and_verified_pose_RGB_temporal_mapping",
+    "expert_review_and_world_grouping_before_training_admission"
+  ],
+  "claims": {
+    "actual_teacher_trajectory_collected": false, "pixel_content_decoded": false,
+    "source_producer_authenticated": false, "expert_labels_reviewed": false,
+    "new_optimizer_attempts": 0, "training_ready": false, "train_admitted": false,
+    "runtime_Actor_created": false, "execution_authority": false, "flight_control_commands_sent": 0,
+    "quality_claim": false, "candidate_promoted": false, "default_model_changed": false,
+    "physical_performance_claimed": false, "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false, "final_release_allowed": false
+  }
+}

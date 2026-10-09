@@ -1,0 +1,83 @@
+{
+  "schema": "multidetect.gazebo-image-sim-evidence.v1",
+  "generated_at_utc": "2026-10-03",
+  "status": "passed",
+  "run_kind": "external-px4-gazebo-sensor-acceptance",
+  "scenario": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "container": {
+    "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+    "removed_after_run": true,
+    "cleanup_errors": []
+  },
+  "source_evidence": {
+    "acceptance": {
+      "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/acceptance.json",
+      "sha256": "c7df7787b3d389118d224c7b3822a85b26e045bd486b77eeb72737b7146eda6a"
+    },
+    "rgb_manifest": {
+      "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/rgb-frames/gazebo-bgr24-frame-set.manifest.json",
+      "sha256": "1f4b7d04932cae7cdef11f99941e00d45ff09d9ce849daffdcf708a4178e571f"
+    },
+    "depth_manifest": {
+      "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/depth-frames/gazebo-depth-companion-set.manifest.json",
+      "file_sha256": "261b01a95414825a9226685767b953cdf9e3a20b2aa21e4699b78d87acba8b10",
+      "canonical_sha256": "aac2cf8a558aa39878f2bb1cae8b13b3b3c8601199af646c76b2c94f7c829204"
+    }
+  },
+  "image_capture": {
+    "actual_gazebo_pixels_persisted": true,
+    "frame_count": 3,
+    "width": 1280,
+    "height": 960,
+    "stride": 3840,
+    "pixel_format": "BGR24",
+    "rgb_files": [
+      {
+        "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/rgb-frames/frame-000000.bgr24",
+        "bytes": 3686400,
+        "sha256": "c190e3ecfb77f2b0f9184054886565683b90337efe758732bdde48960d1bccf1"
+      },
+      {
+        "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/rgb-frames/frame-000001.bgr24",
+        "bytes": 3686400,
+        "sha256": "746445325bc6a955466361899295531d16bfb4c2710d25a40d98ae6289b7a6f0"
+      },
+      {
+        "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/rgb-frames/frame-000002.bgr24",
+        "bytes": 3686400,
+        "sha256": "8cc1aec293035296a20e6ded21221550dceaca940d2b0c26986498192f0b90b1"
+      }
+    ],
+    "preview_png": {
+      "path": "artifacts/evaluation/gazebo-image-sim-20261003-r3/rgb-frames/frame-000000.png",
+      "sha256": "289dcbdf545a5e88040e454f3284ea859f5f21dd5d4761a3dfcd67160a2f73d"
+    }
+  },
+  "depth_capture": {
+    "actual_gazebo_depth_persisted": true,
+    "encoding": "FLOAT32_M",
+    "frame_count": 3,
+    "total_payload_bytes": 14745600,
+    "raw_bytes_sha256_matches_wire_payload": true,
+    "calibration_id": "gazebo-front-depth-v1",
+    "distance_semantics": "optical_axis_z_m"
+  },
+  "telemetry": {
+    "sensor_transport_gate_passed": true,
+    "gps_fix_type": 3,
+    "satellites_visible": 12,
+    "latitude_deg": 1.3,
+    "longitude_deg": 103.8005
+  },
+  "claims": {
+    "machine_sensor_transport": "passed",
+    "external_gazebo_process": "passed",
+    "qgc_rendering": "not_claimed",
+    "manual_visual_acceptance": "not_claimed",
+    "detector_evaluation": "not_claimed",
+    "metric_depth_calibration": "not_claimed",
+    "outdoor_distance_accuracy": "not_claimed",
+    "hil_real_hardware": "not_claimed",
+    "final_release": "not_claimed"
+  }
+}

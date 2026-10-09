@@ -1,0 +1,57 @@
+{
+  "schema": "multidetect.gazebo-image-detector-smoke.v1",
+  "generated_at_utc": "2026-10-03",
+  "status": "passed",
+  "scope": "external-gazebo-rgb-candidate-detector-smoke",
+  "scenario": {
+    "manifest": "configs/scenarios/validation/gazebo_car_positive_control_001.scenario.json",
+    "scenario_id": "gazebo_car_positive_control_001",
+    "scenario_manifest_sha256": "1465c8c28437806a2835c80252994f293d472cb508ef92879857e160fe173fe9"
+  },
+  "source_evidence": {
+    "acceptance_path": "artifacts/evaluation/gazebo-car-image-sim-20261003-r2/acceptance.json",
+    "acceptance_sha256": "3c181c5c3b045e9c7fea6a74b8e99d67afaffb61898164f2febd2d2dee7f3e13",
+    "rgb_manifest_path": "artifacts/evaluation/gazebo-car-image-sim-20261003-r2/rgb-frames/gazebo-bgr24-frame-set.manifest.json",
+    "rgb_manifest_file_sha256": "899258f69ce4f505f0b61259fb9d39a2c4ac4cd3f9b64b6f579e5d23b4524552",
+    "rgb_manifest_canonical_sha256": "dbfd0939c943531417fa9c5c20f7fe600d73aa0ccd317d20a0ecd1643040155f"
+  },
+  "image_capture": {
+    "actual_gazebo_pixels_persisted": true,
+    "frame_count": 3,
+    "width": 1280,
+    "height": 960,
+    "pixel_format": "BGR24",
+    "first_frame_path": "artifacts/evaluation/gazebo-car-image-sim-20261003-r2/rgb-frames/frame-000000.bgr24",
+    "first_frame_sha256": "1d18a1855b88748f38a49ae78e5c4800ffe7db07977df13687467e4524d3ab97",
+    "first_frame_preview_path": "artifacts/evaluation/gazebo-car-image-sim-20261003-r2/rgb-frames/frame-000000.png",
+    "first_frame_preview_sha256": "a03eb759ca074f772c7ad7946e46ce3537387ff2bd055810c0f5825d422ed08a"
+  },
+  "candidate_detector_smoke": {
+    "model_manifest": "configs/models/ultralytics_yolo26n_coco80_v56_quarantined_candidate.manifest.json",
+    "model_status": "quarantined",
+    "runtime_model_path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx",
+    "provider": "CPUExecutionProvider",
+    "confidence_threshold": 0.1,
+    "detections_first_frame": [
+      {
+        "label": "car",
+        "confidence": 0.806,
+        "normalized_bbox": [0.382, 0.211, 0.612, 0.361]
+      }
+    ],
+    "production_approved": false,
+    "accuracy_validated": false,
+    "flight_control_authorized": false
+  },
+  "claims": {
+    "gazebo_rgb_transport": "passed",
+    "candidate_detector_input_path": "passed",
+    "qgc_rendering": "not_claimed",
+    "manual_visual_acceptance": "not_claimed",
+    "detector_accuracy": "not_claimed",
+    "metric_depth": "not_requested",
+    "outdoor_distance_accuracy": "not_claimed",
+    "hil_real_hardware": "not_claimed",
+    "final_release": "not_claimed"
+  }
+}

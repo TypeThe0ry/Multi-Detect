@@ -1,0 +1,260 @@
+{
+  "contract": "multidetect.onboard-far-visual-preparation-evidence-v1",
+  "status": "actual_3d_clip_suite_and_smoke_audited_full_render_in_progress_training_not_yet_started",
+  "observed_at_utc": "2026-10-07T00:00:00Z",
+  "data_provenance": "offline_Blender_render_of_repository_SDF_geometry_not_Gazebo_capture",
+  "sources": [
+    {
+      "path": "scripts/render_onboard_sdf_blender_far_curriculum.py",
+      "bytes": 19925,
+      "sha256": "21892b376991caf7815192dda5c0025ef296f86379c7f4ef38ed5d171d92b7e2"
+    },
+    {
+      "path": "scripts/render_onboard_sdf_blender_clip_suite.py",
+      "bytes": 22895,
+      "sha256": "31d6803ad278da13f1c8af0fce6c692616af5e4abaf6033e65862f62870668df"
+    },
+    {
+      "path": "scripts/audit_onboard_visual_dataset.py",
+      "bytes": 14904,
+      "sha256": "6fb5d40229c5329a3b35c849e975025687a4f4a861e3be3afd232fc7ad518dec"
+    }
+  ],
+  "suite": {
+    "path": "artifacts/training/onboard-blender-sdf-clip-suite-20261007-r3/manifest.json",
+    "bytes": 9150136,
+    "sha256": "acc3ce0c867a78255fd7e2a1ef4c454d35da9fc97c6d2b8285520f6c8aac3f6e"
+  },
+  "parent_baseline": {
+    "path": "artifacts/evaluation/onboard-clip-suite-r3-parent-r2-20261007.json",
+    "bytes": 91650,
+    "sha256": "0a72516d755f4480ac0aba68e42775fda76c0397d3a06e01ed0b1fdd5ac83541",
+    "counters": {
+      "frames": 48,
+      "detector_detections": 1,
+      "currently_observed_tracks": 1,
+      "visible_gt_frames": 35,
+      "detection_tp": 1,
+      "detection_fp": 0,
+      "detection_fn": 34,
+      "track_matched_frames": 1,
+      "track_fp": 0,
+      "track_missed_visible_frames": 34,
+      "fully_occluded_frames": 13,
+      "absent_frames": 0,
+      "out_of_frame_frames": 0,
+      "partial_occlusion_frames": 23,
+      "id_switches": 0,
+      "fragmentations": 0,
+      "occlusion_events": 3,
+      "reacquired_occlusion_events": 1,
+      "occlusion_events_with_preexisting_track": 0,
+      "same_identity_recovered_events": 0
+    },
+    "formal_confidence": 0.25,
+    "ground_truth_into_runtime": false,
+    "preexisting_track_events": 0,
+    "same_identity_recoveries": 0,
+    "reacquired_without_preexisting_track_is_not_tracking_robustness": true
+  },
+  "previous_dataset_audit": {
+    "path": "artifacts/evaluation/onboard-visual-dataset-r2-audit-20261007-r2.json",
+    "bytes": 623040,
+    "sha256": "160419b055d2a8d251b3ca0ae159b41b46fc1db3641817b561a7157150168e58",
+    "frame_count": 576,
+    "training_visible_frames": 135,
+    "low_angle_and_small_visible_frames": 10
+  },
+  "smoke": {
+    "manifest": {
+      "path": "artifacts/training/onboard-blender-sdf-far-smoke-20261007-r3/manifest.json",
+      "bytes": 2227478,
+      "sha256": "3e055e1c90c7ff08855357956a0b603b634ec2e756955e24e47cbb5089523638"
+    },
+    "audit": {
+      "path": "artifacts/evaluation/onboard-far-smoke-r3-20261007-audit.json",
+      "bytes": 53919,
+      "sha256": "04633c239163c898436114b271391a9058bc736959f9a94fcc988f91a9b144a4"
+    },
+    "frames": 36,
+    "native_render_exit_code": 0,
+    "native_audit_exit_code": 0
+  },
+  "measured_clip_conditions": [
+    {
+      "id": "train-suite-near-00000",
+      "split": "train",
+      "conditions": {
+        "clear": 3,
+        "partially_occluded": 9,
+        "fully_occluded": 4
+      },
+      "distance_range": [
+        24.002384746170314,
+        24.53072641031372
+      ]
+    },
+    {
+      "id": "train-suite-medium-00001",
+      "split": "train",
+      "conditions": {
+        "fully_occluded": 16
+      },
+      "distance_range": [
+        34.00358857154361,
+        34.7981040019781
+      ]
+    },
+    {
+      "id": "train-suite-far-00002",
+      "split": "train",
+      "conditions": {
+        "clear": 2,
+        "partially_occluded": 10,
+        "fully_occluded": 4
+      },
+      "distance_range": [
+        45.00059619666012,
+        45.13394578744238
+      ]
+    },
+    {
+      "id": "val-suite-near-00000",
+      "split": "val",
+      "conditions": {
+        "clear": 6,
+        "partially_occluded": 5,
+        "fully_occluded": 5
+      },
+      "distance_range": [
+        24.005917397118104,
+        25.29655643330043
+      ]
+    },
+    {
+      "id": "val-suite-medium-00001",
+      "split": "val",
+      "conditions": {
+        "partially_occluded": 9,
+        "clear": 3,
+        "fully_occluded": 4
+      },
+      "distance_range": [
+        34.000881737540894,
+        34.19781804888231
+      ]
+    },
+    {
+      "id": "val-suite-far-00002",
+      "split": "val",
+      "conditions": {
+        "partially_occluded": 10,
+        "fully_occluded": 4,
+        "clear": 2
+      },
+      "distance_range": [
+        45.00147036907992,
+        45.32963115132378
+      ]
+    },
+    {
+      "id": "test-suite-near-00000",
+      "split": "test",
+      "conditions": {
+        "clear": 5,
+        "partially_occluded": 6,
+        "fully_occluded": 5
+      },
+      "distance_range": [
+        24.006666502443455,
+        25.45600569407318
+      ]
+    },
+    {
+      "id": "test-suite-medium-00001",
+      "split": "test",
+      "conditions": {
+        "clear": 3,
+        "partially_occluded": 9,
+        "fully_occluded": 4
+      },
+      "distance_range": [
+        34.004456854856535,
+        34.988488801390126
+      ]
+    },
+    {
+      "id": "test-suite-far-00002",
+      "split": "test",
+      "conditions": {
+        "partially_occluded": 10,
+        "fully_occluded": 4,
+        "clear": 2
+      },
+      "distance_range": [
+        45.00267516625886,
+        45.59795748668796
+      ]
+    }
+  ],
+  "clips": {
+    "frames": 144,
+    "count": 9,
+    "test_frames": 48,
+    "test_clip_count": 3,
+    "native_render_exit_code": 0,
+    "training_medium_clip_fully_occluded_frames": 16,
+    "qualification": "new_seed_pixels_development_holdout_not_untouched_blind_benchmark",
+    "distance_profiles_are_joint_angle_light_and_framing_conditions_not_causal_distance_test": true,
+    "flight_action_labels_created": false
+  },
+  "full_training_dataset": {
+    "requested_split_frames": {
+      "train": 384,
+      "val": 96,
+      "test": 96
+    },
+    "status": "render_in_progress_no_sealed_manifest_claimed",
+    "manifest": "artifacts/training/onboard-blender-sdf-far-curriculum-20261007-r3/manifest.json",
+    "seed": 20261011
+  },
+  "planned_increment": {
+    "parent_checkpoint": "artifacts/models/onboard-vision-sdf-r2-curriculum-dev-20261007/weights/best.pt",
+    "parent_sha256": "0930ede267d03c8c90cad583de6641a2190b06e628b17d6385b9e1c44c14528d",
+    "epochs": 30,
+    "input_size": 640,
+    "batch": 4,
+    "device": "local_RTX_4060_CUDA",
+    "training_started": false,
+    "trained_model_created": false
+  },
+  "verification": {
+    "tests_passed": 416,
+    "ruff_passed": true,
+    "source_races_fixed_before_actual_render": true,
+    "first_previous_dataset_audit_source_drift_rejected_without_report": true
+  },
+  "cluster_blender_preflight": {
+    "job_id": "6eb8755d-80f6-49c1-a136-4a951a9ce077",
+    "source_snapshot": {
+      "type": "snapshot",
+      "digest": "sha256:8aef0eb5b3882991b79c09d28c459251ac76899582e8d2a06abd8c73a90fff53",
+      "sizeBytes": 4197996
+    },
+    "plan_error": "no_eligible_node",
+    "submit_error": "no_eligible_node",
+    "executed": false,
+    "native_exit_code": null,
+    "local_fallback": true
+  },
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,30 @@
+{
+  "outcome": {
+    "mission_hash": "71459e516833542b165c02c0d783ddf4af0aa115716b38c8b00168c68ee3cb87",
+    "status": "completed",
+    "reason": "terminal_reached_landed_disarmed",
+    "elapsed_s": 101.141
+  },
+  "reconciliations": [
+    {
+      "sequence": 1,
+      "received_at_s": 31.015999999945052,
+      "confirmed_at_s": 31.046999999904074,
+      "delay_s": 0.030999999959021807,
+      "accepted": true
+    }
+  ],
+  "events": 285,
+  "schema_version": 1,
+  "source": "artifacts/evaluation/postflight-observation-20260908-c/vtol-mission-acceptance.json",
+  "validation": "offline_replay_of_actual_events_new_live_run_pending",
+  "product_version": "0.3.0-pre.8",
+  "policy": {
+    "max_wait_s": 0.25,
+    "max_pending": 1,
+    "max_ahead": 1,
+    "duplicates_extend_deadline": false,
+    "raw_timestamps_preserved": true,
+    "strict_tracker_timestamp": "confirmation_processing_time"
+  }
+}

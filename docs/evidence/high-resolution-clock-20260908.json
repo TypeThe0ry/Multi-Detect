@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0-pre.8",
+  "clock_source": "src/multidetect/clock.py",
+  "clock_source_sha256": "be25d4563c03b0bd528dde8b86894fe105226d765115e6fd0206904ec55c29bf",
+  "core_algorithm_hash": "327daf1814bd4bb99b15512a1bd71deebd38bd1ea664518820d1e2ebae23e733",
+  "clock_added_to_core_parity": true,
+  "new_clock_tests": 12,
+  "focused_checks_passed": 90,
+  "full_command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/high-resolution-clock-full-20260908.xml",
+  "full_tests": {"total":4217,"passed":4210,"skipped":7,"failures":0,"errors":0,"seconds":353.499,"exit_code":0},
+  "junit": "artifacts/evaluation/high-resolution-clock-full-20260908.xml",
+  "junit_bytes": 614780,
+  "junit_sha256": "c6e3f288cc5104084c9a1a5d81a83b0f7f41707f4d94d415700ff8336df33f23",
+  "historical_gate_comparison": "docs/evidence/host-clock-parity-audit-20260908.json",
+  "historical_report_sha_verified": true,
+  "default_clock_changed": false,
+  "mission_collector_migrated": false,
+  "new_external_mission_verified": false,
+  "hil_real_ui_verified": false,
+  "release_ready": false
+}

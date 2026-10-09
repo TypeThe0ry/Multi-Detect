@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "working_base": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+  "working_tree_dirty": true,
+  "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/energy-scenario-full-20260908.xml",
+  "exit_code": 0,
+  "tests": 3905,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 7,
+  "seconds": 203.46,
+  "skips": [
+    {
+      "reason": "symlink creation is unavailable",
+      "class": "tests.test_evidence_bundle_transfer",
+      "name": "test_symlink_and_nested_receipt_are_rejected"
+    },
+    {
+      "reason": "symbolic links unavailable",
+      "class": "tests.test_live_runtime_observation_mission_binding",
+      "name": "test_join_rejects_symlink_source"
+    },
+    {
+      "reason": "symbolic links are unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_replay_set_rejects_manife0\\\\symlink.manifest.json' -> 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_replay_set_rejects_manife0\\\\manifest-alias.json'",
+      "class": "tests.test_replay_set",
+      "name": "test_replay_set_rejects_manifest_and_artifact_symlinks"
+    },
+    {
+      "reason": "symbolic links unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_profile_symlink_is_reject0\\\\replay.json' -> 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_profile_symlink_is_reject0\\\\replay-link.json'",
+      "class": "tests.test_runtime_profile_binding_set",
+      "name": "test_profile_symlink_is_rejected_before_resolution"
+    },
+    {
+      "reason": "symbolic links unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_symbolic_link_source_is_r0\\\\replay-result.json' -> 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_symbolic_link_source_is_r0\\\\replay-result-link.json'",
+      "class": "tests.test_runtime_report_binding_set",
+      "name": "test_symbolic_link_source_is_rejected_before_resolution"
+    },
+    {
+      "reason": "symbolic links are unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_input_symlink_is_rejected0\\\\diagnostics.json' -> 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_input_symlink_is_rejected0\\\\alias.json'",
+      "class": "tests.test_target_observation_diagnostics",
+      "name": "test_input_symlink_is_rejected_when_supported"
+    },
+    {
+      "reason": "symbolic links are unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_directory_input_rejects_s0\\\\source\\\\target-observation-diagnostics-001.json' -> 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-admin\\\\pytest-3649\\\\test_directory_input_rejects_s0\\\\session\\\\target-observation-diagnostics-001.json'",
+      "class": "tests.test_target_observation_diagnostics_session",
+      "name": "test_directory_input_rejects_snapshot_symlink_when_supported"
+    }
+  ],
+  "report_bytes": 571704,
+  "report_sha256": "b5cb4208be14fe4702c820eb0fa93fe3bb783f5c059ae9c4e5b139ad917787c2",
+  "parity": {
+    "core_algorithm_hash": "7a2a629bc840afd6618bc560d5d67eacda642c5319a8a0425f88d55ad7fee7bc",
+    "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+    "task_contract_hash": "1ac6c700a526d78450453b784692572b3f1a7c9ff3903e2a2a818fd63948c1ae",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "passed": 3898,
+  "report_path": "artifacts/evaluation/energy-scenario-full-20260908.xml",
+  "ruff_all": "passed",
+  "git_diff_check": "passed",
+  "source_edits_during_test": false,
+  "claims": {
+    "full_python_suite": true,
+    "all_tests_executed": false,
+    "symlink_security_acceptance": false,
+    "external_energy": false,
+    "HIL": false,
+    "REAL": false,
+    "trained_model": false,
+    "release_allowed": false
+  }
+}

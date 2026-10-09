@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-parquet-exact-route-metadata-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "status": "three_original_train_episode_shards_publisher_metadata_bound_payload_and_schema_not_verified",
+  "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "original_train_annotation": {
+    "bytes": 405815796,
+    "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/raw/Annotation/train.json",
+    "sha256": "1a4c5a5ed1561ea5b3b79b6c25da7648ce4085b7d8489d62022a9bd1244100df"
+  },
+  "routes": [
+    {
+      "annotation_filenames": [
+        "20250101_175035_2",
+        "20250101_175037_5",
+        "20250101_175037_6",
+        "20250101_175039_9",
+        "20250101_175040_12",
+        "20250101_175042_15",
+        "20250101_175043_18",
+        "20250101_175045_21",
+        "20250101_175045_22"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        6,
+        9,
+        12,
+        15,
+        18,
+        21,
+        22
+      ],
+      "annotation_index": 139,
+      "config_publisher": {
+        "bytes": 773,
+        "digest": "01429a4317bfee7b669127f62f172cdbb2a7390f",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_26.yaml"
+      },
+      "development_partition": "train",
+      "image_path": "env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383",
+      "original_annotation_record_sha256": "7f226a9ad42f5279e9c0b8e1b18636aa20b488871569495705e8a71b25862e81",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet",
+      "pose_publisher": {
+        "bytes": 6122,
+        "digest": "334f68313dda33713762f6dd14ea160d3f797109",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383/pose.jsonl"
+      },
+      "required_frame_count": 23,
+      "scene_id": "env_airsim_26",
+      "shard_publisher": {
+        "bytes": 14935853,
+        "digest": "1e451b8215c41f030647f06a6109d02ec3a0cc4d9678c425c013645876901538",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_26/astar_data/low_short/2025-1-1_17-50-32_972125383.parquet"
+      }
+    },
+    {
+      "annotation_filenames": [
+        "20250109_211306_2",
+        "20250109_211307_5",
+        "20250109_211308_8",
+        "20250109_211310_11",
+        "20250109_211311_14",
+        "20250109_211312_15",
+        "20250109_211312_16"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        8,
+        11,
+        14,
+        15,
+        16
+      ],
+      "annotation_index": 220,
+      "config_publisher": {
+        "bytes": 3791,
+        "digest": "f81b6ba7a4a49c906e5294fcce20c6f4e311c1d9",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_16.yaml"
+      },
+      "development_partition": "dev-validation",
+      "image_path": "env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921",
+      "original_annotation_record_sha256": "92a5782796a89c6643c2cf1aaf7fff84562d9d3c3dbf1703e615e80bf5c22ac6",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet",
+      "pose_publisher": {
+        "bytes": 4627,
+        "digest": "835d65c1e03adcbf9ed9b16353c11adb4e093cc1",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921/pose.jsonl"
+      },
+      "required_frame_count": 17,
+      "scene_id": "env_airsim_16",
+      "shard_publisher": {
+        "bytes": 14859023,
+        "digest": "27b3b7b9cb07a025c238a2eb24efda7d422d3bcb7e220609dae59111237aa7e4",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_16/astar_data/high_short/2025-1-9_21-13-2_1569115921.parquet"
+      }
+    },
+    {
+      "annotation_filenames": [
+        "20250119_020003_2",
+        "20250119_020005_5",
+        "20250119_020007_8",
+        "20250119_020010_11",
+        "20250119_020011_12",
+        "20250119_020013_15",
+        "20250119_020015_18",
+        "20250119_020017_21",
+        "20250119_020020_24",
+        "20250119_020022_27",
+        "20250119_020024_30",
+        "20250119_020027_33",
+        "20250119_020028_35",
+        "20250119_020029_36",
+        "20250119_020031_39",
+        "20250119_020032_40",
+        "20250119_020033_41"
+      ],
+      "annotation_image_ids": [
+        2,
+        5,
+        8,
+        11,
+        12,
+        15,
+        18,
+        21,
+        24,
+        27,
+        30,
+        33,
+        35,
+        36,
+        39,
+        40,
+        41
+      ],
+      "annotation_index": 90,
+      "config_publisher": {
+        "bytes": 763,
+        "digest": "34ff6ff802cab8e76580bd1957fa3dfe8c602dc6",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "configs/env_airsim_23.yaml"
+      },
+      "development_partition": "dev-test",
+      "image_path": "env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985",
+      "original_annotation_record_sha256": "5c14d05378d8364099761b9501a1266343897630d6ce6f8149dae7ccda650d0b",
+      "original_annotation_split": "train",
+      "parquet_path": "traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet",
+      "pose_publisher": {
+        "bytes": 11094,
+        "digest": "7efc576f438ae685e77bcde33239309efe0a5f75",
+        "digest_kind": "sha1-git-blob",
+        "repository_path": "Image/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985/pose.jsonl"
+      },
+      "required_frame_count": 42,
+      "scene_id": "env_airsim_23",
+      "shard_publisher": {
+        "bytes": 26269042,
+        "digest": "cc0fcc959fb1dd8c9264eff89eb7752c3278a3aee48d3de722480d049760814f",
+        "digest_kind": "sha256-lfs",
+        "repository_path": "traj/env_airsim_23/astar_data/high_long/2025-01-19_02-00-00_373985.parquet"
+      }
+    }
+  ],
+  "shard_bytes_sum": 56063918,
+  "pose_config_bytes_sum": 27170,
+  "sources_count": 156,
+  "bindings": [
+    {
+      "path": "artifacts/diagnostics/openfly-parquet-exact-routes-20261008-r1/report.json",
+      "bytes": 75582,
+      "sha256": "5d534fffa669b168c793bacfc6cff22b54d98ec985d0553fc0c83ebd8f95331b"
+    },
+    {
+      "path": "configs/training/openfly-parquet-exact-route-metadata-20261008-r1.json",
+      "bytes": 46764,
+      "sha256": "096b1ac3c06de7794c5981da79db1cd0c1059c1af41d86c6f4b6d9f3ac44d9c5"
+    },
+    {
+      "path": "artifacts/diagnostics/openfly-parquet-exact-routes-20261008-r1/paths-info.json",
+      "bytes": 1075,
+      "sha256": "83056e8aeb858dfe7a3d159e228858a732582922796a6fa605b82d8a43dde5de"
+    },
+    {
+      "path": "scripts/bind_openfly_parquet_route_metadata.py",
+      "bytes": 15665,
+      "sha256": "a47585a2aaabeef2753dd5ffe6bd00a33a55ee0fc6ed47ce9855db3a19564573"
+    },
+    {
+      "path": "tests/test_bind_openfly_parquet_route_metadata.py",
+      "bytes": 11605,
+      "sha256": "0d0a150ff3f4345fed15c9ef6cee461a4dc826825c27109d5d5a43b3ff278618"
+    }
+  ],
+  "metadata_phase_native_exit_code": 0,
+  "metadata_phase_native_tool_chunk": "a344b1",
+  "metadata_tests": {
+    "passed": 26,
+    "native_exit_code": 0,
+    "native_tool_chunk": "423771"
+  },
+  "lint_format": {
+    "native_exit_code": 0,
+    "native_tool_chunk": "c30112"
+  },
+  "recorded_source_bindings_before_after_equal": true,
+  "recorded_source_binding_count": 156,
+  "root_lightweight_metadata_reopen": {
+    "native_exit_code": 0,
+    "native_tool_chunk": "4ebe9f",
+    "scope": "five_small_file_bindings_saved_source_array_identity_and_metadata_phase_flags_no_405MB_annotation_rehash"
+  },
+  "original_train_annotation_membership_bound_by_metadata_phase": true,
+  "original_train_annotation_independently_rehashed_by_root_followup": false,
+  "read_only_api_request_count": 1,
+  "retained_api_metadata_bytes": 1075,
+  "payload_bytes_downloaded_in_this_stage": 0,
+  "planned_payload_bytes": 56091088,
+  "planned_payload_cap_bytes": 134217728,
+  "planned_payload_scope": "only_three_exact_shards_and_corresponding_three_pose_and_three_config_files",
+  "future_bounded_acquisition_authorized_in_root_task": true,
+  "acquisition_result_not_part_of_this_snapshot": true,
+  "shard_contents_or_schema_verified": false,
+  "images_extracted": false,
+  "samples_created": false,
+  "official_seen_unseen_read_or_downloaded": false,
+  "training_ready": false,
+  "independent_holdout_available": false,
+  "previous_legacy_RGB_fetch_native_failure_preserved": true,
+  "current_frozen_86_sample_GPU_pipeline_changed": false,
+  "model_loaded": false,
+  "gpu_used": false,
+  "optimizer_performed": false,
+  "weights_downloaded": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "notes": [
+    "Exact publisher files are tied to pinned original TRAIN annotation records, not hf.py's unseen conversion default.",
+    "Development train/validation/test scene roles do not turn metadata into available RGB or independent quality evidence.",
+    "Publisher SHA-256 and Git blob identities must be checked again against actual downloaded bytes before extraction.",
+    "Parquet image/schema/pose/action auditing and future extraction are separate create-only phases.",
+    "This new snapshot does not rewrite the prior real missing-RGB acquisition failure."
+  ]
+}

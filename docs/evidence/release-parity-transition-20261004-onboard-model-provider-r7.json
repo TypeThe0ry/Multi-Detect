@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "generated_at_utc": "2026-10-04T10:30:35Z",
+  "source_runtime_evaluated_at_utc": "2026-09-27T00:50:00.000000Z",
+  "runtime_reexecuted": false,
+  "parity_rebind_only": true,
+  "evidence_scope": "retained_files_audit",
+  "evaluated_at_utc": "2026-09-27T00:50:00.000000Z",
+  "gate_passed": false,
+  "release_allowed": false,
+  "blocker_count": 32,
+  "release_blocked_reasons": [
+    "replay_set: replay_set gate_passed is false",
+    "replay_set: replay_set accuracy evidence gate_passed is false",
+    "replay_set: replay_set accuracy evidence accuracy_validated is false",
+    "replay_set: replay_set accuracy evidence artifact gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact accuracy_validated is not true",
+    "replay_set: replay_set accuracy evidence artifact deployment_domain_evidence_complete is not true",
+    "replay_set: replay_set accuracy evidence artifact metrics_gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact reviewed is not true",
+    "replay_set: replay_set accuracy evidence artifact contains failure_reasons",
+    "replay_set: replay_set deployment coverage is incomplete",
+    "real_field_link: real_field_link gate_passed is false",
+    "real_field_link: real_field_link: field-link preflight report is stale: age 209885.349s exceeds max 900.000s",
+    "real_field_link: real_field_link: field-link preflight hardware_link_ready is false",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for HIL",
+    "real_control_acceptance is 'not_claimed', required for HIL",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for REAL",
+    "real_control_acceptance is 'not_claimed', required for REAL",
+    "referenced artifact gate_passed is not true",
+    "product channel is 'prerelease'; final release requires channel 'release'",
+    "final release version surfaces do not equal numeric version"
+  ],
+  "report_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound-report.json",
+  "report_bytes": 71805,
+  "report_sha256": "a2fb4b0d84c3bce54c466df622bc09739b163d23163f6124a6b607daa1ad33fe",
+  "manifest_path": "artifacts/evaluation/release-gate-current-20260927-r12/release-gate-pre.8-current-20260927T005000Z-v6-bound.json",
+  "manifest_bytes": 23654,
+  "manifest_sha256": "522727d78b9ff97fc5ed5f5f2a0f05ae83fdf7bbea3d19024cee934b4627ced5",
+  "current_parity_file": {
+    "path": "configs/release-parity.json",
+    "bytes": 13332,
+    "sha256": "c91a2b4f4298d1bfdd7b58217155b2e7056ee9118d7b6f1a60345876960b74e7",
+    "file_sha256": "c91a2b4f4298d1bfdd7b58217155b2e7056ee9118d7b6f1a60345876960b74e7"
+  },
+  "current_parity": {
+    "core_algorithm_hash": "941029ba2770e6f6fde547dfab333c2334f66941cc4aafc09a489cc769c5bace",
+    "px4_mission_path_hash": "cf01bcd83019c10f0d71f29f02619d265b64d818a633b3bf796e97f207b35a7c",
+    "safety_policy_hash": "a460373166fa74a144046e4540095015f2500b245e8e306e17f49cce2343a442",
+    "task_contract_hash": "72d786faddee41aa1de292d481eb0b1f285d44a01201db675d8c4a2acc4654ea",
+    "ui_contract_hash": "ddb3b9088cfbd411c963baea376e9de69b6c6f0a8064eeff8959c7b1fe745896"
+  },
+  "mode_parity_mismatches": {
+    "replay": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "sim": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "hil": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ],
+    "real": [
+      "core_algorithm_hash",
+      "px4_mission_path_hash",
+      "safety_policy_hash",
+      "task_contract_hash",
+      "ui_contract_hash"
+    ]
+  },
+  "current_release_parity_bound": false,
+  "scope": "Retained historical release-gate report re-evaluated against the current checked-in parity; no runtime re-execution. Old mode parity and external source drift remain release blockers.",
+  "field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-refresh-20260924-r4/preflight.json",
+    "preflight_bytes": 15758,
+    "preflight_sha256": "da0d9c235bc0150707b5ef743bdc51ed4a583be28ebd673931e32adcf766fe07",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-refresh-20260924-r4/interface-diagnostic.json",
+    "interface_diagnostic_bytes": 4383,
+    "interface_diagnostic_sha256": "f6d9e99e02fce0a122d4149fdd1452807e9ec3e12741f5f62b92beac0dcc0933",
+    "hardware_link_ready": false,
+    "read_only": true
+  },
+  "current_field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-preflight-current-20260928-r2.json",
+    "preflight_bytes": 18140,
+    "preflight_sha256": "437c8fff2bad4a6cab50f1b303446204c4ee9971c376c8fc72ceff0637238905",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-interface-diagnostic-current-20260928.json",
+    "interface_diagnostic_bytes": 4379,
+    "interface_diagnostic_sha256": "cb1d4f849067d3da7676e3da87ad4478560ed3d8c1c37d0654c7d4e81d44809d",
+    "hardware_link_ready": false,
+    "read_only": true
+  },
+  "claims_boundary": "Retained parity transition audit rebound to current source parity after onboard task safety/provenance changes; no runtime rerun, HIL, REAL, hardware, outdoor GNSS or final release claim."
+}

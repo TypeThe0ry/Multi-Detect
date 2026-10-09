@@ -1,0 +1,65 @@
+{
+  "schema": "multidetect.external-red-car-autonomous-evidence.v2",
+  "generated_at_utc": "2026-10-04T23:31:08.456789Z",
+  "release_label": "0.3.0-pre.8",
+  "scenario": "configs/scenarios/validation/gazebo_red_car_positive_control_001.scenario.json",
+  "external_evidence": {
+    "kind": "external_px4_gazebo_software_sim",
+    "docker_px4_gazebo": "passed",
+    "truth_free": true,
+    "sensor_transport": "actual_gazebo_rgb_wire_frames",
+    "sensor_frame_count": 20,
+    "stale_sensor_frames_rejected": 1,
+    "mission_transaction_count": 6,
+    "takeoff_confirmed": true,
+    "auto_mission_confirmed": true,
+    "rtl_requested": true,
+    "home_arrival_confirmed": true,
+    "report_committed": true,
+    "return_completion_observed": true,
+    "physical_output_enabled": false,
+    "policy_applied_to_actuator": false
+  },
+  "detector": {
+    "model": "artifacts/models/red-car-detector-v2/yolo26n-red-car-v2/weights/best.onnx",
+    "sha256": "1b91ba4b912efd63b047242b4196fb339fca72205bec6b019056bf1e7f1c6c27",
+    "runtime_confidence_threshold": 0.01,
+    "actionable_confidence_threshold": 0.25,
+    "observed_confidence_range": [0.891360878944397, 0.9118986129760742],
+    "target_label": "car",
+    "target_color": "red",
+    "target_distance_m_range": [22.22817611694336, 22.387104034423828],
+    "target_match_score": 1.0,
+    "gps_recorded": true,
+    "continuous_confirmation_frames": 3
+  },
+  "policy": {
+    "model": "artifacts/models/onboard-policy-r12-semantic-match-score/onboard_policy_r12.onnx",
+    "sha256": "2d7502dd0cff9a4591ca6fa300676b1e18b9d9ecf0058a6f349f921ffb7eeefb",
+    "same_high_level_contract_as_sim_and_runtime": true
+  },
+  "training_candidate": {
+    "dataset": "artifacts/training/red-car-detector-v2",
+    "dataset_manifest_sha256": "6528e9d4e63a0e9320a802ec4986a8d84516c3a31cd33385fd9980e39c0e0827",
+    "dataset_audit_sha256": "b716c0910f52215a41e5c23fded1f29d2699ababc5ccc29ef89c6c11421181cd",
+    "checkpoint": "artifacts/models/red-car-detector-v2/yolo26n-red-car-v2/weights/best.pt",
+    "checkpoint_sha256": "1512179d87cc621269247643f04c1ac51c815a918e35e5ffe40fee9e26416aee",
+    "validation_map50": 0.994908256880734,
+    "validation_map50_95": 0.9883913853391008,
+    "production_approved": false,
+    "candidate_promoted": false
+  },
+  "source_evidence": {
+    "path": "artifacts/evaluation/external-red-car-autonomous-r29-v2-structured.json",
+    "bytes": 652548,
+    "sha256": "eed5a6c5f32a1850e0fb9eb4d23948292af7950b30f67610d8a0e2dadcf8b162"
+  },
+  "claims_boundary": {
+    "software_sim_passed": true,
+    "hil_real_evidence": false,
+    "jetson_hardware_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

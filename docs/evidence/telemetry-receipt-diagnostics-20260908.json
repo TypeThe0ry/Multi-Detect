@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded userspace router/collector timing instrumentation for QPC campaign receive-gap diagnosis",
+  "tests": {
+    "passed": 400,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit": "artifacts/evaluation/telemetry-receipt-diagnostics-20260908.xml",
+    "sha256": "d362ad50b5df62940b1529e41661af024a900124b6995b6e4a2607cbf99206f2",
+    "command": "python -m pytest -q tests/test_px4_gazebo_qgc_router.py tests/test_collector_clock_injection.py tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_repository_progress_docs.py tests/test_release_parity.py --disable-warnings --junitxml=artifacts/evaluation/telemetry-receipt-diagnostics-20260908.xml"
+  },
+  "router": {
+    "enabled": "only when explicit HighResolutionSystemClock is passed; QPC campaign parent passes its own clock",
+    "message_ids": [0, 2, 33, 74],
+    "maximum_records": 131072,
+    "counts": "samples_seen and samples_dropped explicit",
+    "fields": ["frame_sha256", "message_id", "source_system", "source_component", "router_decoded_host_s", "router_forwarded_host_s"],
+    "identity": "same parent host_clock_identity",
+    "network_fixture_verified": true,
+    "return_policy_unchanged": true
+  },
+  "collector": {
+    "fields_added_to_energy_samples": ["frame_sha256", "pump_started_host_s", "previous_pump_finished_host_s"],
+    "wire_bytes_unavailable": "null hash; never fabricated",
+    "pump_failure_clears_active_diagnostic": true,
+    "timing_test": "ManualClock distinguishes 2s between pumps from 0.125s inside receive"
+  },
+  "boundaries": {
+    "timestamps_are_userspace_observations": true,
+    "kernel_receive_timing_claimed": false,
+    "px4_send_timing_claimed": false,
+    "physical_clock_synchronization_claimed": false,
+    "energy_gap_threshold_changed": false,
+    "historical_reports_backfilled": false,
+    "full_regression_rerun": false,
+    "new_external_campaign_run": false,
+    "previous_gap_root_cause_proven": false,
+    "release_ready": false
+  },
+  "next": "Run a new isolated QPC campaign with trace, correlate raw frame hashes and same-domain timestamps; treat repeated hashes as ambiguous rather than matching by value or guessing sequence wraps"
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "multidetect.onboard-3d-depth-semantics-parity-v1",
+  "generated_at": "2026-10-06T07:35:08Z",
+  "purpose": "Bind the rendered Gazebo depth conversion to the Jetson-shaped live perception conversion before pixel-level training.",
+  "sensor_semantics": {
+    "gazebo_input": "optical_axis_z_m",
+    "onboard_runtime_distance": "ray_slant_m",
+    "conversion": "per-pixel sqrt(1 + ray_x^2 + ray_y^2) using depth-frame fx/fy/cx/cy before robust median",
+    "missing_intrinsics": "fail_closed",
+    "unknown_distance_semantics": "fail_closed",
+    "rgb_calibration_fallback_for_depth": false
+  },
+  "implementation": {
+    "builder": "scripts/build_onboard_rendered_3d_dataset.py",
+    "builder_lines": "155-219,357-386,520-542,649-658",
+    "runtime_reference": "src/multidetect/autonomy/perception_adapter.py",
+    "runtime_lines": "519-538",
+    "test": "tests/test_onboard_rendered_3d_dataset.py",
+    "test_lines": "25-62"
+  },
+  "verification": {
+    "targeted_pytest": "11 passed",
+    "ruff": "All checks passed",
+    "release_parity_test": "passed",
+    "repository_docs_test": "passed",
+    "old_data_training_attempt": "blocked",
+    "training_ready": false
+  },
+  "claim_boundary": {
+    "red_green_fixture_used": false,
+    "truth_injected": false,
+    "external_gazebo_runtime": false,
+    "rendered_rgb_depth_capture": false,
+    "candidate_promoted": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

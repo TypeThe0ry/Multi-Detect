@@ -1,0 +1,94 @@
+{
+  "schema": "multidetect.onboard-policy-training-evidence.v1",
+  "generated_at_utc": "2026-10-05T05:10:00Z",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "software_sim_and_truth_free_generalization_pressure",
+  "model": {
+    "id": "onboard-policy-r17-teacher-consistent",
+    "version": "0.3.0-pre.8-onboard-policy-r17-teacher-consistent",
+    "path": "artifacts/models/onboard-policy-r17-teacher-consistent/onboard_policy_r17.onnx",
+    "bytes": 62145,
+    "sha256": "7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3",
+    "parent_path": "artifacts/models/onboard-policy-r16-phase-safe/onboard_policy_r16.onnx",
+    "parent_sha256": "478b2abf0c68c271971b45a7f21b2ad7c60e6913122f5176f872d604b1cacd12",
+    "same_40_feature_contract": true,
+    "same_task_and_flight_heads": true,
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "epochs": 80,
+    "training_samples": 51360,
+    "evaluation_samples": 12840,
+    "evaluation_task_accuracy": 0.9932242990654205,
+    "evaluation_flight_accuracy": 0.993613707165109,
+    "regression_mae": {
+      "north_m": 7.617608547210693,
+      "east_m": 21.805030822753906,
+      "altitude_m": 4.373386383056641,
+      "speed_mps": 1.3431822061538696
+    },
+    "regression_p95": {
+      "north_m": 24.652616500854492,
+      "east_m": 94.51203918457031,
+      "altitude_m": 25.582698822021484,
+      "speed_mps": 7.8667683601379395
+    },
+    "regression_clip_rate": 0.0
+  },
+  "training": {
+    "script": "scripts/train_onboard_model.py",
+    "config_path": "artifacts/models/onboard-policy-r17-teacher-consistent/training-config.json",
+    "config_bytes": 3016,
+    "config_sha256": "4670fee1762b0be7a7cc1ec313b6afa64f05a8a394e9c0dcaed242565f8a499a",
+    "training_report_path": "artifacts/models/onboard-policy-r17-teacher-consistent/training-report.json",
+    "training_report_bytes": 5112,
+    "training_report_sha256": "377e45b946a62039e2aea0cc59f4e42e84b02c422d4b686cbabbd3786d7cd0ce",
+    "temporal_augmentation": true,
+    "semantic_augmentation": true,
+    "phase_augmentation": true,
+    "legacy_target_fixture_augmentation": false,
+    "teacher_semantic_consistency_fix": true,
+    "semantic_labels_are_metadata_only": true,
+    "semantic_match_features_are_detector_attributes": true
+  },
+  "independent_holdout": {
+    "config_path": "configs/training/onboard-policy-independent-holdout-v1.json",
+    "config_sha256": "b2fa2459009900dc45b160de80fb13c2dfa91c14809d276bd78e0dea358652c6",
+    "report_path": "artifacts/evaluation/onboard-policy-r17-independent-holdout.json",
+    "report_bytes": 3802,
+    "report_sha256": "1a370f74400292ae71679061cd3a3a221e6b83360dca476d319044a21f5aa7bb",
+    "training_used": false,
+    "case_count": 7,
+    "passed_cases": 7,
+    "task_and_flight_accuracy": 1.0
+  },
+  "generalization_pressure": {
+    "script": "scripts/evaluate_onboard_generalization.py",
+    "report_path": "artifacts/evaluation/onboard-r17-generalization-20261005.json",
+    "report_bytes": 100043,
+    "report_sha256": "48320435b9f7e8f96138fab029459d27d3139eb2b6154cf0c0528ad9d96f7bf8",
+    "case_count": 22,
+    "raw_head_passed": 17,
+    "guarded_passed": 22,
+    "masked_success_count": 5,
+    "navigation_direction_passed": 20,
+    "navigation_range_passed": 22,
+    "class_color_invariance": {
+      "case_count": 4,
+      "raw_heads_identical": true,
+      "guarded_results_identical": true,
+      "passed": true
+    },
+    "training_used": false
+  },
+  "claims_boundary": {
+    "software_sim_passed": true,
+    "external_gazebo_run_for_r17": false,
+    "three_dimensional_asset_audit": true,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

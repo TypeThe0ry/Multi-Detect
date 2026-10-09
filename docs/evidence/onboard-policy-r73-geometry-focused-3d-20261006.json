@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-evidence-v1",
+  "generated_at_utc": "2026-10-06T03:00:00Z",
+  "status": "candidate_rejected_parent_retained",
+  "model_id": "onboard-policy-r73-geometry-focused-3d-dev",
+  "model_version": "0.3.0-pre.8-onboard-policy-r73-geometry-focused-3d-dev",
+  "model_path": "artifacts/models/onboard-policy-r73-geometry-focused-3d-dev/onboard_policy_r4.onnx",
+  "model_sha256": "164ef20aae0102a8e9bf6b0b6aed74eadd0799b179ce6d7682de900b798628e6",
+  "training_config_sha256": "795d564715d4063db06f9bdd658ffc9974820341da4e67f735a03baaded49e5f",
+  "training_report_sha256": "eddb6d9c6bbbe643c1158d78413944b3547f6a48409861fc3187b22c01a851176",
+  "parent_model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "same_40_feature_contract": true
+  },
+  "training": {
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": true,
+    "epochs": 10,
+    "samples": 44000,
+    "parent_distillation_weight": 0.3,
+    "navigation_geometry_weight": 2.0,
+    "navigation_sign_weight": 0.2,
+    "entity_sdf_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "pixel_level_rendered_rows": 0,
+    "red_green_fixture_used": false
+  },
+  "evaluation": {
+    "independent_policy_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r73-policy-holdout.json",
+      "sha256": "21490336edd8e5124edbdaf80ce8da07fd72fbde7e92d8aecfcc59a8ba1ad0df",
+      "passed_cases": 7,
+      "case_count": 7
+    },
+    "structured_3d_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r73-3d-holdout.json",
+      "sha256": "c359ad0a9a602ad2ea50f8d8b07899af96b0b5c91894474c3c40f377372747eb",
+      "case_count": 900,
+      "task_accuracy": 0.8766666666666667,
+      "flight_accuracy": 0.8788888888888889,
+      "compatible_output_rate": 0.9577777777777777
+    },
+    "geometry_diagnostic": {
+      "path": "artifacts/evaluation/onboard-navigation-geometry-r73.json",
+      "sha256": "acb27e289855e38f99eb8c9f393e8a67ae26c8854453313bf75872ea0aa3581f",
+      "angle_mae_deg": 68.91140626333002,
+      "range_mae_m": 191.39417293685122,
+      "diagnostic_pass": false
+    }
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reason": "structured_3d_and_geometry_regression"
+  },
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

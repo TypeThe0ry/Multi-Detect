@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-native-load-failure-evidence-v1",
+  "status": "native_attempt_started_failed_without_training_report_not_completed",
+  "attempt": "onboard-vlm-navigation-pilot-20261007-r1",
+  "training_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "dataset_evidence": {
+    "path": "docs/evidence/onboard-openfly-navigation-dataset-20261007-r2.json",
+    "bytes": 10510,
+    "sha256": "a628aad3356421b96e0e8ff0681b7a42993eb6d379c3a7f2170097773292a203"
+  },
+  "invocation": {
+    "path": "artifacts/models/onboard-vlm-navigation-pilot-20261007-r1/invocation.json",
+    "bytes": 589,
+    "sha256": "eb49ffb7ff5296f6f80829f7778a132b1c4b59649bd88b937c991a2bc016db2c"
+  },
+  "native_observation": {
+    "path": "artifacts/models/onboard-vlm-navigation-pilot-20261007-r1/native-exit-observation.json",
+    "bytes": 2657,
+    "sha256": "c357e76b8cf93aa9e0d5e919ce79c9cc26fb79f027477d3c6103c7cac91d36b8"
+  },
+  "training_review": {
+    "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/training-review.json",
+    "bytes": 757,
+    "sha256": "add2f7819e14843e57d7df7db1b8712fa377f8efc2b1f2a38e2d0e3c07e92506"
+  },
+  "trainer_cpu_validation": {
+    "native_exit_code": 0,
+    "tests": 50,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "report": {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/cpu-validation.xml",
+      "bytes": 7977,
+      "sha256": "e9ac3946f9bc2710be8ccbdbb54fcd0cfe47315733b3f37c8eedf85aee35e333"
+    }
+  },
+  "sources": [
+    {
+      "path": "scripts/train_onboard_vlm_navigation_pilot.py",
+      "bytes": 40430,
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "path": "tests/test_train_onboard_vlm_navigation_pilot.py",
+      "bytes": 17669,
+      "sha256": "216ead9220a2db8d6dd1f3417df6c1bddc82612d91a84eeee83271d08555d86e"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "bytes": 49187,
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "scripts/verify_onboard_vlm_grounding_adapter.py",
+      "bytes": 16642,
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "path": "scripts/probe_onboard_vlm.py",
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "scripts/build_onboard_openfly_navigation_dataset.py",
+      "bytes": 35770,
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "bytes": 52186,
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "path": "src/multidetect/autonomy/serialization.py",
+      "bytes": 8656,
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    }
+  ],
+  "implementation_snapshots": [
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/scripts/train_onboard_vlm_navigation_pilot.py",
+      "bytes": 40430,
+      "sha256": "c12215422127173d130e7b452ffe0f9837b59c0fb688fad5992d10f8d9e1d50d"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/tests/test_train_onboard_vlm_navigation_pilot.py",
+      "bytes": 17669,
+      "sha256": "216ead9220a2db8d6dd1f3417df6c1bddc82612d91a84eeee83271d08555d86e"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/scripts/train_onboard_vlm_grounding.py",
+      "bytes": 49187,
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/scripts/verify_onboard_vlm_grounding_adapter.py",
+      "bytes": 16642,
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/scripts/probe_onboard_vlm.py",
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/scripts/build_onboard_openfly_navigation_dataset.py",
+      "bytes": 35770,
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "bytes": 52186,
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-vlm-navigation-pilot-trainer-development-20261007-r1/implementation-snapshot/src/multidetect/autonomy/serialization.py",
+      "bytes": 8656,
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    }
+  ],
+  "new_research_documents": [
+    {
+      "path": "docs/research/onboard-navigation-native-load-diagnostic-20261007.md",
+      "bytes": 3772,
+      "sha256": "42a17009ccabe960817c8fab87b0b837a918ada3595afa8a2f77260c35f40177"
+    },
+    {
+      "path": "docs/onboard-pretrained-model-options-20261007.md",
+      "bytes": 5838,
+      "sha256": "b1ef311f987add52551200d2ca04ff36cc2f9fab304241989a36849078565bb7"
+    }
+  ],
+  "planned_optimization": {
+    "epochs": 1,
+    "max_optimizer_steps": 100,
+    "max_pixels_per_image": 50176,
+    "max_input_tokens": 4096,
+    "max_new_tokens": 192,
+    "rank": 4,
+    "alpha": 8,
+    "learning_rate": 0.00002,
+    "seed": 20261007,
+    "gradient_checkpointing": true,
+    "gradient_clip_norm": 1,
+    "max_cuda_reserved_bytes": 8053063680
+  },
+  "planned_train_samples": 86,
+  "independent_holdout_available": false,
+  "source_planned_not_executed": true,
+  "tool_session_id": 20379,
+  "tool_exit_code": 1,
+  "full_original_process_log_available": false,
+  "windows_exception_code": "0xc0000005",
+  "windows_exception_is_not_tool_exit_code": true,
+  "windows_event_correlation_not_exact_child_pid_verified": true,
+  "training_report_available": false,
+  "optimizer_steps_attempted": null,
+  "optimizer_steps_completed": null,
+  "optimizer_performed": null,
+  "optimizer_counts_unknown_not_zero": true,
+  "adapter_available": false,
+  "model_training_completed": false,
+  "exact_native_faulting_operation_known": false,
+  "out_of_memory_confirmed": false,
+  "original_failure_preserved": true,
+  "original_report_synthesized": false,
+  "followup_load_only_is_separate_attempt": true,
+  "candidate_promoted": false,
+  "quality_claim": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-candidate208-feature-cache-actual-evidence-v1",
+  "date": "2026-10-08",
+  "status": "actual_candidate267_208_prefix_feature_cache_closed_not_navigation_quality",
+  "actual_execution": {
+    "actual_native_exit_code": 0,
+    "terminal_tool_chunk": "9a2e9f",
+    "process_exit_check_tool_chunk": "316cc8",
+    "rechecked_process_exit_tool_chunk": "db1f8e",
+    "session_id": 58872,
+    "worker_pid": 900,
+    "launcher_pid": 45772,
+    "worker_pid_absent": true,
+    "launcher_pid_absent": true,
+    "relevant_model_processes_at_exit_check": 0,
+    "placement": "local_single_RTX4060_8GiB",
+    "second_GPU_model_loaded": false
+  },
+  "observations": {
+    "success": true,
+    "feature_cache_admitted": true,
+    "feature_count": 208,
+    "cache_exact_reload": true,
+    "fused_prefill_attempts": 208,
+    "verified_source_sessions": 208,
+    "all208_prefix_metadata_equal": true,
+    "model_inputs": ["input_ids", "attention_mask", "pixel_values", "image_grid_thw"],
+    "generation_count": 0,
+    "optimizer_steps": {"attempted": 0, "returned": 0, "synchronized": 0, "completed": 0},
+    "inherited_head_optimizer_attempts": 800,
+    "inherited_base_lora_optimizer_attempts": 280,
+    "source_bindings_unchanged": true,
+    "repository_source_declarations_including_plan": 513,
+    "runtime_source_declarations": 69,
+    "candidate267_only": true,
+    "model_parameter_identity_before_equals_after": true,
+    "model_parameter_identity": {
+      "base": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+      "adapter": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e"
+    },
+    "feature_matrix": {
+      "dtype": "torch.float32",
+      "shape": [208, 2048],
+      "raw_bytes": 1703936,
+      "raw_sha256": "d5bf5da71fe036d19463490926b7ac928a75b0233f72db968de157d675716214"
+    },
+    "data_scope": "old86_then_new122_publisher_TRAIN_two_scenes_nine_whole_episodes",
+    "truth_or_gold_in_model_inputs": false,
+    "optional_import_isolation_cleanup_observed": true,
+    "dependency_finders_preserved": true,
+    "site_packages_modified": false
+  },
+  "independent_file_audit": {
+    "core_native_exit_code": 0,
+    "core_tool_chunk": "93190e",
+    "inventory_native_exit_code": 0,
+    "inventory_tool_chunk": "e60ade",
+    "matrix_values_finite": 425984,
+    "matrix_value_min": -20.5,
+    "matrix_value_max": 64.5,
+    "matrix_payload_sha_recomputed": true,
+    "row_sha_recomputed_and_equal": 208,
+    "distinct_row_digests": 208,
+    "actor_and_four_prefix_reference_equal": 208,
+    "unique_explicit_source_paths": 551,
+    "unique_small_source_SHA_recomputed": 243,
+    "remaining_unique_paths_stat_only": 308,
+    "large_model_native_and_image_payloads_rehashed_by_independent_auditor": false,
+    "native_exit_PID_and_model_parameter_observations_repeated_by_auditor": false,
+    "ML_or_PIL_imported_by_auditor": false
+  },
+  "bindings": [
+    {
+      "path": "D:/Projects/Multi-Detect/configs/training/onboard-navigation-candidate208-features-20261008-r1.json",
+      "bytes": 501582,
+      "sha256": "0cc33e9fe6ffab45ca155245cd08f711eff85f76e5398c4749c3affeb4db03c6"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/training/onboard-navigation-candidate208-features-20261008-r1/report.json",
+      "bytes": 514227,
+      "sha256": "718079c4dc80ea617a2b407a9c92ff62d3d0cce062c3433cf0a3c7e381b5d6d7"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/training/onboard-navigation-candidate208-features-20261008-r1/manifest.json",
+      "bytes": 31016,
+      "sha256": "c9262423f31e2d2347fbdc93ba4dcd33ef09283dac0f88d16347ade94166afdf"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/training/onboard-navigation-candidate208-features-20261008-r1/cache/receipt.json",
+      "bytes": 4140,
+      "sha256": "2775f0ac14abe02b0cd2997a452212dfb5123b14b49fafbd2f47186f0683c5c6"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/training/onboard-navigation-candidate208-features-20261008-r1/cache/metadata.json",
+      "bytes": 244075,
+      "sha256": "1cf121046ec7f29c70c978e0290e2fc74b60d170e292555b25d73d784d1d3cde"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/artifacts/training/onboard-navigation-candidate208-features-20261008-r1/cache/tensors.safetensors",
+      "bytes": 1704024,
+      "sha256": "4e5b05439a8ba75f6500ed1f6598253d86083d0dff2eda5f1406cfdd80414b4b"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/scripts/extract_onboard_navigation_feature_cache.py",
+      "bytes": 34331,
+      "sha256": "8bfc7e18a2edae131b3027695fd92c3879ab89acba9294897cfca43d57267712"
+    },
+    {
+      "path": "D:/Projects/Multi-Detect/tests/test_extract_onboard_navigation_feature_cache.py",
+      "bytes": 26638,
+      "sha256": "91b93067a8c549e498cc13d4831fee0e765f33dbf0ce71b84af46495dbdcf98c"
+    }
+  ],
+  "claims": {
+    "new_optimizer_budget_spent": false,
+    "training_completed": false,
+    "quality_claim": false,
+    "official_holdout_verified": false,
+    "independent_scene_generalization": false,
+    "candidate_promoted": false,
+    "default_model_changed": false,
+    "end_to_end_realtime_verified": false,
+    "Jetson_latency_verified": false,
+    "execution_authority": false,
+    "flight_execution_passed": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

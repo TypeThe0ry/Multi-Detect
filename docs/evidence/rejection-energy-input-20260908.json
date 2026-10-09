@@ -1,0 +1,62 @@
+{
+  "product_version": "0.3.0-pre.8",
+  "generated_at": "2026-09-08",
+  "status": "automated_verified",
+  "scope": "SIM planning input retention implementation and cumulative replay auditor fixtures",
+  "focused_passed": 322,
+  "full_regression": {
+    "tests": 4059,
+    "passed": 4052,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 231.346,
+    "exit_code": 0,
+    "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/rejection-energy-full-20260908.xml",
+    "path": "artifacts/evaluation/rejection-energy-full-20260908.xml",
+    "bytes": 594255,
+    "sha256": "043d615551abe340f742915c1a434eff4665f2ce7a7c0c81b80ab3f7738acce6"
+  },
+  "documentation_parity_passed": 34,
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings --junitxml=artifacts/evaluation/rejection-energy-20260908.xml",
+  "pytest_exit_code": 0,
+  "ruff_passed": true,
+  "inputs": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 119109,
+      "sha256": "d4edbe763ebd1f5c028afb1eee2da3d41ff21b13f0d618d361511461d1e56bd0"
+    },
+    {
+      "path": "scripts/audit_campaign_rejection.py",
+      "bytes": 8134,
+      "sha256": "86da1f63be3826bc0dd72ba3591a8ff28fc2c0d738a813abe75b2178dd07a34c"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 96495,
+      "sha256": "8576b8576b138858adac3a10b2c12d9c7424bc254b667b2b7d8869e50cf5c0bc"
+    },
+    {
+      "path": "artifacts/evaluation/rejection-energy-20260908.xml",
+      "bytes": 56171,
+      "sha256": "1c3e3764f1460660227022255b8c7ffc8642f7e28ee751cec634e37c879836c4"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11288,
+      "sha256": "6fe74a41733df3077d419976ce0d6e51c9162e10d7bc161a006114d80d736166"
+    }
+  ],
+  "external_rejection_energy_replay_verified": false,
+  "hardware": false,
+  "HIL": false,
+  "REAL": false,
+  "training_started": false,
+  "model_weights_changed": false,
+  "final_release": false,
+  "limitations": [
+    "No new external run with raw planning history; old s report cannot satisfy --require-energy.",
+    "Fixture replay tests do not prove the runtime report retention path end-to-end."
+  ]
+}

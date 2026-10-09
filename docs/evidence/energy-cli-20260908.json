@@ -1,0 +1,12 @@
+{
+  "product_version": "0.3.0-pre.8",
+  "date": "2026-09-08",
+  "scope": "child CLI dispatch and lifecycle unit tests",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py --disable-warnings",
+  "exit_code": 0,
+  "passed": 102,
+  "new_tests": 5,
+  "negative_cases": ["partial configuration", "missing SITL acknowledgement", "dispatch exception closes session"],
+  "claims": {"external_sim": false, "HIL": false, "REAL": false, "training": false, "full_suite": false},
+  "remaining": ["orchestrator forwarding", "external shared planner rerun", "same-session multiple missions"]
+}

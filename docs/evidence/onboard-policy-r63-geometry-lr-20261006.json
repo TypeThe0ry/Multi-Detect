@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison",
+  "status": "candidate_accepted_structured_sim_only_not_promoted",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "parent_model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r63-geometry-lr-dev",
+    "model": "artifacts/models/onboard-policy-r63-geometry-lr-dev/onboard_policy_r63.onnx",
+    "model_sha256": "42350de6e246f340e5d589f3e8c14713fb55f0bd60bd23dfcf442cd334c30d04",
+    "training_config": "artifacts/models/onboard-policy-r63-geometry-lr-dev/training-config.json",
+    "training_config_sha256": "94f56baec199ebb590d097acac6883d7959cd9c9db7954ed4b579875f1160895",
+    "training_report": "artifacts/models/onboard-policy-r63-geometry-lr-dev/training-report.json",
+    "training_report_sha256": "04472d8c4da7f6512898a8e5356f82eb3425e904e66539a8756750f61bf8a2d8",
+    "generalization_report": "artifacts/evaluation/onboard-policy-r63-generalization-20261006.json",
+    "generalization_report_sha256": "1186710cf527ffff5dd35180883b5b7422f867f9f4160a5412e00d52ecdae604",
+    "sensor_holdout": "artifacts/evaluation/onboard-policy-r63-3d-holdout-20261006.json",
+    "sensor_holdout_sha256": "ac501fc3b477a0480e872281de5d831565638a23ba85b3c57c8ee58e4f5ce8da",
+    "independent_holdout": "artifacts/evaluation/onboard-policy-r63-independent-holdout-20261006.json",
+    "independent_holdout_sha256": "5c2f399fa19d5bd9127858029a2cbf3fcc3e5ae7b1e641713f9a0054f2ad20e9",
+    "policy_chain": "artifacts/evaluation/onboard-policy-chain-r63-geometry-20261006.json",
+    "policy_chain_sha256": "6ff50cfa6f1ab162b2d97e79c766b953316ab3f722307a601a5cc313f83bec88",
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "training_samples": 93200,
+    "training_epochs": 30,
+    "learning_rate": 0.002,
+    "navigation_geometry_weight": 0.5,
+    "independent_structured_holdout": "7/7",
+    "structured_3d_sensor_holdout": {
+      "case_count": 900,
+      "task_accuracy": 0.9977777777777778,
+      "flight_accuracy": 0.9966666666666667,
+      "compatible_output_rate": 0.9988888888888889
+    },
+    "generalization": {
+      "raw_head_passed": 22,
+      "guarded_passed": 22,
+      "guarded_failures": [],
+      "navigation_direction_passed": 22,
+      "navigation_range_passed": 22
+    },
+    "policy_chain": {
+      "phase_sequence": [
+        "search",
+        "match_target",
+        "record_location",
+        "return_home",
+        "report"
+      ],
+      "movement_mission_count": 2,
+      "planner_revalidated": true,
+      "model_decision_used": true,
+      "fixed_colour_label_used": false,
+      "truth_json_used": false,
+      "software_sim_only": true
+    },
+    "same_40_feature_contract": true,
+    "pixel_level_rendered_training": false,
+    "rendered_rgb_depth_rows": 0,
+    "external_gazebo_runtime": false,
+    "candidate_promoted": false
+  },
+  "training_data_boundary": {
+    "source": "entity_sdf_geometry_teacher_independent_3d_curriculum_and_bearing_geometry_loss",
+    "gazebo_3d_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "gazebo_3d_manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "truth_json_used": false,
+    "red_green_fixture_used_as_visual_training": false,
+    "training_ready_real_3d_dataset": false,
+    "scenario_event_phase_semantic_coverage": "3x7x6x5 independent mixed-radix curriculum"
+  },
+  "release_boundary": {
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "candidate_promoted": false,
+    "reason_not_promoted": "structured software SIM passed, but no reviewed Gazebo RGB/Depth episode, external Gazebo runtime, Jetson, Pixhawk, HIL/REAL or outdoor GNSS evidence exists",
+    "physical_performance_claimed": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

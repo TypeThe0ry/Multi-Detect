@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-vlm-runtime-development-receipt-v1",
+  "observed_at_utc": "2026-10-07T03:32:43.074109Z",
+  "status": "v2_bounded_process_worker_and_source_bound_ready_handoff_implemented_native_two_unknown_context_holds_not_flight",
+  "release_label": "0.3.0-pre.8",
+  "native_report": {
+    "bytes": 44789,
+    "sha256": "e57fa5fae4a9f6769f082cc013060b1f297f5bdbfd1d93ea15730501ade96ecd",
+    "path": "artifacts/evaluation/onboard-vlm-process-runtime-20261007-r1/report.json"
+  },
+  "baselines": [
+    {
+      "bytes": 25597,
+      "sha256": "3dffd99197e1cdb204ef83862b00861d19ebe9e5ff1d20c95c46ae2d7227b659",
+      "path": "src/multidetect/autonomy/onboard_multimodal.py"
+    },
+    {
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4",
+      "path": "scripts/probe_onboard_vlm.py"
+    },
+    {
+      "bytes": 6872,
+      "sha256": "0d631d854a2a8edca55f02b5dbe984c2234e9d8338e06f86d7a27df7170ce777",
+      "path": "scripts/onboard_vlm_shadow_input.py"
+    },
+    {
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed",
+      "path": "configs/training/onboard-policy-current-reference-v1.json"
+    },
+    {
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c",
+      "path": "configs/release-parity.json"
+    },
+    {
+      "bytes": 159768,
+      "sha256": "8089f3aa2bc7768b44f030b214bfbba423e0370102a578b38f13d0969053399d",
+      "path": "docs/evidence/onboard-vlm-grounding-training-20261007-r1.json"
+    }
+  ],
+  "sources": [
+    {
+      "bytes": 22078,
+      "sha256": "f1321f1eee1c8fa96b38f154c74dcc077efec20007ae57f8e75ebf71fc5eeef6",
+      "path": "src/multidetect/autonomy/onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 14533,
+      "sha256": "b19039a8bcb7036f62c7e0a2098ded191ea3ed56813cdef00287b64a59a796dd",
+      "path": "src/multidetect/autonomy/onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 5910,
+      "sha256": "d11e419e2ba7309afd6afe6afd3cedba6ee173c74949f332a0d2002ea5fb1530",
+      "path": "src/multidetect/autonomy/onboard_vlm_backend.py"
+    },
+    {
+      "bytes": 8614,
+      "sha256": "bf350fee9a7bdc20d15b5c7be090e27f0d15cf2dc49dbc41a3620b20b8d4bab7",
+      "path": "scripts/run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "bytes": 22862,
+      "sha256": "d000bf8ff89a84d47cc00f27a7e503797e4c97dafeea8ab1a82daf89a5273034",
+      "path": "tests/test_onboard_vlm_runtime_contract.py"
+    },
+    {
+      "bytes": 8838,
+      "sha256": "642c81bfc55cf741ab99db3e7c0b01ab8fc9e7a07db5c624bc7b36a2d7e37d5a",
+      "path": "tests/test_onboard_vlm_worker.py"
+    },
+    {
+      "bytes": 1875,
+      "sha256": "977844f503acef44ee90f4212f6f39eeadee89a458c6d5466054f12002bc6fc0",
+      "path": "tests/test_run_onboard_vlm_runtime_replay.py"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_vlm_provider.py",
+      "bytes": 21816,
+      "sha256": "88bb9b940122069b5ea5b96e86ce5f641d0200b15493749d016a6f0390eda01e"
+    },
+    {
+      "path": "tests/test_onboard_vlm_provider.py",
+      "bytes": 25925,
+      "sha256": "9fe04107dc14388cd34402c9ec86eb0ea7776e5f62ece507b37a640a11ed69a1"
+    }
+  ],
+  "native_inference": {
+    "native_exit_code": 0,
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "model_revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "model_sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0",
+    "gpu": "NVIDIA GeForce RTX 4060 8188MiB",
+    "startup_total_s": 12.797000000020489,
+    "native_generations": 2,
+    "strict_intents_accepted": 2,
+    "responses": [
+      "hold",
+      "hold"
+    ],
+    "nonempty_flight_plans": 0,
+    "nonempty_task_actions": 0,
+    "latencies_ms": [
+      7061.999999976251,
+      6047.000000020489
+    ],
+    "peak_allocated_bytes": 4700770304,
+    "source_records_unchanged": true,
+    "worker_closed": true,
+    "context": "unknown_offline_actual_SDF_Blender_RGB_not_live_aircraft",
+    "receipt_history": "empty_native_replay_host_reviewed_receipts_only_in_software_tests",
+    "adapter_loaded": false,
+    "semantic_quality_scored": false,
+    "production_latency_qualified": false
+  },
+  "software_validation": {
+    "v2_contract_tests": 78,
+    "process_worker_tests": 15,
+    "ready_provider_tests": 46,
+    "replay_cli_tests": 3,
+    "pending_does_not_submit_adapter": true,
+    "hard_deadline_watchdog_implemented": true,
+    "owned_process_reaped_after_cancel": true,
+    "explicit_prewarm_after_retirement": true,
+    "ordinary_rgb_updates_queue_latest_without_cancellation": true,
+    "strict_source_context_event_scope_receipt_binding": true,
+    "legacy_obstacle_5000_sentinel_not_measured_clearance": true,
+    "ready_single_consumption": true,
+    "shared_planner_and_mission_compiler_fixture_verified": true,
+    "actual_model_to_real_mission_execution_verified": false,
+    "source_vs_current_async_admission": false,
+    "arbitrary_prompt_task_resolution": false,
+    "live_receipt_collector_implemented": false
+  },
+  "runtime_readiness": {
+    "local_docker_desktop": "stopped_native_cli_exit_0",
+    "local_docker_api": "bounded_4s_timeout",
+    "local_c_free_bytes": 428642304,
+    "local_docker_vhdx_bytes": 130441805824,
+    "verified_recorded_observation_frames": 300,
+    "action_training_ready_episodes": 0,
+    "notes": [
+      "three source_verified actual RGB/depth episodes are train-only, not reviewed action episodes",
+      "HOME derived from first frame GPS is not verified PX4 HOME_POSITION",
+      "sensor/host clock mapping and eight state-field provenance gaps remain"
+    ]
+  },
+  "cluster_preflight": {
+    "snapshot_digest": "sha256:d321d2cce7569b883f71661b1fb6de55b62397dabf797b6ec38ee93721725651",
+    "snapshot_size_bytes": 5132,
+    "probe_source_sha256": "89de24709eef098711fae5129cf2b27b84f25e275bb4b2a750be354cdfd2a69b",
+    "initial_job_id": "b34aeae7-3f3c-4656-a77b-2e2b91b63cd4",
+    "initial_native_exit_code": 2,
+    "initial_returned_artifact_ids": [],
+    "diagnostic_collection_job_id": "4fda8a03-1986-485d-ae7e-cd91a4dce4d6",
+    "diagnostic_collection_state": "succeeded",
+    "diagnostic_collection_exit_code": 0,
+    "diagnostic_collection_exit_semantics": "diagnostic_collected_not_prerequisites_passed",
+    "diagnostic_returned_artifact_ids": ["2fcef1dc-1611-4929-8187-72b2ad692c04"],
+    "remote_artifact_content_and_hash_verified": false,
+    "controller_selected_node_id": "8cc47cff-5c6c-47e9-a777-f46d30c6fa3a",
+    "placement_policy": "balanced_current_telemetry_typed_linux_docker_python",
+    "gazebo_execution_proven": false
+  },
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "physical_performance_claimed": false,
+  "autonomous_flight_verified": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "vlm_finetuning_performed": false,
+  "flight_action_training_performed": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "world_model_local_inference_measured": false,
+  "world_model_finetuning_performed": false,
+  "execution_authority": false
+}

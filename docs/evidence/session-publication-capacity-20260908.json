@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 101095,
+      "sha256": "814d58aac109d4ae2a4e1406121f6c32bdfee89eec47bf4ddaed4f9f64c0cf7f"
+    },
+    {
+      "path": "scripts/vtol_sitl_scenario_acceptance.py",
+      "bytes": 45508,
+      "sha256": "94cd34c48e5edb8db2db58dfd314c860bc814deb2805602def1c1eac6c41edc9"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 66458,
+      "sha256": "d00c16fee1ccbf294b888f88f9d7c49353f67ecbcd815a6d0603abed962d8a1f"
+    },
+    {
+      "path": "artifacts/evaluation/session-publication-capacity-20260908-b.xml",
+      "bytes": 47476,
+      "sha256": "6ef651121ac1f061c8d0ff6f48b4530f60630af0b942f7f346100b97034bc364"
+    }
+  ],
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_simulation_energy_replay.py --disable-warnings --junitxml=artifacts/evaluation/session-publication-capacity-20260908-b.xml",
+  "exit_code": 0,
+  "passed": 264,
+  "new_tests": 9,
+  "verified": [
+    "successful report publication keeps sole caller receiving",
+    "lease held until publication completion",
+    "publication and receive failure prevent reuse, worker joined",
+    "standalone default 8192 preserved",
+    "session default 65536 explicit bounded capacity, maximum 131072",
+    "overflow explicitly reported; invalid capacity rejected before connection open"
+  ],
+  "external_two_task_run": false,
+  "full_suite_rerun": false,
+  "remaining": "Wire actual repeated mission runner with cumulative energy and qualified fresh context; capacity is bounded not a continuity guarantee.",
+  "initial_test_failure": "Collector error derives from RuntimeError; corrected test expectation, initial failing JUnit retained."
+}

@@ -1,0 +1,86 @@
+{
+  "schema": "multidetect.onboard-policy-paired-evaluation",
+  "schema_version": 1,
+  "status": "candidate_rejected",
+  "purpose": "Compare the isolated r89 3-D sensor-contract fine-tune with the current r33 reference before any model selection.",
+  "parent": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r89-3d-sensor-contract-smoke",
+    "path": "artifacts/models/onboard-policy-r89-3d-sensor-contract-smoke-20261007c/onboard_policy_r89.onnx",
+    "sha256": "d7afbef8ae4f822d1598cfe0b943106b4cd84dc1f56c50e00a41063fc534d80a"
+  },
+  "evaluation_contract": {
+    "seed": 20261007,
+    "sensor_holdout_cases": 240,
+    "scenario_families": ["inspection", "patrol", "rescue"],
+    "truth_free": true,
+    "pixel_level_rendered": false,
+    "external_gazebo_runtime": false
+  },
+  "reports": {
+    "parent_generalization": {
+      "path": "artifacts/evaluation/onboard-policy-r33-generalization-20261007.json",
+      "sha256": "58af695cfb797dcf74c449d698525ed7888876debf1d2598656526feda48b83d",
+      "guarded_failures": []
+    },
+    "candidate_generalization": {
+      "path": "artifacts/evaluation/onboard-policy-r89-generalization-20261007.json",
+      "sha256": "61d54ac43618530d0a980009a046102f47ffbfa575439ea24aaf3a1b797e7917",
+      "guarded_failures": ["bearing-left"]
+    },
+    "parent_sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r33-3d-sensor-holdout-20261007.json",
+      "sha256": "9ba6a8f3adb6d870c83a69a41c2f77e00e2019e2b66d17c28939637f05cb0f53",
+      "task_accuracy": 0.8708333333333333,
+      "flight_accuracy": 0.8708333333333333,
+      "compatible_output_rate": 0.95
+    },
+    "candidate_sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r89-3d-sensor-holdout-20261007.json",
+      "sha256": "db346a0b360fd0a291cea2d0fd31f28b2fb1fc41d551a71c3a7d421eac6db23e",
+      "task_accuracy": 0.8666666666666667,
+      "flight_accuracy": 0.875,
+      "compatible_output_rate": 0.9541666666666667
+    },
+    "parent_navigation_geometry": {
+      "path": "artifacts/evaluation/onboard-policy-r33-navigation-geometry-20261007.json",
+      "sha256": "dcb7899f3d47ed765fb80993151715c839a881d7efed91d9cad491a2d9f4647e",
+      "angle_mae_deg": 71.64776798673117,
+      "angle_p95_deg": 122.10671971804572,
+      "range_mae_m": 24.111320193835105,
+      "direction_within_20deg_rate": 0.07083333333333333,
+      "diagnostic_pass": false
+    },
+    "candidate_navigation_geometry": {
+      "path": "artifacts/evaluation/onboard-policy-r89-navigation-geometry-20261007.json",
+      "sha256": "582e6f909a9bf8fd61b31cf41712205da3c36fa9493730f192c1f267709dfa1c",
+      "angle_mae_deg": 85.79944589660305,
+      "angle_p95_deg": 171.88464060126282,
+      "range_mae_m": 13.446494046050613,
+      "direction_within_20deg_rate": 0.15416666666666667,
+      "diagnostic_pass": false
+    }
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "current_reference_unchanged": true,
+    "reason": [
+      "candidate uses only 9 unreviewed rows repeated 60 times",
+      "candidate has a guarded bearing-left failure",
+      "candidate navigation angle p95 is worse than the parent",
+      "pixel-level Gazebo annotation supervision and independent holdout are unavailable"
+    ]
+  },
+  "gates": {
+    "training_ready": false,
+    "same_model_for_sim_and_jetson": false,
+    "external_gazebo_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

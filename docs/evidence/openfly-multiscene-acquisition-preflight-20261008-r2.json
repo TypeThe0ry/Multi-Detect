@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-multiscene-acquisition-preflight-evidence-v1",
+  "recorded_at": "2026-10-08",
+  "status": "historical_r2_cpu_dry_run_missing_assets_not_acquisition_training_or_flight_readiness",
+  "scope": "sealed_preflight_snapshot_not_the_separate_subsequent_acquisition_step",
+  "bindings": [
+    {
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r2.json",
+      "bytes": 137789,
+      "sha256": "3751f103e55432688a99cfcf7178b13a400962b9c935992af05dbc9bd2a4079b"
+    },
+    {
+      "path": "configs/training/openfly-multiscene-acquisition-20261008-r2.json",
+      "bytes": 7080,
+      "sha256": "7d84b33d149830e8a5b66807926d2dd151acafac8bbc2b7258ad1c0fe1a4e3db"
+    },
+    {
+      "path": "scripts/plan_openfly_multiscene_acquisition.py",
+      "bytes": 28565,
+      "sha256": "b20930141a7746bf9ada7f102baec69c3d6fd72b4a1beb4e77006029fa783618"
+    },
+    {
+      "path": "tests/test_plan_openfly_multiscene_acquisition.py",
+      "bytes": 19390,
+      "sha256": "a375d5b03898a57ce893367aaacf4a5e48da15ad08eb71c7884627ed44ddabe3"
+    },
+    {
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r1.json",
+      "bytes": 137459,
+      "sha256": "1095277b49acb5884bdf3711e8530b9c68a58019bccfa7ed0b325c98856b4624"
+    },
+    {
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r1-inputs/configs/training/openfly-multiscene-acquisition-20261008-r1.json",
+      "bytes": 7080,
+      "sha256": "35448af94381952350908bd4bff41bf7d646d1fa96c2733e81352f72ceb6cb15"
+    },
+    {
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r1-inputs/scripts/plan_openfly_multiscene_acquisition.py",
+      "bytes": 27891,
+      "sha256": "91006a136231ace8290920c39c4e864e23c874f621d678f205641167a0096b99"
+    },
+    {
+      "path": "artifacts/preflight-plan/openfly-multiscene-acquisition-20261008-r1-inputs/tests/test_plan_openfly_multiscene_acquisition.py",
+      "bytes": 17908,
+      "sha256": "35242e56e7e015a155154ece535b4af94fb02ddc944cbee82e255e82e5cdb12f"
+    }
+  ],
+  "native_execution": {
+    "session_id": 83846,
+    "native_tool_chunk": "5808cc",
+    "native_exit_code": 0,
+    "mode": "cpu_preflight_dry_run_without_download_optimizer_or_model"
+  },
+  "source_binding_count_including_plan": 117,
+  "source_bindings_before_and_after_equal": true,
+  "source_bindings_unchanged": true,
+  "preflight_tool_and_r2_plan_frozen": true,
+  "dataset_repository": "IPEC-COMMUNITY/OpenFly",
+  "dataset_revision": "a12316d56a4e35a32ad626fb725ed7089937a1c4",
+  "code_revision": "c075075497a7122bad82f5b76b9be926ad5a81b3",
+  "annotation_records_inspected": 100226,
+  "planned_scene_count": 4,
+  "planned_scene_ids": ["env_airsim_16", "env_airsim_18", "env_airsim_23", "env_airsim_26"],
+  "planned_route_count": 6,
+  "planned_required_raw_image_count": 168,
+  "verified_historical_train_raw_image_count": 86,
+  "missing_new_raw_image_count_at_preflight": 82,
+  "missing_scene_config_count_at_preflight": 3,
+  "missing_episode_tree_count_at_preflight": 3,
+  "complete_route_count_at_preflight": 3,
+  "missing_route_count_at_preflight": 3,
+  "actual_existing_payload_bytes": 55051888,
+  "actual_train_visual_groups": 1,
+  "routes": [
+    {"annotation_index": 0, "scene_id": "env_airsim_18", "requested_partition": "train", "required_raw_images": 19, "verified_steps": 19, "status": "local_raw_verified_not_training_approved"},
+    {"annotation_index": 7, "scene_id": "env_airsim_18", "requested_partition": "train", "required_raw_images": 30, "verified_steps": 30, "status": "local_raw_verified_not_training_approved"},
+    {"annotation_index": 8, "scene_id": "env_airsim_18", "requested_partition": "train", "required_raw_images": 37, "verified_steps": 37, "status": "local_raw_verified_not_training_approved"},
+    {"annotation_index": 139, "scene_id": "env_airsim_26", "requested_partition": "train", "required_raw_images": 23, "verified_steps": 0, "status": "not_acquired", "episode_tree_acquired": false, "scene_config_acquired": false, "complete_frame_filenames_known": false, "primitive_alignment_verified": false},
+    {"annotation_index": 220, "scene_id": "env_airsim_16", "requested_partition": "dev-validation", "required_raw_images": 17, "verified_steps": 0, "status": "not_acquired", "episode_tree_acquired": false, "scene_config_acquired": false, "complete_frame_filenames_known": false, "primitive_alignment_verified": false},
+    {"annotation_index": 90, "scene_id": "env_airsim_23", "requested_partition": "dev-test", "required_raw_images": 42, "verified_steps": 0, "status": "not_acquired", "episode_tree_acquired": false, "scene_config_acquired": false, "complete_frame_filenames_known": false, "primitive_alignment_verified": false}
+  ],
+  "verified_steps_by_effective_partition": {
+    "train": 86,
+    "dev-validation": 0,
+    "dev-test": 0,
+    "quarantine-visual-overlap": 0
+  },
+  "visual_split_complete": false,
+  "independent_holdout_available": false,
+  "missing_assets_are_not_samples": true,
+  "official_seen_unseen_reserved_untouched": true,
+  "unit_tests": {
+    "total": 46,
+    "passed": 46,
+    "native_exit_code": 0,
+    "native_tool_chunk": "ddae6d",
+    "warning_count": 311,
+    "warning_scope": "existing_Pillow_helper_deprecations_not_test_or_runtime_failures"
+  },
+  "scoped_static_checks": {
+    "ruff_passed": true,
+    "diff_check_passed": true,
+    "native_exit_code": 0,
+    "native_tool_chunk": "dbc405"
+  },
+  "historical_r1": {
+    "first_report_preserved": true,
+    "first_report_native_exit_code": 0,
+    "exact_plan_tool_and_test_input_snapshots_preserved": true,
+    "snapshot_bindings_match_original_r1_declarations": true,
+    "preservation_recheck_native_exit_code": 0,
+    "preservation_recheck_native_tool_chunk": "c2c4ac"
+  },
+  "separate_subsequent_acquisition_is_not_recorded_as_completed": true,
+  "download_authorized_by_this_preflight_plan": false,
+  "download_performed": false,
+  "all_raw_assets_acquired_and_verified": false,
+  "samples_created": false,
+  "training_ready": false,
+  "action_class_coverage_claimed": false,
+  "optimizer_authorized": false,
+  "optimizer_performed": false,
+  "gpu_used": false,
+  "model_loaded": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "production_navigation_backend_modified": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "notes": [
+    "Native zero means the dry-run inspection completed; it does not mean missing assets were acquired.",
+    "Only historical env_airsim_18 train routes have verified raw assets. Planned dev partitions are not an available holdout.",
+    "New-route raw image requirements are annotation-derived IDs, not resolved complete publisher filenames or verified pose/action alignment.",
+    "The old r1 report binds its exact retained input snapshots, not the subsequently revised current tool/test bytes.",
+    "This immutable preflight snapshot must not be rewritten when the distinct public-source acquisition step completes.",
+    "The unrelated streamed GPU baseline remains a separate run; this CPU receipt makes no claim about its native terminal result."
+  ]
+}

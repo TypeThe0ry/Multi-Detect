@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-trained-adapter-pending-reload-evidence-v1",
+  "date": "2026-10-07",
+  "status": "complete_86_updates_saved_adapter_verified_second_base_reload_failed_quality_not_accepted",
+  "execution": {
+    "session_id": 13069,
+    "tool_chunk": "490d47",
+    "native_exit_code": 1
+  },
+  "frozen_plan": {
+    "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+    "bytes": 13152,
+    "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+  },
+  "runtime_manifest": {
+    "path": "configs/training/onboard-navigation-importpath-runtime-20261007-r2.json",
+    "bytes": 9763,
+    "sha256": "3d4413dcb69e3671252fbe06ee84e34ad12d242329e3e2bd379952ae59a60c43"
+  },
+  "native_outputs": [
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/allocator-warmup-report.json",
+      "bytes": 2924,
+      "sha256": "0749759a402c5d1ba799c3004edc7daee273a94c29121e9d5186235cc45e7c35"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/candidate-probes.json",
+      "bytes": 7530,
+      "sha256": "4d466c59ee1b100976f757d3dd18588b407febef580d36acdde4ed26725c9580"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/invocation.json",
+      "bytes": 639,
+      "sha256": "82a75a06f4e38ba9aa6cd0ca058953ece7eaed23185e0321119f04649f73e2a1"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/parent-probes.json",
+      "bytes": 7927,
+      "sha256": "4f2dd642b15dcd04f5bf3c1c009fd0493d42a357dd249aa43c28d4a4074e7d20"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/prepared-inputs.json",
+      "bytes": 164313,
+      "sha256": "97fcad2de2ef954f6ba60ded2e4760d391f8689526d29e2d3721d520fa09ef91"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/report.json",
+      "bytes": 57450,
+      "sha256": "996879ac7fc86f818487f2db831c0bdd09bbb61eaf8f181f3624e9148835f430"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/streaming-loader-report.json",
+      "bytes": 253474,
+      "sha256": "fea2dbcf4dbf84df7c7b3c537aff019b4b7070811d76173e4a4e12d668b8bd9d"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/training-events.jsonl",
+      "bytes": 117260,
+      "sha256": "fad73463aafb7870d13e417d6323ac515d87795beea6abfaf44c6b910b5b2b4c"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/adapter/adapter_config.json",
+      "bytes": 931,
+      "sha256": "7b6be286e2eb42bbd2eb614c3ea754c2d14d7c394f1db60fa78d82cf949bd10d"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/adapter/adapter_model.safetensors",
+      "bytes": 3227648,
+      "sha256": "1b03638dad5d48eb3fb34a9b2bd4163bc0d3bd96201f56c3509291d6afb362e6"
+    },
+    {
+      "path": "artifacts/models/onboard-vlm-navigation-pilot-importpath-20261007-r2/adapter/README.md",
+      "bytes": 5438,
+      "sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/allocator-warmup-completion.json",
+      "bytes": 1354,
+      "sha256": "4b153d8aa9b88f5700494965058678938c954f38e2553c44666d8812d9fee629"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/child-started.json",
+      "bytes": 14281,
+      "sha256": "e41fe88b13453410bdd9649c21a0f56a5accde6983b0f4572ed8cd0480cb7b5f"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/completion.json",
+      "bytes": 28527,
+      "sha256": "9490c1c76a2ac756b4d0d98ff93acc9bd6e57ade89e2162a257e01fac55feefb"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/independent-review.json",
+      "bytes": 13853,
+      "sha256": "122db14d205d1112703ddf83cbcace335c5819f5fca8335da8b8cae79c18feaf"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/preflight.json",
+      "bytes": 14280,
+      "sha256": "c7c089538b9147f3b8e95ae4d465221530bc13b49d6b15e0069ddb2269b08dff"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/process-observation.json",
+      "bytes": 1117,
+      "sha256": "6f3ba37c80b54c738b2aecd10f6ad2efb4b938ee0c2eb3f64ae4e1bf18f3f749"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/stderr.bin",
+      "bytes": 3011,
+      "sha256": "bf1c70804d9781ef4c5e42e64f97be833e84de83b680f2c22e611cfa08dace6c"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/stdout.bin",
+      "bytes": 388573,
+      "sha256": "09d99567789a5e2c9d23bdc3505419f1e094623aa532a72ee8daecaf8e183378"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-importpath-train-supervisor-20261007-r2/streaming-completion.json",
+      "bytes": 1110,
+      "sha256": "4807fe3f99eb3f41521d7cec7fcdd0971c1b39fc3dbea971078989d83a43516e"
+    }
+  ],
+  "source_binding_count": 59,
+  "source_bindings_unchanged": true,
+  "independent_read_only_audit_exit_code": 0,
+  "actual_epochs": 1,
+  "train_samples": 86,
+  "encoder_frame_records": 169,
+  "max_actual_total_tokens": 395,
+  "max_actual_response_tokens": 71,
+  "max_actual_image_pixels": 46080,
+  "optimizer_steps_attempted": 86,
+  "optimizer_steps_returned": 86,
+  "optimizer_steps_synchronized": 86,
+  "optimizer_steps_completed": 86,
+  "journal_rows": 344,
+  "optimizer_epoch_completed": true,
+  "optimizer_update_uncertain": false,
+  "base_parameter_bytes_unchanged": true,
+  "base_parameter_sha256_before": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+  "base_parameter_sha256_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+  "adapter_parameter_sha256_before": "bad875b57c35543da8757e8e9b7a652b597558fd3c4da6f7b11ea4053f040348",
+  "adapter_parameter_sha256_after": "e50249e3e9c87e0cdef6e7207ab75c2930fae6d17c10d05ff68aec652d0638ca",
+  "saved_adapter_integrity_verified": true,
+  "saved_adapter_tensor_count": 112,
+  "saved_adapter_dtype": "F32",
+  "saved_adapter_payload_bytes": 3211264,
+  "saved_adapter_digest_independently_recomputed": true,
+  "reported_first_sample_loss": 1.2517484426498413,
+  "reported_last_sample_loss": 0.08930769562721252,
+  "loss_samples_differ_not_a_fixed_sample_accuracy_comparison": true,
+  "max_training_peak_reserved_bytes": 4601151488,
+  "failure_type": "OutOfMemoryError",
+  "failure_phase": "Second fresh NavigationBackend base loading after epoch, saved adapter and candidate probes",
+  "error_request_as_reported": "20.00 MiB",
+  "second_base_tensor_reads_attempted": 498,
+  "second_base_tensor_reads_completed": 497,
+  "second_base_disk_payload_bytes_read": 3844220928,
+  "second_base_last_tensor": "model.visual.blocks.22.mlp.linear_fc2.weight",
+  "second_base_last_tensor_disk_bytes_read": 8388608,
+  "second_base_last_tensor_cuda_transfer_completed": false,
+  "fresh_saved_adapter_reload_verified": false,
+  "training_acceptance_completed": false,
+  "supervisor_exit_codes": {
+    "original": 1,
+    "streaming": 1,
+    "warmup": 1
+  },
+  "oom_root_cause_established": false,
+  "old_gpu_model_retention_confirmed": false,
+  "diagnostics": {
+    "scope": "four_train_resubstitution_probes_one_scene_not_independent_holdout",
+    "total": 4,
+    "parent_strict_valid": 0,
+    "candidate_strict_valid": 1,
+    "parent_action_correct": 0,
+    "candidate_action_correct": 1,
+    "parent_metric_correct": 0,
+    "candidate_metric_correct": 0,
+    "valid_forward_gold_m": 3,
+    "valid_forward_output_m": 10,
+    "valid_forward_error_m": 7,
+    "up_down_probes_available": false,
+    "independent_holdout_available": false
+  },
+  "recovery_status": "separate_fresh_process_no_optimizer_check_under_development_original_failed_report_preserved",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "external_processes_stopped": false,
+  "pagefile_settings_changed": false,
+  "files_deleted": false
+}

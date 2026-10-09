@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "artifacts/evaluation/preparation-telemetry-20260908-h.json",
+      "bytes": 24958,
+      "sha256": "c2a9e8666774d14045ffe0fc933f659c07533aeacb97dc4e2f52e6a21670d087"
+    },
+    {
+      "path": "artifacts/evaluation/preparation-telemetry-20260908-h/vtol-mission-acceptance.json",
+      "bytes": 4526,
+      "sha256": "35d3bc917b15e29c9e632af85686f77734d9c4474dbd946a74fd990b730c6528"
+    },
+    {
+      "path": "artifacts/evaluation/preparation-telemetry-20260908-i.json",
+      "bytes": 2079918,
+      "sha256": "b249982148dd67d3a51dddc9ddb2c2c96ddd082b6d882698e2b9f3153eddfae4"
+    },
+    {
+      "path": "artifacts/evaluation/preparation-telemetry-20260908-i/vtol-mission-acceptance.json",
+      "bytes": 1770306,
+      "sha256": "879dabd51fccfb6dc9ac31ff393d81eaafe8905b7f789ab04e8d240de8a20b4c"
+    },
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 95017,
+      "sha256": "054820a721428421d18f31d6d0d521acd31bd7074fc54f5cf962d802fa9446ac"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 57528,
+      "sha256": "ae3da9fa71a34e6c46b11ebace60aeeff897281c348778c47b2037e9f006dbc4"
+    },
+    {
+      "path": "artifacts/evaluation/preparation-telemetry-20260908.xml",
+      "bytes": 42575,
+      "sha256": "abe0aef04ac7fa4d198007b6e05c9e5525d5641f3ca6b69155b378dd5f270fd9"
+    }
+  ],
+  "focused_passed": 230,
+  "full_suite_rerun": false,
+  "external_gate_passed": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "5cab37e9e0bc3ab00de5d6bf55ab55c877a8025d780db7c7543ea3ac1ac0ade2",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "first_attempt_failure": "PX4 heartbeat unavailable before preparation; zero routed PX4 datagrams; container removed",
+  "input_samples": 4433,
+  "flight_duration_s": 84.547,
+  "replay": {
+    "schema_version": 1,
+    "reason": "covered_prefix_complete",
+    "segments": 4023,
+    "covered_boot_time_s": 80.45600000000104,
+    "first_covered_boot_ms": 6224,
+    "consumed_wh": 2.5506571999999235,
+    "profile": {
+      "capacity_wh": 10,
+      "avionics_power_w": 36,
+      "propulsion_max_power_w": 324,
+      "provenance": "engineering fixture; not calibrated"
+    },
+    "source_clock": "GLOBAL_POSITION_INT.time_boot_ms",
+    "stopped_at_receive_s": 104.32800000009593,
+    "gap_details": null,
+    "load_policy": "left_sample_zero_order_hold_max_age_1.5s",
+    "full_mission_coverage_claimed": false,
+    "physical_calibration_claimed": false,
+    "authorizes_next_task": false
+  },
+  "hardware_claimed": false,
+  "training_completed": false,
+  "replay_entry": "multidetect.simulation.energy_replay.replay_energy_inputs; input = mission report flight.post_mission_observation.energy_input_history",
+  "external_command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/preparation-telemetry-20260908-i --evidence artifacts/evaluation/preparation-telemetry-20260908-i.json --container-name multidetect-preparation-20260908-i --frame-count 3"
+}

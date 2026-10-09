@@ -1,0 +1,81 @@
+{
+  "lookback_ms": 500,
+  "maximum_gap_ms": 300,
+  "maximum_target_deviation_deg": 2,
+  "continuous_target_hold_proven": false,
+  "physical_simultaneity_proven": false,
+  "controller_acceptance_proven": false,
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-n\\vtol-mission-acceptance.json",
+  "source_sha256": "b94b6ca044353c27c00b05f0ab7758ff8f78b7b12b45452983fbd5c0315bda44",
+  "groups": {
+    "insufficient_history": {
+      "count": 1,
+      "maximum_absolute_error_deg": 0.0678297148531044,
+      "sample_rms_error_deg": 0.0678297148531044
+    },
+    "sampled_near_current_target": {
+      "count": 69,
+      "maximum_absolute_error_deg": 9.81271896852661,
+      "sample_rms_error_deg": 1.6351150154054288
+    },
+    "sampled_changing_target": {
+      "count": 24,
+      "maximum_absolute_error_deg": 26.74094511679843,
+      "sample_rms_error_deg": 8.90989808542097
+    }
+  },
+  "largest_error_samples": [
+    {
+      "time_boot_ms": 37956,
+      "target_roll_deg": -25.374314657163676,
+      "actual_roll_deg": 1.3666304596347545,
+      "roll_error_deg": 26.74094511679843,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 26.894137143186327,
+      "target_received_at_s": 26.42492470005527,
+      "actual_received_at_s": 26.419982000021264
+    },
+    {
+      "time_boot_ms": 42196,
+      "target_roll_deg": -22.214964124261982,
+      "actual_roll_deg": -41.04014102431625,
+      "roll_error_deg": -18.82517690005426,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 23.417090964320494,
+      "target_received_at_s": 31.45447170000989,
+      "actual_received_at_s": 31.43752769997809
+    },
+    {
+      "time_boot_ms": 47696,
+      "target_roll_deg": 38.31355492314158,
+      "actual_roll_deg": 53.010819356139805,
+      "roll_error_deg": 14.697264432998224,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 11.686449504362315,
+      "target_received_at_s": 38.0236864000326,
+      "actual_received_at_s": 38.01060449995566
+    },
+    {
+      "time_boot_ms": 53456,
+      "target_roll_deg": 29.59135075785942,
+      "actual_roll_deg": 40.846812519859036,
+      "roll_error_deg": 11.255461761999612,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 10.09263604720556,
+      "target_received_at_s": 44.56900949997362,
+      "actual_received_at_s": 44.56498979998287
+    },
+    {
+      "time_boot_ms": 42956,
+      "target_roll_deg": -1.1457309980255819,
+      "actual_roll_deg": -11.563960203543163,
+      "roll_error_deg": -10.418229205517576,
+      "classification": "sampled_changing_target",
+      "maximum_observed_target_deviation_deg": 10.969639930825508,
+      "target_received_at_s": 32.365320099983364,
+      "actual_received_at_s": 32.355974999954924
+    }
+  ],
+  "thresholds_are_diagnostic_not_acceptance": true,
+  "final_release_allowed": false
+}

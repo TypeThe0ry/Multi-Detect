@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison",
+  "release_label": "0.3.0-pre.8",
+  "status": "candidate_improves_structured_sim_only",
+  "purpose": "Compare the current reference and the r63 incremental candidate on the same truth-free 3-D sensor contract and realtime event stress set.",
+  "parent": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-compare-20261006/r33-3d-sensor-holdout.json",
+      "sha256": "e4fdc93c99236b99d5f1efd95c1a701fe4b0a9b15390800afb77700557f3fc68",
+      "task_accuracy": 0.9822222222222222,
+      "flight_accuracy": 0.99,
+      "compatible_output_rate": 0.9933333333333333
+    },
+    "generalization": {
+      "path": "artifacts/evaluation/onboard-policy-compare-20261006/r33-generalization.json",
+      "sha256": "3e0d2d5664f9e8f7c96b9f56f12e4fdfede8fd3632d4a5f22922ef1bb654abc0",
+      "case_count": 22,
+      "raw_head_pass_rate": 0.863636363636364,
+      "guarded_pass_rate": 0.909090909090909,
+      "navigation_direction_passed": 20,
+      "navigation_range_passed": 22,
+      "guarded_failures": ["bearing-left", "bearing-right"]
+    }
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r63-geometry-lr-dev",
+    "model_sha256": "42350de6e246f340e5d589f3e8c14713fb55f0bd60bd23dfcf442cd334c30d04",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-compare-20261006/r63-3d-sensor-holdout.json",
+      "sha256": "8e7bc01ad1453b17bd066120aeeb775b7bd553e8d997dac51aaf2367ee143345",
+      "task_accuracy": 0.9966666666666667,
+      "flight_accuracy": 0.9933333333333333,
+      "compatible_output_rate": 0.9966666666666667
+    },
+    "generalization": {
+      "path": "artifacts/evaluation/onboard-policy-compare-20261006/r63-generalization.json",
+      "sha256": "72bdcfa5d72e73d03776be01734f4a54c324c3787181962972688f86265d7dd9",
+      "case_count": 22,
+      "raw_head_pass_rate": 0.909090909090909,
+      "guarded_pass_rate": 1.0,
+      "navigation_direction_passed": 22,
+      "navigation_range_passed": 22,
+      "guarded_failures": []
+    }
+  },
+  "interpretation": {
+    "same_manifest": true,
+    "same_seed": 20261009,
+    "same_runtime_runner": true,
+    "truth_free": true,
+    "pixel_level_rendered": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "decision": "retain r33 as current reference until real Gazebo RGB/Depth episodes and independent trajectory review are available"
+  }
+}

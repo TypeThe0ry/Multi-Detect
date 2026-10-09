@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-training-campaign-v1",
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "purpose": "Compare a neutral 3-D curriculum candidate with parent-preserving incremental fine-tuning.",
+  "training_device": "NVIDIA GeForce RTX 4060",
+  "same_parent_contract": true,
+  "feature_width": 40,
+  "red_green_fixture_used": false,
+  "gazebo_manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c"
+  },
+  "parent_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "r70": {
+    "model_id": "onboard-policy-r70-neutral-3d-curriculum-dev",
+    "model_sha256": "c81a811efe5a907c53aa88ea555053454de809e9787606c1aefeee33eb3872ff",
+    "training_config_sha256": "a43abe5696c73b05c565aa64d50156a89538dba3184f4dc21543a35c65f6e0ae",
+    "training_report_sha256": "c1f5ddbff0069c8048d5b9a417aac642f37adabb297f5012dbcc09837d71bdff",
+    "epochs": 24,
+    "samples": 56000,
+    "structured_3d_holdout": {
+      "task_accuracy": 0.8888888888888888,
+      "flight_accuracy": 0.88,
+      "compatible_output_rate": 0.9588888888888889
+    },
+    "decision": "rejected_parent_retained",
+    "reason": "new curriculum without parent distillation degraded the independent 3-D action holdout"
+  },
+  "r71": {
+    "model_id": "onboard-policy-r71-parent-distilled-neutral-3d-dev",
+    "model_sha256": "7b8ad32fe582fa3cd29d5eef7d85d15446bde70d0b714b06562b019ca4a8a6f0",
+    "training_config_sha256": "dde1effe01ade2ccb81d52833aeef88ca3abcd5e2fd76eda51d81264fee3ba23",
+    "training_report_sha256": "3b59b1a5bf0e321608cb840ef83e3ecbfe93d1e2fd860a8f20e0170ae6c0290c",
+    "parent_model_sha256": "95afbde32e4e49e13cdb4e8648403e8d83f3c2723febc1d83ea8dff6ef3e9244",
+    "epochs": 14,
+    "samples": 27000,
+    "parent_distillation_weight": 0.5,
+    "independent_policy_holdout": {
+      "report": "artifacts/evaluation/onboard-policy-holdout-r71.json",
+      "sha256": "d3ae1e4782ca09af82bb40959f5bad99a5228aa8701cf7bddbf45509892cf5f9",
+      "passed_cases": 7,
+      "case_count": 7
+    },
+    "structured_3d_holdout": {
+      "report": "artifacts/evaluation/onboard-policy-r71-3d-holdout.json",
+      "sha256": "3a1054cc46ba5854ee919779d65e248dcab2fbfd4dcb87415b1c6968a0557869",
+      "task_accuracy": 0.9944444444444445,
+      "flight_accuracy": 0.9877777777777778,
+      "compatible_output_rate": 0.9933333333333333
+    },
+    "matched_geometry_diagnostic": {
+      "report": "artifacts/evaluation/onboard-navigation-geometry-matched-r71.json",
+      "sha256": "a5e1cf2b00bef9cce60d90000468f82c6dc02fbd7f13d399f2e5496a3aa3d38d",
+      "task_phase": "inspect_target",
+      "event_kind": "target_moved",
+      "neutral_target": true,
+      "angle_mae_deg": 60.66219345168344,
+      "range_mae_m": 166.30917599250486,
+      "diagnostic_pass": false
+    },
+    "decision": "candidate_quarantined",
+    "reason": "parent-preserving fine-tune retained high structured decision accuracy but did not pass the separate geometry diagnostic"
+  },
+  "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+  "candidate_promoted": false,
+  "pixel_level_rendered_training": false,
+  "rendered_rgb_depth_rows": 0,
+  "external_gazebo_runtime": false,
+  "jetson_evidence": false,
+  "pixhawk_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "physical_performance_claimed": false,
+  "final_release_allowed": false
+}

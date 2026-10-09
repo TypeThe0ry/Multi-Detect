@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "scope": "campaign orchestration with mocked mission executor and real shared selection/compiler",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings",
+  "exit_code": 0,
+  "passed": 291,
+  "new_tests": 5,
+  "positive": "high then low priority with changed context, separate paths and same open session",
+  "negative_cases": ["incomplete outcome", "wrong mission hash", "failed gate", "executor exception"],
+  "ruff_all_passed": true,
+  "claims": {"outer_cli_connected": false, "external_two_task": false, "full_suite": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

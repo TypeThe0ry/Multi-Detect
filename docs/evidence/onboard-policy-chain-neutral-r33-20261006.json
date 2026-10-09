@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-chain-evidence",
+  "release_label": "0.3.0-pre.8",
+  "status": "passed_current_onnx_software_sim_only",
+  "source_artifact": {
+    "path": "artifacts/evaluation/onboard-policy-chain-neutral-r33-20261006.json",
+    "sha256": "e02f1841755964035e69840feb96d5f9a3c1e10fe4490f395232ac47b89439af"
+  },
+  "model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_version": "0.3.0-pre.8-onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "feature_width": 40,
+    "provider": "onnxruntime:CPUExecutionProvider",
+    "same_reference_for_sim_and_jetson": true
+  },
+  "observed_phase_sequence": [
+    "search",
+    "match_target",
+    "record_location",
+    "return_home",
+    "report"
+  ],
+  "model_movement_plans": [
+    {
+      "event_id": "search-nonmatching-candidate",
+      "action": "move_relative",
+      "north_offset_m": 33.48151397705078,
+      "east_offset_m": -70.5366439819336,
+      "planner_revalidated": true,
+      "mission_id": "neutral-target-chain-event-1"
+    },
+    {
+      "event_id": "task-target-match",
+      "action": "follow_target",
+      "north_offset_m": 30.954357147216797,
+      "east_offset_m": -10.475320816040039,
+      "planner_revalidated": true,
+      "mission_id": "neutral-target-chain-event-2"
+    }
+  ],
+  "boundary": {
+    "model_decision_used": true,
+    "fixed_colour_label_used": false,
+    "truth_json_used": false,
+    "policy_applied_to_actuator": false,
+    "software_sim_only": true,
+    "external_gazebo_evidence": false,
+    "hil_real_evidence": false,
+    "jetson_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "audit": {
+    "schema_version": 1,
+    "receive_window_start_s": 18.04700000002049,
+    "receive_window_end_s": 120.75,
+    "left_sample": {
+      "at_s": 18.04700000002049,
+      "field": "time_boot_ms",
+      "field_valid": true,
+      "source_component": 1,
+      "source_is_expected_px4": true,
+      "source_system": 1,
+      "type": "GLOBAL_POSITION_INT",
+      "value": 11400
+    },
+    "right_sample": {
+      "at_s": 120.75,
+      "field": "time_boot_ms",
+      "field_valid": true,
+      "source_component": 1,
+      "source_is_expected_px4": true,
+      "source_system": 1,
+      "type": "GLOBAL_POSITION_INT",
+      "value": 107404
+    },
+    "receive_window_bracketed_by_valid_energy_prefix": true,
+    "missing_boundaries": [],
+    "replay": {
+      "schema_version": 1,
+      "reason": "covered_prefix_complete",
+      "segments": 5069,
+      "covered_boot_time_s": 101.38000000000419,
+      "first_covered_boot_ms": 6024,
+      "consumed_wh": 2.1668547999999483,
+      "profile": {
+        "capacity_wh": 10,
+        "avionics_power_w": 36,
+        "propulsion_max_power_w": 324,
+        "provenance": "engineering fixture; not calibrated"
+      },
+      "source_clock": "GLOBAL_POSITION_INT.time_boot_ms",
+      "stopped_at_receive_s": 120.75,
+      "gap_details": null,
+      "load_policy": "left_sample_zero_order_hold_max_age_1.5s",
+      "full_mission_coverage_claimed": false,
+      "physical_calibration_claimed": false,
+      "authorizes_next_task": false
+    },
+    "window_energy_wh": null,
+    "window_energy_envelope": {
+      "lower_wh": 2.1126147999999447,
+      "upper_wh": 2.113254799999945,
+      "boundary_uncertainty_wh": 0.00064,
+      "strict_interior_intervals": 4798,
+      "boundary_intervals": 3,
+      "strict_interior_boot_s": 95.95600000000343,
+      "boundary_boot_s": 0.064,
+      "checked_prefix_wh": 2.1668547999999483,
+      "boundary_policy": "strict_interior_lower_inclusive_touching_upper_no_interpolation",
+      "assumption": "same causal left-load profile as replay; receive time attribution only",
+      "physical_error_bound_claimed": false
+    },
+    "physical_clock_synchronization_claimed": false,
+    "full_mission_energy_claimed": false,
+    "authorizes_next_task": false,
+    "input": {
+      "path": "artifacts\\evaluation\\mission-clock-window-20260908-j\\vtol-mission-acceptance.json",
+      "bytes": 2147292,
+      "sha256": "f099caaa70d452090c19f3b82fbd56436463ecfd7b999c8ae66b740f65f76496"
+    }
+  },
+  "files": [
+    {
+      "path": "scripts/audit_mission_energy_window.py",
+      "bytes": 6044,
+      "sha256": "971cb2988f8226b986d6a2b40a811eb3ee745413ee73bbbd994ee8a953b39550"
+    },
+    {
+      "path": "tests/test_mission_energy_window_audit.py",
+      "bytes": 5049,
+      "sha256": "1be52001ba334e206ae58c41f1cdccf91c16a4092c10046d20e3b7a16fc90592"
+    },
+    {
+      "path": "artifacts/evaluation/window-energy-envelope-20260908.xml",
+      "bytes": 2931,
+      "sha256": "3b0548ab2a38c0db1fcd1899279e6c9e19c5e4e9875dc2f874492186d75d5e25"
+    }
+  ],
+  "focused_passed": 18,
+  "external_rerun": false,
+  "source": "unchanged j-run mission report reprocessed",
+  "command": "python scripts/audit_mission_energy_window.py artifacts/evaluation/mission-clock-window-20260908-j/vtol-mission-acceptance.json --capacity-wh 10 --avionics-w 36 --propulsion-w 324 --provenance \"engineering fixture; not calibrated\"",
+  "exit_code": 0,
+  "training_completed": false
+}

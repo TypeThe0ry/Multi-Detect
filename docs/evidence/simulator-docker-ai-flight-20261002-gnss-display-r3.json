@@ -1,0 +1,51 @@
+{
+  "status": "passed_truth_free_external_px4_gazebo_ai_flight_response_with_runtime_parity_lock",
+  "release_label": "0.3.0-pre.8",
+  "source_evidence": "artifacts/evaluation/simulator-docker-ai-flight-20261002-gnss-display-r3.json",
+  "source_evidence_sha256": "a3ff8e33bb1321d49f565deacc79ac5f37f1055dfbb8566b7f7c312bd7da39a1",
+  "parity_snapshot": {
+    "requested": true,
+    "stable": true,
+    "file_sha256": "abba65fff6ef77e38d292b95ce523219a15c9de9ead7a218fa10c8f2235a7d7d",
+    "release_label": "0.3.0-pre.8",
+    "core_algorithm_hash": "84085b3a68b975dc52ccf51e70e68dc933c592b9ba8af5845617e213cc6189a9",
+    "px4_mission_path_hash": "91a867b1c89c68c50ac11e1dc6941cd0015171cb9338744adc95a63531389631",
+    "safety_policy_hash": "f1c0a83f3a27eedf395d051ab4f2792e9263102a146d1073f2d6f4e51524aef7",
+    "task_contract_hash": "85b758807746d797f24e31e33061f3f5ad52b34c7b4abbca0a549d5c89d326bc",
+    "ui_contract_hash": "b6d4a310ce9fde6df4ccdf3f9605bd1f1bd0155fda657ad4d9ca3f54ce197690"
+  },
+  "gates": {
+    "gate_passed": true,
+    "runtime_gate_passed": true,
+    "ai_policy_gate_passed": true,
+    "target_policy_gate_passed": true,
+    "flight_response_gate_passed": true,
+    "snapshot_gate_passed": true
+  },
+  "flight_response": {
+    "armed_observed": true,
+    "target_mode": "track",
+    "target_updates_accepted": 45,
+    "target_updates_rejected": 0,
+    "maximum_target_refresh_gap_s": 0.25,
+    "final_horizontal_displacement_m": 1.513558,
+    "position_sample_count": 158,
+    "gazebo_truth_consumed": false,
+    "gazebo_pose_injection_used": false
+  },
+  "cleanup": {
+    "container_removed": true,
+    "stop_exit_code": 0,
+    "remove_exit_code": 0
+  },
+  "claims_boundary": {
+    "truth_free": true,
+    "hardware_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "visual_accuracy": "not_claimed",
+    "mission_upload_or_commit": "not_claimed",
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

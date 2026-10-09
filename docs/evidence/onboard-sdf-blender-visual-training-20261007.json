@@ -1,0 +1,87 @@
+{
+  "contract": "multidetect.onboard-sdf-blender-visual-development-evidence-v1",
+  "date": "2026-10-07",
+  "release_label": "0.3.0-pre.8",
+  "status": "actual_3d_pixel_training_completed_auxiliary_candidate_not_promoted",
+  "dataset": {
+    "path": "artifacts/training/onboard-blender-sdf-visual-20261007-r1/manifest.json",
+    "sha256": "01302838ec1371f7e8dab55db31343a3343a4be2a8a2b25070b8d21fa2610d29",
+    "bytes": 345356,
+    "renderer": "Blender 4.5.3 LTS / Cycles CPU / 8 samples",
+    "geometry_source": "repository SDF worlds and multidetect_search_target_v1 multipart primitives",
+    "bbox_source": "actual_visible_pixels_of_second_3d_mask_render",
+    "billboards_or_pasted_target_images": false,
+    "split_unit": "source_world",
+    "splits": {
+      "train": {"world": "urban_inspection_multirotor_001", "frames": 72, "positive": 58, "negative": 14},
+      "val": {"world": "river_rescue_vtol_001", "frames": 24, "positive": 20, "negative": 4},
+      "test": {"world": "coastal_patrol_fixed_wing_001", "frames": 24, "positive": 20, "negative": 4}
+    }
+  },
+  "training": {
+    "parent": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+    "parent_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+    "epochs_completed": 20,
+    "seed": 20261007,
+    "device": "NVIDIA GeForce RTX 4060 / torch 2.6.0+cu124 / Ultralytics 8.4.92",
+    "transferred_parameter_items": "606/708",
+    "names": {"0": "search_target"},
+    "role": "auxiliary_visual_candidate_not_existing_COCO_detector_replacement",
+    "checkpoint": {
+      "path": "artifacts/models/onboard-vision-sdf-r1-dev-20261007/weights/best.pt",
+      "sha256": "68aea39965d4e7a3bbc6a30dd527824d0583d4a317059583b0b4ae3ad1050854",
+      "bytes": 5369662
+    },
+    "onnx": {
+      "path": "artifacts/models/onboard-vision-sdf-r1-dev-20261007/weights/best.onnx",
+      "sha256": "b74da85ad6b3058c05d0f16be669c1dc629e4a1ae816175de9556cfb9b7e15a2",
+      "bytes": 9747503,
+      "output_shape": [1, 5, 8400],
+      "end2end": false,
+      "embedded_nms": false
+    },
+    "report": {
+      "path": "artifacts/models/onboard-vision-sdf-r1-dev-20261007/visual-training-report.json",
+      "sha256": "08c208570273c1b8888c4018d3a9f5e89d507310f4da272a785deb9ac416314c",
+      "bytes": 2737
+    },
+    "export_repair": "val fuses YOLO26 in place; raw ONNX exported from a fresh best.pt instance without retraining"
+  },
+  "shared_runtime_test": {
+    "path": "artifacts/evaluation/onboard-vision-sdf-r1-shared-onnx-test-20261007.json",
+    "sha256": "61dd487681132a8dc432907c28478499c002966ee9eab2b948c3bd0a8b5ce88d",
+    "bytes": 3995,
+    "backend": "existing multidetect.vision.OnnxRawYoloDetector / CPUExecutionProvider / full frame",
+    "frames": 24,
+    "confidence_threshold": 0.25,
+    "iou_threshold": 0.5,
+    "true_positives": 20,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "inference_p95_ms": 16.520400007721037,
+    "scope": "small synthetic holdout, shared target prototype, not real-world generalization or end-to-end flight latency"
+  },
+  "validation": {
+    "focused_tests_passed": 42,
+    "independent_renderer_review": "120 mask bboxes, labels and identities consistent",
+    "independent_training_review": "source YAML excluded; closed verified inputs used"
+  },
+  "limitations": [
+    "Only three static worlds and one target geometry; backgrounds are often simple ground.",
+    "All 98 target-present frames remain visible; complete occlusion is not covered.",
+    "Camera framing uses known offline target position; no autonomous search flight was recorded.",
+    "Opaque material approximation; no sensor noise, dynamic physics or domain-transfer acceptance.",
+    "New class head does not preserve the original 80-class capability; original detector remains unchanged.",
+    "PyTorch end-to-end AP metrics and traditional ONNX fixed-threshold counts are different evaluations."
+  ],
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,76 @@
+{
+  "schema": "multidetect.onboard-policy-candidate-evidence",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-06T00:00:00Z",
+  "release_label": "0.3.0-pre.8",
+  "status": "candidate_quarantined_no_promotion",
+  "training": {
+    "method": "incremental_finetune_from_existing_onboard_policy",
+    "parent_model": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "candidate_model": "artifacts/models/onboard-policy-r33-geometry-focused-cuda-20261006/onboard_policy_r33_geometry_focused_cuda_20261006.onnx",
+    "candidate_model_sha256": "629149c6bbc99246644904461f5384bcdd17eb1f916b2c30fdf8456fce64dcf9",
+    "candidate_model_bytes": 62145,
+    "training_config": "artifacts/models/onboard-policy-r33-geometry-focused-cuda-20261006/training-config.json",
+    "training_config_sha256": "d77349654f97403d6a6adba31448775abb977295e6e266415c3117ba71865642",
+    "training_report": "artifacts/models/onboard-policy-r33-geometry-focused-cuda-20261006/training-report.json",
+    "training_report_sha256": "a2290361ff90fdc9a3fb0408fa53a29bdbcab0100b8477e489d88558d873b6b4",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": "12.4",
+    "torch": "2.6.0+cu124",
+    "epochs": 30,
+    "batch_size": 2048,
+    "learning_rate": 0.005,
+    "navigation_geometry_weight": 20.0,
+    "parent_distillation_weight": 0.0,
+    "samples": 36000,
+    "same_40_feature_contract": true,
+    "same_20_output_contract": true,
+    "structured_3d_scene_teacher_rows": 24000,
+    "rendered_rgb_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "independent_test_rows": 0,
+    "synthetic_bootstrap": true,
+    "red_green_fixture_used": false
+  },
+  "evaluation": {
+    "report": "artifacts/evaluation/onboard-r33-geometry-focused-cuda-20261006-inspect-geometry.json",
+    "report_sha256": "11b50fc5068d60ca0aa31e80c6519109033b0066fc17ccc97ee9759e9d6964fa",
+    "step_horizon_m": 40.0,
+    "raw_head_semantics": "bounded_next_step_ned_offset",
+    "calibrated_adapter_semantics": "measured_ned_offsets_override_raw_head_for_follow_or_goto",
+    "bounded_step": {
+      "angle_mae_deg": 35.95582122175487,
+      "angle_p95_deg": 65.61511650188234,
+      "direction_within_20deg_rate": 0.24333333333333335,
+      "endpoint_mae_m": 127.34989256093753,
+      "range_mae_m": 115.52420921524609
+    },
+    "full_target_reference": {
+      "range_mae_m": 117.02318369183918,
+      "note": "Diagnostic reference only; the raw head predicts a bounded next step and the calibrated adapter supplies measured NED offsets for follow/goto."
+    },
+    "diagnostic_pass": false
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "reference_retained": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "reason": "The higher geometry weight reduces the bounded-step range error modestly but worsens direction accuracy and still has no rendered sensor rows or independent test episode.",
+    "next_required_data": [
+      "actual Gazebo 3-D RGB frames from the neutral multi-part SDF scenes",
+      "registered FLOAT32 optical-axis depth with CameraInfo and RGB stride/dimension binding",
+      "same-frame vehicle pose, heading, and PX4 telemetry",
+      "independently reviewed continuous episodes with search, inspect, record, return, and abort transitions",
+      "disjoint train/evaluation/test scenes with at least one independent test episode and transition"
+    ]
+  },
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

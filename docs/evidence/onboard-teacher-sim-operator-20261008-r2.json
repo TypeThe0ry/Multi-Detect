@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "experiment_date": "2026-10-08",
+  "scope": "actual_owned_disposable_PX4_Gazebo_ground_observation_not_flight_or_training",
+  "R1": {
+    "root_and_child_native_exit_code": 1,
+    "supervised_run": {
+      "bytes": 22902,
+      "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-supervisor-20261008-r1/supervised-run.json",
+      "sha256": "1a8e68612c38ec72c30c04b126638556ad37de7bb5c312c51a062d3e6d2c24d6"
+    },
+    "parameter_value_missing": true,
+    "parameter_change_API_attempts": 0,
+    "RX_started": false,
+    "camera_frames": 0,
+    "original_failure_preserved": true
+  },
+  "R2": {
+    "root_and_child_native_exit_code": 0,
+    "supervised_run": {
+      "bytes": 24602,
+      "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-supervisor-20261008-r2/supervised-run.json",
+      "sha256": "b06acd7ce6c27bbffeda9858a5e45057e2a1a3b804f07d9e49eaa7de2e3daa67"
+    },
+    "observation_report": {
+      "bytes": 749303,
+      "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/operator-observation.json",
+      "sha256": "4e28793481152a3e191a31e7bfedb4d6d0fcd908dc3fa7d9cd253b1da1b5cc9f"
+    },
+    "capture_receipt": {
+      "bytes": 9995159,
+      "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/telemetry/capture-receipt.json",
+      "sha256": "43ee5b9530fa866a00df67552e5dd049c7a8e077b1d6622d5aa327d1bc911abb"
+    },
+    "operator_receipt": {
+      "bytes": 42627,
+      "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/sim-operator/operator-report.json",
+      "sha256": "b0b4a0eba389d3f85aefc18d1d2c812faf3110914f71ed39441ad3fcefca8520"
+    },
+    "pinned_image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+    "PX4_git_hash": "83c4f4e580558816f0e398918f66358988004696",
+    "reported_firmware_string": "1.18.0 80 (17956992)",
+    "container_id": "e14be49144eef5a5a4dd608c639955dafa40dbc23ac0b9c1a4029cf07b5927d3",
+    "qualification_attempts": 20,
+    "qualified_ground_observations": 16,
+    "refusals": {
+      "nine_messages_incomplete": 1,
+      "not_actual_STANDBY": 2,
+      "observer_time_skew": 1
+    },
+    "qualified_mode": "reported current AUTO_LOITER/Hold; not all-mode arming permission",
+    "context_schema_version": 2,
+    "airspeed": null,
+    "estimated_flight_time_s": null,
+    "flight_capability": null,
+    "unknown_values_not_filled_with_zero": true,
+    "planning_inputs_complete": false,
+    "resource_qualification_not_raised": {
+      "camera_available": false,
+      "perception_available": false,
+      "geofence_valid": false
+    },
+    "context_bindings": [
+      {
+        "bytes": 8952,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-003.json",
+        "sha256": "83bacd6b3d3b3970477c57591f8217d8fb427f3988764ca5572ca1c7dbf90540"
+      },
+      {
+        "bytes": 8958,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-004.json",
+        "sha256": "0886776881a6fae29bfc02b17d91485cb14e9db5efc08d2ad5c8e397f1fc759e"
+      },
+      {
+        "bytes": 8955,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-005.json",
+        "sha256": "b3d3020d56e50b383f03b54389ff9029cdca1b0d6697f1b14c392612b329910b"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-006.json",
+        "sha256": "a0e766e9997dbc03d8c69eb58566c04974a7d3fcc497358178c80dc3b7666cfa"
+      },
+      {
+        "bytes": 8958,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-007.json",
+        "sha256": "26202e5222785d578ca5a065a58c29d2f0ab9e750a0d57e458c3ab9ddaab48fc"
+      },
+      {
+        "bytes": 8957,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-008.json",
+        "sha256": "4a748f07fbca86ef7fdbfdb7eaf933c0f0a2795f549d818444ae1b61bfc7f9e0"
+      },
+      {
+        "bytes": 8942,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-009.json",
+        "sha256": "885fd4b47c6c631f50278881eac28a3859c1ddcd021b227e56cf57ff409111e3"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-010.json",
+        "sha256": "6c7d0023f732be577a67a3b1085fd0a50044aaeda168f66d85a48701d2496f30"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-011.json",
+        "sha256": "8eb09e06bcffef7489072709a3a843a66824147e48000f79f84dd90434e02203"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-013.json",
+        "sha256": "447f5117d0f5cb681529ccb5cd48b393bde5ed1a0279c6bc56fc319a226135db"
+      },
+      {
+        "bytes": 8958,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-014.json",
+        "sha256": "73b85e77c01857c5a383fa00b8beadda53d77689d9e01e26fff4df1d8c1bc7bd"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-015.json",
+        "sha256": "920f874938490e25c7361749c160a30bab5dd2d1a502392d4047706ebcf3cf5e"
+      },
+      {
+        "bytes": 8956,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-016.json",
+        "sha256": "947616fe599927f0e72fb5e84e2b55162af94a75c836dafca5e1765e419a8140"
+      },
+      {
+        "bytes": 8959,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-017.json",
+        "sha256": "c7228eb5a148f7d7540a9eec96d1d4aef63aa599c087b90401489ed1f6713d77"
+      },
+      {
+        "bytes": 8939,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-018.json",
+        "sha256": "a0b6da7d129c18f64a98f78adf209eff7f01821fb9c9c0ec3880fa7ba4414225"
+      },
+      {
+        "bytes": 8958,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/context-019.json",
+        "sha256": "c11c6ad316c11e86dd49574f92f586f29f3835f5be25b234d61cb69c9a3b7eb7"
+      }
+    ],
+    "camera_frame_pairs": 2,
+    "camera_dimensions": [
+      1280,
+      960
+    ],
+    "camera_payload_RGB_and_depth_total_bytes": 17203200,
+    "camera_metadata_bindings": [
+      {
+        "bytes": 5826,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/camera-window-000-000/camera.json",
+        "sha256": "2ebc164803b308d9b441271392a6317828bdee33964825489bbf8e3cd3e2c976"
+      },
+      {
+        "bytes": 5820,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/camera-window-000-001/camera.json",
+        "sha256": "15107f6560e0a1871f21bde6ac874e5b995327234cb86041052329f3cf825734"
+      }
+    ],
+    "record_count": 4428,
+    "accepted_source_count": 4340,
+    "foreign_source_record_only_count": 88,
+    "orphan_packet_count": 0,
+    "queue_overflow": false,
+    "queue_high_water_and_capacity": [
+      65,
+      256
+    ],
+    "queue_empty_and_threads_exited": true,
+    "operator_native_commands": 20,
+    "operator_native_exit_codes_all_zero": true,
+    "parameter_change": {
+      "name": "COM_RC_IN_MODE",
+      "before": 1,
+      "after": 4,
+      "native_set_count": 1,
+      "readback_verified": true,
+      "scope": "owned disposable software SIM only"
+    },
+    "protected_parameters_unchanged": {
+      "COM_ARM_WO_GPS": 1,
+      "COM_ARM_HFLT_CHK": 1,
+      "COM_MODE_ARM_CHK": 1,
+      "COM_RCL_EXCEPT": 0,
+      "NAV_RCL_ACT": 2,
+      "NAV_DLL_ACT": 2,
+      "COM_RC_LOSS_T": 0.5,
+      "COM_DL_LOSS_T": 10
+    },
+    "inherited_COM_ARM_WO_GPS_not_relaxed_here": true,
+    "GCS_heartbeat_API_attempts_and_returns": [
+      22,
+      22
+    ],
+    "GCS_source": [
+      255,
+      190
+    ],
+    "GCS_type_and_autopilot": [
+      6,
+      8
+    ],
+    "GCS_datagram_delivery_independently_proven": false,
+    "readonly_request_API_attempts_and_returns": [
+      30,
+      30
+    ],
+    "post_observation_native_reads": 20,
+    "post_observation_native_exit_codes_all_zero": true,
+    "container_log_stdout": {
+      "observed_bytes": 3276800,
+      "full_stream_EOF_observed": true,
+      "full_observed_sha256": "ccfe23888505cfdf8a9e0bf768b2363c9ed9484463f368c470acf2ac0c413c1a",
+      "retained_prefix": {
+        "bytes": 131072,
+        "path": "artifacts/diagnostics/onboard-teacher-SIM-operator-20261008-r2/native-19-container-log.stdout.prefix.bin",
+        "sha256": "43b836ff1dc98271d3ce42cb09334b93daf0da60b88632d531ea177923051d8e"
+      },
+      "all_bytes_retained": false
+    },
+    "owned_container_cleanup_verified": true,
+    "owned_job_tree_empty": true,
+    "watchdog_fired": false,
+    "source_bindings_equal_during_execution_window": 61,
+    "execution_window_current_identity_equivalence_claimed": false,
+    "closed_snapshot_is_live_context": false
+  },
+  "post_run_source_changes": {
+    "parity": {
+      "before": {
+        "bytes": 13874,
+        "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+      },
+      "after": {
+        "bytes": 14101,
+        "sha256": "f7102f04abe0a2f817fcf3d39b5ac0d6d5a337c10478e3ec64c1e0a5499397e3"
+      },
+      "runtime_revalidation_claimed": false
+    },
+    "test_only_import_sort": {
+      "path": "tests/test_context_v2_mission_admission.py",
+      "performed_after_R2_closed": true,
+      "semantics_changed": false
+    },
+    "raw_experiment_rewritten": false
+  },
+  "verification": {
+    "independent_binding_audit_native_chunk": "5047da",
+    "independent_binding_audit_native_exit_code": 0,
+    "independently_SHA_verified_full_file_bindings": 499,
+    "independently_SHA_verified_offset_range_bindings": 554,
+    "matching_bytes_read_and_hashed": 45626819,
+    "current_execution_window_source_matches": [59, 61],
+    "post_run_source_difference_count": 2,
+    "pixel_depth_or_full_wire_semantics_independently_decoded": false,
+    "targeted_CPU_tests": 458,
+    "additional_document_index_receipt_regression_tests": 122,
+    "additional_regression_native_exit_code": 0,
+    "additional_regression_native_chunk": "3c5896",
+    "combined_distinct_CPU_test_cases": 580,
+    "canonical_current_source_and_progress_index_verified": true,
+    "current_index_check_native_exit_code": 0,
+    "current_index_check_native_chunk": "5c5e49",
+    "CPU_test_native_exit_code": 0,
+    "CPU_test_native_chunk": "cad555",
+    "CPU_tests_not_model_quality_or_flight_acceptance": true,
+    "independent_current_PID_and_container_absence_check_native_chunk": "140ba4",
+    "independent_current_PID_and_container_absence_check_native_exit_code": 0,
+    "whole_raw_wire_or_all_sidecar_audit_claimed": false
+  },
+  "pretrained_research": {
+    "bytes": 7165,
+    "path": "docs/onboard-pretrained-candidate-refresh-20261008-r2.md",
+    "sha256": "c3f0bb22621d7dcd4aa5ba3a9d7fe007871bc3df18a9bee55c60a2db6fe036ff"
+  },
+  "next_gates": [
+    "real_SIM_runtime_attestation_and_v2_Mission_admission",
+    "explicit_source_bound_SIM_energy_and_conservative_capability",
+    "coordinate_origin_sensor_clock_route_clearance_and_resource_qualification",
+    "real_validation_and_caller_authorization_not_fixture_PASS_Grant",
+    "single_RX_source_filtered_persistent_Mission_transaction",
+    "actual_single_sortie_multi_segment_motion_and_successor_RGB",
+    "reviewed_real_3D_trajectory_dataset_and_fair_model_comparison"
+  ],
+  "claims": {
+    "flight_commands_sent": false,
+    "arm_performed": false,
+    "mission_uploaded": false,
+    "mission_approved": false,
+    "actual_teacher_trajectory_collected": false,
+    "teacher_expert_verified": false,
+    "model_loaded": false,
+    "model_inference_performed": false,
+    "optimizer_performed": false,
+    "train_admitted": false,
+    "default_model_changed": false,
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

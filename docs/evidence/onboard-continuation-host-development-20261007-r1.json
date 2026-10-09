@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.original-parent-continuation-host-development-receipt-v1",
+  "verified_at_utc": "2026-10-07T05:48:18Z",
+  "repository_head": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+  "worktree_has_preexisting_changes": true,
+  "status": "automated_verified_original_parent_host_and_native_kernel_udp_emulation_not_gazebo_flight",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "typed_software_fixtures_and_native_loopback_udp_test_peer",
+  "airframe": "multirotor",
+  "scenario_origin": "independent_protocol_peer_no_flight_dynamics_original_model_and_clearance_are_fixtures",
+  "sources": [
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation_authoring.py",
+      "bytes": 30192,
+      "sha256": "dc21ae36ce4e605214df27d2b286873a6d41132b1e52753d03813739c96a4982"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation_paused_admission.py",
+      "bytes": 21035,
+      "sha256": "4a96d82d10b61995ba67cd2a5e80b842a7fd441cebf7f5088beb202830f88628"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_continuation_host.py",
+      "bytes": 20954,
+      "sha256": "53f83ab7041f417043518882db6532a7ba4f07ef457b037a17b121a5cdce96e9"
+    },
+    {
+      "path": "src/multidetect/px4_continuation_wire.py",
+      "bytes": 33825,
+      "sha256": "ea4f87dc60cb6afddd436060dc0b4dee89ee70fe771631c87af288fbe2c31069"
+    },
+    {
+      "path": "tests/test_onboard_continuation_authoring.py",
+      "bytes": 26283,
+      "sha256": "bca4eba4f96815daab41f56f65b8b0bca812b38a90ce99522bc99565192acbda"
+    },
+    {
+      "path": "tests/test_onboard_continuation_paused_admission.py",
+      "bytes": 22781,
+      "sha256": "8347642109bef2413f87ac6355deb51fefc4a4ec17d3b96dd581952598d0fffb"
+    },
+    {
+      "path": "tests/test_onboard_continuation_host.py",
+      "bytes": 12608,
+      "sha256": "b34c22c05845e859990d90c3bb451ab8f461979c779cca28c2420587363abba0"
+    },
+    {
+      "path": "tests/test_onboard_continuation_host_guards.py",
+      "bytes": 18142,
+      "sha256": "8888c6512d9f25f5b06ca0a47bf529d507dba1dd97bf352a38aba2ca9b59ce0e"
+    },
+    {
+      "path": "tests/test_onboard_continuation_host_identity.py",
+      "bytes": 3005,
+      "sha256": "a349ac606e04f889858e1b5e7c66c42a700985bbb98fe8f42ac7c72c19eab417"
+    },
+    {
+      "path": "tests/test_px4_continuation_wire.py",
+      "bytes": 31762,
+      "sha256": "aeb03f0be9d9059874a47fa349ece0accdd8312fad75e98006857d78990f80e3"
+    },
+    {
+      "path": "tests/test_px4_continuation_wire_loopback.py",
+      "bytes": 19154,
+      "sha256": "cffc3e145edab52f9deffb06b97b078129750c3b92e60ed100ecbb8877bae50c"
+    },
+    {
+      "path": "tests/test_px4_continuation_wire_manual_loopback.py",
+      "bytes": 6698,
+      "sha256": "afebe5758de0647441ad71b2b235c082377b2d6a147825fa9f7aa9952ee84ca4"
+    },
+    {
+      "path": "tests/test_onboard_continuation_host_evidence.py",
+      "bytes": 6120,
+      "sha256": "3b03e2b4124fe4f03f5253aa9f69941e7bd0660d72cf9f907e8af0c2ad616ee5"
+    },
+    {
+      "path": "docs/onboard-continuation-host.md",
+      "bytes": 5547,
+      "sha256": "1d634102c9ad1823025b7a112604264d94ff2979ebf6d1f49799946991cea3d3"
+    }
+  ],
+  "baselines": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    }
+  ],
+  "prior_receipt": {
+    "path": "docs/evidence/onboard-continuation-development-20261007-r1.json",
+    "bytes": 17641,
+    "sha256": "61df69cf2b6077bd0e36cb3acef31f1890d0d4baebb1dee89c58f6fc6a399fac"
+  },
+  "software_validation": {
+    "command": ".venv-vlm/Scripts/python.exe -m pytest tests/test_onboard_continuation_authoring.py tests/test_onboard_continuation_paused_admission.py tests/test_px4_continuation_wire.py tests/test_onboard_continuation_host_guards.py tests/test_onboard_continuation_host_identity.py -q --disable-warnings --basetemp=D:/CodexTemp/md-host-finalsoftware-20261007-r2 --junitxml=artifacts/evaluation/onboard-continuation-host-development-20261007-r1/software-validation-r2.xml",
+    "native_exit_code": 0,
+    "tests_passed": 295,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "elapsed_s": 38.396,
+    "junit_timestamp_clock": "host_local_timezone_not_relabelled_as_UTC",
+    "counts_by_test_file": {
+      "authoring": 76,
+      "paused_admission": 108,
+      "wire": 62,
+      "host_guards": 38,
+      "host_identity": 11
+    },
+    "junit_artifact": {
+      "path": "artifacts/evaluation/onboard-continuation-host-development-20261007-r1/software-validation-r2.xml",
+      "bytes": 46950,
+      "sha256": "698600e397768a6d0115ee839444038763455b77d01917c55569906874d11ec1"
+    }
+  },
+  "kernel_udp_validation": {
+    "command": ".venv-vlm/Scripts/python.exe -m pytest tests/test_px4_continuation_wire_loopback.py tests/test_px4_continuation_wire_manual_loopback.py tests/test_onboard_continuation_host.py -q --disable-warnings --basetemp=D:/CodexTemp/md-host-finalkernel-20261007-r2 --junitxml=artifacts/evaluation/onboard-continuation-host-development-20261007-r1/kernel-udp-validation-r2.xml",
+    "native_exit_code": 0,
+    "tests_passed": 14,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "elapsed_s": 4.331,
+    "raw_session_properties": 14,
+    "raw_received_packets": 326,
+    "receiver_confirmed_resumes": 2,
+    "actual_kernel_socket_used": true,
+    "actual_mavlink2_codec_and_CRC_used": true,
+    "flight_acceptance_proven": false,
+    "command_causality_proven": false,
+    "junit_artifact": {
+      "path": "artifacts/evaluation/onboard-continuation-host-development-20261007-r1/kernel-udp-validation-r2.xml",
+      "bytes": 418091,
+      "sha256": "73f2a6a7c1510f91fe4a3ed1f7a8e68dfa39ddcb5d026c6f66a9b3b0446c3789"
+    },
+    "negative_boundaries": [
+      "lost_final_ACK",
+      "changed_readback",
+      "cancel_after_install",
+      "silent_HOLD",
+      "queued_precommand_HOLD",
+      "cancel_final_ACK",
+      "cancel_last_readback",
+      "cancel_before_resume",
+      "REQUEST_INT_then_queued_manual_zero_ITEM_writes",
+      "pipeline_request_retained_not_replayed_bounded_recovery",
+      "host_cancel_after_admission_zero_COUNT",
+      "foreign_child_geofence_zero_COUNT"
+    ]
+  },
+  "lint_validation": {
+    "python_files": 13,
+    "ruff_check_native_exit_code": 0,
+    "ruff_format_check_native_exit_code": 0
+  },
+  "independent_reviews": {
+    "authoring_software_tests": 76,
+    "paused_software_tests": 108,
+    "host_guard_tests": 38,
+    "exact_identity_final_delta_tests": 11,
+    "all_native_exit_codes": 0,
+    "readonly_actual_host_udp_tests": 3,
+    "runtime_flight_proof": false
+  },
+  "retained_pre_fix_profile": {
+    "absolute_path": "D:/CodexTemp/onboard-host-profile-x5nvgect/summary.json",
+    "bytes": 10255,
+    "sha256": "452a833e86025cc72e83b238864f8d17855adce8813fb23f2ba97fc61bc00434",
+    "native_exit_code": 1,
+    "source_unchanged_during_profile": true,
+    "scope": "pre_fix_instrumented_CPU_protocol_fixture_diagnostic_not_final_source_benchmark",
+    "finding": "153 repeated journal opens/loads; source_current expiry caused fail_closed",
+    "report_rewritten": false,
+    "policy_loosened": false,
+    "source_timestamps_rewritten": false
+  },
+  "local_runtime_diagnostic": {
+    "probe_native_exit_code": 2,
+    "artifact": {
+      "path": "artifacts/evaluation/local-docker-access-20261007-r3/docker-access.json",
+      "bytes": 2295,
+      "sha256": "4a9894413ee1f16a7efbf9359128c8f5606623a97c7a93343cff1901d6d1d7a8"
+    },
+    "diagnosis": "daemon_query_timed_out_state_unknown",
+    "docker_process_presence_observed_at_utc": "2026-10-07T05:25:06Z",
+    "docker_process_presence_does_not_prove_daemon_ready": true,
+    "extended_query": {
+      "artifact": {
+        "path": "artifacts/evaluation/local-docker-access-20261007-r4/daemon-timeout-observation.json",
+        "bytes": 291,
+        "sha256": "055129b3dd9120109dc4c0519ddcc7eb9fa7976c7fc27ae9b5fd589f70b8ee3b"
+      },
+      "artifact_origin": "JSON_object_transcribed_from_actual_tool_stdout_not_original_stdout_bytes",
+      "timeout_s": 15,
+      "observed_shell_invocation_exit_code": 1,
+      "native_docker_exit_code": null,
+      "timed_out": true,
+      "short_probe_15s_argument_rejected_native_exit_code": 1,
+      "short_probe_unchanged": true
+    },
+    "service_lifecycle_changed": false,
+    "image_inspection_performed": false,
+    "gazebo_started": false
+  },
+  "development_host_wire_implemented": true,
+  "original_authoring_producer_implemented": true,
+  "kernel_udp_emulation_verified": true,
+  "generation_cancellation_software_verified": true,
+  "original_raw_fact_expiry_software_verified": true,
+  "original_parent_only": true,
+  "default_wire_writes_enabled": false,
+  "default_trusted_authoring_sources": [],
+  "development_files_in_current_production_parity": false,
+  "whole_sortie_live_dispatcher_connected": false,
+  "actual_px4_gazebo_continuation_verified": false,
+  "command_causality_proven": false,
+  "real_source_registry_authenticated": false,
+  "live_route_clearance_producer_implemented": false,
+  "durable_pre_pause_source_consumption_verified": false,
+  "repeated_parent_chain_verified": false,
+  "hold_watchdog_flight_return_verified": false,
+  "native_vlm_generation_performed": false,
+  "flight_action_training_performed": false,
+  "world_model_local_inference_measured": false,
+  "onboard_policy_reference_changed": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "limitations": [
+    "process_local_one_shot_token_not_durable_writer_lease_or_source_registry",
+    "original_AUTO_MISSION_parent_only_not_repeated_RESUMED_parent_chain",
+    "current_and_compile_parent_default_1s_freshness_only_tighten_not_calibrated_flight_performance",
+    "full_validation_once_each_phase_immutable_graph_original_journal_bytes_and_deadlines_every_write",
+    "all_send_drain_retains_but_does_not_replay_pipelined_requests_may_timeout",
+    "SET_MODE_queue_cut_not_vehicle_command_ACK_causal_proof",
+    "host_commit_is_persistent_local_journal_commit_not_second_vehicle_commit",
+    "fixtures_do_not_provide_action_conditioned_flight_training_data",
+    "neither_runtime_attestation_input_nor_hash_self_authenticates_external_container_or_source"
+  ]
+}

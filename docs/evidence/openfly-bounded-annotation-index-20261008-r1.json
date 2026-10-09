@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.openfly-bounded-annotation-index-evidence-v1",
+  "status": "actual_bounded_original_TRAIN_metadata_index_native0_not_RGB_or_training_admission",
+  "bindings": [
+    {
+      "path": "artifacts/diagnostics/openfly-bounded-annotation-index-20261008-r1/report.json",
+      "bytes": 189868,
+      "sha256": "74af3937f614ee78400a3c42cd4087c01a79d8a8d4fd712c57319e3bade25f1c"
+    },
+    {
+      "path": "configs/training/openfly-bounded-annotation-index-20261008-r3.json",
+      "bytes": 1809,
+      "sha256": "aa3de1d51aad5f75ccfe9078320280cc97f7d86122b96ce9340ec27381c90c04"
+    },
+    {
+      "path": "scripts/build_openfly_bounded_annotation_index.py",
+      "bytes": 21424,
+      "sha256": "b6401cbda0049835120b314c151d742d05c58b9b605c52ea13dee98acb267e41"
+    },
+    {
+      "path": "tests/test_build_openfly_bounded_annotation_index.py",
+      "bytes": 20548,
+      "sha256": "68f3e85ed1b7ac64a9b99bfabe9ddf470a243bd20b0fe964f5f422f60aa9e9f6"
+    },
+    {
+      "path": "scripts/fetch_openfly_navigation_pilot.py",
+      "bytes": 34972,
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+      "bytes": 142534,
+      "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+    }
+  ],
+  "actual_execution": {
+    "native_exit_code": 0,
+    "terminal_tool_chunk": "7a98fd",
+    "source_plan_emission_native_exit_code": 0,
+    "source_plan_emission_tool_chunk": "78fdd2",
+    "root65_tests_native_exit_code": 0,
+    "root65_tests_tool_chunk": "6b3d05",
+    "root_Ruff_native_exit_code": 0,
+    "root_Ruff_tool_chunk": "e6247e",
+    "author65_tests_Ruff_and_format_native_exit_code": 0,
+    "author65_tests_tool_chunk": "722a2d",
+    "independent_code_review_current_blockers": 0,
+    "independent_code_review_tool_chunk": "44c918",
+    "independent_actual_prefix_review_native_exit_code": 0,
+    "independent_actual_prefix_review_tool_chunk": "8005cc"
+  },
+  "actual_discovery": {
+    "consumed_prefix_bytes": 786432,
+    "consumed_prefix_sha256": "221068e7506630ac33cedca7c922e069b35ae77372dc73f9054fee3d94f2e653",
+    "read_ahead_included_in_prefix_digest": true,
+    "independent_exact_prefix_bytes_and_digest_equal": true,
+    "historical_whole_annotation_bytes": 405815796,
+    "current_whole_annotation_sha256_verified": false,
+    "annotation_stat_before_after_equal": true,
+    "small_source_bindings_before_after_equal": true,
+    "records_inspected": 196,
+    "retained_unique_routes": 120,
+    "retained_unique_prompts": 120,
+    "candidate_frame_indices_from_terminal_ids": 4077,
+    "retained_scene_counts": {
+      "env_airsim_18": 26,
+      "env_airsim_26": 19,
+      "env_airsim_23": 17,
+      "env_airsim_gz": 39,
+      "env_airsim_sh": 19
+    },
+    "retained_locked_role_counts": {
+      "train": 45,
+      "dev-test": 17,
+      "unassigned_no_training_admission": 58
+    },
+    "dev_validation_scene16_seen_in_this_prefix": false,
+    "unsupported_padded_action_records_quarantined": 10,
+    "non_airsim_records_skipped": 65,
+    "stop_reason": "candidate_frame_limit",
+    "complete_array_scan": false,
+    "aggregate_codes_not_raw_pose_step_or_FRD_gold": true,
+    "quarantined_action_copy_used_only_for_other_fields_schema_check": true,
+    "quarantined_records_entered_candidate_routes": 0,
+    "seen_unseen_annotations_opened": false
+  },
+  "preserved_failed_attempts": [
+    {
+      "plan": "configs/training/openfly-bounded-annotation-index-20261008-r1.json",
+      "plan_bytes": 2091,
+      "plan_sha256": "c454aae2a2ceb197b45031a61728a1b1e331fc6e2f479f345be8e9333cd88759",
+      "native_exit_code": 1,
+      "tool_chunk": "a6cce9",
+      "cause": "root_JavaScript_JSON_roundtrip_lost_uint64_device_precision_before_scan",
+      "diagnostic_tool_chunk": "d22940"
+    },
+    {
+      "plan": "configs/training/openfly-bounded-annotation-index-20261008-r2.json",
+      "plan_bytes": 1809,
+      "plan_sha256": "d572d50395805ec1ae919cecff5eed351fbbe6ebb5671261c7d9621599905f5a",
+      "native_exit_code": 1,
+      "tool_chunk": "2bde19",
+      "cause": "original_record57_has_unsupported_negative_padding_codes",
+      "bounded_diagnostic_tool_chunk": "caa230",
+      "original_frozen_parser_changed": false
+    }
+  ],
+  "metadata_route_index_only": true,
+  "RGB_payload_downloaded": false,
+  "raw_pose_geometry_verified": false,
+  "balanced_raw_action_coverage_verified": false,
+  "training_ready": false,
+  "model_loaded": false,
+  "optimizer_performed": false,
+  "GPU_used": false,
+  "network_IO_performed_by_scan": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "execution_authority": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}
+

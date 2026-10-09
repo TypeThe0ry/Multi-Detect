@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison-v1",
+  "release_label": "0.3.0-pre.8",
+  "purpose": "Record two incremental OnboardAI candidates and keep the already passing parent selected when the new candidates regress fixed navigation pressure cases.",
+  "same_contract": true,
+  "same_parent_model": {
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "scenario_count": 3,
+    "scenario_families": ["inspection", "rescue", "patrol"]
+  },
+  "baseline": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "generalization_report": "artifacts/evaluation/onboard-policy-r33-generalization-20261006.json",
+    "generalization_report_sha256": "21debbfdb9260ede9c1a20f69fb43f9d8d3d662f20b6b7714bace0206f71ecf2",
+    "generalization_cases": 22,
+    "guarded_passed": 22,
+    "navigation_direction_passed": 22,
+    "sensor_holdout_cases": 900,
+    "sensor_holdout_task_accuracy": 0.9766666666666667,
+    "sensor_holdout_flight_accuracy": 0.9777777777777777,
+    "sensor_holdout_compatible_output_rate": 0.9944444444444445
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r34-balanced-3d-dev",
+      "model_path": "artifacts/models/onboard-policy-r34-balanced-3d-dev/onboard_policy_r34.onnx",
+      "model_sha256": "a758ea8e17bfd6269e3adbc47165a9660458f13219650aaf7311d2fd08427cfc",
+      "training_config_sha256": "6a72df3913395c16d15915d7f61d678562ff2335e57cf841a7997a94d503387d",
+      "training_report_sha256": "d54c342bf2b24d940210180d69c56dbdb0cbcdadc7f0c51f6c6e94fe18b90bd0",
+      "generalization_report": "artifacts/evaluation/onboard-policy-r34-generalization-20261006.json",
+      "generalization_report_sha256": "5a4f03375c479207a8430d20476378abfa9d25fffa1c77f4c0e6568d568e75b1",
+      "sensor_holdout_report": "artifacts/evaluation/onboard-policy-r34-3d-holdout-20261006.json",
+      "sensor_holdout_report_sha256": "58edc9e158220573e712a3c471e1cc7864b992d784480dfacbb9364976d824d",
+      "sensor_holdout_task_accuracy": 0.9833333333333333,
+      "sensor_holdout_flight_accuracy": 0.9933333333333333,
+      "sensor_holdout_compatible_output_rate": 0.9966666666666667,
+      "generalization_guarded_passed": 21,
+      "generalization_navigation_direction_passed": 21,
+      "generalization_failure_cases": ["bearing-right"],
+      "decision": "not_promoted_regressed_fixed_navigation_pressure_case"
+    },
+    {
+      "model_id": "onboard-policy-r35-conservative-3d-dev",
+      "model_path": "artifacts/models/onboard-policy-r35-conservative-3d-dev/onboard_policy_r35.onnx",
+      "model_sha256": "f21319cd9bd34556ddf3bb8eee4321078d050bfe788bf320279b3b5e5311b28e",
+      "training_config_sha256": "b4543949d027e2b416bd8a0a21a9af29a8c9082e8a58eccbce1563b176b8e198",
+      "training_report_sha256": "aa5af046b33df7496590a27aec7e0b1aa2b27f1c265e6df023cb664a615f3e96",
+      "generalization_report": "artifacts/evaluation/onboard-policy-r35-generalization-20261006.json",
+      "generalization_report_sha256": "b0fe8c64877b9b0f01ae41ce1443c144e0be6866203af4513429202e01adfb56",
+      "sensor_holdout_report": "artifacts/evaluation/onboard-policy-r35-3d-holdout-20261006.json",
+      "sensor_holdout_report_sha256": "5f3ec26a7740e34d8c8536335d9a81c3f99486f45ddd24c98d61ca7fa9138647",
+      "sensor_holdout_task_accuracy": 0.98,
+      "sensor_holdout_flight_accuracy": 0.9844444444444445,
+      "sensor_holdout_compatible_output_rate": 0.9911111111111112,
+      "generalization_guarded_passed": 21,
+      "generalization_navigation_direction_passed": 21,
+      "generalization_failure_cases": ["bearing-left"],
+      "decision": "not_promoted_regressed_fixed_navigation_pressure_case"
+    }
+  ],
+  "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+  "selection_reason": "The parent is the only candidate in this comparison with both bearing directions passing the fixed pressure corpus. Higher aggregate 3-D structured holdout scores do not override a navigation-direction regression.",
+  "pixel_level_rendered": false,
+  "external_gazebo_runtime": false,
+  "jetson_hardware_evidence": false,
+  "pixhawk_hardware_evidence": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "candidate_promoted": false,
+  "final_release_allowed": false
+}

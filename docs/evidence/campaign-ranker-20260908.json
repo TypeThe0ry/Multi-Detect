@@ -1,0 +1,66 @@
+{
+  "product_version": "0.3.0-pre.8",
+  "generated_at": "2026-09-08",
+  "status": "automated_verified",
+  "focused_passed": 332,
+  "full_regression": {
+    "tests": 4091,
+    "passed": 4084,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 178.929,
+    "exit_code": 0,
+    "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/campaign-ranker-full-20260908.xml",
+    "path": "artifacts/evaluation/campaign-ranker-full-20260908.xml",
+    "bytes": 598689,
+    "sha256": "f2c801d3c0716be997180477271b26836e3d9c9a73da4c4b71b6c442e39c7218"
+  },
+  "documentation_parity_passed": 34,
+  "new_tests": 10,
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings --junitxml=artifacts/evaluation/campaign-ranker-20260908.xml",
+  "pytest_exit_code": 0,
+  "ruff_passed": true,
+  "inputs": [
+    {
+      "path": "scripts/vtol_selected_task_campaign.py",
+      "bytes": 11103,
+      "sha256": "9ee6e1c9f64f73d3d3c13d0f609b620da99567e32f295275575502c24301509b"
+    },
+    {
+      "path": "scripts/run_vtol_mission_sensor_capture.py",
+      "bytes": 123035,
+      "sha256": "cbad2eb69fd920b6486b097fe2948b5c8600681696b146a4b5f2daec4cd5214a"
+    },
+    {
+      "path": "scripts/audit_campaign_rejection.py",
+      "bytes": 8376,
+      "sha256": "e60fc6923eda025bb06a405290bce044e50539b06783093901a656f95a982ba9"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 100597,
+      "sha256": "6aeeb2b39bd4d38680e1594032eca24f8a29ac01abf31f52b84765876851e561"
+    },
+    {
+      "path": "configs/scenarios/vtol-ranked-routes.synthetic-campaign.json",
+      "bytes": 6810,
+      "sha256": "3683338efbff915ea400503f95d257ab98d2ee7385aa2134c4c967f727205087"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-ranker-20260908.xml",
+      "bytes": 57711,
+      "sha256": "4e8de5f90ae677adf85c5f50f7a89e9513b096e8e13905c7b1ce58c74e63f651"
+    }
+  ],
+  "external_candidate_run_verified": false,
+  "training_started": false,
+  "production_model_changed": false,
+  "HIL": false,
+  "REAL": false,
+  "final_release": false,
+  "limitations": [
+    "Campaign execution is mocked in unit regressions.",
+    "Parent candidate tests stub journal validation; new external full-path verification remains required."
+  ]
+}

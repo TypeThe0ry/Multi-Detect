@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "scope": "SIM protocol receiver regression; no new external run",
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 94129,
+      "sha256": "b9faa204df3abbc848b54e3c024c4bbb1fdfe484137edac71845a8ad1867f9f2"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 55736,
+      "sha256": "6da25e7db226d344f18eb0d0bacd8260da0d10093549f95c6387616e6bebf41a"
+    },
+    {
+      "path": "artifacts/evaluation/protocol-telemetry-20260908.xml",
+      "bytes": 42153,
+      "sha256": "4c6da3b334433669ea408d130994e4250dc34ad9188eb5c5332ce243914cf1b8"
+    }
+  ],
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_simulation_energy_replay.py --junitxml=artifacts/evaluation/protocol-telemetry-20260908.xml",
+  "exit_code": 0,
+  "passed": 227,
+  "new_tests": 3,
+  "verified": [
+    "interleaved raw energy inputs recorded once through collector",
+    "unrelated messages do not extend deadline",
+    "legacy request still denied"
+  ],
+  "unverified": [
+    "external capture continuity",
+    "full mission energy coverage",
+    "policy training",
+    "HIL/REAL",
+    "manual UI"
+  ],
+  "remaining_observation": "The pre-upload path also runs four synchronous Docker parameter commands and builds acceptance documents after collecting live_context. Protocol filtering is a confirmed omission path, not proof of the sole cause of the g-run gap. Transaction and collector elapsed clocks have separate origins."
+}

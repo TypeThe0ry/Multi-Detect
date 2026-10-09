@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-pretrained-navigation-model-metadata-research-v1",
+  "recorded_at": "2026-10-08",
+  "observed_at_utc": "2026-10-07T17:26:16Z",
+  "status": "official_primary_source_and_publisher_metadata_verified_no_checkpoint_download_or_execution",
+  "scope": "bounded_public_research_not_local_weight_byte_acceptance_runtime_quality_or_license_clearance",
+  "native_metadata_checks": [
+    {
+      "exit_code": 0,
+      "tool_chunk": "821bc4",
+      "scope": "HF_public_revision_file_sizes_publisher_LFS_sha256_for_three_repositories"
+    },
+    {
+      "exit_code": 0,
+      "tool_chunk": "840b6a",
+      "scope": "GitHub_exact_revisions_and_Qwen_VLA_pinned_README"
+    },
+    {
+      "exit_code": 0,
+      "tool_chunk": "dce51e",
+      "scope": "raw_Qwen_publisher_HF_search_empty_array_and_pinned_GitHub_tree"
+    }
+  ],
+  "publisher_sha256_not_local_download_hash": true,
+  "models": [
+    {
+      "id": "fanfuxue/3DG-VLN",
+      "revision": "02e161fffd70fe8899a3b065dd41e45707221fcf",
+      "private": false,
+      "gated": false,
+      "metadata_url": "https://huggingface.co/api/models/fanfuxue/3DG-VLN?blobs=true",
+      "publisher_card_license": "apache-2.0",
+      "license_clearance_completed": false,
+      "weight_files": [
+        {
+          "path": "model-00001-of-00004.safetensors",
+          "bytes": 4968243304,
+          "publisher_sha256": "7e7edae046112d1ececd16c6301640eff48ed12151505c693da917df7ff0afd7"
+        },
+        {
+          "path": "model-00002-of-00004.safetensors",
+          "bytes": 4991495816,
+          "publisher_sha256": "18ddbe1194b457a11c67b91da7eec19259e2d283c0cf4a0381eefcbedac94f08"
+        },
+        {
+          "path": "model-00003-of-00004.safetensors",
+          "bytes": 4932751040,
+          "publisher_sha256": "2d8e1551cc7bb0bb199a57b856b95654d1e443718d1989c35947ea0301925a52"
+        },
+        {
+          "path": "model-00004-of-00004.safetensors",
+          "bytes": 1691924384,
+          "publisher_sha256": "c688f896b5f71860576e10b4384ea9f111d5f70ce778054e67d3f7371cfd5332"
+        }
+      ],
+      "total_weight_bytes": 16584414544,
+      "code_revision": "0dfd54a68ca667f9bbada5ba7b7a834c1bf7ce09",
+      "paper_url": "https://arxiv.org/html/2606.20045v1",
+      "declared_base": "Qwen2.5-VL-7B-Instruct",
+      "declared_base_identity_independently_measured": false,
+      "model_inputs": ["front_RGB", "down_RGB", "instruction_with_direction_cue"],
+      "action_contract": {
+        "waypoint_count": 5,
+        "components_per_waypoint": 3,
+        "component_order": ["delta_forward", "delta_right", "delta_down"],
+        "relative_reference": "all_points_anchored_to_same_current_aircraft_pose_not_cumulative_deltas",
+        "yaw_component": false,
+        "execution_units": "metres_inferred_from_AirSim_SI_position_execution",
+        "unit_source": "https://github.com/microsoft/AirSim/blob/main/docs/apis.md#coordinate-system",
+        "conversion_source": "https://github.com/xuefanfu/3DG-VLN/blob/0dfd54a68ca667f9bbada5ba7b7a834c1bf7ce09/src/vlnce_src/eval_qwenvl_direction.py#L337"
+      },
+      "benchmark_initial_direction_derived_from_ground_truth_target_and_initial_pose": true,
+      "ground_truth_target_is_direct_waypoint_model_input_claimed": false,
+      "subsequent_direction_uses_external_GroundingDINO_and_camera_geometry": true,
+      "external_stop_uses_AirSim_metric_depth": true,
+      "external_episode_termination_uses_ground_truth_target_distance": true,
+      "depth_is_direct_waypoint_model_input": false,
+      "unknown_target_full_search_or_truth_free_system_acceptance": false,
+      "code_readme_license_label": "Apache-2.0",
+      "root_license_file_found_in_checked_pinned_tree": false,
+      "jetson_native_benchmark_found": false,
+      "model_update_rate_hz_verified": false,
+      "current_qwen3vl2b_lora_compatible": false,
+      "local_download_completed": false,
+      "native_inference_completed": false,
+      "jetson_8gb_acceptance": false
+    },
+    {
+      "id": "EmbodiedCity/WorldVLN",
+      "revision": "f1ef44f63ab12af1fc745e6665e3c659916310ad",
+      "private": false,
+      "gated": false,
+      "metadata_url": "https://huggingface.co/api/models/EmbodiedCity/WorldVLN?blobs=true",
+      "publisher_card_license": null,
+      "code_revision": "3409b82a16c6606b270b48d7ea4c8f7d08e43c38",
+      "code_license_label": "CC-BY-4.0",
+      "code_license_is_not_weight_license": true,
+      "license_clearance_completed": false,
+      "weight_files_scope": "one_outdoor_variant_backbone_decoder_and_vae_not_all_indoor_and_outdoor_copies",
+      "weight_files": [
+        {
+          "path": "UAV-Flow/WorldVLN_backbone/backbone/model-00001-of-00004.safetensors",
+          "bytes": 9940396216,
+          "publisher_sha256": "d6d3b9432247a3320d3527242654baee266657bb9acf103f4bdaf36f2baa2e4c"
+        },
+        {
+          "path": "UAV-Flow/WorldVLN_backbone/backbone/model-00002-of-00004.safetensors",
+          "bytes": 9999572000,
+          "publisher_sha256": "15a7f62edd656f1447787263543763ca879723d5f803a8388e695fd81f13a459"
+        },
+        {
+          "path": "UAV-Flow/WorldVLN_backbone/backbone/model-00003-of-00004.safetensors",
+          "bytes": 9999572000,
+          "publisher_sha256": "e7260265975b420e9b32d89881ce9a7a60379da8c8c8582c14980a6d20772f2e"
+        },
+        {
+          "path": "UAV-Flow/WorldVLN_backbone/backbone/model-00004-of-00004.safetensors",
+          "bytes": 5134036808,
+          "publisher_sha256": "859b882d0a5aa3bc420db0416cca453ef98f88c16d8482d1e3ef3bc5781d3732"
+        },
+        {
+          "path": "UAV-Flow/WorldVLN_action_decoder.pt",
+          "bytes": 1059195322,
+          "publisher_sha256": "d80a3861bf4bd93552d67d3220601fa4cb6936d3987541838bdf62bd41222066"
+        },
+        {
+          "path": "UAV-Flow/WorldVLN_backbone/vae/model.safetensors",
+          "bytes": 738674708,
+          "publisher_sha256": "515835530fc7e6a74db7b7d207e9f3c13ffbebf75ef23a7e8ebfdde800093435"
+        }
+      ],
+      "backbone_weight_bytes": 35073577024,
+      "paper_url": "https://arxiv.org/html/2605.15964v1",
+      "real_world_paper_platform": {
+        "onboard_device": "Jetson Orin NX 16GB",
+        "onboard_role": "RGB_acquisition_communication_interface",
+        "model_inference_location": "remote_ground_server",
+        "flight_stabilization": "CUAV_PX4"
+      },
+      "code_service_action_contract": {
+        "order": [
+          "dx",
+          "dy",
+          "dz",
+          "droll",
+          "dyaw",
+          "dpitch"
+        ],
+        "translation_units": "cm",
+        "rotation_units": "deg",
+        "default_segment_action_count": 16
+      },
+      "action_axis_frame_rotation_composition_duration_stop_and_px4_mapping_audited": false,
+      "current_qwen3vl2b_lora_compatible": false,
+      "local_download_completed": false,
+      "native_inference_completed": false,
+      "jetson_8gb_acceptance": false
+    },
+    {
+      "id": "QwenLM/Qwen-VLA",
+      "code_revision": "fa25ab1e69fd9d4318aa0fc5d3f2114a443f78d3",
+      "source_url": "https://github.com/QwenLM/Qwen-VLA/tree/fa25ab1e69fd9d4318aa0fc5d3f2114a443f78d3",
+      "official_tree": [
+        "README.md",
+        "assets",
+        "assets/demo_95m.mp4",
+        "assets/qwen-logo.png",
+        "assets/qwenvla_overview.png"
+      ],
+      "official_hf_query_url": "https://huggingface.co/api/models?author=Qwen&search=VLA&limit=10",
+      "official_hf_query_raw_response": "[]",
+      "official_hf_query_result_count": 0,
+      "prior_powershell_wrapped_array_count_is_not_api_result_count": true,
+      "backbone_declared": "Qwen3.5-4B",
+      "action_decoder_declared_parameters": 1150000000,
+      "published_checkpoint_found_in_checked_official_sources": false,
+      "worldwide_absence_claimed": false,
+      "current_qwen3vl2b_lora_compatible": false,
+      "local_download_completed": false,
+      "native_inference_completed": false,
+      "jetson_8gb_acceptance": false
+    },
+    {
+      "id": "xlsun/AutoFly",
+      "source_url": "https://github.com/xiaolousun/AutoFly-VLA/tree/08b503980bc20705d9be4bfb4c1121462e5d798a",
+      "code_revision": "08b503980bc20705d9be4bfb4c1121462e5d798a",
+      "official_model_anonymous_http_status": 401,
+      "public_checkpoint_access_verified": false,
+      "checkpoint_absence_claimed": false,
+      "train_val_deploy_implementation_is_placeholder_README": true,
+      "paper_url": "https://arxiv.org/html/2602.09657v1",
+      "paper_reported_inference_fps": 15,
+      "paper_reported_inference_location": "remote_RTX4090_server_over_LAN_not_Jetson_onboard",
+      "paper_action_components": ["forward_velocity", "yaw_angular_velocity", "vertical_velocity"],
+      "precise_action_units_sign_normalization_and_control_period_verified": false,
+      "dataset_metadata_url": "https://modelscope.cn/api/v1/datasets/jacksun001/autofly_dataset_tfds",
+      "dataset_revision": "e3b5e8cb09ead4f90d3b0b23da3280a2c7006b46",
+      "dataset_publisher_storage_size_bytes": 219396268576,
+      "dataset_card_license_label": "Apache License 2.0",
+      "dataset_schema_action": "float32[3]_description_retains_joint_velocities_not_verified_UAV_unit_contract",
+      "local_download_completed": false,
+      "native_inference_completed": false,
+      "jetson_8gb_acceptance": false
+    },
+    {
+      "id": "VLA-AN",
+      "paper_url": "https://arxiv.org/html/2512.15258v2",
+      "author_public_checkpoint_and_deployment_package_verified": false,
+      "worldwide_absence_claimed": false,
+      "paper_reported_platform": "Jetson_Orin_NX_16GB_30W",
+      "paper_reported_inference_rate_hz": "2-3",
+      "exact_end_to_end_closed_loop_rate_verified": false,
+      "paper_action_description": "3D_target_waypoints_and_desired_yaw_with_external_sensor_depth_geometric_correction",
+      "precise_action_schema_frame_and_units_verified": false,
+      "paper_numbers_are_not_this_repository_hardware_measurements": true,
+      "local_download_completed": false,
+      "native_inference_completed": false,
+      "jetson_8gb_acceptance": false
+    },
+    {
+      "id": "Sherlockhu/drone-vla-toolkit",
+      "revision": "98cb04e24c9c20c3b1da85b7a5d09ad81401504b",
+      "metadata_url": "https://huggingface.co/api/models/Sherlockhu/drone-vla-toolkit?blobs=true",
+      "private": false,
+      "gated": false,
+      "publisher_card_license": null,
+      "files": [
+        ".gitattributes",
+        "README.md",
+        "collect_data.py",
+        "convert_to_hf_dataset.py",
+        "generate_synthetic_data.py",
+        "inference_drone_vla.py",
+        "requirements.txt",
+        "train_drone_vla.py"
+      ],
+      "checkpoint_file_count": 0,
+      "classification": "third_party_training_toolkit_not_trained_checkpoint",
+      "code_downloaded_or_executed": false,
+      "local_download_completed": false,
+      "native_inference_completed": false
+    }
+  ],
+  "interpretation": [
+    "File sizes are publisher metadata, not runtime memory benchmarks or locally verified downloaded weights.",
+    "Published precision payload alone exceeds 8GiB for 3DG and WorldVLN; quantization/offload/distillation fitness is unmeasured.",
+    "WorldVLN real flight inference is remote in the paper, not proof of full onboard Jetson inference.",
+    "Keep the existing small model training while considering separately audited navigation teachers or baselines; this is a recommendation, not a measured A/B superiority result.",
+    "No external model is admitted as the default flight policy by this research."
+  ],
+  "model_downloaded": false,
+  "model_loaded": false,
+  "gpu_job_started": false,
+  "existing_streamed_pipeline_modified": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "release_label": "0.3.0-pre.8",
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false
+}

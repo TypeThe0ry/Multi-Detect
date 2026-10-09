@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-evidence",
+  "candidate": {
+    "model_id": "onboard-policy-r23-3d-depth-plumbing",
+    "model_version": "0.3.0-pre.8-onboard-policy-r23-3d-depth-plumbing",
+    "model_path": "artifacts/models/onboard-policy-r23-3d-depth-plumbing/onboard_policy_r23.onnx",
+    "model_sha256": "69da862e02fb7757135e433c54e45f16aaeb48054ecd85fd3a930402a4af8af5",
+    "training_config_sha256": "f89b0e6592c15064cf96072aa612f68d06293acc5612b84f7426a361549cfc4f",
+    "training_report_sha256": "ad1a21d51f83bf3158f5850103fff47f9c195018d6fed9aa6a4dc7bf252e1077",
+    "parent_model_sha256": "7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": true,
+    "learning_rate": 0.0003,
+    "epochs": 40,
+    "sample_count": 35244,
+    "split_strategy": "source_group_hash"
+  },
+  "rendered_3d_dataset": {
+    "path": "artifacts/training/onboard-rendered-3d-depth-v2.json",
+    "sha256": "0293677c3524d73a8bc12aa3a4b51d779dca33ab31e4464af7611a17200bb06b",
+    "raw_frame_count": 9,
+    "depth_bound_frame_count": 9,
+    "unique_split_groups": 7,
+    "scene_families": ["river_rescue_vtol_001"],
+    "detector_hits": 0,
+    "training_ready": false,
+    "labels_from": "sensor_contract_heuristic_plumbing_only",
+    "reviewed_annotation_manifest": null,
+    "limitation": "No target-match, track, record-location or RTL transition is represented in this rendered set."
+  },
+  "structured_holdout": {
+    "candidate_path": "artifacts/evaluation/onboard-policy-r23-3d-sensor-holdout-20261005.json",
+    "candidate_sha256": "b886d85d6dcf5a2441e3f4f5513c2f04db704c9cfc3296e0d07521916ebc7273",
+    "parent_path": "artifacts/evaluation/onboard-policy-r17-3d-sensor-holdout-20261006.json",
+    "parent_sha256": "0a67a4a1de34592a06d9f6522001d2c127389c296463e01df21bad21e7656b39",
+    "seed": 20261006,
+    "cases": 900,
+    "candidate_task_accuracy": 0.6788888888888889,
+    "parent_task_accuracy": 0.5744444444444444,
+    "candidate_flight_accuracy": 0.7788888888888889,
+    "parent_flight_accuracy": 0.7055555555555556,
+    "candidate_compatible_output_rate": 0.9533333333333334,
+    "parent_compatible_output_rate": 0.95,
+    "pixel_level_rendered": false,
+    "training_used": false
+  },
+  "decision": {
+    "selected_reference": "onboard-policy-r17-teacher-consistent",
+    "candidate_promoted": false,
+    "reason": "Structured holdout improved, but the rendered set is plumbing-only, detector hits are zero, labels are heuristic, and no independent rendered-pixel holdout exists."
+  },
+  "parity": {
+    "release_parity_path": "configs/release-parity.json",
+    "release_parity_sha256": "83983a82ee112da55b369af6c6b954a68bfa62ae7587229a9445cd51d9f3744d",
+    "core_algorithm_hash": "10e357206c29882e9aef6875e9153f8a2b654deb11a4eafc2701a76fcde3ff8a"
+  },
+  "claims": {
+    "software_gpu_training": true,
+    "deterministic_structured_holdout": true,
+    "pixel_level_rendered_generalization": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  }
+}

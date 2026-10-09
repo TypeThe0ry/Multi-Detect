@@ -1,0 +1,1849 @@
+{
+  "schema_version": 1,
+  "method": "hash_bound_shared_policy_independent_sim_campaign_v1",
+  "training_dataset": {
+    "path": "configs\\training\\task-ranker-budget-v1.json",
+    "sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6",
+    "bytes": 141311,
+    "provenance": "Synthetic budget training v1: explicit ideal GNSS/perception/map availability; return-home corridors derived from vtol-diverse-routes synthetic template. Rotated route families partition splits; limited related synthetic families, not measured data or generalization proof. Airframe identity taken from owned u-run profile, no hardware authority.",
+    "families": {
+      "northeast": "train",
+      "northwest": "validation",
+      "southwest": "test"
+    }
+  },
+  "evaluation_dataset": {
+    "path": "configs\\training\\task-policy-independent-holdout-v1.json",
+    "sha256": "9cbb52fe5c690fe970d9bd3aa39b5c0b618fe221f0b54f7af8e12da8f2d7be75",
+    "bytes": 189026,
+    "provenance": "Derived synthetic stress holdout from task-sequence-heterogeneous-v1; family labels are disjoint from training, with changed snapshot IDs, wind and remaining-flight-time state. This is a software planning holdout, not physical or field-independent evidence.",
+    "families": {
+      "independent-holdout-northeast": "train",
+      "independent-holdout-northwest": "validation",
+      "independent-holdout-southwest": "test"
+    }
+  },
+  "parent_file_sha256": "8945e35c7d123cbb3e6522c82be6b8c699ad4ad242dd8e0773ebe2c3166171c6",
+  "parent_ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "candidate_ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+  "parent_policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+  "candidate_policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+  "parent_policy_artifact": {
+    "schema_version": 1,
+    "contract": "multidetect.shared-task-policy-artifact",
+    "policy_id": "task-ranker-independent-sim-v1",
+    "policy_version": "0.3.0-pre.8",
+    "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "feature_names": [
+      "priority",
+      "total_distance_m",
+      "estimated_duration_s"
+    ],
+    "airframe_profile_hash": "35c32c0313a86f59584c35e5531730654d6ac189f9a5a9d1a742e39f64a94e33",
+    "mission_contract_hash": "b50408f8a2998cafb50e6b738aea357d3e8aff0ec589d413c35873b8302ead1d",
+    "safety_policy_hash": "57d0146cf3f2d8ac21342d1fe22545567c762870df3ad6ac2893a1de8c987692",
+    "parent_model_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "training_dataset_sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+  },
+  "candidate_policy_artifact": {
+    "schema_version": 1,
+    "contract": "multidetect.shared-task-policy-artifact",
+    "policy_id": "task-ranker-independent-sim-v1",
+    "policy_version": "0.3.0-pre.8",
+    "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "feature_names": [
+      "priority",
+      "total_distance_m",
+      "estimated_duration_s"
+    ],
+    "airframe_profile_hash": "35c32c0313a86f59584c35e5531730654d6ac189f9a5a9d1a742e39f64a94e33",
+    "mission_contract_hash": "b50408f8a2998cafb50e6b738aea357d3e8aff0ec589d413c35873b8302ead1d",
+    "safety_policy_hash": "57d0146cf3f2d8ac21342d1fe22545567c762870df3ad6ac2893a1de8c987692",
+    "parent_model_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "training_dataset_sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+  },
+  "training_input_count": 3,
+  "evaluation_input_count": 12,
+  "input_hashes_disjoint": true,
+  "training_families": [
+    "northeast",
+    "northwest",
+    "southwest"
+  ],
+  "evaluation_families": [
+    "independent-holdout-northeast",
+    "independent-holdout-northwest",
+    "independent-holdout-southwest"
+  ],
+  "scenario_families_disjoint": true,
+  "search": {
+    "method": "bounded_parameter_search_v1",
+    "parent_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "selected_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+    "selected_trial": 0,
+    "training_input_hashes": [
+      "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+      "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+      "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87"
+    ],
+    "evaluations": [
+      {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17766048538053,
+            "remaining_duration_s": 204.82233951461947,
+            "rejected": [
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-0",
+              "train-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 480.5964328947533,
+            "remaining_duration_s": 169.40356710524668,
+            "rejected": [
+              {
+                "task_id": "train-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-0",
+              "train-2-route-1",
+              "train-2-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 701.5288475460834,
+            "remaining_duration_s": 248.47115245391652,
+            "rejected": [
+              {
+                "task_id": "train-2-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 26,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1427.3029409262172,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "b3727f4c659d1175381b09c9d8ebe0679f943b441f751f1b96ed14515ae8392c",
+        "policy_artifact_sha256": "0284e3c81834b4ba607a6636f383ad7831a7b3dd78b8ee115a6b129918588ed5",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17766048538053,
+            "remaining_duration_s": 204.82233951461947,
+            "rejected": [
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0284e3c81834b4ba607a6636f383ad7831a7b3dd78b8ee115a6b129918588ed5"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-0",
+              "train-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 480.5964328947533,
+            "remaining_duration_s": 169.40356710524668,
+            "rejected": [
+              {
+                "task_id": "train-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0284e3c81834b4ba607a6636f383ad7831a7b3dd78b8ee115a6b129918588ed5"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-0",
+              "train-2-route-1",
+              "train-2-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 701.5288475460834,
+            "remaining_duration_s": 248.47115245391652,
+            "rejected": [
+              {
+                "task_id": "train-2-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0284e3c81834b4ba607a6636f383ad7831a7b3dd78b8ee115a6b129918588ed5"
+          }
+        ],
+        "reward": 26,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1427.3029409262172,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "09abe801755e2737bba2b1786c2794539f8c98e4f9cd3e9177e74dc7ee0a481f",
+        "policy_artifact_sha256": "bb7ceb19911aa5649f4385edb6a5e34df67127084fe1d5ec3e38c0e5dae665c8",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-3"
+            ],
+            "reward": 2,
+            "estimated_elapsed_s": 212.45812239806048,
+            "remaining_duration_s": 237.54187760193952,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "bb7ceb19911aa5649f4385edb6a5e34df67127084fe1d5ec3e38c0e5dae665c8"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-3",
+              "train-1-route-2"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605785,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "bb7ceb19911aa5649f4385edb6a5e34df67127084fe1d5ec3e38c0e5dae665c8"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-3",
+              "train-2-route-2",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "bb7ceb19911aa5649f4385edb6a5e34df67127084fe1d5ec3e38c0e5dae665c8"
+          }
+        ],
+        "reward": 16,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1310.8269808833447,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "879720778a3d6e2a79e90d4221b0b3b2a8c09a19c8863d1621b20a3e50cb3d18",
+        "policy_artifact_sha256": "5a3ce434e346a592d11666a4be827fddfae65b4e9a7de25a275a08ad86cc1f35",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-3"
+            ],
+            "reward": 2,
+            "estimated_elapsed_s": 212.45812239806048,
+            "remaining_duration_s": 237.54187760193952,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5a3ce434e346a592d11666a4be827fddfae65b4e9a7de25a275a08ad86cc1f35"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-3",
+              "train-1-route-2"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605785,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5a3ce434e346a592d11666a4be827fddfae65b4e9a7de25a275a08ad86cc1f35"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-3",
+              "train-2-route-2",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5a3ce434e346a592d11666a4be827fddfae65b4e9a7de25a275a08ad86cc1f35"
+          }
+        ],
+        "reward": 16,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1310.8269808833447,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "386645b96c19b50eced8dace045ff140a20f68eaf527fc56099967c54fd12fe0",
+        "policy_artifact_sha256": "f74ac36b61215c9d9df689a5e62bf24b40bd248bfe613af69f8ee94179c95a71",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-3"
+            ],
+            "reward": 2,
+            "estimated_elapsed_s": 212.45812239806048,
+            "remaining_duration_s": 237.54187760193952,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "f74ac36b61215c9d9df689a5e62bf24b40bd248bfe613af69f8ee94179c95a71"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-3",
+              "train-1-route-2"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605785,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "f74ac36b61215c9d9df689a5e62bf24b40bd248bfe613af69f8ee94179c95a71"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-3",
+              "train-2-route-2",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "f74ac36b61215c9d9df689a5e62bf24b40bd248bfe613af69f8ee94179c95a71"
+          }
+        ],
+        "reward": 16,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1310.8269808833447,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "745a2f74a205d20f0179bb551e9b0a0c3ffc17d6dc6f605f33b97409b2a250d9",
+        "policy_artifact_sha256": "e3ae30b53c76df9964c96088bd5b3ea05539833b738bfb82d7be23b7f2ab9e56",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17766048538053,
+            "remaining_duration_s": 204.82233951461947,
+            "rejected": [
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "e3ae30b53c76df9964c96088bd5b3ea05539833b738bfb82d7be23b7f2ab9e56"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-0",
+              "train-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 480.5964328947533,
+            "remaining_duration_s": 169.40356710524668,
+            "rejected": [
+              {
+                "task_id": "train-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "e3ae30b53c76df9964c96088bd5b3ea05539833b738bfb82d7be23b7f2ab9e56"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-0",
+              "train-2-route-1",
+              "train-2-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 701.5288475460834,
+            "remaining_duration_s": 248.47115245391652,
+            "rejected": [
+              {
+                "task_id": "train-2-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "e3ae30b53c76df9964c96088bd5b3ea05539833b738bfb82d7be23b7f2ab9e56"
+          }
+        ],
+        "reward": 26,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1427.3029409262172,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "0a223ef3236c8d2f3b872f2e2cbd3c8019c7e35dab3402e785888c5eb5d2b37a",
+        "policy_artifact_sha256": "0f5cbf48f05b296932cd2a3462b5057247faa93a512095194a1ae28fbead2f78",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-2"
+            ],
+            "reward": 3,
+            "estimated_elapsed_s": 218.14847761201608,
+            "remaining_duration_s": 231.85152238798392,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0f5cbf48f05b296932cd2a3462b5057247faa93a512095194a1ae28fbead2f78"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-2",
+              "train-1-route-3"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605788,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0f5cbf48f05b296932cd2a3462b5057247faa93a512095194a1ae28fbead2f78"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-2",
+              "train-2-route-3",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0f5cbf48f05b296932cd2a3462b5057247faa93a512095194a1ae28fbead2f78"
+          }
+        ],
+        "reward": 17,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1316.5173360973004,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "a8e14c9069627de997566210980bad19d79beeebf0d26809badcb8d376a65982",
+        "policy_artifact_sha256": "0bb9b08a15727ff82bdf84dec165eac5da7042280243e901d93d2429b17be153",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-2"
+            ],
+            "reward": 3,
+            "estimated_elapsed_s": 218.14847761201608,
+            "remaining_duration_s": 231.85152238798392,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0bb9b08a15727ff82bdf84dec165eac5da7042280243e901d93d2429b17be153"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-2",
+              "train-1-route-3"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605788,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0bb9b08a15727ff82bdf84dec165eac5da7042280243e901d93d2429b17be153"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-2",
+              "train-2-route-3",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "0bb9b08a15727ff82bdf84dec165eac5da7042280243e901d93d2429b17be153"
+          }
+        ],
+        "reward": 17,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1316.5173360973004,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      {
+        "ranker_sha256": "443dc8ac8c3d90234d24dc22bfdfc3d381adf35b77c79833f1b2751384d56eca",
+        "policy_artifact_sha256": "8e4a45b8141bc76d180e24f5f244a6f37e590b9bfbc96fa56bf42094bebe3331",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-3"
+            ],
+            "reward": 2,
+            "estimated_elapsed_s": 212.45812239806048,
+            "remaining_duration_s": 237.54187760193952,
+            "rejected": [
+              {
+                "task_id": "train-0-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "8e4a45b8141bc76d180e24f5f244a6f37e590b9bfbc96fa56bf42094bebe3331"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-3",
+              "train-1-route-2"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 431.16799935394215,
+            "remaining_duration_s": 218.83200064605785,
+            "rejected": [
+              {
+                "task_id": "train-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "8e4a45b8141bc76d180e24f5f244a6f37e590b9bfbc96fa56bf42094bebe3331"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-3",
+              "train-2-route-2",
+              "train-2-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 667.2008591313421,
+            "remaining_duration_s": 282.7991408686578,
+            "rejected": [
+              {
+                "task_id": "train-2-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "8e4a45b8141bc76d180e24f5f244a6f37e590b9bfbc96fa56bf42094bebe3331"
+          }
+        ],
+        "reward": 16,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1310.8269808833447,
+        "dynamics_or_physical_performance_claimed": false
+      }
+    ],
+    "holdout_used_for_selection": false,
+    "trained_improvement_claimed": false
+  },
+  "evaluations": {
+    "parent": {
+      "train": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17766048538053,
+            "remaining_duration_s": 204.82233951461947,
+            "rejected": [
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-0",
+              "train-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 480.5964328947533,
+            "remaining_duration_s": 169.40356710524668,
+            "rejected": [
+              {
+                "task_id": "train-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-0",
+              "train-2-route-1",
+              "train-2-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 701.5288475460834,
+            "remaining_duration_s": 248.47115245391652,
+            "rejected": [
+              {
+                "task_id": "train-2-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 26,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1427.3029409262172,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "validation": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-validation-0",
+            "input_hash": "ad2baab8bf29bc2dc67ebcf9d2d0c73af6d21e7228fdb83bed8e3aec2e1a6dcf",
+            "completed": [
+              "validation-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17767202524942,
+            "remaining_duration_s": 254.82232797475058,
+            "rejected": [
+              {
+                "task_id": "validation-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-validation-1",
+            "input_hash": "cb7891f6f5ac031bdf6757fd8689141efe73763947ea91204433e7c49c87a0ff",
+            "completed": [
+              "validation-1-route-0",
+              "validation-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 481.42797716021175,
+            "remaining_duration_s": 268.57202283978825,
+            "rejected": [
+              {
+                "task_id": "validation-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-validation-2",
+            "input_hash": "4fd3619bd09a473996bb54766c752a7fe1d37ceb8b5c463ae2ad7038aa486de1",
+            "completed": [
+              "validation-2-route-0",
+              "validation-2-route-1",
+              "validation-2-route-2",
+              "validation-2-route-3"
+            ],
+            "reward": 14,
+            "estimated_elapsed_s": 916.7953453985552,
+            "remaining_duration_s": 133.2046546014448,
+            "rejected": [],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 28,
+        "completed_count": 7,
+        "estimated_elapsed_s": 1643.4009945840164,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "test": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-test-0",
+            "input_hash": "a848482f8f99542b1bb85cf623729145cd384498e54fdde96a555955e7885982",
+            "completed": [
+              "test-0-route-0",
+              "test-0-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 478.9746382822333,
+            "remaining_duration_s": 71.02536171776671,
+            "rejected": [
+              {
+                "task_id": "test-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "test-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-test-1",
+            "input_hash": "bb5242e13977b39a6b0953f3ae831af58388a2eaba6087ef3eb32ea983762d72",
+            "completed": [
+              "test-1-route-0",
+              "test-1-route-1",
+              "test-1-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 698.7585751200171,
+            "remaining_duration_s": 101.2414248799829,
+            "rejected": [
+              {
+                "task_id": "test-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-test-2",
+            "input_hash": "6a499dd6c5cf3c3ebe8a9220412028151efd4fd8545ffd8183143de23f3cc5d5",
+            "completed": [
+              "test-2-route-0",
+              "test-2-route-1",
+              "test-2-route-2",
+              "test-2-route-3"
+            ],
+            "reward": 14,
+            "estimated_elapsed_s": 913.7528281060615,
+            "remaining_duration_s": 236.24717189393843,
+            "rejected": [],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 35,
+        "completed_count": 9,
+        "estimated_elapsed_s": 2091.486041508312,
+        "dynamics_or_physical_performance_claimed": false
+      }
+    },
+    "candidate": {
+      "train": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-train-0",
+            "input_hash": "0a632bed19c5036be6ad7daf22b1dc6cf73851900a95450e1580bd71c0d843d5",
+            "completed": [
+              "train-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17766048538053,
+            "remaining_duration_s": 204.82233951461947,
+            "rejected": [
+              {
+                "task_id": "train-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-1",
+            "input_hash": "47df6f3550f286901c62caf4368748795965162371e38bba872477d423384a62",
+            "completed": [
+              "train-1-route-0",
+              "train-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 480.5964328947533,
+            "remaining_duration_s": 169.40356710524668,
+            "rejected": [
+              {
+                "task_id": "train-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "train-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-train-2",
+            "input_hash": "8aee649b389f6aee1341e6c9ea9a842b8c1a7af55e5a518186fbd744fbeebe87",
+            "completed": [
+              "train-2-route-0",
+              "train-2-route-1",
+              "train-2-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 701.5288475460834,
+            "remaining_duration_s": 248.47115245391652,
+            "rejected": [
+              {
+                "task_id": "train-2-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 26,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1427.3029409262172,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "validation": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-validation-0",
+            "input_hash": "ad2baab8bf29bc2dc67ebcf9d2d0c73af6d21e7228fdb83bed8e3aec2e1a6dcf",
+            "completed": [
+              "validation-0-route-0"
+            ],
+            "reward": 5,
+            "estimated_elapsed_s": 245.17767202524942,
+            "remaining_duration_s": 254.82232797475058,
+            "rejected": [
+              {
+                "task_id": "validation-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-validation-1",
+            "input_hash": "cb7891f6f5ac031bdf6757fd8689141efe73763947ea91204433e7c49c87a0ff",
+            "completed": [
+              "validation-1-route-0",
+              "validation-1-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 481.42797716021175,
+            "remaining_duration_s": 268.57202283978825,
+            "rejected": [
+              {
+                "task_id": "validation-1-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "validation-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-validation-2",
+            "input_hash": "4fd3619bd09a473996bb54766c752a7fe1d37ceb8b5c463ae2ad7038aa486de1",
+            "completed": [
+              "validation-2-route-0",
+              "validation-2-route-1",
+              "validation-2-route-2",
+              "validation-2-route-3"
+            ],
+            "reward": 14,
+            "estimated_elapsed_s": 916.7953453985552,
+            "remaining_duration_s": 133.2046546014448,
+            "rejected": [],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 28,
+        "completed_count": 7,
+        "estimated_elapsed_s": 1643.4009945840164,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "test": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "budget-test-0",
+            "input_hash": "a848482f8f99542b1bb85cf623729145cd384498e54fdde96a555955e7885982",
+            "completed": [
+              "test-0-route-0",
+              "test-0-route-1"
+            ],
+            "reward": 9,
+            "estimated_elapsed_s": 478.9746382822333,
+            "remaining_duration_s": 71.02536171776671,
+            "rejected": [
+              {
+                "task_id": "test-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "test-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-test-1",
+            "input_hash": "bb5242e13977b39a6b0953f3ae831af58388a2eaba6087ef3eb32ea983762d72",
+            "completed": [
+              "test-1-route-0",
+              "test-1-route-1",
+              "test-1-route-2"
+            ],
+            "reward": 12,
+            "estimated_elapsed_s": 698.7585751200171,
+            "remaining_duration_s": 101.2414248799829,
+            "rejected": [
+              {
+                "task_id": "test-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "budget-test-2",
+            "input_hash": "6a499dd6c5cf3c3ebe8a9220412028151efd4fd8545ffd8183143de23f3cc5d5",
+            "completed": [
+              "test-2-route-0",
+              "test-2-route-1",
+              "test-2-route-2",
+              "test-2-route-3"
+            ],
+            "reward": 14,
+            "estimated_elapsed_s": 913.7528281060615,
+            "remaining_duration_s": 236.24717189393843,
+            "rejected": [],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 35,
+        "completed_count": 9,
+        "estimated_elapsed_s": 2091.486041508312,
+        "dynamics_or_physical_performance_claimed": false
+      }
+    },
+    "independent_parent": {
+      "train": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-0-0",
+            "input_hash": "f91782b9576010d459eb03a8e8038b218364273f0bcbfbed322900a4d0130d4b",
+            "completed": [
+              "heterogeneous-0-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 246.39597089347689,
+            "remaining_duration_s": 121.10402910652311,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-1",
+            "input_hash": "4fb76435fe4405de36acc9c440148452914ff73c0f5130b4f36371b13aae5f0a",
+            "completed": [
+              "heterogeneous-0-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 219.61101830532098,
+            "remaining_duration_s": 287.88898169467905,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-2",
+            "input_hash": "a1e01372aaff5deec9b91dce76f08bf6e6f27ac9f0fd7a7f07397b971b094490",
+            "completed": [
+              "heterogeneous-0-2-route-2",
+              "heterogeneous-0-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 474.92416974717094,
+            "remaining_duration_s": 272.57583025282906,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-3",
+            "input_hash": "4dc859ba2ba86c5fc66725c2426d2dd1b3ef52c69fb55d8e7ea1aa48406b4365",
+            "completed": [
+              "heterogeneous-0-3-route-0",
+              "heterogeneous-0-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 484.4426865539101,
+            "remaining_duration_s": 603.0573134460899,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-0-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1425.3738454998788,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "validation": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-1-0",
+            "input_hash": "807f4e80d6f286d54cadc57d53d41ab4c061a03cc87b5b0bdb73f852846e80f1",
+            "completed": [
+              "heterogeneous-1-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 247.08690343945008,
+            "remaining_duration_s": 120.41309656054992,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-1",
+            "input_hash": "015c561cab029db9f58fb895291137bf5d15bb53a3f42b72a4b8b30bf599c069",
+            "completed": [
+              "heterogeneous-1-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 220.27697879261237,
+            "remaining_duration_s": 287.22302120738766,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-2",
+            "input_hash": "86dc9f4f70dd460f0a030d4492df7bccfc056fddacf9ff061decec08228a1033",
+            "completed": [
+              "heterogeneous-1-2-route-2",
+              "heterogeneous-1-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 473.6999947083346,
+            "remaining_duration_s": 273.8000052916654,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-3",
+            "input_hash": "9e1c0bd67adeef14f91a014907acb2250e0440e7b11bc6625f726bed6d8eaf17",
+            "completed": [
+              "heterogeneous-1-3-route-0",
+              "heterogeneous-1-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 492.464034949072,
+            "remaining_duration_s": 595.0359650509279,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-1-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1433.5279118894691,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "test": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-2-0",
+            "input_hash": "364793090cbf655b04c240ba6ab05c6debd70f60011003247c49a163633b300f",
+            "completed": [
+              "heterogeneous-2-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 246.29578881272454,
+            "remaining_duration_s": 121.20421118727546,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-1",
+            "input_hash": "18b0862aa0e1d54ff62531280846b6b6cd33fe8cc4e0b9aaac5ae9e1759a41a1",
+            "completed": [
+              "heterogeneous-2-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 219.4605018102048,
+            "remaining_duration_s": 288.0394981897952,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-2",
+            "input_hash": "6514792243bbd87e54d3ab85a1967523c7b246ae3abdc31b0d3894db7b001b3e",
+            "completed": [
+              "heterogeneous-2-2-route-2",
+              "heterogeneous-2-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 473.26219739660803,
+            "remaining_duration_s": 274.23780260339197,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-3",
+            "input_hash": "1aac5678e34ec3d5ef44a0ae98bce1ae5f5eab4e7b6ca52cd2b64a3d76351f1d",
+            "completed": [
+              "heterogeneous-2-3-route-0",
+              "heterogeneous-2-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 482.8026534297886,
+            "remaining_duration_s": 604.6973465702114,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-2-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1421.821141449326,
+        "dynamics_or_physical_performance_claimed": false
+      }
+    },
+    "independent_candidate": {
+      "train": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-0-0",
+            "input_hash": "f91782b9576010d459eb03a8e8038b218364273f0bcbfbed322900a4d0130d4b",
+            "completed": [
+              "heterogeneous-0-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 246.39597089347689,
+            "remaining_duration_s": 121.10402910652311,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-1",
+            "input_hash": "4fb76435fe4405de36acc9c440148452914ff73c0f5130b4f36371b13aae5f0a",
+            "completed": [
+              "heterogeneous-0-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 219.61101830532098,
+            "remaining_duration_s": 287.88898169467905,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-2",
+            "input_hash": "a1e01372aaff5deec9b91dce76f08bf6e6f27ac9f0fd7a7f07397b971b094490",
+            "completed": [
+              "heterogeneous-0-2-route-2",
+              "heterogeneous-0-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 474.92416974717094,
+            "remaining_duration_s": 272.57583025282906,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-0-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-0-3",
+            "input_hash": "4dc859ba2ba86c5fc66725c2426d2dd1b3ef52c69fb55d8e7ea1aa48406b4365",
+            "completed": [
+              "heterogeneous-0-3-route-0",
+              "heterogeneous-0-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 484.4426865539101,
+            "remaining_duration_s": 603.0573134460899,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-0-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-0-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1425.3738454998788,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "validation": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-1-0",
+            "input_hash": "807f4e80d6f286d54cadc57d53d41ab4c061a03cc87b5b0bdb73f852846e80f1",
+            "completed": [
+              "heterogeneous-1-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 247.08690343945008,
+            "remaining_duration_s": 120.41309656054992,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-1",
+            "input_hash": "015c561cab029db9f58fb895291137bf5d15bb53a3f42b72a4b8b30bf599c069",
+            "completed": [
+              "heterogeneous-1-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 220.27697879261237,
+            "remaining_duration_s": 287.22302120738766,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-2",
+            "input_hash": "86dc9f4f70dd460f0a030d4492df7bccfc056fddacf9ff061decec08228a1033",
+            "completed": [
+              "heterogeneous-1-2-route-2",
+              "heterogeneous-1-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 473.6999947083346,
+            "remaining_duration_s": 273.8000052916654,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-1-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-1-3",
+            "input_hash": "9e1c0bd67adeef14f91a014907acb2250e0440e7b11bc6625f726bed6d8eaf17",
+            "completed": [
+              "heterogeneous-1-3-route-0",
+              "heterogeneous-1-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 492.464034949072,
+            "remaining_duration_s": 595.0359650509279,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-1-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-1-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1433.5279118894691,
+        "dynamics_or_physical_performance_claimed": false
+      },
+      "test": {
+        "ranker_sha256": "ebfedee61ca668b28e98cce65b5f60cad7ffe02fb166a9fd91682b256ce40ed8",
+        "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6",
+        "cases": [
+          {
+            "case_id": "independent-holdout-heterogeneous-2-0",
+            "input_hash": "364793090cbf655b04c240ba6ab05c6debd70f60011003247c49a163633b300f",
+            "completed": [
+              "heterogeneous-2-0-route-0"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 246.29578881272454,
+            "remaining_duration_s": 121.20421118727546,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-0-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-0-route-2",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-0-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-1",
+            "input_hash": "18b0862aa0e1d54ff62531280846b6b6cd33fe8cc4e0b9aaac5ae9e1759a41a1",
+            "completed": [
+              "heterogeneous-2-1-route-2"
+            ],
+            "reward": 6,
+            "estimated_elapsed_s": 219.4605018102048,
+            "remaining_duration_s": 288.0394981897952,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-1-route-0",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-1-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-1-route-3",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-2",
+            "input_hash": "6514792243bbd87e54d3ab85a1967523c7b246ae3abdc31b0d3894db7b001b3e",
+            "completed": [
+              "heterogeneous-2-2-route-2",
+              "heterogeneous-2-2-route-0"
+            ],
+            "reward": 8,
+            "estimated_elapsed_s": 473.26219739660803,
+            "remaining_duration_s": 274.23780260339197,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-2-route-1",
+                "reason": "estimated mission duration exceeds energy budget above return reserve"
+              },
+              {
+                "task_id": "heterogeneous-2-2-route-3",
+                "reason": "battery is not above return reserve plus planning margin"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          },
+          {
+            "case_id": "independent-holdout-heterogeneous-2-3",
+            "input_hash": "1aac5678e34ec3d5ef44a0ae98bce1ae5f5eab4e7b6ca52cd2b64a3d76351f1d",
+            "completed": [
+              "heterogeneous-2-3-route-0",
+              "heterogeneous-2-3-route-2"
+            ],
+            "reward": 13,
+            "estimated_elapsed_s": 482.8026534297886,
+            "remaining_duration_s": 604.6973465702114,
+            "rejected": [
+              {
+                "task_id": "heterogeneous-2-3-route-1",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              },
+              {
+                "task_id": "heterogeneous-2-3-route-3",
+                "reason": "estimated mission duration exceeds task maximum_duration_s"
+              }
+            ],
+            "policy_artifact_sha256": "5c9fae71fd1d10592c4034fa21d58430bd0b86d248e42fe9c0fc3ea0c4e2c0a6"
+          }
+        ],
+        "reward": 40,
+        "completed_count": 6,
+        "estimated_elapsed_s": 1421.821141449326,
+        "dynamics_or_physical_performance_claimed": false
+      }
+    }
+  },
+  "truth_free": true,
+  "planner_revalidated": true,
+  "candidate_promoted": false,
+  "learned_weights_loaded": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "evaluator_file_sha256": "6c7d857d19ffe655a2063bdf00e343efe5d74f76e5f7fa77814037456cd1ba69"
+}

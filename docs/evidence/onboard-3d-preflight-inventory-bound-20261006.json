@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-3d-preflight-inventory-bound",
+  "release_label": "0.3.0-pre.8",
+  "status": "implemented_and_blocked_before_external_runtime",
+  "purpose": "Bind OnboardAI training preflight to current entity-based Gazebo 3-D RGB/Depth capture eligibility.",
+  "source_files": {
+    "scripts/run_onboard_3d_training_preflight.py": "8288e88fb10f804190a0f069c741367854274386c24c0c20683f170fdb90cdf4",
+    "scripts/audit_onboard_3d_capture_inventory.py": "314b2e22f14015dd75095484adf4accad7543b6214d55acbfecd953f4d5547bd",
+    "tests/test_onboard_3d_training_preflight.py": "dd2da2d7465e36d2691c7ab55fb9c187217fbfe0b389f48a0472975913c2a9cb"
+  },
+  "generated_preflight": {
+    "path": "artifacts/evaluation/onboard-3d-training-preflight-20261006-r4.json",
+    "sha256": "10b70bf648cf536945a469e02a778e7d775129adaac4e3fa75f6ad8c8619d50b",
+    "status": "blocked",
+    "docker_server_available": false,
+    "training_ready": false
+  },
+  "capture_inventory": {
+    "path": "artifacts/evaluation/onboard-3d-capture-inventory-20261006.json",
+    "sha256": "895f54028793988aa978a796af7d29f8c845fefa675b4d55ddb8f55c545a22de",
+    "scanned_rgb_manifests": 122,
+    "capture_eligible_count": 0,
+    "training_ready_count": 0,
+    "requires_current_mainline_entity_assets": true,
+    "requires_actual_gazebo_rgb_payload": true,
+    "requires_float32_depth_companion": true,
+    "requires_same_frame_record_binding": true,
+    "truth_json_used": false,
+    "colour_fixture_used_as_training_label": false
+  },
+  "training_boundary": {
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "same_reference_for_sim_and_jetson": true,
+    "pixel_level_rendered_training": false,
+    "structured_candidate_promotion": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "next_required_external_state": "Restore a reachable Docker Linux daemon, run one generated capture per approved 3-D scenario, then review the resulting RGB/Depth/telemetry episodes before pixel-level incremental training."
+}

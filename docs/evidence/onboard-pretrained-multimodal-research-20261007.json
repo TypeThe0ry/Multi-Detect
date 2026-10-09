@@ -1,0 +1,100 @@
+{
+  "contract": "multidetect.onboard-pretrained-multimodal-research-v1",
+  "observed_at_utc": "2026-10-07T01:59:45Z",
+  "scope": "official_source_research_and_repository_integration_review_not_runtime_acceptance",
+  "research_documents": [
+    {
+      "path": "docs/research/onboard-vlm-candidates-20261007.md",
+      "bytes": 12793,
+      "sha256": "703c15e7cdccf6dc7582e0e14c03793a88a449c8162d642802653ae1a95817af"
+    },
+    {
+      "path": "docs/research/onboard-world-model-candidates-20261007.md",
+      "bytes": 14266,
+      "sha256": "6aec2a631a913e673dc9b1897e1ddd2d9b7c3d6f423d15b45cb9eba81ae90052"
+    },
+    {
+      "path": "docs/research/onboard-vlm-integration-review-20261007.md",
+      "bytes": 18430,
+      "sha256": "a28a041ada4e45917addcfb2ba7cd44dbd97ecaa5cc4fe129e31b403e326f08f"
+    }
+  ],
+  "parallel_agents": 3,
+  "vlm_candidates": [
+    "Qwen/Qwen3.5-2B",
+    "Qwen/Qwen3-VL-2B-Instruct",
+    "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "OpenGVLab/InternVL3_5-1B",
+    "nvidia/Cosmos-Reason2-2B"
+  ],
+  "first_vlm_comparison_candidates": [
+    "Qwen/Qwen3.5-2B",
+    "Qwen/Qwen3-VL-2B-Instruct",
+    "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
+  ],
+  "first_visual_history_teacher_candidate": "V-JEPA 2.1 ViT-B/16 80M frozen encoder",
+  "world_model_families_with_verified_weight_links": [
+    "NVIDIA Cosmos",
+    "Meta V-JEPA",
+    "DIAMOND"
+  ],
+  "dreamer_v3_general_pretrained_flight_weights_confirmed": false,
+  "general_pretrained_px4_uav_policy_or_dynamics_confirmed": false,
+  "selected_architecture": "development shadow VLM + source-bound task memory + strict typed intent; reuse canonical planner/safety/PX4 execution",
+  "model_reuse": "existing YOLO/tracking/executor retained; r33 baseline/student path retained; no assertion that r33 parameters can be copied into a VLM",
+  "historical_constraints_reclassified": [
+    "40-feature input",
+    "8-frame memory length",
+    "prompt_id catalog",
+    "single semantic phase sequence"
+  ],
+  "preserved_constraints": [
+    "physical coordinate and sensor uncertainty",
+    "observation freshness and provenance",
+    "vehicle/prompt/session permissions",
+    "airframe/geofence/energy safety",
+    "planner revalidation",
+    "PX4 transaction and execution receipts"
+  ],
+  "next_implementation": [
+    "Implement versioned multimodal shadow envelope binding actual RGB bytes/time, Prompt text, context and mission ledger.",
+    "Use strict typed output parsing, input-bound evidence IDs, hard time/token budgets and stale-result rejection; no transport callbacks in shadow mode.",
+    "Pin model revision, tokenizer/processor/runtime/quantization identities; measure actual pixels, Chinese task goals, memory effect and peak memory on local GPU.",
+    "Train grounding adapters using qualified offline visuals; admit flight-intent fine-tuning only with reviewed task-action episodes.",
+    "After model-level evidence, run real 3D Gazebo/PX4 interaction using the same model/contracts; validate Jetson and physical gates independently."
+  ],
+  "official_sources": [
+    "https://huggingface.co/Qwen/Qwen3.5-2B",
+    "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct",
+    "https://huggingface.co/HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "https://huggingface.co/OpenGVLab/InternVL3_5-1B",
+    "https://huggingface.co/nvidia/Cosmos-Reason2-2B",
+    "https://www.jetson-ai-lab.com/tutorials/openclaw/",
+    "https://github.com/facebookresearch/vjepa2",
+    "https://huggingface.co/nvidia/Cosmos3-Edge",
+    "https://docs.nvidia.com/cosmos/latest/cosmos3/model_matrix.html",
+    "https://github.com/eloialonso/diamond",
+    "https://github.com/danijar/dreamerv3"
+  ],
+  "interpretation": {
+    "recommendation_is_engineering_inference_not_measured_winner": true,
+    "vendor_text_tokens_per_second_is_not_visual_flight_decision_latency": true,
+    "generated_video_is_not_gazebo_physics_or_observed_completion": true,
+    "robot_or_game_actions_are_not_uav_action_semantics": true,
+    "weight_size_is_not_runtime_memory_requirement": true
+  },
+  "vlm_weights_downloaded": false,
+  "vlm_local_inference_measured": false,
+  "vlm_finetuning_performed": false,
+  "world_model_local_inference_measured": false,
+  "world_model_finetuning_performed": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "autonomous_flight_verified": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

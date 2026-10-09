@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.cluster-docker-strict-probe",
+  "release_label": "0.3.0-pre.8",
+  "status": "blocked_before_external_gazebo_runtime",
+  "purpose": "Revalidate the external Linux Docker daemon before attempting entity-based Gazebo/PX4 RGB+Depth capture.",
+  "snapshot": {
+    "digest": "sha256:da50dc4ab36ef44d1e8f5f4611a8fb62dfd9dfb0f778cbf7acfb9f36a1895fad",
+    "size_bytes": 4081257,
+    "scope": "simulation assets only"
+  },
+  "placement": {
+    "node_name": "nuc",
+    "node_id": "8cc47cff-5c6c-47e9-a777-f46d30c6fa3a",
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "strict_probe": {
+    "job_id": "78226a87-ef92-45ae-b7ff-d27f6441201c",
+    "run_id": "93b95a7e-235c-4881-9138-4b2025bf5e15",
+    "step": "strict-docker-info-probe",
+    "exit_code": 104,
+    "docker_info_server_reachable": false,
+    "gazebo_px4_capture_started": false
+  },
+  "claim_boundary": {
+    "external_gazebo_runtime": false,
+    "rgb_depth_telemetry_episode": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "next_required_external_state": "Restore the Docker daemon on nuc or provide another eligible Linux node, then rerun the strict probe before submitting any Gazebo/PX4 campaign."
+}

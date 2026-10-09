@@ -1,0 +1,49 @@
+{
+  "schema": "multidetect.cluster-gazebo-preflight-v1",
+  "generated_at": "2026-10-06T07:05:21Z",
+  "purpose": "Check whether a separate Linux worker can supply the missing Docker/PX4/Gazebo runtime for real 3-D OnboardAI capture.",
+  "source_snapshot": {
+    "path": "artifacts/evaluation/cluster-multidetect-3d-preflight-20261006-r1.tar.zst",
+    "sha256": "f9c3b650342188b2c3c629a75d90b28208ef17092df1d89af7a27c76c6281bc5",
+    "size_bytes": 18981820,
+    "file_count": 865
+  },
+  "worker": {
+    "name": "nuc",
+    "node_id": "8cc47cff-5c6c-47e9-a777-f46d30c6fa3a",
+    "os": "linux",
+    "arch": "x86_64",
+    "capability": "tool.docker"
+  },
+  "pinned_image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "jobs": [
+    {
+      "job_id": "245f0f65-42a8-4a7c-98b3-289518e05820",
+      "kind": "container",
+      "exit_code": 42,
+      "state": "failed",
+      "result": "preflight_blocked"
+    },
+    {
+      "job_id": "9afed337-9480-45a6-9839-85ab0fbdd3ea",
+      "kind": "shell",
+      "exit_code": 0,
+      "state": "succeeded",
+      "result": "host_probe_completed_runtime_not_ready"
+    }
+  ],
+  "claim_boundary": {
+    "docker_daemon_ready": false,
+    "pinned_px4_gazebo_image_verified": false,
+    "external_gazebo_runtime": false,
+    "rendered_rgb_depth_capture": false,
+    "training_ready": false,
+    "candidate_promoted": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_action": "restore a reachable Docker daemon and pinned PX4/Gazebo image, then run the current-mainline 3-D sensor capture command; do not use this preflight as training data"
+}

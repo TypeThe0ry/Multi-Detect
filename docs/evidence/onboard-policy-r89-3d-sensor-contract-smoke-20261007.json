@@ -1,0 +1,72 @@
+{
+  "schema": "multidetect.onboard-policy-training-evidence",
+  "schema_version": 1,
+  "status": "development_candidate_not_promoted",
+  "purpose": "verify incremental OnboardAI training and ONNX export on the RTX 4060 while real Gazebo annotation supervision is blocked",
+  "parent": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r89-3d-sensor-contract-smoke",
+    "model_version": "0.3.0-pre.8-onboard-policy-r89-3d-sensor-contract-smoke",
+    "path": "artifacts/models/onboard-policy-r89-3d-sensor-contract-smoke-20261007c/onboard_policy_r89.onnx",
+    "sha256": "d7afbef8ae4f822d1598cfe0b943106b4cd84dc1f56c50e00a41063fc534d80a",
+    "training_config_sha256": "b84206be415b08f2ebf5b9569d0024171485bb9bff53848f646f1e3f9aeed3db",
+    "training_report_sha256": "222abe1397517629bd0af5280f0f4597bc277e6abbc9a3cadf1c376d652a1094"
+  },
+  "training": {
+    "method": "rendered_3d_sensor_contract_plumbing_finetune",
+    "device": "NVIDIA GeForce RTX 4060",
+    "cuda": "torch 2.6.0+cu124",
+    "epochs": 8,
+    "samples": 540,
+    "synthetic_bootstrap": false,
+    "source_dataset": "artifacts/training/onboard-rendered-3d-depth-v3.json",
+    "source_dataset_sha256": "d5f17fe1d2012c495c5ceb61caecad3c2e90558b6420f6caf4efa1e6d78aaaa6",
+    "source_rows_before_repeat": 9,
+    "repeat": 60,
+    "reviewed": false,
+    "pixel_level_annotation_supervision": false
+  },
+  "verification": {
+    "onnx_input": "features[1,40]",
+    "onnx_output": "policy_output[1,20]",
+    "onnx_finite_output": true,
+    "preflight_path": "artifacts/evaluation/onboard-3d-training-preflight-20261007-r1.json",
+    "preflight_sha256": "913b802ea9048ff3e44c2df50c70b316569c1b40cdc019d3e43e7dbe7db68c60",
+    "preflight_status": "blocked",
+    "docker_server_available": false,
+    "local_gazebo_cli_available": false,
+    "local_px4_cli_available": false,
+    "annotation_collector_bytes": 0,
+    "annotation_staging_manifest": "artifacts/evaluation/onboard-3d-annotation-urban-20261007-r1/materialized-r7-staging/staging-manifest.json",
+    "annotation_staging_manifest_sha256": "00e59a1866b963cc0acada14501d4b1c5cbdf77661854f6030c2235e8a3109fc"
+  },
+  "paired_evaluation": {
+    "path": "docs/evidence/onboard-policy-r33-r89-paired-evaluation-20261007.json",
+    "decision": "candidate_rejected",
+    "guarded_generalization_failure": "bearing-left",
+    "parent_navigation_angle_p95_deg": 122.10671971804572,
+    "candidate_navigation_angle_p95_deg": 171.88464060126282,
+    "parent_range_mae_m": 24.111320193835105,
+    "candidate_range_mae_m": 13.446494046050613
+  },
+  "gates": {
+    "training_ready": false,
+    "candidate_promoted": false,
+    "same_model_for_sim_and_jetson": false,
+    "physical_performance_claimed": false,
+    "external_gazebo_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "next_required": [
+    "restore Docker/PX4/Gazebo runtime",
+    "capture RGB hash manifest and labels-map bytes from the same 3-D world",
+    "bind and independently review at least two scenes with continuous telemetry",
+    "train and evaluate from the same r33 contract on an independent pixel holdout"
+  ]
+}

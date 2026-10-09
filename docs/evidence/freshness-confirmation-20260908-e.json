@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-08T03:34:46Z",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "airframe": "VTOL",
+  "scenario": "configs/scenarios/river_rescue_vtol_001.scenario.json",
+  "inputs": [
+    {
+      "path": "artifacts/evaluation/freshness-confirmation-20260908-e.json",
+      "bytes": 453627,
+      "sha256": "68c7f25bc57bf1db8b64a41241a86e64f162067ed23b7994b98c698805871cb9"
+    },
+    {
+      "path": "artifacts/evaluation/freshness-confirmation-20260908-e/vtol-mission-acceptance.json",
+      "bytes": 328377,
+      "sha256": "64e2bb95ccc0d90fa121672b229dac2bebfc219e49d9116752c8e654d80674c6"
+    }
+  ],
+  "command": "python scripts/run_vtol_mission_sensor_capture.py --execute --run-directory artifacts/evaluation/freshness-confirmation-20260908-e --evidence artifacts/evaluation/freshness-confirmation-20260908-e.json --container-name multidetect-freshness-confirmation-20260908-e --frame-count 3 --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "exit_code": 0,
+  "post_run_regression": {
+    "command": "python -m pytest -q tests/test_repository_progress_docs.py tests/test_px4_mission_feedback.py tests/test_mission_planning.py tests/test_vtol_sitl_mission_acceptance.py",
+    "passed": 104,
+    "exit_code": 0,
+    "full_suite_rerun": false
+  },
+  "task_and_capture_gate_passed": true,
+  "shadow": {
+    "status": "completed",
+    "reason": "terminal_reached_landed_disarmed",
+    "elapsed_s": 116.23399999993853,
+    "mission_hash": "6f99f6c26480c62bf190835abccfe1e3b2a064c24fbce2e9fcad93ff2c3a3dde",
+    "events": 340,
+    "reconciliation_delay_s": 1.1400000000139698,
+    "confirmation_budget_s": 1.5,
+    "affects_acceptance_gate": false
+  },
+  "postflight": {
+    "battery_remaining_pct": 72,
+    "observed_endurance_s": null,
+    "missing_reasons": [
+      "observed_endurance_unavailable"
+    ],
+    "authorizes_next_task": false
+  },
+  "cleanup": {
+    "exact_id": "1fabc7f6371ad0594ebeb01c4e2b8520358e5e3ecd1c93eb5ecbfdba4f1c3eec",
+    "succeeded": true,
+    "absence_proven": true
+  },
+  "battery_parameter_read": {
+    "command": "docker exec -w /opt/px4-gazebo multidetect-freshness-confirmation-20260908-e /opt/px4-gazebo/bin/px4-param show SIM_BAT*",
+    "SIM_BAT_DRAIN": 60,
+    "SIM_BAT_MIN_PCT": 50,
+    "parameters_modified": false,
+    "interpretation": "Values observed only; units and dynamics not verified. Earlier 50 percent tails do not prove a constant battery model."
+  },
+  "claims": {
+    "external_single_mission_sim": true,
+    "continuous_multitask": false,
+    "trained_weights": false,
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "manual_visual": false,
+    "release_allowed": false
+  },
+  "parity": "New modules pending release parity binding; not release acceptance."
+}

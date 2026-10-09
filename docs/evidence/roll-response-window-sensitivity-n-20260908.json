@@ -1,0 +1,66 @@
+{
+  "source_evidence": "docs/evidence/roll-response-n-20260908.json",
+  "diagnostic_only": true,
+  "windows": [
+    {
+      "lookback_ms": 500,
+      "groups": {
+        "insufficient_history": {
+          "count": 1,
+          "maximum_absolute_error_deg": 0.0678297148531044,
+          "sample_rms_error_deg": 0.0678297148531044
+        },
+        "sampled_near_current_target": {
+          "count": 69,
+          "maximum_absolute_error_deg": 9.81271896852661,
+          "sample_rms_error_deg": 1.6351150154054288
+        },
+        "sampled_changing_target": {
+          "count": 24,
+          "maximum_absolute_error_deg": 26.74094511679843,
+          "sample_rms_error_deg": 8.90989808542097
+        }
+      }
+    },
+    {
+      "lookback_ms": 1000,
+      "groups": {
+        "insufficient_history": {
+          "count": 2,
+          "maximum_absolute_error_deg": 0.09355503127304132,
+          "sample_rms_error_deg": 0.0817111194806227
+        },
+        "sampled_near_current_target": {
+          "count": 60,
+          "maximum_absolute_error_deg": 9.81271896852661,
+          "sample_rms_error_deg": 1.3073065575251106
+        },
+        "sampled_changing_target": {
+          "count": 32,
+          "maximum_absolute_error_deg": 26.74094511679843,
+          "sample_rms_error_deg": 7.880350387982538
+        }
+      }
+    },
+    {
+      "lookback_ms": 2000,
+      "groups": {
+        "insufficient_history": {
+          "count": 4,
+          "maximum_absolute_error_deg": 0.09355503127304132,
+          "sample_rms_error_deg": 0.07710013312697
+        },
+        "sampled_near_current_target": {
+          "count": 53,
+          "maximum_absolute_error_deg": 0.8205983499619833,
+          "sample_rms_error_deg": 0.33721667149901285
+        },
+        "sampled_changing_target": {
+          "count": 37,
+          "maximum_absolute_error_deg": 26.74094511679843,
+          "sample_rms_error_deg": 7.504418903591412
+        }
+      }
+    }
+  ]
+}

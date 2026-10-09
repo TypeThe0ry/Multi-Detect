@@ -1,0 +1,117 @@
+{
+  "candidate_directory": "artifacts/models/.onboard-policy-event-coverage-blocked-20261007",
+  "claim_boundary": {
+    "candidate_promoted": false,
+    "external_gazebo_runtime": "not_claimed_by_pipeline",
+    "final_release_allowed": false,
+    "hil_real_evidence": false,
+    "jetson_hardware_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "pixhawk_hardware_evidence": false
+  },
+  "contract": "multidetect.onboard-3d-training-pipeline-v1",
+  "datasets": {
+    "rendered_3d": {
+      "contract": "multidetect.onboard-rendered-3d-dataset-v1",
+      "exists": true,
+      "materialized_sources": false,
+      "path": "artifacts/training/onboard-neutral-3d-historical-rendered-20261006-r3.json",
+      "pixel_level_rendered": true,
+      "sha256": "da49af6c359145ec3c7bd5568e5d202a3bd4f2dc7f5561ba59118d1e27326658",
+      "training_ready": false,
+      "truth_free": true,
+      "truth_injected": false
+    },
+    "trajectory": {
+      "contract": "multidetect.onboard-trajectory-staging-v1",
+      "exists": true,
+      "materialized_sources": false,
+      "path": "artifacts/training/onboard-neutral-3d-trajectory-staging-20261006-r3.json",
+      "pixel_level_rendered": false,
+      "sha256": "4042b70d746db889037d9a82dfde20d61dd50aad2b967965785a5ec9e817ed3b",
+      "training_ready": false,
+      "truth_free": true,
+      "truth_injected": false
+    }
+  },
+  "detector_model": {
+    "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx",
+    "role": "existing_detector_boundary_shared_with_jetson_adapter",
+    "sha256": "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410"
+  },
+  "failures": [
+    "strict OnboardAI 3-D training command failed; candidate was not accepted"
+  ],
+  "gazebo_3d_manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c"
+  },
+  "generated_by": "scripts/run_onboard_3d_training_pipeline.py",
+  "parent_reference": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "model_path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "model_version": "0.3.0-pre.8-onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "configs/training/onboard-policy-current-reference-v1.json",
+    "same_parent_for_sim_and_real": true,
+    "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+  },
+  "preflight": {
+    "capture_eligible_count": 0,
+    "reasons": [
+      "Docker daemon is not reachable; external Gazebo/PX4 capture cannot start",
+      "Docker Desktop backend is blocked by stale sailor-ingest.sock; release the reported socket and restart Docker Desktop before capture",
+      "local Gazebo CLI (gz or gazebo) is not installed; the pinned container route may supply it",
+      "local PX4 CLI is not installed; the pinned container route may supply it",
+      "training_ready remains false until sealed RGB/Depth/telemetry episodes and an independent holdout exist",
+      "no current-mainline RGB + FLOAT32 depth capture is eligible for OnboardAI training"
+    ],
+    "status": "blocked",
+    "training_ready": false
+  },
+  "preflight_report": {
+    "path": "docs/evidence/onboard-3d-training-preflight-event-coverage-20261007.json"
+  },
+  "schema": 1,
+  "status": "blocked",
+  "train_requested": true,
+  "trainer_command": [
+    "C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "scripts/train_onboard_model.py",
+    "--output-directory",
+    "D:\\Projects\\Multi-Detect\\artifacts\\models\\.onboard-policy-event-coverage-blocked-20261007",
+    "--parent-model",
+    "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "--parent-sha256",
+    "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "--model-id",
+    "onboard-policy-next-3d-candidate",
+    "--model-version",
+    "0.3.0-pre.8-onboard-policy-next-3d-candidate",
+    "--output-name",
+    "onboard_policy.onnx",
+    "--samples",
+    "300",
+    "--epochs",
+    "1",
+    "--learning-rate",
+    "0.001",
+    "--navigation-geometry-weight",
+    "0.15",
+    "--no-synthetic-bootstrap",
+    "--device",
+    "cuda",
+    "--gazebo-3d-manifest",
+    "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "--rendered-3d-dataset",
+    "artifacts/training/onboard-neutral-3d-historical-rendered-20261006-r3.json",
+    "--trajectory-dataset",
+    "artifacts/training/onboard-neutral-3d-trajectory-staging-20261006-r3.json",
+    "--require-real-3d-capture"
+  ],
+  "trainer_exit_code": 1,
+  "trainer_stderr_tail": "Traceback (most recent call last):\n  File \"D:\\Projects\\Multi-Detect\\scripts\\train_onboard_model.py\", line 4688, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"D:\\Projects\\Multi-Detect\\scripts\\train_onboard_model.py\", line 4442, in main\n    real_3d_capture_gate = _require_real_3d_capture(\n                           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\Projects\\Multi-Detect\\scripts\\train_onboard_model.py\", line 2033, in _require_real_3d_capture\n    raise ValueError(\"real 3-D capture gate failed: \" + \"; \".join(failures))\nValueError: real 3-D capture gate failed: rendered rows < 100; unique rendered frames < 100; 3-D scene count < 2; usable depth rows < 100; calibrated NED geometry rows < 100; rendered dataset is not training-ready; trajectory transitions < 100; trajectory episodes < 2; trajectory 3-D scene count < 2; independent trajectory test transitions < 1; trajectory has no independent test episode; trajectory is missing required temporal event kinds: target_lost; trajectory has no GPS/battery/obstacle/inference health event; trajectory training_ready is not true; trajectory materialized_sources is not true\n",
+  "trainer_stdout_tail": "",
+  "training_device_requested": "cuda"
+}

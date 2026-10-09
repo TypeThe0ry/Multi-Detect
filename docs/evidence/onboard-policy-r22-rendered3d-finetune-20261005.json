@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "evidence_id": "onboard-policy-r22-rendered3d-finetune-20261005",
+  "contract": "multidetect.onboard-policy-rendered-3d-finetune-evidence",
+  "release_label": "0.3.0-pre.8",
+  "selected_reference_model": "onboard-policy-r17-teacher-consistent",
+  "candidate_model": {
+    "model_id": "onboard-policy-r22-rendered3d-finetune",
+    "path": "artifacts/models/onboard-policy-r22-rendered3d-finetune/onboard_policy_r22.onnx",
+    "sha256": "e016bd5df23526a090ec146d936cb88016fd8ccbdf4bd12ac1af84f2921fab4f",
+    "bytes": 62145,
+    "parent_sha256": "7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3",
+    "training_config": {
+      "path": "artifacts/models/onboard-policy-r22-rendered3d-finetune/training-config.json",
+      "sha256": "42cccfbf5a2d2c92960c2944d209953b95088411da6b5bb43672d84cb71591eb"
+    },
+    "training_report": {
+      "path": "artifacts/models/onboard-policy-r22-rendered3d-finetune/training-report.json",
+      "sha256": "9f39b0609b9b0e01b494511fa1de8181fc7119625def8760fbfdb2d65fc26232"
+    },
+    "device": "NVIDIA GeForce RTX 4060",
+    "sample_count": 37100,
+    "epochs": 80,
+    "shared_contract": {
+      "feature_count": 40,
+      "task_action_count": 9,
+      "flight_action_count": 7,
+      "regression_output_count": 4,
+      "parent_weights_inherited": true,
+      "new_policy_architecture": false
+    }
+  },
+  "rendered_3d_dataset": {
+    "path": "artifacts/training/onboard-rendered-3d-mainline-v1.json",
+    "sha256": "f7e8a666d9e0a49d3047cddce6145ce4f6cc8fac015ad53be5d9f045b31a0153",
+    "frame_count": 25,
+    "scene_families": [
+      "urban_inspection_multirotor_001",
+      "river_rescue_vtol_001",
+      "coastal_patrol_fixed_wing_001"
+    ],
+    "pixel_level_rendered": true,
+    "truth_free": true,
+    "truth_injected": false,
+    "detector_model": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx",
+    "detector_hits": 0,
+    "labels": "observed_target_lost_to_search_transition",
+    "target_pose_injected": false,
+    "scenario_truth_read": false
+  },
+  "evaluation": {
+    "candidate_3d_sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r22-3d-sensor-holdout.json",
+      "sha256": "6f0be916aa2fa3e37dc3881b2c1e5719d2e9acc37cb943ae18a037c0dfe6fe0f",
+      "seed": 20261012,
+      "cases": 900,
+      "task_accuracy": 0.9844444444444445,
+      "flight_accuracy": 0.9811111111111112,
+      "compatible_output_rate": 0.9922222222222222,
+      "training_used": false,
+      "pixel_level_rendered": false
+    },
+    "same_seed_parent_3d_sensor_holdout": {
+      "path": "artifacts/evaluation/onboard-policy-r17-3d-sensor-holdout-20261012.json",
+      "sha256": "a92f4e297c2a0e362ef50601c850c87371e85fea273de4d3a90a334beea5a379",
+      "seed": 20261012,
+      "cases": 900,
+      "task_accuracy": 0.57,
+      "flight_accuracy": 0.7088888888888889,
+      "compatible_output_rate": 0.9366666666666666,
+      "training_used": false,
+      "pixel_level_rendered": false
+    },
+    "generalization": {
+      "path": "artifacts/evaluation/onboard-r22-generalization-20261005.json",
+      "sha256": "c3a3d557f733ea201e4e4d53e591e42362d4ec500bb219af16431d2e6ef346d0",
+      "cases": 22,
+      "raw_head_passed": 17,
+      "guarded_passed": 22,
+      "navigation_direction_passed": 21,
+      "navigation_range_passed": 22,
+      "class_color_invariance_passed": true
+    }
+  },
+  "decision": {
+    "candidate_promoted": false,
+    "selected_reference_remains": "onboard-policy-r17-teacher-consistent",
+    "reason": "r22 is the first candidate grounded in persisted 3-D Gazebo pixels, but only 25 rendered frames exist and there is no independent rendered-pixel holdout. Keep it for pipeline validation and collect broader weather/view/target coverage before promotion.",
+    "next_requirement": "independent multi-scene rendered RGB+Depth+telemetry holdout with reviewed perception labels and repeated detector/tracker transitions"
+  },
+  "parity": {
+    "release_parity_file_sha256": "61eef1e7320706d382a06f71936a18472ac0467384970eb98a2c5074fdd9d0af",
+    "core_algorithm_hash": "8635241c8f7093d73e41b52a171b3df5aebdf4c5aa13df01f1d21280fd6d1534",
+    "px4_mission_path_hash": "c4b04af0746447d9fa73a6a8e553ad79a191690fd7fc8ed170d6f6dfbea643c6",
+    "safety_policy_hash": "a460373166fa74a144046e4540095015f2500b245e8e306e17f49cce2343a442",
+    "task_contract_hash": "72d786faddee41aa1de292d481eb0b1f285d44a01201db675d8c4a2acc4654ea",
+    "ui_contract_hash": "ddb3b9088cfbd411c963baea376e9de69b6c6f0a8064eeff8959c7b1fe745896"
+  },
+  "claims": {
+    "software_training": true,
+    "actual_gazebo_rendered_frames_used": true,
+    "external_gazebo_runtime_rerun": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  }
+}

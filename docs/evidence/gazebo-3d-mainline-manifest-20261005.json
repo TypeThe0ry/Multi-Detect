@@ -1,0 +1,46 @@
+{
+  "schema": "multidetect.gazebo-3d-mainline-manifest-evidence.v1",
+  "generated_at_utc": "2026-10-05T04:20:06Z",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "offline_repository_asset_audit",
+  "manifest": {
+    "path": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "bytes": 8240,
+    "sha256": "b1bc7d2b71654b8eb1ce8e66db311001de7d59d5bb86871da9d498c8a34dcd30"
+  },
+  "schema": {
+    "path": "configs/schemas/gazebo-3d-mainline-manifest.schema.json",
+    "bytes": 5582,
+    "sha256": "f673f4bdfca28ea0128a36cd13cc0a90c011e04336dcd4801a8a3f4b9fd9db5c"
+  },
+  "verifier": {
+    "path": "scripts/verify_gazebo_3d_mainline_manifest.py",
+    "sha256": "d343128dda0852efbe1a6d6f451f459d39cee3df3d1f9c5db8d8eccabd016f0f",
+    "command": "python scripts/verify_gazebo_3d_mainline_manifest.py",
+    "exit_code": 0
+  },
+  "result": {
+    "event": "gazebo_3d_mainline_manifest_verified",
+    "deterministic_asset_audit": true,
+    "scenario_count": 3,
+    "vehicle_classes": ["multirotor", "vtol", "fixed-wing"],
+    "world_physics": "ode",
+    "wgs84_enu_bound": true,
+    "shared_mono_camera_bound": true,
+    "rgb_depth_telemetry_bound": true,
+    "runtime_truth_free": true,
+    "billboard_fixtures_excluded": true,
+    "network_assets": false
+  },
+  "claims_boundary": {
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false,
+    "description": "This is an offline 3-D asset and contract audit only; it does not claim that PX4/Gazebo has been launched or that autonomous flight has passed."
+  }
+}

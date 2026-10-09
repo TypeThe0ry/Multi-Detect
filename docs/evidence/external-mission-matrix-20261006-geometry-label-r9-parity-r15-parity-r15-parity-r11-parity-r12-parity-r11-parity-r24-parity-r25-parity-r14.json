@@ -1,0 +1,163 @@
+{
+  "schema": "multidetect.external-mission-matrix-receipt",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-06T04:40:46Z",
+  "release_label": "0.3.0-pre.8",
+  "vehicles": {
+    "fixed-wing": {
+      "evidence": "artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261006-geometry-label-r8-parity-r22-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r14.json",
+      "evidence_bytes": 66111,
+      "evidence_sha256": "9d505f5dbbc7da493a36e32daebb4d98e6a73d9347b17e1ff87a10c5b8cb7215",
+      "vehicle_class": "fixed-wing",
+      "runtime_mode": "SIM_EXTERNAL",
+      "scenario_id": "coastal_patrol_fixed_wing_001",
+      "scenario_manifest_sha256": "fe2ff94d0996394fc5f9b42d4336d75b41d21c0ddfbedb0b75f9ee8accb62f0b",
+      "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+      "airframe_profile_hash": "bf0ad3459c69fc10dfacd9f209a17249fadeba1f1de856c557da85fd96c602b2",
+      "mission_state_path": [
+        "authorized",
+        "uploading",
+        "uploaded",
+        "readback_verified",
+        "committed",
+        "start_permitted"
+      ],
+      "mission_item_count": 5,
+      "protocol_hash": "ccdc76d91bce7cb0d3f6c2823c34dfd08ebbaf5f5a33bf0f17e143a879fb3af7",
+      "readback_protocol_hash": "ccdc76d91bce7cb0d3f6c2823c34dfd08ebbaf5f5a33bf0f17e143a879fb3af7",
+      "live_gps_context_binding": {
+        "aircraft_delta_m": 0.040047,
+        "home_delta_m": 0.040047,
+        "live_fix_type": 3,
+        "qualified": true,
+        "source": "PX4_GPS_RAW_INT",
+        "tolerance_m": 5.0
+      },
+      "runtime_attestation_sha256": "9b2e2294318f7b7e5ee8f4f57253269268f24954b42451a3e95216c989beea0d",
+      "task_binding_sha256": "0dd5b7d1ab58baebe3ad2d4b7acd8c9777f89be8c845f50abf5b1e178b39d84d",
+      "planner_revalidated": true,
+      "policy_applied_to_actuator": false,
+      "cleanup_removed": true,
+      "flight_started": false,
+      "physical_output_enabled": false,
+      "current_release_parity_bound": true
+    },
+    "multirotor": {
+      "evidence": "artifacts/evaluation/external-multirotor-depth-shared-policy-20261006-geometry-label-r8-parity-r22-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r14.json",
+      "evidence_bytes": 66089,
+      "evidence_sha256": "a392ca12629671ee627f7fbb539927e242159839e454316ebbb4a1c6e699f910",
+      "vehicle_class": "multirotor",
+      "runtime_mode": "SIM_EXTERNAL",
+      "scenario_id": "urban_inspection_multirotor_001",
+      "scenario_manifest_sha256": "45653f84361ddf7e2a1976c8b2231127e6cd6be9bcbef011835c78936421e8c0",
+      "airframe_profile_id": "px4_multirotor_gazebo_v1",
+      "airframe_profile_hash": "5bd121275d285e27adef2a8f4b4242b481dffb8368ec4dd231089eeac8732d47",
+      "mission_state_path": [
+        "authorized",
+        "uploading",
+        "uploaded",
+        "readback_verified",
+        "committed",
+        "start_permitted"
+      ],
+      "mission_item_count": 5,
+      "protocol_hash": "30df316b25039d52811b4b099ad745187260c213a9a43a047e825dd403a5c91a",
+      "readback_protocol_hash": "30df316b25039d52811b4b099ad745187260c213a9a43a047e825dd403a5c91a",
+      "live_gps_context_binding": {
+        "aircraft_delta_m": 0.015688,
+        "home_delta_m": 0.015688,
+        "live_fix_type": 3,
+        "qualified": true,
+        "source": "PX4_GPS_RAW_INT",
+        "tolerance_m": 5.0
+      },
+      "runtime_attestation_sha256": "d6bc98b09cc2a5b32a8f0a4dccb6feeb1bb816f70ec39b7eac40fd02cbbaa807",
+      "task_binding_sha256": "a03ef77fb8504e047ea753b7d2d81b419e6873caacfbd362c385dce570d330be",
+      "planner_revalidated": true,
+      "policy_applied_to_actuator": false,
+      "cleanup_removed": true,
+      "flight_started": false,
+      "physical_output_enabled": false,
+      "current_release_parity_bound": true
+    },
+    "vtol": [
+      {
+        "vehicle_class": "vtol",
+        "sortie": 1,
+        "campaign_receipt": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261006-geometry-label-r8.receipt-parity-r22-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r14.json",
+        "campaign_receipt_sha256": "264efd03a326f0720fb5de464e2b85da551d5fea438810325562a6067ff2150b",
+        "mission_evidence": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31-run/campaign-missions/mission-001.json",
+        "mission_evidence_bytes": 9601879,
+        "mission_evidence_sha256": "daf59c363c63b00184112deadf389a3e8ae3a335c5d76b769c4a2c7136b16cd1",
+        "runtime_mode": "SIM_EXTERNAL_CAMPAIGN",
+        "scenario_id": "river_rescue_vtol_001",
+        "scenario_manifest_sha256": "ee519c425b36ad8f04355c8e1e16c118ef1e04430d1c9db6b75f992d5450bf9c",
+        "airframe_profile_id": "px4_vtol_gazebo_v1",
+        "mission_state_path": [
+          "authorized",
+          "uploading",
+          "uploaded",
+          "readback_verified",
+          "committed",
+          "start_permitted"
+        ],
+        "mission_item_count": 7,
+        "protocol_hash": "597ed8561641f8c431835f594440b54bbecff636d64cecb6ac7324250dfc9d14",
+        "readback_protocol_hash": "597ed8561641f8c431835f594440b54bbecff636d64cecb6ac7324250dfc9d14",
+        "live_gps_context_binding": {
+          "source": "live MAVLink telemetry only",
+          "fix_type": 3,
+          "gps_accuracy_m": 0.9
+        },
+        "cleanup_removed": true,
+        "flight_started": false,
+        "physical_output_enabled": false,
+        "current_release_parity_bound": true
+      },
+      {
+        "vehicle_class": "vtol",
+        "sortie": 2,
+        "campaign_receipt": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261006-geometry-label-r8.receipt-parity-r22-parity-r12-parity-r11-parity-r11-parity-r11-parity-r11-parity-r11-parity-r14.json",
+        "campaign_receipt_sha256": "264efd03a326f0720fb5de464e2b85da551d5fea438810325562a6067ff2150b",
+        "mission_evidence": "artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31-run/campaign-missions/mission-002.json",
+        "mission_evidence_bytes": 12356819,
+        "mission_evidence_sha256": "ee88d899840465c2d4596a927c6145514763ced52c4ee2847b8d9dbfe3f6d0fd",
+        "runtime_mode": "SIM_EXTERNAL_CAMPAIGN",
+        "scenario_id": "river_rescue_vtol_001",
+        "scenario_manifest_sha256": "ee519c425b36ad8f04355c8e1e16c118ef1e04430d1c9db6b75f992d5450bf9c",
+        "airframe_profile_id": "px4_vtol_gazebo_v1",
+        "mission_state_path": [
+          "authorized",
+          "uploading",
+          "uploaded",
+          "readback_verified",
+          "committed",
+          "start_permitted"
+        ],
+        "mission_item_count": 7,
+        "protocol_hash": "8a3c68a743b7f83d1bcdd562ec9dec8f8f13009b9867c2fd84c32e4d10164dd8",
+        "readback_protocol_hash": "8a3c68a743b7f83d1bcdd562ec9dec8f8f13009b9867c2fd84c32e4d10164dd8",
+        "live_gps_context_binding": {
+          "source": "live MAVLink telemetry only",
+          "fix_type": 3,
+          "gps_accuracy_m": 0.9
+        },
+        "cleanup_removed": true,
+        "flight_started": false,
+        "physical_output_enabled": false,
+        "current_release_parity_bound": true
+      }
+    ]
+  },
+  "same_external_mission_path": true,
+  "same_core_compiler_and_transaction": true,
+  "current_release_parity_bound": true,
+  "source_release_parity_binding_required_for_promotion": true,
+  "truth_free": true,
+  "physical_output_enabled": false,
+  "flight_started": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "receipt_sha256": "36b698e585afb9d10bbbba5d2ca8907a937bd581f38f0f050c321d0e19d06ce0"
+}

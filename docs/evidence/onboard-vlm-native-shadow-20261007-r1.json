@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-vlm-native-shadow-evidence-v1",
+  "observed_at_utc": "2026-10-07T02:25:01Z",
+  "parallel_agents": 3,
+  "status": "native_multimodal_shadow_chain_executed_semantic_temporal_and_unknown_fact_failures_not_promoted",
+  "model": {
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "license": "apache-2.0",
+    "gated": false,
+    "weights": {
+      "path": "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/89644892e4d85e24eaac8bacfd4f463576704203/model.safetensors",
+      "bytes": 4255140312,
+      "sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0",
+      "official_lfs_sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0"
+    },
+    "snapshot_files": 11,
+    "selected_snapshot_bytes": 4266647442,
+    "quantization": "none_BF16",
+    "trust_remote_code": false
+  },
+  "source_files": [
+    {
+      "path": "src/multidetect/autonomy/onboard_multimodal.py",
+      "bytes": 25597,
+      "sha256": "3dffd99197e1cdb204ef83862b00861d19ebe9e5ff1d20c95c46ae2d7227b659"
+    },
+    {
+      "path": "scripts/onboard_vlm_shadow_input.py",
+      "bytes": 6872,
+      "sha256": "0d631d854a2a8edca55f02b5dbe984c2234e9d8338e06f86d7a27df7170ce777"
+    },
+    {
+      "path": "scripts/build_onboard_vlm_shadow_cases.py",
+      "bytes": 27953,
+      "sha256": "f05e063e0f96f78645eced6cb860bf27880e78d6ba8d91ac346a4f6aecc15a43"
+    },
+    {
+      "path": "scripts/probe_onboard_vlm.py",
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "tests/test_onboard_multimodal.py",
+      "bytes": 18685,
+      "sha256": "003723740f1a1b7a26d3c5362621aaede2ba9628a40adb89de917c98072a3ba0"
+    },
+    {
+      "path": "tests/test_onboard_vlm_shadow_input.py",
+      "bytes": 5366,
+      "sha256": "86cb8e88a1830da0fc7c4a27f82cf11dd94ce7f739cd1b49461c1bf31b346a38"
+    },
+    {
+      "path": "tests/test_build_onboard_vlm_shadow_cases.py",
+      "bytes": 16633,
+      "sha256": "6cb3b3c27b314c7c624c317ce2a02055cfa87b5cd14d6737ad6f098e37c3bef7"
+    },
+    {
+      "path": "tests/test_probe_onboard_vlm.py",
+      "bytes": 14120,
+      "sha256": "845c843a060ac703cd730286913734465b938c6abfa346625e52a29a643f10ad"
+    },
+    {
+      "path": "tests/test_onboard_vlm_shadow_evidence.py",
+      "bytes": 7624,
+      "sha256": "e814fa78e80ed76c82d03b708c19f4d764ca7615559ab05b2efcdf60f659f707"
+    },
+    {
+      "path": "requirements-vlm-shadow.txt",
+      "bytes": 437,
+      "sha256": "3badc7855dee00c2e675a3510c2cf89722bf34d70beb53e14f2a2f137e5a6352"
+    }
+  ],
+  "cases_manifest": {
+    "path": "artifacts/evaluation/onboard-vlm-shadow-cases-20261007-r1/manifest.json",
+    "bytes": 43047,
+    "sha256": "bdfcf4a3d13f4acde9cfd6127f081115c0fd265a9bdc2e15c81b3749ad9b5cd7"
+  },
+  "native_report": {
+    "path": "artifacts/evaluation/onboard-vlm-qwen3vl-native-probe-20261007-r1/report.json",
+    "bytes": 118359,
+    "sha256": "16529c4f4c1904722ae5837eaf978ad05518751451bb62c818db0a4047e6495a"
+  },
+  "original_model_and_parity_preservation": [
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    }
+  ],
+  "data_provenance": "offline_Blender_RGB_render_of_actual_repository_SDF_geometry_not_new_Gazebo_capture",
+  "source_split": "train",
+  "blind_holdout": false,
+  "cases": 8,
+  "unique_rgb_images": 7,
+  "frame_counts": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    4,
+    6,
+    1
+  ],
+  "native_process_session_id": 60340,
+  "native_exit_code": 0,
+  "native_generations_completed": 8,
+  "strict_intents_accepted": 7,
+  "native_model_and_runtime_bytes_end_reverified": true,
+  "root_report_and_full_safetensors_hashes_independently_recomputed": true,
+  "raw_response_distribution": {
+    "hold": 7,
+    "unsupported_record_location": 1
+  },
+  "flight_plans_emitted": 0,
+  "runtime": {
+    "gpu": "NVIDIA GeForce RTX 4060",
+    "gpu_total_mib": 8188,
+    "torch": "2.6.0+cu124",
+    "torchvision": "0.21.0+cu124",
+    "transformers": "4.57.6",
+    "huggingface_hub": "0.36.2",
+    "accelerate": "1.12.0",
+    "tokenizers": "0.22.2",
+    "safetensors": "0.4.5",
+    "Pillow": "11.0.0",
+    "python": "3.12.7",
+    "cuda": "12.4"
+  },
+  "budget": {
+    "max_frames": 8,
+    "max_pixels_per_frame": 262144,
+    "max_input_tokens": 8192,
+    "max_new_tokens": 512,
+    "deadline_s": 30
+  },
+  "measurements": {
+    "model_load_s": 5.443874799995683,
+    "single_frame_total_s_min": 8.430559500004165,
+    "single_frame_total_s_max": 13.685003800026607,
+    "four_frame_total_s": 14.724569000012707,
+    "six_frame_total_s": 19.823421899985988,
+    "peak_allocated_bytes": 5801485824,
+    "peak_reserved_bytes": 6262095872,
+    "generated_tokens_min": 264,
+    "generated_tokens_max": 403,
+    "all_cases_below_token_ceiling": true,
+    "all_completions_within_declared_offline_budget": true
+  },
+  "offline_clock_not_live_sensor": true,
+  "production_five_second_freshness_claimed": false,
+  "scope_and_source_identity_guards": {
+    "source_clip_required_for_every_frame": true,
+    "single_recording_and_clock": true,
+    "source_clip_bound_to_input_and_scope": true,
+    "model_visible_frame_and_task_ids_opaque": true,
+    "full_scope_metadata_only_for_host_audit": true,
+    "evaluation_metadata_injection_does_not_change_model_input": true
+  },
+  "navigation_context_available": false,
+  "execution_receipts_available": false,
+  "gold_flight_action_available": false,
+  "semantic_readiness_passed": false,
+  "task_accuracy_measured": false,
+  "observed_failures": [
+    {
+      "case_id": "near-visible-location-unknown",
+      "kind": "strict_output_schema_failure",
+      "detail": "Model used response=record_location instead of a supported response; raw rejected without repair."
+    },
+    {
+      "case_id": "near-hidden-with-history",
+      "kind": "temporal_visual_reasoning_failure",
+      "detail": "Raw text claimed the low entity stayed visible without obvious changes, despite the source sequence containing full target occlusion. Parser acceptance did not validate this visual statement."
+    },
+    {
+      "case_id": "near-reappeared-with-history",
+      "kind": "temporal_visual_reasoning_and_unknown_telemetry_failure",
+      "detail": "Raw text said toy vehicle and sphere remained visible in all frames and the aircraft was not moving. Source sequence has target visibility changes; no aircraft telemetry was supplied."
+    }
+  ],
+  "independent_review": {
+    "input_side_channel_review_passed": true,
+    "actual_raw_reparse_and_visual_fact_review_pending": false,
+    "actual_raw_reparse_completed": true,
+    "grouped_file_bindings_recomputed": 179,
+    "unique_files_recomputed": 148,
+    "saved_output_files_recomputed": 32,
+    "token_ids_independently_decoded_to_exact_raw_bytes": true,
+    "all_generations_ended_with_normal_eos": true,
+    "all_accepted_responses_are_hold": true,
+    "all_task_actions_and_flight_plans_are_null": true,
+    "temporal_visual_reasoning_passed": false,
+    "near_history_source_frame_indices": [0, 3, 5, 8, 10, 13],
+    "near_history_visible_target_mask_pixels": [2521, 1818, 174, 0, 91, 2133],
+    "mask_and_source_truth_used_only_by_offline_reviewer": true,
+    "all_case_latency_median_s": 10.16354795001098,
+    "all_case_latency_mean_s": 11.977311962509703
+  },
+  "validation": {
+    "targeted_unique_tests_passed": 447,
+    "targeted_pytest_native_exit_code": 0,
+    "new_python_files_ruff_check_passed": true,
+    "new_python_files_ruff_format_check_passed": true,
+    "edited_tracked_files_diff_check_passed": true,
+    "current_progress_index_and_source_parity_native_exit_code": 0,
+    "current_release_parity_source_list_not_expanded_for_shadow": true,
+    "readme_bytes_below_50000": true,
+    "retained_external_evidence_not_rerun": true
+  },
+  "vlm_weights_downloaded": true,
+  "vlm_local_inference_measured": true,
+  "vlm_finetuning_performed": false,
+  "world_model_local_inference_measured": false,
+  "world_model_finetuning_performed": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "mission_compiled": false,
+  "transport_created": false,
+  "hard_deadline_enforced": false,
+  "cancellable_worker": false,
+  "candidate_promoted": false,
+  "autonomous_flight_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

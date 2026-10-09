@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-evidence-v1",
+  "generated_at_utc": "2026-10-06T05:32:00Z",
+  "objective": "incremental OnboardAI training from r33 with a larger repository-owned neutral 3-D geometry curriculum",
+  "candidate": {
+    "model_id": "onboard-policy-r84-3d-geometry-curriculum-dev",
+    "model": "artifacts/models/onboard-policy-r84-3d-geometry-curriculum-dev/onboard_policy_r8.onnx",
+    "model_sha256": "ecb9bc29097279448a29f1f78abfce4c9b659a8180e013058ba7ea75453d7e7e",
+    "training_config": "artifacts/models/onboard-policy-r84-3d-geometry-curriculum-dev/training-config.json",
+    "training_config_sha256": "c9b5d7be4ed8f3839945a39aabc4c8dcd57985f350d1ae1dea26a0f4e17b7506",
+    "training_report": "artifacts/models/onboard-policy-r84-3d-geometry-curriculum-dev/training-report.json",
+    "training_report_sha256": "fd60e336b8a148fdc543e9b7ac56495b73f2eaff9b1ead565ba98246d87766bc",
+    "parent_model": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "parent_model_sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6",
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "feature_width": 40,
+    "output_width": 20,
+    "structured_3d_rows": 75000,
+    "rendered_rgb_depth_rows": 0,
+    "reviewed_trajectory_rows": 0,
+    "gazebo_manifest": "configs/scenarios/gazebo-3d-mainline-v1.manifest.json",
+    "gazebo_manifest_sha256": "5d938b6bf87305514fc59833539d03e66a02bd5fdf5c3019f6e97d2d5552bc4c",
+    "navigation_sign_weight": 0.16,
+    "navigation_geometry_weight": 0.24,
+    "parent_distillation_weight": 0.35
+  },
+  "independent_generalization": {
+    "report": "artifacts/evaluation/onboard-policy-r84-generalization-20261006.json",
+    "report_sha256": "4d8c00a4674ea96f797c12a4c72227747980ed3261ffdc8729bb152f30b648e6",
+    "case_count": 22,
+    "raw_head_passed": 20,
+    "guarded_passed": 21,
+    "navigation_direction_passed": 21,
+    "navigation_range_passed": 22,
+    "guarded_failures": ["bearing-right"],
+    "class_color_invariance_passed": true,
+    "fixture_names_are_not_gazebo_labels": true
+  },
+  "decision": "candidate_quarantined_no_promotion",
+  "decision_reasons": [
+    "right-bearing navigation sign failed the independent holdout",
+    "no rendered Gazebo RGB/Depth rows",
+    "no recording-bound reviewed 3-D trajectory rows",
+    "external Gazebo/PX4 runtime unavailable",
+    "the generalization harness is structured truth-free software evaluation only"
+  ],
+  "claim_boundary": {
+    "neutral_3d_sdf_training": true,
+    "red_green_fixture_used_as_gazebo_training_label": false,
+    "gazebo_truth_used_as_model_input": false,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "next_required_step": "keep r33 as the shared reference, restore Gazebo/PX4, capture real RGB + FLOAT32 depth + CameraInfo + pose + telemetry, and fix the bearing holdout before considering another candidate"
+}

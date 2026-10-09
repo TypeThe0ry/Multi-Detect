@@ -1,0 +1,214 @@
+{
+  "gate_passed": true,
+  "summary": {
+    "completed": [
+      {
+        "evidence_path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\campaign-20260908-u\\campaign-missions\\mission-001.json",
+        "mission_hash": "1fa07eebda941ceec16080a9da193fb4f7afd2b869e2f205dd852390f593e0cd",
+        "ranker_sha256": "a63c2ce429148d5786812325f5a65b6f8f649f5d61c6adb39fbb5791ef26d428",
+        "task_id": "synthetic-west"
+      },
+      {
+        "evidence_path": "D:\\Projects\\Multi-Detect\\artifacts\\evaluation\\campaign-20260908-u\\campaign-missions\\mission-002.json",
+        "mission_hash": "51fa75c366224cee779837d11fa373b48a54c3803684d0a0caeb62cba3db9ac9",
+        "ranker_sha256": "a63c2ce429148d5786812325f5a65b6f8f649f5d61c6adb39fbb5791ef26d428",
+        "task_id": "synthetic-east"
+      }
+    ],
+    "ranker_sha256": "a63c2ce429148d5786812325f5a65b6f8f649f5d61c6adb39fbb5791ef26d428",
+    "session_id": "89af72778561a69bc7386acc372d5ce0e01069ca2ff4e6ee068e3f4a06f42021",
+    "status": "all_tasks_completed"
+  },
+  "sorties": [
+    {
+      "task": "synthetic-west",
+      "seconds": 103.93699999991804,
+      "outcome": "completed",
+      "energy": {
+        "authorizes_next_task": false,
+        "battery_remaining_pct": 99.95380000000002,
+        "consumed_wh": 0.046199999999999956,
+        "energy_observed_at_receive_s": 17.90700000000652,
+        "estimated_flight_time_s": 999.538,
+        "initial_energy_at_boot_ms": 6196,
+        "initial_remaining_wh": 100,
+        "input_context_hash": "af51f043b1f5feffb983d8102c4bdab3949de56fd428e77ce9766380911c57d4",
+        "newly_consumed_wh": 0.046199999999999956,
+        "observed_prefix_boot_s": 4.620000000000001,
+        "physical_calibration_claimed": false,
+        "profile": {
+          "avionics_power_w": 36,
+          "capacity_wh": 100,
+          "propulsion_max_power_w": 324,
+          "provenance": "synthetic-integration-fixture-not-physical-calibration"
+        },
+        "projected_context_hash": "af64c04d8ed5adfe4c5a5ce3924f08c6a3d85ec13efb4c07e5006c70f51105c6",
+        "remaining_wh": 99.9538,
+        "reserve_deducted": false,
+        "session_id": "89af72778561a69bc7386acc372d5ce0e01069ca2ff4e6ee068e3f4a06f42021",
+        "source": "cumulative_simulation_energy_assumption_v1",
+        "unserved_energy_wh": 0
+      },
+      "origin": 886851.671
+    },
+    {
+      "task": "synthetic-east",
+      "seconds": 109.42200000002049,
+      "outcome": "completed",
+      "energy": {
+        "authorizes_next_task": false,
+        "battery_remaining_pct": 97.25736280000005,
+        "consumed_wh": 2.742637199999954,
+        "energy_observed_at_receive_s": 129,
+        "estimated_flight_time_s": 972.5736280000006,
+        "initial_energy_at_boot_ms": 6196,
+        "initial_remaining_wh": 100,
+        "input_context_hash": "ffd5eacd8553b39b594bf3b36559c36ceec5be31ac5da5f87b962ff5b8f10ed8",
+        "newly_consumed_wh": 2.6964371999999543,
+        "observed_prefix_boot_s": 107.01600000000475,
+        "physical_calibration_claimed": false,
+        "profile": {
+          "avionics_power_w": 36,
+          "capacity_wh": 100,
+          "propulsion_max_power_w": 324,
+          "provenance": "synthetic-integration-fixture-not-physical-calibration"
+        },
+        "projected_context_hash": "e5ac201efda9d98db5e6ed46a920e996a6a0b669a68072602cd8d1d7e836be09",
+        "remaining_wh": 97.25736280000005,
+        "reserve_deducted": false,
+        "session_id": "89af72778561a69bc7386acc372d5ce0e01069ca2ff4e6ee068e3f4a06f42021",
+        "source": "cumulative_simulation_energy_assumption_v1",
+        "unserved_energy_wh": 0
+      },
+      "origin": 886851.671
+    }
+  ],
+  "verification": {
+    "camera_capture_claimed": false,
+    "summary_sha256": "87ba90fa8752ad3cb0eb6ae5536353976307ae505ae0a810954c8e0e66dd8c64",
+    "verified_sorties": [
+      {
+        "journal_checks": {
+          "airframe_adapter_id": true,
+          "canonical_document_hashes": true,
+          "committed_protocol_sha256": true,
+          "exact_path": true,
+          "executable_mission_identity": true,
+          "file_sha256": true,
+          "hash_chain_verified": true,
+          "identity_bindings": true,
+          "identity_hash": true,
+          "mission_item_count": true,
+          "no_recovery_required": true,
+          "no_repair_event": true,
+          "operator_grant_identity": true,
+          "record_count": true,
+          "requested_sequences": true,
+          "resume_plan": true,
+          "serialized_wire_items": true,
+          "terminal_record": true,
+          "terminal_state": true,
+          "transaction_id": true,
+          "validation_report_identity": true
+        },
+        "journal_sha256": "6330cf5cd45042d5bae9d80ed8211b80bfe9a1340c1c105db7a679ece44939bd",
+        "report_sha256": "618d59a0ae6ebf9c4d5a30f8a2a38d5b241ac0c0309376a18893be7053f44b17",
+        "task_id": "synthetic-west"
+      },
+      {
+        "journal_checks": {
+          "airframe_adapter_id": true,
+          "canonical_document_hashes": true,
+          "committed_protocol_sha256": true,
+          "exact_path": true,
+          "executable_mission_identity": true,
+          "file_sha256": true,
+          "hash_chain_verified": true,
+          "identity_bindings": true,
+          "identity_hash": true,
+          "mission_item_count": true,
+          "no_recovery_required": true,
+          "no_repair_event": true,
+          "operator_grant_identity": true,
+          "record_count": true,
+          "requested_sequences": true,
+          "resume_plan": true,
+          "serialized_wire_items": true,
+          "terminal_record": true,
+          "terminal_state": true,
+          "transaction_id": true,
+          "validation_report_identity": true
+        },
+        "journal_sha256": "5b7c8e733cba81954f64456e6ff33c28335e3c8eb0216c223d8d788193e538c8",
+        "report_sha256": "8593d3e055488a3ed7f672f49d8221aa29acec01e960256e2cb59a2e26d2d58d",
+        "task_id": "synthetic-east"
+      }
+    ]
+  },
+  "final_integrity": null,
+  "campaign_required_gates": {
+    "docker_plan": true,
+    "container_identity": true,
+    "router_ready": true,
+    "campaign_completed": true,
+    "router_graceful_stop": true,
+    "exact_id_cleanup": true,
+    "final_artifact_integrity": true
+  },
+  "gate_scope_note": "final_integrity is unused in campaign mode; gates.final_artifact_integrity records post-cleanup campaign revalidation. Single-sortie sensor/camera gates remain false and are not claimed.",
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "89af72778561a69bc7386acc372d5ce0e01069ca2ff4e6ee068e3f4a06f42021",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "inputs": [
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u.json",
+      "bytes": 29169,
+      "sha256": "77ac6ab40e60d5c99d1848c083cf885cfc1d22cd7a5e81cd44ea4abfced7d998"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u/vtol-mission-acceptance.json",
+      "bytes": 954,
+      "sha256": "87ba90fa8752ad3cb0eb6ae5536353976307ae505ae0a810954c8e0e66dd8c64"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-001.json",
+      "bytes": 2181383,
+      "sha256": "618d59a0ae6ebf9c4d5a30f8a2a38d5b241ac0c0309376a18893be7053f44b17"
+    },
+    {
+      "path": "artifacts/evaluation/campaign-20260908-u/campaign-missions/mission-002.json",
+      "bytes": 5661099,
+      "sha256": "8593d3e055488a3ed7f672f49d8221aa29acec01e960256e2cb59a2e26d2d58d"
+    },
+    {
+      "path": "configs/scenarios/vtol-ranked-routes.synthetic-campaign.json",
+      "bytes": 6810,
+      "sha256": "3683338efbff915ea400503f95d257ab98d2ee7385aa2134c4c967f727205087"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11484,
+      "sha256": "a69959667dda76c1b015404aec77ccf2c943b0989cb1aa6142e667243a1b934b"
+    }
+  ],
+  "product_version": "0.3.0-pre.8",
+  "status": "external_sim_passed",
+  "generated_at": "2026-09-08",
+  "execution_exit_code": 0,
+  "execution_command": "python scripts/run_vtol_mission_sensor_capture.py --execute --campaign-file configs/scenarios/vtol-ranked-routes.synthetic-campaign.json --run-directory artifacts/evaluation/campaign-20260908-u --evidence artifacts/evaluation/campaign-20260908-u.json --container-name multidetect-campaign-u --mission-timeout-seconds 600 --energy-capacity-wh 100 --energy-avionics-power-w 36 --energy-propulsion-max-power-w 324 --energy-initial-remaining-wh 100 --energy-provenance synthetic-integration-fixture-not-physical-calibration --docker \"C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe\"",
+  "training_started": false,
+  "learned_improvement_claimed": false,
+  "physical_calibration_claimed": false,
+  "HIL": false,
+  "REAL": false,
+  "manual_UI": false,
+  "final_release": false
+}

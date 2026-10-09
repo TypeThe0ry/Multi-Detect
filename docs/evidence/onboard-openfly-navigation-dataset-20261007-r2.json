@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-openfly-navigation-dataset-evidence-v1",
+  "dataset_report": {
+    "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/report.json",
+    "bytes": 47422,
+    "sha256": "07b1502334e503884ef403322bbd9ad4d18c9e6a0e4f09676334e267437b45fd"
+  },
+  "dataset_samples": {
+    "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/samples.jsonl",
+    "bytes": 402194,
+    "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+  },
+  "source_manifest": {
+    "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/manifest.json",
+    "bytes": 142534,
+    "sha256": "b8a4b318678bf1e2a47a5340bafe47811f61a25266084cdad888c4691db9706c"
+  },
+  "unit_verification": {
+    "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/unit-verification.json",
+    "bytes": 2090,
+    "sha256": "ebed33c5f4ec15f1f891a656f12e555a524fe810f660d58822083a81db084ad9"
+  },
+  "validation": {
+    "native_exit_code": 0,
+    "tests": 142,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "report": {
+      "path": "artifacts/training/openfly-navigation-source-pilot-20261007-r2/joint-admission-validation.xml",
+      "bytes": 21979,
+      "sha256": "0795d15e5a0907dcae782af47476c1504ef66abedfc5576d5f93de5e5ef1e2ad"
+    }
+  },
+  "sources": [
+    {
+      "path": "scripts/build_onboard_openfly_navigation_dataset.py",
+      "bytes": 35770,
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "path": "tests/test_build_onboard_openfly_navigation_dataset.py",
+      "bytes": 13247,
+      "sha256": "322e2d866cca7c715b135e3609e480965fab32f6ae5c988b00fff81cccb6d42e"
+    },
+    {
+      "path": "src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "bytes": 52186,
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "path": "tests/test_onboard_navigation_supervision.py",
+      "bytes": 19201,
+      "sha256": "3537be2c48dc368263b8c294e17e83f5ee0a54b8b6951802b03f031c39aaf251"
+    },
+    {
+      "path": "scripts/fetch_openfly_navigation_pilot.py",
+      "bytes": 34972,
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "path": "tests/test_fetch_openfly_navigation_pilot.py",
+      "bytes": 17893,
+      "sha256": "8911a88af5e0f7950fdd5b0e954ceeeaaf4e652e1551c31ce898fce33facc284"
+    }
+  ],
+  "implementation_snapshots": [
+    {
+      "bytes": 35770,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/scripts/build_onboard_openfly_navigation_dataset.py",
+      "sha256": "508cf1b255cc57dc12e51d4345ab4b50faf14458bd00cc593732d3fa6ebf45f4"
+    },
+    {
+      "bytes": 52186,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/src/multidetect/autonomy/onboard_navigation_supervision.py",
+      "sha256": "bd1adc75a6954c2eb2453ae358536cae2db65305dd0c3afcf57d24a1711bb14e"
+    },
+    {
+      "bytes": 8656,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/src/multidetect/autonomy/serialization.py",
+      "sha256": "719578fb4c0a66ca63ee407ac9a05738515cb590946cc9a5cd2625da2762ab56"
+    },
+    {
+      "bytes": 34972,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/scripts/fetch_openfly_navigation_pilot.py",
+      "sha256": "3e1315b1ad17ad752b1b8624076561272fb526fd00e54e566fad79f27a4920c7"
+    },
+    {
+      "bytes": 13247,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/tests/test_build_onboard_openfly_navigation_dataset.py",
+      "sha256": "322e2d866cca7c715b135e3609e480965fab32f6ae5c988b00fff81cccb6d42e"
+    },
+    {
+      "bytes": 19201,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/tests/test_onboard_navigation_supervision.py",
+      "sha256": "3537be2c48dc368263b8c294e17e83f5ee0a54b8b6951802b03f031c39aaf251"
+    },
+    {
+      "bytes": 17893,
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/implementation-snapshot/tests/test_fetch_openfly_navigation_pilot.py",
+      "sha256": "8911a88af5e0f7950fdd5b0e954ceeeaaf4e652e1551c31ce898fce33facc284"
+    }
+  ],
+  "previous_stage_documentation_snapshots": [
+    {
+      "original_path": "CHANGELOG.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/CHANGELOG.md",
+      "bytes": 932960,
+      "sha256": "808eac11c86fe96ddc1894df859fc204d2bb052ce3131567472308ddff880ca6"
+    },
+    {
+      "original_path": "docs/current-progress.json",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/docs/current-progress.json",
+      "bytes": 735468,
+      "sha256": "00dbd1469549dfede0df185b7d039ad852b859e573f5db6ffe8eaaed6607e18a"
+    },
+    {
+      "original_path": "docs/current-progress.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/docs/current-progress.md",
+      "bytes": 686445,
+      "sha256": "756a55a7bef96e09576ac46209f68a45346b38d083a8c6d2c07964b9dc15b77b"
+    },
+    {
+      "original_path": "docs/implementation-roadmap.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/docs/implementation-roadmap.md",
+      "bytes": 242242,
+      "sha256": "6d6e74d4c0fbb0de07453cdd9a1a7ff1e70c24a21b712efd209192ebf1d6399b"
+    },
+    {
+      "original_path": "docs/onboard-live-vlm-retained-replay.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/docs/onboard-live-vlm-retained-replay.md",
+      "bytes": 5576,
+      "sha256": "712ad42551c3bba7ad7581fc3bf5fc2a19d6195aaac8a9fedd12e658545e27f6"
+    },
+    {
+      "original_path": "docs/product-goals-and-roadmap.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/docs/product-goals-and-roadmap.md",
+      "bytes": 21938,
+      "sha256": "70e13e19056cd6bc9f50421830ef596ca77026e33f4c11c2e93489d6ea48a33d"
+    },
+    {
+      "original_path": "README.md",
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/previous-stage-documentation/README.md",
+      "bytes": 49706,
+      "sha256": "e332902c776b4bf70b814bc497b4d0a37b8905fe903bb4ba5de4667b2fe1d85d"
+    }
+  ],
+  "previous_receipt": {
+    "path": "docs/evidence/onboard-live-vlm-retained-replay-20261007-r1.json",
+    "bytes": 15945,
+    "sha256": "9b1efc1b8663913d8659b19153c207d69d724199373f006c91dbfe336bd048e8"
+  },
+  "frozen_defaults": [
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    },
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "configs/product-version.json",
+      "bytes": 162,
+      "sha256": "567888e837749c98e7c45c518f914b66228e7ed5bfcde53e796e94dc086e9729"
+    },
+    {
+      "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+      "bytes": 62145,
+      "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    }
+  ],
+  "independent_review": {
+    "native_exit_code": 0,
+    "outputs": [
+      {
+        "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/independent-review.json",
+        "bytes": 9895,
+        "sha256": "0c8ccb341df836a051dbfe6de0247e9d8ba7b990d78e39bb6d68e4f98305fa87"
+      },
+      {
+        "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/independent-review-audit.py",
+        "bytes": 20702,
+        "sha256": "50b6792e90727c0f45ca9bc757c04dde3a90ea31cf6099101dec925b9f307dc8"
+      },
+      {
+        "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/independent-review.command.json",
+        "bytes": 806,
+        "sha256": "fe4d9d717e8007faaea137a21e3cb481155625afa428769cac3e2777d9d45480"
+      },
+      {
+        "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/independent-review.stdout.txt",
+        "bytes": 836,
+        "sha256": "cf0fb538f8f0646ed24f235bc78151514a8112c134dc035baa061ccee6efd811"
+      },
+      {
+        "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/independent-review-execution.json",
+        "bytes": 1869,
+        "sha256": "fef514ab23da437d7e5b6150d6b750713e95dba0fef7e4a5bd9c47e7349158ca"
+      }
+    ],
+    "source_files_reopened": 110,
+    "actor_rgb_inputs_verified": 169,
+    "max_position_error_m": 5.617728504603292e-14,
+    "max_yaw_error_rad": 1.865174681370263e-14,
+    "aggregate_annotation_mismatch_count": 14,
+    "actor_input_leakage_detected": false,
+    "review_use": "planned_navigation_train_only_resubstitution_pilot"
+  },
+  "native_dataset_build_exit_code": 0,
+  "original_training_records": 100226,
+  "original_indices": [
+    0,
+    7,
+    8
+  ],
+  "scene": "env_airsim_18",
+  "episode_count": 3,
+  "source_steps": [
+    19,
+    30,
+    37
+  ],
+  "sample_count": 86,
+  "rgb_count": 86,
+  "rgb_pose_bytes": 55051888,
+  "raw_primitive_counts": {
+    "go straight": 70,
+    "turn left": 6,
+    "turn right": 7,
+    "stop": 3
+  },
+  "missing_raw_primitive_categories": [
+    "go up",
+    "go down"
+  ],
+  "partition_counts": {
+    "train": 86
+  },
+  "scene_group_count": 1,
+  "independent_holdout_available": false,
+  "source_planned_not_executed": true,
+  "dt_available": false,
+  "aggregate_annotation_actions_used_as_gold": false,
+  "actor_pose_future_truth_or_label_input": false,
+  "external_image_color_orientation_live_camera_parity_verified": false,
+  "training_ready": false,
+  "optimizer_performed_by_dataset_stage": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

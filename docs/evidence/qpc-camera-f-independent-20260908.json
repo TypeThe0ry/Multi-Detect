@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "status": "receive_windows_covered_source_alignment_unproven",
+  "outer_sha256": "fd23425ebdcd62e8415ba4e21b1718a0a18cab07c318f8349bfb92b357cb8ee2",
+  "mission_sha256": "b9a317e9e1f24a45560643cdcacb8d9875d4dccf1da6889d6f26fad86dd0ac61",
+  "clock_audit": "artifacts/evaluation/qpc-camera-f-clock-window-20260908.json",
+  "telemetry_audit": "artifacts/evaluation/qpc-camera-f-telemetry-independent-20260908.json",
+  "planning_audit": "artifacts/evaluation/qpc-camera-f-planning-gap-20260908.json",
+  "clock_samples": 1101,
+  "window_receipt_gaps": 996,
+  "max_window_gap_ns": 148631800,
+  "diagnostic_gap_budget_ns": 200000000,
+  "receipt_continuity_passed": true,
+  "energy_receive_window_covered": true,
+  "conditional_energy_envelope_wh": [1.6137535999999448, 1.614073599999945],
+  "energy_profile": {
+    "capacity_wh": 100,
+    "avionics_power_w": 36,
+    "propulsion_max_power_w": 324,
+    "provenance": "synthetic-integration-fixture-not-physical-calibration"
+  },
+  "telemetry_unique_matches": 4897,
+  "telemetry_ambiguous_records": 240,
+  "planning_estimated_duration_s": 228.15226454039066,
+  "arm_to_completed_host_receive_s": 102.86161889997311,
+  "planning_bias_or_calibration_claimed": false,
+  "physical_energy_claimed": false,
+  "source_clock_alignment_claimed": false,
+  "synchronized_pixel_training_eligible": false,
+  "authorizes_next_task": false,
+  "final_release_allowed": false
+}

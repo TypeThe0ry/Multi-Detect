@@ -1,0 +1,4122 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-vlm-grounding-training-evidence-v1",
+  "observed_at_utc": "2026-10-07T03:02:08Z",
+  "status": "actual_lora_training_and_paired_generation_completed_original_reload_failed_independent_exact_reload_verified_quality_failed_not_promoted",
+  "parallel_agents": 3,
+  "native_exit_code": 1,
+  "optimizer_steps_completed": 26,
+  "vlm_finetuning_performed": true,
+  "vlm_local_inference_measured": true,
+  "original_native_failure": {
+    "type": "ValueError",
+    "message": "Actual offline loaded adapter tensor bytes differ from trained adapter",
+    "original_report_preserved": true,
+    "training_and_evaluation_completed": true,
+    "reload_verification_passed": false
+  },
+  "model": {
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+    "license": "apache-2.0",
+    "quantization": "none_BF16_base_FP32_LoRA",
+    "official_base_weight_sha256": "7de1838c87a5349b016c26a1c3f7d2bc400a3d485f95ef39a7059ffd734977a0"
+  },
+  "source_files": [
+    {
+      "path": "scripts/build_onboard_vlm_grounding_dataset.py",
+      "bytes": 25567,
+      "sha256": "cee7f78786884ef717756d81baeb5c613c5502f03782479c773e91d27497568c"
+    },
+    {
+      "path": "tests/test_build_onboard_vlm_grounding_dataset.py",
+      "bytes": 17504,
+      "sha256": "1a472dce94cade85fff466a5077e6a4c5fc709bd47c0c83cda9978c866f320ba"
+    },
+    {
+      "path": "scripts/train_onboard_vlm_grounding.py",
+      "bytes": 49187,
+      "sha256": "aa761e92a419c3a1ab8cc44c47696e6612a8b5e66a17d6dd2f83dcfe4bbe3c46"
+    },
+    {
+      "path": "tests/test_train_onboard_vlm_grounding.py",
+      "bytes": 19211,
+      "sha256": "afcf5c158b5c51c56d3d4f154db0df229fcaf7f79eb388c947b568927315a7b9"
+    },
+    {
+      "path": "scripts/probe_onboard_vlm.py",
+      "bytes": 31713,
+      "sha256": "6404ab0c2f3d03d8628f963a4bc5f9a18e17a216e8dba793585d5399dbb567f4"
+    },
+    {
+      "path": "requirements-vlm-grounding.txt",
+      "bytes": 201,
+      "sha256": "fe9b1afe212b54676eeffe659d7719df677adf7535d2ab65ecad996a8fb9c4d4"
+    },
+    {
+      "path": "requirements-vlm-shadow.txt",
+      "bytes": 437,
+      "sha256": "3badc7855dee00c2e675a3510c2cf89722bf34d70beb53e14f2a2f137e5a6352"
+    },
+    {
+      "path": "tests/test_onboard_vlm_grounding_training_evidence.py",
+      "bytes": 27062,
+      "sha256": "831063c9afc958d42631a6e300a78d55ff2bcc21ad7c5a21351ba15aac8a67af"
+    },
+    {
+      "path": "scripts/verify_onboard_vlm_grounding_adapter.py",
+      "bytes": 16642,
+      "sha256": "809d622fe46e19157a4e1d8a2764cb1a683cbf68132e9f3870147dafc1da62a6"
+    },
+    {
+      "path": "tests/test_verify_onboard_vlm_grounding_adapter.py",
+      "bytes": 13073,
+      "sha256": "0d308aff947ed33c938a3a454595be74b17726ab3918a331e60f4fb77ca747e0"
+    }
+  ],
+  "dataset_manifest": {
+    "path": "artifacts/training/onboard-vlm-grounding-20261007-r1/manifest.pending-review.json",
+    "bytes": 821628,
+    "sha256": "3cf95e401e3be5b9acd0d11e4b8aaee7fe4296e41b2889655fead7a2f34b6cfe"
+  },
+  "review_receipt": {
+    "path": "artifacts/training/onboard-vlm-grounding-20261007-r1/review-receipt.json",
+    "bytes": 4920,
+    "sha256": "d9abe01567f1a0f403e58acb5fc4e72fd32149be67fcab23203112d378ddf384"
+  },
+  "training_plan": {
+    "path": "configs/training/onboard-vlm-grounding-lora-dev-v1.json",
+    "bytes": 3623,
+    "sha256": "142c93dfbc89d68a01b75661ae91fdf7f1a5d7b48cd4077b3cb1b6175588eeff"
+  },
+  "preflight_report": {
+    "path": "artifacts/training/onboard-vlm-grounding-preflight-20261007-r2/report.json",
+    "bytes": 360328,
+    "sha256": "9810dc848b4343fec9e5a7e45be0e2c5282220f3f4763a9fc876c5e415d7ae0e"
+  },
+  "native_report": {
+    "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/report.json",
+    "bytes": 957405,
+    "sha256": "6cfb56135f1f2d489565e2eedc8f3e31467b1f073cc6bee15018169f59916871"
+  },
+  "cluster_preflight": {
+    "path": "docs/evidence/onboard-vlm-grounding-cluster-preflight-20261007-r1.json",
+    "bytes": 3134,
+    "sha256": "d9e6e8968dd187463698b9d465a863a01bf6e5841f22e7902bcd057bc083bf5b"
+  },
+  "baseline_preservation": [
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+      "bytes": 62145,
+      "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 13874,
+      "sha256": "ab71adb31104f738ab2a5d605872367cc7f0769ea2514a1bd45866d49dc2f81c"
+    }
+  ],
+  "adapter_files": [
+    {
+      "bytes": 931,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/adapter/adapter_config.json",
+      "sha256": "e482e532cc3dff1766864c38d9bf56545819305bd98f3edef8f95a102e06ca30"
+    },
+    {
+      "bytes": 3227648,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/adapter/adapter_model.safetensors",
+      "sha256": "e31d71f1b0b89136574728603ef611fbd77bd6d0edb6d4445c803987640120bb"
+    },
+    {
+      "bytes": 5438,
+      "path": "artifacts/models/onboard-vlm-grounding-lora-dev-20261007-r1/adapter/README.md",
+      "sha256": "d306e395fa26bcdc6b8ed4bbe25af043b962231e638503bb035ad40bd4e1a307"
+    }
+  ],
+  "dataset_scope": {
+    "source": "offline_Blender_render_of_entity_SDF_not_this_run_Gazebo_capture",
+    "samples": 110,
+    "split_samples": {
+      "train": 26,
+      "val": 41,
+      "test": 43
+    },
+    "split_clips": {
+      "train": 2,
+      "val": 3,
+      "test": 3
+    },
+    "ambiguous_excluded": 10,
+    "skipped_reference_unqualified_clip_count": 1,
+    "original_whole_clip_splits_preserved": true,
+    "reference_crop_is_actual_visible_RGB": true,
+    "reference_and_current_same_original_clip": true,
+    "reference_strictly_earlier": true,
+    "amodal_truth_model_visible": false,
+    "flight_action_gold_available": false,
+    "independent_blind_benchmark": false
+  },
+  "optimization": {
+    "epochs": 1,
+    "batch_size": 1,
+    "learning_rate": 0.0001,
+    "trainable_parameters": 802816,
+    "frozen_parameters": 2127532032,
+    "trainable_dtype": "torch.float32",
+    "base_dtype": "torch.bfloat16",
+    "first_loss": 0.7368419766426086,
+    "last_loss": 0.02710076794028282,
+    "peak_allocated_bytes": 4503386112,
+    "peak_reserved_bytes": 4674551808,
+    "parent_before_optimizer": true,
+    "response_only_loss": true,
+    "checkpoint_selection_performed": false,
+    "base_parameter_sha256_before": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_parameter_sha256_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "adapter_parameter_sha256_before": "bad875b57c35543da8757e8e9b7a652b597558fd3c4da6f7b11ea4053f040348",
+    "adapter_parameter_sha256_after": "0bba168141f016d7162d46c9d50e97d93393fef57c6382d9beb64cf4a3d6ca7b",
+    "base_parameter_bytes_unchanged": true
+  },
+  "runtime_versions": {
+    "cuda": "12.4",
+    "gpu": "NVIDIA GeForce RTX 4060",
+    "peft": "0.17.1",
+    "torch": "2.6.0+cu124",
+    "transformers": "4.57.6"
+  },
+  "quality": {
+    "parent": {
+      "consistent_swap_pair_count": 0,
+      "per_clip_visibility": [
+        {
+          "balanced_accuracy": 0,
+          "clip_id": "test-suite-far-00002",
+          "fn": 11,
+          "fp": 4,
+          "invalid": 15,
+          "sensitivity": 0,
+          "specificity": 0,
+          "split": "test",
+          "tn": 0,
+          "tp": 0
+        },
+        {
+          "balanced_accuracy": 0,
+          "clip_id": "test-suite-medium-00001",
+          "fn": 10,
+          "fp": 4,
+          "invalid": 14,
+          "sensitivity": 0,
+          "specificity": 0,
+          "split": "test",
+          "tn": 0,
+          "tp": 0
+        },
+        {
+          "balanced_accuracy": 0.05555555555555555,
+          "clip_id": "test-suite-near-00000",
+          "fn": 8,
+          "fp": 5,
+          "invalid": 13,
+          "sensitivity": 0.1111111111111111,
+          "specificity": 0,
+          "split": "test",
+          "tn": 0,
+          "tp": 1
+        },
+        {
+          "balanced_accuracy": 0,
+          "clip_id": "val-suite-far-00002",
+          "fn": 9,
+          "fp": 4,
+          "invalid": 13,
+          "sensitivity": 0,
+          "specificity": 0,
+          "split": "val",
+          "tn": 0,
+          "tp": 0
+        },
+        {
+          "balanced_accuracy": 0,
+          "clip_id": "val-suite-medium-00001",
+          "fn": 10,
+          "fp": 4,
+          "invalid": 14,
+          "sensitivity": 0,
+          "specificity": 0,
+          "split": "val",
+          "tn": 0,
+          "tp": 0
+        },
+        {
+          "balanced_accuracy": 0,
+          "clip_id": "val-suite-near-00000",
+          "fn": 9,
+          "fp": 5,
+          "invalid": 14,
+          "sensitivity": 0,
+          "specificity": 0,
+          "split": "val",
+          "tn": 0,
+          "tp": 0
+        }
+      ],
+      "per_split_visibility": {
+        "test": {
+          "balanced_accuracy": 0.016666666666666666,
+          "fn": 29,
+          "fp": 13,
+          "invalid": 42,
+          "sensitivity": 0.03333333333333333,
+          "specificity": 0,
+          "tn": 0,
+          "tp": 1
+        },
+        "val": {
+          "balanced_accuracy": 0,
+          "fn": 28,
+          "fp": 13,
+          "invalid": 41,
+          "sensitivity": 0,
+          "specificity": 0,
+          "tn": 0,
+          "tp": 0
+        }
+      },
+      "same_reference_prompt_current_rgb_swap_pairs": [
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        }
+      ],
+      "swap_pair_count": 250,
+      "swap_pairs_are_independent_observations": false,
+      "unknown_facts_included_in_visibility_accuracy": false,
+      "unknown_navigation_fact_accuracy": 0.011904761904761904,
+      "unknown_navigation_fact_count": 1,
+      "visibility_confusion": {
+        "balanced_accuracy": 0.008620689655172414,
+        "fn": 57,
+        "fp": 26,
+        "invalid": 83,
+        "sensitivity": 0.017241379310344827,
+        "specificity": 0,
+        "tn": 0,
+        "tp": 1
+      },
+      "visibility_metrics_require_strict_valid_reply": true
+    },
+    "candidate": {
+      "consistent_swap_pair_count": 93,
+      "per_clip_visibility": [
+        {
+          "balanced_accuracy": 0.5,
+          "clip_id": "test-suite-far-00002",
+          "fn": 0,
+          "fp": 4,
+          "invalid": 0,
+          "sensitivity": 1,
+          "specificity": 0,
+          "split": "test",
+          "tn": 0,
+          "tp": 11
+        },
+        {
+          "balanced_accuracy": 1,
+          "clip_id": "test-suite-medium-00001",
+          "fn": 0,
+          "fp": 0,
+          "invalid": 0,
+          "sensitivity": 1,
+          "specificity": 1,
+          "split": "test",
+          "tn": 4,
+          "tp": 10
+        },
+        {
+          "balanced_accuracy": 0.3,
+          "clip_id": "test-suite-near-00000",
+          "fn": 9,
+          "fp": 2,
+          "invalid": 11,
+          "sensitivity": 0,
+          "specificity": 0.6,
+          "split": "test",
+          "tn": 3,
+          "tp": 0
+        },
+        {
+          "balanced_accuracy": 0.75,
+          "clip_id": "val-suite-far-00002",
+          "fn": 0,
+          "fp": 2,
+          "invalid": 0,
+          "sensitivity": 1,
+          "specificity": 0.5,
+          "split": "val",
+          "tn": 2,
+          "tp": 9
+        },
+        {
+          "balanced_accuracy": 0.5,
+          "clip_id": "val-suite-medium-00001",
+          "fn": 0,
+          "fp": 4,
+          "invalid": 0,
+          "sensitivity": 1,
+          "specificity": 0,
+          "split": "val",
+          "tn": 0,
+          "tp": 10
+        },
+        {
+          "balanced_accuracy": 0.8888888888888888,
+          "clip_id": "val-suite-near-00000",
+          "fn": 2,
+          "fp": 0,
+          "invalid": 0,
+          "sensitivity": 0.7777777777777778,
+          "specificity": 1,
+          "split": "val",
+          "tn": 5,
+          "tp": 7
+        }
+      ],
+      "per_split_visibility": {
+        "test": {
+          "balanced_accuracy": 0.6192307692307693,
+          "fn": 9,
+          "fp": 6,
+          "invalid": 11,
+          "sensitivity": 0.7,
+          "specificity": 0.5384615384615384,
+          "tn": 7,
+          "tp": 21
+        },
+        "val": {
+          "balanced_accuracy": 0.7335164835164836,
+          "fn": 2,
+          "fp": 6,
+          "invalid": 0,
+          "sensitivity": 0.9285714285714286,
+          "specificity": 0.5384615384615384,
+          "tn": 7,
+          "tp": 26
+        }
+      },
+      "same_reference_prompt_current_rgb_swap_pairs": [
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "bbc42e4353619cd16048bff660363406",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "badff8ee253863e4c8d5f19d6881cba5",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "210cce630caa98838dbc4e8abf6888cd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "36cc775dcbc1904fc73775aa8574a763",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "abe00430161d05c6f463128160e7f9c1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "eecba65e10570e887a6e484cc4873ea0",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "efedb98abf24e0389c84d69bc7dc0dfd",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "952d487fbf389834c6b34e380b0c339a",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "b0ca51771b86ad48987f1ba249e915cf"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "89acb7f700c842463a1e36b5daaacc35"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "67604848490146e1263a5a2f142098f3"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "9538c492cbbad884f2dcff6ce0faf2a5"
+        },
+        {
+          "clip_id": "val-suite-near-00000",
+          "positive_sample_id": "365df5638728f3e85f7fcc85209a599d",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "4bdba188f10adc2b969d590f22819577"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "bf2fec2a91f296dd53c23e8d4099d279",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "202eb511e4254f6cf87e2b192f70753d",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "ea436a1065867f21d9082dba203e4f79",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "9b3912f2385e391096e2029fb78a3e85",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "5e19c903698219857adf510efe274c67",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "32e359a3e89a056807a997ceca4578f1",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "d7f82fa464b43fb7bbb4a66ef55e175c",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "215afffe3f1786dd7d82a079623abe0a",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "a0c8b383dbc51144e56bb6e213a3f46f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6cbaf6c660aceacb520805dfe8b988de"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "6485ec53783426e89f2127db3a5e17c3"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "80ca5b92652b2ac6ed4389cc91e3abfe"
+        },
+        {
+          "clip_id": "val-suite-medium-00001",
+          "positive_sample_id": "56b1578d712212507226b28c0298c576",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "9a77f2112091148b8d487006f65b00a9"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "536e7b068533dae9a7f226f95775ce78",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "e42c4b70e39c728d468b62911bbd8189",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "640a025c0698f4f69a4e500e444e285f",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "477dc7db9a042ca06bc77d49f821f2e4",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "9a9bc2e7b89f08558ecdf60000ad3bca",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "997e9272d2091d904346f5ab90fd6a55",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "d193b8330739787ef177859740fab752",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "3f4e60cb6fdb44e61277f844c4053b02",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "2b528f9ead471bd1facd6c8a52d1bb1a"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": false,
+          "split": "val",
+          "zero_pixel_sample_id": "b6d0cd2805bede4bf707163c27365698"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "a16a7a84d180c4a1cd8e31b6d939bc24"
+        },
+        {
+          "clip_id": "val-suite-far-00002",
+          "positive_sample_id": "feea066a727ae7bf4da05d29b9343460",
+          "prediction_flip_consistent": true,
+          "split": "val",
+          "zero_pixel_sample_id": "098d5a42fe16bd9aa149787160b14ca0"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "e86281f77672dd4c737524e0464e5a6c",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "807980684932fb4fb6e2e628b61a0abd",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "913e7e9a9a0941895b1daafbff5b57d3",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "99b0c169a06399e2a93411f6870cba38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "c2255c4b5e85c436307b28a2deeb7aed",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "d9968ab585f572c8bf98c6f378199f38",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b50d541d348ffb55a3eea9b68aa083e5",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "79580b60e469d80b70a852d7ac3a6335",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "897138eaf3c4368c982621f1a074ec36"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "61fe60d524e387a0fb3b96e39eb0761a"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "642cf131bf40d4124007cfa05afc55ec"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "9ed2d3fc337e9fc6f96853f3e7863c5e"
+        },
+        {
+          "clip_id": "test-suite-near-00000",
+          "positive_sample_id": "b485548d6dec3999b6f72341d99bae74",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "cb7038c31f2cbc9e62f7fec29abf08af"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "943ea00c31c7936a8f73153364b28196",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "cd54dab27aae31129630946eb5297c7b",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "b430def61bc1f0cd7cd20459b4e05154",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "4f23766baafe0c4b8c417f62c91e2430",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "f0b7166351bc4a6647bba2f58b3c127d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "6f98c119f6a8db41c355b4f60e487cd9",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "0638b9d025a464991c01640ca17bfb96",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "004e54effde4334c9c3aa0393cb3fca4",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "d26b1289a2b599031f8ab18ad9711722",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "099744a140a83610f8398d50f3b16ba6"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "5aa9b6e567222c06aec40a764f895760"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "99a7dfb70db327aef4f0b95307761c63"
+        },
+        {
+          "clip_id": "test-suite-medium-00001",
+          "positive_sample_id": "1a63b2a6f0e09fad432a3157b9708c9d",
+          "prediction_flip_consistent": true,
+          "split": "test",
+          "zero_pixel_sample_id": "944fa507bff7a1d968fe9e4a9d3c749c"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "c471f14202730b08ab19333897441230",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6b1faeb15b7899477d6b84d932cddfe9",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "62477133c5c939d3a6897eebfbb73f89",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "6e0b24804667d4c0e127b78f76e73343",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0c20be99aac41dc90b7e5e0df98c1e90",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "19b5faa32eb8ac28fb7c2637ccf6fcde",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "0fda2c12fcaeea63ed9cd03e90feba18",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "736bde08e012060def42ea6d61b0db26",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "a26d54cfb937ea41d0b5082053333bbf",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "bab32c2d23ce1cbacee6873a8058358a",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "f1bf4f67b610efa96203cd4135d4a245"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "620ff677556037f960d132e90a5aaf69"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "4f5511c8ce634e3fe61c02996f897507"
+        },
+        {
+          "clip_id": "test-suite-far-00002",
+          "positive_sample_id": "081cb1c9bfe8eb7c0d8c429f172d588b",
+          "prediction_flip_consistent": false,
+          "split": "test",
+          "zero_pixel_sample_id": "3bcb53dda7a9e75a31182a273dcca5dc"
+        }
+      ],
+      "swap_pair_count": 250,
+      "swap_pairs_are_independent_observations": false,
+      "unknown_facts_included_in_visibility_accuracy": false,
+      "unknown_navigation_fact_accuracy": 1,
+      "unknown_navigation_fact_count": 84,
+      "visibility_confusion": {
+        "balanced_accuracy": 0.6744031830238726,
+        "fn": 11,
+        "fp": 12,
+        "invalid": 11,
+        "sensitivity": 0.8103448275862069,
+        "specificity": 0.5384615384615384,
+        "tn": 14,
+        "tp": 47
+      },
+      "visibility_metrics_require_strict_valid_reply": true
+    },
+    "paired_sample_count": 84,
+    "parent_strict_reply_count": 1,
+    "candidate_strict_reply_count": 73,
+    "parent_exact_match_count": 1,
+    "candidate_exact_match_count": 61,
+    "quality_passed": false
+  },
+  "offline_semantic_diagnostics": {
+    "acceptance_or_promotion_evidence": false,
+    "diagnostic_excludes_full_contract_ID_and_unknown_field_validation": true,
+    "parent_visibility_field_only": {
+      "tp": 35,
+      "tn": 22,
+      "fp": 4,
+      "fn": 23,
+      "invalid": 0,
+      "sensitivity": 0.603448275862069,
+      "specificity": 0.8461538461538461,
+      "balanced_accuracy": 0.7248010610079576
+    },
+    "candidate_visibility_field_only": {
+      "tp": 56,
+      "tn": 16,
+      "fp": 10,
+      "fn": 2,
+      "invalid": 0,
+      "sensitivity": 0.9655172413793104,
+      "specificity": 0.6153846153846154,
+      "balanced_accuracy": 0.790450928381963
+    },
+    "paired_change_counts": {
+      "both_correct": 51,
+      "both_wrong": 6,
+      "corrected_by_candidate": 21,
+      "regressed_by_candidate": 6
+    },
+    "raw_image_pair_consistent_count": {
+      "parent": 105,
+      "candidate": 138,
+      "total": 250,
+      "independent_observations": false
+    },
+    "parent_correct_reference_id_count": 84,
+    "candidate_correct_reference_id_count": 73,
+    "parent_missing_unknown_fields_count": 83,
+    "parent_navigation_hallucination_count": 0,
+    "candidate_wrong_reference_id_count": 11,
+    "candidate_explicit_nonunknown_navigation_fact_count": 0,
+    "interpretation": "Strict-score improvement is largely output-schema learning. Raw visibility improves in aggregate but zero-pixel specificity and ID-copy correctness regress; no reliable autonomous reasoning or flight gain is established."
+  },
+  "generation": {
+    "parent_count": 84,
+    "candidate_count": 84,
+    "representative_reload_generation_count": 1,
+    "raw_outputs_repaired": false,
+    "token_caps_reached": 0,
+    "soft_budget_late_count": 0,
+    "parent_mean_latency_s": 1.507,
+    "candidate_mean_latency_s": 2.32,
+    "hard_deadline_enforced": false,
+    "cancellable_inference_worker": false,
+    "previous_8case_protocol_not_comparable": true
+  },
+  "independent_review": {
+    "status": "passed_posthoc_readonly_byte_tensor_input_raw_token_and_metric_audit_original_native1_unchanged",
+    "repeated_bindings_verified": 577,
+    "unique_actual_files_verified": 471,
+    "unique_actual_bytes_verified": 4332951614,
+    "runtime_files_verified": 161,
+    "output_artifact_files_verified": 175,
+    "adapter_files_verified": 3,
+    "source_and_output_drift_detected": false,
+    "raw_token_outputs_verified": 168,
+    "full_input_tensor_records_recomputed": 110,
+    "response_only_labels_verified": true,
+    "max_full_input_tokens": 638,
+    "max_actual_image_pixels": 196608,
+    "optimizer_train_only_order_recomputed": true,
+    "optimizer_steps_verified": 26,
+    "saved_language_only_fp32_tensor_count": 112,
+    "saved_parameter_count": 802816,
+    "saved_tensor_reconstructed_trained_digest": "0bba168141f016d7162d46c9d50e97d93393fef57c6382d9beb64cf4a3d6ca7b",
+    "report_claimed_original_source_bytes_reverified": false,
+    "posthoc_independent_check_is_not_original_native_gate": true,
+    "candidate_wrong_reference_id_pattern": "all_11_test_near_outputs_insert_one_digit_7_32_to_33_characters",
+    "visibility_and_occlusion_mask_gold_recomputed": true,
+    "native_report_sha256": "6cfb56135f1f2d489565e2eedc8f3e31467b1f073cc6bee15018169f59916871",
+    "reload_verifier_source_and_34_cpu_tests_approved": true,
+    "original_native_failure_not_rewritten": true,
+    "reload_native_result_audit_status": "passed",
+    "reload_native_repeated_bindings_verified": 741,
+    "reload_native_unique_actual_files_verified": 473,
+    "reload_native_unique_actual_bytes_verified": 4333925661,
+    "reload_fixed_validation_generated_tokens": 58,
+    "reload_fixed_input_tensor_and_raw_token_decode_verified": true,
+    "no_quality_performance_flight_or_original_native_gate_promotion": true
+  },
+  "validation": {
+    "status": "passed_targeted_automated_checks_and_independent_native_reproducibility_audit_not_model_quality",
+    "root_targeted_regression": {
+      "native_exit_code": 0,
+      "unique_tests_passed": 197,
+      "tests": [
+        "tests/test_build_onboard_vlm_grounding_dataset.py",
+        "tests/test_train_onboard_vlm_grounding.py",
+        "tests/test_onboard_model_reference.py",
+        "tests/test_onboard_vlm_shadow_evidence.py",
+        "tests/test_repository_progress_docs.py",
+        "tests/test_release_parity.py",
+        "tests/test_current_progress_index.py"
+      ]
+    },
+    "native_training_evidence_tests": {
+      "native_exit_code": 0,
+      "unique_tests_passed": 12,
+      "fully_reopened_output_artifact_files": 175,
+      "raw_row_files_verified": 168
+    },
+    "reload_verifier_cpu_tests": {
+      "native_exit_code": 0,
+      "unique_tests_passed": 34,
+      "real_BF16_second_adapter_precision_loss_reproduced": true,
+      "exact_FP32_default_reload_reproduced": true
+    },
+    "ruff_check": {
+      "native_exit_code": 0,
+      "python_files_checked": 7
+    },
+    "ruff_format_check": {
+      "native_exit_code": 0,
+      "python_files_checked": 7
+    },
+    "scoped_git_diff_check": {
+      "native_exit_code": 0
+    },
+    "current_progress_index_source_recomputed": true,
+    "unique_tests_across_named_suites": 243,
+    "model_quality_passed": false,
+    "final_document_and_receipt_tests": {
+      "native_exit_code": 0,
+      "tests_passed": 106,
+      "tests": [
+        "tests/test_onboard_vlm_grounding_training_evidence.py",
+        "tests/test_repository_progress_docs.py",
+        "tests/test_current_progress_index.py",
+        "tests/test_release_parity.py"
+      ],
+      "overlap_with_previously_named_suites": true
+    },
+    "final_current_progress_index_source_recompute_native_exit_code": 0,
+    "final_scoped_diff_check_native_exit_code": 0
+  },
+  "candidate_promoted": false,
+  "final_release_allowed": false,
+  "flight_action_training_performed": false,
+  "physical_performance_claimed": false,
+  "autonomous_flight_verified": false,
+  "hil_real_evidence": false,
+  "jetson_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "mission_compiled": false,
+  "transport_created": false,
+  "world_model_local_inference_measured": false,
+  "world_model_finetuning_performed": false,
+  "adapter_reload_verification": {
+    "path": "artifacts/evaluation/onboard-vlm-grounding-adapter-reload-20261007-r1/report.json",
+    "bytes": 234939,
+    "sha256": "d790559bef872510f0795fe927b7e06c363a2dd0ca7a90174da14a64f6ca8973"
+  },
+  "adapter_reload_verification_result": {
+    "native_exit_code": 0,
+    "original_training_native_exit_code": 1,
+    "original_training_reload_gate_passed": false,
+    "optimizer_steps_performed_by_this_check": 0,
+    "fresh_pinned_base_parameter_sha256": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "base_parameter_sha256_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "exact_saved_and_loaded_tensor_count": 112,
+    "loaded_parameter_sha256": "0bba168141f016d7162d46c9d50e97d93393fef57c6382d9beb64cf4a3d6ca7b",
+    "dtype_conversion_performed": false,
+    "requires_grad_used_for_identity": false,
+    "unexpected_keys": [],
+    "lora_missing_keys": [],
+    "fixed_validation_sample_id": "bbc42e4353619cd16048bff660363406",
+    "generation_token_ids_and_raw_equal": true,
+    "original_source_bytes_reverified": true,
+    "one_representative_replay_not_quality_acceptance": true
+  },
+  "sealed_at_utc": "2026-10-07T03:14:03Z"
+}

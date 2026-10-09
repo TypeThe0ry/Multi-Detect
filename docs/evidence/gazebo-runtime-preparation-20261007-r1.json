@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "gazebo_runtime_preparation_and_failed_passive_capture",
+  "observed_date": "2026-10-07",
+  "repository_root": "D:/Projects/Multi-Detect",
+  "repository_head": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+  "local": {
+    "diagnosis": "Explicit Docker backend log reports stopped engine after host log write failed for lack of disk space",
+    "diagnosis_is_runtime_recovery": false,
+    "service_restart_performed": false,
+    "data_moved_or_deleted": false,
+    "full_vhd_copy_fits_observed_D_space": false
+  },
+  "remote_native_probe": {
+    "job_id": "b1b2248e-9ccd-40ec-80ba-1270edff51b4",
+    "run_id": "d7fcfb5b-904c-4fa7-9cb5-00e2afd2c843",
+    "collector_native_exit_code": 0,
+    "working_docker_program": "/snap/docker/current/bin/docker",
+    "docker_version_native_exit_code": 0,
+    "docker_info_native_exit_code": 0,
+    "server_version": "29.8.0",
+    "snap_launcher_failure_retained": true
+  },
+  "image_preparation": {
+    "job_id": "87318a22-99e2-4c58-89fb-36d6f5188ba8",
+    "run_id": "4b62a6ca-558e-44ae-b473-6d6c71c26cb0",
+    "pinned_image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+    "image_id": "sha256:ef14e268a665ec27d7b891963be99a37b2bae43832d860cf5622175b722ff8b9",
+    "image_bytes": 2148509694,
+    "pull_native_exit_code": 0,
+    "inspect_native_exit_code": 0,
+    "elapsed_s": 73.1593949199887,
+    "container_started_by_pull_job": false
+  },
+  "passive_capture": {
+    "job_id": "9d9fcf09-66d5-46d2-9561-4cb7326d8693",
+    "run_id": "17937aa3-1738-4683-9cce-b744b04e52e4",
+    "controller_terminal_state": "failed",
+    "controller_native_exit_code": 1,
+    "capture_native_exit_code_reported": 1,
+    "source_snapshot_digest": "sha256:b6b2acef48ff39a4e68a1b0c6efaf0d52254c8eb9daad007b87e358cb2a22d05",
+    "source_snapshot_bytes": 13066549,
+    "authoritative_sources_rehashed_after_job": 378,
+    "source_changed_count": 0,
+    "cleanup_proved_absent_reported": true,
+    "cleanup_result_independent_of_rendering_success": true,
+    "controller_returned_artifact_count": 0,
+    "stdout_formally_downloaded_and_rehashed": true,
+    "inner_capture_report_downloaded": false,
+    "inner_failure_cause_recovered": false,
+    "eight_rgb_depth_frames_verified": false,
+    "arm_sent": false,
+    "mission_sent": false
+  },
+  "diagnostic_retry": {
+    "job_id": "332a40f1-6674-421f-a9b6-9366b955a4bc",
+    "latest_attempt_started_at_utc": "2026-10-07T06:24:03Z",
+    "controller_observed_at_utc": "2026-10-07T06:24:14.419251800Z",
+    "latest_single_attempt_result": "no_eligible_node",
+    "linux_worker_offline_age_s_at_observation": 1095,
+    "controller_automatic_placement": true,
+    "manual_node_choice": false,
+    "submitted": false,
+    "executed": false
+  },
+  "records": [
+    {
+      "path": "docs/evidence/docker-local-rootcause-20261007-draft.json",
+      "bytes": 7886,
+      "sha256": "61f0c9d36bff8055491ef10b2d7bbae273838c1b2a80cc21174ab50ce5d85c69"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-native-alternatives-20261007-r1/gazebo-native-alternatives.json",
+      "bytes": 3364,
+      "sha256": "6b30b7aba952f76225c83cf3ae808c2eaeddd6f3fe0eb3eb33e16a63c2e5d6d6"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-native-alternatives-20261007-r1/pinned-image-availability.json",
+      "bytes": 808,
+      "sha256": "7ccb10a22202de43862258e69745645a17fcb35ed830c7d85da365fa8e0aec2f"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-native-alternatives-20261007-r1/image-preparation.json",
+      "bytes": 921,
+      "sha256": "0b7746ff2a752f30b3f81bc5eacfce1586091343aef081006f35e29383213ac3"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-native-alternatives-20261007-r1/image-pull.log",
+      "bytes": 1555,
+      "sha256": "b2017d9c563e558a37d18f99b44b933dff27fb7c09e94999542a2a5fa97ade21"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-capture-20261007-r1/local-capture-receipt.json",
+      "bytes": 1795,
+      "sha256": "7faf439e0582c4f61299a7e7667e1234497d90fc49c499661b9e5df96f29dd07"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-capture-20261007-r1/worker-stdout.log",
+      "bytes": 4365,
+      "sha256": "0a9faf26489269892abb9750e014c2b06758f262ddd4c8af22e1d755d8a14f63"
+    },
+    {
+      "path": "artifacts/evaluation/cluster-gazebo-rgb-depth-capture-20261007-r1/diagnostic-placement-attempt-20261007T062403Z.json",
+      "bytes": 3346,
+      "sha256": "b56fcbdcaefd7f1a6a20ee50074d1aa156f27696e1a40a65157924e2676f7d5e"
+    }
+  ],
+  "conclusion": "The remote daemon and pinned image were actually verified. Passive sensor capture failed and is not flight or training evidence. Diagnostic dispatch remains unavailable until Controller has a compatible fresh worker.",
+  "renderer_accepted": false,
+  "gazebo_flight_verified": false,
+  "flight_action_training_performed": false,
+  "world_model_inference_measured": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

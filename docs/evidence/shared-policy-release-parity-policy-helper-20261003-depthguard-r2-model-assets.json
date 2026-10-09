@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "evaluated_at_utc": "2026-10-02T23:30:00.000000Z",
+  "gate_passed": false,
+  "release_allowed": false,
+  "blocker_count": 32,
+  "release_blocked_reasons": [
+    "replay_set: replay_set gate_passed is false",
+    "replay_set: replay_set accuracy evidence gate_passed is false",
+    "replay_set: replay_set accuracy evidence accuracy_validated is false",
+    "replay_set: replay_set accuracy evidence artifact gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact accuracy_validated is not true",
+    "replay_set: replay_set accuracy evidence artifact deployment_domain_evidence_complete is not true",
+    "replay_set: replay_set accuracy evidence artifact metrics_gate_passed is not true",
+    "replay_set: replay_set accuracy evidence artifact reviewed is not true",
+    "replay_set: replay_set accuracy evidence artifact contains failure_reasons",
+    "replay_set: replay_set deployment coverage is incomplete",
+    "real_field_link: real_field_link gate_passed is false",
+    "real_field_link: real_field_link: field-link preflight report is stale: age 520067.496s exceeds max 900.000s",
+    "real_field_link: real_field_link: field-link preflight hardware_link_ready is false",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for HIL",
+    "real_control_acceptance is 'not_claimed', required for HIL",
+    "mode gate_passed is false",
+    "operator_visual_acceptance is 'not_claimed', required value is 'passed'",
+    "mission_path_acceptance is 'not_claimed', required value is 'passed'",
+    "hardware_acceptance is 'not_claimed', required for REAL",
+    "real_control_acceptance is 'not_claimed', required for REAL",
+    "referenced artifact gate_passed is not true",
+    "product channel is 'prerelease'; final release requires channel 'release'",
+    "final release version surfaces do not equal numeric version"
+  ],
+  "report_path": "artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound-report.json",
+  "report_bytes": 71902,
+  "report_sha256": "774d65389a44771ac5b22f7e6f4e7b86949908a4c7ed7364c56e4c5a1cb92fc3",
+  "manifest_path": "artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound.json",
+  "manifest_bytes": 23675,
+  "manifest_sha256": "2894e221f5440673479f1d293c22627951c51074397d69438913617f6bbff4b1",
+  "current_parity": {
+    "core_algorithm_hash": "de997b7833d70bc7f424c210e4520ebe53d33c0aec20c9b039fb324e3bc1db41",
+    "px4_mission_path_hash": "5dc254410484f66bdcba798e4eb3b19baa682632abe38242e8060e5377800d07",
+    "safety_policy_hash": "034513452a20724f16b9fe49a44ed938386be5dd74d2b121f1c6797092ba254d",
+    "task_contract_hash": "72d786faddee41aa1de292d481eb0b1f285d44a01201db675d8c4a2acc4654ea",
+    "ui_contract_hash": "5998da016c55917a01a47d56de246af4ffdee035193af70448c6ea707408ea4d"
+  },
+  "mode_parity_mismatches": {
+    "replay": [
+      "core_algorithm_hash",
+      "ui_contract_hash"
+    ],
+    "sim": [
+      "core_algorithm_hash",
+      "ui_contract_hash"
+    ],
+    "hil": [
+      "core_algorithm_hash",
+      "ui_contract_hash"
+    ],
+    "real": [
+      "core_algorithm_hash",
+      "ui_contract_hash"
+    ]
+  },
+  "current_release_parity_bound": false,
+  "scope": "Current prerelease diagnostic; old mode parity and external source drift remain release blockers.",
+  "field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-preflight-current-20260927-r2.json",
+    "preflight_bytes": 18147,
+    "preflight_sha256": "5666b729feb48f65d8ae06275057f78c980f47cd7ce6c9874678f13b08787903",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-interface-diagnostic-current-20260927-r2.json",
+    "interface_diagnostic_bytes": 4382,
+    "interface_diagnostic_sha256": "725dbf2657ca7c2a87ecd7c6e382c6534465540d08b72411bbb39482dab6749a",
+    "hardware_link_ready": false,
+    "read_only": true
+  },
+  "current_field_link_probe": {
+    "preflight_path": "artifacts/evaluation/field-link-preflight-current-20260928-r2.json",
+    "preflight_bytes": 18140,
+    "preflight_sha256": "437c8fff2bad4a6cab50f1b303446204c4ee9971c376c8fc72ceff0637238905",
+    "interface_diagnostic_path": "artifacts/evaluation/field-link-interface-diagnostic-current-20260928.json",
+    "interface_diagnostic_bytes": 4379,
+    "interface_diagnostic_sha256": "cb1d4f849067d3da7676e3da87ad4478560ed3d8c1c37d0654c7d4e81d44809d",
+    "hardware_link_ready": false,
+    "read_only": true
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "source_path": "artifacts\\evaluation\\qpc-camera-20260908-g\\vtol-mission-acceptance.json",
+  "source_sha256": "778e39f24ba44175510864845eed21326d801283e01f831db246c3557f318387",
+  "host_clock_identity": {
+    "accuracy_verified": false,
+    "implementation": "QueryPerformanceCounter()",
+    "legacy_monotonic_equivalent": false,
+    "resolution_ns": 100,
+    "schema_version": 1,
+    "session_id": "a6e6dbc28eaf45aeb2455392f33f00ac",
+    "source": "python.perf_counter"
+  },
+  "observer_origin_host_monotonic_s": 906625.4902076,
+  "execution_admission_path": "artifacts/evaluation/qpc-camera-g-execution-record-20260908.json",
+  "result": {
+    "schema_version": 1,
+    "executable_mission_hash": "3625328692dcfcedcc5668c3c3ca83d45f1c9af1424270ef42e7528ceb146a3c",
+    "clock_semantics": "observer_relative_host_receive_time",
+    "observer_duration_s": 127.39256019995082,
+    "current_runs": [
+      {
+        "sequence": 0,
+        "command": "MAV_CMD_NAV_VTOL_TAKEOFF",
+        "first_received_s": 0.737477199989371,
+        "last_received_s": 29.754178799921647,
+        "sample_count": 24,
+        "receive_span_s": 29.016701599932276
+      },
+      {
+        "sequence": 2,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "first_received_s": 31.051134199951775,
+        "last_received_s": 32.27469249989372,
+        "sample_count": 2,
+        "receive_span_s": 1.223558299941942
+      },
+      {
+        "sequence": 3,
+        "command": "MAV_CMD_NAV_WAYPOINT",
+        "first_received_s": 33.00213839998469,
+        "last_received_s": 36.61037089989986,
+        "sample_count": 4,
+        "receive_span_s": 3.608232499915175
+      },
+      {
+        "sequence": 4,
+        "command": "MAV_CMD_NAV_LOITER_TIME",
+        "first_received_s": 38.1121373999631,
+        "last_received_s": 44.00993619998917,
+        "sample_count": 5,
+        "receive_span_s": 5.897798800026067
+      },
+      {
+        "sequence": 5,
+        "command": "MAV_CMD_DO_VTOL_TRANSITION",
+        "first_received_s": 45.51272119989153,
+        "last_received_s": 51.57230099989101,
+        "sample_count": 6,
+        "receive_span_s": 6.059579799999483
+      },
+      {
+        "sequence": 6,
+        "command": "MAV_CMD_NAV_VTOL_LAND",
+        "first_received_s": 52.30909499991685,
+        "last_received_s": 126.91232679993846,
+        "sample_count": 58,
+        "receive_span_s": 74.6032318000216
+      }
+    ],
+    "vtol_state_runs": [
+      {
+        "vtol_state": 3,
+        "first_received_s": 0.6431783998850733,
+        "last_received_s": 25.562922399956733,
+        "sample_count": 21,
+        "receive_span_s": 24.91974400007166
+      },
+      {
+        "vtol_state": 1,
+        "first_received_s": 26.76339409989305,
+        "last_received_s": 29.510027599986643,
+        "sample_count": 3,
+        "receive_span_s": 2.746633500093594
+      },
+      {
+        "vtol_state": 4,
+        "first_received_s": 30.812985899974592,
+        "last_received_s": 44.98733509995509,
+        "sample_count": 11,
+        "receive_span_s": 14.174349199980497
+      },
+      {
+        "vtol_state": 2,
+        "first_received_s": 46.35389639995992,
+        "last_received_s": 52.28984069998842,
+        "sample_count": 6,
+        "receive_span_s": 5.9359443000284955
+      },
+      {
+        "vtol_state": 3,
+        "first_received_s": 53.31989219994284,
+        "last_received_s": 127.39256019995082,
+        "sample_count": 56,
+        "receive_span_s": 74.07266800000798
+      }
+    ],
+    "extended_state_missing_vtol_field_count": 0,
+    "current_change_receipts": [
+      {
+        "from_sequence": 0,
+        "to_sequence": 2,
+        "previous_last_received_s": 29.754178799921647,
+        "next_first_received_s": 31.051134199951775,
+        "receive_gap_s": 1.2969554000301287,
+        "adjacent_forward": false
+      },
+      {
+        "from_sequence": 2,
+        "to_sequence": 3,
+        "previous_last_received_s": 32.27469249989372,
+        "next_first_received_s": 33.00213839998469,
+        "receive_gap_s": 0.7274459000909701,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 3,
+        "to_sequence": 4,
+        "previous_last_received_s": 36.61037089989986,
+        "next_first_received_s": 38.1121373999631,
+        "receive_gap_s": 1.5017665000632405,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 4,
+        "to_sequence": 5,
+        "previous_last_received_s": 44.00993619998917,
+        "next_first_received_s": 45.51272119989153,
+        "receive_gap_s": 1.5027849999023601,
+        "adjacent_forward": true
+      },
+      {
+        "from_sequence": 5,
+        "to_sequence": 6,
+        "previous_last_received_s": 51.57230099989101,
+        "next_first_received_s": 52.30909499991685,
+        "receive_gap_s": 0.7367940000258386,
+        "adjacent_forward": true
+      }
+    ],
+    "reached_receipts": [
+      {
+        "sequence": 0,
+        "first_received_s": 26.6909443999175,
+        "last_received_s": 29.754923699889332,
+        "count": 4
+      },
+      {
+        "sequence": 1,
+        "first_received_s": 30.322516099899076,
+        "last_received_s": 32.275662699947134,
+        "count": 3
+      },
+      {
+        "sequence": 2,
+        "first_received_s": 33.002874499885365,
+        "last_received_s": 36.611183299915865,
+        "count": 4
+      },
+      {
+        "sequence": 3,
+        "first_received_s": 37.95442419999745,
+        "last_received_s": 44.01074639998842,
+        "count": 6
+      },
+      {
+        "sequence": 4,
+        "first_received_s": 45.485811199992895,
+        "last_received_s": 51.5730409999378,
+        "count": 7
+      },
+      {
+        "sequence": 5,
+        "first_received_s": 52.309822399984114,
+        "last_received_s": 64.25290059996769,
+        "count": 11
+      },
+      {
+        "sequence": 6,
+        "first_received_s": 101.04383899993263,
+        "last_received_s": 112.52438899991103,
+        "count": 11
+      }
+    ],
+    "missing_current_sequences": [
+      1
+    ],
+    "rejected_events_excluded": 0,
+    "source_transition_bounds_proven": false,
+    "execution_phase_durations_proven": false,
+    "training_phase_labels_eligible": false
+  }
+}

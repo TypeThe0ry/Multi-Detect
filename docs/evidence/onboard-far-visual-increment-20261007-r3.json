@@ -1,0 +1,429 @@
+{
+  "contract": "multidetect.onboard-far-visual-increment-development-evidence-v1",
+  "status": "far_static_recall_improved_continuous_false_positives_and_identity_failures_candidate_not_promoted",
+  "observed_at_utc": "2026-10-07T00:38:16Z",
+  "data_provenance": "offline_Blender_render_of_repository_SDF_geometry_not_Gazebo_capture",
+  "sources": [
+    {
+      "path": "scripts/render_onboard_sdf_blender_far_curriculum.py",
+      "bytes": 19925,
+      "sha256": "21892b376991caf7815192dda5c0025ef296f86379c7f4ef38ed5d171d92b7e2"
+    },
+    {
+      "path": "scripts/render_onboard_sdf_blender_clip_suite.py",
+      "bytes": 22895,
+      "sha256": "31d6803ad278da13f1c8af0fce6c692616af5e4abaf6033e65862f62870668df"
+    },
+    {
+      "path": "scripts/audit_onboard_visual_dataset.py",
+      "bytes": 14904,
+      "sha256": "6fb5d40229c5329a3b35c849e975025687a4f4a861e3be3afd232fc7ad518dec"
+    },
+    {
+      "path": "scripts/train_onboard_sdf_visual_candidate.py",
+      "bytes": 21594,
+      "sha256": "4cd5c873e642ea4333bb4f9b09f05f9c7252ffff1f73c2a018cf6d8b861bfbcd"
+    },
+    {
+      "path": "scripts/evaluate_onboard_visual_curriculum.py",
+      "bytes": 15371,
+      "sha256": "47dfbc45959fea8b70c1e918ee828c1b2b8afac185aca26c37dd696f6868beaa"
+    },
+    {
+      "path": "scripts/replay_onboard_visual_clips.py",
+      "bytes": 25450,
+      "sha256": "5721d426d3d555f0a374d01e84d9ec18980e9f50806d4cad084d67b8d0b06537"
+    }
+  ],
+  "dataset": {
+    "path": "artifacts/training/onboard-blender-sdf-far-curriculum-20261007-r3/manifest.json",
+    "bytes": 35886327,
+    "sha256": "6361d0daddf2f54d0e07df72efb3e9f24edcc12d441fab730c51fe128cf8a1dd",
+    "split_frames": {
+      "train": 384,
+      "val": 96,
+      "test": 96
+    },
+    "measured_conditions": {
+      "train": {
+        "fully_occluded": 172,
+        "absent": 96,
+        "clear": 53,
+        "partially_occluded": 63
+      },
+      "val": {
+        "clear": 24,
+        "partially_occluded": 24,
+        "fully_occluded": 24,
+        "absent": 24
+      },
+      "test": {
+        "clear": 24,
+        "partially_occluded": 25,
+        "fully_occluded": 23,
+        "absent": 24
+      }
+    },
+    "native_render_exit_code": 0,
+    "billboards_or_pasted_target_images": false,
+    "development_holdout_not_untouched_blind_benchmark": true
+  },
+  "audit": {
+    "path": "artifacts/evaluation/onboard-visual-dataset-r3-far-audit-20261007.json",
+    "bytes": 617130,
+    "sha256": "278d77707ab16ba81dd3ba53e32061e504745989e03c9f0cac067632a2e96514",
+    "native_exit_code": 0,
+    "frames": 576,
+    "geometry_disjoint": true,
+    "world_disjoint": true,
+    "training_visible_frames": 116,
+    "training_low_angle_and_small_visible_frames": 73,
+    "prior_training_visible_frames": 135,
+    "prior_training_low_angle_and_small_visible_frames": 10,
+    "coverage_thresholds": {
+      "elevation_le_deg": 10,
+      "visible_bbox_height_le_px": 55
+    },
+    "training_visible_camera": {
+      "actual_horizontal_distance_m": {
+        "count": 116,
+        "min": 9.85387721797424,
+        "median": 33.56287323064525,
+        "max": 49.514786719051095
+      },
+      "actual_downward_elevation_deg": {
+        "count": 116,
+        "min": 3.1418459596156887,
+        "median": 7.536716076414624,
+        "max": 11.991838573110124
+      },
+      "actual_height_above_target_center_m": {
+        "count": 116,
+        "min": 0.6043677276060306,
+        "median": 3.87684974313842,
+        "max": 9.420162814154141
+      },
+      "actual_slant_distance_m": {
+        "count": 116,
+        "min": 9.953747433157774,
+        "median": 33.68896450070166,
+        "max": 49.59779082432088
+      }
+    }
+  },
+  "render_log": {
+    "path": "artifacts/evaluation/onboard-far-curriculum-r3-20261007-render.log",
+    "bytes": 16529285,
+    "sha256": "b1e16b9c74cfac981abc71ec6c1fce33cd3d7f6e6c63329c339a95b9a157cb43"
+  },
+  "training": {
+    "report": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/visual-training-report.json",
+      "bytes": 3513,
+      "sha256": "4804c1a0905d9b38b2a645a1a8a245f2297d10dacd79590a477a26a626d221f0"
+    },
+    "checkpoint": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.pt",
+      "bytes": 5370942,
+      "sha256": "578827f7b5aa236eeeab51a9e9b7188a39b4df872d0186f6245b0631fcb8bc9b"
+    },
+    "onnx": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.onnx",
+      "bytes": 9747507,
+      "sha256": "5e51e77a4aa256c65c3829b4964cd58e1ae40e1cc0dc8afcc3b68207f412e9d1"
+    },
+    "export_receipt": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/weights/best.export-receipt.json",
+      "bytes": 291,
+      "sha256": "c3b3b95c116716855dae523e36465b4bfc4167eac582a9e0c1352c79023b2554"
+    },
+    "invocation_binding": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007-inputs/invocation-binding.json",
+      "bytes": 909,
+      "sha256": "552a063f321bd3c6f97cde2c9ff7248241752249fa2ed817a503d74393d5db17"
+    },
+    "closed_input_inventory": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007-inputs/input-inventory.json",
+      "bytes": 177125,
+      "sha256": "17a03a3bc3b8926522e705a409ceae3a9f3cf8c03ae699e45e96d9b14796595f"
+    },
+    "results_csv": {
+      "path": "artifacts/models/onboard-vision-sdf-r3-far-dev-20261007/results.csv",
+      "bytes": 3693,
+      "sha256": "88373472d77b542586eb02147ab38845af122c04d00201031fc7d0556e62caed"
+    },
+    "log": {
+      "path": "artifacts/evaluation/onboard-vision-r3-far-20261007-training.log",
+      "bytes": 419576,
+      "sha256": "83c87c398294c3747e19f50d391568eb5cbb516a3d33dc66e6721108f579c0a3"
+    },
+    "parent_checkpoint_sha256": "0930ede267d03c8c90cad583de6641a2190b06e628b17d6385b9e1c44c14528d",
+    "parent_report_sha256": "340382d0177642e7864a43c2bb5f9245bdfa7e21eedbc77b6afa6946f8b0e64e",
+    "names": {
+      "0": "search_target"
+    },
+    "epochs_completed": 30,
+    "transferred_parameter_items": "708/708",
+    "seed": 20261011,
+    "device": "NVIDIA GeForce RTX 4060",
+    "native_exit_code": 0,
+    "pytorch_validation_metrics": {
+      "metrics/precision(B)": 0.8110237556579021,
+      "metrics/recall(B)": 0.75,
+      "metrics/mAP50(B)": 0.8180188188191198,
+      "metrics/mAP50-95(B)": 0.5443690137727375,
+      "fitness": 0.5443690137727375
+    },
+    "pytorch_test_metrics": {
+      "metrics/precision(B)": 0.7022564954413135,
+      "metrics/recall(B)": 0.6258544574175275,
+      "metrics/mAP50(B)": 0.6912034353189027,
+      "metrics/mAP50-95(B)": 0.4423658597422374,
+      "fitness": 0.4423658597422374
+    },
+    "pytorch_metrics_are_not_fixed_threshold_onnx_counts": true
+  },
+  "paired_far_static": {
+    "path": "artifacts/evaluation/onboard-r2-r3-far-paired-20261007.json",
+    "bytes": 27315,
+    "sha256": "84760e0768012b8eb5144fd455230ff9976d47224e3ac649d67b073c4eea8fca",
+    "native_exit_code": 0,
+    "test_frames": 96,
+    "visible_frames": 49,
+    "confidence_threshold": 0.25,
+    "iou_threshold": 0.5,
+    "overall": {
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 12,
+        "false_positives": 3,
+        "false_negatives": 37,
+        "precision": 0.8,
+        "recall": 0.24489795918367346
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 33,
+        "false_positives": 5,
+        "false_negatives": 16,
+        "precision": 0.868421052631579,
+        "recall": 0.673469387755102
+      }
+    }
+  },
+  "prior_static_regression": {
+    "path": "artifacts/evaluation/onboard-r2-r3-prior-static-regression-20261007.json",
+    "bytes": 27478,
+    "sha256": "148894f7328b537903277dc977d58ad2163433a9a9250abb6c520449dc2079cb",
+    "native_exit_code": 0,
+    "test_frames": 96,
+    "visible_frames": 51,
+    "confidence_threshold": 0.25,
+    "iou_threshold": 0.5,
+    "overall": {
+      "parent": {
+        "label": "__overall__",
+        "true_positives": 27,
+        "false_positives": 5,
+        "false_negatives": 24,
+        "precision": 0.84375,
+        "recall": 0.5294117647058824
+      },
+      "candidate": {
+        "label": "__overall__",
+        "true_positives": 27,
+        "false_positives": 8,
+        "false_negatives": 24,
+        "precision": 0.7714285714285715,
+        "recall": 0.5294117647058824
+      }
+    },
+    "recall_preserved": true,
+    "false_positive_count_increased": true,
+    "partially_occluded_regression": {
+      "parent": {"true_positives": 16, "false_positives": 2, "false_negatives": 11},
+      "candidate": {"true_positives": 14, "false_positives": 6, "false_negatives": 13}
+    }
+  },
+  "clip_suite": {
+    "manifest": {
+      "path": "artifacts/training/onboard-blender-sdf-clip-suite-20261007-r3/manifest.json",
+      "bytes": 9150136,
+      "sha256": "acc3ce0c867a78255fd7e2a1ef4c454d35da9fc97c6d2b8285520f6c8aac3f6e"
+    },
+    "test_frames": 48,
+    "test_visible_frames": 35,
+    "parent": {
+      "path": "artifacts/evaluation/onboard-clip-suite-r3-parent-r2-20261007.json",
+      "bytes": 91650,
+      "sha256": "0a72516d755f4480ac0aba68e42775fda76c0397d3a06e01ed0b1fdd5ac83541",
+      "counters": {
+        "frames": 48,
+        "detector_detections": 1,
+        "currently_observed_tracks": 1,
+        "visible_gt_frames": 35,
+        "detection_tp": 1,
+        "detection_fp": 0,
+        "detection_fn": 34,
+        "track_matched_frames": 1,
+        "track_fp": 0,
+        "track_missed_visible_frames": 34,
+        "fully_occluded_frames": 13,
+        "absent_frames": 0,
+        "out_of_frame_frames": 0,
+        "partial_occlusion_frames": 23,
+        "id_switches": 0,
+        "fragmentations": 0,
+        "occlusion_events": 3,
+        "reacquired_occlusion_events": 1,
+        "occlusion_events_with_preexisting_track": 0,
+        "same_identity_recovered_events": 0
+      },
+      "formal_confidence": 0.25,
+      "ground_truth_into_runtime": false,
+      "preexisting_track_events": 0,
+      "same_identity_recoveries": 0,
+      "reacquired_without_preexisting_track_is_not_tracking_robustness": true
+    },
+    "candidate": {
+      "path": "artifacts/evaluation/onboard-clip-suite-r3-candidate-20261007.json",
+      "bytes": 145275,
+      "sha256": "bf65e605a760f63c96efda4504f5e26f129664eef3981c548fd0f513415e9b46",
+      "native_exit_code": 0,
+      "observed_counters": {
+        "frames": 48,
+        "detector_detections": 29,
+        "currently_observed_tracks": 28,
+        "visible_gt_frames": 35,
+        "detection_tp": 11,
+        "detection_fp": 18,
+        "detection_fn": 24,
+        "track_matched_frames": 8,
+        "track_fp": 20,
+        "track_missed_visible_frames": 27,
+        "fully_occluded_frames": 13,
+        "absent_frames": 0,
+        "out_of_frame_frames": 0,
+        "partial_occlusion_frames": 23,
+        "id_switches": 2,
+        "fragmentations": 2,
+        "occlusion_events": 3,
+        "reacquired_occlusion_events": 2,
+        "occlusion_events_with_preexisting_track": 2,
+        "same_identity_recovered_events": 0
+      }
+    },
+    "truth_into_runtime": false,
+    "model_and_tracker_input_fields": [
+      "image_bgr",
+      "dt"
+    ],
+    "label_aliases": {},
+    "recall_improved": true,
+    "false_positives_increased": true,
+    "same_identity_recovery_verified": false,
+    "distance_profiles_are_joint_light_angle_framing_conditions": true,
+    "flight_action_labels_created": false
+  },
+  "prior_clip_regression": {
+    "manifest": "artifacts/training/onboard-blender-sdf-clips-20261007-r2/manifest.json",
+    "parent_reference": "docs/evidence/onboard-sdf-blender-curriculum-training-20261007-r2.json",
+    "parent_detection_counts": {
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 12
+    },
+    "candidate": {
+      "path": "artifacts/evaluation/onboard-r3-prior-clip-regression-20261007.json",
+      "bytes": 55968,
+      "sha256": "d574844d188abf74aa868b0de917364b4e2d387d1c51c229fe3969e8c8c6854e",
+      "native_exit_code": 0,
+      "observed_counters": {
+        "frames": 16,
+        "detector_detections": 8,
+        "currently_observed_tracks": 8,
+        "visible_gt_frames": 12,
+        "detection_tp": 6,
+        "detection_fp": 2,
+        "detection_fn": 6,
+        "track_matched_frames": 5,
+        "track_fp": 3,
+        "track_missed_visible_frames": 7,
+        "fully_occluded_frames": 4,
+        "absent_frames": 0,
+        "out_of_frame_frames": 0,
+        "partial_occlusion_frames": 5,
+        "id_switches": 2,
+        "fragmentations": 2,
+        "occlusion_events": 1,
+        "reacquired_occlusion_events": 1,
+        "occlusion_events_with_preexisting_track": 1,
+        "same_identity_recovered_events": 0
+      }
+    },
+    "same_identity_recovery_verified": false
+  },
+  "sequence_input_helper": {
+    "path": "docs/evidence/onboard-sequence-input-development-20261007.json",
+    "bytes": 2299,
+    "sha256": "64c5090ff4882d54e9e31deb37d4e54d7d526707c977e335c9f01785c33b2b0a"
+  },
+  "original_model_preservation": [
+    {
+      "path": "configs/training/onboard-policy-current-reference-v1.json",
+      "bytes": 1343,
+      "sha256": "dc6bf892db1af3e6694bed5bf7e684e341141bd41627eaccd530bdb70e6808ed"
+    },
+    {
+      "path": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.pt",
+      "bytes": 5544453,
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    }
+  ],
+  "verification": {
+    "pretraining_code_regression_tests_passed": 416,
+    "sequence_fixture_tests_passed": 43,
+    "sequence_independent_review_passed": true,
+    "formal_temporal_model_training": false,
+    "actual_read_only_independent_review": {
+      "key_report_source_model_paths_hash_checked": 36,
+      "saved_prediction_frames_recounted_with_actual_masks": 64,
+      "inference_rerun": false,
+      "training_rerun": false,
+      "model_chain_and_sealed_input_hashes_verified": true,
+      "same_id_recovery_failures_verified": true
+    },
+    "cluster_blender_preflight": {
+      "job_id": "6eb8755d-80f6-49c1-a136-4a951a9ce077",
+      "source_snapshot": {
+        "type": "snapshot",
+        "digest": "sha256:8aef0eb5b3882991b79c09d28c459251ac76899582e8d2a06abd8c73a90fff53",
+        "sizeBytes": 4197996
+      },
+      "plan_error": "no_eligible_node",
+      "submit_error": "no_eligible_node",
+      "executed": false,
+      "native_exit_code": null,
+      "local_fallback": true
+    }
+  },
+  "remaining": [
+    "Prior-static partially-occluded TP16/FP2/FN11 regresses to TP14/FP6/FN13; overall recall hides this loss.",
+    "Continuous suite still has 18 false positives and 24 missed visible frames; do not promote.",
+    "Both continuous regressions have two ID switches and zero same-ID recovery.",
+    "search_target is not a car/person class and is not directly admitted by the existing semantic adapter.",
+    "The shared temporal history encoder and reviewed action-supervision episodes are still missing.",
+    "Blender rendering/translation does not prove Gazebo sensors, flight physics or PX4 closed-loop execution."
+  ],
+  "training_ready": false,
+  "gazebo_capture": false,
+  "autonomous_flight_verified": false,
+  "temporal_model_training_performed": false,
+  "candidate_promoted": false,
+  "onboard_policy_reference_changed": false,
+  "original_detector_changed": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

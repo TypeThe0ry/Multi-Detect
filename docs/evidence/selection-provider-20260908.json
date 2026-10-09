@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-08",
+  "product_version": "0.3.0-pre.8",
+  "scope": "selection callback to existing Mission transaction construction",
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py --disable-warnings",
+  "exit_code": 0,
+  "passed": 286,
+  "new_tests": 4,
+  "positive": "shared selector chooses preferred of two candidates after energy projection; original compilation retained; existing transaction constructed",
+  "negative_cases": ["changed acceptance policy", "task budget exceeds execution budget", "missing receive clock"],
+  "claims": {"external_two_task": false, "external_rerun": false, "full_suite": false, "HIL": false, "REAL": false, "training": false, "final_release": false}
+}

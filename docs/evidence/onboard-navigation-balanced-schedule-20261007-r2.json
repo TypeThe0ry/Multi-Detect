@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-balanced-schedule-evidence-v1",
+  "date": "2026-10-07",
+  "status": "280_balanced_draws_prepared_all86_covered_no_new_training",
+  "native_execution": {
+    "session_id": 93822,
+    "tool_chunk": "d441f4",
+    "native_exit_code": 0,
+    "mode": "isolated_standard_library_schedule_generation"
+  },
+  "bindings": [
+    {
+      "path": "scripts/build_onboard_navigation_balanced_schedule.py",
+      "bytes": 13583,
+      "sha256": "e519380abe63480f2837bc909eb686b7f4cdac726591e1d07579bb0b88ada8ef"
+    },
+    {
+      "path": "tests/test_build_onboard_navigation_balanced_schedule.py",
+      "bytes": 7316,
+      "sha256": "9b5ba9753a611abd448d2340d24cfa90985d82fcc01efd7ffdbfa5dddf0589a2"
+    },
+    {
+      "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "bytes": 13152,
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/samples.jsonl",
+      "bytes": 402194,
+      "sha256": "9ef424a11a37de401f7d178b9c9ab9ac9cf055cf77a4c479cf27d99ded7cb8da"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/report.json",
+      "bytes": 47422,
+      "sha256": "07b1502334e503884ef403322bbd9ad4d18c9e6a0e4f09676334e267437b45fd"
+    },
+    {
+      "path": "artifacts/training/onboard-openfly-navigation-dataset-20261007-r2/training-review.json",
+      "bytes": 757,
+      "sha256": "add2f7819e14843e57d7df7db1b8712fa377f8efc2b1f2a38e2d0e3c07e92506"
+    },
+    {
+      "path": "artifacts/training/onboard-navigation-balanced-schedule-20261007-r1/schedule.json",
+      "bytes": 95419,
+      "sha256": "23999ab5a032c69a467de5789644067d4e0a7b83f3213786e7ddec5025450d23"
+    },
+    {
+      "path": "artifacts/training/onboard-navigation-balanced-schedule-20261007-r2/schedule.json",
+      "bytes": 95419,
+      "sha256": "23999ab5a032c69a467de5789644067d4e0a7b83f3213786e7ddec5025450d23"
+    }
+  ],
+  "cpu_tests": 16,
+  "source_binding_count": 121,
+  "source_bindings_reverified_before_publication": true,
+  "seed": 20261007,
+  "sampling_algorithm": "seeded_class_cycles_then_shuffled_class_slots_v1",
+  "source_class_counts": {
+    "forward": 70,
+    "left": 6,
+    "right": 7,
+    "stop": 3
+  },
+  "draw_class_counts": {
+    "forward": 70,
+    "left": 70,
+    "right": 70,
+    "stop": 70
+  },
+  "source_unique_samples": 86,
+  "draw_count": 280,
+  "unique_draw_samples": 86,
+  "all_original_sample_ids_retained": true,
+  "r1_r2_output_bytes_and_sha_equal": true,
+  "r1_native_exit_not_used_as_acceptance": true,
+  "scene_count": 1,
+  "episode_count": 3,
+  "original_single_complete_epoch": false,
+  "original_max_optimizer_steps": 100,
+  "draw_count_exceeds_original_max_optimizer_steps": true,
+  "new_training_plan_required": true,
+  "source_byte_bindings_and_structure_verified": true,
+  "original_source_semantic_revalidation_performed": false,
+  "image_decoding_performed": false,
+  "schedule_is_actor_input": false,
+  "schedule_classes_visible_to_actor": false,
+  "target_labels_in_actor_input": false,
+  "optimizer_authorized": false,
+  "optimizer_performed": false,
+  "model_loaded": false,
+  "training_completed": false,
+  "independent_holdout_available": false,
+  "resubstitution_only": true,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false
+}

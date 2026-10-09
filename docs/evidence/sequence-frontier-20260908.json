@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "post_documentation_checks": {
+    "passed": 34,
+    "exit_code": 0,
+    "ruff_passed": true,
+    "diff_check_passed": true
+  },
+  "date": "2026-09-08",
+  "version": "0.3.0-pre.8",
+  "status": "automated_verified",
+  "evidence": "docs/evidence/sequence-frontier-20260908.json",
+  "focused_passed": 114,
+  "original": {
+    "cases": 9,
+    "greedy": 89,
+    "reference": 90,
+    "same_time_reference": 89
+  },
+  "heterogeneous": {
+    "cases": 12,
+    "greedy": 120,
+    "reference": 120,
+    "same_time_reference": 120
+  },
+  "duration_control": {
+    "cases": 12,
+    "greedy": 147,
+    "reference": 147,
+    "same_time_reference": 147
+  },
+  "replacement_justified": false,
+  "files": [
+    {
+      "path": "scripts/benchmark_task_sequences.py",
+      "bytes": 8205,
+      "sha256": "256209d3573cdf4faa7f95b4ce0da69f9fb5d3e8b621215556be59ac1755b9d0"
+    },
+    {
+      "path": "configs/training/task-sequence-heterogeneous-v1.json",
+      "bytes": 188324,
+      "sha256": "0da159726e301ee5cddde5aadca0a1c93234e06d9956544919c908daa08a88b8"
+    },
+    {
+      "path": "configs/training/task-sequence-duration-control-v1.json",
+      "bytes": 188444,
+      "sha256": "1092047cbab2f1d95e176f34e90fb5a12f26d62fb1cb7de279cf706e7dbddfdb"
+    },
+    {
+      "path": "configs/training/task-ranker-budget-v1.json",
+      "bytes": 141311,
+      "sha256": "fcd1693881c1c7e2d51e738d8126b0388e161e62a5ea07b0ecbbbb69ca5fb6e6"
+    },
+    {
+      "path": "artifacts/evaluation/task-sequence-heterogeneous-20260908-b.json",
+      "bytes": 28038,
+      "sha256": "797c68d1a59d56d3e378fb1f1c1834801d48747a5836eb77a3bc40d260ba8faf"
+    },
+    {
+      "path": "artifacts/evaluation/task-sequence-duration-control-20260908-a.json",
+      "bytes": 31256,
+      "sha256": "ae4f65657f75ab8ed4ca9fea3e79b59d4ffeabd3f130474e50970248e98cec93"
+    },
+    {
+      "path": "artifacts/evaluation/task-sequence-frontier-original-20260908.json",
+      "bytes": 37566,
+      "sha256": "64456465f702bb4e0108fd366712dacf1ba6f2b8bb37fbfd5a8b3c414b0aa065"
+    },
+    {
+      "path": "artifacts/evaluation/sequence-frontier-focused-20260908-b.xml",
+      "bytes": 15455,
+      "sha256": "3f983d87642b084794219daf9ebd04ac8b3317a983d8856a42788003381f969f"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "commands": [
+    "python scripts/benchmark_task_sequences.py --dataset configs/training/task-sequence-heterogeneous-v1.json --output artifacts/evaluation/task-sequence-heterogeneous-20260908-b.json",
+    "python scripts/benchmark_task_sequences.py --dataset configs/training/task-sequence-duration-control-v1.json --output artifacts/evaluation/task-sequence-duration-control-20260908-a.json",
+    "python scripts/benchmark_task_sequences.py --dataset configs/training/task-ranker-budget-v1.json --output artifacts/evaluation/task-sequence-frontier-original-20260908.json"
+  ],
+  "command_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "diagnostic": {
+    "heterogeneous_initial_feasible_per_case": 2,
+    "duration_control_initial_feasible_per_case": 4,
+    "heterogeneous_rejections": 24,
+    "rejection_reason": "estimated mission duration exceeds task maximum_duration_s",
+    "control_changes": [
+      "case_id label",
+      "all maximum_duration_s=600"
+    ],
+    "shared_safety_policy_changed": false
+  },
+  "tests": {
+    "passed": 114,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "new_tests": 4,
+    "full_suite_rerun": false
+  },
+  "claims": {
+    "hardware": false,
+    "HIL": false,
+    "REAL": false,
+    "flight": false,
+    "production_model": false,
+    "manual_visual": false,
+    "independent_holdout": false,
+    "deployed": false
+  },
+  "limitations": [
+    "Related synthetic geometry families, diagnostic ablation not independent holdout.",
+    "Optimality limited to deterministic independent RETURN budget model.",
+    "No evidence to justify production planner replacement from this matrix."
+  ]
+}

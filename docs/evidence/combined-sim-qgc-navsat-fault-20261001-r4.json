@@ -1,0 +1,79 @@
+{
+  "schema": "multidetect.combined-sim-qgc-fault-receipt.v1",
+  "schema_version": 1,
+  "status": "passed_external_px4_gazebo_qgc_combined_sim_with_navsat_fault",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "sim",
+  "generated_at_utc": "2026-10-01T00:18:12.8693564Z",
+  "run_id": "20261001T000711Z-53364",
+  "run_directory": "artifacts/evaluation/combined-sim-qgc-20261001T000711Z-53364",
+  "source_evidence": "artifacts/evaluation/combined-sim-qgc-navsat-20261001-r4/combined-evidence.json",
+  "source_evidence_bytes": 5118982,
+  "source_evidence_sha256": "cef8676098119a6e545c77144b22da2b1256cbe95a6674d5b69b3a244f0f338a",
+  "strict_verification": {
+    "report": "docs/evidence/combined-sim-qgc-navsat-fault-20261001-r4.verification.json",
+    "report_sha256": "eb8aeea3fe450e4aaee0838ad2e564f4ef69f7237df64dd723d9393902933caf",
+    "gate_passed": true,
+    "all_checks_passed": true,
+    "target_evidence_cards_contract": true,
+    "vtol_mission_gate": true
+  },
+  "gates": {
+    "combined_gate_passed": true,
+    "integrated_sim_qgc_gate_passed": true,
+    "sensor_transport_gate_passed": true,
+    "vtol_attached_gate_passed": true,
+    "vtol_mission_gate_passed": true,
+    "required_frames": 900,
+    "received_frames": 900,
+    "target_evidence_card_count": 370,
+    "target_evidence_cards_read_only": true,
+    "mission_item_reached_sequences": [0, 1, 2, 3, 4, 5, 6],
+    "fixed_wing_observed": true,
+    "multicopter_observed": true,
+    "landed_observed": true,
+    "terminal_disarmed_observed": true,
+    "maximum_distance_from_home_m": 235.899,
+    "maximum_relative_altitude_m": 24.076
+  },
+  "fault_injection": {
+    "source": "navsat",
+    "start_image": 300,
+    "duration_images": 40,
+    "dropped_source_messages": 39,
+    "recovered_frame_count": 603,
+    "emitted_during_window_count": 0,
+    "stale_source_rejection_count": 1,
+    "source_epoch": 1,
+    "cache_cleared": true,
+    "recovery_observed": true,
+    "timeline_overflow": false
+  },
+  "identity": {
+    "release_parity_file": "configs/release-parity.json",
+    "release_parity_file_sha256": "CF5D4626D9F5F2593577E35B1AA339EFE0EE84383B9F9C998181F9D459415BC5",
+    "release_parity_core_algorithm_hash": "9413bdf11fec917ade63300ac8ad4b5ad598829023a1157af2056b7b282a91dd",
+    "release_parity_px4_mission_path_hash": "2f502131b27237d342bc0dee46f1b5ec0d2486186613675e2070a341d95e47e7",
+    "qgc_executable_sha256": "41EA7AAF830B406AADBCBB17BD7E5E1E22C1A08F20DCBA002885E0153CF6765B",
+    "stream_script_sha256": "4B1E36C71D622C85E1FC9643C4179FD702F407CA67740D208CDCB06BA88447D8",
+    "model_assets_composite_sha256": "B7F5B1B13E631999B8990D7FFF35485C326A80E0FB7AD56E5971B63D1D6F23BB",
+    "airframe_profile_sha256": "679494F2F0262CD849E7439063711D1B7A44ACA1792912B2295EA9A7CD8795E9",
+    "mission_journal_sha256": "8946C5CD5245418F106CD49578533F26A3EDD8E8830C737FD6B207D60A122EA4"
+  },
+  "safety_and_release_boundaries": {
+    "container_stopped_and_removed": true,
+    "all_test_ports_released": true,
+    "protected_udp_14550_unchanged": true,
+    "operator_visual_acceptance": "not_claimed",
+    "physical_performance_claimed": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "source_provenance": {
+    "git_head": "e0a6562cc8c5493c252edfc2b46350e5e3ed749b",
+    "dirty_checkout": true,
+    "note": "The run was executed from a dirty engineering checkout; all normative source and aggregate hashes are recorded above."
+  }
+}

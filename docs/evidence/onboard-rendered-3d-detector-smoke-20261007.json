@@ -1,0 +1,49 @@
+{
+  "schema": "multidetect.onboard-rendered-3d-detector-smoke",
+  "schema_version": 1,
+  "status": "sensor_chain_only_not_training_ready",
+  "purpose": "Run the existing Jetson-shaped COCO ONNX detector on current neutral 3-D Gazebo RGB/Depth frames without adding annotations or truth to policy input.",
+  "source": {
+    "rgb_manifest": "artifacts/evaluation/onboard-3d-capture-urban-20261007-r6/rgb/gazebo-bgr24-frame-set.manifest.json",
+    "rgb_manifest_sha256": "f6f81355f3d21f4c2f4cb1a22683cb5a312eaaf3cac42541f01ac1de712e9058",
+    "depth_manifest": "artifacts/evaluation/onboard-3d-capture-urban-20261007-r6/depth/gazebo-depth-companion-set.manifest.json",
+    "depth_manifest_sha256": "efea181a761cc6067ef921126237ae04a4161ab9b2576ce0d851bb4f7d0d059c",
+    "scenario_id": "urban_inspection_multirotor_001",
+    "frame_count_evaluated": 3,
+    "mainline_neutral_3d_model": "model://multidetect_search_target_v1"
+  },
+  "detector": {
+    "model": "artifacts/models/coco-yolo26n-traditional/yolo26n-traditional.onnx",
+    "model_sha256": "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410",
+    "confidence_threshold": 0.05,
+    "detector_count_per_frame": [0, 0, 0],
+    "detector_positive_frames": 0
+  },
+  "geometry": {
+    "usable_depth_rows": 0,
+    "calibrated_ned_geometry_rows": 0,
+    "target_match_confirmed_rows": 0,
+    "event_kind": "target_lost",
+    "manual_frame_review": "camera view contains road/buildings/terrain but no visible neutral target model"
+  },
+  "gates": {
+    "training_ready": false,
+    "annotation_supervision": false,
+    "truth_injected": false,
+    "external_gazebo_runtime": true,
+    "candidate_promoted": false,
+    "same_model_for_sim_and_jetson": false,
+    "physical_performance_claimed": false,
+    "final_release_allowed": false
+  },
+  "next_required": [
+    "execute the repository capture-plan route so the neutral 3-D target enters the camera frustum",
+    "capture RGB, FLOAT32 Depth, CameraInfo and PX4 telemetry after takeoff and along the route",
+    "run the capture-only 3-D annotation sensors and persist RGB_INT8 labels-map bytes",
+    "independently review at least two scenes before pixel-level OnboardAI fine-tuning"
+  ],
+  "raw_result": {
+    "path": "artifacts/evaluation/onboard-rendered-3d-detector-smoke-20261007.json",
+    "sha256": "24a9a916877b5c38ece043f149baf53a2823f8c9c3c70cb1a0027cd8144c7e77"
+  }
+}

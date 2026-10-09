@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-3d-cluster-preflight",
+  "generated_at_utc": "2026-10-06T04:00:00Z",
+  "status": "blocked_before_external_gazebo_runtime",
+  "snapshot": {
+    "digest": "sha256:b5de134bf13a33b42ac16f593b8b1729080eb98ddd6f35582c327489ffa0eee1",
+    "size_bytes": 19704270,
+    "file_count": 879,
+    "scope": "current source, configs, repository-owned SDF worlds/models, and r33 reference only"
+  },
+  "controller_placement": {
+    "node_name": "nuc",
+    "node_os": "linux",
+    "node_arch": "x86_64",
+    "node_online_at_plan": true,
+    "docker_capability_declared": true
+  },
+  "remote_probe": {
+    "job_id": "5f4c9ae1-e7bd-4a29-9394-ea33a100dfad",
+    "run_id": "2eb87285-b9aa-42cd-8db9-1c6d39e7465f",
+    "exit_code": 1,
+    "docker_info_probe": "failed",
+    "external_gazebo_runtime": false,
+    "artifact_ids": []
+  },
+  "remote_diagnostic_followup": {
+    "job_id": "bccec489-3ff7-4879-8f45-ca4730532e44",
+    "run_id": "0c22430d-a88d-4d6a-9a54-c6c21a1ed549",
+    "exit_code": 0,
+    "purpose": "capture Docker CLI and daemon stderr without fail-fast",
+    "diagnostic_artifact_id": "e78d1ca9-4fc9-453d-9d09-5858fff9cae7",
+    "external_gazebo_runtime": false
+  },
+  "local_probe": {
+    "docker_desktop_processes_present": true,
+    "active_context": "desktop-linux",
+    "server_pipe_present": false,
+    "docker_info_exit_code": 1,
+    "wsl_docker_desktop_state": "stopped"
+  },
+  "claim_boundary": {
+    "repository_3d_asset_audit": true,
+    "external_gazebo_runtime": false,
+    "training_ready": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "next_action": "restore a working Docker Linux daemon on an eligible node, then rerun the generated three-scene RGB/Depth/telemetry capture commands"
+}

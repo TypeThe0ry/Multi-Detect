@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-policy-candidate-comparison",
+  "status": "candidate_rejected_current_reference_retained",
+  "generated_at_utc": "2026-10-05T22:28:42Z",
+  "parent_model": {
+    "model_id": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "path": "artifacts/models/onboard-policy-r33-balanced-bearing-3d-dev/onboard_policy_r33.onnx",
+    "sha256": "727d0e71834311d8aa51dfe072e08ec249062b1945d9501394f5d89ad7a16ee6"
+  },
+  "candidate": {
+    "model_id": "onboard-policy-r51-3d-pretrain-dev",
+    "model": "artifacts/models/onboard-policy-r51-3d-pretrain-dev/onboard_policy_r51.onnx",
+    "model_sha256": "80ecfa93d5e8b045ec614f0e0ce389d68744a646835658b9bb986b6e31dff7cb",
+    "training_config": "artifacts/models/onboard-policy-r51-3d-pretrain-dev/training-config.json",
+    "training_config_sha256": "7f621e0d09f66a539b56446bed13a0e19ae3a561cee8a149e0272e50f5d4daee",
+    "training_report": "artifacts/models/onboard-policy-r51-3d-pretrain-dev/training-report.json",
+    "training_report_sha256": "bbe9f6d678b24a3c62f1519a074151dacb44de7682b6d62ddf511f2918d42204",
+    "generalization_report": "artifacts/evaluation/onboard-policy-r51-generalization-20261006.json",
+    "generalization_report_sha256": "92d5ee3420659c645340bc74e35895d9838cc438ecd5eaee5c3251ec8a95c938",
+    "independent_holdout": "artifacts/evaluation/onboard-policy-r51-independent-holdout-20261006.json",
+    "independent_holdout_sha256": "53c13a5a9ac6fd4ffb1bfa7883d83196b0d98965eace91be506a6a8e86503274",
+    "sensor_holdout": "artifacts/evaluation/onboard-policy-r51-3d-sensor-holdout-20261006.json",
+    "sensor_holdout_sha256": "5cab36406c052b6e894e553e0bd63f397bf684c6b9d2fdf0fc3f9470a6699e4b",
+    "training_device": "NVIDIA GeForce RTX 4060",
+    "training_samples": 60400,
+    "training_epochs": 24,
+    "generalization": {
+      "raw_head_passed": 19,
+      "guarded_passed": 21,
+      "guarded_failures": ["bearing-left"],
+      "navigation_direction_passed": 21,
+      "navigation_range_passed": 22,
+      "masked_success_count": 3
+    },
+    "structured_3d_sensor_holdout": {
+      "case_count": 900,
+      "task_accuracy": 0.9977777777777778,
+      "flight_accuracy": 0.9966666666666667,
+      "compatible_output_rate": 0.9988888888888889
+    },
+    "independent_structured_holdout": "7/7",
+    "same_40_feature_contract": true,
+    "pixel_level_rendered_training": false,
+    "rendered_rgb_depth_rows": 0,
+    "external_gazebo_runtime": false,
+    "candidate_promoted": false
+  },
+  "training_data_boundary": {
+    "source": "current_entity_sdf_geometry_teacher_and_shared_lifecycle_augmentations",
+    "truth_json_used": false,
+    "red_green_fixture_used_as_visual_training": false,
+    "training_ready_real_3d_dataset": false,
+    "same_reference_for_sim_and_jetson": "current r33 retained until pixel-level 3-D capture and independent review"
+  },
+  "release_boundary": {
+    "selected_reference": "onboard-policy-r33-balanced-bearing-3d-dev",
+    "candidate_promoted": false,
+    "physical_performance_claimed": false,
+    "jetson_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  }
+}

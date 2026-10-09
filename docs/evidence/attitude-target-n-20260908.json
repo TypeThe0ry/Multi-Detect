@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "outer_path": "artifacts\\evaluation\\qpc-camera-20260908-n.json",
+  "outer_sha256": "99000973c8658f6945cd376296149814400bf161295f9cd0ff770428d8bd0646",
+  "mission_path": "artifacts\\evaluation\\qpc-camera-20260908-n\\vtol-mission-acceptance.json",
+  "mission_sha256": "b94b6ca044353c27c00b05f0ab7758ff8f78b7b12b45452983fbd5c0315bda44",
+  "journal_path": "artifacts\\evaluation\\qpc-camera-20260908-n\\vtol-mission.transaction.jsonl",
+  "journal_sha256": "f55de6bf0f66e91f38ada27d12bcd59ccb84f2ffe92cb9a229f8be9215e321a4",
+  "outer_gate_passed": true,
+  "mission_gate_passed": true,
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "7611daf3e02527bafb0864d26f42818d4cf52380a2e7bcd4b1524fa4894ac885",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "host_clock_identity": {
+    "accuracy_verified": false,
+    "implementation": "QueryPerformanceCounter()",
+    "legacy_monotonic_equivalent": false,
+    "resolution_ns": 100,
+    "schema_version": 1,
+    "session_id": "90617ceab66d49089550bf7927ba9e76",
+    "source": "python.perf_counter"
+  },
+  "target_stream": {
+    "rejected_source_count": 0,
+    "samples_dropped": 0,
+    "samples_seen": 326,
+    "truncated": false
+  },
+  "target_masks": [
+    0
+  ],
+  "quaternion_norm_tolerance": 0.00001,
+  "quaternion_norm_range": [
+    0.9999999009889544,
+    1.0000001336928461
+  ],
+  "target_roll_deg_range": [
+    -50.00000653241449,
+    50.00000442750391
+  ],
+  "attitude_samples": 4074,
+  "exact_source_label_pair_count": 94,
+  "unmatched_targets": 232,
+  "maximum_exact_pair_absolute_roll_error_deg": 26.74094511679843,
+  "physical_simultaneity_proven": false,
+  "controller_tracking_acceptance_proven": false,
+  "final_release_allowed": false
+}

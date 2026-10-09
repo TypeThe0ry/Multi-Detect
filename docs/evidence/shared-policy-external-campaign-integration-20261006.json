@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.shared-policy-external-campaign-integration",
+  "release_label": "0.3.0-pre.8",
+  "status": "implemented_and_fixture_verified_external_runtime_not_claimed",
+  "purpose": "Bind the shared OnboardAI policy to the existing PX4 Mission campaign lifecycle without granting actuator authority.",
+  "source_files": {
+    "scripts/vtol_selected_task_campaign.py": "0dd0347e2997f622eebc1e505cafa01968abd6ec6299f9aaafcfdbf7af9dbb6f",
+    "tests/test_vtol_sitl_mission_acceptance.py": "aac3cfcade01afe715ffe144cf3809b69da34db6506b357062ac7ae8613afe9b"
+  },
+  "integration_contract": {
+    "shared_policy_path": "SharedTaskPolicy -> select_and_compile_task -> existing PX4 Mission transaction",
+    "planner_revalidated_before_mission": true,
+    "airframe_profile_hash_bound": true,
+    "policy_artifact_and_ranker_hash_recorded": true,
+    "mission_upload_readback_commit_permit_path_reused": true,
+    "prompt_resolution_bound_to_selected_mission": true,
+    "policy_applied_to_actuator": false,
+    "gps_unqualified_fails_closed_before_mission_transaction": true,
+    "legacy_ranker_api_preserved": true
+  },
+  "verification": {
+    "shared_policy_and_prompt_tests": "passed",
+    "gps_abstain_test": "passed",
+    "airframe_mismatch_test": "passed",
+    "full_test_file": "tests/test_vtol_sitl_mission_acceptance.py",
+    "full_test_file_status": "passed",
+    "ruff": "passed",
+    "external_gazebo_runtime": false,
+    "px4_hardware_evidence": false,
+    "jetson_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "next_external_gate": "Run the same campaign against a reachable PX4/Gazebo runtime and retain Mission, telemetry, sensor, journal, cleanup, and policy evidence; fixture tests do not satisfy that gate."
+}

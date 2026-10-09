@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "shared-policy-external-repeat-v2-sim-energy",
+  "product_version": "0.3.0-pre.8",
+  "runtime_mode": "SIM",
+  "config_sha256": "b8227c924c5d88d31a600a664bbc50721d0e9885309590432d6c5d43339079cf",
+  "parent_runs": [
+    "artifacts\\evaluation\\vtol-two-task-parent-energy-window-20260919-b.json",
+    "artifacts\\evaluation\\vtol-two-task-parent-energy-window-20260919-c.json",
+    "artifacts\\evaluation\\vtol-two-task-parent-energy-window-20260919-d.json"
+  ],
+  "candidate_runs": [
+    "artifacts\\evaluation\\vtol-two-task-candidate-energy-window-20260919-a.json",
+    "artifacts\\evaluation\\vtol-two-task-candidate-energy-window-20260919-c.json",
+    "artifacts\\evaluation\\vtol-two-task-candidate-energy-window-20260919-d.json"
+  ],
+  "parent_run_file_sha256": [
+    "27aa36b4e3e2310baaa4fa906557f3a8cd502e166057a3f29b0e3d8007891d6d",
+    "640d0cd56c956f3f637e2dbdb74dc9d4abdab113bf13f0bed00e75701c77adca",
+    "3efd2fe9f20898c413a648e15008761f02588171bf7c5aa1aa91cc689938596d"
+  ],
+  "candidate_run_file_sha256": [
+    "e389ecc86650952dfd6f1b4239665b713e38c398b4311d6b5f93b6d3cb1642c7",
+    "668c9893de19eed959f9d48e9eab0fdf58768c810071cacd71321dfdcf39fe8c",
+    "1be6673b9b6be93b303e3bc58f11b61dc039f44ba4d85b6b767afbd7f2372496"
+  ],
+  "run_counts": {
+    "parent": 3,
+    "candidate": 3
+  },
+  "minimum_run_counts": {
+    "parent": 3,
+    "candidate": 3
+  },
+  "invariants": {
+    "same_scenario_manifest": true,
+    "same_stable_airframe_profile": true,
+    "same_campaign_identity": true,
+    "same_task_order_for_metric": false,
+    "same_task_set_for_metric": true,
+    "same_px4_mission_path": true,
+    "all_gate_passed": true,
+    "all_cleanup_clean": true
+  },
+  "required_invariants": [
+    "same_scenario_manifest",
+    "same_stable_airframe_profile",
+    "same_campaign_identity",
+    "same_task_set_for_metric",
+    "same_px4_mission_path",
+    "all_gate_passed",
+    "all_cleanup_clean"
+  ],
+  "primary_metric": {
+    "name": "planning_energy_wh_total",
+    "path": "mission_completed.planning_energy.newly_consumed_wh",
+    "aggregation": "sum",
+    "direction": "minimize",
+    "minimum_candidate_margin": 0.1,
+    "validity": "post_mission_receive_window_model_only_not_physical_calibration",
+    "parent_values": [
+      4.850434799999928,
+      4.289047599999889,
+      5.3571179999999465
+    ],
+    "candidate_values": [
+      4.941656799999916,
+      4.08679279999995,
+      4.828190799999927
+    ],
+    "parent_mean": 4.832200133333255,
+    "candidate_mean": 4.618880133333264,
+    "present_in_every_run": true,
+    "gain_proven": true
+  },
+  "minimum_run_counts_met": true,
+  "invariants_met": true,
+  "metric_ready": true,
+  "independent_candidate_gain_proven": true,
+  "candidate_promoted": false,
+  "promotion_ready": true,
+  "learned_weights_loaded": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "notes": [
+    "Router wall-clock duration is intentionally not used as the primary performance metric.",
+    "The evaluator stays fail-closed when the declared metric is missing or repeat counts are below policy."
+  ]
+}

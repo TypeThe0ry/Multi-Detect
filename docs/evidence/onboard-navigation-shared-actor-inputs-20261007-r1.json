@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-shared-actor-inputs-evidence-v1",
+  "date": "2026-10-07",
+  "status": "shared_navigation_input_layer_and_official_cpu86_retained_prefix_equivalence_verified_no_model_or_live_acceptance",
+  "scope": "matched_retained_offline_source_projection_not_independent_live_camera_capture",
+  "native_execution": {
+    "session_id": 27927,
+    "tool_chunk": "c51040",
+    "native_exit_code": 0,
+    "mode": "official_local_processor_cpu86_no_model"
+  },
+  "independent_review": {
+    "session_id": 12315,
+    "tool_chunk": "eb113c",
+    "native_exit_code": 0,
+    "mode": "read_only_source_sha_and_actor_identity_reconstruction_no_processor_rerun",
+    "source_hash_passes": 2,
+    "unique_source_files": 129,
+    "reconstructed_actor_identities": 86,
+    "matched_tensor_record_pairs": 344,
+    "torch_or_transformers_imported": false,
+    "processor_reexecuted": false,
+    "new_audit_artifact_created": false
+  },
+  "bindings": [
+    {
+      "path": "src/multidetect/autonomy/onboard_navigation_actor.py",
+      "bytes": 13167,
+      "sha256": "eaefc34cd199295c43cab927d3c51182bfa728fd1753c7ac2e4150a1400a83e1"
+    },
+    {
+      "path": "tests/test_onboard_navigation_actor.py",
+      "bytes": 16915,
+      "sha256": "1ac2942116b2ea95150c8c5fdd6fec74ab8280f854fff05a4977c43f3a92740d"
+    },
+    {
+      "path": "scripts/verify_onboard_navigation_actor_inputs.py",
+      "bytes": 19144,
+      "sha256": "5fb7a2fbf46ae880fbace6f947bf77d571c3bc227af68c19808a88074c7d74b6"
+    },
+    {
+      "path": "tests/test_verify_onboard_navigation_actor_inputs.py",
+      "bytes": 21254,
+      "sha256": "631f90642d52083ea5261916e9c774a12ff5eb89d37fb4a92fe2ecd0545cda2f"
+    },
+    {
+      "path": "tests/test_onboard_navigation_shared_actor_evidence.py",
+      "bytes": 8533,
+      "sha256": "e8df5251ded5881161c34b5107a3e3afd8128967626ba9eea542486e8fb6a354"
+    },
+    {
+      "path": "configs/training/onboard-vlm-navigation-pilot-plan-20261007-r1.json",
+      "bytes": 13152,
+      "sha256": "f4d76902c220812201f2ca4e961b0f427e4378ba6ee5449bf96e86be23999c53"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-actor-inputs-20261007-r1/report.json",
+      "bytes": 297585,
+      "sha256": "53aaaf7feeb878a35d0d3573115cb816c8290f008e5ca9b0f30a1cf520382c36"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-actor-inputs-tests-20261007-r2.xml",
+      "bytes": 16867,
+      "sha256": "e2687128b2d5c1afeb49978a30750c394935addf7ef5d580d9c348f977dc32dc"
+    }
+  ],
+  "actor_contract": "multidetect.onboard-navigation-actor-v1",
+  "system_prompt_sha256": "a77e333b72f74c296c1fbd7cfb249d8a5bcebf749905d653e022fd40a09405de",
+  "official_processor_used": true,
+  "processor": {
+    "class": "Qwen3VLProcessor",
+    "loading_scope": "official_pinned_local_only",
+    "local_files_only": true,
+    "trust_remote_code": false,
+    "transformers_version": "4.57.6",
+    "torch_version": "2.6.0+cu124",
+    "min_pixels": 1024,
+    "max_pixels": 50176,
+    "max_tokens": 4096
+  },
+  "source_binding_count": 129,
+  "source_bindings_before_after_equal": true,
+  "source_validation_session_verified": true,
+  "sample_count": 86,
+  "unique_sample_count": 86,
+  "sample_order_matches_original_plan": true,
+  "one_frame_samples": 3,
+  "two_frame_samples": 83,
+  "all_86_actor_identities_equal": true,
+  "all_86_prefix_pairs_equal": true,
+  "matched_cpu_tensor_record_pairs": 344,
+  "tensor_fields": [
+    "input_ids",
+    "attention_mask",
+    "pixel_values",
+    "image_grid_thw"
+  ],
+  "max_actual_prefix_tokens": 453,
+  "max_actual_image_pixels": 46080,
+  "labels_pose_future_ids_entered_model_messages": false,
+  "new_system_prompt_not_old_training_prefix": true,
+  "new_actor_is_experimental_input_layer_only": true,
+  "new_training_backend_integrated": false,
+  "new_live_navigation_backend_integrated": false,
+  "default_flight_model_or_release_parity_modified": false,
+  "balanced_280_draw_updates_performed": 0,
+  "unit_tests": {
+    "passed": 96,
+    "skipped": 1,
+    "native_exit_code": 0,
+    "tool_chunk": "5e1cd9",
+    "skip": "Windows WinError 1314 prevents symbolic-link creation",
+    "symlink_runtime_validation_passed": false
+  },
+  "cpu_only": true,
+  "retained_source_projection": true,
+  "cuda_initialized": false,
+  "model_loaded": false,
+  "model_inference_performed": false,
+  "optimizer_performed": false,
+  "forward_backward_performed": false,
+  "training_completed": false,
+  "independent_holdout_available": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false,
+  "execution_authority": false,
+  "transport_created": false,
+  "mission_created": false,
+  "actual_live_camera_parity_verified": false,
+  "independently_captured_live_observations": false,
+  "old_training_prefix_identity_claimed": false,
+  "sim_real_parity_verified": false
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "external_mission_capture_state_gate_failed",
+  "outer_path": "artifacts/evaluation/qpc-camera-20260908-e.json",
+  "outer_sha256": "d5b8fceaae6fcaa41dbbcf2076a27f6a2423c8730f975203a950092b27e3993f",
+  "container_id": "eab5fee7bd5eb0a264b0a374c0f3c8b2a9c5c128db845820b33088111e34e3be",
+  "exit_code": 1,
+  "failure": "vehicle left current FW/armed/in-air/AUTO.MISSION state during capture",
+  "exact_container_absence_verified": true,
+  "cleanup_failures": [],
+  "clock_raw_bytes": 625359,
+  "holdout_probes_persisted_in_this_run": false,
+  "holdout_independent_validation_completed": false,
+  "followup_fix": "sample_holdout now writes an exclusive sidecar immediately; verified by unit tests, not another external run",
+  "focused_passed_after_fix": 248,
+  "training_label_eligible": false,
+  "final_release_allowed": false
+}

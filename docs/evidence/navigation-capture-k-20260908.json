@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "outer_path": "artifacts\\evaluation\\qpc-camera-20260908-k.json",
+  "outer_sha256": "6fb7fcf71458c1a6043c1adbb1fc5042147bb755fc5ff2283f34f5ec12419483",
+  "mission_path": "artifacts\\evaluation\\qpc-camera-20260908-k\\vtol-mission-acceptance.json",
+  "mission_sha256": "440f7abcd644a537a05bbbaec9b39ed6cffacb1174ebda792457bee0873dc3ba",
+  "outer_gate_passed": false,
+  "mission_gate_passed": false,
+  "failure": "VtolMissionAcceptanceError: mission completed without a valid flight-capture completion marker: VtolMissionAcceptanceError: vehicle left current FW/armed/in-air/AUTO.MISSION state during capture",
+  "cleanup": {
+    "attempted": true,
+    "cleanup_succeeded": true,
+    "errors": [],
+    "exact_id": "6c1874d3c8e74c5d4d399e7311b58af8f684dedda19378c5ba5dc57efb39b022",
+    "post_remove_absence_proven": true,
+    "post_remove_inspect_exit_code": 1,
+    "remove_exit_code": 0,
+    "removed": true,
+    "stop_exit_code": 0
+  },
+  "version_observation": {
+    "operation": "read_only_px4_ver_all",
+    "output_truncated": false,
+    "reproducible_binary_source_binding_proven": false,
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "HW arch: PX4_SITL\nPX4 git-hash: 83c4f4e580558816f0e398918f66358988004696\nPX4 version: 1.18.0 80 (17956992)\nOS: Linux\nOS version: Release 6.6.87 (101079039)\nBuild datetime: Aug  9 2026 04:08:10\nBuild uri: localhost\nBuild variant: default\nToolchain: GNU GCC, 13.3.0\nPX4GUID: 1006554d49534954414c44494e4f30303030\nUNKNOWN MCU\n"
+  },
+  "first_invalid_sample": {
+    "armed": true,
+    "auto_mission_active": true,
+    "captured_at_clock": "host_perf_counter",
+    "captured_at_monotonic_s": 910345.788842,
+    "extended_system_state_age_s": 1.514203,
+    "heartbeat_age_s": 0.766053,
+    "host_clock_identity": {
+      "accuracy_verified": false,
+      "implementation": "QueryPerformanceCounter()",
+      "legacy_monotonic_equivalent": false,
+      "resolution_ns": 100,
+      "schema_version": 1,
+      "session_id": "c11ba31cc96e4c969cc70313b6521ffa",
+      "source": "python.perf_counter"
+    },
+    "in_air": true,
+    "maximum_state_age_s": 1.5,
+    "position_age_s": 0.05213,
+    "telemetry_fresh": false,
+    "valid": false,
+    "vtol_state": 4
+  },
+  "dynamic_stream_export_available": false,
+  "failed_export_fix_applied_after_this_run": true,
+  "training_label_eligible": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,69 @@
+{
+  "schema": "multidetect.external-onboard-model-actual-perception-summary",
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-04T13:34:17Z",
+  "release_label": "0.3.0-pre.8",
+  "source_artifact": "artifacts/evaluation/external-car-actual-detector-20261004-r2.json",
+  "source_artifact_sha256": "099fbd987573ac68b1aa72f12533fe8e44aa0f5c57d4db52d86f03bb50199e58",
+  "scenario": "gazebo_car_positive_control_001",
+  "external_software_sim": {
+    "docker_gate_passed": true,
+    "px4_heartbeat_observed": true,
+    "gps_observed": true,
+    "gazebo_rgb_sensor_transport_passed": true,
+    "container_cleanup_passed": true,
+    "flight_control_commands_sent": 0,
+    "mission_transaction": "not_requested"
+  },
+  "actual_perception_path": {
+    "frame_count": 2,
+    "detector_input_source": "actual_gazebo_wire_v3_rgb_frames",
+    "detector_model": "coco-yolo26n-traditional",
+    "detector_model_sha256": "7ff7b97cad2fbb68d4fc6a74ed5dad67beb91f535e8cc25d5f0d97ae42d2e410",
+    "detector_status": "quarantined_candidate",
+    "detections": [
+      {
+        "label": "car",
+        "confidence": 0.8075470924377441,
+        "color": "unknown",
+        "color_confidence": 0.07159609994056276,
+        "task_phase": "search",
+        "target_color_match": false
+      },
+      {
+        "label": "car",
+        "confidence": 0.7891349792480469,
+        "color": "unknown",
+        "color_confidence": 0.06961327165586337,
+        "task_phase": "search",
+        "target_color_match": false
+      }
+    ],
+    "shared_observation_count": 2,
+    "truth_free": true
+  },
+  "shared_onboard_model": {
+    "model_id": "onboard-policy-r4",
+    "model_sha256": "8ef33c3436b065065fff5b59c7cd3588900ce3374260940390c0dd460eeb7812",
+    "provider": "onnxruntime:CPUExecutionProvider",
+    "search_replan_path_used": true,
+    "planner_revalidated": true,
+    "policy_applied_to_actuator": false,
+    "installed_mission_count": 3,
+    "safety_request_count": 0
+  },
+  "claims_boundary": {
+    "actual_gazebo_rgb_detector_binding": "passed",
+    "red_vehicle_match": "not_observed_in_this_scene",
+    "color_classifier_accuracy": "not_claimed",
+    "metric_depth": "not_available_in_this_scene",
+    "gps_target_geolocation": "not_claimed",
+    "mission_upload_readback_commit_permit": "not_requested",
+    "qgc_visual_acceptance": "not_claimed",
+    "hil": false,
+    "real_pixhawk": false,
+    "jetson": false,
+    "outdoor_gnss": false,
+    "final_release_allowed": false
+  }
+}

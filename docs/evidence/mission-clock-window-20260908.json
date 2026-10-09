@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "product_version": "0.3.0-pre.8",
+  "files": [
+    {
+      "path": "scripts/vtol_sitl_mission_acceptance.py",
+      "bytes": 96533,
+      "sha256": "1fe8c76e191630846d390c933369523171db9c54d12f651708e4ae8d57ff94ff"
+    },
+    {
+      "path": "scripts/vtol_sitl_scenario_acceptance.py",
+      "bytes": 45157,
+      "sha256": "f058b4beb587663815c7e707611ec1fafff8b01e0e034f68bba28937e2e56231"
+    },
+    {
+      "path": "tests/test_vtol_sitl_mission_acceptance.py",
+      "bytes": 58811,
+      "sha256": "c26ce79145e32570c523564b79346c7f47fe8fe6129c5a8547f9289e2d63cf61"
+    },
+    {
+      "path": "artifacts/evaluation/mission-clock-window-20260908-b.xml",
+      "bytes": 44115,
+      "sha256": "9ffa2e7b3355dc6615abb8cbf108307e4042cc86ee50eb976d33e12e484c95b5"
+    }
+  ],
+  "command": "python -m pytest -q tests/test_vtol_sitl_mission_acceptance.py tests/test_vtol_mission_sensor_capture.py tests/test_simulation_energy_replay.py --disable-warnings --junitxml=artifacts/evaluation/mission-clock-window-20260908-b.xml",
+  "exit_code": 0,
+  "passed": 240,
+  "new_tests": 10,
+  "external_rerun": false,
+  "full_suite_rerun": false,
+  "claims": [
+    "host receive clock origin recorded",
+    "valid ordered host mission window computed",
+    "invalid or absent boundary not inferred"
+  ],
+  "not_claimed": [
+    "PX4 boot clock mapping",
+    "full mission energy coverage",
+    "training",
+    "HIL",
+    "REAL"
+  ],
+  "initial_test_failure": "Origin test omitted required now_s; test invocation corrected, original failing JUnit retained at mission-clock-window-20260908.xml."
+}

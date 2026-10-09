@@ -1,0 +1,51 @@
+{
+  "schema": "multidetect.gazebo-depth-companion-model-replay-summary",
+  "schema_version": 1,
+  "status": "passed_offline_model_replay_analysis",
+  "release_label": "0.3.0-pre.8",
+  "runtime_mode": "offline_sim_replay",
+  "source_receipt": "artifacts/evaluation/depth-model-sim-replay-20261003-r1/replay-receipt.json",
+  "source_receipt_bytes": 5093,
+  "source_receipt_sha256": "d2f79dbd08cde62b8d1589d385c4d9af40d244bd88d1fbf3a005f0c2d160f16d",
+  "source_receipt_canonical_sha256": "319ea2265f6f17dd2e1bfdfbf6cd394970cd6e78010a8a75712479149cc45a42",
+  "rgb_manifest": "artifacts/evaluation/depth-companion-sim-20261003-r2/rgb/gazebo-bgr24-frame-set.manifest.json",
+  "rgb_manifest_sha256": "3a6a0b99eb07cc969cfd48ef671bc422f56ea7be1c7e2d1bd9731d97832d95f5",
+  "depth_manifest": "artifacts/evaluation/depth-companion-sim-20261003-r2/depth/gazebo-depth-companion-set.manifest.json",
+  "depth_manifest_sha256": "29be8019c92d14f287032f2d1230b9fafeab1471362b2f5390ba58ef86ebe334",
+  "model_onnx": "artifacts/evaluation/depth-model-sim-replay-20261003-r1/depth-anything-v2-metric-outdoor-small.onnx",
+  "model_onnx_sha256": "36b38a0b34f5431a9bbcbedca7d72b440006204910d13227bc844641b0b23e52",
+  "model_provenance": "artifacts/evaluation/depth-model-sim-replay-20261003-r1/depth-anything-v2-metric-outdoor-small.onnx.provenance.json",
+  "model_provenance_sha256": "425a85356c522ff537c34bd09625b882ba5fdfc8c00d7bd87bdf53b770515863",
+  "provider": "CPUExecutionProvider",
+  "input_shape": [1, 3, 518, 518],
+  "output_shape": [1, 518, 518],
+  "frame_count": 3,
+  "valid_comparison_pixels": 202800,
+  "raw_absolute_error_median": 2.501652479171753,
+  "raw_absolute_error_mean": 2.492021322250366,
+  "raw_rmse_m": 2.49894642829895,
+  "runtime_preprocessing": {
+    "color_conversion": "BGR_to_RGB",
+    "resize_interpolation": "INTER_CUBIC",
+    "normalization": {
+      "scale": "1/255",
+      "mean": [0.485, 0.456, 0.406],
+      "std": [0.229, 0.224, 0.225]
+    },
+    "tensor_layout": "NCHW",
+    "output_grid": "model_native_dense_grid"
+  },
+  "calibration_fit_applied": false,
+  "field_calibration_created": false,
+  "outdoor_distance_accuracy_claimed": false,
+  "metric_depth_model_approved": false,
+  "truth_boundary": {
+    "gazebo_depth_used_as_comparison_reference": true,
+    "truth_used_by_runtime_or_model": false,
+    "hardware_acceptance": "not_claimed",
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "final_release_allowed": false
+  },
+  "claims_boundary": "This is an offline CPU replay of the pinned Depth Anything metric checkpoint against three sealed software-SIM RGB/Depth pairs. The comparison is diagnostic only; no calibration fit, outdoor accuracy, production approval, HIL, REAL, hardware or final release claim is made."
+}

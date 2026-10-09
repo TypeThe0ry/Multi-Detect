@@ -1,0 +1,61 @@
+{
+  "product_version": "0.3.0-pre.8",
+  "generated_at": "2026-09-08",
+  "status": "automated_verified",
+  "focused_passed": 89,
+  "full_regression": {
+    "tests": 4093,
+    "passed": 4086,
+    "skipped": 7,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 204.389,
+    "exit_code": 0,
+    "command": "python -m pytest -q --disable-warnings --junitxml=artifacts/evaluation/budget-fit-full-20260908.xml",
+    "path": "artifacts/evaluation/budget-fit-full-20260908.xml",
+    "bytes": 598971,
+    "sha256": "3d0b67272f7642a4a12f234756bf00769ef1eebb7eda2ae136104e5e0b96da11"
+  },
+  "documentation_parity_passed": 34,
+  "ruff_passed": true,
+  "new_tests": 2,
+  "command": "python -m pytest -q tests/test_mission_planning.py tests/test_autonomy_planner.py --disable-warnings",
+  "exit_code": 0,
+  "inputs": [
+    {
+      "path": "src/multidetect/simulation/task_episode.py",
+      "bytes": 4362,
+      "sha256": "c286a4abf9f327185d819e088d518d5fe0d6f0506f4eb28a2fa6669300154cf8"
+    },
+    {
+      "path": "src/multidetect/simulation/task_training.py",
+      "bytes": 6166,
+      "sha256": "cc43eacf154d2791f03e422ac654be815e9b0c919d5714ca4322bbdfc60d599e"
+    },
+    {
+      "path": "tests/test_mission_planning.py",
+      "bytes": 30290,
+      "sha256": "961fef87f0176bcf6ccb1a7f06cebc7745236c040998f610715e3eeaf7157c4c"
+    },
+    {
+      "path": "configs/release-parity.json",
+      "bytes": 11537,
+      "sha256": "a3b30eae836095964ea685501832ca1b7dc233610d682cb029394a058d3e536d"
+    }
+  ],
+  "parity": {
+    "core_algorithm_hash": "59c55047abdd5cf99d246c2d8f08cc4781e265010a86d147ea7506c018e20da2",
+    "px4_mission_path_hash": "105f5b3db4638211e1a4febcc59127a936c58048c433c8c82db2235dbf1a99c8",
+    "safety_policy_hash": "bbdbe61b4053f4fff9c1c4180572f290bf3956d37e16a8a2fa7829e4854a2442",
+    "task_contract_hash": "89054d767fabccfb0cb43bebb0b40c481dacd29f020419c442db235764337495",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "parameter_search_fixture_verified": true,
+  "project_dataset_training_started": false,
+  "holdout_performance_verified": false,
+  "improvement_over_project_baseline_claimed": false,
+  "physical_performance_claimed": false,
+  "HIL": false,
+  "REAL": false,
+  "final_release": false
+}

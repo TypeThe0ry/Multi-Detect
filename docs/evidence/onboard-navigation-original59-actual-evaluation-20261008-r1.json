@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "contract": "multidetect.onboard-navigation-original59-actual-evaluation-evidence-v1",
+  "status": "actual_candidate59_GPU_evaluation_and_independent_raw_analysis_native0_quality_failed",
+  "observed_at": "2026-10-08T07:20:18+08:00",
+  "bindings": [
+    {
+      "path": "configs/training/onboard-navigation-original59-evaluation-20261008-r1.json",
+      "bytes": 107290,
+      "sha256": "298ae322ef320a590d6853cc4b997f3f9691e8d18f8d1c81c02f18845197fb6c"
+    },
+    {
+      "path": "scripts/evaluate_onboard_navigation_original82.py",
+      "bytes": 45155,
+      "sha256": "6d3f502df0dbad6cc511634a06b70a97b84598451a4d83f1e1f15b6f53ff2b69"
+    },
+    {
+      "path": "tests/test_evaluate_onboard_navigation_original82.py",
+      "bytes": 40635,
+      "sha256": "c3004b853b73ab5a2daf112ff7acb5a95ef3ddacaebbea7e68c792a9c5d46a2d"
+    },
+    {
+      "path": "scripts/analyze_onboard_navigation_original59.py",
+      "bytes": 28246,
+      "sha256": "6ddb90202732e02a7c88196293de25adc55135385e544b0cbbe8fe4e55e21bee"
+    },
+    {
+      "path": "tests/test_analyze_onboard_navigation_original59.py",
+      "bytes": 20538,
+      "sha256": "e834c21a0c6c36a2d4df995bb7d58630e82c5a9f4aa2b257ce666776ff8516e6"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-original82-20261008-r1/report.json",
+      "bytes": 364220,
+      "sha256": "95d37fefb7e0ae842d2b6c6f59212e0655a981a8f4dbae8e170270e075696e1d"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-original82-20261008-r1/predictions.jsonl",
+      "bytes": 121401,
+      "sha256": "4b3d61cc34bce9ddb0f40276b3528e8f7b7f3de67f0cabf5d6ac368b6b6d3e42"
+    },
+    {
+      "path": "artifacts/evaluation/onboard-navigation-original82-20261008-r1/scores.json",
+      "bytes": 159754,
+      "sha256": "c70693797226de0c3c40c7fe8d35c7165a888c38081d80a38d0d96d5de22c657"
+    },
+    {
+      "path": "artifacts/diagnostics/onboard-navigation-original59-analysis-20261008-r1/report.json",
+      "bytes": 65709,
+      "sha256": "73f1826745037f3e3f1d81a1c13f23c3e446c6ff94c3b199dc0a95cadf040d9d"
+    },
+    {
+      "path": "docs/evidence/onboard-navigation-recovery267-terminal-20261008-r2.json",
+      "bytes": 6446,
+      "sha256": "4a40567318bffbd547f68f025e5ce5f60012056df5ed0af10615f6eccf553203"
+    }
+  ],
+  "actual_execution": {
+    "plan_emission_native_exit_code": 0,
+    "plan_emission_tool_chunk": "f0c584",
+    "actual_session_id": 32864,
+    "actual_launcher_pid": 37052,
+    "actual_worker_pid": 54156,
+    "actual_start_tool_chunk": "08e28c",
+    "actual_native_exit_code": 0,
+    "actual_terminal_tool_chunk": "30d143",
+    "processes_terminated": true,
+    "root_process_exit_observation_native_exit_code": 0,
+    "root_process_exit_observation_tool_chunk": "a79919",
+    "started_at": "2026-10-08T07:07:44.1322+08:00",
+    "ended_at": "2026-10-08T07:14:19.444218+08:00",
+    "actual_analysis_native_exit_code": 0,
+    "actual_analysis_tool_chunk": "1d41f1",
+    "independent_raw_analysis_review_native_exit_code": 0,
+    "independent_raw_analysis_review_tool_chunk": "f4ae31",
+    "independent_statistics_review_native_exit_code": 0,
+    "independent_statistics_review_tool_chunk": "354b1b",
+    "independent_generation_observation_review_native_exit_code": 0,
+    "independent_generation_observation_review_tool_chunk": "57b50b",
+    "independent_reviewer_reobserved_native_exits_or_PIDs": false
+  },
+  "coverage": {
+    "sample_count": 59,
+    "dev_validation_count": 17,
+    "dev_test_count": 42,
+    "publisher_split": "TRAIN",
+    "independent_official_holdout": false,
+    "original23_train_rows_entered_model": 0,
+    "generation_attempts": 59,
+    "generation_returns": 59,
+    "durable_prediction_count": 59,
+    "gold_scored_only_after_all_raw_predictions_durable": true,
+    "raw_rows_contain_no_gold_or_score": true,
+    "raw_scores_and_summaries_independently_rederived": true,
+    "actual_output_prefix_independently_verified": true,
+    "all59_prefix_hook_and_token_count_observations_consistent": true,
+    "source_bindings_unchanged": true,
+    "repository_source_inventory_count": 320,
+    "runtime_source_inventory_count": 40,
+    "independent_current_non_image_small_source_SHA256_count": 179,
+    "independent_current_stat_only_source_count": 181,
+    "independent_stat_only_image_count": 168,
+    "independent_reviewer_read_image_bytes_or_pixels": false,
+    "independent_reviewer_read_model_weights": false,
+    "adapter_parameter_sha256_reported_after": "ee922c7960f60e4ef4d5b6fcee00e87e4f0713171b21c5e286b43486523abe6e",
+    "base_parameter_sha256_reported_after": "c04c7a37e3a717329d2f6b06c9fd7109f431e938e4d201c319e819662113aac6",
+    "independent_reviewer_recomputed_parameter_digest_from_weights": false,
+    "durability_review_is_source_order_and_saved_output_not_syscall_tracing": true
+  },
+  "results": {
+    "strict_contract_valid": 59,
+    "action_class_correct": 16,
+    "action_class_accuracy": 0.2711864406779661,
+    "metric_correct": 0,
+    "joint_action_and_metric_correct": 0,
+    "dev_validation_action_correct": 15,
+    "dev_test_action_correct": 1,
+    "non_forward_correct": 0,
+    "non_forward_support": 5,
+    "STOP_correct": 0,
+    "STOP_support": 2,
+    "gold_class_counts": {
+      "forward": 54,
+      "yaw_right": 1,
+      "up": 1,
+      "down": 1,
+      "stop": 2
+    },
+    "predicted_class_counts": {
+      "forward": 17,
+      "yaw_right": 18,
+      "stop": 24
+    },
+    "all59_wrong_kind_count": 43,
+    "forward_comparable_count": 16,
+    "forward_wrong_kind_excluded_from_error_mean": 38,
+    "forward_conditional_translation_L2_error_mean_m": 5.5,
+    "forward_conditional_translation_L2_error_max_m": 7.0,
+    "macro_recall_gold_present_five_classes": 0.05925925925925926,
+    "generation_budget_eligible_count": 59,
+    "token_cap_192_reached_count": 0,
+    "cooperative_30s_budget_exceeded_count": 0,
+    "generation_elapsed_mean_s": 5.826036155932081,
+    "generation_elapsed_min_s": 4.695205900003202,
+    "generation_elapsed_max_s": 6.9883045999958995,
+    "generation_timing_scope": "after_H2D_includes_prefix_observer_generate_sync_D2H_decode_not_CPU_encoding_or_online_E2E_or_uninstrumented_benchmark",
+    "hard_generation_deadline_enforced": false,
+    "current59_base_or_warm_model_comparison_run": false,
+    "old86_reference_records_reused_not_rerun": true,
+    "mathematical_always_forward_reference_is_not_model_or_flight_policy": true
+  },
+  "optimizer_performed": false,
+  "forward_backward_performed": false,
+  "training_performed": false,
+  "budget_reset": false,
+  "quality_claim": false,
+  "candidate_promoted": false,
+  "default_model_changed": false,
+  "official_holdout_verified": false,
+  "online_freshness_verified": false,
+  "end_to_end_online_latency_measured": false,
+  "execution_authority": false,
+  "flight_performed": false,
+  "sim_real_parity_verified": false,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}

@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "evidence_id": "onboard-policy-3d-replay-comparison-20261005",
+  "product_version": "0.3.0-pre.8",
+  "scope": "same_seed_3d_sensor_contract_replay_selection",
+  "claim_boundary": {
+    "synthetic_structured_training": true,
+    "pixel_level_rendered_training": false,
+    "external_gazebo_runtime": false,
+    "jetson_hardware_evidence": false,
+    "pixhawk_hardware_evidence": false,
+    "hil_real_evidence": false,
+    "outdoor_gnss_evidence": false,
+    "physical_performance_claimed": false,
+    "candidate_promoted": false,
+    "final_release_allowed": false
+  },
+  "parent_reference": {
+    "model_id": "onboard-policy-r17-teacher-consistent",
+    "model_path": "artifacts/models/onboard-policy-r17-teacher-consistent/onboard_policy_r17.onnx",
+    "model_sha256": "7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3",
+    "same_seed_baseline_model": "artifacts/models/onboard-policy-baseline-seed-20261010/onboard_policy_baseline.onnx",
+    "same_seed_baseline_sha256": "535898580be5abcf4adca1ef50f737560dd6617bdf31b38f759590d7a5626e7c",
+    "same_seed_baseline_task_accuracy": 0.995482866043614,
+    "same_seed_baseline_flight_accuracy": 0.9948598130841122,
+    "same_seed_baseline_samples": 64200
+  },
+  "candidates": [
+    {
+      "model_id": "onboard-policy-r19-gazebo3d-balanced",
+      "model_path": "artifacts/models/onboard-policy-r19-gazebo3d-balanced/onboard_policy_r19.onnx",
+      "model_sha256": "c213d764538e8ef0c34313fbbf937b67a1ccfd7195eb0575ae8c92fdad9352d1",
+      "training_config_sha256": "b25b8653e2750ef02f97e869af176bf6cf2badf8a1cba85c66a3072302cca60c",
+      "training_report_sha256": "fc92c1c8d0011508541a14fc63f24e0bcc2493e1403eb4500ab5dd7fdd6050c5",
+      "sample_count": 67200,
+      "gazebo_3d_samples": 3000,
+      "evaluation_task_accuracy": 0.990625,
+      "evaluation_flight_accuracy": 0.991889880952381,
+      "independent_3d_holdout": {
+        "path": "artifacts/evaluation/onboard-policy-r19-3d-sensor-holdout-20261010.json",
+        "sha256": "d11adbe6bf4ec968bc5e4e1b466c4997e9a3f3a39abacc3afcab716d81146cf0",
+        "task_accuracy": 0.956666666666667,
+        "flight_accuracy": 0.951111111111111,
+        "compatible_output_rate": 0.981111111111111
+      }
+    },
+    {
+      "model_id": "onboard-policy-r20-gazebo3d-low-lr",
+      "model_path": "artifacts/models/onboard-policy-r20-gazebo3d-low-lr/onboard_policy_r20.onnx",
+      "model_sha256": "78aac8865f6f06a582afabb70956f3964ab4c6a000c296d8e92cac48eeeb852d",
+      "training_config_sha256": "e2ec5f89576b3ab4586ab53a33a5cad637e846e228130b1c475d82bfb75829aa",
+      "training_report_sha256": "28252ef95bf1ffc43e46f5da0d0a6a42d27f32ded4a264ae21ab803276bba945",
+      "sample_count": 67200,
+      "gazebo_3d_samples": 3000,
+      "learning_rate": 0.0005,
+      "evaluation_task_accuracy": 0.979464285714286,
+      "evaluation_flight_accuracy": 0.981770833333333,
+      "independent_3d_holdout": null
+    },
+    {
+      "model_id": "onboard-policy-r21-gazebo3d-replay1000",
+      "model_path": "artifacts/models/onboard-policy-r21-gazebo3d-replay1000/onboard_policy_r21.onnx",
+      "model_sha256": "eac718c4e9129b8f41743d26cd764b76a6399d494de92e24fbddcebc9ee9efc3",
+      "training_config_sha256": "30fbf50e5329e8a4685ceacc04edc2608a42d8599c347ff52265803293ae08cd",
+      "training_report_sha256": "64661adeb8c4081bcc2a8618c4c1f97ec7ecd1d0f76b4680f32aed0ec363e8d1",
+      "sample_count": 65200,
+      "gazebo_3d_samples": 1000,
+      "evaluation_task_accuracy": 0.989953987730061,
+      "evaluation_flight_accuracy": 0.99079754601227,
+      "independent_3d_holdout": {
+        "path": "artifacts/evaluation/onboard-policy-r21-3d-sensor-holdout.json",
+        "sha256": "922b73cec7e143e9501c551d7e395fa2a4c37c55a1721a2682d764f53229452b",
+        "task_accuracy": 0.852222222222222,
+        "flight_accuracy": 0.862222222222222,
+        "compatible_output_rate": 0.953333333333333
+      }
+    }
+  ],
+  "selection": {
+    "selected_model_id": "onboard-policy-r17-teacher-consistent",
+    "decision": "keep_parent_and_do_not_promote_candidates",
+    "reason": "r19 improves the structured 3-D holdout over r17 but reduces same-seed general task accuracy; r20 and r21 do not recover both objectives",
+    "next_training_requirement": "use real rendered 3-D RGB/Depth/perception records with reviewed labels and a separate base-policy holdout before promotion"
+  },
+  "release_parity": {
+    "path": "configs/release-parity.json",
+    "bytes": 13332,
+    "sha256": "61eef1e7320706d382a06f71936a18472ac0467384970eb98a2c5074fdd9d0af",
+    "core_algorithm_hash": "8635241c8f7093d73e41b52a171b3df5aebdf4c5aa13df01f1d21280fd6d1534"
+  }
+}

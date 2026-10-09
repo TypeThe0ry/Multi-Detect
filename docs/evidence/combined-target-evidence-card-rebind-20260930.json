@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "operation": "source_bound_target_evidence_card_rebind",
+  "source_path": "artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/combined-evidence.json",
+  "source_bytes": 259353,
+  "source_sha256": "5031eefe75cf78d42aeccc04e990bb8f9975fbc6ebb12d4087f685c18652c8b6",
+  "audit_path": "artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/integrated-sim-qgc.audit.jsonl",
+  "audit_bytes": 3175365,
+  "audit_sha256": "1ba52e5f8a947f54c143262cebd3df99070ff7580026165407ddfc23cfeb6289",
+  "output_path": "artifacts/evaluation/combined-sim-qgc-20260930-target-cards-r1/combined-evidence.json",
+  "output_bytes": 793620,
+  "output_sha256": "c669fb0ebb9a02c41cf8ba3db7d8b88cf9fd1ff6c54908ff6bfea12a4c5c8365",
+  "release_parity_path": "configs/release-parity.json",
+  "release_parity_sha256": "ccff9282a858e871238a3cc4c315811ba498d31e8ed4a0fd06cb9517aa4d238c",
+  "release_parity": {
+    "core_algorithm_hash": "5d0ab0462b023241b2515f0ae40becc66bb4f8d48eda8582d453b3cb695e5fc9",
+    "px4_mission_path_hash": "58b94395805924cf78af386355be9952c2aaeb49c7404bcf11c73371450eb8fc",
+    "safety_policy_hash": "8808fe934c07328436313878cf8b4e8d0f655d4de8326e8a0fdb4ab6281ec69b",
+    "task_contract_hash": "eb5d78f252a2e853f99baee5fdf51fd2227682ee0b96adbb4917fb97cb2e0158",
+    "ui_contract_hash": "46629ac7ec0af1dc03b9d4d01b5ec56f959cf6c2c5ec27e59ebf76cd1090ecb9"
+  },
+  "run_identity_sha256": "a6636ab143631b91b5e39271ebd8b097bad4ad64295369a165c3c62c38b8f9e1",
+  "primary_solution_count": 832,
+  "geolocated_count": 336,
+  "target_evidence_card_count": 336,
+  "runtime_reexecuted": false,
+  "source_bound": true,
+  "read_only_migration": true,
+  "physical_performance_claimed": false,
+  "hil_real_evidence": false,
+  "outdoor_gnss_evidence": false,
+  "final_release_allowed": false
+}
