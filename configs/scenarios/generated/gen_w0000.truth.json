@@ -1,0 +1,45 @@
+{
+  "scenario_id": "gen_w0000",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "targets": [
+    {
+      "behavior": "stationary",
+      "class": "vehicle",
+      "color": "红",
+      "label": "red_vehicle",
+      "pose": {
+        "x_east_m": 55.045,
+        "y_north_m": -3.098,
+        "yaw_rad": -1.79078,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35207213,
+        "longitude_deg": 103.82029461
+      },
+      "target_id": "target_true_0000"
+    },
+    {
+      "behavior": "stationary",
+      "class": "rover",
+      "color": "蓝",
+      "label": "blue_rover",
+      "pose": {
+        "x_east_m": 49.984,
+        "y_north_m": -31.604,
+        "yaw_rad": -1.617887,
+        "z_up_m": 0.75
+      },
+      "position": {
+        "altitude_m": 0.75,
+        "altitude_reference": "world",
+        "latitude_deg": 1.35181562,
+        "longitude_deg": 103.82024914
+      },
+      "target_id": "distractor_0000_00"
+    }
+  ]
+}

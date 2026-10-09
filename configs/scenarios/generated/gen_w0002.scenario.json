@@ -1,0 +1,21 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_w0002.expectations.json",
+      "sha256": "ba8b6de3795f47b268b5d2c9162b2777fc88e41728c939596267a681b8a5c577"
+    },
+    "runtime_input": {
+      "path": "gen_w0002.runtime.json",
+      "sha256": "df332fc2c02331531f9308f4eace22e41a477e28c3de4ad3111bf02db03f51d2"
+    },
+    "truth": {
+      "path": "gen_w0002.truth.json",
+      "sha256": "352d35df52d8603c451c24991349e054cbe79f88297c316c06f892935767a86d"
+    }
+  },
+  "scenario_id": "gen_w0002",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "split": "train",
+  "task_text": "请定位绿色货运车并记录它的位置"
+}

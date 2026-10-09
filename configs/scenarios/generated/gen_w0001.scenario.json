@@ -1,0 +1,21 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_w0001.expectations.json",
+      "sha256": "d70e0c5bf7392a28331712a7dab9a6c5ac7e7c840e9c00cba610d2c026b734c7"
+    },
+    "runtime_input": {
+      "path": "gen_w0001.runtime.json",
+      "sha256": "041c097b08d5d108ca71926acde90bb9549e4e801546b2019a094496ca4abca0"
+    },
+    "truth": {
+      "path": "gen_w0001.truth.json",
+      "sha256": "3d797ec53100b09f6b11d67165ec010dec572a6ac542b9760b2f1e3c044882a8"
+    }
+  },
+  "scenario_id": "gen_w0001",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "split": "train",
+  "task_text": "搜索场景中的蓝色探测车，报告坐标"
+}

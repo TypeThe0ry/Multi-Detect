@@ -9,6 +9,8 @@
     "schema_version": {"const": 1},
     "scenario_id": {"type": "string", "minLength": 1},
     "scenario_version": {"type": "integer", "minimum": 1},
+    "split": {"enum": ["train", "val", "test"]},
+    "task_text": {"type": "string", "minLength": 1},
     "channels": {
       "type": "object",
       "additionalProperties": false,

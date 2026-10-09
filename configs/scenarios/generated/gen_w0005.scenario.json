@@ -1,0 +1,21 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_w0005.expectations.json",
+      "sha256": "482a73aa919a2b3c4d77b901f98f46334e95a2811736d261ed0880fced75bfe5"
+    },
+    "runtime_input": {
+      "path": "gen_w0005.runtime.json",
+      "sha256": "a7bcd37fc937ade9f96e663c1d216d08025e7a4a9f891245ce2a0ef536fa62f2"
+    },
+    "truth": {
+      "path": "gen_w0005.truth.json",
+      "sha256": "3536b8e488773160ac77eda6c85e664b0b67d2ec191bb378a347becd15a9ff32"
+    }
+  },
+  "scenario_id": "gen_w0005",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "split": "test",
+  "task_text": "寻找目标蓝色货运车并完成定位"
+}

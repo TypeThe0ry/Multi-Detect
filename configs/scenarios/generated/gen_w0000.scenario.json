@@ -1,0 +1,21 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "gen_w0000.expectations.json",
+      "sha256": "3b633898fe40a7c0c5fdc06ca3b2381b71616cbb77e0e9bacde4e021848a13ef"
+    },
+    "runtime_input": {
+      "path": "gen_w0000.runtime.json",
+      "sha256": "bdc9dbe82464005e749a3dc27f6f7f67300dac23e508a2ed82ff78f3fa01de3f"
+    },
+    "truth": {
+      "path": "gen_w0000.truth.json",
+      "sha256": "3b029ef19004fbd64cab339c760da69bf32aa977201b4e5d969386d0734271e0"
+    }
+  },
+  "scenario_id": "gen_w0000",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "split": "train",
+  "task_text": "找到红色车辆并记录位置"
+}
