@@ -6,6 +6,24 @@ Multi-Detect 以机载 GPS 位置、经过融合的目标距离和相对方位/�
 
 此功能是**只读定位证据**：它不创建航点、Survey、Guided action、任务项，也不会向 PX4 发送位置或姿态指令。黄色圆圈是报告的不确定度在当前地图缩放级别的显示，不是禁飞区、航迹半径或自动控制边界。
 
+### SIM/REPLAY 证据卡片契约
+
+Python 侧的 `multidetect.target_evidence_card.TargetEvidenceCard` 是同一条
+目标事件的可审计摘要：它绑定 `TargetEvent`、现有 WGS-84 `TargetGeolocation`、GPS
+新鲜度、测距有效性和可选的 SIM runtime identity。`available=true` 时才包含纬度、经度
+和水平 `1σ`；GPS 不合格、GPS 过期、测距不可用或定位结果缺失时，卡片只写入
+`available=false` 及明确原因，三个坐标字段保持 `null`。卡片的 `claims` 固定声明
+`read_only_evidence=true`、`contains_flight_control=false`、`contains_truth=false`，
+因此不能被任务编译器、Permit 或执行器当成输入。`from_mapping()` 还会拒绝非规范 JSON、
+极点坐标、坐标泄漏和任何不安全 claim；这是机器契约，不等同于 QGC 人工视觉签字。
+
+在 integrated SIM/QGC ranging acceptance 中，卡片列表位于
+`target_geolocation_acceptance.target_evidence_cards`。combined-SIM verifier 会重新解析每张
+卡片，并检查 `target_evidence_card_count`、错误列表、`available_geolocation_count` 与卡片数
+一致；卡片的 `run_identity_sha256` 还必须等于本次 integrated SIM 的 `run_identity_hash`。
+这使目标点和不确定性圆与同一批传感器/回放证据绑定，不能通过复制旧坐标或伪造汇总字段来通过
+combined gate。未配置目标定位的历史 artifact 不包含这组字段，仍按历史兼容规则读取。
+
 ## SIM 高度基准
 
 Gazebo 的世界 ENU `z/up` 不是地形相对高度；在坡地、台地或带 MSL 原点的 world 中，把它当 AGL 会让
@@ -159,12 +177,28 @@ $py = '.\ground-control\MultiDetectGCS\.venv\Scripts\python.exe'
 & $py scripts\validate_outdoor_depth_calibration.py `
     captures\outdoor-depth-candidates.csv `
     --calibration artifacts\calibration\outdoor-piecewise-v1.json `
-    --output artifacts\calibration\outdoor-piecewise-v1.validation.json
+    --output artifacts\calibration\outdoor-piecewise-v1.validation.json `
+    --require-independent-holdout `
+    --minimum-independent-holdout 3 `
+    --maximum-holdout-mae-m 2.0 `
+    --maximum-holdout-rmse-m 3.0 `
+    --maximum-holdout-error-m 6.0 `
+    --maximum-holdout-relative-mae 0.20
+& $py scripts/verify_outdoor_depth_calibration_report.py `
+    --calibration artifacts\calibration\outdoor-piecewise-v1.json `
+    --report artifacts\calibration\outdoor-piecewise-v1.validation.json `
+    --require-quality-gate
 ```
 
 运行时 metadata 会记录 `metric_depth_calibration_mode`、raw 实测范围和外推状态；
 `calibration_extrapolated=true` 时距离仍可作为估计值参与融合，但不允许把它当作已完成该距离段的室外真值。
-当前台式机没有连接 Jetson、相机或室外 GNSS，因此仓库只验证拟合器、文档和运行时映射，尚未生成现场实测标定结论。
+`--require-independent-holdout` 会把独立样本数、MAE、RMSE、最大绝对误差和相对 MAE
+变成 fail-closed 质量门；未通过时验证器写出完整报告但返回非零，不能继续把该文档作为部署就绪标定。
+不带该开关时报告仍是 advisory，兼容早期仅用于诊断的回归。当前台式机没有连接 Jetson、相机或
+室外 GNSS，因此仓库只验证拟合器、独立 holdout 质量门、文档和运行时映射，尚未生成现场实测标定结论。
+部署前可用 `verify_outdoor_depth_calibration_report.py` 再绑定一次报告与标定文件的 SHA-256；
+Jetson 启动器只有在显式设置 `METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1` 时才强制要求
+严格门通过。这个绑定仍是软件证据，不替代室外 RTK/测量仪真值。
 
 ## 室外定位真值验收
 
@@ -276,6 +310,11 @@ ground_truth_latitude_deg,ground_truth_longitude_deg`，`reported_sigma_m`、`ta
 
 切换目标、取消 TRK/LCK、目标 ID 不匹配、GPS 降级或数据失效时，地图标记会清除。仍存在当前目标但不能定位时，证据卡明确显示“不可定位”、说明原因并禁用复制/保存按钮；它不会用旧坐标、估算点或空坐标填充地图。若地图画面没有覆盖该点，证据卡仍保留合格的文本状态，但不会在错误位置绘制图标。
 
+目标事件回放弹窗对每一条通过 native hash、GPS 新鲜度和坐标域校验的历史事件提供“落图预览”。
+预览使用橙色标记和同一 WGS-84 局部曲率换算的 `1σ` 圆，只把事件投影到当前主地图，
+不写入 `MultiDetectState`、不改变实时目标、不产生 Mission/Guided/飞控消息。选择新清单或点击
+“清除落图预览”会清除该历史标记；不可定位事件没有预览按钮，也不会保留上一个事件的点。
+
 ## 本地快照记录
 
 快照保存到应用的本机数据目录下 `snapshots/target-snapshots.jsonl`，每行是一条 `multidetect.target-evidence.v1` JSON 记录；不上传网络、不包含 operator key、视频帧、深度图或飞控指令。记录上限为 500 条，达到上限时界面会拒绝继续保存，要求先归档该本地证据文件。`v1` 快照的纬度采用严格 `(-90, 90)` 边界；损坏、越界或精确极点记录在加载时被忽略，不会重新变成地图点。该本地快照规则不改变目标事件回放 `multidetect.target-event-replay.v1` 的读取兼容性。
@@ -295,7 +334,7 @@ Python 侧的 `multidetect.target_event_replay.TargetEventReplayBuilder` 将一�
     └── 000000-depth_map.bin
 ```
 
-每个事件同时绑定：视频帧或深度图、目标 ID/类别、捕获时间、实际距离及 `VALID/DEGRADED/UNAVAILABLE` 状态、相对方位、GPS 质量、WGS84 坐标和水平 `1σ`。GPS 可带与事件共用单调时钟的 `observed_at_s`；回放事件会写入派生的 `gps_age_s` 和 `gps_freshness`（`fresh`/`stale`/`unknown`），加载时重新计算并校验，防止把旧坐标冒充当前观测。写入和加载都会执行以下门：
+每个事件同时绑定：视频帧或深度图、目标 ID/类别、捕获时间、实际距离及 `VALID/DEGRADED/UNAVAILABLE` 状态、相对方位、GPS 质量、WGS84 坐标和水平 `1σ`。GPS 可带与事件共用单调时钟的 `observed_at_s`；回放事件会写入派生的 `gps_age_s` 和 `gps_freshness`（`fresh`/`stale`/`unknown`），加载时重新计算并校验，防止把旧坐标冒充当前观测。通过校验的事件可以在 QGC 做上述只读地图预览，但仍不能成为实时目标或任务输入。写入和加载都会执行以下门：
 
 定位核心把 GNSS→camera 杆臂和相机射线组成一个完整 NED 目标向量。姿态、mount 三轴和像素中心的
 `±1σ` 扰动会同时更新 ray/camera-offset 端点，并用于 slant、DEM、ground range 和 bearing sigma；

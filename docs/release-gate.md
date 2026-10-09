@@ -1,4 +1,342 @@
+# Current source-bound continuation (2026-10-08, scoped teacher compilation)
+
+The current change revalidates explicit SIM budget/capability sources, binds a
+fresh v2 multirotor teacher draft to its runtime scope and fixes GCS 255/190 INT
+transaction identity. The final combined CPU regression has 669 passing tests.
+It does not provide a real validation grant, upload a Mission, arm, fly or train
+a model. Both receive-age/reserve boundary defects were corrected and reviewed;
+low-level compilation cannot silently reuse an older modeled budget. See
+`docs/evidence/onboard-teacher-sim-planning-admission-20261008-r1.json`.
+
+The teacher SIM operator R2 completed a fresh owned PX4/Gazebo **ground observation**:
+16 qualified snapshots, 2 RGB/depth pairs and 4,428 raw packets. It did not upload a
+Mission, arm, fly, load/train a model or run a release campaign. Source equality is
+bounded to its recorded execution window, not the later manifest refresh. See
+`docs/evidence/onboard-teacher-sim-operator-20261008-r2.json`.
+
+The fourth visual increment completed 12 native GPU epochs and raw ONNX export.
+The six paired/replay processes exited 0, but frozen development quality rules
+failed: far-static and old-continuous recall regressed, and same-ID recovery
+remains zero. The candidate is not promoted. See
+`docs/evidence/onboard-visual-replay-increment-20261007-r4.json`.
+The strict observation audit verified 303/403 payload-readable frames; one
+staging/raw scenario seed mismatch was rejected. No action/history optimizer
+was admitted from that corpus. VLM/world-model research is selection/design
+only: no weights downloaded, no VLM inference/fine-tuning, and no new external
+Gazebo/PX4 or hardware run in that historical visual experiment. The subsequent
+Context v2 source update changes core, Mission-path and task-contract parity, not
+the release status; preserved historical evidence is not relabeled as a fresh run.
+
+The authoritative release label is still `0.3.0-pre.8`; final `0.3.0` remains
+blocked. The checked-in current source identity is `configs/release-parity.json`;
+its byte/SHA and all five contract hashes are bound in `docs/current-progress.json`.
+`python scripts/verify_current_progress_index.py --root .` passes; the
+fail-closed audit retains the historical 32 blockers and `release_allowed=false`;
+it is not an exhaustive newly executed current release-gate evaluation.
+
+The active audit summary is
+`artifacts/evaluation/parity-teacher-admission-20261008-r2/release-gate-audit.json`.
+The active three-vehicle Mission matrix is
+`artifacts/evaluation/parity-teacher-admission-20261008-r2/external-mission-matrix.json`.
+That matrix is a retained-file audit rebinding preserved historical fixed-wing,
+multirotor, and VTOL evidence to the current parity; it is not a new external
+SIM rerun. The latest fresh external Prompt -> OnboardAI -> PX4/Gazebo run is
+`docs/evidence/prompt-onboard-vtol-gazebo-20261004-r6.json`, with same-container
+RGB/depth capture. It proves software integration only, not Jetson/Pixhawk
+hardware, HIL/REAL, outdoor GNSS, QGC visual acceptance, metric distance
+accuracy, or final release.
+
+This source update adds unknown/source-aware Context v2, conservative capability
+checks and explicit legacy-model/Mission admission boundaries. Canonical context
+code and both schemas are now in task-contract parity. The retained raw release
+report and mode probes still keep their
+original parity; the current audit explicitly records
+`current_release_parity_bound=false` and the actual mismatches. Source/index
+verification is not a new external runtime, release, or policy-promotion pass.
+Because `contracts.py` changed, the software foundation was actually re-executed
+and passed rather than rewriting its old source hash. Its new receipt is
+`docs/evidence/v030-pre1-foundation-context-v2-20261008-r1.json`; it exercises
+software contracts and deterministic Replay/Simulator only, not external flight.
+
+The 2026-10-05 red-car external run also has actual RGB/Depth evidence in
+`docs/evidence/external-red-car-actual-detector-20261005-r2.json`: the candidate
+detector matched `car → red` and measured about 5.057 m, but the task probe was
+correctly rejected because no telemetry-gated `TAKEOFF → SEARCH` completion was
+observed. It does not raise the release gate.
+
+The latest autonomous red-car run is summarized by
+`docs/evidence/external-red-car-autonomous-20261005-r28.json`. It passed the
+external PX4/Gazebo runtime, ARM/takeoff, sensor pairing and 20 Mission
+transactions, but detector confidence at roughly 22 m was only 0.01--0.02
+against the calibrated 0.25 action gate. The shared executor therefore stayed
+in SEARCH and withheld target GPS, RTL and REPORT. This is a detector-training
+blocker, not evidence of a successful physical flight.
+
+Current-parity retained-file rebinds preserve original evidence immutably and
+mark `retained_file_audit`, `runtime_source_parity_verified=false`, and
+`external_sim_rerun_performed=false` where no new runtime was executed.
+
+## Historical QGC combined-sim audit
+
+The current authoritative index is `docs/current-progress.json`. The current
+parity audit is `docs/evidence/release-parity-current-20261006-r2.json`.
+fresh combined PX4/Gazebo/QGC SIM is
+`artifacts/evaluation/combined-sim-qgc-20261003T070847Z-42300/combined-evidence.json`
+(4,035,353 bytes, SHA-256
+`f17b3701508a95c269b527827eb289b9c4ca8e26a1a920a01749eb611e759b02`), summarized by
+`docs/evidence/combined-sim-qgc-20261003-r5.json`. That historical run was bound to
+the previous parity SHA-256 `084e1d156d1be70b256586820a88d15faa2af05ab1a598ad813c9730d3094a61`.
+The current `configs/release-parity.json` is 12864 bytes with SHA-256
+`e7fc84d1e6ef35c749887d20177f3211decdccd6728a2b60f4032fbe041d240a`; the old run
+must not be relabeled as a new current-parity run. The current
+QGC Release executable SHA-256
+`6f0403cfb29ec6b13d0b5b684a1787327c85db6d91bc5b4662fde867581af37f`.
+The combined gate, 900-frame integrated SIM, native video surface, machine toolbar
+smoke, exact-PID/HWND `SELECT_TRK` SelectionAck/TrackStatus adoption, VTOL Mission
+and disposable-container cleanup all passed. This remains software SIM evidence:
+no human visual acceptance, HIL, REAL, hardware, outdoor GNSS, or final `0.3.0`
+release claim is made. The release-gate audit below remains the active fail-closed
+audit: `docs/evidence/shared-policy-release-parity-policy-helper-20261003-qml-r7.json`;
+it has 32 blockers and `release_allowed=false`. The OnboardAI executor is covered
+by automated shared-core checks only; it adds no HIL, REAL, Jetson, outdoor GNSS,
+or final-release evidence.
+
+The current source-bound external mission/depth references are
+`artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261003-qml-r6.json`,
+`artifacts/evaluation/external-multirotor-depth-shared-policy-20261003-qml-r6.json`,
+`artifacts/evaluation/continuation-shared-policy-vtol-sensor-20261003-qml-r5.json`,
+`docs/evidence/external-mission-matrix-20261003-qml-r7.json`, and
+`artifacts/evaluation/shared-policy-vehicle-matrix-20261003-qml-r7.json`.
+Older paths such as `external-fixed-wing-depth-shared-policy-20261003-current-r2.json`,
+`external-multirotor-depth-shared-policy-20261003-current-r2.json`, and
+`shared-policy-current-vtol-campaign-20261001-r31.json` are retained below only as
+historical references; they are not the active current evidence.
+
+# Historical current source-bound continuation (2026-10-03, depthguard-r2-model-assets / parity rebind)
+
+The current authoritative index is `docs/current-progress.json`.  After the
+depth-contract and rendered-hit fixes, the checked-in parity is
+`configs/release-parity.json` (12,749 bytes,
+SHA-256 `0dd9394b477260852ebd4828a20df2f0760f6c1cbbfa4423972d4223a70ad027`)
+with `core_algorithm_hash=de997b7833d70bc7f424c210e4520ebe53d33c0aec20c9b039fb324e3bc1db41`.
+The current source-bound VTOL sensor evidence is
+`artifacts/evaluation/continuation-shared-policy-vtol-sensor-20261003-depthguard-r1.json`;
+the current external mission matrix is
+`docs/evidence/external-mission-matrix-20261003-depthguard-r3-model-assets.json`.
+The current retained-file audit is
+`docs/evidence/shared-policy-release-parity-policy-helper-20261003-depthguard-r2-model-assets.json`.
+This rebind is derived from retained evidence; it is not a new PX4/Gazebo
+runtime execution and it does not close the QGC visual/Mission, HIL, REAL,
+hardware, outdoor-GNSS, or final-release gates.  The audit remains
+`blocker_count=32`, `release_allowed=false`.
+
+The QGC combined run used to diagnose the native `SELECT_TRK` path stopped
+before a `SelectionAck`: the overlay logged `stable_hit=false`, so no SELECT
+command was sent.  The QML hit test now first uses the actual rendered target
+delegate geometry.  That run is diagnostic only and is not counted as visual
+acceptance.  The previously created Gazebo optical-axis identity document was
+quarantined because it is a sensor-wire contract, not a Depth Anything metric
+model calibration; the calibration loader and combined wrapper now reject it.
+
+# Historical source-bound continuation (2026-10-03, r14 / parity rebind)
+
+The current authoritative index is `docs/current-progress.json`.  The checked-in
+parity is `configs/release-parity.json` (12,749 bytes,
+SHA-256 `0c1676f032ae069a7c168d9a512f91787bb892b8859f8a19da688f1c5c402463`)
+with `core_algorithm_hash=9b78634536d16620f1fee501d12b6e4476a48b9105008f9f4de9a19ae80fabdb`.
+The current external depth evidence is
+`artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261003-current-r2.json`
+and
+`artifacts/evaluation/external-multirotor-depth-shared-policy-20261003-current-r2.json`.
+The current VTOL source evidence remains
+`artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31.json`.
+The current retained-file release audit is
+`docs/evidence/shared-policy-release-parity-policy-helper-20261003-current-r4.json`;
+the current report/manifest are
+`artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound-report.json`
+and
+`artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound.json`.
+The four mode parity records are now bound to the checked-in parity with no
+mode mismatch; it remains fail-closed with `release_allowed=false` and 32 blockers.  The r14
+external PX4/Gazebo sensor campaign passed its source-bound task binding and
+same-container capture checks, but this does not claim QGC visual acceptance,
+HIL, REAL hardware, outdoor GNSS, or final `0.3.0` release.
+
+## Fresh external sensor transport evidence (2026-10-03)
+
+An additional disposable run used the same pinned PX4/Gazebo image and observed
+real container telemetry: PX4 heartbeat, `GPS_RAW_INT` fix type 3 with 10
+satellites, and three wire-v3 camera/CameraInfo/NavSat/full-odometry/covariance
+frames.  The evidence is
+`artifacts/evaluation/continuation-docker-sensor-20261003.json` (92,854 bytes,
+SHA-256 `6f7ceec973fe260276079253644b69d11325f15354974b6336e3ba79f536be48`),
+with the persisted-frame manifest and container log bound in
+`docs/current-progress.json`.  Runtime, telemetry, sensor transport,
+pixel-persistence, and stop/remove cleanup passed; no Mission, ARM, actuator,
+QGC visual, HIL, REAL, hardware, outdoor-GNSS, or final-release claim is made.
+This observation does not change the current release audit: `gate_passed=false`,
+`release_allowed=false`, and 32 fail-closed blockers remain.
+
 # v0.3.0 E7 发布门
+
+## 当前权威快照：SharedTaskPolicy runtime binding 与 field-link 角色分离（2026-10-03）
+
+本轮把 `TaskPolicyRuntimeBinding` 接入 SIM、REPLAY、外部 campaign 的只读状态链：
+决策、弃权、planner revalidation、airframe profile、policy/ranker/mission/wire hash
+均可在证据中核对，但仍不授予 actuator、arming、transport 或 Mission start 权限。
+当前源码 parity 已重算，`configs/release-parity.json` 为 12,697 bytes，SHA-256=
+`b870011d3e72b66d9b44372a697341410afbc1a84b07c4eecc12538108f3c543`；
+`core_algorithm_hash=1b25830a24bb28a89d9e864fde1af608355f3dfdc1cae9fb7b830223341c270f`。
+
+当前 release-gate report 为
+`artifacts/evaluation/release-gate-pre.8-current-20261003T011500Z-v6-bound-report.json`
+（71,941 bytes，SHA-256=`30094ca64c3dd8cb9973091d84a1a29c9493a81ec9b756d8d952fb662b44220c`），
+manifest 为
+`artifacts/evaluation/release-gate-pre.8-current-20261003T011500Z-v6-bound.json`
+（23,699 bytes，SHA-256=`df8f2eb80cebca4c57d1f15ebf193cec498c3d69ac4618fc29e5bcef8ffdd87c`），
+审计为
+`docs/evidence/shared-policy-release-parity-policy-helper-20261003-current-r2.json`
+（5,017 bytes，SHA-256=`e499c155a85f7d9c47c1a8d4ea2886823ae6545ddc86a5f0cee7e2fcab75a1c6`）。
+审计明确 `blocker_count=32`、`gate_passed=false`、`release_allowed=false`。
+
+此次 report 使用
+`artifacts/evaluation/field-link-preflight-current-20260928-r2.json` 作为历史
+release-gate field-link，使用
+`artifacts/evaluation/field-link-preflight-current-20261002-r3.json` 作为独立的
+current probe；两者均为只读、`hardware_link_ready=false`。本轮没有启动新的
+PX4/Gazebo、Docker、HIL、REAL 或实际飞行运行；最终 `0.3.0` 发布仍保持 fail-closed。
+
+## 最新权威快照：context-profile fail-closed 与 source-bound r6（2026-10-02）
+
+`SharedTaskPolicy` 已把可选 `ContextSnapshot.airframe_profile_hash` 纳入决策前校验；存在且
+不匹配时拒绝决策，缺失时仅保留旧 v1 兼容。parity receipt builder 现在还会比较 runtime
+snapshot 的 bytes、文件 SHA、五个契约 hash 与 release label；stable 但旧的快照只保留为
+retained-file audit，不会成为 current runtime proof。对应 stale policy/AI snapshot tests、
+`verify_current_progress_index.py --check-sources` 均通过。
+
+当前 `configs/release-parity.json` SHA-256=`13190f161b5f7aea54b2fb2c7663b572b3f0fb93ab4240c223fac22aec6beef3`。
+最新 source-bound 文件均使用 `context-profile-r6`；本轮没有重新启动外部 PX4/Gazebo。
+release-gate report 为
+`artifacts/evaluation/release-gate-pre.8-current-20261002T145406Z-v6-bound-report.json`
+（SHA-256=`b95d9c14d9f1a40d3aaaa8c37ca210ab1a3bcfc9fa40f2ddb07c86f74168bf34`），manifest SHA-256=
+`b4a8810995402a7f0cdde8386651c2fd3e17ea090a2c54c13355576452bca55f`，audit 为
+`docs/evidence/shared-policy-release-parity-drift-20261002-context-profile-r6.json`
+（SHA-256=`5f4458ed9922479a7fb341b57bb9c5e1d41ec1a08f2c5a7e2bc344c3850eb0e4`）。
+门禁仍为 `gate_passed=false`、`release_allowed=false`、32 blockers；replay-set、现场链路、
+人工视觉/Mission、HIL/REAL、室外 GNSS 与最终 `0.3.0` 发布条件继续 fail-closed。
+
+## 最新权威快照：current / historical field-link 分离（2026-10-02，r28/r8）
+
+完整回归发现上一版 12:00 快照把 current field-link r3 同时绑定为 release-gate
+report 内的 historical field-link，造成证据身份不再分离。没有覆盖历史文件；当前 report
+改用保留的 historical 预检
+`artifacts/evaluation/field-link-preflight-current-20260928-r2.json`（18,140 bytes，
+SHA-256=`437c8fff2bad4a6cab50f1b303446204c4ee9971c376c8fc72ceff0637238905`），current
+probe 仍为
+`artifacts/evaluation/field-link-preflight-current-20261002-r3.json`（18,146 bytes，
+SHA-256=`91f1ed459990e373cdcae2c47daaa960ee9f56d78268cc0e19f3f1c5ef6dc87f`）。
+
+当前 release-gate report 为
+`artifacts/evaluation/release-gate-pre.8-current-20261002T130000Z-v6-bound-report.json`
+（71,899 bytes，SHA-256=`1281d38ab8454c36805c72c9718a5920cd27211c9585114ca6d3c0b105f220f8`），
+manifest 为
+`artifacts/evaluation/release-gate-pre.8-current-20261002T130000Z-v6-bound.json`
+（23,675 bytes，SHA-256=`8c75f8a31ed22208d025082b0ca84ca8008f79558552b609dc0e4e4705c85894`），
+audit 为
+`docs/evidence/shared-policy-release-parity-drift-20261002-gnss-display-r8.json`
+（4,868 bytes，SHA-256=`d485fa095dcdffaa38b406850fcbba6b9b8744b3956ba9a4d7f5f644fceddf59`）。
+历史 field-link 报告已被 verifier 识别为过期，current probe 新鲜但仍因设备/路由不满足而
+`hardware_link_ready=false`；这会保留 stale historical blocker，不用当前 probe 冒充历史证据。
+audit generator 现在还会在生成阶段拒绝 current/historical 使用同一文件或同一 SHA，避免身份
+错绑延迟到进度索引才暴露。
+整体为 `gate_passed=false`、`release_allowed=false`、32 blockers。replay-set、现场硬件链路、
+人工视觉/Mission、HIL/REAL、室外 GNSS 和最终 `0.3.0` 发布门仍全部 fail-closed。
+
+## 历史快照：只读现场预检与 source-bound 重算（2026-10-02，r28/r7，已由 r8 supersede）
+
+PX4 reported-position response matrix/campaign 已根据当前
+`configs/release-parity.json` source-bound 重算到
+`artifacts/evaluation/px4-reported-position-response-current-parity-20261002-gnss-display-r28/`；
+matrix/campaign verifier 均通过。这是对保留的外部 SIM source 的重算与绑定，不是新增 PX4/Gazebo
+运行。随后重新执行只读 field-link 预检：3/3 样本中 Jetson SSH、GR01 MAVLink、相机 RTSP 均超时，
+本机 UDP 绑定成功但实际路由为 `192.168.1.13/24`，不符合 `192.168.144.0/24`，所以
+`hardware_link_ready=false`。当前预检为
+`artifacts/evaluation/field-link-preflight-current-20261002-r3.json`（18,146 bytes，SHA-256=
+`91f1ed459990e373cdcae2c47daaa960ee9f56d78268cc0e19f3f1c5ef6dc87f`）。当前 release-gate report 为
+`artifacts/evaluation/release-gate-pre.8-current-20261002T120000Z-v6-bound-report.json`，
+manifest 为 `artifacts/evaluation/release-gate-pre.8-current-20261002T120000Z-v6-bound.json`，
+并由 `docs/evidence/shared-policy-release-parity-drift-20261002-gnss-display-r7.json` 做 hash-bound audit。
+`current_release_parity_bound=true`，但整体仍为
+`gate_passed=false`、`release_allowed=false`、31 blockers；replay-set、field-link/硬件、人工
+视觉/Mission、HIL/REAL 和最终 release 条件仍未通过。
+
+r28 的原因是 acceptance runner 的 PX4 启动 race 修复改变了 source tool hash；旧 r27 保留为不可变
+历史，不能继续冒充当前源码绑定。r28 仅重算 retained source，不声称新增外部运行。
+
+## 当前权威快照（2026-10-02，`0.3.0-pre.8`）
+
+当前以 [`docs/current-progress.json`](current-progress.json) 和
+ [`docs/evidence/shared-policy-release-parity-drift-20261002-gnss-display-r8.json`](evidence/shared-policy-release-parity-drift-20261002-gnss-display-r8.json)
+为权威索引；下方 v185 及更早章节是历史 chronology，不覆盖当前状态。
+
+- 当前 release-gate report：
+  `artifacts/evaluation/release-gate-pre.8-current-20261002T130000Z-v6-bound-report.json`。
+- report 为 71,899 bytes、SHA-256=`1281d38ab8454c36805c72c9718a5920cd27211c9585114ca6d3c0b105f220f8`；
+  manifest 为 23,675 bytes、SHA-256=`8c75f8a31ed22208d025082b0ca84ca8008f79558552b609dc0e4e4705c85894`。
+- `gate_passed=false`、`release_allowed=false`、32 blockers；当前 external runtime/AI join、PX4
+  response matrix/campaign 已从不可变 source 重新计算并绑定当前 parity，当前 release-gate audit 的
+  `current_release_parity_bound=true`（本轮 source-bound audit 的四个 mode identity 已一致）。这不代表旧运行被重新执行，也不打开 synthetic replay review、
+  现场链路、人工视觉/Mission、HIL/REAL 或最终发布门。
+- 当前 release-gate 双层 field-link 审计文件为
+  `docs/evidence/shared-policy-release-parity-drift-20261002-gnss-display-r8.json`（4,868 bytes，
+  SHA-256=`d485fa095dcdffaa38b406850fcbba6b9b8744b3956ba9a4d7f5f644fceddf59`）。historical binding
+  使用 `artifacts/evaluation/field-link-preflight-current-20260928-r2.json`，current probe 绑定
+  `artifacts/evaluation/field-link-preflight-current-20261002-r3.json`；raw binding 先由独立 verifier
+  重新打开，release report 的 projection 只作为严格 path/SHA/bytes/read-only 交叉校验。历史报告
+  已过期，current probe 的 `hardware_link_ready=false`，不构成 HIL/REAL 或室外 GNSS 证据。
+- SharedTaskPolicy 的 SIM→HIL/REAL identity handoff 为
+  `artifacts/evaluation/shared-policy-runtime-handoff-20261001-r3/handoff.json`（4,287 bytes，
+  handoff SHA-256=`419e81618662bd29d9e0057311cec6dc682481ead0822caa46dbff560f7b55a3`）。它只证明
+  policy/parity/airframe/output-lock 的身份链一致；`hil_acceptance=false`、`real_acceptance=false`、
+  `hardware_acceptance=false`、`flight_acceptance=false`，不代表任何硬件、HIL、REAL 或室外 GNSS 通过。
+- 先运行 `python scripts/verify_current_progress_index.py --root . --check-sources-only` 验证源码身份；
+  完整索引在所有依赖源码的 external 证据完成真实重跑或显式历史化前必须保持 fail-closed。
+- 当前 PX4 response matrix/campaign 为
+  `artifacts/evaluation/px4-reported-position-response-current-parity-20261002-gnss-display-r28/`（matrix/campaign）；
+  它们从已有 6/6 正向 Docker/PX4/Gazebo response 以及 9/9 fault source 重新计算并通过 verifier，
+  不声称本轮新增运行；这些既有运行按各自证据语义通过，campaign verifier 仍会拒绝旧 scenario manifest 绑定。
+  当前 3D control 证据位于
+  `artifacts/evaluation/simulator-3d-control-current-20261001-r1/`，其 external runtime gate
+  保持 `not_claimed`。
+- 当前 field-link 只读预检为
+  `artifacts/evaluation/field-link-preflight-current-20261002-r3.json`；`hardware_link_ready=false`。
+  release audit 的历史 field-link 跟 raw report、current field-link 跟上述索引预检分开绑定，任一
+  路径/bytes/SHA 漂移都会 fail closed。
+- 该次更新的当前 source-bound 索引绑定
+  `external-fixed-wing-shared-policy-20261001-r30.json` 和
+  `external-multirotor-shared-policy-20261001-r30.json`；两架均在同一 pinned
+  PX4/Gazebo image 中通过 SharedTaskPolicy、Mission transaction 和 2 帧 sensor transport。
+  VTOL 的最新当前运行是 `shared-policy-current-vtol-campaign-20261001-r31.json`，receipt
+  为 r31，三机型 Mission/vehicle-policy matrix 为 r32，observed/runtime matrix 为 r26。
+  它们只更新软件 external SIM 的可追溯性和当前模型
+  证据，不改变网卡、路由、设备、MAVLink 或真实飞控状态。
+- r30/r32/r31 的 source lineage 仍可追溯到历史固定翼与多旋翼记录
+  `external-fixed-wing-depth-shared-policy-20261001-r21.json`、
+  `external-multirotor-depth-shared-policy-20261001-r21.json`；这些历史文件只作不可变 provenance，
+  不覆盖当前 source-bound 索引。
+- 当前 VTOL SharedTaskPolicy 连续双任务 external campaign 已在同一 parity 下独立重跑到 r31：
+  `artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-r31.json` 与对应 receipt
+  均通过 Mission transaction、planner revalidation、journal/hash-chain、受限 evaluator 与
+  disposable cleanup；这不代表 HIL/REAL、室外 GNSS、真实硬件或人工 QGC 通过。
+- 当前索引验证器还会把上述 preflight、interface diagnostic 与 release-gate 原始报告中的
+  `real_field_link.report` 做路径、bytes、SHA-256 交叉绑定；任一错绑直接 fail closed。这个验证
+  只保护证据一致性，不把只读现场预检升级为 HIL/REAL 或室外 GNSS 通过。
+- replay-set 当前已绑定一份新的正例评估器诊断 fixture：
+  `artifacts/evaluation/replay-set-positive-fixture-20260924/readiness-report.json`。它证明五个
+  正例分层的 truth/prediction、IoU/延迟重算和 hash binding 链路可用；对应 report-only calibration
+  与 verification 也已绑定。但来源是 `synthetic_demo` 且未完成独立标注复核，所以 gate 仍关闭，
+  也没有把 synthetic 数据升级成部署域准确率证据。
+- 该报告只证明当前 gate 的 fail-closed 状态；不代表 QGC 人工视觉、HIL、REAL、室外 GNSS 或实飞验收。
 
 ## v185 RuntimeProfile → PX4 Mission feedback 六源审查（2026-09-07）
 
@@ -1380,8 +1718,9 @@ SHA-256 `C66DB565A12DC664C28F4DB12E38AD7E6611E28A14F650839362A18EDB817C19`；rep
 SHA-256 `340CE3C01968194B77010A808AE8A09BD62F269D9D56C786224E88099A3827D1`。结构和 freshness
 通过，但总 `gate_passed=false` / `release_allowed=false`、31 条阻断保持；`v0.3.0-pre.8` 不变。
 
-`run_current_release_gate_pre8.ps1` 的无参数默认输入已切换到 v33 现场报告；飞机接通后必须先
-确认实际 Jetson/GR01/相机地址，再重跑 `run_field_link_preflight.ps1`。该报告不能替代真实
+该段记录的是 v33 历史快照；当前 `run_current_release_gate_pre8.ps1` 的无参数默认输入已迁移到
+`artifacts/evaluation/field-link-preflight-20260919-current.json`。飞机接通后必须先确认实际
+Jetson/GR01/相机地址，再重跑 `run_field_link_preflight.ps1`。该报告不能替代真实
 GNSS/Pixhawk、HIL/REAL 或人工 QGC Fly View 验收。
 
 ## v31 多源测距残差不确定度验收与历史 E7 快照（2026-09-04，`v0.3.0-pre.8`）
@@ -5483,3 +5822,10 @@ machine report 或相同 screenshot。
 当前没有 accepted record，故 E7 集合为 `present=false/passed=false`。v61 PNG 只属于 HIL 机器捕获，
 不能重复用于 REPLAY/SIM/REAL。只有四模式各自完成独立捕获、人工点验和 verifier 后，才能关闭这项
 最终发布门；内容摘要不等同密码学身份签名，也不提升硬件、HIL、REAL 或实飞状态。
+# Current source-bound continuation (2026-10-03, OnboardAI executor parity rebind)
+
+The current audit path recorded in `docs/current-progress.json` is
+`docs/evidence/shared-policy-release-parity-policy-helper-20261003-qml-r7.json`.
+It binds the new shared `OnboardAIExecutor` parity identity only; it does not
+claim a new runtime execution, HIL, REAL, hardware, outdoor GNSS, manual
+visual acceptance or final `0.3.0` release.

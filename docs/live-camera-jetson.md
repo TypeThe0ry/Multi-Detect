@@ -358,10 +358,21 @@ export RANGING_CALIBRATION_PATH=/home/jetson/Multi-Detect/artifacts/calibration/
 # Optional: replace the temporary outdoor scale with a pre-validated schema-v2
 # multi-distance curve. The launcher only reads this file; it never fits live data.
 export METRIC_DEPTH_CALIBRATION_DOCUMENT=/home/jetson/Multi-Detect/artifacts/calibration/outdoor-piecewise-v1.json
+# Optional deployment binding: the report must hash-bind the exact document.
+export METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT=/home/jetson/Multi-Detect/artifacts/calibration/outdoor-piecewise-v1.validation.json
+# Set to 1 only after the report was generated with --require-independent-holdout
+# and its thresholds passed; startup then fails closed on a missing/stale report.
+export METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1
 export MODE3_CONFIRMATION_ENABLED=1
 export MODE3_AIM_CONTROL_ENABLED=1
 ./scripts/run_jetson_fire_patrol.sh
 ```
+
+`METRIC_DEPTH_CALIBRATION_VALIDATION_REPORT` 是可选的部署侧证据绑定；启动器会校验报告中的
+calibration SHA-256 与当前 document 完全一致，并拒绝允许自动改标定。将
+`METRIC_DEPTH_REQUIRE_CALIBRATION_VALIDATION=1` 后，还必须是独立 holdout 严格门明确
+`passed=true` 的报告；advisory 报告、旧报告或换过字节的标定文件都会 fail-closed。这个门
+只说明软件验证报告与文件身份相符，不等同于真实 Jetson、室外 GNSS、HIL/REAL 或实飞通过。
 
 `MODE3_CONFIRMATION_ENABLED=1` 加入 `--mode3-aim` 并保持 QGC 签名确认链在线；
 `MODE3_AIM_CONTROL_ENABLED=1` 再加入 `--fixed-wing-aim-control`，默认限制为

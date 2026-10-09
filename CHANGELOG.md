@@ -1,9 +1,2597 @@
+- 2026-10-08：NEW提交前缀／原计划与当前执行重验／source-derived机体包络及静态环境查询；actual spawn-only对照初始抬高15cm后自然落稳model约.067m，足点8cm垫面差−.186µm。root／child0、4RGB／4Depth／5222原包与清理闭合；保留R1 canonical hash误配失败及原−6.44cm重叠。导航与15静态碰撞重算通过；独立审阅修复RX误用main-only writer、原时刻50ms误门和known提交批次复用问题，最终715项联合CPU通过。未ARM／飞行／新增训练或晋升；完整资源预算及真实Grant仍待实际整合，r33、canonical及pre.8不变。
+
+- 2026-10-08：NEW同期源窗actual native0：4RGB／4Depth、5819原包、37查询／74输出，33来源窗口与owned清理闭合；实际加载15碰撞体和原始四帧导航坐标链一致性重算通过。R1窗前HOME范围误拒保留，R2窄scope修正不改原包；纯源审计不造live Context／origin／Grant。正常ARM／Mission／一次RTL执行入口通过CPU协议验证，force参数0，纠正heading与当前模式健康语义；尚未实际ARM／飞行／新增训练，默认r33／canonical／pre.8不变。
+
+- 2026-10-08：NEW独立开发入口：静态SDF全路线碰撞检查、source-bound ENU配置风审计、唯一RX/send Mission INT façade；不造PASS／Grant、不改原资源flag。当前源码实际只读Gazebo/PX4运行root／child0，18命令／36输出、16合格地面快照、2RGB／2Depth与4356原包，来源窗口和owned清理核验；晚采非同窗、heading_good_for_control=false不升格资格。646联合CPU回归与Ruff通过，原点／净空许可和行动训练仍待闭合，默认r33、pre.8及旧canonical共享路径不变。
+
+- 2026-10-08：NEW source-recomputed SIM预算／保守能力与v2多旋翼教师Mission准入；保留未知空速和原观测时间，无检测分支的采集路线不再要求perception；GCS255/190上传／回读严格绑定实际sender，旧250/191兼容。三智能体并行补查MiniCPM-Robot／MolmoAct2／GR00T；无新模型／训练／ARM／上传／飞行／晋升，当前代码parity与旧运行证据分开。
+
+- 2026-10-08：NEW Context v2未知物理量／来源与保守能力检查，旧模型／Mission显式版本隔离；458定向＋122文档／索引／回执回归共580 CPU测试通过。actual一次性SIM操作员R2退出0，16合格地面快照、2RGB／2Depth／4428原包；八项保护不变，R1失败保留。新公开模型查验与当前parity静态重绑定已整理，未ARM／飞行／模型训练／晋升或正式发布。
+
+- 2026-10-08：NEW V3双journal批次、独占RX-send与并行有限相机窗口，108新／联合366
+  CPUtests通过；独立审查修复close异常跳过join、主次错误覆盖与部分API计数丢失。
+  actual R3保存6RGB／6Depth／5943原包、0orphan／0overflow、57快照，3helper native0；
+  native1/context-refused，45次实际STANDBY门拒绝、12次skew、3次输入未齐，不冒飞行。
+  实测189.68条／秒、中位10.08ms，P95却升至223.39ms，不称实时通过；owned清理与26
+  来源闭合，旧R1/R2、默认模型、版本与发布门保留，没有新模型加载／训练／飞行。
+
+- 2026-10-08：NEW V2 packet-first typed capture＋入口共90新CPUtests／联合258通过。
+  实际R2保存2RGB／2Depth／1057遥测（0orphan），4228源文件独立SHA核；root/child1
+  context-refused，原observer skew错误与陈旧HOME/BATTERY、续航0、空速NaN分开记录。
+  owned清理通过、19源前后不变。实测串行36.43ms／25.81条每秒，V3双journal并行方案
+  尚未实现；原件、默认模型和发布门保留，0新训练／飞行。
+
+- 2026-10-08：三个子智能体并行完成NEW owned-x500会话／原件绑定观察快照／仅观察入口，
+  168定向CPUtests通过；修首次UDP peer、慢I/O时效、风源漂移、封存及清理异常。
+  actual R1容器启动／native1，在相机前拒非JSON投影；保存1合法入站原包，未保存失败包，
+  不定具体class或续航零值。ownedJob空／容器stop-rm0及absence核，12源前后不变；
+  另建v2原packet先落盘与可逆类型编码，原失败与默认引用／版本／发布门保留。
+
+- 2026-10-08：NEW独立native模型加载监督器51作者／独立CPUtests通过，修复Windows
+  venv launcher身份与Job接管竞态。实际R4只读预检native1资源拒绝／0load，physical
+  5.05GiB／commit8.08GiB，自有进程树与capture关闭；原stdout／非零状态与旧toy失败保留，
+  不取消门、不关闭用户程序，不当OOM根因或模型加载修好，Controller不可达未派remote。
+
+- 2026-10-08：NEW held/yaw教师Mission编译82新／邻接154／独立82 CPUtests通过，
+  只改WAYPOINT hold/yaw、补计完整新增预算；NEW唯一接收者原遥测入口22作者／独立、
+  与既有组件联合248 tests通过，当前pymavlink七CPU构造包编码解码采集兼容。外来来源
+  仅原序记录，不进入合法cache；不造自动PASS/grant，不宣称真实teacher飞行或训练。
+
+- 2026-10-08：已有208特征／11头／502raw实际CPU容差重放闭合native0，反证恒定STOP
+  或有利STOP偏置，不定因live八帧（无featurebytes）；新三维执行轨迹合同与原文件投影
+  bundler实现，分开proposed／approved／submitted／outcome及actualpose，metadata／UUID／
+  raw数值／输出SHA门闭合。三组件160 root及独立CPUtests通过，0optimizer／飞控；
+  尚无新teacher轨迹或训练准入，默认／版本／发布门不变。
+
+- 2026-10-08：精确候选与保存动作头实际接入新Gazebo相机，native0 `5afbe8`：8帧均完成
+  视觉语言融合、动作头计算与协议检查，全部输出sequence_stop，不代表返航或任务成功。
+  参数／head／归一化／运行时来源前后闭合，飞行命令、训练更新、文本生成均0；首次
+  BatchFeature容器拒绝完整保留，新R2浅适配保持原Tensor身份与四字段门。新loader／plan／
+  worker150项CPU测试、R2适配37项与独立37项通过。默认、质量晋升、Jetson与发布门不变。
+
+- 2026-10-08：Gazebo共享导航输入实际闭合native0：8份1280×960 RGB、8份配对深度、
+  8个Actor请求，QPC同一时钟、十源身份和原helper恢复通过，owned stop/rm0、命令0。
+  三组件120 root CPU fixtures／Ruff与独立37项通过，独立逐payload／wire／RGB／Actor／
+  request审核68,812,800B。地面只观察，不加载模型、不训练或飞行，不宣称实时；新
+  三维教师数据与动作覆盖计划写入仓库，默认／版本／发布门不变。
+
+- 2026-10-08：新增实际Gazebo wire到同NavigationActor的输入桥、共享request的preloaded
+  学习动作后端；83 CPU fixtures／Ruff／独立review通过，修复最终绑定校验耗时门。
+  原文与RGB→四prefix融合→保存head＋TRAIN归一化，不造token、confidence或固定尺度；
+  组件不认证模型、不授飞行权，新独立采集env不改训练env。真实采集与模型推理另行验收。
+
+- 2026-10-08：208真实candidate特征缓存实际native0／单GPU退出，矩阵精确重载及独立
+  逐行SHA／共享prefix审计通过并封存终态。固定CPU配方实际完成11×200＝2200更新、
+  8800四阶段WAL／502raw／11头与TRAIN归一化精确重载，最终loss均改善；LOEO动作
+  46／208、joint5且均STOP，导航质量仍不合格。同TRAIN两final不证明新数据帮助，
+  旧head800合计3000、LoRA280另账，默认模型／飞行／发布门不变。
+
+- 2026-10-08：稳定缓存纯CPU训练入口46root fixtures／Ruff与独立只读核实通过，封存
+  software-r1；严格消费root闭合提取终态＋外部SHA，固定11heads各200更新，8800四阶段
+  WAL／502raw后评分，train-only归一化，旧800／280继承。尚未消费实际缓存或运行本轮
+  导航训练，不把2200设计上限当实际消耗或质量通过。
+
+- 2026-10-08：candidate208真实缓存入口完成38新CPU用例＋36doc/parity共74root通过，
+  Ruff／独立静态审查通过并封存software-r1；Windows实际绑定、闭合prefix、partial拒绝及
+  实际runtime来源门均验证。锁定计划后本机单GPU session58872启动，尚无终态、完整208
+  实际缓存或稳定配方导航训练成功证据，不冒充已通过。
+
+- 2026-10-08：并行接入old86＋new122共208条TRAIN的真实candidate特征缓存与稳定训练
+  入口，锁定九整段episode／两个scene及逐条CPU prefix身份，不混dev59或NEW82。
+  Controller资源预检无合格在线GPU节点，转本地单模型；尚未完成新真实提取或训练，
+  旧800head／280LoRA不重置，默认模型、飞行和发布门不变。
+
+- 2026-10-08：新增独立stable CPU动作头组件，train-only归一化、小lr AdamW、最终更新后
+  真loss改善门、累计四阶段失败计账、实际FP32字节缓存、head＋norm精确保存重载；
+  64新fixtures＋36doc/parity=100root通过，Ruff／独立全文review和stdlib诊断通过，软件
+  回执封存。尚无新真实feature提取或导航训练，不重置800头／280LoRA、不改默认或飞行。
+
+- 2026-10-08：CPU122 r2修复可选Arrow导入后实际native0，122个正常来源会话／四prefix与
+  full response-only元数据对旧记录exact、prepared整文件byte-identical、结束来源不变；
+  自有finder清理／原finders保留、Arrow及datasets absent、CUDA未初始化。99软件tests、
+  Ruff和独立终态审计通过并封存CPU admission-r2。只证明输入准入，尚未训练或授权候选。
+
+- 2026-10-08：动作头修复版真实native0完成145融合特征、800次小头更新、231原始预测、
+  保存精确重载与来源闭合；三份纯文件独立审查通过并封存actual-r2。开发59仅2STOP正确，
+  LOEO29action／0joint，四head pre-step loss由4–6震荡至321–424，质量失败。预算不重置，
+  正在修复稳定优化／train-only归一化和真实feature缓存，不接飞控、不替换默认模型。
+
+- 2026-10-08：NEW CPU122 official输入入口59root tests／Ruff／独立审查通过；实际122条
+  prefix／full response-only元数据及verified sessions、46source／10processor／21runtime闭合，
+  但末尾可选模块禁门拒绝，native1／准入false，失败及后验审核封存。不追认native0；
+  局部Arrow隔离小探针native0，新的v2保留禁门和逐样本元数据parity，正在实现。
+
+- 2026-10-08：跨old86／NEW82／NEW122真实290原PNG strict及RGB解码、568 Actor引用闭包、
+  12episode既有group10component分析native0；exactRGB及episode重复／跨train-dev冲突0，
+  gate true。46root tests／Ruff、独立54小source＋5Pillow／保存identity图重算通过，封存
+  dataset-overlap-r1。不做近似独立性、officialholdout、processor或训练准入宣称。
+
+- 2026-10-08：动作头r1入口＋组件163项CPU软件测试、Ruff／独立runtime及配对统计审查通过；
+  首次真实加载native1，实际参数身份准确但提前PEFT导入缓存safe_open，底座流式观测门拒绝。
+  features／raw／head四计数全0，worker退出，封存loader-failure-r1；新v2仅修导入顺序，
+  累计head预算仍800、base／LoRA已用280不重置。不声称训练、实时或飞行通过。
+
+- 2026-10-08：NEW122真实有界CPU source审核native0，37root tests／Ruff／独立
+  47source＋10runtime＋122opaquePNG与6pose几何复算通过；6独立TRAIN episode，
+  116successor＋6STOP、108straight4left4right6stop，原83,617,855PNGbytes、实测853×480。
+  仅786432B prefix，205visited与六compact-record身份准确，保留原值/pointer的派生
+  selection不冒405MB全文。封存indexed-training-supervision-r1及人话说明；未混旧
+  数据／未processor或model训练／未赋执行授权，默认model／version／release不变。
+
+- 2026-10-08：NEW59真实模型推理native0，原23train未入；raw先持久化后评分，真实
+  分析与独立复算／source／59prefix-token观察通过。动作16／59、metric0、STOP0／2，
+  dev-val15／17而dev-test1／42；59格式合法不冒充质量，forward条件误差5.5m不含38
+  wrong-kind，5.826s不冒充E2E实时。封存actual-evaluation-r1；不晋升或接PX4。
+  并行获取6条TRAIN路线12原payload共83,692,236B，native0／49tests／独立全字节
+  digest复核通过，封存indexed-route-payloads-r1；122仍为声明，schema／RGB／pose／
+  typed训练准入待独立CPU审核。默认reference／version／执行／发布门不变。
+
+- 2026-10-08：267训练及保存后独立重载均actual native0，v2真实终态auditor与独立审计
+  通过；34 exact5快照、1068 WAL、534 draw、四267与累计280闭合，86条raw／token／actor／
+  prefix逐条一致，封存完整terminal r2。模型动作仍27／86、STOP0／3，不晋升；NEW59
+  精确计划发出并实际GPU运行，尚无闭合模型结果。补官方小型／连续动作模型查验与人话状态，
+  不改默认reference／version／飞行或发布门。
+
+- 2026-10-08：新增独立original59小结果分析入口，作者／root各56项测试、Ruff与
+  只读审查通过；精确闭合report／plan／raw／scores／typed82身份，排23train、固定17＋42，
+  从raw＋gold重算并拒绝summary不一致。按class／partition／macro／非forward5／STOP2
+  和metriccoverage展示，raw与预算合格候选配对分栏；数学前进3m参照无虚构token／延迟。
+  missing-report实际native1且无新分析目录；封存
+  docs/evidence/onboard-navigation-original59-analysis-software-20261008-r1.json，补充人话评估说明。
+  当前仍无actual59模型成绩，不改冻结训练／评估、默认模型、版本或飞行／发布门。
+
+- 2026-10-08：独立terminal audit v2修复实际PEFT五文件格式缺口，作者／root各50项
+  针对性测试、Ruff与只读审查通过；认证冻结r1后仅扩展private snapshot门，34 README
+  明确绑5438B／真实SHA并最终重验，未知extra仍拒绝，其余WAL／参数／重载／source门保留。
+  sealed r1及首次误拒失败保留，metadata不伪称旧receipt或质量证据；实际active CLI
+  退出1、没有audit输出或live WAL读取。封存
+  docs/evidence/onboard-navigation-recovery267-terminal-audit-software-20261008-r2.json；
+  candidate86／fresh reload／完整phase仍待真实终态，默认模型、版本、飞行／发布门不变。
+  同步封存当前默认reference绑定诊断；旧receipt嵌套SHA的相邻两位差异及失败原样保留，
+  当前protected文件与本轮前置记录一致，未读取ONNX权重或推断历史差异起因。
+
+- 2026-10-08：实际NEW267更新全部完成并保存final adapter；独立112F32／802816有限
+  参数真实保存摘要、1068行immutable prefix四计数267、旧13＋新267＝280及四文件
+  before／after SHA通过。进程仍执行candidate86，无train终态／fresh reload／完整
+  source-end／质量结论；封存 docs/evidence/onboard-navigation-recovery-v2-checkpoint267-20261008-r1.json。
+  同时发现34个真实PEFT目录exact5包含README，旧terminal audit exact4 fixture会误拒；
+  native1准备失败保留，sealed r1不改，新增v2明确绑定README及其当前／结束SHA，不忽略extra。
+  默认模型、版本、执行／实时／硬件／最终发布门不变。
+
+- 2026-10-08：新增NEW267终态标准库审计入口与测试，最终50项root全回归、Ruff与
+  全文独立审查通过；34快照／112FP32原序payload／1068WAL／534draw及四组86 raw重算，
+  strict source／reload闭合，warm完整SHA与外部runtime只读边界。活动phase实际CLI
+  退出1、未创建审计目录、不读live WAL；未运行实际完整终态审计，文件audit不替代
+  root实际native／PID证明。封存
+  docs/evidence/onboard-navigation-recovery267-terminal-audit-software-20261008-r1.json；
+  质量、默认模型、版本、实时／飞行／硬件／发布门保持不变。
+
+- 2026-10-08：新增NEW59离线评估入口与测试，作者／主智能体83项native0，Ruff及
+  独立审查通过；固定17＋42开发样本、排除23train，共享Actor／prefix-only精确加载，
+  实际generate单次观察并恢复hook，raw先持久化后gold评分，通用3D／yaw／stop／unknown
+  与cap192／30秒合作式预算分栏。当前完整终态回执缺失时CLI实际退出1，未创建输出或
+  第二模型worker；仅软件验收，实际59预测为0。封存
+  docs/evidence/onboard-navigation-original59-evaluation-software-20261008-r1.json；
+  不改变冻结训练、旧r2产物、默认模型、版本、quality／实时／飞行／发布门。
+
+- 2026-10-08：NEW82独立桥接实际source-only转换native0（858d15），生成82条typed样本，
+  保持23／17／42内部开发角色；62项测试、Ruff及独立终态审计542846通过。
+  201仓库来源／六实际Pillow-YAML入口前后不变，正常完整验证退出后才发布样本；
+  原任务／当前及最近过去RGB进入Actor，姿态／future／gold隔离，79 successor＋3 STOP。
+  独立审核202小输入SHA，5大文件仅stat，不重解码pixel identity；旧86数据SHA不变，
+  新旧sample ID无交集。封存 docs/evidence/openfly-original82-supervision-20261008-r1.json；
+  新数据仍无left／多样尺度，不接旧四类准入，不宣称training-ready／holdout／模型／飞行。
+
+- 2026-10-08：独立NEW267 v2用真实constructor／warmup schema修复r1准入缺陷，
+  100项定向测试、实际CPU准入及独立只读报告审核通过，GPU已实际进入训练更新。
+  checkpoint-008已保存；独立标准库审核112个FP32张量、802,816有限元素和
+  32行不可变阶段前缀，实际参数摘要与保存回执相符且不同于原warm模型。
+  封存 docs/evidence/onboard-navigation-recovery-v2-checkpoint008-20261008-r1.json；
+  仅证明已保存8步及累计旧13＋新8，不封存live journal，不表示267步／candidate86／
+  fresh reload／质量／实时／飞行通过。默认模型、版本与发布门不变，r1失败保留。
+
+- 2026-10-08：NEW closed CPU86实际终态native0（4b11a4），86正常退出并最终SHA验证的
+  单样本会话、完整metadata／prepared字节与旧记录相同，196来源前后不变，178观察；
+  独立只读audit 82b83d通过，55小binding重散列，不重复processor／GPU或大型资产。
+  NEW267源计划／admit-cpu native0（b78266）；GPU加载后constructor无pid触发验收
+  KeyError，实际native1（de2022），没有反向预检／optimizer／journal／候选。
+  旧13成本＋本次0不变，r1源码／测试／计划／报告保留，独立v2修schema及实际报告测试。
+  封存 docs/evidence/onboard-navigation-closed-cpu86-20261008-r1.json 与
+  docs/evidence/onboard-navigation-recovery-loader-failure-20261008-r1.json；非质量／实时／
+  SIM-REAL／硬件／发布验收。学习型head替代方案另有文档，未实现或实测加速。
+
+﻿- 2026-10-08：原TRAIN三场景82原图的离线动作几何／视觉检查实际native0（e31da0），
+  79项即时successor＋3零STOP通过；body-FRD米／右转正弧度转换复用已审代码，未知dt不补速度，
+  STOP不是降落或任务完成。旧86＋新82原RGB全部解码，6场景对按RGB／dHash／均色规则
+  未发现重复边；182仓库／资产binding前后相同，27项测试／Ruff及独立只读audit b17e35通过。
+  不是完整Pillow／PyYAML运行时封存，未创建样本或晋升开发划分；新82仍为75前进、2右转、
+  各1升降、3停止，无左转、平移全3m／转向全30°，不宣称泛化或多样尺度能力。
+  证据 docs/evidence/openfly-original82-geometry-visual-audit-20261008-r1.json；保留旧失败13账，
+  新CPU86／NEW267入口仍在实现审核，没有GPU重启、默认模型替换、飞控指令或发布门放行。
+
+﻿- 2026-10-08：closed-sample实际官方processor CPU诊断session49894终态native0（eddaac）；
+  5个原TRAIN样本固定legacy_owned→closed_sample各一次，共5对／10条编码，不是all86重编码。
+  192个来源worker前后不变，10条实际metadata／actor／四prefix-full tensor records／
+  response-only labels／target token counts与已保存prepared一致，5次NEW closed session正常
+  exit＋final SHA verified后才返回完整metadata；成功返回的validation images已关闭，
+  partial decode在tuple返回前的cleanup仍未证明。CUDA始终未初始化，无model／GPU／optimizer。
+  完整样本CPU encoding观测均值old 32.58145062s／NEW 16.74383808s，固定顺序、每模式一次，
+  nested inclusive wall time不作相加；不是公平benchmark、camera全链或独立vision／prefill／decode。
+  93条边界观测及process-lifetime OS peak只作资源诊断，commit不等于驻留，未证明stage峰值、
+  memory benefit或旧MemoryError根因。163项actor／supervision／helper／host、51项profiler
+  与63项NEW267预算纯软件tests各native0；fixture测试和本次实际官方processor观察分开记录。
+  独立只读标准库audit 4d3445 native0验证14小binding、192当前大小、10 metadata、46组LIFO
+  stage pairs＋finish、5 closed exits／CUDA false及resource PID／lifetime peaks；未重编码或大来源hash。
+  NEW267 coverage-first预算合同已实现（70／66／66／65，旧13另账，累计≤280），但实际来源绑定
+  schedule／新trainer／GPU恢复均未开始，不是exact resume或训练授权。sealed回执保持不动；
+  旧13次失败、172条baseline、82原PNG和历史null原样保留，质量／holdout／晋升／飞行／发布仍false。
+  `docs/evidence/onboard-navigation-closed-sample-cpu-profile-20261008-r1.json`。
+- 2026-10-08：streamed完整GPU流程session39122已关闭，train worker与supervisor均native1；
+  CPU／完整baseline各native0保持成立。正式optimizer四阶段计数attempted／returned／
+  synchronized／completed各13，52个journal事件精确对应冻结schedule前13draw，
+  last phase completed、uncertain false但280计划未完成；四类backward-only preflight各无更新。
+  下一次streamed输入source validation的__exit__→bound.verify→1MiB stream.read发生MemoryError，
+  不是CUDA OOM报告。sources_after为null、来源后验校验未完成，不是已证明source drift；
+  retention／system commit根因未证。未保存candidate、未评估／fresh reload、无训练后参数digest。
+  独立标准库audit 4348ba native0核验journal／process chain／argv／chrono／failed-finished／
+  overall终态；sealed回执14小binding复核通过，无模型／GPU重跑或5GB来源重散列。
+  失败与13次真实更新原样保留，无自动retry／预算reset／冻结plan改动；成功baseline、82原PNG
+  和历史null快照不重写，默认reference／parity、质量／晋升／飞行／执行／发布门仍不变。
+  `docs/evidence/onboard-navigation-streamed-training-failure-20261008-r1.json`。
+- 2026-10-08：Stage 2离线实际提取OpenFly原TRAIN三route的82个原始embedded PNG，
+  session89352终态native0，56,041,231B保留原encoded bytes，env26／16／23为23／17／42帧；
+  均RGB8、853×480，owner完成CRC／单zlib stream／scanline bytes／Pillow decode和82输出重验，
+  174repo／10显式CPU runtime来源前后不变。35项CPU fixture测试通过，不代替模型或飞行验收。
+  独立标准库audit df7986 native0逐核82字节SHA／shard-row-frame-path绑定及PNG结构、
+  三pose小文件publisher digest与82原metadata；未重跑Pillow／Parquet／GPU或5GB来源散列。
+  首次r1 admission native1原样保留：7个yaw 0.0被JS重序列化为int0，未创建输出；
+  仅新建保持Python原JSON类型的r2 plan恢复，未放宽source equality或改已执行源码／测试。
+  六个sealed binding、default reference／release parity复核；FRD动作几何／visual split／
+  independent holdout／样本／training-ready／质量／晋升／Gazebo闭环／飞行／执行与发布门仍未通过。
+  不合并旧86数据或改冻结GPU流程，所有旧阶段与失败保留，release仍0.3.0-pre.8。
+  `docs/evidence/openfly-parquet-original-images-20261008-r1.json`。
+- 2026-10-08：streamed完整baseline两轮各86条真实GPU推理已被supervisor接受，child native0；
+  53024→28644→16492进程链／argv／chrono及唯一finished事件绑定通过。180来源前后不变、
+  全chat metadata与CPU相同，BF16底座和112个FP32原LoRA后验digest未变，baseline无optimizer。
+  base严格JSON／动作／尺度0／0／0；原LoRA为69／55／0，69个合法输出全部forward，
+  left／right／stop均无正确动作。55条matching-forward尺度误差97m×42／7m×13，无质量晋升。
+  两轮实际generated.elapsed_s均值7.396002s／6.342779s、p95 8.350901s／9.159137s；
+  H2D后计时含generate／sync／suffix D2H／decode，不是CPU／camera全链或拆分prefill延迟。
+  独立标准库audit native0重算172原raw诊断、actor／prefix／target SHA，26小binding及bounded
+  checkpoint headers通过，无processor／GPU／模型重跑或5GB来源重散列。旧partial和真实失败保留。
+  后续train已请求，但本快照train final report／pipeline completion仍缺，native与更新计数未知，
+  不把baseline完成写成280训练／fresh reload／holdout／实时／飞行通过；默认与全部发布门不变。
+  `docs/evidence/onboard-navigation-streamed-baseline-phase-20261008-r1.json`。
+- 2026-10-08：实际取得OpenFly原TRAIN三条完整Parquet shard与各自pose／scene config，
+  session59955终态native0；九个文件共56,091,088B与发布者digest匹配，实际15次成功HTTP
+  response、总attempt上界54。27项CPU fixture测试通过，不把替身测试当官方PNG有效性。
+  owner终态重验161repo＋5显式runtime＋9outputs，root后续再次九文件字节核验native0；
+  独立标准库复核四binding／九payload及保存来源数组，不重跑Parquet schema或大来源散列。
+  原TRAIN的env26／16／23分别23／17／42行metadata与原pose／稀疏annotation精确对齐，
+  三scene尺度比为1，无单位猜测／重缩放／dt推断。完整shard含图像bytes已下载／散列，
+  但image列未materialize／decode／extract，图像有效性／visual holdout／FRD动作映射／
+  样本创建／training-ready仍未通过。旧缺RGB失败、元数据快照与冻结86样本模型流程保留；
+  不是模型／Gazebo闭环／机载／PX4／硬件验收，默认模型与所有晋升／发布／执行门不变。
+  `docs/evidence/openfly-parquet-acquisition-metadata-20261008-r1.json`。
+- 2026-10-08：完成六个预训练无人机导航候选的官方资料与发布者元数据研究，只有3DG／WorldVLN
+  核到公开非gated权重；10个文件的LFS大小／SHA不是本地下载验收，发布精度体量均超8GiB。
+  3DG为5×3waypoint，初始GT方向、外部DINO／depth停止与GT episode终止不能冒充truth-free搜索；
+  WorldVLN及AutoFly论文模型在地面服务器，AutoFly匿名权重401不等于证明不存在。
+  VLA-AN的NX16GB30W机载推理2–3Hz与异步闭环只是论文报告，不是本仓8GB或端到端实测。
+  新增精确OpenFly原TRAIN三条Parquet路线元数据绑定，阶段native0、26项测试／Ruff通过；
+  五个小binding与保存156来源前后数组复核，计划56,091,088B、上限134,217,728B。
+  当前快照payload下载0B、schema／RGB提取／样本／holdout／training-ready均未通过；
+  未来授权获取另立结果，旧缺RGB真实失败与冻结GPU流程／历史保留。无模型下载／GPU／训练／
+  默认模型改动或质量／硬件／执行／发布晋升。研究与路线元数据回执分别为
+  `docs/evidence/onboard-pretrained-navigation-model-research-20261008-r1.json`、
+  `docs/evidence/openfly-parquet-exact-route-metadata-20261008-r1.json`。
+- 2026-10-08：streamed GPU流程已写parent base的86条实际推理结果（LoRA disabled），
+  forward／left／right／stop为70／6／7／3；原严格JSON／动作／尺度均0/86，token cap reached0。
+  标准库独立后验审核native0：重算全部diagnose，target SHA／actor identity／四prefix记录
+  全部匹配保存CPU元数据，13个小binding核验；无模型／processor重跑或5GB来源重散列。
+  实际generated.elapsed_s均值7.396002s、p50 7.298781s、p95 8.350901s，不是几十秒日志间隔。
+  计时H2D之后开始，含generate／sync／suffix D2H／decode，不含CPU输入全链，未拆prefill／decode。
+  无live camera验收；86条计时均超5s只提示条件性freshness冲突，不放宽阈值或修原输出。
+  该回执封存时warm-start86轮未完成、baseline／pipeline native仍null，phase源重验与后验参数
+  检查未终结，280训练未开始。不是LoRA完整对照／训练／质量通过，旧失败和所有历史保留。
+  `docs/evidence/onboard-navigation-streamed-base-round-20261008-r1.json`。
+- 2026-10-08：新增导航请求／结果协议与预加载实验backend，158＋89项纯Python替身测试通过；
+  联合15项流式CPU回执元数据检查、8项文档检查共270项，native0，8个小文件binding重验。
+  9个adapter状态负例先red后green，拒绝持续LoRA状态漂移；Ruff五文件通过。
+  1295条warnings来自pytest旧AST API，不是模型告警。仅用共享actor prefix、不读gold，
+  token suffix／原始输出／耗时／身份／新鲜度门通过软件验证，不声称真实processor或模型推理。
+  精确loader／独占worker／硬deadline尚未实现；无真实Torch／GPU／optimizer／飞控／PX4。
+  独立GPU流程最后仅parent70/86 active，终态未知、280次更新未开始；旧失败和冻结来源保留。
+  默认r33 reference／release parity／0.3.0-pre.8未变，质量／晋升／硬件／执行／发布门全部关闭。
+  `docs/evidence/onboard-navigation-inference-software-20261008-r1.json`。
+- 2026-10-08：完成OpenFly multiscene r2 CPU dry-run，native0、117来源含plan前后相同，
+  46项测试通过，311条旧Pillow helper弃用警告独立保留；Ruff／scoped diff检查通过。
+  计划4场景／6路线／168raw帧，旧env18 train的86帧已验；新env26 train23、env16 val17、
+  env23 test42帧共82仍缺，3个scene config与3个episode tree尚缺，无新样本／holdout／training-ready。
+  r1首次报告与精确plan／tool／test输入快照保留；封存工具／r2计划不改，后续公开数据获取另立步骤。
+  本条只记录历史preflight，不改写为下载完成或优化／模型／质量／飞行通过；默认与发布门保持。
+  `docs/evidence/openfly-multiscene-acquisition-preflight-20261008-r2.json`。
+- 2026-10-08：新增streamed导航continuation入口、测试与独立新计划，不改冻结r1来源；
+  单样本按需重编码、不保留完整86样本tensor缓存，287项软件检查通过。实际CPU阶段
+  worker24168／launcher40156／supervisor53024身份核验，native0、180源前后不变，
+  全86完整chat编码通过；prepared-inputs与原CPU验证字节相同。当前baseline已编码86样本，
+  GPU生成进行中，baseline／pipeline终态仍未知，不声称推理完成、280次更新或保存后重载通过。
+  原r1主机MemoryError及报告保留，生产backend、默认parity、质量／硬件／发布门不改；
+  独立审计native0重开180来源，无drift；只核对元数据，未重算tensor／label hash或实测live驻留。
+  CPU阶段证据：`docs/evidence/onboard-navigation-streamed-continuation-cpu-20261008-r1.json`。
+- 2026-10-07：新增独立实验用均衡导航 continuation CLI 与新280步计划，warm-start原LoRA
+  权重但新建optimizer，不恢复旧optimizer／scheduler／RNG；238项定向软件检查通过。
+  实际CPU-only完整chat编码覆盖86样本，supervisor／worker native0、178源前后不变，
+  最长524总token／71响应token；该CPU验证没有模型加载、推理、反向或参数更新。
+  完整pipeline终止native1：baseline worker 3872虽已精确装入原BF16底座与FP32 LoRA，
+  但在编码进度20样本后，冻结pilot的tensor_record／numpy.tobytes触发主机MemoryError，
+  不是CUDA OOM；没有推理、optimizer或280步训练开始，不当精确加载为训练／质量通过。
+  原r1失败、plan与六个实现来源冻结保留；另建streamed r2入口／测试／计划，尚无runtime通过。
+  生产导航backend、默认r33／COCO／parity／0.3.0-pre.8、质量／飞行／硬件／发布门不改；
+  旧阶段与失败报告原样保留。CPU回执路径
+  `docs/evidence/onboard-navigation-balanced-continuation-cpu-20261007-r1.json`。
+- 2026-10-07：实现新的共享导航actor输入基础，官方本地Qwen3VLProcessor在CPU验证
+  全部86个保留样本，两入口identity及四个实际tensor字节完全一致，native0、129源前后不变。
+  TF4.57.6／Torch2.6.0+cu124，最长453token／每图46080pixels，未超过4096／50176预算；
+  CUDA未初始化，无模型加载、推理或optimizer。独立只读核验重新散列来源、重算actor identity
+  并核对保存tensor记录／预算，native0；没有二次运行processor。这里只验证保留离线RGB投影，
+  不声称独立实时捕获、旧训练prefix字节一致或SIM／REAL通过。新trainer、导航live backend和
+  280次参数更新尚未实施；旧失败、train内strict／action1/4及metric0/4、原100步预算保留。
+  默认r33／COCO／parity／0.3.0-pre.8、飞行与质量／硬件／最终发布门不变。
+  [共享输入证据](docs/evidence/onboard-navigation-shared-actor-inputs-20261007-r1.json)。
+- 2026-10-07：已保存导航LoRA在独立GPU worker完成精确恢复，112个FP32张量、原4个
+  输入与生成token完全一致，worker native0、恢复更新0次。原训练CUDA失败native1和原
+  supervisor的Windows启动器／worker PID失败native1保留。新增真实进程链只读身份检查
+  native0，独立340文件字节审计native0；PID门未删除，不重训、不改旧报告、不做飞行。
+  新标准库均衡抽样器16项CPU检查通过，两次实际生成同SHA；四类各70draw、共280draw，
+  86unique全覆盖、121源重验。只有抽样表准备，无新actor／训练计划／280次参数更新，
+  原100步预算未变。训练内strict／action仍1/4、metric0/4；所有质量／硬件／发布门不变。
+  `docs/evidence/onboard-navigation-exact-reload-20261007-r1.json`、
+  `docs/evidence/onboard-navigation-balanced-schedule-20261007-r2.json`、
+  `docs/onboard-navigation-quality-next-20261007.md`。
+- 2026-10-07：现有 Qwen 导航 LoRA 完成一轮 86 次真实更新，344 条四阶段日志与原计划
+  样本顺序一致；冻结 BF16 底座前后不变。保存的 112 个 FP32 LoRA 张量通过标准库独立
+  原始字节 digest 复算，与训练后参数一致。最终同进程 fresh 底座重载在第 498 次读取的
+  CUDA transfer 遇 OOM，native／三层 supervisor 均退出 1；原失败不改写为通过。
+  正开发独立 fresh-process、无 optimizer 的保存后重载验证，不重复训练或扩大预算。
+  四个训练内 probe 的结构／动作仅 1/4，尺度 0/4；正确 forward 类别仍把 3 m 输出成 10 m。
+  无独立 holdout，无质量晋升、飞行或发布验收；版本仍 0.3.0-pre.8。机器进度保留旧失败。
+  `docs/evidence/onboard-navigation-trained-adapter-20261007-r2.json`、
+  `docs/onboard-navigation-execution-gap-20261007.md`。
+- 2026-10-07：新 thin importpath 入口先在子进程装入 repository/src，修复原 early-import
+  ModuleNotFoundError；原失败与 native 1 独立保留。298 项联合 CPU 检查通过后，真实
+  load-only 完整读取 625 个 BF16 底座张量／4,255,064,064 payload 字节并附加 FP32 LoRA，
+  原生及三层验收 native 0；59 源不变，独立审核通过。仅证明完整初始化，不当训练／推理
+  或质量验收，缺失 optimizer 日志计数仍 null。没有改变全局环境、飞行默认或发布门。
+  `docs/evidence/onboard-navigation-full-load-only-20261007-r2.json`、
+  `docs/evidence/onboard-navigation-early-import-failure-20261007-r1.json`。
+- 2026-10-07：新增标准库头部／逐张量读取入口，reader82项、wrapper70项、联合236项CPU检查
+  与独立审核通过。原计划新load-only两个header均成功，但tensor payload为0，随后CUDA
+  OutOfMemoryError约3.96GiB申请；模型／supervisor退出1、独立留证审核退出0，55源不变。
+  原模型／精度／数据／86步预算不改，原失败独立保存；正实现仅子进程关闭可选整块缓存预热。
+  未初始化、推理、反向或更新，journal计数null，不当训练成功；无晋升、飞行或发布门变化。
+  `docs/evidence/onboard-navigation-streaming-load-only-20261007-r1.json`、
+  `docs/research/onboard-navigation-allocator-warmup-20261007.md`。
+- 2026-10-07：独立load-only复现原生访问异常，真实worker PID匹配Windows事件；堆栈定位
+  torch/storage.py权重切片，底座尚未返回、LoRA尚未附加，26文件前后不变。失败证据独立封存。
+  50项CPU读取探针和44项显式pread兼容入口检查通过；两条真实CPU读取对照均native0／gold一致。
+  原0.4.5环境保留，新0.8.0环境仅用于声明的读取兼容实验，不改训练计划、模型或预算。
+  小切片正确不等于完整加载／训练完成，物理与发布门不变。
+- 2026-10-07：启动现有Qwen导航LoRA首轮GPU试训；封存86步／一轮计划，入口50项CPU检查。
+  模型加载后原生工具退出1，相关Windows事件为torch_cpu.dll／0xc0000005，report／events／
+  adapter缺失；原计数未知，不填零、训练未完成、OOM未证实，原失败与八源码快照保留。
+  新增标准库进程外supervisor及load-only诊断，40项CPU检查与独立复核通过；绑定本次plan、
+  确定性样本顺序与四阶段日志，拒绝向封存模型／数据／review目录写输出；不改底座、预算或默认。
+  三名子智能体并行实现、诊断与官方Qwen／OpenFly／Cosmos研究，选型写入仓库；未做新飞行。
+  `docs/onboard-openfly-navigation-pilot.md`、`docs/onboard-pretrained-model-options-20261007.md`、
+  `docs/evidence/onboard-navigation-native-load-failure-20261007-r1.json`。
+
+- 2026-10-07：新增OpenFly固定原train下载器、source-only导航动作契约与逐步数据构建器。
+  3条完整AirSim路线／86原RGB，raw action与next pose核验；聚合标签14处错位不作gold。
+  实际下载／构建／独立审核native0，142定向CPU检查；Prompt与169 actor图片输入exact，
+  没有未来／姿态／答案泄漏。同scene 1组／alltrain86，无升降／独立holdout，只批准
+  有预算的Qwen导航LoRA试训，不是质量／飞行／晋升。依赖源与旧七文档快照；默认、
+  版本、parity和所有硬件／室外／最终发布门不改。
+  `docs/onboard-openfly-navigation-pilot.md`与`docs/evidence/onboard-openfly-navigation-dataset-20261007-r2.json`。
+
+- 2026-10-07：新增真实Gazebo retained-wire VLM回放与独立CPU审计入口；RTX 4060固定
+  Qwen基座两帧生成native0／9.015秒，实际180224像素、HOLD／空计划。CPU消息、四tensor
+  与token解码exact／31文件不变／native0，51软件测试通过。保留原时间与原failed架次；
+  结构通过不认可安全状态／目标缺席断言，不升级live、动作训练或飞行证据。公开导航
+  模型／数据与准入规格独立记录；下一轮审核原动作轨迹后增量训练Qwen。旧阶段文档
+  精确快照、旧receipt与r33／COCO／parity不改，失败LoRA不晋升，版本及发布门保持。
+  `docs/onboard-live-vlm-retained-replay.md`与`docs/evidence/onboard-live-vlm-retained-replay-20261007-r1.json`。
+
+- 2026-10-07：新增Gazebo RGB／同源部分GPS/odom／原文Prompt的VLM shadow入口，
+  bounded request与长episode分离，逐请求raw/metrics/rejection源绑定，相同画面不去重。
+  官方processor CPU复现并修复真实grid预算，提交／写盘／清理失败保partial。联合444项
+  软件测试443pass/1symlinkskip/native0，十文件Ruff与实际无进程预检0；三agent并行审查
+  完成。worker离线/no_eligible_node，未执行新capture/GPU/训练/飞行；baseline和VLM
+  Prompt权限分离，默认r33/COCO/parity、失败LoRA、版本与发布门不改。
+  `docs/onboard-gazebo-live-shadow.md`与`docs/evidence/onboard-gazebo-live-shadow-development-20261007-r1.json`。
+
+- 2026-10-07：新增源固定目标的空中 continuation 航段：当前位置→目标→有限驻留，
+  无 TAKEOFF／LAND；往返、垂直、等待与降落余量开发参数只可收紧。原 task 全文、
+  full runtime、原 context／Mission／journal／transaction 与 host 编写声明逐项绑定；
+  armed／in-air／AUTO.MISSION／HOME／实测位置／MIS_TKO_LAND_REQ 接收准入。
+  实际 GCS target 和执行 current 位先核验再仅在 readback 内容比较副本归一；旧 upload
+  wire 与原接收字节不改。23 文件联合 911 passed／native0，独立54／146软件测试通过。
+  Linux Snap Docker launcher 在 --version 即拒绝、本地 daemon 查询超时；collector0
+  不冒充probe2通过。真实替换transport、父子链、取消／等待返航、在线producer、
+  Gazebo飞行与动作训练仍未完成；默认r33、失败LoRA、版本与硬件／发布门不变。
+  说明 `docs/onboard-continuation.md`；封存回执
+  `docs/evidence/onboard-continuation-development-20261007-r1.json`。
+
+- 2026-10-07：新增源 VLM 意图→较新执行状态的软件准入链；原目标固定 WGS-84，
+  有效计划从新位置重投影，保留原 RGB／raw／时间和独立 source／execution hash。
+  当前高度／GPS／围栏／资源／完整 wire Mission 净空与任务身份重验；ready-only CAS
+  单次消费，普通新 RGB 不取消推理，pending 不造 HOLD。独立审查未知高度／爬升／
+  起飞-降落-loiter 覆盖反例均修；默认无真实覆盖来源，在线执行仍拒绝。
+  消费瞬间过期与普通新观察解 arm 采用 host-only 取消协议，保留当前 Mission；source
+  真过期保留 fresh latest 队列。遥测 receive／processing 时钟分离，原时间不改写。
+  receive-only collector 留 proposed／accepted／executed／completed 原始因果回执，
+  新状态接受保留 host 重投影；真实回流、collector revision 联合与在途 continuation
+  未完成。远端旧 artifact／stdout 实际下载精确核验：collector0≠probe2／Docker1。
+  无新增 GPU 训练／生成、Gazebo 飞行、硬件、晋升、发布；冻结旧证据与默认模型不改。
+  详见 `docs/onboard-vlm-runtime.md`。
+
+- 2026-10-07：新增真实图文 v2 合同、可取消的 persistent process worker、ready-only
+  provider/scheduler；host 封存 request identity，实际 RGB／Prompt／context／事件与审核
+  receipt 入模型，缺失信息不补。pending 不提交 adapter、普通 RGB 只排 latest，scope／
+  receipt 变化退休旧进程；legacy 5000 m 障碍占位不当测量。软件夹具完成一次共享
+  executor/planner/compiler 重规划；RTX 4060 原生两例 native0、2 strict、7.06／6.05 秒，
+  CPU processor tensor／raw token／parser 重验一致，缺导航状态均 HOLD／空计划。
+  源观测对最新执行状态准入、任意 Prompt、真实执行 receipt 与动作训练仍未完成。
+  原 LoRA native1/独立 reload native0、默认 r33／COCO／parity 不改；未晋升或发布。
+  说明 `docs/onboard-vlm-runtime.md`；回执 `docs/evidence/onboard-vlm-runtime-20261007-r1.json`。
+
+- 2026-10-07：完成 Qwen3-VL-2B 事实 grounding LoRA 实验：110 个实体 RGB 图文样本独立
+  全量审核，26/41/43 保持整段隔离；RTX 4060 实际执行一轮 26 次更新，保存 adapter，
+  基座／视觉主体实际字节未变。84 父／84 子配对生成严格接口合格 1→73、全字段正确 1→61；
+  原始可见性字段诊断 BA 72.48%→79.05%，但遮挡正确 22/26→16/26、目标 ID 84/84→73/84，
+  不把格式收益当视觉可靠性，不晋升。原生任务最终在 adapter 重新加载字节检查失败退出 1；
+  原失败报告及所有 raw/token 保留。新增独立 fresh-base／FP32-default 加载入口，实测退出 0，
+  112 参数及固定 val 首例输入／token／raw 一致，基座不变、0 更新，不重训或改写原失败。
+  无动作训练、Mission、transport、世界模型运行或硬件／实飞证据；r33／COCO／parity 不变。
+  说明：`docs/onboard-vlm-grounding-training.md`；回执：
+  `docs/evidence/onboard-vlm-grounding-training-20261007-r1.json`。
+
+- 2026-10-07：共享图文／Prompt／scope／unknown context／证据记忆开发接口接入公开
+  Qwen3-VL-2B，独立环境RTX 4060实际生成8例，native0；7原始回答合同合格、1误用response
+  原样拒绝。均HOLD／空飞行计划，遮挡／重现和未知飞机状态有语义错误。
+  单帧8.43–13.69秒、6帧19.82秒，peak allocated5.403GiB；无tokens／历史截断。
+  修正录制身份漏绑定和条件ID侧信道；独立审查179绑定／148文件，raw tokens解码一致。
+  VLM未微调，世界模型未运行，r33／COCO／parity不变，不发飞控、不晋升、不获硬件门。
+  回执：`docs/evidence/onboard-vlm-native-shadow-20261007-r1.json`；说明：
+  `docs/onboard-vlm-shadow-status.md`。
+
+- 2026-10-07：沿r33主体新增8次观察的历史策略候选，统一训练／运行时的顺序、真实dt、
+  origin reset和padding。搜索等待采样但不重复上传Mission。实际权重迁移和四输入ONNX导出
+  退出0，真实CPU ORT的128组原始输出和12次连续带会话输入验证通过；仅为未训练扩展。
+  正式入口尝试当前3-D staging因缺动作审核回执退出1，未创建优化器或候选目录。
+  r33引用／COCO／候选晋升／Gazebo、Jetson、HIL/REAL、室外及发布门不变。
+  同帧确认／记录和返航／报告改用新观察；成功Mission与任务回执后才重置跨任务历史，
+  reset失败进入recovery。319项代码及工具、116项证据／文档／索引回归通过，源码parity
+  重算通过；保留原始release/mode证据，不把retained audit当外部SIM重跑。
+  回执：`docs/evidence/onboard-history-policy-development-20261007.json`。
+
+- 2026-10-07：完成r4混合实体三维视觉微调：原train连续帧与近远课程合并为832/256/256，
+  验证clip参与checkpoint选择、test不进optimizer；RTX 4060训练12轮继承708/708参数项，
+  训练／导出及6个原生对照进程退出0。远静态33/5/16→24/2/25、旧静态27/8/24→28/5/23，
+  远连续11/18/24→10/6/25、旧连续6/2/6→2/0/10；误报减少但召回和同ID恢复门失败，不晋升。
+  新合并器修复pending封存缺口；观测审计403可读、303身份合格，urban r1 seed错配退出2。
+  并行核验5个VLM及3个世界模型来源家族，补多模态/记忆/typed意图路线，不把研究当已推理。
+  回执：`docs/evidence/onboard-visual-replay-increment-20261007-r4.json`；详情见`docs/research/`。
+
+- 2026-10-07：完成r3远距离／低视角视觉增量：576张实体3-D图全量审计后，从r2继续
+  30轮微调并导出raw ONNX。新静态TP/FP/FN 12/3/37→33/5/16；新连续1/0/34→11/18/24；
+  旧静态总体命中不变但partial命中16→14、误报增加，旧失败连续0/0/12→6/2/6。新旧连续各2次ID切换，同ID恢复0，
+  不晋升、不覆盖COCO/r33。另复用现有trajectory parser新增episode历史窗口，43项测试和
+  独立审查通过；未接时序编码器或执行时序训练，不从遮挡计划造飞行动作标签。
+  本轮是Blender离线开发，不是Gazebo/PX4飞行、Jetson、HIL/REAL、GNSS或最终发布。
+  回执：`docs/evidence/onboard-far-visual-increment-20261007-r3.json`、
+  `docs/evidence/onboard-sequence-input-development-20261007.json`。
+
+- 2026-10-07：完成第二轮实体3-D像素增量训练：576张真实渲染图、384/96/96独立分区，
+  从r1继承708/708参数，在RTX 4060完成30轮。同96张留出图TP/FP/FN从4/25/47改善为
+  27/5/24；48帧连续渲染的test段仍漏掉全部12个可见帧，没有跟踪／重捕，r2不晋升。
+  只读诊断指向远距离、低视角、小目标和边缘视野的联合覆盖缺口，阈值不降。新增初始训练／
+  导出身份绑定、实际SDF几何重算及mask严格校验；239项相关回归通过。原COCO/r33不变，
+  Blender离线训练不冒充Gazebo/PX4飞行、Jetson、HIL/REAL、GNSS或最终发布。回执：
+  `docs/evidence/onboard-sdf-blender-curriculum-training-20261007-r2.json`。
+
+- 2026-10-07：真正使用实体三维像素推进 OnboardAI 视觉训练。新增 SDF→Blender RGB／可见
+  mask／YOLO 数据导出和封闭验 hash 的训练入口；120 张图按三套 world 分为 72/24/24，沿用
+  YOLO26n 权重完成 RTX 4060/CUDA 20 轮微调，形成 `search_target` 辅助候选。传统 raw ONNX
+  在现有推理接口的 24 张留出图上 TP/FP/FN=20/0/0，CPU 检测 p95=16.52 ms；42 项专项
+  测试及独立审查通过。修复验证原地融合造成的导出失败，从同一 best.pt 重新加载导出而非重训。
+  原 COCO 检测器和 r33 策略不变；单原型、简单静态背景和无完全遮挡不足以证明真实泛化。
+  另记录本机 Docker 空间故障及集群 Docker profile 权限错误；未删镜像/卷、未重启 Docker。
+  这是 Blender 离线开发证据，不是 Gazebo/PX4 飞行、Jetson、HIL/REAL 或最终发布通过。
+
+- 2026-10-06：完成 OnboardAI r87 实时自主转移增量训练（从 r86 继续，保持同一 40/20 ONNX 契约），
+  加入实时阶段转移、目标匹配后记录/返航、目标不匹配搜索、GPS/电量/障碍/推理故障保护和左右对称
+  3-D 几何课程。RTX 4060/CUDA 共 572,000 行、32 epochs；独立 guarded=`22/22`、方向/距离=`22/22`，
+  但 raw=`18/22` 相对 r86 回归，候选隔离、r33 reference 不变。没有真实 RGB/Depth/telemetry episode、
+  reviewed trajectory 或外部 Gazebo/PX4 runtime，不代表 Jetson/Pixhawk/HIL/REAL、室外 GNSS 或最终 0.3.0。
+  同时将 Docker stale-socket 预检改为动态提取错误路径，并新增精确路径可回滚恢复入口；Windows
+  WinError 1920 仍阻塞外部运行时，未删除镜像、容器或卷。
+
+- 2026-10-06：继续从当前 r33 reference 做 OnboardAI 几何增量微调，保持同一 40/20 ONNX 契约，
+  使用仓库中性实体 SDF 3-D 场景、连续 bearing/range 几何课程和 RTX 4060/CUDA 训练。第二轮
+  共 121,000 行、35 epochs；独立连续导航方向 MAE=`11.05°`、20° 内=`256/300`，但距离
+  MAE=`126.998m`，仍未达到晋级门，候选隔离、r33 reference 不变。训练仍是结构化 3-D
+  teacher，rendered RGB 行、reviewed trajectory 和独立 test split 均为 0；红车/绿车只保留
+  历史适配器回归，不是 Gazebo 训练目标。没有声称外部 Gazebo、Jetson、Pixhawk、HIL/REAL、
+  室外 GNSS 或最终 `0.3.0`。证据：`docs/evidence/onboard-policy-r33-range-focused-cuda-20261006.json`。
+
+- 2026-10-06：真实 3-D OnboardAI 训练 gate 新增独立 `test` episode/transition 要求；只有
+  train/evaluation 的轨迹会 fail-closed，防止把同一批 3-D episode 同时当训练和最终评估。
+  新增 gate 回归通过，当前 candidate/reference/release 边界不变。
+
+- 2026-10-06：完成 r73 几何加权 OnboardAI 候选微调，继续从 r33 父模型、40 维 SIM/Jetson 共用契约和
+  实体 SDF 主线训练。独立语义 holdout=`7/7`，但结构化 3-D holdout task/flight/compatible=
+  `0.8767/0.8789/0.9578`，几何 angle/range MAE=`68.91°/191.39 m`，候选拒绝，r33 reference 不变。
+  同时真实 3-D 训练门新增 calibrated NED geometry rows 要求：缺少 CameraInfo、姿态或 heading 的
+  RGB/Depth 帧不能进入 `training_ready` 微调；没有外部 Gazebo、Jetson、Pixhawk、HIL/REAL 或室外
+  GNSS 证据。
+
+- 2026-10-06：完成一次真实的 RTX 4060/CUDA OnboardAI r72 中性 3-D smoke 增量训练，继续使用
+  当前 r33 的 40 维输入、任务/飞行动作头、实体 SDF manifest 和父模型蒸馏。独立语义 holdout
+  为 `7/7`，但 900-case 结构化 3-D holdout 降到 task/flight/compatible=`0.8789/0.8833/0.9656`，
+  泛化失败 `bearing-right`，几何诊断 angle/range MAE=`75.14°/151.32 m`，所以 r72 已拒绝、
+  r33 reference 不变。没有 RGB/Depth episode、外部 Gazebo、Jetson、Pixhawk、HIL/REAL 或室外
+  GNSS 证据；完整记录：`docs/evidence/onboard-policy-r72-neutral-3d-distilled-smoke-20261006.json`。
+
+- 2026-10-06：新增真实 3-D OnboardAI 训练预检回执，扫描 122 份历史 RGB manifest，当前主线
+  `capture_eligible_count=0`、`training_ready_count=0`。Docker daemon、Gazebo/PX4 CLI 不可用，
+  所以预检没有启动外部仿真、没有写入训练集，也没有用红车/绿车示例替代中性实体 3-D 资产；回执：
+  `docs/evidence/onboard-3d-training-preflight-20261006-r2.json`。
+
+- 2026-10-06：继续在现有 OnboardAI 上增量训练 r33。修复匹配目标 east 回归固定为正值的标签
+  偏置，补齐 TAKEOFF/SEARCH/INSPECT/MATCH/RECORD/RETURN/REPORT/HOLD/LAND 生命周期样本，并加入
+  按目标距离与 bearing 计算的对称导航锚点；锚点按混合 group 切分，避免左右样本整组落在单一
+  分区。r33 使用 RTX 4060、同一 40 维契约和仓库多旋翼/VTOL/固定翼 3-D Gazebo manifest，
+  固定 22-case guarded=`22/22`、导航方向=`22/22`，900-case 结构化 3-D holdout
+  task/flight=`0.976667/0.977778`。训练源仍无 reviewed RGB/Depth episode、test split=`0`，
+  没有启动外部 Gazebo/PX4；候选未 promotion，不代表 Jetson/Pixhawk/HIL/REAL、室外 GNSS 或
+  最终 `0.3.0`。证据：`docs/evidence/onboard-policy-r33-balanced-bearing-3d-20261006.json`。
+
+- 2026-10-06：继续在现有 OnboardAI 上训练中性 3-D 课程候选。r70 因独立结构化 holdout 退化被拒绝；
+  训练器新增可选父模型蒸馏约束，r71 从 r69 增量训练后独立任务 holdout=`7/7`、结构化 3-D
+  holdout task/flight/compatible=`0.9944/0.9878/0.9933`。r71 仍未 promotion：没有真实 Gazebo
+  RGB/Depth/CameraInfo/PX4 episode，匹配状态几何诊断未通过，当前 reference 仍为 r33。
+
+- 2026-10-06：继续从 r65 增量训练现有 OnboardAI r66，保持同一 40 维输入、任务/飞行动作头、
+  SIM/未来 Jetson 共用入口和独立安全边界。RTX 4060 训练 112,600 行、20 epochs，加入左右
+  bearing 对称样本、有限 navigation sign loss 与 geometry loss；两个独立 structured holdout
+  的 task=`0.995833/0.993333`、flight=`0.991667/0.990000`、compatible=`0.993333/0.993333`，
+  22-case 泛化经 guarded、方向、距离检查均为 `22/22`。r66 仍未 promotion，r33 reference 不变。
+  当前没有 reviewed Gazebo RGB/Depth episode，`rendered_rgb_depth_rows=0`；不代表 Gazebo/PX4、
+  Jetson/Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。证据：
+  `docs/evidence/onboard-policy-r66-bearing-symmetry-20261006.json`。
+
+- 2026-10-06：从当前 r33 父权重继续训练 OnboardAI r50，保持 40 维输入、任务/飞行动作头、
+  SIM/Jetson 共用入口和安全边界不变。RTX 4060 训练 172,400 行、48 epochs；独立结构化
+  holdout=`7/7`，通用 guarded=`22/22`、导航方向=`22/22`，900 行三类实体 3-D manifest
+  结构化 sensor holdout task/flight/compatible=`0.9867/0.9856/0.9833`。r50 的 5 个通用
+  案例仍依靠 compatibility/phase safety mask，且 `rendered_rgb_depth_rows=0`、没有真实
+  Gazebo 连续 episode，因此候选未 promotion，r33 继续是 SIM 与未来 Jetson 的唯一 reference。
+  证据：`docs/evidence/onboard-policy-r50-geometry-direction-candidate-20261006.json`，
+  SHA-256=`22cbbe958eae3977dc633444423fa6fac6408c29497b8ae2501b9e60b168e3c9`。
+
+- 2026-10-06：重新打包当前工作树并由 ClusterYourCodex 选择在线 Linux `nuc` 复核 3-D 采集
+  前置条件。快照包含 879 个源码、配置、实体 SDF 和 r33 reference 文件；Docker CLI 能执行，
+  但 `docker info` daemon probe 仍以退出码 `1` 失败，后续 stderr 捕获任务没有启动容器。
+  本机 Docker Desktop 进程存在但 `desktop-linux` server pipe 不存在、WSL `docker-desktop`
+  为 stopped；没有生成 RGB/Depth/PX4 telemetry，不宣称外部 Gazebo 通过。证据：
+  `docs/evidence/onboard-3d-cluster-preflight-20261006-r2.json`，SHA-256=
+  `6e9c0ddd2475a291f782636f39b078e33aeb0211e2e15af661a701894146a004`。
+
+- 2026-10-06：按“先训练现有 OnboardAI、再做真实 3-D Gazebo”的主线修正训练教师。
+  中性目标、INSPECT/FOLLOW、MATCH/FOLLOW 样本现在把距离特征、bearing 与 N/E 位移绑定到
+  同一几何量纲；多角度 bearing 锚点使用独立 source group，避免方向重复泄漏。真实 RGB/Depth
+  数据集构建器改为复用 CameraInfo/相机标定、同帧姿态、米制 Depth 和现有 `_target_rays`
+  NED 变换，不再写死 north/east 标签。r46/r47 仍未 promotion，r33 reference 不变；当前
+  仍无 training-ready 的真实 Gazebo RGB/Depth/telemetry 数据，最终发布/HIL/REAL/Jetson 边界不变。
+
+- 2026-10-06：新增 r37 开发候选，继承 r33 的同一 40 维 OnboardAI 权重，以较低学习率和更强
+  左右对称样本训练三类 3-D 模型/场景的结构化 sensor-contract 行。RTX 4060 完成 57,700 行、
+  35 epochs，独立 3,000-case holdout task/flight/兼容输出=`0.979333/0.984333/0.993333`，
+  generalization raw=`19/22`、guarded=`22/22`。r36 因 bearing-right 回归被拒绝，当前引用仍
+  保留 r33。r37 无 rendered RGB/Depth 行、审核轨迹、pixel test 或外部 Gazebo 重跑；未 promotion，
+  不代表 Jetson/Pixhawk、HIL/REAL、室外 GNSS、实飞或最终 0.3.0。证据：
+  `docs/evidence/onboard-policy-r37-3d-model-teacher-20261006.json`。
+
+- 2026-10-05：继续训练同一套 OnboardAI，新增 `--rendered-3d-dataset` 与 `--rendered-3d-repeat`，
+  把多旋翼、VTOL、固定翼实体 Gazebo world 的真实 RGB/telemetry 帧接入 r17 增量微调。r22
+  使用 RTX 4060 训练，3-D 结构化 holdout 为 task/flight=`0.984444/0.981111`，但仍是未
+  promotion 候选；新增渲染数据集 `artifacts/training/onboard-rendered-3d-mainline-v1.json`。
+  这些结果不是 Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布证据。
+
+- 2026-10-05：收紧 OnboardAI 训练就绪门槛。训练回执、label manifest、raw recording manifest
+  和五类 planner/Mission proof artifact 现在都必须在数据集目录内，并逐项用实际文件 SHA-256
+  绑定；`../` 路径、目录外绝对路径、被篡改的 proof 文件都会 fail-closed。RGB payload 还必须
+  与同一 raw replay frame 逐帧相等，避免把独立但不匹配的传感器文件拼成“连续 3-D 轨迹”。
+  这只改善训练证据完整性，不把当前短时 3-D plumbing 数据升级为训练完成、Jetson/Pixhawk、
+  HIL/REAL、室外 GNSS 或最终 `0.3.0` 证据。
+
+- 2026-10-05：基于现有 r23 权重在本机 RTX 4060 做了一轮 r25 3-D RGB/Depth 增量候选训练，
+  仍使用同一 40 维 OnboardAI 契约，没有另起飞控模型。候选模型 SHA-256 为
+  `803554f474c78a7094021bd6e4f7b6f85292818ca7ce399e142bf7a83593dd05`；训练源是仓库现有
+  `onboard-rendered-3d-depth-v2.json` 的 9 条 RGB/Depth plumbing 行，明确使用
+  `allow_unreviewed_rendered=true`。训练集 task/flight 为 `0.997628/0.997570`，evaluation 为
+  `0.873393/0.869512`，独立 test 行数为 `0`，所以候选保持 quarantined、未替换生产权重、未
+  promotion。完整摘要见 `docs/evidence/onboard-policy-r25-3d-depth-gated-20261005.json`；
+  这不是视觉泛化、Jetson/Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 证据。
+
+- 2026-10-05：OnboardAI r18 继续从 r17 增量训练，并新增 `--gazebo-3d-manifest` 训练入口。
+  入口读取仓库主线的实体多旋翼、VTOL、固定翼 world/载具和 RGB/Depth/PX4 telemetry/airspeed
+  传感器契约，把不同 3-D 飞行工况转换成同一套 40 维 OnboardAI 结构化观测；不再把 billboard
+  或红/绿示例当作模型身份。r18 在 RTX 4060 上使用 35100 条样本、独立 holdout `7/7`，22
+  个泛化用例 guarded `22/22`。该结果仍是合成结构化训练，不是像素级 Gazebo 渲染、Jetson、
+  Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布证据；摘要见
+  `docs/evidence/onboard-policy-r18-gazebo3d-sensor-20261005.json`。
+
+- 2026-10-05：新增 `gazebo_red_car_positive_control_001` 独立红车正控场景，并把真实
+  PX4/Gazebo wire-v3 RGB 与 FLOAT32 Depth 接入同一 OnboardAI 感知链。实际候选 YOLO 模型
+  检测到 `car`，共享颜色适配器判定 `red`，目标颜色匹配通过，Depth 测得约 `5.057 m`，
+  RGB/Depth 配对、PX4 GPS telemetry 与 cleanup 通过。首帧因仍处于 `TAKEOFF` 而试图直接
+  进入 `match_target`，共享状态机按设计拒绝跳过 `SEARCH` 并 fail-closed；因此没有伪造
+  完整自动任务、Mission 提交、GPS 目标坐标、Jetson、HIL、REAL、室外 GNSS 或最终 `0.3.0`
+  发布证据。摘要：`docs/evidence/external-red-car-actual-detector-20261005-r2.json`。
+
+- 2026-10-05：为共享 `OnboardTaskStateMachine`、`OnboardMissionEventLoop` 和
+  `OnboardRealtimeModelBridge` 增加 telemetry-gated `mark_takeoff_complete` seam。只有
+  `relative_home`、合格 GPS、精度在门限内且实际相对高度达到门槛时，任务阶段才会从
+  `TAKEOFF` 进入 `SEARCH`；重复调用幂等，计划文件和相机帧不能伪造该阶段。Gazebo、HIL
+  和 Jetson/Pixhawk 后续共用这个接口。
+
+- 2026-10-04：将实际 Gazebo wire-v3 RGB 帧接入共享 `OnboardFramePerceptionAdapter`。
+  车辆正控场景中的两帧实际画面现在经仓库内 YOLO26n 候选检测、颜色判断和可选深度采样，
+  再进入同一 `OnboardPerceptionObservation → OnboardRealtimeModelBridge → OnboardAI`
+  路径；检测到车辆但颜色不是红色时保持 `search`，不会伪造红车命中。新增适配器单测、
+  外部 detector 运行开关和证据摘要；颜色分类随后升级为优先使用高色度前景像素，并以
+  `external-car-actual-detector-20261004-r3.json` 重新执行验证。候选模型仍为 quarantined，
+  当前证据不代表红车命中、GPS 目标落图、Jetson、HIL、REAL、室外 GNSS 或最终 `0.3.0`。
+
+- 2026-10-04：修正 PX4 `HOME_POSITION` wire 解码并接入 live bridge。正确处理 MAVLink 1 的
+  52-byte core、MAVLink 2 的尾部裁剪和 `time_usec` extension；外部低电量 campaign 现在
+  能用实际 PX4 HOME_POSITION 与观察位置计算返航向量。新增 `OnboardDecisionProvider` /
+  `OnboardModelProposal`，Jetson/4060 可以对实时事件提出高层响应，固定层只做 GPS、围栏、
+  返航向量和 Mission 边界的安全否决。当前低电量 RETURN 证据仍来自 deterministic
+  simulator baseline，尚未接入高层模型 artifact，不宣称 Jetson、HIL、REAL、硬件、室外
+  GNSS 或最终 `0.3.0`。
+
+- 2026-10-03：新增共享 `OnboardAIExecutor` 编排层，把一次 `PromptEnvelope`、实时
+  `ContextSnapshot`、`SharedTaskPolicy`、Planner 重验证和 PX4 Mission 编译绑定到同一条
+  SIM/HIL/REAL 路径。目标移动/丢失/任务完成会重规划；GPS、电量、障碍和推理故障会
+  fail-closed 输出 `RETURN/HOLD` 提案。新增正向与安全事件回归，并将模块纳入 core parity；
+  本轮没有宣称 Jetson、HIL、REAL、室外 GNSS 或最终 `0.3.0` 发布。
+
+- 2026-10-04：完成 Prompt → OnboardAI → PX4/Gazebo 外部闭环。注册的 PromptEnvelope 通过
+  `OnboardAIExecutor` 解析到批准的静态任务目录，和共享 planner、Mission hash、journal、
+  upload/readback/commit/permit 共用一条路径；r5 两架次通过，r6 在同一容器采集 3 帧
+  wire-v3 RGB/CameraInfo/NavSat/Odometry 与 3 帧 depth companion。新增独立审计会重建
+  resolution 并核对 resolver/plan/executable/wire hash。当前仍不是任意自然语言任务生成，
+  也不宣称实时突发事件重规划、QGC 人工视觉、Jetson/Pixhawk、HIL/REAL、室外 GNSS 或最终
+  `0.3.0` 发布。证据索引：`docs/evidence/prompt-onboard-vtol-gazebo-20261004-r6.json`。
+
+- 2026-10-03：QGC QML delegate 命中修正后的最新 external combined SIM 复跑成功。关闭残留
+- 2026-10-03：完成 pinned PX4/Gazebo image sensor SIM r3。真实 disposable container
+  采集并持久化 3 帧 1280×960 BGR24 RGB 与 3 帧 FLOAT32_M 深度，RGB/Depth digest、
+  pair binding、GPS/odometry/camera-info provenance 和 cleanup 全部通过；新增首帧 PNG
+  预览及 `docs/evidence/gazebo-image-sim-20261003-r3.json` 索引。该项是 machine-side
+  Gazebo 图像/深度证据，不代表 QGC 人工视觉、detector、户外距离精度、HIL/REAL、硬件或
+  最终 `0.3.0` 发布。
+
+- 2026-10-03：完成 `gazebo_car_positive_control_001` RGB-only image SIM r2。采集 3 帧
+  1280×960 BGR24，首帧通过当前隔离 COCO raw YOLO candidate smoke，输出 `car` confidence
+  `0.806`；新增 `docs/evidence/gazebo-car-image-sim-20261003-r2.json` 和
+  `docs/gazebo-scene-catalog.md`。该项不代表 detector accuracy、生产批准、QGC 人工视觉、
+  户外距离精度、HIL/REAL、硬件或最终 `0.3.0` 发布。
+
+- 2026-10-03：新增 opt-in Gazebo RGB/Depth companion persistence。`--sensor-depth-output-dir`
+  要求 paired RGB 输出，在独立目录写入原始 `FLOAT32_M` payload 和 canonical
+  `gazebo-depth-companion-set.manifest.json`，并重构校验 `MDGZDEP1` digest、RGB wire
+  digest、时间戳、几何、源 topic、calibration SHA 和 pair binding。现有 RGB frame-set v2
+  与 VTOL exact-directory contract 保持不变；该项只代表 software-SIM sensor provenance，
+  不宣称户外标定、物理距离精度、HIL/REAL、硬件或最终 `0.3.0` 发布。
+
+- 2026-10-03：使用正确的 scenario index 完成 fresh pinned PX4/Gazebo depth companion
+  外部 SIM r2；MAVLink/GPS telemetry、3 帧 RGB/Depth synchronized transport、原始
+  `FLOAT32_M` payload persistence、`MDGZDEP1` digest 重验、pair binding、canonical
+  manifest 和容器 cleanup 全部通过。证据索引为
+  `docs/evidence/depth-companion-sim-20261003-r2.json`；仍不宣称 metric-depth model
+  calibration、户外距离精度、HIL、REAL、硬件或最终 `0.3.0` release。
+
+- 2026-10-03：新增 Depth Anything offline replay diagnostic。对三帧已封存的 RGB/Depth
+  companion 重新验签，并严格复用 `MetricDepthEstimator` 的 `INTER_CUBIC`、ImageNet
+  normalization、NCHW 与模型原生 dense output grid 后使用 pinned outdoor-small ONNX CPU
+  推理；raw RMSE=`2.49894642829895 m`。
+  该结果仅用于暴露未校准尺度差异，不生成现场 calibration、不批准生产模型，也不宣称户外
+  距离精度、HIL、REAL、硬件或最终 `0.3.0` release。摘要为
+  `docs/evidence/depth-model-sim-replay-20261003-r1.json`。
+
+  Windows `TabTip` 遮挡后，当前 `0.3.0-pre.8` Release EXE（SHA-256=
+  `6f0403cfb29ec6b13d0b5b684a1787327c85db6d91bc5b4662fde867581af37f`）与当前 parity
+  （SHA-256=`cb45e34c59463346d56991d489a7d0e838d7841a50f71887c73f2b5fd837892f`）绑定的
+  pinned PX4/Gazebo/QGC 组合运行通过：900 帧 integrated SIM、native video surface、
+  toolbar machine smoke、精确 PID/HWND `SELECT_TRK`、SelectionAck/TrackStatus adoption、
+  VTOL Mission transaction、420.016 秒 router 窗口和 disposable container cleanup 均通过。
+  源证据为 `artifacts/evaluation/combined-sim-qgc-20261003T021801Z-40300/combined-evidence.json`
+  （3,716,766 bytes，SHA-256=`5f3c9f281787d567480729d25e4731c34f9753826c5c756b9a5bcff6a52d2925`），
+  简明索引为 `docs/evidence/combined-sim-qgc-20261003-r4.json`。该结果仍只代表软件
+  external SIM/machine smoke；不宣称人工视觉、HIL、REAL、真实硬件、室外 GNSS 或最终
+  `0.3.0` 发布，发布门仍有 32 个 blocker。
+
+- 2026-10-03：在完整 MSVC x64 环境中重新构建 `0.3.0-pre.8` QGC Release，纳入本轮
+  QML 实际渲染 delegate 命中修正；生成的 Release/portable EXE SHA-256 均为
+  `6f0403cfb29ec6b13d0b5b684a1787327c85db6d91bc5b4662fde867581af37f`。该记录只代表构建与
+  deploy 成功，不代表 QGC 人工视觉/Mission、HIL/REAL、硬件、室外 GNSS 或最终 `0.3.0` 发布。
+
+- 2026-10-03：完成 fresh pinned PX4/Gazebo/QGC 组合复跑（900 帧传感器尾段）。
+  精确 PID/HWND 的 native `SELECT_TRK` 已完成 SelectionAck、TrackStatus 与 operator-tracked
+  adoption；VTOL Mission upload/readback/commit/permit、router 收尾和 disposable container
+  cleanup 全部通过。完整源证据为
+  `artifacts/evaluation/combined-sim-qgc-20261003T013646Z-15924/combined-evidence.json`，
+  简明索引为 `docs/evidence/combined-sim-qgc-20261003-r3.json`。QGC 仍仅计 machine smoke，
+  不宣称人工视觉、HIL、REAL、硬件、室外 GNSS 或最终 `0.3.0` 发布。
+
+- 2026-10-03：depthguard-r1 修正深度标定契约与 QGC 原生目标命中路径。Gazebo
+  `optical_axis_z_m` wire identity 不再可作为 Depth Anything metric-depth calibration；
+  loader、PowerShell 组合入口和回归测试均 fail-closed。QGC `SELECT_TRK` 现在优先根据
+  实际渲染 target delegate 几何命中，避免 letterbox/PIP 坐标漂移造成首次点击
+  `stable_hit=false`、根本没有发送 SELECT 的假“通信失败”。当前 parity SHA-256 为
+  `0dd9394b477260852ebd4828a20df2f0760f6c1cbbfa4423972d4223a70ad027`，核心 hash 为
+  `de997b7833d70bc7f424c210e4520ebe53d33c0aec20c9b039fb324e3bc1db41`；随后发现并修正
+  fixed-wing/multirotor 深度 evidence 与当前 Gazebo SDF 资产的 hash 漂移，生成
+  `depthguard-r2-model-assets` retained-file rebind；仅完成代码与证据重绑定，32 个
+  release blocker、QGC 视觉/Mission、HIL/REAL、硬件、
+  室外 GNSS 与最终 `0.3.0` 门继续 fail-closed。
+
+- 2026-10-03：在 pinned `px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8` disposable 容器中完成
+  一次新的 external-SIM sensor transport run：实际收到 PX4 heartbeat/GPS_RAW_INT（fix=3、
+  10 satellites），采集 3 帧 camera/camera-info/NavSat/full odometry/covariance wire-v3，
+  3/3 原始 BGR24 payload 与 wire payload SHA 一致，容器 stop/remove cleanup 通过。证据为
+  `artifacts/evaluation/continuation-docker-sensor-20261003.json`（SHA-256=
+  `6f7ceec973fe260276079253644b69d11325f15354974b6336e3ba79f536be48`），帧 manifest 和
+  container log 也已写入 current-progress 索引。该运行是被动 telemetry/sensor 观察，没有
+  Mission/ARM/actuator 指令、SharedTaskPolicy task binding、QGC 人工视觉、HIL/REAL、硬件、
+  室外 GNSS 或最终 `0.3.0` release claim；`0.3.0-pre.8` 与 32 个 fail-closed blocker 保持不变。
+
+- 2026-10-03：将当前 `0.3.0-pre.8` release-gate 重新绑定到最新
+  `configs/release-parity.json`。当前 report/manifest 为
+  `artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound-report.json` /
+  `artifacts/evaluation/release-gate-pre.8-current-20261002T233000Z-v6-bound.json`，audit 为
+  `docs/evidence/shared-policy-release-parity-policy-helper-20261003-current-r4.json`。
+  replay、sim、hil、real 四个 mode 的 parity mismatch 已归零；external-SIM join 与 PX4
+  response matrix/campaign 是从不可变源重算的 source-bound 派生物，不代表旧 runtime 重新执行。
+  历史 field-link 使用 `field-link-preflight-current-20260927-r2.json`，独立 current probe 使用
+  `field-link-preflight-current-20260928-r2.json`，两者均保持 `hardware_link_ready=false`。
+  audit 仍有 32 个 fail-closed blocker；replay accuracy/domain、QGC visual/Mission、HIL/REAL、
+  硬件、室外 GNSS 和最终 `0.3.0` 发布均未通过。
+
+- 2026-10-03：修复 r14 之后的 source-bound parity 收口。`run_vtol_mission_sensor_capture.py` 纳入
+  `px4_mission_path` parity source；修正 current parity receipt 重绑定必须携带
+  `scope=receipt_generation_file_binding`，并为 retained-file audit 明确写入
+  `evidence_scope=retained_files_audit`、`runtime_source_parity_verified=false`、
+  `external_sim_rerun_performed=false`。保留旧副本后重新绑定 observed session、训练 artifact、
+  campaign receipts、AI-flight retained layers 和三机型矩阵；深度证据恢复到当前模型 provenance
+  的 r2 文件。`verify_current_progress_index.py --check-sources` 与 648 项定向回归通过。
+  当前 parity 为 `0c1676f032ae069a7c168d9a512f91787bb892b8859f8a19da688f1c5c402463`，r14 外部
+  PX4/Gazebo sensor campaign 仍是最新 fresh external SIM；32 blockers、HIL/REAL、硬件、室外
+  GNSS、QGC 人工视觉和最终 `0.3.0` 发布门继续 fail-closed。
+
+- 2026-10-03：在当前源码 parity 下重新运行 SharedTaskPolicy VTOL 组合 campaign（r9），修复并验证
+  首架次 task-level sensor binding：`synthetic-east` 的 binding descriptor、transaction id、
+  plan/executable Mission/wire hash 与 ready/complete marker、同一容器的 3 帧 Gazebo wire-v3
+  capture 及最终 cleanup 全部一致。证据为
+  `artifacts/evaluation/continuation-shared-policy-vtol-sensor-20261003-r9.json`（文件 SHA-256=
+  `1b65532a32d3a672f0ed570fd04c7abd02660cdf4d43b71d7c6acbd447713d00`），当前 parity 文件 SHA-256=
+  `203fb5cdb25d3c49af097d0d0b2599b036a59c0f03dc907de14378ccee890190`。r9 仍仅是 headless
+  PX4/Gazebo 软件 SIM；不宣称 QGC 人工视觉、HIL/REAL、真实硬件、室外 GNSS 或最终 `0.3.0` 发布。
+
+- 2026-10-03：新增显式 `--capture-campaign-sensor-frames` 组合入口：第一条 SharedTaskPolicy
+  campaign sortie 沿用既有 live MAVLink fixed-wing barrier，外层对同一 exact Docker container
+  采集 3 帧 Gazebo wire-v3 Image/CameraInfo/NavSat/Odometry，写入既有 completion marker 后再
+  继续第二条任务、降落和 cleanup。新增 evidence 为
+  `artifacts/evaluation/continuation-shared-policy-vtol-sensor-20261003-r2.json`，在重新生成的
+  current parity（SHA-256=`b870011d3e72b66d9b44372a697341410afbc1a84b07c4eecc12538108f3c543`）下，
+  gate、parity 起止快照、Mission journal/hash-chain、像素持久化和 exact-ID cleanup 均通过；明确不做
+  task-level frame mapping（`task_binding_claimed=false`），不宣称 QGC 视觉、HIL/REAL、硬件、
+  室外 GNSS 或最终 `0.3.0` release。组合入口默认保持 `reference_profile=lifecycle-smoke`；
+  `fixed-wing-response` 仍只用于单 Mission path。新增 combined branch mocked 回归覆盖 barrier、
+  pixel persistence tamper 和 final-integrity fail-closed。
+
+- 2026-10-03：新增共享 `TaskPolicyRuntimeBinding` 只读契约，并将其接入现有 authenticated
+  operator-link/bridge/QGC 只读状态链：observed session、确定性 SIM 和 VTOL
+  campaign 现在统一记录 policy/ranker/profile/planner/Mission hash；abstain 不绑定 Mission，
+  binding 不能启动 Mission、应用 actuator 或读取 truth。lint 修正后重新生成 canonical parity，
+  并以 `task-policy-runtime-r5` 重建 source-bound 派生索引；当前 parity 文件 SHA-256 为
+  `bb7aacb2c0e00772286f6663480e7b88474e8f58200329cab0d61427e346a557`，release-gate report/audit
+  绑定到 `20261003T011500Z` 与 `shared-policy-release-parity-drift-20261003-task-policy-runtime-r7.json`。
+  使用 VS2022 x64 Developer 环境完成增量 Release 构建，`MultiDetectGCS.exe` SHA-256 为
+  `7cef06c6c459a7b70582aabba6940cf156f33bba8cd29b5e05f3a4ae7a334b22`；同时运行 C++ protocol
+  self-test（type 27 policy-runtime golden vector，exit 0）；只记录构建/协议自测，未启动 EXE。
+  当前仍为 `0.3.0-pre.8`，32 blockers、HIL/REAL/硬件/室外 GNSS/最终 release 门保持 fail-closed。
+
+- 2026-10-02：完整回归发现上一版 release-gate report 把 current field-link r3 同时绑定成 historical
+  field-link，违反当前/历史证据身份分离。保留历史文件不覆盖，改用 2026-09-28 r2 作为 historical
+  输入、2026-10-02 r3 作为 current probe，重新生成 13:00 report/manifest 与 audit r8；历史报告
+  的 stale blocker 被如实保留，当前仍 32 blockers、`gate_passed=false`、`release_allowed=false`，
+  未升级为 HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布证据。audit generator 同步增加了同文件/同
+  SHA 的 current/historical 拒绝规则和回归测试。
+
+- 2026-10-02：重新执行只读 field-link 预检 r3：3/3 样本中 Jetson SSH、GR01 MAVLink、相机 RTSP
+  均超时，本机 UDP 绑定成功但实际 `192.168.1.13/24` 不符合 `192.168.144.0/24`，因此
+  `hardware_link_ready=false`，没有把预检升级成硬件/HIL/REAL 或室外 GNSS 证据。当前
+  release-gate report/manifest 绑定到 12:00 快照，audit 更新为 r7，freshness 阻塞已清除但仍有
+  31 blockers、`release_allowed=false`。同时修复 audit generator 对 raw `verified` 与 projected
+  `gate_passed` interface-diagnostic 语义的兼容处理，并保留严格 path/SHA/bytes 交叉校验。
+
+- 2026-10-02：修复后续 source-bound 复核发现旧 r27 matrix/campaign 的 acceptance runner hash 已随
+  PX4 启动 race 修复变化；保留 r27 为历史并从相同 retained source 生成 r28，matrix/campaign
+  verifier 均通过。三机型 external join/revalidation 与 release-gate 同步到 r28/r6；当前 report
+  仍为 `gate_passed=false`、`release_allowed=false`、32 blockers，未把 source 重算夸大为新增运行，
+  也未改变 HIL/REAL、硬件、室外 GNSS 或最终 `0.3.0` 发布状态。
+
+- 2026-10-02：修复 disposable PX4/Gazebo AI flight acceptance 的启动 race：`px4-param` preflight
+  仅在 `server not running` 时进行 20 次、0.5 秒间隔的 bounded retry，其他错误仍立即 fail-closed；
+  新增对应回归测试。修复后 fresh r6 external SIM 在当前 parity 下通过 armed、truth-free TRACK、
+  `47/47` target refresh、`1.981104m` `GLOBAL_POSITION_INT` response 与 cleanup；r8 composite
+  receipt 证明同一 runtime parity，但仍不构成 HIL/REAL、硬件、室外 GNSS、视觉精度或最终 release 证据。
+
+- 2026-10-02：重新生成当前 `0.3.0-pre.8` release parity 后，fresh SharedTaskPolicy VTOL
+  Mission campaign r3 与 AI flight r4 都在运行起止点锁定同一 parity；Mission upload/readback/
+  commit/permit、planner revalidation、PX4 flight-response、cleanup 和 snapshot 稳定性均通过。
+  composite receipt `artifacts/evaluation/simulator-ai-flight-parity-20261002-gnss-display-r5.receipt.json`
+  明确记录 `same_release_parity=true`、`current_runtime_parity_proven=true`。同步生成了
+  current-progress 的 source-bound 副本，并由 `verify_current_progress_index.py --check-sources`
+  完整复核；这些仍是外部软件 SIM 证据，不是 HIL/REAL、真实硬件、室外 GNSS、视觉精度或最终
+  `0.3.0` 发布证据，`release_allowed=false` 保持不变。
+
+- 2026-10-02：SharedTaskPolicy Mission campaign 与 AI flight 完成同一当前 runtime parity
+  join。新的两架次外部 PX4/Gazebo Mission campaign 在起止点锁定
+  `configs/release-parity.json`，Mission upload/readback/commit/permit、planner revalidation、
+  cleanup 和快照稳定性全部通过；AI r3 也有同样锁定。新的 composite receipt
+  `artifacts/evaluation/simulator-ai-flight-parity-20261002-gnss-display-r4.receipt.json`
+  明确记录 `same_release_parity=true`、`current_runtime_parity_proven=true`。这只证明
+  `0.3.0-pre.8` 外部软件 SIM 层的同版 parity，仍不宣称 HIL/REAL、真实硬件、室外 GNSS、
+  视觉精度、candidate 晋升或最终 `0.3.0` 发布。
+
+- 2026-10-02：AI external PX4/Gazebo acceptance 增加运行时 parity 起止锁定。r3 在同一
+  `river_rescue_vtol_001` disposable VTOL 中，运行开始/结束均记录 `release-parity.json`，文件
+  SHA-256=`abba65fff6ef77e38d292b95ce523219a15c9de9ead7a218fa10c8f2235a7d7d`，五项契约 hash
+  一致；armed、truth-free TRACK、目标刷新 `45/45`、flight response 和 cleanup 全部通过。
+  新 join 工具会审计该 snapshot，但 composite 仍保持 `same_release_parity=false`，因为
+  SharedTaskPolicy Mission 历史运行还没有相同的起止锁定；未宣称 HIL/REAL、硬件、室外 GNSS
+  或最终 `0.3.0` 发布。
+
+- 2026-10-04：新增独立的 `MissionReplacementTransaction` 与
+  `mission-replacement-receipt.schema.json`，把飞行中换 Mission 拆成父事务绑定的
+  pause → upload → readback → commit → cursor → resume 状态机。每个外部写动作先落
+  intent journal，恢复只报告人工动作，不自动重放；来源、Mission hash、游标和
+  `AUTO.MISSION` 证据必须一致，危险 Mission item 与不确定 fallback 一律 fail-closed。
+  9 项事务/schema 回归及全仓库 5342 项测试通过；这仍是 transport-neutral 软件边界，
+  未宣称 PX4/Gazebo 飞行中换 Mission、HIL、REAL、Jetson、户外 GNSS 或最终 `0.3.0`。
+
+- 2026-10-04：重新运行固定 digest 的 disposable PX4/Gazebo AI flight campaign。第一次
+  运行因 arm 时序只收到 `MAV_RESULT_TEMPORARILY_REJECTED` 而保留为失败证据；第二次在
+  更长启动等待下通过 arm、truth-free target、488 个 AI steps 和 5 秒控制响应，实际
+  `GLOBAL_POSITION_INT` 最大水平位移为 1.302856 m（门槛 0.5 m），150 个位置样本，
+  容器已清理。摘要为 `docs/evidence/simulator-ai-flight-20261004-r2.json`；该结果仍
+  只证明外部软件 SITL/Gazebo AI flight response，不证明 HIL、REAL、Jetson、Pixhawk、
+  户外 GNSS、视觉精度或最终 `0.3.0`。
+
+- 2026-10-04：新增一次外部 PX4/Gazebo `target_refresh_dropout` 负向 campaign。arm、
+  truth-free target 和 AI bridge 正常运行，随后真实观察到目标刷新故障并确认
+  `fail_closed=true`；容器 cleanup 通过。该命令以非零码结束是预期的，因为注入故障后
+  正常 flight gate 必须拒绝。摘要为 `docs/evidence/simulator-ai-target-dropout-20261004.json`，
+  它是安全负向路径证据，不是正常 flight 通过、HIL、REAL、Jetson、户外 GNSS 或最终发布证据。
+
+- 2026-10-04：新增一次外部 PX4/Gazebo `heartbeat_dropout` 负向 campaign。arm、target
+  和 AI bridge 在故障前正常运行，心跳丢失被观察到，控制 authority 最终进入 `failsafe`，
+  `fail_closed=true`，容器 cleanup 通过。正常 flight gate 按设计拒绝，非零退出码是预期
+  行为。摘要为 `docs/evidence/simulator-ai-heartbeat-dropout-20261004.json`；它不代表
+  正常 flight 通过、HIL、REAL、Jetson、户外 GNSS 或最终发布证据。
+
+- 2026-10-02：新增 AI flight 与 SharedTaskPolicy 的 retained-layers parity join。旧的
+  SharedPolicy receipt（绑定 `84a…` parity）先被严格拒绝；改用当前 parity 绑定的 VTOL receipt
+  后，scenario manifest、VTOL airframe、planner revalidation、truth-free 与 cleanup 审计通过。
+  摘要为 `docs/evidence/simulator-ai-flight-parity-20261002-gnss-display-r2.json`，但明确
+  `same_release_parity=false`、`current_runtime_parity_proven=false`：历史运行没有在起止点保存
+  parity snapshot，不能伪装成同一版 runtime 执行。下一步是给两条运行路径增加起止 parity 锁定，
+  不改变 HIL/REAL、硬件、室外 GNSS、candidate 晋升和最终 `0.3.0` 发布边界。
+
+- 2026-10-02：在固定 digest 的 disposable PX4/Gazebo VTOL external SIM 中重跑当前共享
+  AI flight-response path。上一轮只请求 arm/target，未开启 MANUAL_CONTROL 输入，PX4 连续
+  `TEMPORARILY_REJECTED`；本轮使用既有 `--exercise-flight-seconds 5` 路径，使容器内
+  `COM_RC_IN_MODE=1` 生效。结果为 runtime/preflight/GPS/sensor transport/mission transaction/
+  AI target policy/flight response 全部通过；armed 已观察到，truth-free target `TRACK`
+  接受，目标刷新 `47/47`、最大间隔 `0.125 s`，容器 stop/remove 均成功。原始 evidence SHA-256=
+  `4a27af6b7178a685dd479f9035579f713d306d1dc6817905bedb206e1e950d52`，tracked 摘要为
+  `docs/evidence/simulator-docker-ai-flight-20261002-gnss-display-r2.json`。该结果仅打开
+  软件 external SIM flight-response 子门；本轮未请求 Mission upload/commit，不宣称 HIL/REAL、真实硬件、室外 GNSS、视觉精度、candidate 晋升或
+  最终 `0.3.0` 发布，`release_allowed=false` 保持不变。
+
+- 2026-10-02：对当前 `0.3.0-pre.8` Release EXE 做原生窗口启动观察：离线参数下
+  `MultiDetectGCS` 窗口创建并响应，随后关闭请求正常退出。证据为
+  `docs/evidence/qgc-runtime-window-smoke-20261002-r1.json`。由于该观察不足以证明严格
+  simple-boot exit contract 或人工 QGC 视觉验收，相关标志仍为 false；未连接飞控，未新增
+  PX4/Gazebo、HIL/REAL、硬件或室外 GNSS 证据。
+
+- 2026-10-02：使用 Visual Studio 2022 BuildTools Developer 环境完成 QGC
+  `0.3.0-pre.8` Release 增量构建（Ninja，`--parallel 2`）。最新 EXE 为
+  `build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe`，大小 `46877184` bytes，
+  SHA-256=`cddb0f08d5707b56139a1d69f535bef10607beae7e6229152990649c7470879f`，
+  File/Product version=`0.3.0.0`。tracked evidence 为
+  `docs/evidence/qgc-build-20261002-gnss-display-r1.json`；本轮没有启动 GUI，
+  没有新增 PX4/Gazebo、HIL/REAL、硬件或室外 GNSS 验收，`release_allowed=false` 保持不变。
+
+- 2026-10-01：完成当前 source-bound progress index 收口。按当前 checkout 重新生成
+  `configs/release-parity.json`（文件 SHA-256=`84a240857821db3f97876578b53da24879c57196980eea19a566288dac83baa2`，
+  `core_algorithm_hash=afa87110e5a638c4003b0b9760520a29709ae01a340a61112d9b4fbd6af51dfd`），并将
+  fixed-wing/multirotor depth、VTOL receipt、三机型 matrix、observed/runtime index、PX4 response
+  与 external join 索引切到当前 parity。传感器 manifest 现在要求与
+  `ScenarioManifestIndex.canonical_hash` 完全一致；错误场景 fail-closed。该轮是静态 source-bound
+  重绑定，不是新的 PX4/Gazebo 运行；`0.3.0-pre.8`、`gate_passed=false`、`release_allowed=false`
+  以及 HIL/REAL、室外 GNSS、硬件和最终 `0.3.0` 发布边界均保持不变。
+
+- 2026-10-02：新增 advisor-only 有界序列提案 `SequenceProposal` 与
+  `scripts/propose_task_sequence.py`。它复用当前 `SharedTaskPolicy`、既有预算 episode、
+  planner/Mission compiler 和 hash-bound airframe identity，对 baseline 与 bounded exact
+  reference 做可审计比较；最多6个任务，节点/runtime/airframe/GPS不合格时 fail-closed。
+  提案不上传或启动 Mission，不进入 arm/disarm/actuator，`deployed=false`、
+  `candidate_promoted=false`、`final_release_allowed=false` 保持不变。新增 4 项序列提案
+  测试与 CLI smoke 验证；当前 case 奖励差为0，未宣称模型收益、HIL/REAL、室外 GNSS、硬件
+  或最终 `0.3.0` 发布。
+
+- 2026-10-02：强化有界序列提案 evaluator 的证据绑定。新入口必须显式提供训练/评估 dataset
+  SHA，并重新校验完整训练输入、评估输入、声明 family、ranker、policy artifact 以及 15 个
+  evaluator/core source 文件；报告只声称 known-input/family separation，不把它升级为 semantic
+  或 physical independence。r2 报告 `artifacts/evaluation/sequence-proposal-independent-holdout-20261002-r2.json`
+  （SHA-256=`c4f7ff9454d125219328c047b78e031017856887363e767a21e88cf0d3046b68`）仍为 12 cases、
+  baseline/reference `120/120`、改进 `0`、回退 `0`、不变 `12`；advisor 不晋升、不部署、不进入
+  PX4 Mission 或 actuator 路径。
+
+- 2026-10-02：修复有界序列提案 evaluator 的目标审计与文件快照边界。`SequenceProposal` 的
+  `planner_revalidated`、部署/晋升/发布状态改为由 exact reference 与已编译边数派生，不能由
+  调用方直接注入；每条记录现在保存 objective ID、完成数量、`reward → count → -time` 元组和
+  `improved/regressed/tie` 关系。批量报告改用首次绑定读取的 ranker/artifact SHA，不再二次读取
+  造成 TOCTOU；`independent_holdout_evaluation` 与 `objective_matched` 由实际校验派生。r3 报告
+  `artifacts/evaluation/sequence-proposal-independent-holdout-20261002-r3.json`（SHA-256=
+  `1f8eec6209507707c7d9cd15a988e85f0b97c4dff1ca150a3b8bff99d5667736`）仍为 12-case、reward
+  `120/120`、完整 objective tie `12`，不改变不晋升、不部署、HIL/REAL、室外 GNSS、硬件和最终
+  `0.3.0` 发布边界。
+
+- 2026-10-02：在固定 digest 的 PX4/Gazebo external SIM 中实际执行 shared-policy VTOL
+  campaign。两个任务 sortie 均复用现有 Mission upload/readback/commit/permit、planner revalidation、
+  policy evidence、journal/hash-chain 与 exact cleanup；artifact canonical SHA-256 为
+  `de39b730fd2acf3dc6f2fc75cfe201b576e7dd74d1e13834a9bcbc56aeea34d7`，外层证据
+  `artifacts/evaluation/shared-policy-vtol-campaign-20261002-r2.json` 的 SHA-256 为
+  `412608cd752206699a1f18817447d1575b0ec8f5e5eb4396e5d8b5231e1eaabc`。这只证明 external
+  SIM 路径可执行，不是 candidate 收益、QGC 视觉、HIL/REAL、室外 GNSS、硬件或最终发布证据。
+
+- 2026-10-02：为上述 shared-policy VTOL campaign 生成 retained-files receipt
+  `artifacts/evaluation/shared-policy-vtol-campaign-20261002-r2.receipt.json`。文件 SHA-256 为
+  `c6c89e06c0307a566222a01154f4c0e55fe89f39316b1c6f03d2440a8e6c9f9b`，canonical
+  `receipt_sha256` 为 `a8803481fc93261151a77d4eefe4e7a746d815603297dad1b38be53845d2a26d`；
+  receipt 绑定 Mission report/journal、policy evidence、runtime identity、容器清理和当前
+  parity。它是只读文件审计（`external_sim_rerun_performed=false`），不新增运行，不证明
+  candidate 收益，不打开 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+- 2026-10-02：明确 advisor 的 airframe identity 边界：外部 campaign receipt 已绑定
+  `airframe_profile_id`、profile document 与 `airframe_profile_sha256`，但通用
+  `ContextSnapshot.airframe_profile_id` 仍是文本字段，尚未携带可重算 profile document/hash。
+  在补齐该契约前，advisor 保持只读诊断，不进入部署、PX4 Mission 或执行授权。
+
+- 2026-10-02：为 `SequenceProposal` 增加 exhaustive-reference fail-closed invariant，并加入
+  reward 相同但完成数量更高的 objective 回归（`budget-validation-1`）；重新生成严格 source-bound
+  holdout 报告 r4（SHA-256=`fd197a0db653573342d93af4ed7014e8c5c89ff3ff2d76857d8f5740a1752f89`）。
+  12-case 结果仍为 reward `120/120`、完整 objective tie `12`；r2/r3 报告保持不可变，发布、部署、
+  HIL/REAL、室外 GNSS 与 hardware 边界不变。
+
+- 2026-10-01：在当前 parity 下实际执行 fixed-wing 与 multirotor 各一架 disposable
+  PX4/Gazebo external Mission campaign（r30）。两架均加载同一 SharedTaskPolicy/ranker，
+  通过同一 Mission upload/readback/commit/permit、planner revalidation、2 帧 depth companion、
+  same-container sensor binding、journal transaction 与 exact cleanup；两份 evidence 的
+  `gate_passed=true`、`flight_started=false`、`physical_output_enabled=false`。随后由两份新
+  evidence 与保留的 VTOL receipt 生成三机型 source-bound matrix r31。该结果仍是软件 external
+  SIM，不打开 QGC 人工视觉、HIL/REAL、室外 GNSS、真实硬件或最终 `0.3.0` 发布门。
+
+- 2026-10-01：将 SharedTaskPolicy identity handoff 从 r23 source receipt 迁移到当前 r26 receipt，
+  生成 r2 handoff 并重新运行 release-gate wrapper。handoff 仍为 `software_identity_fixture`，
+  `hil_acceptance=false`、`real_acceptance=false`、`hardware_acceptance=false`、`flight_acceptance=false`；
+  release-gate 仍为 `gate_passed=false`、`release_allowed=false`、32 blockers。r1/r5 及旧报告保留为历史。
+
+- 2026-10-01：在当前 parity 下重新执行独立 VTOL external PX4/Gazebo SharedTaskPolicy campaign
+  r26。`synthetic-east` 与 `synthetic-west` 均完成，Mission transaction、planner revalidation、
+  journal/hash-chain、受限 evaluator、loopback isolation 和 exact-ID cleanup 通过；新增 evidence 与
+  receipt 均未覆盖 r23。该结果仍是软件 external SIM，不打开 HIL/REAL、室外 GNSS、真实硬件或最终
+  `0.3.0` 发布门。
+
+- 2026-10-01：使用 r26 VTOL receipt 重新生成三机型 external Mission matrix 与 shared-policy
+  vehicle matrix；旧 r24 矩阵保留为历史。fixed-wing/multirotor 仍使用当前 r21 source，所有矩阵
+  继续保持 `flight_started=false`、`physical_output_enabled=false` 和 `final_release_allowed=false`。
+
+- 2026-10-01：当前 release-gate report/manifest 更新到
+  `release-gate-pre.8-current-20261001T130000Z-v6-bound-report.json` /
+  `release-gate-pre.8-current-20261001T130000Z-v6-bound.json`，并由
+  `docs/evidence/shared-policy-release-parity-source-transition-20261001-r5.json` 作为当前 audit 索引。
+  新增的 handoff 仅是 software identity fixture；`gate_passed=false`、`release_allowed=false`、
+  HIL/REAL、硬件、室外 GNSS 和最终 `0.3.0` 发布门继续关闭。
+
+- 2026-10-01：修复当前 release-gate 默认输入的 parity 漂移。发现旧的“current-parity”文件内部仍
+  绑定 `cf5d…/core=9413…`，现从同一批不可变 external runtime/AI 与 PX4 response source 重新计算
+  r25 join、独立 revalidation、response matrix/campaign，并将 wrapper 默认值切换到这些新文件。
+  新 report 为 `release-gate-pre.8-current-20261001T124000Z-v6-bound-report.json`，软件
+  `current_release_parity_bound=true`；没有启动新 Docker/PX4，也没有升级 HIL/REAL、室外 GNSS、
+  真实硬件或最终 `0.3.0` 发布门。
+
+- 2026-10-01：将当前 release-gate 索引从历史 r3 审计切换到
+  `docs/evidence/shared-policy-release-parity-source-transition-20261001-r4.json`。r4 仅重新绑定当前
+  report/parity 的 source-bound 身份，保留 r3 不变；`gate_passed=false`、`release_allowed=false`，
+  不代表新增 PX4/Gazebo、HIL/REAL、室外 GNSS 或真实硬件证据。
+
+- 2026-10-01：生成并绑定 `SharedTaskPolicy` 的 SIM→HIL/REAL identity handoff r1。handoff
+  绑定当前 VTOL campaign receipt、policy artifact、五项 release parity 和 airframe；verifier 通过，
+  但明确 `software_identity_fixture`，所有 HIL/REAL、hardware、flight、operator visual 和最终 release
+  claims 保持 false。当前 report/manifest 更新到 `20261001T130000Z`，r5 audit 保留 source-bound 记录，
+  `gate_passed=false`、`release_allowed=false` 不变。
+
+- 2026-10-01：完成全量 Python 回归，结果为 `5230 passed, 7 skipped`。为保持历史证据不可变，
+  pair receipt 测试改为在临时仓库中绑定当前 parity；集成 SIM 测试补齐 runtime 声明的 RGB/depth
+  伴随帧；MAVLink 传感器端口测试改用实际 PX4 telemetry 传感器。定向验证与全量回归均通过，
+  仍不宣称 HIL/REAL、室外 GNSS、真实硬件或最终 `0.3.0` 发布。
+
+- 2026-10-01：完成 v0.3.0-pre.8 当前证据收口。当前 `release-parity.json` 文件 SHA-256 为
+  `5f5796d8bc784c24ea7e6fe98a4675e1842472df375ef6d524e44c9f4b7410e0`，core hash 为
+  `0e986588934fe6433800833a4f03db92bf828e912025434163685ff842bff73e`。fixed-wing、multirotor
+  的 depth Mission 为 r21，VTOL 当前连续双任务 external campaign 为 r23，三机型 Mission/vehicle
+  matrix、observed session 和 runtime matrix 均更新到 r24；运行均通过 Mission transaction、planner
+  revalidation、传感器质量门与 disposable cleanup。它们仍只属于软件 external PX4/Gazebo SIM，
+  不打开 HIL/REAL、室外 GNSS、真实硬件或最终 `0.3.0` 发布。
+
+- 2026-10-01：release-gate historical/current field-link 绑定完成一次可审计的静态重绑。新增
+  `docs/evidence/shared-policy-release-parity-source-transition-20261001-r3.json`，保留历史
+  2026-09-28 报告，同时绑定当前只读 probe；没有重写历史 runtime，也没有伪造硬件就绪。当前
+  progress verifier 的 source 检查和 54 项索引定向回归通过，`gate_passed=false`、`release_allowed=false`
+  仍保持 fail-closed。
+
+- 2026-10-01：刷新序列参考器独立留出报告为 r2。库化的有界精确枚举在冻结的 12 条软件留出上
+  与现有贪心同为 `120/120`，改进案例和同耗时改进均为 `0`；报告为
+  `artifacts/evaluation/task-sequence-reference-independent-holdout-20261001-r2.json`，
+  SHA-256 为 `26ef1ebbb3b8b6c7f4f1c0b2df8696dee5df924695797ab1572da48f575`。不晋升、不部署，
+  不改变 `SharedTaskPolicy`、PX4 Mission、HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布门。
+
+- 2026-10-01：完成一次新的 external PX4/Gazebo 连续双任务运行。固定 digest 的同一 disposable
+  VTOL 容器与同一 `MissionTelemetrySession` 中，`SharedTaskPolicy` 依次选择并完成
+  `synthetic-east`、`synthetic-west`；两次 Mission transaction、planner revalidation、policy
+  identity、journal hash-chain、router graceful stop 和 exact-ID cleanup 全部通过。运行证据与
+  receipt 已写入 `artifacts/evaluation/shared-policy-current-vtol-two-task-20261001-r2*`。
+  这是软件 external SIM 证据，不打开 HIL/REAL、室外 GNSS、真实硬件、人工 QGC 或最终发布门；
+  receipt 仍按 `retained_files_audit` 语义处理，未宣称当前 runtime parity。
+
+- 2026-10-01：完成 v0.3.0-pre.8 共享策略外部 campaign 的当前证据收口。fixed-wing、multirotor
+  的 depth Mission source 使用 r20，VTOL 使用 r22；三机型 Mission matrix 与 vehicle-policy
+  matrix 使用 r23，全部保留 Mission upload/readback/commit/permit、planner revalidation、
+  sensor/GPS 质量与 disposable container cleanup 证据。它们仍只证明 external PX4/Gazebo SIM，
+  不代表 HIL/REAL、室外 GNSS、硬件、人工 QGC 或实飞。
+
+- 2026-10-01：修正 receipt 语义边界。对保留文件重新生成 receipt 现在标记为
+  `retained_files_audit`，`runtime_source_parity_verified=false`；AI flight composite 明确
+  `same_release_parity=false`、`current_runtime_parity_proven=false`，不再把读取当前 parity
+  文件等同于旧运行源码已重跑。新增 runtime evidence SHA-256 复核、schema 与负向测试；当前索引、
+  source parity、Ruff 和 111 个定向测试全部通过，最终 `0.3.0` 仍 fail-closed。
+
+- 2026-10-01：重新建立当前源码 parity identity。`release-parity.json` 按显式 source list 重算为
+  SHA-256 `2669ff1bf17eb2fd823897bd5c89129986b57499606fbdd824f48fad9d07a957`，core hash 为
+  `255ca970488958f448860015d05d2fe84883736a16b45537a677a4271097296b`；新增
+  `verify_current_progress_index.py --check-sources-only`，拒绝 canonical parity 与当前源码漂移。
+  在该源码身份下重新执行 image/navsat/odometry 三条 disposable PX4/Gazebo fault recovery（r16/r17/r18），
+  全部 transport/runtime gate 通过并完成清理；旧 r13/r14/r15 仅保留为历史证据。普通 current-index
+  仍保持 fail-closed，直到其余旧 external evidence 完成真实重跑或显式历史化；不改变 HIL/REAL、室外
+  GNSS、硬件或最终 `0.3.0` 发布边界。
+
+- 2026-10-01：强化户外 metric-depth 标定验证：`validate_outdoor_depth_calibration.py` 新增独立
+  holdout fail-closed 质量门，可约束独立样本数、MAE、RMSE、最大绝对误差和相对 MAE；严格模式在
+  写出可审计报告后以非零退出，默认 advisory 行为保持兼容。新增正向/负向回归，明确没有现场真值时
+  不会把软件验证升级为室外、HIL/REAL 或最终发布证据。
+
+- 2026-10-01：补齐当前 PX4 response fault campaign。fixed-wing、multirotor、VTOL 的
+  `flight_mode_loss`、`heartbeat_dropout`、`target_refresh_dropout` 共 9/9 个 fault 在当前
+  scenario/SDF 下重新运行；每条 raw evidence 都观察到指定故障、保持 `runtime_gate=true`、
+  `flight_gate=false`、fail-closed 并完成容器清理。campaign verifier 新增当前 scenario manifest
+  SHA 交叉检查，旧 v63 fault source 现在会被拒绝；新的 campaign 为 r5，`campaign_sha256`
+  为 `f33eeef5af6aa663797db892146099f922df7001e48567d5c37f52496c7cbe3e`。release-gate
+  wrapper、current-progress 索引和 `depth-r21` audit 已重新绑定，仍为 32 blockers、
+  `gate_passed=false`、`release_allowed=false`；不打开 HIL/REAL、室外 GNSS、真实硬件、
+  人工 QGC visual acceptance 或最终 `0.3.0` 发布门。
+
+- 2026-10-01：按当前 `release-parity.json` 重新执行三机型 PX4 `GLOBAL_POSITION_INT` response
+  正向证据，fixed-wing、multirotor、VTOL 共 6/6 次 Docker/PX4/Gazebo 运行通过；更新当前
+  response matrix/campaign 与 3D control 证据索引。campaign 的 9 个 fault 条目明确继续引用
+  v63 fail-closed source，未把旧 fault 证据冒充本轮重跑。由于当前 SDF 模型资产继续变化，
+  fixed-wing/multirotor depth Mission 又各执行一次 2 帧 same-runtime Mission transaction，生成
+  r19 当前源证据并通过 `verify_current_progress_index.py` 的模型资产、sensor binding、SharedTaskPolicy
+  与 planner revalidation 检查；旧 r18 保留但不再作为当前索引来源。release-gate report/manifest
+  重新生成并绑定 `depth-r20` audit，仍为 32 blockers、`gate_passed=false`、`release_allowed=false`。
+  这些结果只扩展软件 external SIM 与当前证据可追溯性，不开启 HIL/REAL、室外 GNSS、真实硬件、
+  人工 QGC visual acceptance 或最终 `0.3.0` 发布门。
+
+- 2026-10-01：修复 combined 外部验收证据的有界 JSON 投影缺陷。旧 20,000 节点/顶层字段上限会
+  在真实运行已通过后截断 `vtol_mission` gate 和目标证据卡数组；现改为仍有限制的 200,000 节点，
+  保证规范任务摘要与只读目标卡完整保留。使用新的容器/证据路径重新完成 900 帧
+  Docker/PX4/Gazebo/QGC NavSat fault run：窗口内 wire=0、39 条源消息丢弃、source epoch/cache
+  clear/fresh recovery/603 条恢复帧/timeline overflow 全部通过；RGB/depth/odometry/runtime ACK
+  900/900，Mission reached `0..6`，fixed-wing/multicopter/land/terminal disarm 全部观察到，
+  370 张目标卡均为 read-only。源证据为
+  `artifacts/evaluation/combined-sim-qgc-navsat-20261001-r4/combined-evidence.json`，严格
+  verifier 与不可变 receipt 已写入 `docs/evidence/`，文档索引更新后
+  `verify_current_progress_index.py` 返回 `status=passed`。该结果仍只证明软件 external SIM，不打开 HIL/REAL、室外 GNSS、真实硬件、
+  人工视觉或最终 `0.3.0` 发布门。
+
+- 2026-10-01：将 `image`/`navsat`/`odometry` fault contract 接入现有 combined
+  `integrated-sim-qgc` 生命周期。CLI 从同一 Gazebo transport 捕获唯一 helper-finished
+  diagnostic 并复用严格 fault verifier；PowerShell wrapper 统一 source 大小写、拒绝没有
+  post-window frame 的窗口，并使用扁平 argv 防止 `Start-Process` 的嵌套 `Object[]` 启动失败。
+  新增后端/CLI/脚本正向与负向回归，定向测试 `171 passed`（含 image/NavSat combined CLI
+  diagnostic 通过/拒绝）；当前 parity/index 已重算并绑定到
+  `depth-r18` 不可覆盖副本，`verify_current_progress_index.py` 通过。尚未进行本轮 combined
+  外部故障重跑，故不宣称新的 external combined 通过、HIL/REAL、室外 GNSS、硬件或最终
+  `0.3.0` 发布。
+
+- 2026-10-01：修复外部 Gazebo 传感器 fault timeline 与缓存边界的证据缺口。`image`、`navsat`、`odometry`
+  三条固定 digest PX4/Gazebo 运行重新生成 r13/r14/r15 evidence；helper 首次丢弃动态源回调时清空历史并
+  递增 source epoch，保留跨边界时间戳单调性；恢复前明确等待新样本。helper 记录每个实际 wire、收到图像
+  索引、动态源时间戳与恢复绑定，acceptance/verifier 对窗口边界、零窗口 wire、连续序号、fresh source
+  严格新于最后丢弃样本、timeline overflow 和 Docker 清理做 fail-closed 检查。三条运行均通过；旧
+  20260927 r5/r8/r9 证据保留为 pre-fix baseline，不再作为当前无缓存复用证明；当前索引同时切换到
+  不可覆盖的三机型 Mission/vehicle-policy matrix r15 与 VTOL receipt depth-r14。该项仍只证明外部
+  PX4/Gazebo 传感器流恢复，不声明 QGC 人工视觉、HIL/REAL、室外 GNSS、真实硬件、实飞或最终
+  `0.3.0` 发布。
+
+- 2026-10-01：完成当前模型资产的完整 external PX4/Gazebo/QGC combined VTOL 验收，运行目录为
+  `artifacts/evaluation/combined-sim-qgc-20260930T204652Z-49500`，不可变摘要为
+  `docs/evidence/combined-sim-qgc-vtol-pass-20261001-r1.json`（SHA-256=
+  `bfed41c776cd87fae58cd8db29909dbfe89cddeaa17ac01a927f29f54582a186`）。600/600 RGB、depth、
+  odometry 和 runtime metadata ACK/barrier 全部通过，Mission reached `0..6`，固定翼/多旋翼/
+  落地/terminal disarm 全部观察到；容器停止移除、动态端口释放。为解决前一轮两个独立问题，
+  VTOL 深度 child link 设为近似零质量/惯量的 transport-only fixture，流 deadline 改为
+  `max(240, ceil(frames*0.75)+60)`。该结果仍是软件 external SIM，不提升 QGC 人工视觉、HIL/REAL、
+  室外 GNSS、硬件性能或最终 `0.3.0` 发布门，历史失败证据保持不可变。
+
+- 2026-09-30：将当前 VTOL SharedTaskPolicy 外部 campaign receipt 重新绑定到当前
+  `release-parity.json`，新 receipt 为
+  `artifacts/evaluation/shared-policy-current-vtol-campaign-20261001-depth-r9.receipt.json`；
+  三机型 shared-ranker matrix 与 external Mission matrix 同步改用该 source。current-progress
+  verifier 新增旧 parity receipt 拒绝测试，防止历史证据混入当前索引。该变更只强化证据身份与
+  可追溯性，不声明 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布。
+
+- 2026-10-01：完成一次完整外部 PX4/Gazebo/QGC combined rerun 的失败收口。attached VTOL gate
+  通过，同一 MAVLink 实例收到 1036 个有效 `GLOBAL_POSITION_INT` 样本，Mission 当前序列到达
+  `0→1→2`，但只确认 `MISSION_ITEM_REACHED 0/1`；最高相对高度 19.44 m，随后向西/南偏移，
+  相对首点最大位移 79.5128 m 并降到地面附近，240 s 内没有 seq3、`VTOL_LAND` 或 terminal
+  disarm。Mission/combined gate 均保持 false，独立摘要为
+  `docs/evidence/combined-sim-qgc-vtol-failure-20261001.json`；这暴露的是当前 VTOL→FW→航点
+  路线/动力学缺口，不是 GPS 观测缺口，未放宽任何验收门。integrated audit 同时保留首个
+  `0.208943973 m` depth 低于 `0.4 m` 下限的拒绝，以及后续无目标身份绑定的候选；不提升目标
+  地理定位、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。因 observer 诊断字段属于 Mission
+  path，parity 文件 SHA-256 更新为 `7d187ba0707c81e49d8aaef070218d5010657f346a11899bd474574379ff6519`，
+  新 source-bound 副本使用 `20261001-depth-r8`，历史 evidence 保持不变。
+
+- 2026-10-01：收口外部 combined SIM 的两个证据边界。VTOL Mission observer 在同一 disposable
+  MAVLink 实例显式配置 `GLOBAL_POSITION_INT` 10 Hz，避免任务位移/航迹/着陆证据依赖 PX4 默认流；
+  combined QGC wrapper 不再强制常量 synthetic HIL 检测器通过 target geolocation，只验收 RGB/depth
+  transport、共享测距链和 native QGC adoption，目标落图保持独立 gate。新增 Live depth/range
+  candidate 诊断，短跑明确记录 `gazebo_depth=0.208943973 m` 因低于物理 `0.4 m` 下限而拒绝；
+  未降低边界、未注入 truth、未落假点。VTOL/combined/Live/Vision/depth/CLI 回归、Ruff、PowerShell
+  parse 和 current-progress index 均通过。源码 parity 更新为文件 SHA-256
+  `573730de3a42c25d66bbc0c508e3eb8fe80a95b09539c37980d49e51c5ede572`，新 source-bound 副本使用
+  `20261001-depth-r7`，历史证据保持不变；`release_allowed=false`、HIL/REAL、室外 GNSS、硬件和
+  最终 `0.3.0` 发布门继续关闭。
+
+- 2026-09-30：修复 source-bound parity 重绑定流程。维护脚本现在为新的 fixed-wing/multirotor
+  depth Mission、VTOL campaign receipt、三机型 Mission matrix、shared-policy pair/vehicle
+  matrix、observed session 和 release audit 写入独立 `20261001-depth-r6` 后缀，旧证据不覆盖；
+  同时改为记录实际 UTC 更新时间并修正 Windows CRLF 造成的 `git diff --check` 全文件误报。
+  `verify_current_progress_index.py`、external matrix verifier、索引/矩阵/深度定向回归与 LF
+  写入回归均通过；VTOL/external SharedTaskPolicy campaign 相关 300 项测试和 Ruff 通过。没有重新
+  启动 Docker/PX4/Gazebo/QGC，`release_allowed=false`、HIL/REAL、
+  室外 GNSS、硬件和最终 `0.3.0` 发布门保持关闭。
+
+- 2026-09-30：使用 VS 2022 x64 Developer 环境完成 QGC `0.3.0-pre.8` 增量 Release 链接，
+  修复普通 PowerShell 未加载 Windows SDK `LIB` 路径导致的 `runtimeobject.lib` 链接阻塞；直接
+  EXE 为 `build/windows-v0.3.0-pre.8-release/Release/MultiDetectGCS.exe`，SHA-256
+  `E0FFF035ED309CB73C260570C880C6817B0A7006F5F9B887364F881AA2A9C6B1`。这仍只是软件构建证据，
+  不提升 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+- 2026-09-30：同一构建安装到独立便携目录
+  `build/portable-replay-preview-20260930`，包含 Qt/GStreamer/qoffscreen 运行时；portable
+  `--offline --simple-boot-test --allow-multiple --no-windows-assert-ui` 退出码为 0，未产生
+  stdout/stderr。该无界面冷启动仅证明软件依赖闭包和 QML 初始化，不等同人工 Fly View、HIL/REAL、
+  室外 GNSS、硬件或最终 `0.3.0` 发布验收。
+
+- 2026-09-30：QGC 目标事件回放增加只读“落图预览”：对已通过 native hash/GPS 新鲜度和坐标域
+  校验的历史事件，在 Fly View 主地图显示独立橙色坐标点与 WGS-84 `1σ` 圆。预览不写入
+  `MultiDetectState`，不改变实时目标，不创建 Mission/Guided 项，也不发送飞控消息；新清单或清除
+  预览会失效旧点，不可定位事件不会落假点。定向 QGC 回归覆盖该功能；人工视觉、HIL/REAL、室外
+  GNSS、硬件和最终 `0.3.0` 发布门保持未通过。
+
+- 2026-09-30：固定翼场景补齐 `forward-depth` runtime sensor declaration，并更新场景 channel
+  canonical hash；使用与多旋翼相同的 SharedTaskPolicy、planner revalidation、PX4 Mission
+  transaction 和 Gazebo depth adapter 重新运行 pinned disposable external runtime。新的
+  `external-fixed-wing-depth-shared-policy-20260930-r2.json` 记录 2/2 RGB + 2/2 `MDGZDEP1`
+  companion、Mission/container identity 交叉绑定和 cleanup 通过；`flight_started=false`、
+  `physical_output=false`，不提升 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+- 2026-09-30：复核首轮多旋翼 SharedTaskPolicy + Mission + depth 组合证据时发现 policy/Mission
+  使用了 `bbbb…` 测试 airframe hash，未与 live sensor transport 的稳定机型身份交叉绑定；首轮
+  文件保留但降为历史，不作为当前验收。新增多旋翼 profile-bound policy artifact，按实际
+  external plan hash 重新执行 r2，并让 verifier 解析 ranker、校验 policy/Mission/sensor/container
+  的跨字段 identity，以及 executable Mission/wire/protocol hash 一致性。r2 证据为
+  `artifacts/evaluation/external-multirotor-depth-shared-policy-20260930-r2.json`（SHA-256
+  `af58d0650c8db7f9dfe2a3fd76fedf41775e9428ae78607d2c07bfdccd75ddac`）；2 帧 depth、Mission
+  transaction、清理通过，未启动飞行或物理输出。
+
+- 2026-09-30：在真实 pinned `px4io/px4-sitl-gazebo` disposable 容器中完成同一运行时的多旋翼
+  `SharedTaskPolicy` + PX4 Mission transaction + Gazebo depth transport 组合验收。当前策略先经
+  planner revalidation，再复用既有 Mission upload/readback/commit/permit 路径；同一轮接收 2 帧
+  RGB 和 2 个 `MDGZDEP1` depth companion，GPS/heartbeat、深度 topic/校准绑定、Mission hash
+  readback 和容器清理均通过。证据为
+  `artifacts/evaluation/external-multirotor-depth-shared-policy-20260930.json`（SHA-256
+  `30157bf0f704b0b694056a0fdb75dd972c1a65be63d889ec2b70648fdaf85982`）。策略未应用到 actuator，
+  `flight_started=false`、`physical_output=false`；这不是 QGC 人工视觉、HIL/REAL、室外 GNSS、
+  硬件、实飞或最终 `0.3.0` 发布证据。
+
+- 2026-09-30：在 pinned `px4io/px4-sitl-gazebo` 的 `urban_inspection_multirotor_001` disposable
+  容器中真实运行 1 帧 Gazebo depth transport；RGB + `MDGZDEP1` companion、GPS/heartbeat、
+  scoped depth topic、校准绑定和自动容器清理均通过。证据为
+  `artifacts/evaluation/depth-external-20260930.json`；这不是完整 Mission、HIL/REAL、室外 GNSS、
+  硬件或最终 `0.3.0` 发布验收。
+
+- 2026-09-28：将仓库内 `models/depth-anything-v2-metric-outdoor-small/model.safetensors` 通过新增
+  `scripts/export_depth_anything_onnx.py` 导出为可供 LIVE/integrated SIM 共用的 ONNX artifact，并
+  写入来源、输入形状、opset 和 SHA-256 provenance。`MetricDepthEstimator` 现在只接受已 pin 的
+  indoor/outdoor ONNX digest；本轮 CPU ONNX Runtime smoke 输出为 `1x518x518`、全 finite，目标框
+  估计链可运行。该 smoke 不是物理距离、室外 GNSS、HIL/REAL 或最终 `0.3.0` 验收。
+
+- 2026-09-28：外部 PX4/Gazebo wrapper 已支持传入同一 ONNX 与标定文档，但当前仓库没有通过严格
+  `depth_calibration` 契约的户外实测标定文件；缺少标定时 wrapper 明确拒绝启动，不使用合成比例、默认
+  距离或 truth 注入。故 metric-depth 目前只完成导出与 CPU/software SIM smoke，外部测距证据仍待独立
+  标定或 Gazebo depth/range 源。
+
+- 2026-09-28：integrated SIM QGC 入口接入 LIVE 共用的 metric-depth 配置契约。`--perception-args`
+  现在可传入同一深度模型、标定文档、深度上下限、时效、采样间隔和网格参数；配置最终进入
+  同一个 `AsyncMetricDepthRunner`/`LiveMissionRunner`/`MultiModalRangingEngine`，不会创建第二套
+  SIM 生命周期。未提供 metric-depth 模型时行为保持不变；若没有共享 multimodal ranging 配置则
+  fail-closed。该项只是接通真实深度模型入口，尚不构成外部测距、HIL、REAL、室外 GNSS 或最终
+  `0.3.0` 发布证据。
+
+- 2026-09-28：完成固定 digest 的 PX4/Gazebo/QGC combined SIM 收口复核：300 帧真实 Gazebo 图像、
+  CameraInfo/NavSat/全姿态速度绑定、QGC type-24 接收确认、Mission transaction、能量重放和清理
+  均通过。目标落图门正确保持 fail-closed（`ranging_invalid_count=233`、`ranging_valid_count=0`、
+  `target_evidence_card_count=0`），因为当前 VTOL 外部场景没有可证实的 metric-depth/range 源或
+  稳定相机地面交点。下一项接入真实 Gazebo depth/range sensor，并绑定时间戳、标定和不确定性；不
+  注入 truth、不放宽 `terrain_uncertainty_unbounded`。该结果不构成 HIL、REAL、室外 GNSS、硬件或
+  最终 `0.3.0` 发布证据。
+
+- 2026-09-28：新增只读 `TargetEvidenceCard` typed contract。它把同一 `TargetEvent` 与 canonical
+  WGS-84 `TargetGeolocation` 结果绑定成 hashable 证据卡；GPS 不合格/过期、测距不可用或定位
+  缺失时只写 `available=false` 和原因，绝不保留假坐标。该项是 SIM/REPLAY 机器契约，不是
+  QGC 人工视觉、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 通过证据。
+
+- 2026-09-28：统一 SharedTaskPolicy decision identity 校验。新增
+  `policy_decision_matches_selected_task()`，并接入 vehicle-neutral 编译、observed session、预算型
+  SIM 与 VTOL external campaign；合法 ABSTAIN 继续进入原有拒绝路径，SELECT 的 action、task id、
+  artifact hash、truth-free、planner revalidation 任一漂移都会 fail-closed。核心 parity 更新为
+  `7be5f567...`，生成新的 source-bound 证据副本（observed r20、runtime r6、vehicle r5、external
+  Mission r9、pair r4）；历史证据不覆盖。该改动只收口决策契约，不构成物理能耗、HIL/REAL、室外
+  GNSS 或最终 `0.3.0` 发布证据。
+
+- 2026-09-28：完成该轮全仓回归，JUnit 共 5138 项，`5131 passed / 7 skipped / 0 failed`，
+  结果归档于 `artifacts/evaluation/full-regression-policy-helper-20260928/pytest.xml`，仅代表软件
+  回归通过，不替代 external PX4/Gazebo、HIL、REAL、室外 GNSS、硬件或最终发布门。
+
+- 2026-09-28：在当前 checkout 真实执行固定 digest 的 VTOL PX4/Gazebo disposable runtime，并在
+  同一 scenario 上重新执行 production AI target exercise；heartbeat/GPS、AI policy、target policy、
+  truth-free TRACK decision、loopback 安全边界和容器清理均通过。新增 runtime、AI 及三机型 join
+  evidence；arm/disarm 仅限 disposable SITL，不构成 QGC 视觉、HIL、REAL、室外 GNSS、硬件或实飞
+  发布证据。
+
+- 2026-09-28：使用当前 `vtol-shared-policy-v1.json` 完成新的双架次 VTOL external PX4/Gazebo
+  campaign。两个任务均通过统一 Mission upload/readback/commit/permit 事务、policy artifact
+  identity、planner revalidation、transaction journal/hash-chain 和 exact cleanup；receipt 与
+  当前 release parity 绑定。首次 240 秒超时输入被任务合同正确拒绝，保留为负向诊断；通过运行使用
+  合同允许的 600 秒。该结果仍仅是 headless external SIM，不构成 HIL、REAL、室外 GNSS、硬件、实飞
+  或最终 `0.3.0` 发布证据。
+
+- 2026-09-28：重新执行现场链路只读三次 watch preflight；Jetson、GR01、Camera 均不可达，源地址
+  仍为 `192.168.1.13` 而不是声明的 `192.168.144.0/24`，因此 `hardware_link_ready=false`。
+  该记录不修改网络、不登录设备、不发送飞控命令，也不提升 HIL/REAL、室外 GNSS 或发布门状态。
+
+- 2026-09-27：使用当前 `vtol-shared-policy-v1.json` 重新生成四模式
+  `REPLAY/SIM/HIL/REAL` SharedTaskPolicy runtime matrix，并让当前进度 verifier 重新打开
+  artifact 文件、canonical hash、airframe profile、release parity、模式覆盖及 actuator/backend/
+  MAVLink 禁止字段。旧 matrix 不再作为当前 artifact 证据；该项仍是软件合同检查，不构成真实
+  HIL、REAL、室外 GNSS、实飞或最终 `0.3.0` 发布证据。
+
+- 2026-09-27：VTOL external campaign 通过派生 scenario 对齐到 fixed-wing/multirotor 的同一
+  canonical SharedTaskPolicy ranker，并完成两架次 pinned PX4/Gazebo Mission、policy evidence、
+  transaction journal/hash-chain 与 exact cleanup。新增
+  `scripts/create_shared_policy_vehicle_matrix_receipt.py` 及 verifier，明确记录三机型
+  ranker/artifact identity：`same_high_level_ranker=true`、`unified_policy_model_proven=true`，
+  但 VTOL artifact 仍因 airframe profile 绑定而 `same_policy_artifact=false`。这只收口
+  external SIM，不构成 HIL/REAL、室外 GNSS、实飞或最终 `0.3.0` 发布证据。
+
+- 2026-09-27：新增 `scripts/derive_vtol_shared_policy_campaign.py`，以可复现方式从既有 VTOL
+  campaign 派生共享 ranker 版本；不修改原历史 campaign 或旧 evidence。
+
+- 2026-09-27：`verify_current_progress_index.py` 现在也会重新计算 fixed-wing/multirotor
+  SharedTaskPolicy 配对 receipt、两份 external source evidence、策略 canonical hash 和安全字段；
+  receipt 或任一源记录发生漂移时直接 fail-closed。
+
+- 2026-09-27：vehicle-neutral external runner 新增严格成对的 SharedTaskPolicy 输入；固定翼
+  r12 与多旋翼 r6 在 pinned Docker/PX4/Gazebo Mission transaction 中使用同一 ranker/artifact
+  通过，配对 receipt 重算 task-binding、planner revalidation、truth-free 和
+  `policy_applied_to_actuator=false`。VTOL 的旧 campaign artifact 身份保持原样并明确隔离，
+  没有把不同模型哈希合并成虚假同一性；HIL、REAL、室外 GNSS 硬件、飞行和最终 `0.3.0`
+  仍保持 fail-closed。
+
+- 2026-09-27：fixed-wing r10 与 multirotor r4 在当前 parity 下重新执行 external PX4/Gazebo
+  Mission transaction。vehicle-neutral `select_and_compile_task` 为每次运行写入 hash-bound
+  `task-binding.json`；三机型矩阵 r6 verifier 会重算 planner revalidation、truth-free 和
+  `policy_applied_to_actuator=false`，然后才接受 Mission transport 证据。该增量只收口
+  external-SIM Mission 矩阵；HIL、REAL、室外 GNSS 硬件、QGC 人工视觉、飞行、candidate promotion
+  和最终 `0.3.0` 仍保持 fail-closed。
+
+- 2026-09-27：完成一次真实 fixed-wing Docker/PX4/Gazebo external Mission transaction：共享
+  compiler 产物经过 live GPS/context 绑定后，`MISSION_ITEM_INT` upload/readback/commit/permit
+  和 journal recovery 全部通过，PX4 规范化后的 protocol hash 与 readback 一致，容器清理成功。
+  仍未 arm、切换模式或启动飞行；HIL/REAL、室外 GNSS 和最终 `0.3.0` 继续关闭。
+
+- 2026-09-27：完成一次真实 multirotor Docker/PX4/Gazebo external Mission transaction。
+  当前共享 compiler 产物经过 live GPS/context WGS-84 绑定后，`MISSION_ITEM_INT` 上传、回读、
+  commit、permit 和 journal recovery 全部通过；证据为
+  `external-multirotor-mission-20260927-r2.json`。同轮 fixed-wing 运行因 PX4 回读对 TAKEOFF
+  pitch/landing heading 的规范化造成 wire hash mismatch，按设计 fail-closed，未伪造通过。
+  两者都没有 arm、mode change、起飞或 physical output；HIL/REAL、室外 GNSS 和最终
+  `0.3.0` 继续关闭。
+
+- 2026-09-27：新增 `scripts/run_external_px4_mission_transaction.py` 外部 Mission bridge。
+  它只接受已经通过共享 planner/compiler 生成的 `PlannedMissionCompilation`、truth-free
+  `ContextSnapshot` 和 runtime safety policy；`--execute` 时由 Docker acceptance 先完成
+  ownership 与 heartbeat/GPS qualification，再打开 MAVLink 调用统一
+  `ExternalPx4MissionExecutionAdapter`，结束后由父层负责 stop/rm。dry-run 和缺少输入的
+  fail-closed 回归通过；不把该入口误报成 fixed-wing/multirotor 外部飞行、HIL/REAL、室外
+  GNSS 或最终 `0.3.0`。
+
+- 2026-09-27：Docker simulator acceptance 新增可选 `mission_transaction_runner` 接线。
+  该 hook 只在容器 ownership、真实 PX4 heartbeat/GPS telemetry 和 truth-free 条件通过后
+  执行，适用于把 `ExternalPx4MissionExecutionAdapter` 接入同一 disposable runtime 的
+  `MISSION_ITEM_INT` upload/readback/commit/permit 事务；结果必须明确
+  `gate_passed=true`、`flight_started=false`、`physical_output_enabled=false`，否则
+  acceptance fail-closed 并保留 stop/rm 清理。新增正向和起飞越界回归通过；不宣称新的
+  fixed-wing/multirotor 外部飞行、HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+
+- 2026-09-27：为外部 Mission transport 增加 `ExternalRuntimeAttestation`。只有 64-hex container
+  identity、digest-pinned image、vehicle/profile、scenario hash、ownership、qualified telemetry、
+  truth-free 和 hardware-control-disabled 条件全通过，结果才可标记 `SIM_EXTERNAL`；未认证的
+  fake/injected connection 仍只记录 `transport_exercised`，不能冒充外部 PX4/Gazebo 运行。
+
+- 2026-09-27：新增 vehicle-neutral 外部 PX4 Mission transport 与
+  `ExternalPx4MissionExecutionAdapter`。它复用既有 compiler、transaction journal、精确
+  `MISSION_ITEM_INT` readback、commit 和 start permit；只接受已由外部编排器完成 ownership/telemetry
+  检查的 SITL connection，并在 permit 后停止，不切换模式、不 arm、不产生 actuator output。
+  固定翼和多旋翼 fake-MAVLink 回归通过，legacy `MISSION_REQUEST` fail-closed；这不是外部飞行、HIL/REAL
+  或最终 `0.3.0` 发布证据。
+
+- 2026-09-27：`load_campaign_definition()` 的 vehicle-neutral runtime parser 改动触发了
+  `px4_mission_path` parity 重算；当前文件 SHA-256 为
+  `2bca522a77809a346e7b6e5bb5b4c0259749e55858838e5f28fbfcf01c23eff5`，并以当前只读 field-link
+  预检生成 release audit `r29`。observed/campaign/AI receipts 已 source-bound 重绑，未将旧
+  PX4/Gazebo 运行冒充新运行，release gate 继续关闭。
+
+- 2026-09-27：将 `load_campaign_definition()`/`load_campaign()` 的 runtime 解析改为接受显式
+  `vehicle_class`；默认仍为 VTOL，现有 CLI 不变。新增 vtol、fixed-wing、multirotor 三机型输入
+  契约回归，使未来外部 adapter 复用同一严格 task/runtime 文档，同时不宣称三机型外部 Mission
+  lifecycle 已完成。
+
+- 2026-09-27：新增 vehicle-neutral `MissionExecutionAdapter` 协议及确定性
+  `InProcessPx4MissionExecutionAdapter`，对 vtol、fixed-wing、multirotor 复用同一
+  `compile_executable_mission` 与 journalized upload/readback/commit/permit 事务，并在边界校验
+  vehicle class、airframe profile 与 PX4 adapter identity。该适配器为 software-only，不打开外部
+  transport、不产生 actuator output；fixed-wing/multirotor 的 PX4/Gazebo telemetry adapter、
+  HIL/REAL、室外 GNSS 和最终 `0.3.0` 发布门仍未完成。
+
+- 2026-09-27：修复 `run_px4_airframe_transaction_acceptance.py` 与其独立 verifier 的直接 CLI `src`
+  bootstrap，并用当前 checkout 重跑三机型 deterministic Mission transaction gate；vtol、fixed-wing、
+  multirotor 的统一 compiler/transport/journal/readback/commit/permit 路径全部通过。该 evidence 不宣称
+  外部 PX4/Gazebo telemetry、HIL/REAL、室外 GNSS、实飞或最终 `0.3.0`。
+
+- 2026-09-27：用当前 `release-parity.json` 重新执行 VTOL parent headless PX4/Gazebo campaign `r14`，
+  两个任务均完成；共享策略、planner revalidation、Mission transaction/journal/hash-chain、exact-ID
+  cleanup 和 post-remove absence 通过，并生成 `policycapture-parity-r9` receipt。该运行仍是 SIM-only，
+  不增加 QGC 视觉、HIL/REAL、室外 GNSS、实飞、candidate promotion 或最终 `0.3.0` 发布声明。
+
+- 2026-09-27：新增 vehicle-neutral `CampaignTaskBinding`/`select_and_compile_task` seam，复用同一
+  SharedTaskPolicy、planner revalidation 和 PX4 Mission compiler，并由 SimulatorScenarioRunner 使用。
+  vtol/fixed-wing/multirotor 的 deterministic runtime 回归通过；GPS 不合格时 fail-closed abstain。
+  VTOL 外部生命周期仍由专用 adapter 负责，fixed-wing/multirotor 外部 PX4/Gazebo acceptance 尚未声明，
+  因此不改变 candidate promotion、HIL/REAL 或最终 `0.3.0` 发布门。
+
+- 2026-09-27：将 vehicle-neutral seam 纳入 core parity；在 VTOL campaign 接线后重新绑定 PX4 Mission
+  path parity，对已有 observed-session、campaign receipt 和 simulator AI receipt 做 source-bound rebind，
+  并生成 release-gate audit `r27`。旧外部 report 尚未按新
+  core hash 重跑，`current_release_parity_bound=false` 按设计保留，未把旧 PX4/Gazebo 运行升级成新证据。
+
+- 2026-09-27：自主航线预算升级为逐航段 WGS-84 风三角模型。planner 现在分别计算每个 outbound/task/return 航段的航向、侧风与沿航风；不把顺风收益计入额外空速，侧风超出规划空速或前向进度不足时 fail-closed。当前 report-only release-gate audit 为 `r25`，四个 mode parity 已绑定当前 core hash；VTOL 外部 campaign 已完成 2/2，但三机型完整 external mode matrix 仍待重跑，最终发布与 candidate promotion 继续关闭。
+
+- 2026-09-27：新增只读 `audit_external_planner_wind_binding.py`，逐架次重开当前 VTOL Mission evidence，验证 scenario runtime channel、ContextSnapshot canonical hash 与非零风场输入一致；2/2 通过。该证据不宣称物理风场标定、HIL/REAL、室外 GNSS 或最终发布。
+
+- Executed the third bounded external PX4/Gazebo sensor-fault run for `odometry`: 4 frames,
+  two dropped odometry messages, two recovered frames, real telemetry, wire-v3/raw-frame integrity,
+  zero flight-control commands, and clean container removal. The current-progress verifier now
+  binds and re-reads all three external fault evidence records (`image`, `navsat`, `odometry`)
+  instead of trusting only documented booleans; the new focused set passed 208 tests.
+
+- Executed bounded disposable PX4/Gazebo sensor-fault acceptance with the pinned image:
+  `image` recovery passed with 2 requested frames and `navsat` recovery passed with 4 requested
+  frames. Short 2-frame `navsat` attempts remain failed evidence rather than being treated as
+  recovery; the acceptance preflight now requires 4 frames for dynamic `navsat`/`odometry` faults.
+  Dynamic recovery compares the post-window source timestamp to the last actually dropped source
+  timestamp, which handles startup callback ordering without accepting stale cached telemetry.
+  No flight-control commands were sent, and disposable containers were stopped and removed.
+
+- Rebound release parity and all current evidence after the recovery-gate fix: parity file
+  `8d84d191ba55233b03e3166dcdcc6dad5c9ccd1e7b87388f283d72827413e986`, observed session `r11`,
+  campaign receipts `r5`, AI parity receipt `r4`, and release-gate audit `r17`. The progress index
+  verifier remains passed; final release, candidate promotion, HIL/REAL, outdoor GNSS, and hardware
+  acceptance remain closed.
+
+- Added a bounded external Gazebo sensor-fault contract for `image`, `navsat`, and `odometry`.
+  The helper and backend use an image-indexed window rather than wall-clock timing, bind the fault
+  configuration into the sensor identity hash, and require dropped-source evidence plus post-window
+  wire-v3 recovery before accepting the diagnostic. `camera_info` is intentionally excluded because
+  it is session-static and cached. This turn validated implementation and fail-closed diagnostics;
+  it did not claim a new Docker/PX4/Gazebo fault run.
+
+- Rebound the current progress index to release-parity `af11eaa6c329d22cc41d686318d4f8be404840d541ba9d178400a68680a1008b`,
+  observed-session `r10`, campaign receipts `r4`, and simulator AI parity receipt `r3`. The index verifier
+  and 205 targeted tests pass. The report-only release audit is `r16` with `current_release_parity_bound=false`;
+  release, candidate promotion, HIL/REAL, outdoor GNSS, and hardware claims remain closed.
+
+- Rebound the prerelease release-gate diagnostic to the current parity: regenerated the external
+  runtime/AI join and revalidation plus the three-airframe PX4 reported-position response matrix and
+  fault campaign, then produced the isolated `release-gate-current-20260927-r4` report with the
+  current `replay-set-positive-fixture-20260924` paths explicitly bound. Historical software-evidence
+  drift blockers dropped from 45 to 32 while the gate remains fail-closed; no replay deployment,
+  field hardware, QGC human visual, HIL/REAL, or final-release claim was added.
+
+- Re-ran the current deterministic scenario matrix with temporal fault coverage and recovery enabled.
+  The same runner/AI/arm/watchdog path covered fixed-wing, VTOL, and multirotor, automatically extending
+  the short request from 4 to 2,612 frames; all nine declared fault events were observed. Finite faults
+  returned to a no-fault baseline under the same manifest/clock with AI control isolated, while the
+  indefinite battery step was explicitly marked as not expected to recover. Repeated evidence hashes
+  matched and the independent verifier passed. This remains truth-free software-SIM evidence and does
+  not claim external 3-D, QGC visual, HIL/REAL, hardware, outdoor GNSS, or release.
+
+- Combined the fault-recovery matrix change with the current policy/Mission, sensor-capture, parity,
+  Docker-acceptance, and flight-model regression set: `624 passed`. The release gate remains unchanged
+  and fail-closed.
+
+- Added a direct shared-policy campaign regression for unqualified GPS. A fresh context with an
+  insufficient `gps_fix_type` now has an explicit `abstain/no_feasible_task` assertion: no Mission
+  evidence is written, no Mission transaction is entered, and the telemetry session's Mission count
+  stays at zero. This strengthens the software fail-closed boundary without claiming outdoor GNSS or
+  hardware acceptance.
+
+- Re-ran the pinned disposable PX4/Gazebo sensor transport against the current repository. The
+  `1280x960` calibrated geometry produced three hash-bound BGR24 frames with NavSat/odometry/
+  covariance time association, real PX4 heartbeat/GPS telemetry, zero flight-control commands,
+  and exact container cleanup in `artifacts/evaluation/simulator-docker-acceptance-20260927-r3-execute.json`.
+  A preceding `160x90` request was retained as a fail-closed negative evidence record; neither run
+  claims QGC visual, HIL/REAL, outdoor hardware GNSS, or final-release acceptance.
+
+- Executed the production simulator AI target exercise in a fresh disposable PX4/Gazebo runtime.
+  The truth-free perception seam reached `TRACK` through `SimulatorAiExecutor` and the shared
+  loopback `MANUAL_CONTROL` adapter, telemetry/target policy gates passed, watchdog shutdown and
+  exact container cleanup passed, and the evidence is stored at
+  `artifacts/evaluation/simulator-docker-ai-acceptance-20260927-r1.json`. The explicit ARM/DISARM
+  and AI control messages were confined to SITL; no PX4 hardware actuator, QGC visual, HIL/REAL,
+  outdoor GNSS, or final-release claim was added.
+
+- Extended the same disposable production-AI exercise into a bounded flight-response check. Over
+  roughly `4.296s`, PX4 `GLOBAL_POSITION_INT` supplied 99 position samples and showed `0.10077m`
+  horizontal displacement against a `0.1m` gate; 367 AI decisions produced 367 loopback control
+  outputs, then watchdog/failsafe shutdown and exact cleanup passed. This remains truth-free SITL/
+  Gazebo response evidence and does not claim a real PX4 actuator, HIL/REAL, outdoor GNSS, visual,
+  or final-release result.
+
+- Added `simulator-ai-flight-parity-20260927-r2.receipt.json`, a hash-bound composite receipt that
+  verifies the current five release-parity hashes, scenario manifest, and airframe identity across
+  the high-level `SharedTaskPolicy` Mission layer and the separately evidenced low-level simulator
+  AI flight-response layer. The receipt keeps `policy_applied_to_actuator=false`; it is not a HIL,
+  REAL, outdoor-GNSS, hardware, QGC-visual, or final-release claim.
+
+- Verified the composite-receipt, observed-session, independent index binding, and GPS fail-closed campaign change with 612 targeted tests plus the current-progress index
+  verifier; the prerelease release gate remains fail-closed.
+
+- Added a Draft 2020-12 schema and independent validator test for the composite parity receipt so
+  its layer separation, hash fields, safety boundary, and non-HIL/REAL claims are reviewable without
+  executing the producer script.
+
+- Reinstalled the current `0.3.0-pre.8` Windows Release portable tree at
+  `build/windows-v0.3.0-pre.8-release/portable-current-20260927-r1`. The incremental build was
+  clean (`ninja: no work to do`), eight compiled C++ self-tests passed, including the 44-fragment
+  Python-to-C++ depth-grid round trip, and the portable QGC offline simple-boot test exited `0`.
+  This is prerelease portable-runtime evidence only; QGC human visual, HIL/REAL, outdoor GNSS and
+  final `0.3.0` release gates remain open.
+- Captured the same newly installed portable runtime through the native QGC client-surface machine
+  gate at `artifacts/evaluation/qgc-native-style-portable-current-20260927-r1/`; the exact `804x528`
+  client surface and occluder cleanup passed. Human visual acceptance remains explicitly unclaimed.
+
+- Enabled QGC native-style machine capture on low-resolution remote/virtual displays by lowering the
+  capture utility's optional floor to `640x480` while preserving the `1600x900` default, and fixed
+  the Win32 `RECT` size check. Recorded the SIM capture at
+  `artifacts/evaluation/qgc-native-style-sim-20260927-r4/`; this remains machine evidence only with
+  `operator_visual_acceptance=not_claimed`, not HIL/REAL, outdoor GNSS, or final-release evidence.
+
+- `SimulatorScenarioRunner` 新增真实高层任务闭环：`SharedTaskPolicy` 选择、planner 重验、Mission 编译和 hash-bound `ExecutableMission` 绑定；abstain 不绑定 Mission，策略不接管 actuator。
+
+### 外部 SIM 运行与现场证据覆盖约束（2026-09-26）
+
+- 将 geolocation 的独立距离/坡度覆盖门继续绑定到 field-evidence bundle：显式策略会在 bundle
+  边界拒绝缺失、错配或不足的 regime，默认零要求保持旧报告兼容；这只加强证据完整性，不把
+  synthetic 或 headless 结果升级成室外 GNSS、HIL、REAL 或飞行验收。
+- 重新执行一次固定 digest 的 Docker/PX4/Gazebo disposable external SIM：证据为
+  `artifacts/evaluation/simulator-docker-acceptance-20260926-r2-execute.json`，实际观察到 PX4
+  `HEARTBEAT` 与 `GPS_RAW_INT`（fix type 3、10 satellites），容器 stop/rm 清理成功，flight-control
+  command 计数为 0。该记录只证明 truth-free headless external SIM telemetry，不代表 QGC 视觉、HIL、
+  REAL、室外硬件 GNSS 或最终 `0.3.0` release。
+- parity 重绑后全仓回归为 `5043 passed, 7 skipped, 0 failed`；当前版本继续保持
+  `0.3.0-pre.8`，candidate 未晋升，最终发布门仍 fail-closed。
+- 在同一固定 PX4/Gazebo 场景进一步执行 3 帧真实 sensor transport：BGR24 原始帧、camera
+  calibration、NavSat、odometry、covariance 和时间关联写入 hash-bound manifest，原始像素与
+  wire payload SHA 校验一致。该证据推进 geolocation SIM 输入链，但仍不代表 QGC 视觉、HIL/REAL、
+  室外硬件 GNSS 或最终发布验收。
+
+### Release-gate replay 重绑与现场只读刷新（2026-09-25）
+
+- 重新生成 `field-link-refresh-20260925-r1` 只读现场预检与接口诊断；Ethernet 仍为
+  `192.168.1.13/24`，`192.168.144.0/24` 没有活动接口或路由，Jetson/GR01/Camera 三次探测均超时，
+  因而 `hardware_link_ready=false`，未修改网络或发送飞控指令。
+- 将当前 `0.3.0-pre.8` release-gate wrapper 绑定到正例 replay fixture，而不是旧的空正例覆盖样本；
+  新报告 `release-gate-positive-replay-20260925-r1` 仍为 `gate_passed=false`、`release_allowed=false`，
+  31 个阻断原因保持 fail-closed。
+- 为同一 synthetic manifest 生成 report-only threshold calibration 与独立 verification；verification
+  只证明 manifest/canonical SHA-256 和重算一致，不代表部署准确率、HIL/REAL、室外 GNSS 或最终版本通过。
+- `verify_current_progress_index.py` 新增 release-gate replay manifest/accuracy 路径与 SHA-256 交叉绑定，
+  防止当前 gate 再漂回历史 replay 输入。
+- 实际执行一次独立 `Docker/PX4/Gazebo` external SIM（`docker-external-refresh-20260925-r1.json`）：
+  固定镜像启动、真实 PX4 `HEARTBEAT` 与 `GPS_RAW_INT`（fix 3、10 satellites）通过，disposable
+  容器 stop/rm 清理通过；该证据只证明 headless external SIM telemetry，不升级 QGC 视觉、HIL、REAL、
+  室外硬件 GNSS 或最终 release 闸门。
+
+### Campaign CLI 与独立策略审计（2026-09-12）
+
+- `scripts/vtol_selected_task_campaign.py` 新增 `--policy-artifact` / `--policy-artifact-file-sha256` 成对参数。文件 SHA-256 与 canonical SHA-256 分开记录；严格 loader 在打开 telemetry session 前检查文件、ranker 和 airframe 身份，错误不回退旧策略。
+- `validate_campaign_result(..., shared_policy=...)` 接受调用方独立提供的预期策略，逐架次根据报告 context 重算 decision，核验 `.policy.json`、Mission 绑定及 planner 标记，并记录策略证据文件 SHA-256。缺少独立策略时拒绝带共享策略声明的报告。
+- CLI 正向/错误路径 7 项通过；Mission/capture 回归 489 项通过；parity 与进度文档回归 34 项通过。均为自动化/fixture 验证，不是新的外部 SIM 飞行证据。
+- 下一步：将外层 `run_vtol_mission_sensor_capture.py` 的完整 CLI/lifecycle 接入 artifact 输入并传给子进程和独立审计器，再执行成对外部 campaign。当前仅内层 campaign CLI 和审计 API 已就绪，未宣称外层一键闭环完成。
+- 未训练新权重、未晋升候选、未发布最终版本；版本继续 `0.3.0-pre.8`，外部 SIM/HIL/REAL/室外 GNSS 验收仍待证据。
+
+### 外部 campaign 共享策略接口（2026-09-12）
+
+- `run_selected_task_campaign(..., shared_policy=...)` 现在复用 `SharedTaskPolicy.decide()`；旧 ranker-only API 保留，两参数同时传入会明确拒绝。
+- 校验 artifact 的 airframe hash、decision identity、truth-free 与 planner revalidation；abstain 不进入 Mission 编译，编译后的 plan 必须与选择结果一致。
+- 继续使用现有 telemetry、Mission transaction、completion 和 cleanup 路径。每架次新增 `.policy.json` 关联 decision、ranker 和 Mission hash，不改写原始 Mission 验收报告。
+- campaign 回归 62 项、扩展定向回归 291 项通过。这是 Python 接口/fixture 验证，并非实际 PX4/Gazebo 运行；CLI artifact 加载与成对外部 campaign 尚待接入。
+- 本轮未训练新权重、未晋升候选、未发布；HIL/REAL、室外 GNSS 和最终 0.3.0 门保持未通过。本机 PATH 未发现 Docker，不代表全部远程资源不可用。
+
 # Multi-Detect Changelog
+
+### v0.3.0-pre.8 runtime policy capture binding (2026-09-27)
+
+- `px4_runtime_capture` now optionally loads and hash-binds the exact `SharedTaskPolicy` artifact before opening telemetry, rejecting policy/Mission airframe mismatches fail-closed.
+- Capture receipts preserve legacy six-source packages and add a seventh `policy_artifact` source when enabled; current observed-session, external-SIM receipts, release parity, and release-gate audit were regenerated against the new parity.
+- This is evidence identity closure only: no actuator authority, HIL/REAL, outdoor GNSS, physical-flight, candidate-promotion, or final `0.3.0` release claim was added.
+
+### v0.3.0-pre.8 outer policy campaign execution (2026-09-27)
+
+- Executed the outer `run_vtol_mission_sensor_capture.py` path against the pinned disposable PX4/Gazebo runtime with the shared policy artifact: two sorties completed, planner revalidation and per-sortie policy evidence passed, and exact-ID cleanup/post-remove absence passed.
+- Recorded the result as `artifacts/evaluation/outer-policy-capture-20260927-r1.json` plus a hash-bound receipt. The run remains headless external SIM only; QGC visual, HIL/REAL, outdoor GNSS, physical flight, candidate promotion, and final release remain unclaimed.
+
+### v0.3.0-pre.8 four-mode release-parity matrix (2026-09-27)
+
+- Extended `verify_shared_policy_runtime_matrix.py` so REPLAY/SIM/HIL/REAL rows bind and compare the current core-algorithm, PX4 Mission, safety, task-contract, and UI-contract hashes.
+- Generated `artifacts/evaluation/shared-policy-runtime-matrix-20260927-r2.json`; it records `same_release_parity=true` and `same_ui_contract=true` while keeping visual QGC acceptance explicitly unclaimed.
+
+### v0.3.0-pre.8 sensor clock and current evidence rebinding (2026-09-27)
+
+- Completed the SharedTaskPolicy binding in the external VTOL campaign entry point. The
+  campaign now binds policy/ranker/airframe identity, evaluates only truth-free observed
+  context, revalidates the planner before compilation, rejects abstain or plan drift before
+  Mission dispatch, and records per-sortie policy evidence while preserving the existing
+  PX4 Mission lifecycle and ranker-only compatibility. Targeted regression: 517 passed;
+  this is interface/fixture evidence only and does not claim a new PX4/Gazebo, HIL, REAL,
+  outdoor-GNSS, or final-release run.
+- Re-ran a parent/candidate pair through the same disposable PX4/Gazebo VTOL campaign after
+  moving the reused-container mission-current reset to after commit/AUTO.MISSION and before
+  ARM. Both runs completed two sorties with planner revalidation, per-sortie policy evidence,
+  transaction journals, bounded router checks, and exact-ID container cleanup. Receipts are
+  `artifacts/evaluation/shared-policy-external-parent-20260927-r13-parity.receipt.json` and
+  `artifacts/evaluation/shared-policy-external-candidate-20260927-r13-parity.receipt.json`.
+  The release parity was regenerated after the cursor-reset source change and these receipts
+  were recreated against that current parity. The
+  artifacts share the same policy identity and no independent candidate gain is proven, so
+  promotion remains false; this is headless external software SIM evidence only, not QGC
+  visual, HIL, REAL, outdoor-GNSS, physical-flight, or final `0.3.0` release evidence.
+- Fixed sensor-enabled VTOL campaign final cleanup revalidation: the outer auditor now receives
+  the same sealed manifest and task-to-frame map on both initial and final checks.
+- Distinguished absolute `host_monotonic`/`host_perf_counter` frame timestamps from the legacy
+  collector-relative Mission-window label while retaining the existing energy/replay field; same
+  clock-domain evidence is accepted only with explicit absolute-clock semantics and mismatched
+  domains still fail closed.
+- Recomputed PX4 Mission parity and regenerated the deterministic observed-session and campaign
+  receipts. Historical external reports remain immutable; the current release audit is r8 and
+  still fail-closed with no HIL/REAL, outdoor-GNSS, or final-release claim.
 
 本文件记录 Multi-Detect 产品版本。`ground-control/MultiDetectGCS/CHANGELOG.md` 属于上游
 QGroundControl 历史，不作为本产品发布记录。
 
 ## [Unreleased]
+
+- 2026-10-07：沿已有 Qwen3-VL r1 FP32 adapter 增量训练，新增 128 个实际实体三维 RGB
+  train 样本独立核验；固定单轮 154 更新，原 84 个留出输入未改。原生退出 0，基座／视觉
+  参数未变，112 个保存张量及固定验证 token/raw 精确重载。strict73→70、exact61→53，
+  可见目标命中及测试负例判断回归，质量不通过、不晋升、不据留出结果调参重试。
+  新增独立原始回答／训练日志／FP32 参数审计入口，预算上限和失败计数因果门已修复并
+  验证；实际 CPU 审计 native0，重开709个文件绑定／11个官方文件及全部原始回复，
+  确认质量门5/8失败；源码与parent111项、审计器82项通过。终态为
+  `docs/evidence/onboard-vlm-grounding-increment-20261007-r2.json`。旧失败证据和默认
+  r33／COCO／生产 parity 不改。
+  Controller 实际核验远程 Docker daemon，并 pull/inspect 固定 PX4/Gazebo 镜像 native0；
+  被动八帧采集 native1，内层原因未取回，worker offline 阻断诊断派发。未 ARM/Mission，
+  不当作飞行或动作训练通过。说明 `docs/onboard-vlm-grounding-increment.md`，仿真记录
+  `docs/evidence/gazebo-runtime-preparation-20261007-r1.json`；最终发布门仍未通过。
+
+- 2026-10-07：新增原主机 begin/seal、单次 HOLD 准入、子航段授权／INT 上传读回／cursor1／
+  恢复的开发 host 与真实 loopback UDP 接口；默认禁写、不 ARM／改参数／自授执行权。
+  generation 取消、全发送人工模式 drain、latest UTC 到期、raw／compile 时效与严格根节点
+  类型检查；原 journal bytes 每写核验，完整验证每阶段一次，消除重复 JSON/journal 热点。
+  独立 protocol peer 联调不是 Gazebo/PX4 动力学；旧失败 profiling 保留，15秒 daemon 查询仍
+  超时未知。重复父子链、持久消费、watchdog、真实净空/来源与 whole-sortie dispatcher 未接。
+  无新增模型训练／生成、晋升、硬件或发布；版本仍 0.3.0-pre.8。说明
+  `docs/onboard-continuation-host.md`，新回执
+  `docs/evidence/onboard-continuation-host-development-20261007-r1.json`，旧封存文件未改写。
+
+### Added
+
+- 2026-09-30：新增 `src/multidetect/gazebo_depth.py`，为未来真实 Gazebo depth/range topic
+  建立 truth-free、时间戳/校准/帧绑定的严格测距契约，并转换到现有
+  `DirectRangeMeasurement`/`MultiModalRangingEngine`，覆盖未来源时间、过期 source、非法
+  topic、无效尺度与 schema 漂移的 fail-closed 回归。当前 urban manifest 的
+  `downward-depth` 仍明确是 declared-only，因为仓库 SDF 尚未提供对应实际 topic；没有把它
+  写成外部 SIM、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 证据，wire-v3 保持兼容。
+
+- 2026-09-30：新增 `scripts/rebind_combined_target_evidence_cards.py`，从固定的历史 combined
+  evidence 与 5362-event integrated audit 只读重建 336 个 `TargetEvidenceCard`。工具绑定源文件与
+  审计文件 SHA-256、session/sequence/时间单调性、primary→range→geolocation 因果顺序和 GPS/
+  测距字段，并将结果写成独立的 historical-observation bundle；旧 evidence 不覆盖，当前 parity
+  只作为工具上下文。正式输出为
+  `artifacts/evaluation/combined-target-card-reconstruction-20260930-r2/bundle.json`（SHA-256
+  `abd3f4fd91e099213df1ae15a32131499d6f50c4552be302ec99bce3d211ad3e`）及
+  `docs/evidence/combined-target-card-reconstruction-20260930-r2.json`（SHA-256
+  `04375026626680e88012c4c851d896f8c7c41edafaba84b23e697add7f5738da`）。r2 同时修正
+  provenance 中的 label causal sequence；r1 保留为历史产物但不再作为当前索引。该结果未重新执行
+  runtime，不构成当前 external SIM、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布证据。
+
+- Bound external VTOL campaign Mission evidence to the sealed sensor transport manifest. The
+  campaign now requires an exact task-to-frame map, reopens and rehashes raw BGR24 bytes at the
+  campaign boundary, and records frame sequence/hash/bytes/capture clock in each Mission report.
+  Receipt generation and outer campaign validation reject frame reuse, raw-byte tampering, clock
+  domain mismatch, and timestamps outside the Mission receive window. Legacy sensor-disabled
+  receipts remain compatible; no HIL/REAL, outdoor GNSS, or final `0.3.0` claim is made.
+- Rebound `configs/release-parity.json`, the deterministic observed session, parent/candidate
+  campaign receipts, and the fail-closed release-gate audit after the Mission provenance change.
+- Re-ran a read-only field-link preflight against the configured Jetson/GR01/Camera endpoints.
+  The selected local source remains `192.168.1.13` instead of the expected aircraft subnet
+  `192.168.144.0/24`, all three remote probes timed out, and `hardware_link_ready=false`; no
+  network mutation or flight-control command was performed. HIL/REAL/outdoor-GNSS gates remain
+  explicitly unclaimed.
+- Hardened the outer campaign auditor: `validate_campaign_result()` now reopens the sealed sensor
+  manifest and revalidates the exact task-to-frame map before checking each Mission report. A
+  caller cannot pass a fabricated in-memory manifest object to bypass raw-byte or canonical-hash
+  verification; the tampered-after-load path is covered by regression tests.
+
+- Bound the Gazebo wire-v3 BGR24 sensor manifest into geolocation replay/accuracy reports. Every
+  selected replay event must resolve to one unique hash-verified sensor frame; the report records
+  manifest file/canonical SHA-256, wire/pixel identity, frame IDs and truth-free provenance. This
+  remains software/headless evidence only and does not claim QGC visual, HIL/REAL, outdoor GNSS or
+  flight acceptance. Rebound release parity, observed-session evidence, campaign receipts and the
+  fail-closed release-gate audit to the current core hash.
+- Full repository regression after the transport/parity rebinding passed with `5051 passed, 7 skipped,
+  0 failed`; the JUnit artifact is recorded in `docs/current-progress.json`. This remains software
+  regression evidence only.
+
+### Fixed
+
+- Added an opt-in field geolocation survey coverage contract. Replay-to-truth WGS-84 reports now
+  record separated distance regimes from valid replay range evidence and slope regimes from
+  independently supplied survey truth; the generated worksheet now exposes blank
+  `survey_range_m`/`survey_slope_deg` columns, and independently filled range takes precedence over
+  the replay estimate. `--minimum-distance-regimes` and
+  `--minimum-slope-regimes` fail closed when an outdoor survey is concentrated in one regime;
+  defaults remain zero for backward compatibility, and the schema/verifier validate coverage
+  metadata without turning it into a hardware, GNSS, HIL, REAL or flight claim. The survey-template
+  schema now also accepts the generator's `event` envelope and declares the new coverage columns.
+- Promoted the same coverage contract to the field-evidence bundle boundary. Explicit distance/slope
+  requirements are now hash-bound in `policy`, `bindings`, and bundle identity; the accuracy stratum
+  rejects missing, mismatched, or insufficient coverage while default-zero policies preserve legacy
+  reports. This remains evidence integrity only and does not claim outdoor GNSS, HIL, REAL, or flight.
+
+- Strengthened the truth-free observed-session evidence harness: every selected task is independently
+  re-decided, planner-compiled, and compared exactly at the plan level before
+  `planner_revalidated=true` is recorded. Rebound the 2026-09-24 evidence to SHA-256
+  `1a3e52b2ac4245ee27a89a4888ed73614089ab6e831737396b1efcf88a001f03` (4,392 bytes).
+- Added `scripts/create_shared_policy_campaign_receipt.py`, a read-only auditor that binds each
+  external campaign sortie's Mission report, transaction journal and policy decision by SHA-256 and
+  Mission hash. The parent/candidate receipts also bind the outer runtime evidence's exact container
+  cleanup and post-remove absence, plus runtime mode, scenario manifest and stable airframe identity;
+  it now also binds the five current release-parity identities (core algorithm, PX4 Mission path,
+  safety policy, task contract and UI contract); no HIL/REAL or release claim is made.
+- Added `scripts/verify_shared_policy_runtime_handoff.py` and its regression fixture. It joins a
+  source SIM campaign receipt to a target HIL/REAL live-runtime binding and independently rechecks
+  the policy artifact, stable airframe identity, Mission identity, release-parity hashes and locked
+  outputs. A passing handoff is provenance only: it does not claim HIL/REAL, flight, outdoor GNSS or
+  final `0.3.0` release acceptance.
+- Integrated `shared_policy_runtime_handoff` into `release_gate.py` and the release-gate schema:
+  prerelease reports may record an absent handoff while staying fail-closed, but a final release
+  requires a hash-bound SIM-to-HIL/REAL handoff. The current parity rebinding explicitly reports
+  old-mode/external evidence drift and keeps `current_release_parity_bound=false`.
+- Added `--shared-policy-runtime-handoff` to the release-gate manifest writer. Supplied handoff
+  files are reopened and checked before they can enter a manifest; a malformed or unlocked handoff
+  cannot be smuggled into a prerelease or final-release report.
+- Ran a fresh disposable Docker/PX4/Gazebo external SIM with the pinned image
+  `px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8`:
+  `HEARTBEAT` and `GPS_RAW_INT` fix type 3
+  with 10 satellites were observed, and stop/rm cleanup passed. The record is headless SIM only;
+  QGC visual, HIL/REAL, outdoor hardware GNSS and final release remain unclaimed.
+- Completed a fresh parent/candidate shared-policy external VTOL campaign pair using the
+  existing Mission transaction and router lifecycle. Both successful runs completed the two
+  synthetic sorties with planner revalidation, policy evidence, journal integrity and exact-ID
+  cleanup; hash-bound receipts were written for each run. The first candidate attempt is retained
+  as a fail-closed quarantine because PX4/Gazebo reported
+  `mission_item_reached_ahead_of_current_sequence`; a clean candidate retry passed. Parent and
+  candidate artifact SHA-256 values are identical and no independent performance gain was proven,
+  so the candidate remains unpromoted. This is headless SIM evidence only.
+- Fixed the operator-facing `scripts/verify_shared_policy_runtime_matrix.py` CLI so it bootstraps
+  the repository `src/` path when run directly, independent of an editable install or inherited
+  `PYTHONPATH`. Added a clean-environment subprocess regression and generated the current
+  four-mode (`REPLAY`/`SIM`/`HIL`/`REAL`) policy contract matrix. It proves one artifact and one
+  stable airframe identity across descriptors with no backend, MAVLink or actuator capability;
+  it does not claim HIL/REAL, hardware, outdoor GNSS or release acceptance.
+- Added a fail-closed airframe-profile identity check to `run_observed_task_session`; a
+  `SharedTaskPolicy` artifact whose profile differs from the observed runtime is rejected before
+  task execution. Recomputed `configs/release-parity.json` and rebound the current external-SIM
+  and release-gate evidence to `core_algorithm_hash=c4ddf12a...9befee`.
+- The earlier `field-link-refresh-20260924-r4` record remains historical provenance; the current
+  `0.3.0-pre.8` gate is rebound to the newer `field-link-refresh-20260925-r1` read-only probe.
+  Freshness passes at evaluation time, while the missing `192.168.144.0/24` route and unreachable
+  Jetson/GR01/Camera keep `hardware_link_ready=false`.
+- Bound the deterministic observed-session evidence to the current release-parity file (bytes,
+  file SHA-256 and all five contract hashes), so the software SIM session cannot be mistaken for
+  evidence from a different core/UI/Mission contract.
+- Hardened `verify_current_progress_index.py` with a four-way field-link binding: the current
+  progress index, release-gate report, field-link preflight, and interface diagnostic must agree on
+  resolved paths, byte counts, and SHA-256 values. Basic artifact checks run first so each drift
+  class remains diagnosable; a report/progress path mismatch now fails closed instead of silently
+  accepting independently valid files.
+- Generated a new positive six-stratum replay evaluator fixture at
+  `artifacts/evaluation/replay-set-positive-fixture-20260924/`. Its five positive strata have
+  positive truth/prediction coverage, the IoU and latency report is reproducible and hash-bound,
+  and the readiness report reopens the manifest and accuracy report. It remains explicitly
+  `synthetic_demo`, `annotations_reviewed=false`, `deployment_domain_evidence_complete=false`,
+  and `gate_passed=false`; no deployment-domain accuracy or release claim was made.
+
+- Added explicit `--airframe-profile-sha256` binding to `scripts/train_task_ranker.py`. Dataset/holdout
+  evaluation remains bound to the dataset identity, while exported parent/candidate artifacts can be
+  bound to the caller's stable runtime VTOL identity without rewriting training evidence.
+- Added an independent strict-loader evidence record for the runtime-bound parent/candidate artifacts;
+  both file and canonical hashes, feature order, and stable airframe identity were rechecked without
+  changing promotion state.
+- Added a four-mode `REPLAY/SIM/HIL/REAL` shared-policy runtime matrix verifier. It checks identical
+  policy and airframe identities while proving the policy profile carries no flight-control capability;
+  the evidence is software-only and starts no backend or MAVLink transport.
+- Added a deterministic software-SIM scenario matrix run across the fixed-wing, VTOL, and multirotor
+  manifests. All declared faults were covered after bounded automatic frame extension, repeat hashes
+  matched exactly, and the truth-free gate passed. The evidence remains software-only and does not claim
+  external 3-D, QGC visual, hardware, HIL, REAL, outdoor GNSS, or final release acceptance.
+- Clarified the roadmap and README to reflect the current external campaign lifecycle: the shared policy is
+  already re-evaluated between missions inside one telemetry session, while HIL/REAL, field hardware,
+  outdoor GNSS, QGC visual sign-off, replay-set review, and the final release channel remain open gates.
+- Added `scripts/run_shared_policy_observed_session.py` and a bound evidence record for a deterministic
+  two-task observed session. The existing SharedTaskPolicy selected and completed both tasks using the
+  refreshed post-mission context; repeated canonical session hashes matched and the session emitted no
+  backend, MAVLink, or actuator capability. This is software evidence only.
+- Refreshed the read-only field-link preflight and interface diagnostic on 2026-09-24, rebound the
+  no-argument release-gate wrapper to the fresh files, and retained the real `hardware_link_ready=false`
+  and missing aircraft-subnet route result. No adapter address, route, DNS setting, or device state was
+  changed.
+- Preserved the 2026-09-20 baseline full regression: `5016 passed, 7 skipped, 0 failed, 0 errors`
+  with exit code `0`; JUnit is retained at
+  `artifacts/evaluation/full-regression-20260920-runtime-matrix/pytest.xml` and bound by SHA-256 in
+  `docs/current-progress.json`. This is historical software regression evidence, not the current
+  airframe-guard regression.
+- Added a read-only `verify_current_progress_index.py` check that binds the current field-link preflight/interface diagnostics in addition to parity, release-gate, and shared-policy evidence; byte and SHA-256 drift now fail closed.
+- Added a fresh 2026-09-28 diagnostic-bound field-link preflight. All three endpoint samples failed,
+  the selected source remained `192.168.1.13` outside `192.168.144.0/24`, and the bound read-only
+  interface diagnostic reported no expected aircraft-subnet address or route. The current release
+  audit now binds this evidence and remains fail-closed; no network, device, MAVLink, or flight state
+  was changed.
+- Extended `verify_current_progress_index.py` to bind the current release-gate report and manifest
+  bytes/SHA-256, blocker list, mode parity and fail-closed status directly, with regression coverage
+  for report-path/hash/byte and parity-binding drift.
+- Closed a release-index fail-open path: missing report/manifest artifacts now fail verification
+  instead of returning a false `release_gate_report_bound`; the old 2026-09-08 strict report is
+  explicitly labeled historical stale provenance in the current parity audit.
+- Refreshed `docs/current-progress.json.updated_at_utc` to the current evidence index timestamp (`2026-09-20T01:12:00Z`) so the 2026-09-20 report bindings are not presented under the stale 2026-09-08 index time.
+- Tightened external repeat evaluation identity and task-shape validation: missing or malformed scenario, airframe, and campaign SHA-256 identities; empty/duplicate task records; and non-finite or negative energy windows now fail closed. Full repository regression completed with exit code 0 (`5006 passed, 7 skipped, 0 failed`).
+- Reject duplicate report contents (including renamed copies and cross-group duplicates) when counting shared-policy external SIM repeats. Recomputed the existing six-report comparison with six distinct SHA-256 values; this does not promote the candidate or claim statistical independence or physical validation.
+- Rebound the pre-release release-gate evidence to the current release-parity identity: simulator external runtime/AI join, three-airframe PX4 reported-position matrix, and repeatability/fault campaign were regenerated and reverified. The gate now fails only on remaining replay-set, field, manual-review, HIL/REAL, hardware, and final-channel requirements rather than stale software evidence hashes.
+- Captured a fresh read-only field-link preflight and interface diagnostic. The workstation has no active `192.168.144.0/24` interface and all three remote endpoints are unreachable; the evidence remains fail-closed and does not claim HIL/REAL readiness.
+- Verified the configured `Ethernet` adapter with `prepare_field_link.ps1 -VerifyOnly`; no secondary address or route was changed (`changed=false`).
+- Rebound the current pre-release gate to the fresh field preflight; the stale-input blocker is gone, while the real `hardware_link_ready=false` blocker remains fail-closed.
+- Corrected the no-argument gate wrapper binding to the versioned 2026-09-19 field preflight; the 2026-09-04 v33 snapshot remains historical provenance and cannot silently become the current hardware input.
+- Corrected the remaining no-argument wrapper defaults to the current parity-bound `-rerun` external runtime/AI and PX4 response evidence; a real smoke run now generates the report successfully and preserves fail-closed field freshness/hardware blockers.
+- Refreshed the read-only field-link preflight and rebound the report-only gate at `2026-09-19T16:15:00Z`; freshness now passes, while the absent aircraft subnet and `hardware_link_ready=false` remain explicit blockers.
+- Pointed the no-argument release-gate wrapper at the refreshed `field-link-preflight-20260920-current.json`; a second real smoke run completed with no stale-preflight or parity-drift error and retained the genuine hardware-link blocker.
+- Verified the current portable `MultiDetectGCS.exe` artifact (`46,875,136` bytes, SHA-256 `41ea7aaf830b406aadbcbb17bd7e5e1e22c1a08f20dcba002885e0153cf6765b`) with `--simple-boot-test` exit `0`; this remains software boot evidence, not manual Fly View or HIL/REAL acceptance.
+
+### Added
+
+- Added the post-mission receive-window energy model to the shared-policy external SIM evidence path. The 3×3 parent/candidate evaluator now records a reproducible model-only comparison (`parent_mean=4.8322001333 Wh`, `candidate_mean=4.6188801333 Wh`, margin `0.21332 Wh`) while preserving `candidate_promoted=false`.
+- Added repeat evidence for parent runs `...-b/c/d` and candidate runs `...-a/c/d`; failed candidate run `...-b` remains retained as a separate reliability record.
+
+### Verification boundary
+
+- The energy result is `complete_receive_window_model_only` using `causal_envelope_midpoint_model_v1`; it is not physical calibration and does not establish HIL, REAL, outdoor GNSS, or flight acceptance. Version remains `0.3.0-pre.8`; final `0.3.0` is not released.
+
+- 2026-09-19：审计发现 `planning_energy.newly_consumed_wh` 在 Mission transaction 创建前由 `energy_projection()` 生成，只是选择时累计前缀而非完整架次能耗；v2 evaluator 已 quarantine 该指标并保持 fail-closed。新增交叉顺序 campaign，记录一次 completion telemetry 瞬时失败与成功 retry，candidate 未晋升。
+- 2026-09-19：补齐 post-mission energy window 审计入口。成功 mission evidence 现在在终止 telemetry 后重放 append-only energy history，只有边界包围、boot 时间连续且无丢样本时才生成 `causal_envelope_midpoint_model_v1` 窗口值；仍显式标记为 SIM 模型值，不宣称物理校准，不授权下一任务。新增 parent/candidate 各 1 次外部 campaign，1×1 evaluator 已读到窗口值但因重复数不足保持 `promotion_ready=false`；旧 evidence 不回写。
+
+- 2026-09-19：完成 3×3 parent/candidate 外部 PX4/Gazebo SIM 评估；6/6 gate 与 cleanup 通过，身份和 Mission path 一致，但 `completed_task_count` 为 parent/candidate 均值 `2`，未达到 candidate 正向 margin，评估器保持 fail-closed，candidate 未晋升。
+
+- 2026-09-19：新增外部 SIM 多轮晋升评估器与预声明配置；要求至少 3×3 运行、身份/生命周期不漂移、指标完整后才允许进入收益判断。初次运行阶段样本各 1 次且完成任务数相同，评估器先行 fail-closed，candidate 保持未晋升。
+
+- 2026-09-19：完成 aggregate router 时间预算修复后的 parent/candidate 两任务外部 SIM 重复；两次 gate、Mission frame/control、策略选择和 exact-ID cleanup 均通过。该结果只证明执行重复性与相同 Mission 路径，不证明 candidate 独立性能收益，candidate 继续未晋升。
+
+- 2026-09-19：修复多任务外部 capture 将 aggregate router 生命周期截断为 600 秒的问题；单任务上限保持不变，多任务现在使用任务预算总和加清理余量并受 3600 秒有界配置上限保护。新增 timeout 绑定回归，未改变 candidate 晋升或最终发布门。
+
+- 2026-09-19：追加 parent 外部 SIM 重复性审计；记录两次任务时限参数不匹配和一次 600 s router cap 到期，所有容器均精确清理。未将不完整尝试计入性能样本，candidate 仍未晋升。
+
+- 2026-09-19：完成 parent/candidate 两任务外部 SIM 对照；不同 policy artifact 产生不同任务顺序，但各一轮样本不足以证明性能收益，candidate 保持未晋升。
+
+- 2026-09-19：完成同一共享策略 artifact 的两次成对外部 PX4/Gazebo SIM repeatability 运行；两次顶层 gate、Mission journal、策略证据和容器 cleanup 均通过。由于未加载 learned weights 且 headless，不宣称 candidate 收益、同一 UI、HIL/REAL 或最终发布。
+
+- 2026-09-19：完成一架次真实 pinned PX4/Gazebo disposable SIM 的共享策略 campaign；顶层 gate、Mission journal、policy evidence 和 exact-ID cleanup 通过。为修复 energy receive-window 缺口，将已有 SITL 状态流由 4 Hz 提升到 10 Hz，freshness threshold 未放宽。该结果不构成 learned candidate 晋升、HIL/REAL 或最终 `0.3.0` 发布。
+
+### 稳定 airframe identity 修复（2026-09-19）
+
+- 发现并修复一个会阻断跨运行复用的身份问题：旧 `airframe_profile_sha256` 把含随机端口/运行 wiring 的 `stack_plan_sha256` 纳入 hash，导致相同 VTOL 机型每次启动都产生不同策略身份。
+- 新增 `multidetect.simulator.stack.airframe_profile_hash()`：保留 stack hash 在运行 evidence 中，但从稳定 airframe identity hash 排除它。两个不同端口的 Docker stack plan 已实测得到相同 airframe hash。
+- Docker acceptance、VTOL capture、Mission 回归和 Ruff 通过；尚未执行完整外部 campaign，策略 artifact 的跨运行接口现在具备正确身份语义。
+
+
+- 2026-09-16：外层 VTOL capture CLI/API 贯通策略 artifact 路径与文件 hash，父进程预检、子进程加载、首次审计和清理后审计使用同一策略身份；添加参数传递与启动前拒绝回归。外部运行和最终发布验收仍未完成。
+
+### 共享自主策略契约收口（2026-09-12）
+
+- 在不推翻 PX4/QGC、感知、规划和 Mission 主链的前提下，新增 `PolicyArtifact` 与 `SharedTaskPolicy`；SIM 预算 episode 和 HIL/REAL observed session 现在可以使用同一个 hash-bound 策略候选。
+- 策略输入显式 truth-free，输出只有可行任务选择或 abstain；选择后必须重新执行现有 planner 可行性校验，策略层不获得 actuator、arm/disarm 或飞控授权。
+- artifact 绑定 ranker、parent model、training dataset、airframe、Mission contract 和 safety policy 身份；新文件已进入 core/task parity，旧证据不会被自动升级。
+- 训练/验证评估现在可选用同一个 artifact，并在结果中记录 `policy_artifact_sha256`；旧接口保持兼容，未因此宣称训练候选晋升。
+- 定向自主规划、训练 CLI、release parity、进度文档回归通过；当前没有 learned weights、candidate promotion、动力学收益或 HIL/REAL/室外验收结论，版本保持 `0.3.0-pre.8`。
+- 新增独立 synthetic holdout campaign 与 `SimulatorScenarioRunner` policy identity binding：训练/评估 input hash、scenario family disjoint；runner 对 artifact/ranker/airframe 做 fail-closed 校验，但只记录高层 provenance，不把 ranker 接到 actuator。parent/candidate 相同，`candidate_promoted=false`；证据见 `docs/evidence/shared-policy-independent-sim-20260912.json` 与 `docs/evidence/shared-policy-sim-runner-binding-20260912.json`。
+- 本轮 runner/campaign 增量回归 100 项通过，重新生成当前 parity；这仍不是 PX4/Gazebo 外部 SIM、HIL/REAL、室外 GNSS 或硬件验收，最终 `0.3.0` 继续阻断。
+
+### 时间戳来源契约与旧报告迁移标记（2026-09-12）
+
+- 新增 `simulation/timestamp_contract.py`：明确源 `time_boot_ms`、观察端 `received_at_s`、消息发布时间和物理采样时刻的语义边界；新采集快照嵌入 schema 1 契约。
+- 新增 `scripts/audit_timestamp_semantics.py`；O 原始报告 SHA 校验通过并标记为 `legacy_capture_missing_explicit_timestamp_contract`，可分析但不自动升级为同步证据。
+- 契约明确 `publication_time_semantics_proven=false`、`physical_synchrony_proven=false`、`source_to_host_clock_mapping_proven=false`；69项相关回归、Ruff及diff检查通过。
+
+### O未配对目标的姿态邻近端点诊断（2026-09-12）
+
+- 新增 `scripts/audit_attitude_neighbor_window.py` 和 `inspect_attitude_neighbors`：记录精确源标签前后的实际姿态端点、源标签偏移、接收时间偏移及端点滚转变化，不插值、不构造中间误差界限。
+- O的10条2秒固定翼较稳但未配对目标均有前后端点，源标签跨度20–24ms，最大绝对源偏移16ms，端点滚转变化最大0.499°。这只说明邻近观测平滑，不能替代目标时刻实际响应或物理同步证明。
+- 63项邻近诊断/历史响应/模式窗口/文档一致性回归及静态检查通过；保存的O邻近端点摘要重新计算一致，最终版本仍禁止放行。
+
+### O全目标覆盖与配对选择偏差（2026-09-08）
+
+- 111项相关回归、Ruff和diff检查通过；N/O旧窗口统计及O新目标覆盖证据均从SHA绑定原报告完整复算一致。
+- 目标历史分类覆盖全部设定值；忽略姿态mask单列，未匹配实际姿态不补造误差。CLI增加 `--include-target-coverage`，原默认统计保持不变。
+- O的2秒固定翼目标历史窗口保留158条，其中10条目标变化较小、148条变化较大；10条较小变化目标全部缺精确实际标签配对。修正解释：缺少较稳组的实际响应证据，不代表全部目标历史均无较稳段。
+
+### O响应参考任务外部SIM验证（2026-09-08）
+
+- `fixed-wing-response`首次外部运行exit0，外层/Mission及独立执行准入通过，ARM到完成159.958245s，隔离容器清理无失败。
+- 522条目标、6525条姿态，127对精确源标签匹配。500/1000/2000ms固定翼历史窗口保留38/37/36对，较稳组12/6/0对；2秒组无较稳样本，不宣称稳态响应改善。
+- 变化组最大瞬时滚转差44.053°，保留原始证据与模式接收窗口；下一步关联路径几何和目标变化，不从单次差值调增益或降低门限。
+
+### 固定翼响应参考任务接入共享Mission（2026-09-08）
+
+- 采集入口及Mission执行入口新增 `--reference-profile fixed-wing-response`：北向180m、东向80m、50m半径盘旋30s；默认 `lifecycle-smoke` 保持原70m/70m、30m半径、5s参数。
+- 复用原任务构造、规划、Mission编译及安全策略；profile进入运行描述哈希与Mission报告。未知profile和campaign混用提前拒绝，避免覆盖选定任务。
+- 448项相关回归通过，Ruff与diff检查通过；外部SIM尚未运行，新增几何不是稳定响应或飞行可行性证明。
+
+### N固定翼窗口筛选与复算入口（2026-09-08）
+
+- 模式窗口/复算CLI/目标历史/四元数解码/采集/文档与版本一致性107项回归通过，Ruff及diff检查通过，保存的N诊断JSON与原始报告重新计算结果完全相等。
+- 新增严格模式接收夹区筛选，覆盖目标历史及目标/实测接收时刻；模式缺失、转换和大间隔不跨越。
+- 增加 `scripts/audit_mode_roll_response.py`，SHA绑定原报告、显式诊断参数、空组null误差；N复算500/1000/2000ms较稳组仅5/2/1对，不能用全程低误差宣称固定翼稳态达标。
+- 明确下一步拆分生命周期冒烟与响应辨识任务；本轮不改控制增益、不启动实机或新SIM、不发布最终版本。
+
+### N设定值变化与滚转差分组（2026-09-08）
+
+- 本轮响应/目标解码/采集/文档/版本一致性96项回归通过，Ruff与diff检查通过。
+- 新增离线 `simulation/roll_response.py`，仅用历史目标和精确源标签配对样本，禁止未来数据泄漏；显式回看窗口、最大消息间隔和目标角差条件，缺历史独立分组。
+- N原报告SHA复核，500ms/300ms/2°诊断条件下：69个已观测目标较稳样本RMS1.635°，24个变化样本RMS8.910°；26.741°最大差位于变化组。1000/2000ms敏感性结果另存，不将选窗当控制验收标准，未改增益或再飞行。
+
+### N姿态设定值外部采集（2026-09-08）
+
+- N外部SIM exit0、完整采集/Mission及独立执行准入通过，容器已清理；326条ATTITUDE_TARGET、mask全0，无丢弃；四元数范数0.999999901..1.000000134，证据 `docs/evidence/attitude-target-n-20260908.json`。
+- 新增姿态目标解码：显式范数容差与小量归一化记录、忽略mask处理、奇异点不伪造roll/yaw，72项相关回归通过。94对精确源毫秒标签匹配，232个目标不补配；最大样本滚转差26.741°为未分阶段瞬时差，不作为控制失效或验收阈值。
+
+### M导航发布检查与姿态设定值接口（2026-09-08）
+
+- M外部SIM exit0、完整采集/Mission门及执行准入通过，容器清理完成；扩展状态最大间隔0.409312s，无>1.5s间隔。显式4Hz请求后NAV_CONTROLLER_OUTPUT仍0条，记录于 `docs/evidence/navigation-publication-m-20260908.json`。
+- 固定提交中当前固定翼模块发布新状态话题，而旧导航MAVLink依赖position_controller_status；新增ATTITUDE_TARGET接收与4Hz请求，记录源启动时间、原始wxyz四元数、type_mask和角速率/推力。有限非单位四元数原样保留，语义校验留给消费者；不伪造同步或归一化。242项相关回归通过，外部发布待验证。
+
+### 隔离SIM状态流频率配置（2026-09-08）
+
+- L外部SIM exit0、采集/Mission门及独立执行准入通过，容器清理完成。EXTENDED_SYS_STATE406条、最大接收间隔0.440920s、无>1.5s间隔；证据 `docs/evidence/state-stream-navigation-l-20260908.json`，不是长期稳定性证明。
+- L姿态5063条、HUD406条，NAV_CONTROLLER_OUTPUT为0条。按此结果追加该实例导航流4Hz请求，待下一次外部验证发布是否可用；不把零条消息称为零误差。
+- K扩展状态接收间隔81个中64个超过1.5s，最大4.578822s；原配置只将HEARTBEAT设为4Hz。现将同一指定SITL MAVLink实例的EXTENDED_SYS_STATE也设为4Hz，保留1.5s新鲜度门，不把请求频率当接收频率证明。
+- 观察器与外层采集410项回归通过；配置返回错误显式失败。仅作用于既有首次能量会话SITL准备分支，不改真实飞控或生产运行profile。
+
+### K同运行版本与失败观测保留（2026-09-08）
+
+- K隔离SIM exit1，首次扩展状态年龄1.514203s超过1.5s；容器已清理，执行结果隔离，不作训练奖励。只读版本成功返回PX4提交83c4f4e580558816f0e398918f66358988004696，证据 `docs/evidence/navigation-capture-k-20260908.json`。
+- 修复失败路径不导出位置/动态缓冲的问题：新报告增加 `failed_observer_capture`，仅错误后导出有界快照，明确partial、capture_complete=false、training_label_eligible=false；未修改门限或K旧报告。429项相关回归通过。
+- 固定提交源码确认HUD空速为CAS，导航空速误差为过滤TAS减设定TAS；不混用两者反算设定值。导航高度误差是设定高度减估计高度，符号方向不同。
+
+### 盘旋计时语义与导航输出（2026-09-08）
+
+- 动态流/观察器/姿态关联/文档/版本一致性265项回归通过，Ruff与diff检查通过；新导航流已覆盖两种时钟下的模拟消息集成测试，尚待外部采集验证。
+- 核验历史固件探针所指不可变PX4提交：固定翼LOITER_TIME按半径加导航接受半径及高度条件锁存到达后计时，不是连续精确圆环跟踪验收；不将源码解释直接当作J运行的版本实测。
+- 现有只读参数快照增加同容器 `px4-ver all` 有界原始输出；动态采集增加NAV_CONTROLLER_OUTPUT的期望滚转/俯仰、高度/空速/横向误差，单位明确，不伪造源时间戳。下一次外部SIM仍需验证实际消息覆盖。
+
+### 姿态位置精确标签关联（2026-09-08）
+
+- 姿态关联/位置/动态采集/文档/版本一致性96项测试通过，Ruff及diff检查通过；未重复执行外部飞行。
+- 新增 `simulation/attitude_position_join.py`：仅连接同源、相同启动毫秒标签的姿态/位置，拒绝截断、重复/回退时钟、非法姿态及单位；不插值或用主机最近邻补配。
+- J原始报告SHA复核成功，2028对匹配，2159条位置/2160条姿态未匹配且显式保留计数。盘旋项接收窗口内121对样本：目标半径30m，中心距29.795..49.715m，最大半径偏差19.715m，最大高度偏差3.505m。证据 `docs/evidence/attitude-position-j-20260908.json`。
+- 接收窗口不等于源执行阶段；等毫秒标签不证明物理采样同步。未新增通过性阈值、修改飞控或授予轨迹合格标签。
+
+### 模拟Mission动态观测（2026-09-08）
+
+- J固定镜像隔离SIM exit0，外层/Mission门通过，独立journal执行准入通过，容器已清理。实采4188条ATTITUDE、335条VFR_HUD及4187条位置，无截断或缺失字段；证据 `docs/evidence/dynamics-capture-j-20260908.json`。空速字段出现负值，原样保留，未升级为TAS或训练标签。
+- 现有Mission观察器新增有界ATTITUDE/VFR_HUD接收记录，各流独立容量、源ID过滤、丢弃计数、非有限/缺失字段显式null；保留滚转弧度和ATTITUDE源启动时间，VFR_HUD不伪造源时间或TAS语义。
+- 新增21项采集测试，并扩展两种主机时钟下的观察器生命周期集成测试；相关223项通过，Ruff通过。仅增加报告观测，不修改飞控参数或放宽验收。
+
+### 参考航线转弯条件核验（2026-09-08）
+
+- 本轮转弯/参数/文档/版本一致性回归82项通过，Ruff及diff空白检查通过；不是新一轮完整套件或外部飞行验收。
+- 新增 `simulation/turn_envelope.py`：明确输入 TAS，以无风协调平飞力平衡计算转弯半径、滚转角和载荷因数；拒绝非有限数、非法角度、溢出和静默 CAS/地速别名。
+- I 原报告 SHA 重新核验，实采参数行重新解析；30m 半径在 TAS 15m/s 时需37.408°，20m/s时需53.666°，后者超过配置的50°。CAS=TAS仅为显式数值假设，未验证大气换算、失速裕度或机体能力。
+- 证据 `docs/evidence/turn-envelope-i-20260908.json`；未改飞控参数、生产规划器或验收门，仍为0.3.0-pre.8。
+
+### 风场与阶段主线完整回归（2026-09-08）
+
+- 完整pytest会话52219 exit0：4706项，4699通过、7因Windows符号链接能力不可用跳过、0失败/错误，443.192秒。JUnit hash及范围见docs/evidence/full-wind-phase-tests-20260908.json。
+- 参数解析器在收集后新增，11项另测通过，不混入完整批次计数；未将测试通过等同SIM/HIL/REAL最终验收。
+
+### I动态参数实采与失败隔离（2026-09-08）
+
+- 10项固定镜像飞控参数成功只读采集；严格参数行解析新增11项测试通过，原始输出与hash绑定保存于docs/evidence/sim-dynamics-parameters-i-20260908.json。
+- I完整采集门因扩展状态1.511353s超过1.5s失败，进程exit1、容器已清理；完成outcome不替代采集门，单独隔离。并行pytest负载已记录，不推断因果、不降低门限。仍0.3.0-pre.8。
+
+### 动态参数只读快照与验收范围标记（2026-09-08）
+
+- 隔离SIM准备阶段新增10项飞控动态参数param show，保留版本缺失/错误原始输出，不补默认，不改变参数；3项新测试、相关236项通过。新外部采集尚待验证。
+- 成功flight报告明确未证明轨迹跟踪质量，区分Mission生命周期/采集门与误差界验收；仍0.3.0-pre.8，不改变原安全门或硬件配置。
+
+### H转换几何对照与模型决策（2026-09-08）
+
+- 新增严格接收邻域位置查询，9项新测试，位置分析共22项通过；不插值/外推或声称源事件位置边界。
+- H实际转MC附近约17m高度、距盘旋中心51m，随后MC附近约9.3m高度、距落点203m且仍有水平速度。证据写入docs/evidence/transition-geometry-h-20260908.json；优先检查参考场景可跟踪性，不把转换当成只耗时不移动的阶段。未修改飞控或生产预算，仍0.3.0-pre.8。
+
+### H外部位置采集与进近诊断（2026-09-08）
+
+- H隔离SIM完整执行、采集与独立journal准入通过，容器已清理；实采4818条完整原始位置记录，无缓冲截断，最大源间隙0.916s单独保留。
+- 新增源时间垂直速度积分诊断，13项新测试、相关80项通过。首次着陆观测距落点198.520m，44.880s源时间后首次进入5m范围，长段包含水平进近；未将其作为物理下降率标定或修改飞控。证据docs/evidence/position-trajectory-h-20260908.json，仍0.3.0-pre.8。
+
+### 有界着陆位置证据采集（2026-09-08）
+
+- F/G原始报告尾部对照确认位置只覆盖6.704s/8.220s，不能解释完整着陆差异；证据保存于docs/evidence/landing-tail-f-g-20260908.json。
+- 新增最多32768条原始位置/源启动时间/NED速度采集，缺失字段与截断显式标记；接入observer成功报告，13项新测试与observer共199项通过，旧/QPC生命周期字段验证通过。新外部采集尚待验证，不调整飞控或生产预算，仍0.3.0-pre.8。
+
+### G外部SIM阶段字段验证（2026-09-08）
+
+- 新独立固定镜像QPC图像Mission G执行exit0，外层/任务/独立事务准入通过，容器已清理；实际采集97条带vtol_state的扩展状态，验证MC→转FW→FW→转MC→MC。
+- 分析器增加VTOL连续观测段和旧字段缺失计数，7项新测试、相关106项通过。CURRENT仍缺序号1，阶段源时间标签未合格，不将接收跨度用于标定；结果写入docs/evidence/mission-phase-receipts-g-20260908.json。仍0.3.0-pre.8。
+
+### Mission阶段接收观测与采集补全（2026-09-08）
+
+- 新增CURRENT连续观测段、缺失序号、切换接收间隙及重复REACHED汇总，13项新测试；与observer相关回归共285项通过。
+- F历史记录缺CURRENT序号1，不能还原全部执行阶段；原始哈希绑定结果写入docs/evidence/mission-phase-receipts-20260908.json，接收跨度不当作训练真值。
+- 后续observer shadow事件保留原始vtol_state，生命周期测试通过；尚未新跑外部采集，不改写历史报告或控制行为。仍0.3.0-pre.8。
+
+### 显式阶段化Mission时间账本（2026-09-08）
+
+- 新增离线阶段估算：同一Mission逐项记录水平/升降/等待/转换/余量，VTOL转换切换FW/MC空速假设，保留航点与盘旋等待，显式来源必填。
+- 38项新测试，相关214项通过；F历史Mission合成假设账本79.164591秒，未向观测拟合，非标定值或生产预算。证据写入docs/evidence/mission-phase-timing-20260908.json；版本仍0.3.0-pre.8。
+
+### 编译Mission逐段风对照（2026-09-08）
+
+- 离线模块直接消费ExecutableMission坐标项，保留序号、命令、零距离连接及哈希，拒绝隐式RTL路线；输出明确不等于总任务时间。
+- 三类真实编译器与异常路径14项新测试，相关176项通过；F历史Mission四组反事实风场结果写入docs/evidence/mission-wind-connectors-20260908.json。未启动新飞行或改变生产预算，仍0.3.0-pre.8。
+
+### 稳态风三角对照（2026-09-08）
+
+- 新增离线航迹保持风三角求解，显式返回侧风过强/无法前进原因，不为不可行航段添加速度地板；未接入生产规划或控制。
+- 74项新测试（含36组实际确定性模拟积分）及相关回归共246项通过。往返顺逆风耗时不抵消；区别空速、地速和沿航迹进度，保留生产安全预算。仍0.3.0-pre.8。
+
+### 风场模型配对验证（2026-09-08）
+
+- 新增17项实际确定性SIM检查：四航向的顺/逆/左右侧风轨迹、地速、同控制能耗和未解锁静止；相关回归138项通过。
+- 确认侧风增加地速模长同时造成偏航迹，不能当作路线效率增益；恒定油门能耗不随风变化是当前合成模型定义，不是物理结论。未修改生产预算或安全阈值，保持0.3.0-pre.8。
+
+### 多步预算守恒核验（2026-09-08）
+
+- 12场景×3排序参数的36项实际episode回归证明当前线性模型没有重复扣返航预留；每轮只扣一次成本，电量/续航比例保持。
+- 不修改公式或阈值；线性消耗率及保守估算的模型准确度仍待独立验证。
+
+### 36组参数开发对照（2026-09-08）
+
+- 保留原异质场景文件，新实验只改预先固定参数网格与开发用途说明；36组候选复用同一TaskRanker/规划/编译链。
+- 实际拟合保留父模型，三个分组收益均40；训练组另一类参数将收益降至29，仅节省约27秒估算时间，不符合预定效用优先级。
+- 场景此前已用于诊断，不宣称未见留出、实飞性能或模型晋升。哈希与结果记入docs/evidence/ranker-development-36-20260908.json。
+
+### 显式尝试清单（2026-09-08）
+
+- 新增SHA绑定清单CLI，区分dry-run、执行验收通过/拒绝及矛盾状态，拒绝重复报告/容器。
+- A–F实件清单：1计划、3验收通过、2拒绝；不计算策略成功率，不宣称覆盖全部历史尝试或构成成对实验。
+
+### 被拒绝执行记录隔离（2026-09-08）
+
+- 新增SHA绑定失败分类CLI，将验收gate与任务结果声明分开；不将采集/验收失败转成策略负奖励。
+- E实件为验收拒绝但存在已绑定completed结果声明，完成标签和奖励保留null，仅供分诊/尝试清单。
+- 31项相关回归及Ruff通过；未重放E遥测、未证明根因或训练资格。
+
+### 执行数据分组与留出泄漏检查（2026-09-08）
+
+- 准入记录新增父/Mission一致的场景身份与去任务ID语义指纹；数据集构建重新验证三文件及真实事务。
+- 重复报告/事务拒绝，已知同源组禁止跨train/validation/test；不把无已知泄漏等同于语义独立。
+- F实际索引为1/0/0，没有完整留出集、不执行拟合。成功样本索引不用于估计任务成功率。
+
+### 执行级记录准入（2026-09-08）
+
+- 新增只读、显式三文件SHA绑定的SIM执行记录准入，复用真实事务日志验证，核对完成状态与同域事件时长。
+- F实件通过，输出完成/主机接收时长标签；像素同步、物理能量及模型晋升资格保持独立。
+- 229项相关测试及Ruff通过；尚未接入参数拟合，后续需场景族去重与留出划分。
+
+### F独立窗口复核与标签需求拆分（2026-09-08）
+
+- F时钟1101条记录、996个窗口间隔，最大148.6318ms，通过200ms诊断预算；能量接收窗口完整，合成profile条件能量包络1.613754..1.614074Wh。
+- 规划重算/身份绑定审计通过；保守规划时长与主机接收时长不当成同语义误差，不自动校准。
+- 架构评审区分预算比较、执行级标签、条件能量与同步像素标签，避免像素同步成为全部策略工作的无依据前置门；无训练晋升或物理性能声明。
+
+### 失败状态见证与F轮独立探针（2026-09-08）
+
+- Mission观察器新增有界失败诊断，异常后保留首个无效状态与消息年龄，避免初始flight占位字段被误读为实际飞行结果；408项相关回归及Ruff通过。
+- 新隔离F轮通过采集门并精确清理；602个有效状态样本，三条窗口内holdout与端点仿射约束相容，sidecar一致。
+- E根因仍未证明；不放宽验收门，不宣称源同步/训练资格或完整能量独立审计通过。
+
+### 独立中段探针与失败取证（2026-09-08）
+
+- 父进程采集一次三探针验证批次，与六端点拟合隔离；增加联合相容性验证，错误顺序/身份拒绝。
+- 新隔离SIM camera E因采集飞行状态门失败，退出1并精确清理；原始失败报告保留，无训练资格声明。
+- 修复失败任务丢失内存探针：采样后立即独占写诊断sidecar。248项相关回归及Ruff通过，修复后外部复跑待完成。
+
+### 当前QPC主线全量回归（2026-09-08）
+
+- 4416项收集，4409通过、7项Windows符号链接权限限制跳过，0失败/错误，356.711秒，退出码0。
+- 全量收集后新增的独立仿射诊断8项另行通过；新旧探针组合38项及文档/parity/新诊断组合42项通过。JUnit SHA与验证范围记录在docs/evidence/qpc-current-full-20260908-v2.json。
+- 不代表UI/HIL/REAL或最终v0.3.0验收通过。
+
+### 仿射时钟假设诊断（2026-09-08）
+
+- 新增SHA绑定的精确有理数速率约束诊断，比较固定偏移与正仿射假设，不自动校准或放行训练。
+- C/D原始六探针分别复核：固定偏移不相容，仿射相容；条件速率差区间有交集，但采样间恒速及源对齐均未证明。
+- 新诊断与既有探针38项测试通过；没有修改运行时算法、真实硬件或历史原报告。
+
+### 任务窗口接收连续性（2026-09-08）
+
+- Clock审计新增显式纳秒间隔预算，只评估任务窗口及严格边界；未提供预算、缺边界、超预算分别记录，不把审计进程成功退出当作连续性通过。
+- D原始证据重审：886个窗口间隔最大173.1858ms，通过200ms诊断预算；全程986.7026ms间隔不在窗口内。未改变生产阈值或同步训练资格。
+- 46项相关回归与Ruff通过，原始报告和旧审计未覆盖。
+
+### camera D独立时钟复核（2026-09-08）
+
+- SHA绑定复核994条Clock记录，ARM/完成接收窗口覆盖；不证明源事件时间或同步训练标签资格。
+- 修正时钟迁移文档过时的当前状态，明确历史阶段记录不覆盖现状；58项文档、parity、Clock审计与循环计时回归通过。
+
+### 带计时外部运行D（2026-09-08）
+
+- 新隔离camera D完成并清理，能量接收窗口本次完整；分段计时与帧哈希延迟已采集，最大唯一匹配处理延迟76ms。
+- C的秒级积压未复现，不把仅增加诊断后的差异声明为修复；固定偏移及训练同步资格仍未通过。
+
+### Mission循环分段计时（2026-09-08）
+
+- 增加有界pump/shadow/other耗时诊断，每阶段只保留最慢32区间及累计计数；绑定当前Clock身份。
+- 199项相关回归通过，包含实际observer两域输出。经过时间含调度抢占，不当作CPU/网络时延；外部测量未执行，调度行为与阈值不变。
+
+### camera C接收缺口定位（2026-09-08）
+
+- SHA绑定路由/Collector诊断：5800唯一匹配、323歧义；停止相邻油门路由间隔0.500s而Collector间隔1.486s，后帧处理延迟1.024s。
+- 全程最大唯一匹配延迟5.189s；根因尚未细分，未改变运行逻辑或阈值，未声称训练资格通过。
+
+### 单任务Clock与能量独立审计（2026-09-08）
+
+- Clock审计支持初验/终验双哈希绑定的单任务报告，补缺失复验/哈希篡改拒绝，60项相关测试通过。
+- 外部camera C的Clock接收窗口有严格包围，但能量在24.165s处因负载过期停止；完整能量训练不合格。保留原像素门结果，未将其扩大为同步或训练有效性声明。
+
+### 外部QPC单任务像素验收（2026-09-08）
+
+- 新隔离固定镜像运行C完成VTOL任务并捕获3帧，像素/区间/事务/清理后复验门通过；精确容器清理及逐帧哈希复核。
+- B因缺合格续航输入失败，C使用明确合成能量配置；不是物理校准。Clock固定偏移假设仍不成立，不声称同步、训练标签或最终SIM/HIL/REAL验收通过。
+
+### QPC图像生命周期与CLI开放（2026-09-08）
+
+- 完整外层旧/QPC生命周期fixture通过，父子时钟身份、像素、complete及清理后复验共同验证；445项相关回归通过。
+- 解除QPC图像临时迁移禁用，保留所有权与状态检查。单任务Clock诊断可选，campaign仍必需；新外部Gazebo验收未执行，不声明源时钟同步或实飞通过。
+
+### 外层像素Clock绑定（2026-09-08）
+
+- 等待、采集起止、complete/timing和清理后复验传递同一selected_clock；父像素验收要求manifest/逐帧身份与父身份一致。
+- 241项相关回归通过，含哈希有效但父会话不符的拒绝测试。QPC单任务CLI保护保持，完整生命周期及外部验收未完成。
+
+### 采集与帧集封存Clock接线（2026-09-08）
+
+- 像素采集函数可注入QPC Clock，backend与manifest封存使用同一身份；封存拒绝混域/跨会话，不生成错误manifest。
+- 325项组合回归通过（无失败/跳过），包含实际backend的wire fixture落盘；外层运行器接线和新外部图像验收仍未完成。
+
+### 帧集时钟消费者（2026-09-08）
+
+- 检测/定位共用manifest到全部帧的时钟身份校验，支持显式QPC且拒绝混域与身份漂移。
+- 89项相关测试通过；核心指纹更新并单独记录历史验收不匹配。外层采集与manifest生产者待接线，无新外部验收。
+
+### QPC像素来源身份（2026-09-08）
+
+- Gazebo backend从实际注入Clock生成QPC标签与不可变身份，JSON导出不共享可变身份状态；默认旧源格式不变。
+- 50项backend回归通过；更新核心parity及历史报告对照。下游检测/定位消费者尚未迁移，不声明完整采集可用。
+
+### 图像屏障Mission消费者接线（2026-09-08）
+
+- observer使用自己的QPC身份验证complete；父验收比较时间前绑定ready、complete和区间样本时钟域。
+- 424项相关回归通过；新增实际observer QPC路径与父验收错误域拒绝。像素provenance及检测/定位消费者待迁移，未开启新外部图像验收。
+
+### 图像屏障时钟域校验API（2026-09-08）
+
+- ready/complete要求调用方选择时钟域及完整身份，marker不能自行切换域。保留旧无身份monotonic读取语义，拒绝显式矛盾身份。
+- 416项相关测试通过，包括QPC安全条件拒绝与身份篡改。尚未开启QPC图像CLI或完成端到端采集迁移；无新外部验收。
+
+### QPC集成全量回归（2026-09-08）
+
+- 全量Python套件4332项：4325通过、7跳过、0失败/错误，439.680s；固定当前核心指纹并保存JUnit哈希。
+- 7项符号链接测试因Windows权限不足未验证，明确保留缺口。无新外部模拟或硬件验收，不发布最终版本。
+
+### 连续间隔诊断与poll重复哈希优化（2026-09-08）
+
+- 独立输出连续Collector负载间隔，不将跳过歧义帧后的匹配间隔误读为断流。
+- 根据剖析复用本次snapshot哈希，等待poll不再重复序列化相同任务；无跨调用缓存。239项相关测试通过。
+- 核心指纹与历史验收对照更新。根因待验证，未放宽阈值，未声明实际任务加速。
+
+### QPC诊断实跑与终态能量验收修复（2026-09-08）
+
+- 新campaign C完成双任务，采集12571条路由记录无截断；独立审计发现第二任务能量结束窗口不完整，修复父验收遗漏。原报告不改，当前重审失败。
+- 增加SHA绑定帧关联审计，重复哈希明确歧义；观测到约1.659s路由解码后处理延迟，尚不归因socket/调度。
+- 两个Clock接收窗口覆盖，但跨289.376s前后探针不兼容固定偏移模型；不提升同步/训练标签声明。406项相关测试通过。
+
+### 路由/Collector接收诊断（2026-09-08）
+
+- QPC campaign复用父Clock记录路由解码/转发时间和帧SHA256，最多131072条并报告丢弃数；路由控制白名单保持不变。
+- Collector记录相同帧字节哈希及pump边界，异常退出清空活动诊断状态；不伪造缺失帧、不修改能源覆盖阈值。
+- 400项相关测试通过；新外部证据和B缺口根因待验证，不声明发送端或内核时间。
+
+### Campaign QPC入口与外部复验（2026-09-08）
+
+- 新增显式host-clock/session参数，campaign父进程与子进程、Clock采集共用身份；完成/清理后重验sortie身份。默认仍monotonic，QPC图像屏障组合提前拒绝。
+- 两次新隔离运行：A发现并修复实际flight终态返回漏身份；B暴露首任务心跳/油门接收年龄超过1.5s，第二任务能量覆盖检查正确拒绝。未修改旧报告或放宽阈值。
+- 403项相关回归通过，两个容器精确清理；完整QPC campaign未通过，发布与硬件验收状态不变。
+
+### 在线累计能量接收域迁移（2026-09-08）
+
+- QPC身份验证进入共享Clock层，采集探针和能量窗口审计复用；累计SIM能量接受同域QPC历史并拒绝会话内时钟漂移身份/原点变更。
+- 失败更新保持原状态、身份返回值独立复制；132项相关与212项集成回归通过。
+- 更新核心指纹与历史发布证据对照；未重新声明旧证据覆盖新代码，版本保持0.3.0-pre.8。
+
+### 能量窗口时钟身份审计（2026-09-08）
+
+- 支持QPC窗口与flight、observation、energy history四方身份绑定；重用探针身份校验，拒绝跨域及身份降级。
+- 保持原PX4 boot时间能量积分与旧报告读取；114项相关测试通过，旧Mission报告重审通过。
+- 修复审计CLI从仓库外执行的导入路径；完整时钟接线与新Mission验收尚未完成，版本仍为prerelease。
+
+### QPC探针与Clock原始记录身份绑定（2026-09-08）
+
+采集器/长连接探针可注入共享高分辨率Clock，JSONL及报告记录source/session，等待阈值使用同域HostClockStamp；独立审计验证Mission、每行记录及探针摘要绑定。235项相关测试及6次真实容器探针通过，条件区间宽0.593672ms；不是全Mission同步或精度认证，外层运行选项与图像屏障仍待迁移。
+
+### Mission调用链同源Clock迁移（2026-09-08）
+
+Mission事件/等待及上传/读回截止时间使用Collector时钟，Session支持注入；终态尾段校验域身份，完成报告/窗口记录身份，初始化失败关闭连接。370项相关回归通过。默认源不变，外部探针/JSONL/采集屏障尚待迁移，高分辨率与旧屏障组合提前拒绝，未宣称整段外部验收。
+
+### 遥测Collector显式Clock注入（2026-09-08）
+
+TelemetryCollector的接收/elapsed/心跳/截止时间统一为注入Clock，拒绝非法读数及回退；高分辨率观测拒绝外部裸now_s，源身份写入观测与历史。362项相关回归通过，默认源与外部CLI不变；Mission上层及整段外部验证未完成。
+
+### 显式高分辨率共享Clock与时间域检查（2026-09-08）
+
+新增HighResolutionSystemClock、HostClockStamp，保留整数纳秒与源/会话身份，跨域相减失败；旧SystemClock/ManualClock及外部默认路径不变。16项Clock测试、90项相关回归通过。clock.py加入core parity，旧发布证据不覆盖新核心。全Mission注入迁移及新外部验收尚待完成，见docs/host-clock-migration.md。
+
+### 长连接时钟探针及主机量化处理（2026-09-08）
+
+探针改用有界READY/序号请求协议，兼容LF/CRLF，超时或异常清理子进程。保留逐次exec对照。实际发现Windows Python3.12 monotonic分辨率15.625ms，保留分辨率与条件误差假设，零RTT标为量化受限。相同容器对照区间259.580998ms→27.095559ms，235项相关测试通过；不是准确度提升认证、漂移验证或完整Mission验收。
+
+### 主机/容器因果时钟探针（2026-09-08）
+
+采集器开始/结束各执行3次固定只读monotonic查询，保留host-before/container/host-after，条件偏移区间取交集；拒绝混容器、重置、重叠、非法输出，区间不相容不生成估计。223项相关回归及6次无网络容器实际探针通过；213.842163ms区间宽不代表高精度同步。尚未新Mission外部验收，不改变历史证据。
+
+### Mission时钟接收窗口独立审计（2026-09-08）
+
+新增hash绑定审计CLI，校验原始Clock schema/source/topic/sequence、整数精度、时钟回退及Mission同容器绑定。缺边界返回覆盖不足，不外推；输出严格事件前后接收样本及最大采样间隙。两份实际SIM原报告重放通过，35项相关测试通过；不把接收归属区间当作源事件时间界限或训练标签。
+
+### Mission同容器时钟与启动顺序修复（2026-09-08）
+
+新增`--capture-clock`全窗口采集与主机接收时间、原始记录SHA绑定及清理后复核。先以topic introspection确认真实publisher，防止早期subscriber使PX4启动脚本误判已有Gazebo世界。双任务实际运行通过、2396条时钟记录、186项相关回归通过；保留两次失败证据，不声明物理标定或跨时钟对齐。
+
+### Gazebo原生时钟只读采集（2026-09-08）
+
+新增gazebo_clock_capture.py，绑定gz.msgs.Clock消息的sim/real/system字段及容器接收时钟，严格纳秒/回退/序列检查，固定样本与超时边界，显式unsubscribe清理。固定镜像无网络空世界20条实际采集与主机重放通过，52项相关测试通过。19ms烟测仅证明接口，不声明Mission对齐或时间标定。
+
+### 规划执行记录的时间尺度分离（2026-09-08）
+
+新增clock_window_comparison：在已验证覆盖窗口内，严格内部boot区间作为下界、边界区间加入上界，报告boot秒/host秒范围；覆盖不足不外推。两份tail原记录产生约0.742–0.743和0.758–0.759的接收归属比率，明确不是Gazebo实时倍率、物理同步或可校准参数。41项相关测试通过。
+
+### 保持原完成时间的有界终态观测尾段（2026-09-08）
+
+全量4126 passed / 7 skipped / 0 failures / 0 errors（280.230秒），exit0；34项文档/parity与Ruff/diff检查通过。
+
+外部campaign-tail-a双任务通过，123.797/106.015秒；两项独立能量窗口重放都覆盖边界，旧u缺结束样本的问题在新记录中消除。父进程journal/清理后完整性通过，精确容器清理、exit0。能量仍为显式合成模型包络，不是硬件标定。
+
+Mission观察器新增collect_terminal_observation_tail，默认2秒/256次pump上限，接收严格晚于原完成边界的有效PX4定位样本；post_mission_observation保存后续历史，post_terminal_tail记录结果。终态时间、duration及完成结果不挪动；超时不伪造样本或宣称能量覆盖，完整覆盖仍须重放验证。203项相关回归与170项外层回归通过。
+
+### 规划估算与历史执行窗口只读审计（2026-09-08）
+
+新增audit_planning_execution_gap.py：输入文件SHA、嵌入文档hash、计划重算、Mission/完成结果绑定及主机时间一致性检查，复用能量窗口重放。历史u两项估算约228秒，主机ARM到完成约104/110秒，但能量历史都缺结束边界；不推断物理误差、不校准。34项相关回归通过。原日志与发布门未修改。
+
+### 多步参考的时间代价与配对诊断（2026-09-08）
+
+基准v2新增Pareto前沿、估算时间增量、相同贪心耗时上限收益、初始可行数量与拒绝原因。新增12例异质优先级/预算/电量/风/任务约束矩阵，以及仅任务时长上限不同的12例配对对照。分别120→120和147→147，无收益提升；原9例同耗时收益也无提升。114项相关回归通过，包含前沿、时间代价、空可行集和配对输入一致性。没有训练、候选晋升或实际飞行。
+
+### 多步任务顺序精确参考基准（2026-09-08）
+
+新增benchmark_task_sequences.py，有界规模内穷举可行任务前缀，调用原规划/编译/预算模型，无启发式分数剪枝；最多6任务，节点超限报错而非声称最优。9例收益89→90，仅1例改善；记录输入身份、顺序、估算耗时、节点及运算时间。110项相关回归通过，包含独立排列验证。该结果是离线模型内参考，不替换生产决策，不证明实机收益。
+
+### 自主决策技术路线重审（2026-09-08）
+
+按最新要求重新分类历史约束；现有模型、算法和模块结构不是硬边界。增加连续改进/多步规划/端到端学习比较，下一步优先用精确小规模参考量化贪心差距；没有把未实现替代路线宣称为已验证更优，也不改变最终发布门。
+
+### 冻结候选的规划输入故障评估（2026-09-08）
+
+全量4099 passed / 7 skipped / 0 failures / 0 errors（331.461秒），exit0；34项文档/parity检查、Ruff及diff检查通过。
+
+新增evaluate_task_ranker_faults.py，在同一TaskRanker/预算episode上运行9种固定输入故障，正常对照必须可完成，异常必须全任务精确拒绝；报告绑定数据、候选及评估器文件身份，失败返回非零，禁止覆盖。上一轮候选81项实际通过，13项相关回归通过，包含正负极端排序权重仍不能绕过约束。不是飞行中故障恢复或实机验收。
+
+### 显式合成数据集与共享排序器训练入口（2026-09-08）
+
+新增scripts/train_task_ranker.py及configs/training数据，复用现有TaskRanker/预算episode/规划与编译。严格输入、父候选文件SHA、分组与重复输入检查，冻结训练选择后独立评估，输出新目录禁止覆盖。实际9例数据搜索8组参数后保留父基线，train/validation/test收益26/28/35均无改进，不晋升。96项相关测试、全量4093 passed / 7 skipped通过；证据budget-training-cli-20260908。相关合成几何不代表泛化或实机训练收益。
+
+### 同一排序器预算评估与参数搜索API（2026-09-08）
+
+全量4086 passed / 7 skipped / 0 failures / 0 errors（204.389秒）；34项文档/parity检查及全仓Ruff通过。
+
+预算episode新增可选ranker，仍复用原规划器/编译器；新增TaskTrainingCase、evaluate_task_ranker、fit_task_ranker。明确父候选、最多256组参数/512个case，同分保留父候选，错误不跳过。评估可拒绝训练输入复用；精确输入hash不能证明语义场景独立。89项相关回归通过；仅测试数据搜索，未训练项目候选、未证明留出收益。
+
+### 候选排序外部双任务验收通过（2026-09-08）
+
+u轮同一候选实际执行west→east，两项完成（103.937秒/109.422秒），候选规范hash贯穿汇总与任务记录，父进程重算选择/编译及完整journal验证通过；清理后复核通过、exit0。未训练反转排序fixture仅验证接线，不声明策略优于基线或实机通过。原始输入大小/SHA与清理证据保存在campaign-u记录。
+
+### 外部campaign候选接线与父进程同策略复核（2026-09-08）
+
+全量4084 passed / 7 skipped / 0 failures / 0 errors（178.929秒）；34项文档/parity检查及全仓Ruff通过。
+
+campaign schema新增可选ranker字段，严格TaskRanker.from_mapping解析；默认缺省行为不变。候选进入原选择/编译/事务路径，汇总和每任务记录ranker_sha256；父进程以相同候选重算顺序与编译，身份或顺序不符拒绝。负向audit同样加载候选。新增明确未训练的反转排序配置，332项相关回归通过；尚未外部执行候选。
+
+### 可选任务排序候选加载与共享会话接线（2026-09-08）
+
+全量4074 passed / 7 skipped / 0 failures / 0 errors（185.462秒）；34项文档/parity回归和全仓Ruff通过。
+
+新增TaskRanker数据格式和SHA绑定加载器，拒绝未知字段/重复键/非有限或布尔系数/错误base/超限文件。只对可行任务线性评分，等分保留原排序，仍经过动作重校验。共享observed session新增可选ranker并记录模型规范hash，原编译/监测/新上下文路径保留。87项相关测试通过；参数是未训练fixture，无生产权重变更。外部campaign接线及训练待完成。
+
+### 共享任务策略观测与动作契约（2026-09-08）
+
+全量4064 passed / 7 skipped / 0 failures / 0 errors（189.203秒）；34项文档/parity回归及全仓Ruff通过。旧发布报告经重新比对仍与当前core/task哈希不一致，发布保持阻断。
+
+新增task_policy API：SI单位可行任务观测、严格版本化动作、默认排序适配、观测hash绑定和解析时重新验证。保持现有planner、感知模型及执行授权路径不变；None表示不选择而非飞控动作。44项规划器测试通过，core/task parity已更新。尚未加载学习型权重或接入运行循环。
+
+### 原始能量外部累计重放通过（2026-09-08）
+
+t轮低初始能量场景完成第一项（133.656秒）后拒绝第二项，原Mission未创建第二事务。新报告原始历史完整，audit --require-energy顺序重放两轮消耗、剩余续航和投影hash一致，精确容器清理通过。负向audit exit0，外层全部任务成功门仍false/exit1。未改源码或模型，未训练，未宣称物理电池标定。
+
+### 拒绝能量原始输入与累计重放（2026-09-08）
+
+全量4052 passed / 7 skipped / 0 failures / 0 errors（231.346秒），全仓Ruff与34项文档/parity检查通过。
+
+原Mission报告保留planning_energy_input及拒绝前的planning_energy，新增audit --require-energy累计重放两轮历史，核对投影前后上下文和计算结果。322项相关测试通过；消耗篡改、历史前缀变更、上下文错配、输入缺失均拒绝。未重跑外部场景，旧s记录仍是报告级验收。
+
+### 外部低能量连续任务拒绝验收（2026-09-08）
+
+s轮完成第一项后拒绝第二项，保持原Mission失败退出；精确清理通过。新增audit_campaign_rejection.py，重算任务选择、上下文哈希及拒绝原因，核对事务/控制/journal/同会话证据，记录输入SHA。新增6项正向及篡改回归，相关317 passed。此为报告级负向验收，不是网络抓包证明；第二项能量原始历史独立重放仍待补齐。
+
+### 连续任务拒绝上下文留存（2026-09-08）
+
+全量回归 4041 passed / 7 skipped / 0 failures / 0 errors（210.942 秒）；34 项文档/parity 测试通过，五组共享哈希未变。
+
+新增 TaskSelectionRejected，将共享选择器实际使用的上下文、哈希和候选拒绝原因带入原 Mission 失败报告。普通失败的 selection_rejection 为 null；保留原失败退出和会话失效行为。311 项相关回归及全仓 Ruff 通过。外部 PX4 低能量拒绝尚未验证，未训练或替换模型。
+
+### 不同路线外部双任务与能量拒绝回归（2026-09-08）
+
+新增东西镜像路线显式合成配置，测试实际wire坐标与hash不同。r轮两任务完成（92.031s/100.157s），固定home一致、累计能量保留，清理前后父进程复核通过。新增电量低于保留值/续航不足时不选择下一任务的模拟执行器回归。相关310 passed，3项新增；外部低能量负向、扰动、训练仍待验证。
+
+### 实际同会话双任务通过（2026-09-08）
+
+q轮两个显式合成任务依次完成，原Mission事务、共享选择/编译、固定home及累计能量保持同会话；清理前后父进程复核与精确容器清理通过。任务95.015s/120.578s；第二项规划剩余97.508046Wh。完整可用能量历史重放9719段无gap，合成耗能5.0623828Wh，非实机标定。o轮定位心跳1.515s超限；p轮发现固定18570端口错误。改为读取已验证容器动态端口并配置4Hz心跳，不改1.5s门限。307项相关回归通过。未声明相机、训练、HIL/REAL或最终发布。
+
+### Docker连续任务接线与外部失败复测（2026-09-08）
+
+外层新增--campaign-file，复用容器/路由/精确清理，独立campaign门不声称相机通过。清理前后重算候选顺序、编译hash及journal。新增显式双任务合成配置。m轮第一任务完成，第二任务累计能量97.0385232Wh但回读current标记失败；新增后续上传后地面/解除武装/新鲜同源保护的游标归零，不放宽wire格式。n轮第二任务能量覆盖gap拒绝；补复用会话前置配置/Docker检查期间持续采集。304项相关回归通过；最新修复未外部复测，双任务仍未通过。
+
+### 连续任务CLI与显式配置加载（2026-09-08）
+
+campaign模块新增CLI：复用原Mission参数，要求显式能量配置、候选文件、新输出目录，持有同一会话并写汇总。严格加载1..32项任务/runtime，拒绝重复ID、额外字段、非法schema/priority。抽取单任务CLI参数映射以复用；新增6项回归，相关297 passed。模块新进程--help通过，Docker外层入口尚未接入，未跑实际双任务。
+
+### 连续已选任务驱动（2026-09-08）
+
+新增scripts/vtol_selected_task_campaign.py：复用调用者的容器/会话，按每轮新上下文共享选择并编译任务，交给原Mission入口。独立任务报告和journal；门通过且同hash共享完成状态后移除任务，否则停止。新增5项模拟执行器回归，相关291 passed；尚未接到外层CLI或跑实际双任务。
+
+### 外部Mission选择器回调接线（2026-09-08）
+
+run_mission_acceptance新增Python selection_provider入口，在原上下文能量投影后选择并复核任务，进入原事务路径。禁止更改验收安全策略或扩大时间预算；选择阶段必须提供采集器时钟。新增4项测试，相关286 passed；测试使用共享选择器从两个候选中选择，再构造原Mission事务。尚无连续双任务外部运行。
+
+### 已选任务编译结果绑定入口（2026-09-08）
+
+抽取原验收事务文档绑定流程，新增build_selected_acceptance_documents；复核共享plan_task及运行几何/策略编译一致性后保留原计划、原编译结果和原上下文。新鲜度、上下文、机型hash、几何变化拒绝；新增6项测试，相关282 passed。尚未接入外部连续任务驱动，不声明双任务已运行。
+
+### 同会话规划home绑定（2026-09-08）
+
+全量回归4006 passed / 7 skipped / 0失败或错误；全仓Ruff通过。证据：`docs/evidence/session-home-20260908.json`。
+
+MissionTelemetrySession固定首个合格GPS规划原点；后续上下文保留最新飞机位置，路线/围栏继续引用固定home。绑定要求健康且active会话，不发送PX4设home指令。新增4项测试，父子脚本276项通过；双任务外部验收仍待完成。
+
+### 共享规划与显式能量外部SIM复测（2026-09-08）
+
+外层启动器转发五项能量参数，在路径准备/Docker前复用原能量类型验证，报告保留输入配置。新增8项回归；父子脚本272项通过。k轮发现上下文时间戳取整与原始样本精度冲突，改为保留原始时间并扩展回归，不放宽新鲜度门。l轮单任务及固定翼相机采集门通过（81.859s），精确ID容器清理通过；参数为合成测试配置，未声明物理电池标定、双任务、训练、HIL/REAL或最终发布。
+
+### 外部验收能量 CLI（2026-09-08）
+
+验收子脚本新增五个显式能量参数，全部提供后创建累计能量会话并传入原验收路径；缺项或缺 disposable SITL 确认时在连接前拒绝，异常退出关闭会话。新增5项测试，脚本102项通过。外层 orchestrator 转发及新外部运行尚未完成，版本仍为0.3.0-pre.8。
+
+### 外部验收复用共享规划器（2026-09-08）
+
+外部验收规划路径纠偏：发现原脚本手工拼接 PlanStep，现改为共享 plan_task；不再用 mission_timeout 作为剩余续航。观测续航须来自1/1新鲜电池消息；可复用会话支持显式 energy_profile+initial_remaining_wh，累计状态在原上下文/计划哈希绑定前投影。新增12项回归，相关292 passed。协议测试明确1800s合成续航/600s任务预算，另保留低预算拒绝；未改共享规划阈值。尚无新外部运行/全量；CLI与orchestrator未接显式能量配置，PX4续航缺失时旧命令现在会在上传前拒绝，不能沿用j轮通过结论。
+
+### 报告发布连续采集与会话历史容量（2026-09-08）
+
+复用会话的成功报告写入/输出现在通过现有工作线程辅助执行，主线程持续独占接收；任务占用直到报告输出完成才释放，发布或接收异常会阻止下一任务并等待工作结束。能量历史新增显式容量：单任务默认8192不变，复用会话默认65536，上限131072；超限仍导出丢弃数量，累计重放拒绝截断，不宣称无限连续。新增9项回归，相关264 passed；尚未新外部双任务/全量回归。
+
+### 可复用模拟任务遥测会话（2026-09-08）
+
+外部任务生命周期拆分：MissionTelemetrySession 持有一次 loopback 连接/TelemetryCollector，run_mission_acceptance 可借用；成功后保留采集起点和历史，失败后禁止复用，连接由外层显式关闭。容器仍由原 orchestrator 管理，任务来源/所有权/协议门保留；已有证据路径拒绝覆盖。7 项新增回归、相关238 passed，包含原函数失败写报告并 SystemExit(1) 的清理验证。未运行外部双任务；报告输出期间接收与8192条历史上限仍需处理，未重跑全量。
+
+### 模拟能量接入共享任务观测（2026-09-08）
+
+累计能量通过 project_context 接入既有 ContextSnapshot：仅 SIM 传感器适配，复用原任务循环/planner/PX4 编译与完成监控；只替换电量和假设续航，不刷新时间戳或位置/GPS/围栏/感知质量。上下文和最后有效能量时钟样本均要求现有 1.5s 时效，拒绝未来、换会话、机型/home改变；失败不提交累计状态。10项新增回归、相关84 passed，双任务回调 fixture 已验证第二项绑定第一项后的能量快照。未进行外部连续双任务，未重跑全量、未训练；调用方仍须绑定同车会话与 collector-relative Clock，不构成来源认证。
+
+### 累计模拟能量状态（2026-09-08）
+
+同一外部模拟会话的累计能量状态已加入现有 energy_replay：CumulativeSimulationEnergy 复用原 replay/flight_model 功耗函数，初始 Wh 显式绑定首个完整样本，追加历史计算增量，重复输入不重复扣账。修改旧样本、缩短历史、换会话/时钟起点、截断或时效缺口均拒绝且不改变已接受状态；解除武装不补能，归零导出未满足能量需求，不声称掉电动力学。新增8项回归，相关55 passed。j记录两批重算（非两次任务）：10Wh测试初值→8.7754996→7.8331452Wh，重复新增0Wh。当前仅进程内状态，尚无磁盘恢复、实时多任务接线或补能入口；全量未重跑。
+
+### 任务窗口能耗区间（2026-09-08）
+
+当前全量回归 3943 passed / 7 skipped / 0 failed/errors（192.581s），Ruff/格式/文档身份检查通过。
+
+窗口能量增量已实现：复用 SimulationEnergyProfile.consumed_wh 与因果左侧负载，严格内部区间计入下界，接触/跨越接收边界的区间计入上界；相同接收时刻也保守视为边界，不插值两种时钟。完整前缀积分与原 replay 结果交叉核对，缺失窗口端点不产生区间。18 项相关测试通过。j 原始记录重算为 2.1126148–2.1132548Wh，边界量 0.00064Wh（3 区间、0.064 boot 秒），不是全前缀 2.1668548Wh。仅在测试功耗/接收归属假设下成立，不是物理误差界限，不授权下一任务。
+
+### 任务接收窗口外部审计（2026-09-08）
+
+j 轮任务/画面采集与清理通过（任务 101.594s）。5584 条能量输入因果前缀 5069 区间、101.380s PX4 boot 时间无时效中断；ARM 请求至完成接收窗口 18.047–120.750s，两端由前缀样本包围（boot 11400/107404ms）。新增只读 audit_mission_energy_window.py 从原始绝对边界重算，不信嵌入通过标记，不以全前缀能耗冒充窗口能耗。7 项新增回归，相关 16 passed。物理同步、窗口能量、下一任务授权仍未声明。
+
+### 显式任务窗口与接收时钟起点（2026-09-08）
+
+任务时间窗口已显式记录：能量历史输出实际 collector 的宿主单调时钟起点，任务报告保存 permit 后 ARM 命令前至接受落地/解除武装观测的窗口，并保存飞行监控自身起点。缺失、非有限、布尔或倒序边界不生成相对窗口。新增 10 项测试，相关 240 passed；这只是接收时间绑定，仍不声称 PX4 boot 对时或完整能量覆盖。旧 i 轮缺少这些字段，不回填推断；需要新外部记录。
+
+### 同步准备期间持续接收（2026-09-08）
+
+i 轮外部任务及采集通过，4433 条输入重放 80.456s 无时效缺口；h 轮启动失败证据保留。
+两次容器均清理，未声明物理标定、全任务覆盖、训练或 HIL/REAL 完成。
+
+准备阶段接收修复：四条既有参数命令与任务文档生成在单个工作线程执行，主线程继续独占 collector.pump；参数设置完成后重新取得上下文。子进程原 10s 超时保留，任何退出均等待工作结束，防止准备操作与容器清理交错。新增 3 项线程/错误回归，相关 230 passed；未改变模型、参数值或任务安全门。此次变更后的全量回归未重跑，之前 3921 passed 属于前一版源码。
+
+### 任务协议等待期间保留遥测（2026-09-08）
+
+全量回归 3921 passed / 7 skipped / 0 failed/errors（197.852s），报告哈希记录于 current-progress.json。
+
+任务协议等待已接入现有 collector.pump，上传请求、回读 COUNT/ITEM 等待期间的遥测进入同一记录器；无关消息不刷新超时、不消耗协议重试。新增 3 项回归，相关 227 passed，Ruff 通过。尚未外部重跑，不能断言已消除 g 轮 1.516s 空档，也未完成全任务能量覆盖或策略训练。
+
+### 因果能量重放与覆盖缺口（2026-09-08）
+
+- 现有能量 profile 提取共享积分函数，确定性模型和外部原始记录重放共用，不重复维护公式。
+- 新增因果左侧状态保持与 boot 时间积分，错误来源、回退、过期、截断拒绝；新增 9 项测试，相关 112 passed。
+- g 轮重放在 2.62s 后因 1.516s 接收间隙停止；不将前缀估算冒充全任务或实机能耗，未放宽时效。
+
+### 外部模拟能量输入观测（2026-09-08）
+
+- g 轮外部验证通过，6066 条有效同源记录、0 截断，任务完成并清理；boot 时间与宿主跨度不同，原始证据已归档。
+- 现有接收器增加 HEARTBEAT/VFR_HUD/SYSTEM_TIME/GLOBAL_POSITION_INT 有界输入历史，保留独立来源/接收时刻/武装位/油门/启动时间。
+- 油门严格 0–100 整数、启动时间严格 uint32，时钟复位和外来来源不被静默归并；明确未证明同步或执行能量积分。
+- 新增 11 项边界测试，相关 223 passed；没有改变消息订阅、飞控指令或原任务门。
+
+### 能量/场景增量全量回归（2026-09-08）
+
+- 当前工作树全量 3898 passed / 7 skipped / 0 failed，203.460s；全仓 Ruff 与 diff 检查通过。
+- 跳过项均因 Windows 符号链接权限不足，保留名称/原因/报告哈希，不把跳过作为安全验收通过。
+- 测试期间无源码改动；未宣称外部能量、硬件或最终发布验收完成。
+
+### 连续能量与旧故障兼容（2026-09-08）
+
+- 修复能量 profile 下 BATTERY_STEP_DROP 固定电量覆盖造成的虚假升电；改为当前观测偏差。
+- 有限故障结束恢复当前模拟电量，旧无 profile 行为保持；相关 81 passed，重新生成 parity。
+- 外部状态输入仍需因果关联：相机 wire 有模拟时间但无武装/油门，不宣称外部能量接线完成。
+
+### 场景通道能量配置接入（2026-09-08）
+
+- vehicle.energy_profile 加入严格 runtime 输入和 JSON Schema，经现有 ScenarioRunner/ClosedLoop 加载。
+- 参数进入机型身份和运行输入哈希；旧场景省略该字段时保持原有 fixture 行为。
+- 新增磁盘通道加载/哈希失配/确定性及 7 组错误配置测试，相关 144 passed。
+- core/task parity 重新生成，历史门保持失配；外部 Gazebo 及连续任务闭环未宣称完成。
+
+### 现有模拟飞行模型增量能量状态（2026-09-08）
+
+- 显式容量/航电功率/最大推进功率/来源配置，使用相同模拟 dt 积分，三机型跨架次不重置电量。
+- 地面静止未武装才可显式补能，事件记录实际补入量；启用后禁止直接遥测电量覆盖。
+- 电量进入原遥测，保守满功率续航与假设来源进入证据；没有物理标定声明。
+- 新增 12 项测试，相关 57 passed；重新绑定核心 parity，旧报告保持失配，外部 Gazebo 接线待完成。
+
+### 模拟能量时间序列采集（2026-09-08）
+
+- f 轮外部验证通过：42 条电池记录、0 截断、88.578s completed，容器清理；版本源码核验发现解除武装电量复位与无电流传感器，持久能量状态待实现。
+- 现有 VTOL 接收器增加最多 8192 条电池历史，记录来源/电池 ID/接收时间/电量/电流/累计耗电/剩余时间。
+- 保留线协议单位和未知哨兵，导出总数与丢弃数；不把宿主时间当模拟时间，不从电量自动推导续航。
+- 修复电量强制 int 转换接受布尔/字符串/小数的问题；新增 8 项回归，相关 212 passed。
+
+### 增量决策核心发布身份绑定（2026-09-08）
+
+- task_selection、task_session、mission_outcome、task_episode 纳入共享核心 parity。
+- 修复规范清单测试的遗漏盲点，增加 4 个模块内容变更使核心身份失效的回归。
+- 保留 v196/v197 历史证据，新建当前失配比较，四模式旧核心证据均不可充当当前验收；未提升发布状态。
+
+### 共享结果监控器新外部验证（2026-09-08）
+
+- e 轮 PX4/Gazebo 任务与采集门通过，340 条事件、116.234s completed；1.140s 顺序差异在既有时效内确认。
+- 飞后电量 72%，续航缺失仍停止后续任务；保留原报告、输入哈希和精确容器清理证明。
+- 模拟电池参数只读记录，未推断真实能耗；未训练新权重、未完成连续任务或提升发布状态。
+
+### 确认时效统一与全量回归（2026-09-08）
+
+- d 轮外部验证暴露 406ms 顺序差异，原 250ms 超时；改为共享 1.5s 反馈时效预算，到期仍拒绝。
+- c/d 实际事件重放通过，修改后相关 99 passed；修改前全量 3862 passed / 7 skipped / 0 failed。
+- 原 d 轮失败旁路保留，容器清理；最新代码的新外部运行与剩余续航来源仍待完成。
+
+### 有界 Mission 消息确认（2026-09-08）
+
+- 结果监控层暂存一条领先 1 项的同源 reached，250ms 内由 current 确认，重复不延时；严格跟踪器不改。
+- 独立保存原接收/确认处理时间；4 项新增测试，反馈及适配 74 passed。
+- c 轮真实 285 事件离线重放 completed，原失败报告保留；新外部运行及续航来源验证待完成。
+
+### 后任务遥测来源与外部时序问题（2026-09-08）
+
+- 导出 GPS/电池时戳、同源检查、PX4 time_remaining；缺失续航不以任务时长替代，新增 6 项回归。
+- 外部 c 轮任务门通过，但旁路暴露 reached 先于 current 的顺序拒绝；电量 50%、续航缺失。
+- 相关 227 项测试通过，容器清理；连续任务/训练仍未完成，保留原始失败证据。
+
+### 观测驱动任务循环（2026-09-08）
+
+- 新增共享 task_session，复用选择、编译、监控器，以后端返回的有效新快照推进任务，不推演观测电量。
+- 新增 7 项回归，mission planning 共 23 passed；异常反馈/快照停止后续任务，不增加执行权限。
+- 外部多任务后端接线待完成，未训练权重或提高发布状态。
+
+### 外部 VTOL 旁路验证与帧清单兼容修复（2026-09-08）
+
+- 修复像素验收只接受帧清单 v1、拒绝当前生产器 v2 的不兼容，保留像素哈希/内容/来源校验；新增版本负向测试。
+- headless 外部模拟第二次任务与采集门通过，3 帧、269 条旁路事件、86.421 秒完成；离线重放结果一致。
+- 首次失败报告保留，两次容器清理成功，未启动 QGC/实机，未训练模型或提升发布状态。
+
+### VTOL 接收循环旁路集成（2026-09-08）
+
+- 在现有接收循环接入共享任务结果监控，绑定实际编译 Mission；报告保存消息字段、时间和判定。
+- 旧验收/控制逻辑不变，错误路径保留旁路证据；28 项适配回归通过，尚未进行新外部 Gazebo 运行。
+
+### 原始 MAVLink 生命周期适配（2026-09-08）
+
+- 结果监控器接收 HEARTBEAT/EXTENDED_SYS_STATE，严格字段、同源与独立时戳检查，清除末项到达前缓存。
+- 新增 11 项适配测试，反馈回归累计 36 passed，含真实 pymavlink 编解码；未启动外部模拟执行。
+
+### 共享只读任务结果判定（2026-09-08）
+
+- 新增 MissionOutcomeMonitor，复用既有 PX4 反馈与 Clock，完成需末项到达及其后同源新鲜落地/解除武装。
+- 超时/失败锁定，缺失/过期反馈不计成功；新增 10 项测试，反馈模块 25 项通过。
+- 未接入外部 Gazebo 事件适配器或实机，未将预算模拟升级为执行验收。
+
+### 任务预算模拟循环（2026-09-08）
+
+- 将现有任务选择增量 API 接入多轮 RETURN 预算模拟，重用 ManualClock 和标准 PX4 Mission 编译。
+- 每步更新快照/位置/时间/电量，余量不足时停止；保留编译绑定和拒绝原因，错误输入失败。
+- 新增 5 项测试，mission planning 回归 16 项通过；耗电为未标定近似，非 Gazebo/实机执行证据。
+
+### 共享 planner 增量任务选择基线（2026-09-08）
+
+- 新增离线 `select_next_task` API，复用现有校验、距离/耗时估算和计划；保留拒绝原因，优先级不能覆盖安全门。
+- 添加确定性、计划兼容、排序和失效拒绝测试，planner 回归 32 项通过；未替换权重、未训练或接入实机。
+- 尚待模型加载、模拟循环、UI 和发布 parity 接入；排序不是可直接执行的联合多任务航程。
+
+### 模拟任务策略训练启动（2026-09-08）
+
+- 补充用户增量约束：扩展现有模型和 planner，不另建平行系统；记录父权重身份、旧功能回归、新增能力评估和回滚要求，尚未实现/训练新增策略。
+- 用户选择自主任务决策与航线策略，要求 SIM 与实际部署使用同一个策略模型；记录共享契约与实施顺序。
+- 当前 CUDA 可用，PX4/Gazebo 新运行采集 60 帧通过；未训练候选模型，未提高实机/发布验收状态。
+
+### v0.3.0-pre.8 v198 field readiness（2026-09-08）
+
+- 当前主机只读预检：三端点超时、源地址不在现场子网、串口为空；UDP 端口可绑定但不构成远端连接证据。
+- 核查部署 replay 输入缺口，保存预检和有界文件名清单结果；待真实设备/数据输入，不更改网络或放宽发布门。
+
+### v0.3.0-pre.8 v197 current E7 integration（2026-09-08）
+
+- 由源文件生成四模式 envelope，manifest writer 集成 v196 当前 SIM 报告；SIM envelope 与 combined 源统一。
+- E7 strict exit 2，gate/release false，诊断从 45 降到 32；四模式五组 parity 绑定当前源码，未提升任何人工/实机状态。
+- 历史报告保留，新审计摘要记录 manifest、report、strict 的字节身份和完整剩余原因。
+
+### v0.3.0-pre.8 v196 SIM source recomputation（2026-09-08）
+
+- 由当前生成器重算三机型 PX4 响应矩阵、6 正向/9 故障 campaign、六源 external runtime/AI join，并复核通过。
+- 核对源文件与历史绑定哈希一致，保存新报告与可移植源清单；没有覆盖历史产物，没有进行新实机/模拟器运行。
+- E7 完整输入集成仍待执行，保留 v195 发布阻断状态；不得将派生报告通过视作最终发布通过。
+
+### v0.3.0-pre.8 v195 release evidence audit（2026-09-08）
+
+- 当前 release evaluator 对最新保存的 v176 manifest 重算，记录 45 条阻断诊断和四模式三组过期 parity；
+  修正当前进度中固定 31 和历史报告误标 current 的问题，不更改历史证据或放宽发布门。
+- 增加可移植审计摘要及来源一致性测试；有本地原报告时核查哈希、原因和模式差异。
+- 聚焦回归 114 passed、无跳过/失败；lint、format 和 diff 检查通过。运行时代码及 EXE 未变。
+
+### v0.3.0-pre.8 v194 PX4 receipt relocation（2026-09-08）
+
+- 修复回执搬运后仍解析原始绝对路径的问题：按角色验证相对路径与同一历史根目录的对应关系，
+  仅在目标目录重开文件；原始 summary 和 receipt 字节无需改写，schema v1 保持兼容。
+- 显式 `--base-directory` 下，相对 receipt 参数也以该目录解析；支持 Windows/POSIX 历史来源路径。
+- 新增原目录离线、六角色缺失/等长篡改、来源错配与模式拒绝测试。该回执只证明字节完整性和摘要声明，
+  不是签名认证或源文件语义重验；HIL/REAL、飞行与最终发布门保持未通过。
+- 聚焦回归 30 passed；全量 3,805 passed、7 skipped、0 failed（3,812 tests）。七项符号链接测试在当前
+  环境未执行；JUnit、CLI 搬运验证和 parity 身份记录于 `docs/current-progress.json`。
 
 ### v0.3.0-pre.8 v193 PX4 capture receipt closure（2026-09-08）
 
@@ -8443,3 +11031,697 @@ build/windows-v0.3.0-pre.3-release/portable-v0.3.0-pre.3/bin/MultiDetectReplayRt
 
 - 当时 manifest 仍为 `0.3.0-pre.7` (historical snapshot)；真实 HIL/REAL、室外 GNSS/相机硬件和最终人工 Fly View 验收仍是
   final `v0.3.0` 的阻塞门。
+- Bound `scripts/vtol_selected_task_campaign.py` and `scripts/vtol_sitl_mission_acceptance.py` into
+  the PX4 Mission release-parity contract. Refreshed the observed-session and shared-policy campaign
+  receipts against the new parity identity; this does not promote the candidate or claim HIL/REAL,
+  outdoor GNSS, hardware, or final-release acceptance.
+# v0.3.0-pre.8 current field-link audit rebinding (2026-09-27)
+
+- Added an optional current field-link preflight binding to
+  `scripts/create_current_release_gate_audit.py` while preserving the historical
+  field-link evidence embedded in the immutable release-gate report.
+- Updated `verify_current_progress_index.py` to verify both bindings: the current
+  read-only workstation probe and the historical report-internal probe. This keeps
+  the release gate fail-closed without presenting stale field status as current.
+- Rebound `docs/current-progress.json` and `docs/current-progress.md` to the
+  2026-09-27 interface-bound preflight. The hardware route remains unavailable;
+  no HIL/REAL/GNSS or final-release claim is made.
+- 重新执行项目定义网段 `192.168.144.0/24` 的只读现场预检：
+  `artifacts/evaluation/field-link-preflight-current-20260927-strict.json`（11,298 bytes，SHA-256
+  `91D244BC9B769512D514FC3DB47C47C00404FBC06C3808D7EAB3D75B3F02439C`），绑定接口快照
+  `artifacts/evaluation/field-link-interface-diagnostic-current-20260927.json`（4,379 bytes，SHA-256
+  `67EE1B4DF6F08623763138AB6E08ED0E8BE4D4AB4578677553330551AE247D4B`）。当前 `Ethernet` 仍为
+  `192.168.1.13/24`，目标网段无候选接口，Jetson/GR01/RTSP 均不可达，`hardware_link_ready=false`
+  保持；新鲜证据已绑定到 `shared-policy-release-parity-drift-20260927-r15.json`。
+- 保持现场 PowerShell wrapper 对网卡/路由对象严格 fail-closed；本轮使用项目定义网段的只读接口快照
+  和直接 Python 预检保存证据，没有修改网卡、路由、DNS、设备或飞控状态。
+- 按当前共享 planner/episode 重新运行多步任务精确参考：训练/验证/测试 9 案例贪心/参考 reward
+  为 `89/90`，只有 1 个案例以增加预计耗时取得额外 reward，同贪心耗时上限没有提升；独立留出
+  12 案例贪心/参考均为 `120/120`，改进案例和同耗时改进均为 `0`。因此没有把未经证明的
+  多步参考或 learned weights 接入生产 SharedTaskPolicy，也没有宣称物理、HIL/REAL 或最终发布收益。
+## 2026-09-27
+
+- Rebound the prerelease release-gate diagnostic to the current `0.3.0-pre.8` parity after regenerating the external-runtime/AI join, the three-airframe PX4 reported-position response matrix, and the nine-case response campaign. The current report-only gate is `artifacts/evaluation/release-gate-current-20260927-r9/`; audit `docs/evidence/shared-policy-release-parity-drift-20260927-r20.json` verifies all four mode parity records are current while preserving the historical field-link snapshot separately from the current read-only probe. The gate remains fail-closed with 32 blockers: replay-set deployment coverage, the unavailable aircraft-subnet field link, QGC/Mission human acceptance, HIL/REAL hardware, and final release channel requirements remain unresolved.
+- Refreshed the read-only field-link preflight as `artifacts/evaluation/field-link-preflight-current-20260927-r2.json` with a new interface diagnostic. The workstation still exposes only `192.168.1.13/24`; no `192.168.144.0/24` interface or Jetson/GR01/RTSP endpoint is reachable, so `hardware_link_ready=false` remains the correct result.
+- Final repository validation after the rebinding passed `5081 passed, 7 skipped, 0 failed`; Ruff and `git diff --check` passed, and no disposable fault-injection containers remained. This confirms repository consistency only; it does not open QGC visual, HIL, REAL, outdoor GNSS, hardware, or final `0.3.0` release gates.
+- 2026-09-27：从既有 PX4/Gazebo 原始 source-bound 记录重算并验证三机型 response matrix、6 次正向+9 次故障 campaign 与三机 runtime+AI join，全部重新绑定当前 parity（`terminal-continuation-v181`）。该步骤没有伪称新 planner 已经完成新的外部运行；新外部 PX4/Gazebo 重跑、HIL/REAL、室外 GNSS、硬件和最终 `0.3.0` 发布仍未完成。
+- 2026-09-27：用当前 directional-wind planner 在固定 digest disposable PX4/Gazebo VTOL campaign 中完成 2/2 sorties；同一 SharedTaskPolicy/Mission 生命周期的 planner revalidation、Mission journal/hash-chain、commit/permit 和 exact-ID cleanup 全部通过，证据 `planner-external-rerun-20260927-r1.json`。这不是三机型完整 matrix，也不是 HIL/REAL、室外 GNSS、真实硬件或最终 `0.3.0` 发布。
+- 2026-09-27：report-only release-gate 已重绑到 audit `r25` 与 `release-gate-current-20260927-r12`；四个 mode parity 当前一致，仍保留 32 个 fail-closed 阻断。当前 directional-wind planner 的 VTOL 外部 campaign 2/2 已通过，但三机型完整 external matrix、QGC 视觉、HIL/REAL、室外 GNSS、真实硬件和最终 `0.3.0` 仍未完成。
+- 2026-09-27：重新执行当前共享策略 observed session `r17`，不再沿用旧 ranker/artifact 的观测记录。
+  新证据 `artifacts/evaluation/shared-policy-observed-session-20260927-r17.json`（4343 bytes，
+  SHA-256=`440ebd946d67857d2a345b5bcdc8de732ff58b32781798a3d7d0f1618dbbfc89`）使用当前
+  `vtol-shared-policy-routes.synthetic-campaign.json`、VTOL profile-bound artifact 和 canonical
+  ranker，按 `synthetic-east → synthetic-west` 完成两项任务。当前进度 verifier 现在会重新校验
+  evidence/campaign/artifact/parity 文件身份、PolicyArtifact canonical hash、session canonical hash、
+  每步 planner/ranker/outcome 绑定及 truth-free/no backend/no MAVLink/no actuator 字段；对应定向
+  回归通过。该项仍是软件 observed-session 证据，不构成 external PX4/Gazebo、HIL、REAL、室外 GNSS、
+  实飞或最终 `0.3.0` 发布证据。
+- 2026-09-27：当前工作区完成带 JUnit 归档的全量 Python 回归：
+  `artifacts/evaluation/full-regression-shared-policy-final-20260927/pytest.xml`，总计 5135 个
+  tests，`5128 passed / 7 skipped / 0 failed`，退出码 0，耗时 348.29 秒，XML SHA-256=
+  `bbebd926aab571b3cc264076387b2138d025706b218ca02a3d80f50c1894b2dc`。该回归覆盖当前
+  RuntimeMode/Clock/Backend、Scenario、Mission、SharedTaskPolicy、external adapter 和进度索引；
+  仅证明软件回归，不升级 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布状态。
+## 2026-09-27 — SharedTaskPolicy decision identity and current parity rebinding
+
+- `src/multidetect/autonomy/task_session.py` now fail-closes when a shared-policy
+  decision is internally inconsistent: the selected task, `PolicyAction`, policy
+  artifact canonical hash, truth-free marker, and planner revalidation marker must
+  all agree before the observed session can continue. Added regression coverage for
+  decision-identity drift.
+- Regenerated `configs/release-parity.json` after the core change and kept the old
+  evidence immutable. The current index now points to the new observed session `r18`,
+  runtime matrix `r4`, vehicle matrix `r3`, external Mission matrix `r7`, and the
+  decision-identity release audit. Rebound evidence only updates source identity
+  metadata; it does not claim a new HIL, REAL, outdoor-GNSS, hardware, or flight run.
+- Current verifier result: `passed`; product remains `0.3.0-pre.8`,
+  `release_allowed=false`, `candidate_promoted=false`, and final `0.3.0` is not released.
+- Full regression after the fixture migration passed: `5129 passed / 7 skipped / 0 failed`
+  across 5136 tests; JUnit is recorded at
+  `artifacts/evaluation/full-regression-shared-policy-decision-identity-20260927-r2/pytest.xml`.
+- Rebound the prerelease release-gate wrapper to the current parity: the diagnostic-bound 2026-09-28
+  field preflight, the current external runtime/AI join, and newly regenerated v182 PX4 response
+  matrix/campaign. A real report-only wrapper run completed successfully; parity mismatches dropped to
+  zero and the current audit records 32 blockers. Hardware link, replay review, QGC visual/Mission,
+  HIL/REAL and final-channel gates remain fail-closed.
+- Rebound the no-argument wrapper once more to the current positive-strata replay fixture and generated
+  report-only r6 plus audit r5. The fixture remains `synthetic_demo`, so replay deployment-domain and
+  review gates are still intentionally closed; no hardware, HIL/REAL or release claim was added.
+- Rebound the authoritative report-only run to a historical field-link snapshot while the audit keeps
+  the current r2 read-only probe. This preserves distinct historical/current evidence hashes and keeps
+  the aircraft-subnet and hardware readiness gates fail-closed.
+- 2026-09-28：将只读 `TargetEvidenceCard` 接入 integrated SIM/QGC 目标定位 acceptance，
+  并让 combined-SIM verifier 重新检查卡片 schema、只读 claims、计数/错误列表和
+  `run_identity_hash` 绑定。卡片仍只用于态势感知与回放记录，不进入 Mission 或 actuator；
+  `v0.3.0-pre.8`、HIL/REAL、室外 GNSS 和最终发布门状态不变。
+- 2026-09-28：修复 combined PX4/Gazebo/QGC 验收脚本的两个真实运行时问题：显式绑定容器内
+  `PX4_MAVLINK_UDP_PORT`，并为共享 planner 传入带 provenance 的 synthetic SIM 能量模型；同时
+  将 QGC 工具栏 DPI 线程上下文改为原始上下文记录、同线程恢复与有限重试。修复后外部运行已通过
+  Docker/PX4/Gazebo、QGC 工具栏/视频、Mission 事务和能量连续性门；当前河流场景仍因
+  `terrain_uncertainty_unbounded` 正确拒绝目标落图，未生成假坐标，故不构成外部组合 gate、HIL/REAL、
+  室外 GNSS、硬件或最终 `0.3.0` 发布证据。
+
+- 2026-09-28：能量 replay 对同一 PX4 `GLOBAL_POSITION_INT.time_boot_ms` 的重复样本做零时长去重，
+  保持时间回退和覆盖缺口 fail-closed；新增回归测试覆盖重复时间戳，不改变能量模型或飞控授权边界。
+- 2026-09-30：Gazebo depth contract 补齐距离语义门禁：输入必须显式声明 `ray_slant_m` 或
+  `optical_axis_z_m`；光轴 Z 深度只有在 `fx/fy/cx/cy` 完整绑定时才会按像素射线换算为斜距，
+  输出 sample 统一锁定为 `ray_slant_m`。新增离轴转换、缺失内参和 schema 缺字段回归；仍未接通
+  真实 Gazebo depth topic，不提升 external SIM、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 门。
+- 2026-09-30：接入仓库自有 Gazebo depth transport。x500、standard_vtol、rc_cessna 模型新增与
+  RGB 同位姿的 `R_FLOAT32` depth camera；helper 在原 `MDGZSIM3` 后追加 hash-bound `MDGZDEP1`
+  companion，严格绑定 RGB sequence/stamp/whole-record SHA、精确 scoped topic、完整校准 SHA、
+  registration/coordinate-space/distance semantics 和不超过 100 ms 的因果时间偏差。主机
+  `GazeboSimFrameSource` 按 frame_id 暂存 side-channel，`LiveMissionRunner` 接入同一个
+  `MultiModalRangingEngine`，缺 companion、错绑定、坏 hash、过期 source 或不足有效像素均
+  fail-closed。71 条 depth/helper/backend 回归通过；随后已完成 1 帧真实 PX4/Gazebo depth
+  transport 运行，详见 `artifacts/evaluation/depth-external-20260930.json`；这不是完整 Mission、
+  HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布通过。
+## 2026-09-30
+
+- VTOL 外部组合深度链路补齐：`river_rescue_vtol_001` 显式绑定 `front-depth`，场景 channel
+  canonical SHA-256 更新为 `582e05422fdac8e5934d80f92a5e77d080dfee39c6e1d65221e4ff4593dba5d4`；
+  combined readiness 现在同时检查 RGB/depth image + CameraInfo、NavSat 和完整 odometry
+  publisher，integrated evidence 要求每个 RGB frame 都有认证的 `MDGZDEP1` companion。
+- 目标定位 gate 接入现有 `gazebo_depth` direct measurement，但只接受 topic、calibration ID/SHA、
+  registered-to-RGB、pixel alignment、FLOAT32 米制和完整 companion 数量全部一致的 transport；
+  live audit 中嵌套 GPS quality/sample 会绑定到证据卡，卡片不可用时 fail-closed。
+- terrain `terrain_uncertainty_unbounded` 仅在有新鲜 direct depth 时转入既有 degraded advisory
+  solver；stale、horizon、direct inconsistency 等其它 INVALID 原因不放宽。新增 backend、combined
+  script、集成 CLI、证据卡和 LiveMissionRunner 回归。完整 VTOL combined 外部 rerun 尚未执行，
+  不提升 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+- 2026-10-01：基于当前 Gazebo 模型资产重新执行 fixed-wing 与 multirotor 的 same-container
+  external PX4/Gazebo 深度 Mission 验收。两条链均复用 `SharedTaskPolicy`、planner revalidation、
+  PX4 Mission transaction 和 2/2 RGB + 2/2 `MDGZDEP1` companion；新源证据为
+  `artifacts/evaluation/external-fixed-wing-depth-shared-policy-20261001-r10.json` 与
+  `artifacts/evaluation/external-multirotor-depth-shared-policy-20261001-r10.json`，当前索引绑定
+  r11 不可覆盖副本。重新绑定的模型资产聚合 SHA-256 为
+  `53c3db017228b3db4e8afd3b78706fda92fa8ee519e83a769729363a39d5e365`；旧 r7 证据降为历史，避免
+  旧模型哈希继续被当作当前验收依据。
+
+- 2026-10-01：`river_rescue_vtol_001` headless external VTOL response profile r5 在 700 s
+  有界超时内通过 Mission、sensor、journal、cleanup 和 artifact integrity gates；Mission reached
+  seq `0..6`，确认 fixed-wing/multicopter/landed/terminal disarm，最大距 home `275.388 m`、
+  最大相对高度 `25.791 m`。深度 manifest content/provenance binding 同时通过。该证据不包含
+  QGC 人工视觉、HIL/REAL、室外 GNSS 或硬件性能结论，最终 `0.3.0` 仍未发布。
+
+- 2026-10-01：将 Mission timeout 合法范围上限从 600 s 提升到 700 s，并修复
+  `GazeboSimFrameProvenance.depth_geometry` 的 tuple/list canonicalization，使内存 provenance
+  与 JSON manifest 重载后的表示一致。parity 更新为
+  `ec1f0daf58feb47df02051599f98b949d670718d7ca7363fd500c2a5cf6f51b4`；current-progress verifier
+  与相关定向回归通过。
+## 2026-10-01
+
+- Added `verify_outdoor_depth_calibration_report.py` and an opt-in Jetson launch gate that
+  binds a validation report to the exact calibration-document SHA-256. Strict deployment mode
+  rejects advisory, stale, or hash-mismatched reports; it does not claim field/GNSS/HIL/REAL
+  evidence and does not mutate calibration files.
+## 2026-10-01
+
+- Ran the predeclared heterogeneous development ranker experiment against the independent holdout.
+  The 36-point coefficient search produced the same parent candidate; train/validation/test stayed
+  at 40/40/40 and the 12-input holdout stayed at total reward 120 for both. The result is recorded
+  as a no-gain software planning experiment and does not promote a model or alter HIL/REAL, outdoor
+  GNSS, hardware, or final-release gates.
+
+- Hardened `verify_current_progress_index.py` to re-open the current training,
+  independent-holdout, candidate-ranker, trained-artifact external-SIM, campaign-summary,
+  receipt, cleanup, and release-parity identities. Added positive binding and tamper-negative
+  regression coverage; this strengthens evidence auditability without changing the fail-closed
+  HIL/REAL, outdoor-GNSS, hardware, or final-release boundaries.
+
+- Bound the trained candidate policy artifact to the current VTOL airframe identity and executed it
+  through the existing external PX4/Gazebo two-task Mission campaign. Both sorties completed in the
+  same telemetry session with planner revalidation, artifact identity, transaction journals, graceful
+  router stop, and exact-ID cleanup. This proves model/artifact path reuse in software external SIM;
+  it does not promote the candidate or claim HIL/REAL, outdoor GNSS, hardware, or final release.
+  Evidence is retained under `artifacts/evaluation/shared-policy-trained-vtol-two-task-20261001-r1*`.
+
+- Re-ran the shared task-ranker training path and a frozen-candidate independent holdout campaign.
+  Training/validation/test rewards remained equal to the parent (26/28/35); the 12-input independent
+  holdout also remained equal (total reward 120 for both parent and candidate). Input hashes and
+  scenario families were disjoint, planner revalidation passed, and no candidate promotion or
+  physical/HIL/REAL/outdoor-GNSS claim was made. Evidence is retained under
+  `artifacts/evaluation/task-ranker-training-20261001-r1/` and
+  `artifacts/evaluation/shared-policy-independent-sim-20261001-r1.json`.
+- 2026-10-01：将任务序列 DFS 参考搜索提取为 `src/multidetect/autonomy/task_sequence_reference.py`，
+  并让 `scripts/benchmark_task_sequences.py` 委托该库函数。参考目标显式绑定为
+  `sum_priority_plus_one_then_count_then_minus_modeled_time_v1`，沿用原 planner、RETURN 约束、预算
+  episode 与 Mission compiler；输入最多 6 项，节点超限 fail-closed。新增顺序不变性、GPS/runtime
+  拒绝、任务上限和无 actuator 声明回归。该项仍是开发诊断，未接入 `SharedTaskPolicy`/PX4 campaign，
+  不打开 learned model、物理、HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+- 2026-10-01：按当前显式 source list 重新生成 `configs/release-parity.json` 并同步当前索引哈希，
+  修正静态 parity 漂移。历史 external Mission 证据保持原样；当其源码身份无法匹配时 verifier
+  继续 fail-closed，不把静态重算当作新的 PX4/Gazebo、HIL/REAL 或硬件运行。
+
+- 2026-10-01：在冻结 independent holdout 上重跑库化序列参考器；12 个输入 greedy/reference 为
+  `120/120`，改进案例 `0`，同贪心耗时上限改进 `0`。没有序列策略晋升或外部运行声明，继续使用
+  现有 `SharedTaskPolicy`/PX4 路径。
+- 2026-10-01：在当前 `0.3.0-pre.8` parity 下重新执行 VTOL SharedTaskPolicy 双任务 external
+  PX4/Gazebo campaign（r31）。`synthetic-east` 与 `synthetic-west` 均完成，Mission
+  upload/readback/commit/permit、planner revalidation、journal/hash-chain、受限 evaluator、
+  loopback isolation 与 exact-ID cleanup 全部通过；live GPS 启动抖动的第一次失败也保留为独立
+  失败证据，没有被覆盖。随后以 r31 receipt 生成三机型 Mission 与 vehicle-policy matrix r32。
+  该结果仍是软件 external SIM；未宣称相机帧采集、HIL/REAL、室外 GNSS、真实硬件或最终
+  `0.3.0` 发布。
+- 2026-10-02：为通用 advisor 上下文补齐向后兼容的 `ContextSnapshot.airframe_profile_hash`。
+  训练数据 loader 会把 case profile hash 注入没有该字段的旧 v1 context；若 context 已携带 hash，
+  strict sequence reference 和 evaluator 都要求它与 case/策略 hash 完全一致，不一致直接
+  fail-closed。新增 source-bound holdout r6
+  `artifacts/evaluation/sequence-proposal-independent-holdout-20261002-r6.json`（SHA-256=
+  `6bfdde05e7b3e23b152a4191f6297eed325524eb44fb8bf886497c21a12c9ebd`），12 cases、reward
+  `120/120`、objective tie `12`；advisor 仍不部署、不进入 PX4 Mission/actuator，不打开 HIL/REAL、
+  室外 GNSS、硬件或最终 `0.3.0` 发布门。
+- 2026-10-02：修复 geolocation sensor transport provenance 契约漂移。`selection_mapping()` 输出的
+  `scenario_manifest_hash` 现在由 `geolocation_accuracy` verifier 作为可选 SHA-256 字段严格校验，
+  解决 replay truth join 的误报失败；同步生成新的 source-bound parity transition r2，旧证据不覆盖。
+  完整 pytest、Ruff、current-progress `--check-sources` 均通过。该改动不代表新增 PX4/Gazebo 运行，
+  不打开 HIL/REAL、室外 GNSS、真实硬件或最终 `0.3.0` 发布门。
+- 2026-10-02：收紧 QGC 目标落图的 GNSS fail-closed 门。实时地图点、1σ 圆、文字卡片和复制坐标
+  现在都要求与测距/目标定位同一原子 GNSS 质量及身份绑定；弱 fix、过期、缺失或不一致状态只显示
+  “不可定位”，不会落假点。新增 `targetGeolocationGnssQualified` 状态契约与静态回归；按当前
+  UI parity 做了 source-bound evidence transition，但没有把它写成新的 PX4/Gazebo、HIL/REAL、
+  硬件或室外 GNSS 运行证据。
+# v0.3.0-pre.8 — 2026-10-02
+
+- 重新生成当前 parity 绑定的 PX4 reported-position response matrix/campaign r27：复用保留的
+  6 个正向 Docker/PX4/Gazebo response 与 9 个 fail-closed fault source，matrix/campaign verifier
+  均通过；明确记录为 source-bound 重算，不是新增外部运行，也不升级为 HIL/REAL/硬件或室外 GNSS 证据。
+- 使用 r27 matrix/campaign 与当前 external evidence 重新运行 `run_current_release_gate_pre8.ps1`，
+  生成 report-only manifest/report；四个 mode 的 parity identity 已绑定一致，但 replay-set、field-link、
+  人工视觉/Mission、HIL/REAL 与最终 release 门仍保持 fail-closed，`release_allowed=false`。
+- `docs/current-progress.json`、`docs/current-progress.md`、`docs/release-gate.md` 和本日志已同步到
+  `shared-policy-release-parity-drift-20261002-gnss-display-r5.json` 与新 report/hash；r5 显式绑定
+  当前只读 field-link probe，修正了历史报告路径与 current-progress probe 的审计关系，仍不改变
+  `hardware_link_ready=false` 或任何 HIL/REAL/室外 GNSS 结论。
+- 2026-10-02（0.3.0-pre.8）：新增 `ContextSnapshot.airframe_profile_hash` 的
+  `SharedTaskPolicy` fail-closed 校验；parity receipt builder 现在 hash-gate runtime snapshot
+  的 bytes、文件 SHA、契约 hash 与 release label，stable-but-stale 运行只保留为 retained-file
+  audit。补充 policy/AI stale snapshot 回归测试，重新生成 `context-profile-r6` source-bound
+  evidence，并保持 release gate `gate_passed=false`、`release_allowed=false`；未宣称 HIL/REAL、
+  室外 GNSS、真实硬件或最终 `0.3.0`。
+- 2026-10-03：修正 simulator AI flight parity receipt schema 与当前保留证据的契约漂移。
+  schema 允许已验证 receipt 显式携带 `release_parity.verified=true`（仍不降低
+  required hash/identity 校验），并将 `docs/current-progress.json` 重新绑定到当前 schema
+  的 8591 bytes / SHA-256=`b5d13385a54df95bc873b90971594f2372b48a81a5046b77b3c704fccbf0d0c1`。
+  当前索引重算、schema 回归和全量 pytest 均通过；这不改变 `0.3.0-pre.8` 的最终发布、
+  HIL/REAL、真实硬件或室外 GNSS 门状态。
+- 2026-10-03：新增当前源码的 `v0.3.0-pre.1` foundation acceptance revalidation。入口
+  `scripts/verify_v030_pre1_foundation.py` 将 RuntimeMode、共享 ManualClock、RuntimeBackend、
+  Scenario Manifest runtime channel、truth-free task contract、profile 隔离及确定性 Replay/
+  Simulator 组合成可重复 receipt；`docs/evidence/v030-pre1-foundation-20261003-r5.json`
+  两次生成字节一致且 `gate_passed=true`。它不启动 transport、不发送 MAVLink、不授予 actuator，
+  也不关闭 HIL/REAL、硬件、室外 GNSS、人工视觉或最终 `0.3.0` 发布门。
+- 2026-10-03：将 `v030-pre1-foundation-20261003-r5.json` 接入总进度 verifier。现在每次
+  `verify_current_progress_index.py --check-sources` 都会重算 foundation receipt 的文件/规范
+  哈希、当前 parity、源文件哈希、八项基础检查和无 actuator/final-release 边界，并以
+  `v030_pre1_foundation_bound=true` 返回；新增 source-drift 负向回归。该项仍不替代 HIL/REAL、
+  真实硬件、室外 GNSS、QGC 人工视觉或最终 `0.3.0` 发布门。
+- 2026-10-03：完成 `0.3.0-pre.8` 当前证据链收口。VTOL SharedTaskPolicy receipt
+  `qml-r6` 重新绑定到 `20261001-r31` summary；三机 vehicle/mission matrix 更新为
+  `qml-r7`；AI-flight retained-layer receipt 更新为 `qml-r6`；release-gate retained-file
+  audit 更新为 `qml-r6` 并绑定最新只读 field-link probe。`verify_current_progress_index.py`
+  full/source-only 与 98 项定向回归均通过；仍有 32 个 release blocker，未宣称 HIL、REAL、
+  户外 GNSS、硬件或最终 `0.3.0` 发布。
+- 2026-10-03：新增 Gazebo + 真实 MultiQGC + JetsonAI 同链路入口。组合脚本可将 Jetson
+  等价 safety ONNX/manifest 接入现有生产感知工厂，并在证据中记录模型与 manifest SHA-256；
+  保留 PX4 Mission、watchdog、permit、QGC FlyView 和容器清理生命周期。模型输出仅为
+  evidence，不直接授权飞控；使用说明见 `docs/gazebo-qgc-jetson-ai-sim.md`。
+# Unreleased (`0.3.0-pre.8`)
+
+- Added fresh current-parity PX4/Gazebo evidence for the shared OnboardAI path:
+  VTOL SharedTaskPolicy mission with same-container wire-v3 RGB/Depth capture,
+  realtime AI flight response, and fixed-wing/multirotor depth Mission reruns.
+- Preserved fail-closed evidence rules: retained-file parity rebinding cannot
+  upgrade an old run into a current runtime claim; the original failed AI run
+  remains recorded separately from the successful isolated-port rerun.
+- Kept the final release blocked. No Jetson/Pixhawk hardware, HIL/REAL,
+  outdoor-GNSS, QGC human visual, metric-distance or original PromptEnvelope
+  provenance claim is opened by these software-SIM results.
+﻿- 2026-10-04：将 `SharedTaskPolicy` 接入真实外部 VTOL campaign，保留旧 ranker 接口并复用
+  PX4 Mission upload/readback/commit/permit/cleanup 生命周期；完成 decision、task、plan、
+  executable Mission 和 policy artifact 的 hash 绑定。对应 301 个 VTOL 回归与 28 个共享策略
+  场景测试通过。由于本次改变了 PX4 mission path parity，所有历史外部证据均以不可覆盖的
+  retained-file audit 方式重新绑定；未宣称新一轮 PX4/Gazebo、HIL、REAL、Jetson、室外 GNSS
+  或最终 `0.3.0` 发布。
+- 2026-10-04：新增一次外部 PX4/Gazebo `flight_mode_loss` 负向 campaign。arm、target
+  和 AI bridge 在故障前正常运行，飞行模式丢失被观察到，`fail_closed=true`，控制
+  authority 进入 `failsafe`，容器 cleanup 通过。正常 flight gate 按设计拒绝，非零退出码
+  是预期行为。摘要为 `docs/evidence/simulator-ai-flight-mode-loss-20261004.json`；
+  它不代表正常 flight 通过、HIL、REAL、Jetson、户外 GNSS 或最终发布证据。
+- 2026-10-04：新增外部 PX4/Gazebo `gps_quality_loss` 负向 campaign。故障触发后停止转发
+  后续 `GPS_RAW_INT`，没有修改 PX4 数据或放宽 GPS 阈值；共享 AI 继续视觉 TRACK，但不
+  把旧 GPS 样本当成新的定位结果。`fault_observed=true`、`fail_closed=false`、cleanup
+  通过，正常 flight gate 按设计拒绝。摘要为
+  `docs/evidence/simulator-ai-gps-quality-loss-20261004.json`；这不代表 GPS fail-safe、
+  HIL、REAL、Jetson、户外 GNSS 或最终发布验收。
+- 2026-10-04：完成外部 PX4/Gazebo “GPS 退化 + 返航请求”负向 campaign。GPS 退化后，
+  返航请求通过 live bridge 控制面进入共享 executor；策略返回
+  `failsafe`，原因是 `return_gps_quality_insufficient`，`fail_closed=true`，容器 cleanup
+  通过。摘要为 `docs/evidence/simulator-ai-gps-return-failsafe-20261004.json`；这不代表
+  HIL、REAL、Jetson、户外 GNSS 或最终发布验收。
+- 2026-10-04：完成外部 PX4/Gazebo 低电量负向 campaign。注入 `battery_remaining=5` 后，
+  shared executor 进入 `failsafe`，原因是 `home_vector_unavailable`，没有在缺少返航向量时
+  盲目发返航控制，`fail_closed=true`，容器 cleanup 通过。摘要为
+  `docs/evidence/simulator-ai-battery-low-failsafe-20261004.json`；这不代表真实电池、
+  HIL、REAL、Jetson、Pixhawk 或最终发布验收。
+# 2026-10-04 OnboardAI r3 continuous task chain
+
+- Added the adapter-owned model navigation compiler: bounded N/E intent is
+  projected with WGS-84 and revalidated through the existing planner and PX4
+  multirotor Mission compiler. The adapter now requires matching compilation,
+  plan, wire and Mission hashes before replacement.
+- Added task-phase receipts for `search → match_target → record_location →
+  report`. GPS recording is rejected unless fix quality, horizontal accuracy,
+  target bearing and target range satisfy the shared gates.
+- Trained and replayed `onboard-policy-r3` on the local GPU as a synthetic
+  bootstrap artifact. The software-only evidence is recorded in
+  `docs/evidence/onboard-policy-chain-20261004.json`; it is not Jetson,
+  external Gazebo, HIL, REAL or outdoor-GNSS evidence.
+- 2026-10-04：完成一轮 fresh pinned PX4/Gazebo 外部传感器 SIM。真实 disposable
+  `px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8`
+  容器启动并观察到 heartbeat/qualified GPS；3 帧 BGR24 RGB 与 3 帧 FLOAT32_M depth
+  companion 持久化且 wire hash 对齐，容器 stop/remove 清理通过。该轮不请求 Mission、ARM
+  或物理输出，仍不宣称 Jetson/Pixhawk、HIL/REAL、室外 GNSS、人工 QGC 或最终 `0.3.0`。
+  证据：`artifacts/evaluation/onboard-gazebo-sensor-20261004-r1/acceptance.json`，
+  SHA-256=`640dcce7a172519b06cc405ec59105f08950e9cc2b558caefcef3843d0b08e98`。
+
+- 2026-10-04：收紧 OnboardAI 红车软件闭环。模型导航 callback 现在必须绑定选中的
+  `TaskCandidate`，独立重编译 WGS-84/Planner/PX4 Mission 并核对 plan/wire/mission hash；
+  任务阶段回执明确为 `search → match_target → record_location → return_home → report`，
+  返航必须有独立 `MISSION_COMPLETE` 到家确认。当前 r3 仍是 synthetic bootstrap，目标颜色
+  通过结构化感知 `target_match_score` 进入，不把文本细节或软件回放写成像素级/Jetson证据。
+- 2026-10-04：在现有共享 OnboardAI 契约上扩展 r4 结构化目标属性输入。实时事件现在可以同时
+  携带检测类别、颜色、类别匹配和颜色匹配结果；40 维模型输入把这些字段送入与 Gazebo/
+  Jetson 共用的高层策略，任务回执也会保留同样证据。旧 38 维 r3 ONNX 仍可读取，便于分阶段
+  部署。RTX 4060 synthetic bootstrap（12,000 samples / 120 epochs）和软件回放通过，完整
+  阶段为 `search → match_target → record_location → return_home → report`；这不是像素精度、
+  Jetson、Pixhawk 实机、HIL、REAL、室外 GNSS 或最终 `0.3.0` 发布证据。证据：
+  `docs/evidence/onboard-policy-chain-20261004-r4.json`。
+- 2026-10-05：重新生成三机型 Mission、共享 policy vehicle/runtime matrix、训练回执、sensor
+  campaign 和 AI-flight parity 的 current-parity retained-file 审计副本，历史证据保持不变。
+  `docs/evidence/external-mission-matrix-20261005-current-parity-audit-r1.json` 及其来源绑定
+  通过 `scripts/verify_current_progress_index.py --check-sources`；这不是新的 Docker/PX4/Gazebo
+  外部重跑，不增加 HIL、REAL、Jetson、室外 GNSS 或最终 `0.3.0` 证据。
+- 2026-10-05：继续推进 Prompt → 实时 OnboardAI → PX4 Mission 的同一条 SIM/Jetson 共享链路。
+  `OnboardFramePerceptionAdapter` 现在逐候选执行类别、颜色和 metric-depth 质量门，在当前观测窗口内
+  对目标颜色候选按有效距离选择 `nearest_observed`，并用 IoU 与 1 秒时间窗约束两帧确认；Gazebo
+  `optical_axis_z_m` 深度会先转换成 ray-slant。新增 `MissionTransactionDispatcher`，模型产生的
+  `PlannedMissionCompilation` 可显式交给外部 PX4 upload/readback/commit/permit 适配器；新增
+  `OnboardRealtimeModelBridge.submit_runtime_event()` 作为返航/完成遥测进入同一状态机的入口。
+  任务状态机同时支持上游经过标定和姿态求解的 N/E 偏移来记录目标 GPS，避免把相机相对角误当绝对北向角。
+  这些改动仍是 `0.3.0-pre.8`，默认不 arm、不启动飞行，未宣称 Jetson/Pixhawk 实机、HIL、REAL、室外 GNSS
+  或最终 `0.3.0`。
+- 2026-10-05：新增 `OnboardAutonomousSortie` 任务级执行器，把共享实时模型链串成一次无需
+  操作员逐步确认的 Prompt 任务：合格起飞、绿车不匹配后的搜索重规划、红车确认、GPS
+  位置记录、返航完成和最终报告。Gazebo/PX4/Jetson 通过注入的生命周期回调接管 Mission
+  start、返航与报告，模型仍没有 MAVLink/arm/执行器权限。同步让 `OnboardFramePerceptionAdapter`
+  在有合格机头航向时把深度距离和相机相对方位投影为 N/E 偏移；没有航向或距离时继续不
+  生成坐标。新增软件回放证据 `docs/evidence/onboard-policy-chain-autonomous-20261005-r1.json`，
+  仍明确为 software SIM，不代表外部自动飞行、Jetson、HIL、REAL、室外 GNSS 或最终发布。
+ - 2026-10-05：完成红车任务外部自动生命周期 r28 的真实帧回归。PX4/Gazebo、GPS、ARM、起飞门、
+  20 个 RGB/Depth 帧处理和 20 次 Mission 事务通过；7 个红车候选在约 22 m 处被颜色适配器
+  判为 `red`，但 raw YOLO confidence 仅 `0.01–0.02`，低于可执行门 `0.25`，因此共享任务链
+  保持 `SEARCH`，没有伪造 GPS、RTL 或 REPORT。新增证据摘要
+  `docs/evidence/external-red-car-autonomous-20261005-r28.json`；该结果是外部软件 SIM，
+  不代表 Jetson、Pixhawk 硬件、HIL、REAL、室外 GNSS 或最终 `0.3.0`。
+
+ - 2026-10-05：将 `multidetect.autonomy` 的感知适配器改为惰性导出，修复
+  `perception_factory → autonomy → multimodal_ranging` 的循环导入；新增搜索重规划置信度回归，
+  允许低于通用重规划门的候选继续左右搜索，但仍禁止进入目标记录阶段。
+- 2026-10-05：建立 Gazebo 3-D 主线资产 manifest/schema/verifier，绑定
+  `x500_mono_cam` 多旋翼、`standard_vtol_mono_cam` VTOL、`rc_cessna_mono_cam` 固定翼三套
+  实体载具组合，以及各自的 world、map、DEM、RGB/Depth/PX4 telemetry/airspeed 契约和
+  SHA-256。离线 verifier 通过 3 个场景，明确排除 billboard、网络下载和 evaluator truth；
+  该结果只是资产/契约审计，不是外部 Gazebo/PX4、Jetson、Pixhawk、HIL、REAL 或最终发布通过。
+  摘要：`docs/evidence/gazebo-3d-mainline-manifest-20261005.json`。
+
+- 2026-10-05：尝试将同一 r14 ONNX 接入 `urban_inspection_multirotor_001` 3-D 外部 PX4/Gazebo
+  传感器入口。仓库 preflight 通过，但本机 Docker `container inspect` 在 10 秒超时，容器未确认
+  创建、telemetry/传感器未开始；保留 blocked evidence，不宣称外部 3-D 或飞行通过。
+  摘要：`docs/evidence/external-onboard-r14-urban-3d-20261005.json`。
+
+- 2026-10-05：在现有 OnboardAI 40 维输入和任务/飞行动作头上继续增量训练
+  `onboard-policy-r14-autonomy-transitions`，父模型为 r13，使用 temporal transition augmentation
+  覆盖目标不匹配后的搜索、匹配跟随、位置记录返航、报告以及 GPS/电量/障碍/推理故障安全转移。
+  RTX 4060 训练评估准确率为 task `0.9772115385`、flight `0.9757019231`；独立结构化 holdout
+  7/7 通过，软件 Prompt→search→match→record→return→report 回放通过。Onboard ONNX runner
+  现在允许健康事件在 SEARCH/INSPECT_TARGET 阶段提出 HOLD/RETURN/LAND，再由 adapter 安全监督器
+  做最终 PX4 否决。该候选仍未 promotion；证据仍是 truth-free software replay，不代表 3D
+  Gazebo 主线、Jetson、Pixhawk、HIL、REAL、室外 GNSS 或最终 `0.3.0`。
+  摘要：`docs/evidence/onboard-policy-r14-autonomy-transitions-20261006.json`。
+- 2026-10-05：OnboardAI 在现有模型契约上完成 r17 teacher 一致性增量训练。修正 class/color
+  任一未知或不匹配时仍产生高 `target_match_score` 的 teacher 标签冲突；r17 从 r16 继续继承，
+  保持同一 40 维输入、任务/飞行动作头和安全适配器。RTX 4060 评估 task/flight 准确率为
+  `0.9932242991/0.9936137072`，独立 holdout `7/7`，22-case guarded 泛化 `22/22`，回归
+  MAE/P95/clip rate 也已记录。模型 SHA-256=`7434d94fb676427cdf34086f92b42f57cec5ac467b7942e7b116ea5c8bfdbed3`，
+  证据为 `docs/evidence/onboard-policy-r17-teacher-consistent-20261005.json`。仍是 RTX 4060
+  合成/软件验证，不是 Jetson/Pixhawk、HIL/REAL、真实 3D Gazebo 或最终 `0.3.0` 发布。
+
+- 2026-10-05：OnboardAI 在现有模型契约上完成 r15/r16 增量训练。新候选没有把红车/绿车
+  当作训练主分布，而是加入类别/颜色/目标类型仅作元数据的参数化属性组合、未知属性搜索、
+  健康事件和 TAKEOFF 阶段安全转移；输入仍为同一 40 维向量，输出仍为同一任务头、飞行动作
+  头和运动回归头。r16 模型 SHA-256=`478b2abf0c68c271971b45a7f21b2ad7c60e6913122f5176f872d604b1cacd12`，
+  task/flight 评估准确率为 `0.9906542056/0.9909657321`，独立 holdout `7/7`，泛化压力
+  guarded `22/22`。同时修正高度回归解码为统一的 120 m 上限，并记录 north/east/altitude/speed
+  的 MAE、P95 和 clip rate。证据为
+  `docs/evidence/onboard-policy-r16-phase-safe-20261005.json`。这仍是 RTX 4060 合成/软件
+  验证，不是 Jetson/Pixhawk、HIL/REAL、真实 3D Gazebo 或最终 `0.3.0` 发布。
+
+- 2026-10-05：真正的 3D Gazebo 主线继续与红车/绿车感知夹具分离；实体 x500、VTOL、固定翼
+  模型、world、RGB/Depth/GPS/里程计和动力学 manifest 审计仍保持通过。外部 3D 运行因本机
+  Docker Linux engine/API 不可达而未启动，未把 timeout 写成 Gazebo 通过，也未重启 Docker。
+- 2026-10-05：修正 OnboardAI 3-D 渲染训练链：RGB/Depth payload、wire-v3 Gazebo 来源、同帧
+  telemetry 时间戳和 source split group 现在全部 fail-closed 校验；深度只在检测框区域参与目标距离，
+  没有检测时保持未知。训练器改为按 source group 切分，重复帧不会跨 train/evaluation 泄漏。r23
+  使用同一 r17 parent、RTX 4060 和低学习率完成 9 个 RGB+Depth 3-D 传感器帧的 plumbing 微调，
+  但 detector hits=0、标签仍是启发式 plumbing，候选不 promotion。该结果不代表视觉泛化、Jetson、
+  Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布。
+- 2026-10-05：训练管线现在保留 reviewed Gazebo episode 的显式 `train/evaluation/test`
+  分区；`test` episode 单独评估，永远不会进入 optimizer 或 evaluation。无声明 split 的
+  synthetic/plumbing 数据仍按 source group 切分。trajectory 的 `group_id` 改为已校验的
+  `episode_group_sha256`，并且 training-ready 数据要求 `materialized_sources=true`，缺少可复现
+  RGB/Depth manifest 时 fail-closed。新增 15 项训练回归；r24 仍未 promotion，结构化 holdout
+  不能证明像素级 Gazebo、Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+- 2026-10-05：收紧真实 3-D OnboardAI 训练入口。`training_ready=true` 现在必须同时绑定
+  可由 `RawSensorReplayRecording` 重开的完整 raw recording manifest、RGB/Depth manifest、
+  连续 episode 和独立 `multidetect.onboard-trajectory-label-review-v1` receipt；receipt 的
+  canonical JSONL 标签逐行绑定 context/event、task/flight/regression、planner/Mission hash
+  和 train/evaluation/test 分区，禁止 Gazebo truth、world pose、model ID 与自标注。现有仓库
+  3-D 资料仍不足以成为训练完成证据，版本保持 `0.3.0-pre.8`，不 promotion、不宣称 Jetson、
+  Pixhawk、HIL/REAL 或室外 GNSS。
+- 2026-10-05：收紧 OnboardAI 训练就绪门槛。训练回执、label manifest、raw recording manifest
+  和五类 planner/Mission proof artifact 现在都必须在数据集目录内，并逐项用实际文件 SHA-256
+  绑定；`../` 路径、目录外绝对路径、被篡改的 proof 文件都会 fail-closed。RGB payload 还必须
+  与同一 raw replay frame 逐帧相等，避免把独立但不匹配的传感器文件拼成“连续 3-D 轨迹”。
+  这只改善训练证据完整性，不把当前短时 3-D plumbing 数据升级为训练完成、Jetson/Pixhawk、
+  HIL/REAL、室外 GNSS 或最终 `0.3.0` 证据。
+- 2026-10-05：在现有 r25 权重上完成 OnboardAI r26 真实 3-D 场景契约增量训练。RTX 4060 使用
+  三类 3-D vehicle/world 结构化场景和 9 个已绑定 RGB+Depth 传感器帧，仍共用 40 维输入、任务/飞行动作
+  输出及安全适配器；渲染源只作为受控重复权重，不被写成视觉真值。2,100-case 独立结构化保持集为
+  task=`0.746190`、flight=`0.779524`、compatible=`0.950000`。由于 detector hits=0、可用深度中值=0、
+  没有审核连续轨迹和 pixel test，候选保持 quarantined，未替换参考模型、未 promotion，也不代表
+  外部 Gazebo/PX4、Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。证据：
+  `docs/evidence/onboard-policy-r26-gazebo3d-scene-20261005.json`。
+- 2026-10-05：把 OnboardAI 训练推进到真正的 3-D Gazebo 数据入口。VTOL 任务采集器现在可在同一
+  容器/同一任务屏障后保存配对 RGB wire-v3 与 `FLOAT32_M` 深度；`train_onboard_model.py` 新增
+  `--require-real-3d-capture`，会对唯一连续帧、有效深度、多个实体场景、检测结果、raw recording
+  和独立轨迹复核做 fail-closed 检查。当前 9 帧 plumbing 数据被正确拒绝，不再把颜色示例、结构化
+  teacher rows 或重复权重当成真正的 3-D OnboardAI 训练。没有启动新的 Docker/Gazebo 外部运行，
+  也没有改变候选隔离、Jetson/Pixhawk/HIL/REAL 和最终 `0.3.0` 发布边界。
+# 0.3.0-pre.8 — 2026-10-05
+
+- Gazebo 3-D 主线新增仓库自有的 `multidetect_search_target_v1` 实体目标模型，并绑定到
+  urban / river / coastal 三个 world；模型使用中性结构与碰撞几何，不把红/绿颜色示例当任务答案。
+- mainline manifest 和离线 verifier 现在校验目标模型、配置、include 名称、位姿与 SHA-256。
+- 训练边界仍保持 fail-closed：实体模型资产已准备，但没有把它写成外部 Gazebo、Jetson、
+  Pixhawk、HIL/REAL 或最终 `0.3.0` 验收证据。
+- 2026-10-05：新增实体 `multidetect_search_target_v1` 3-D 模型并绑定三个主线 world；训练入口要求
+  training-ready episode 绑定可重放录制与独立审核，渲染帧和轨迹帧不得共享 RGB payload，来源还要
+  绑定 Gazebo world、载具和模型资产哈希。红车/绿车示例不再定义 Gazebo 场景或 OnboardAI 身份。
+- 2026-10-06：将 OnboardAI 训练主线切换为中性 3-D 场景语义。r27 从现有 r26 同一套
+  40 维输入、任务头、飞行动作头和安全适配器继续增量训练，在 RTX 4060 上完成 35,100
+  行、45 epochs；3-D teacher 的颜色字段保持未知，目标确认改由类别/跟踪一致性、通用
+  匹配分数、Depth 与实时事件决定，因此红车/绿车只保留为示例，不再作为 Gazebo 训练身份。
+  r27 的结构化 evaluation task/flight=`0.873445/0.880355`，neutral 3-D holdout=`7/7`，
+  通用独立 holdout=`7/7`，但 test split=`0`，所以仍为 quarantined development candidate，
+  未替换参考模型、未 promotion。当前没有重新启动外部 Gazebo/PX4，尚无足量独立 RGB/Depth
+  像素训练证据，也不代表 Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 发布。
+  使用同一 ONNX runtime 的 22 个 truth-free generalization pressure case 中，原始模型头通过
+  15/22，安全 runner 保护后通过 22/22，其中 7 个是安全屏蔽成功而不是模型学习；报告为
+  `artifacts/evaluation/onboard-policy-r27-generalization-20261006.json`。
+  证据：`docs/evidence/onboard-policy-r27-generic-3d-20261006.json`。
+- 2026-10-06：在 r33 之上完成两轮同一 OnboardAI 契约的增量复核。r34 的结构化 3-D holdout
+  提升到 task/flight/compatible=`0.983333/0.993333/0.996667`，但 `bearing-right` 方向压力集
+  失败；r35 降低学习率后改为 `bearing-left` 失败。两轮均未 promotion，当前参考保持左右方向
+  都通过的 r33。比较证据：`docs/evidence/onboard-policy-r34-r35-rejection-20261006.json`。
+  这些仍不是像素级 Gazebo 视觉、Jetson/Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0` 证据。
+- 2026-10-06：继续训练同一套 OnboardAI，新增从主线实体 SDF 提取结构几何统计的 3-D 教师分布。
+  RTX 4060 完成 r38/r39/r40 三轮候选；结构化 holdout 虽提高，但左右 bearing 通用压力集不稳定，
+  r40 还损伤 evaluation flight accuracy，因此全部拒绝，当前引用仍保留 r33。训练没有使用红车/绿车
+  颜色示例、world truth 或第二套模型；没有把结构化教师行写成 Gazebo 像素级成功，也没有宣称
+  Jetson/Pixhawk、HIL/REAL、室外 GNSS 或最终 0.3.0。
+- 2026-10-06：继续在现有 OnboardAI/r33 上做实体 3-D 几何增量训练，比较 r41/r42/r43/r44。
+  四轮都保持同一 40 维契约、同一 SDF 几何来源和同一安全/PX4 Mission 边界；独立语义保持集
+  均为 `7/7`，但 22-case 泛化均为 `21/22`，分别暴露左/右 bearing 导航符号失败。r42/r43
+  的可选 navigation-sign loss 未修复方向问题，r44 延长训练出现结构化数据过拟合。因此候选
+  全部拒绝，当前引用仍为 r33。证据：
+  `docs/evidence/onboard-policy-r41-r44-geometry-bearing-candidate-comparison-20261006.json`。
+  这仍不是 Gazebo 像素级 RGB/Depth 训练；外部 Gazebo/PX4、Jetson/Pixhawk、HIL/REAL、室外
+  GNSS 和最终 `0.3.0` 均未宣称通过。
+- 2026-10-06：完成 r45 低权重实体几何对照候选。r45 从 r33 继承同一 40 维契约，只加入 3,000
+  条实体 SDF 几何教师和 6,000 条 bearing 锚点；独立保持集 `7/7`，但 22-case 泛化仍在
+  `bearing-right` 失败（`21/22`），因此拒绝并保持 r33。该结果说明继续调整合成结构化权重
+  不能替代真实 Gazebo/PX4 RGB/Depth/telemetry/trajectory 数据；证据：
+  `docs/evidence/onboard-policy-r45-geometry-low-weight-rejection-20261006.json`。
+- 2026-10-06：将 `run_onboard_policy_chain.py` 与 `run_external_onboard_model_acceptance.py` 的无参数默认模型统一到 hash-bound 的当前 r33 reference；历史 r4 不再作为新入口的隐式模型。外部 Gazebo、Jetson、Pixhawk、HIL/REAL、室外 GNSS 和最终 `0.3.0` 发布边界保持不变。
+- 2026-10-06：把 3-D 主线的目标语义从历史“红车/绿车”示例中解耦。RGB/Depth 适配器现在
+  只在 Prompt 明确要求时启用颜色过滤；中性实体默认按类别、连续跟踪、metric depth 和 GPS/
+  安全门处理，搜索去重也不会吞掉“类别匹配但颜色未知”的新目标。新增中性目标增量训练入口，
+  在 RTX 4060 上从当前 r33 训练 r46/r47；两者 3-D 结构化 holdout 分别为
+  `0.9800/0.9825/0.9850` 与 `0.9875/0.9850/0.9900`，但都在独立 `bearing-right` 泛化用例失败，
+  所以未 promotion，r33 reference 保持不变。当前无参数软件回放已通过
+  `search → match_target → record_location → return_home → report`；仍不是外部 Gazebo、
+  Jetson、Pixhawk、HIL/REAL 或最终 `0.3.0` 证据。
+- 2026-10-06：从当前 r33 继续训练了 r48/r49 几何标签修复候选，仍保持同一套 40 维输入、
+  20 维输出和 SIM/Jetson 共用 reference。r48/r49 的独立结构化 holdout 均为 `7/7`；
+  900 行三类 3-D 场景结构化传感器 holdout 分别为 `0.9833/0.9756/0.9844` 和
+  `0.9933/0.9900/0.9900`。但通用 22-case 方向评估仍有 `bearing-left` 失败，而且没有
+  真实 Gazebo RGB/Depth 像素行，因此两者都未 promotion，r33 仍是当前 reference。完整哈希和
+  证据见 `docs/evidence/onboard-policy-r48-r49-geometry-label-candidate-comparison-20261006.json`；
+  不代表 Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+- 2026-10-06：收紧 3-D Gazebo 训练采集入口。preflight 现在为每个实体场景生成同一套
+  r33 OnboardAI reference + 现有 YOLO detector + PX4 Mission 事务 + disposable SITL
+  自动飞行采集命令，明确要求起飞后的 RGB/Depth/CameraInfo/telemetry，而不是只采启动地面帧。
+  该改动只生成待执行命令；当前 Docker daemon 不可达，未宣称外部 Gazebo、Jetson、Pixhawk、
+  HIL/REAL、室外 GNSS 或最终 0.3.0 通过。证据：
+  `docs/evidence/onboard-3d-capture-command-upgrade-20261006.json`。
+- 2026-10-06：为“先训练 OnboardAI、再接入真实 Gazebo 3-D”增加只读采集审计器
+  `scripts/audit_onboard_3d_capture_inventory.py`。它按当前实体 SDF mainline 的场景哈希、
+  实际 RGB payload、完整 FLOAT32 depth companion、同帧 wire telemetry 和 truth-free provenance
+  筛选历史记录；扫描 122 份 RGB manifest 后 `capture_eligible=0`、`training_ready=0`。
+  因此旧场景、缺深度记录和颜色示例不会进入训练，当前 r33 reference、candidate promotion、
+  Jetson/Pixhawk/HIL/REAL、室外 GNSS 和最终 `0.3.0` 边界均不变。报告：
+  `artifacts/evaluation/onboard-3d-capture-inventory-20261006.json`，SHA-256=
+  `895f54028793988aa978a796af7d29f8c845fefa675b4d55ddb8f55c545a22de`。
+- 2026-10-06：在 RTX 4060 上从现有 r33 继续训练同一 40 维 OnboardAI，得到 r51 3-D 几何
+  预训练候选（60,400 行、24 epochs）。独立 holdout=`7/7`、三类实体 structured holdout
+  task/flight/compatible=`0.9978/0.9967/0.9989`，但通用方向集 `bearing-left` 失败，
+  guarded=`21/22`，所以 r51 被拒绝、r33 reference 不变。该轮 `rendered_rgb_depth_rows=0`，
+  没有把结构化 teacher 当 Gazebo 视觉训练，也没有新增外部 Gazebo/Jetson/Pixhawk/HIL/REAL、
+  室外 GNSS 或最终发布证据。证据：`docs/evidence/onboard-policy-r51-3d-pretrain-rejection-20261006.json`。
+- 2026-10-06：尝试启动本机 Docker Desktop 以继续实体 3-D Gazebo 采集，但后台日志确认
+  `desktop-linux` daemon 在 `sailor-ingest.sock` reparse-point rename 处崩溃；当前权限无法移动
+  或删除两个残留 socket。没有 factory reset、镜像/容器删除、WSL 数据改动或仓库文件改动，
+  因此仍没有新增 Gazebo RGB/Depth/telemetry episode。证据：
+  `docs/evidence/docker-desktop-socket-preflight-20261006.json`。
+- 2026-10-06：把 `scripts/audit_onboard_3d_capture_inventory.py` 直接绑定到
+  `run_onboard_3d_training_preflight.py`。每次训练预检现在都会审计当前实体 3-D 主线的 RGB
+  manifest、实际 Gazebo payload、FLOAT32 Depth 配对、同帧 hash 和 truth-free provenance；
+  本轮扫描 122 份历史 RGB manifest，`capture_eligible=0`、`training_ready=0`。这一步明确
+  拒绝用红车/绿车例子、旧 RGB 或无 Depth 数据冒充 OnboardAI 的 3-D 视觉训练；r33 reference
+  不变，外部 Gazebo/PX4、Jetson、Pixhawk、HIL/REAL 和最终 `0.3.0` 未宣称通过。新报告：
+  `artifacts/evaluation/onboard-3d-training-preflight-20261006-r4.json`，SHA-256=
+  `10b70bf648cf536945a469e02a778e7d775129adaac4e3fa75f6ad8c8619d50b`。
+- 2026-10-06：完成 `vtol_selected_task_campaign.py` 的共享 OnboardAI 接入审计。`SharedTaskPolicy`
+  现在复用既有任务编译和 PX4 Mission upload/readback/commit/permit 生命周期，Prompt 解析、
+  planner 重验、airframe hash、policy/ranker hash、Mission hash 和每个 sortie 的 evidence
+  都被绑定；GPS fix 不合格会在 Mission transaction 前 fail-closed，旧 ranker-only API 保持兼容。
+  完整 `tests/test_vtol_sitl_mission_acceptance.py`、专项 shared-policy/Prompt/GPS/mismatch 测试和
+  Ruff 均通过。该结果仍是 fixture/编排层证据，不是外部 Gazebo、Jetson、Pixhawk、HIL/REAL、
+  室外 GNSS 或最终 `0.3.0` 通过。证据：
+  `docs/evidence/shared-policy-external-campaign-integration-20261006.json`。
+- 2026-10-06：重新由 ClusterYourCodex 调度当前实体 3-D simulation assets 到在线 Linux `nuc`，
+  用严格 `docker info` 探针复核外部运行时。native `exit_code=104`，Docker daemon 不可达；
+  没有启动 Gazebo/PX4、没有生成 RGB/Depth/telemetry，也没有改变 r33 reference 或 release gate。
+  证据：`docs/evidence/cluster-docker-strict-probe-20261006.json`。
+- 2026-10-06：用当前 r33 reference 的真实 ONNX 推理入口跑通一轮模型驱动的软件闭环：
+  `search -> match_target -> record_location -> return_home -> report`。模型对不匹配候选输出
+  `move_relative`，对匹配目标输出 `follow_target`，两个导航计划都经过现有 planner 重验；
+  证据明确 `model_decision_used=true`、`fixed_colour_label_used=false`、`truth_json_used=false`。
+  这不是把红车/绿车例子硬编码进 Gazebo，也不是外部 Gazebo/PX4、Jetson、Pixhawk、HIL/REAL、
+  室外 GNSS 或最终 `0.3.0` 通过证据；当前输出仍标记为 software-SIM-only。证据：
+  `docs/evidence/onboard-policy-chain-neutral-r33-20261006.json`。
+- 2026-10-06：在 RTX 4060 上从现有 r33 继续训练 OnboardAI r52 3-D curriculum 候选，
+  使用三类实体 SDF 场景、生命周期、左右 bearing 和中性目标 teacher，共 93,200 条样本、
+  18 epochs，保持同一 40 维输入/任务头/飞行动作头。独立 holdout=`7/7`，结构化 3-D
+  sensor holdout task/flight/compatible=`0.9967/0.9944/0.9978`；但通用方向压力集仍在
+  `bearing-left` 失败（guarded=`21/22`），且 rendered RGB/Depth 行数为 0，所以候选拒绝、
+  r33 reference 不变。没有使用 Gazebo truth 或红车/绿车视觉标签，不代表外部 Gazebo、Jetson、
+  Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。证据：
+  `docs/evidence/onboard-policy-r52-3d-curriculum-rejection-20261006.json`。
+- 2026-10-06：继续在现有 r33 OnboardAI 上训练 r63 几何一致性候选。修复 3-D curriculum 的
+  scene/event/phase/semantic 索引耦合，加入 FOLLOW_TARGET 的观测 bearing/range 几何辅助损失，
+  保持 40 维输入、任务/飞行动作输出和 SIM/Jetson 共用入口不变。RTX 4060 训练 93,200 行、
+  30 epochs；独立 holdout=`7/7`，900 条结构化 3-D sensor holdout task/flight/compatible=
+  `0.997778/0.996667/0.998889`，22-case 泛化与方向/距离均 `22/22`。r63 只通过确定性结构化
+  软件 SIM，不含真实 Gazebo RGB/Depth episode、外部 Gazebo/PX4、Jetson、Pixhawk、HIL/REAL 或
+  室外 GNSS 证据，因此不 promotion，r33 继续作为 reference。证据：
+  `docs/evidence/onboard-policy-r63-geometry-lr-20261006.json`。
+## 0.3.0-pre.8 — 2026-10-06
+
+- Expanded the neutral 3-D OnboardAI curriculum to cover all three repository-owned entity scenes,
+  seven realtime events, nine task phases, and five generic semantic states in a Cartesian training
+  contract. The curriculum remains incremental on the shared 40-feature model and does not use the
+  illustrative red/green fixture as a Gazebo identity.
+- Trained r64 and r65 on the local RTX 4060. r65 adds finite bearing-sign and bearing/range geometry
+  losses while preserving the existing ONNX interface and planner/safety boundary.
+- Added the auditable comparison receipt at
+  `docs/evidence/onboard-policy-r64-r65-3d-cartesian-20261006.json`. The candidates remain quarantined:
+  no pixel-level Gazebo dataset, external Gazebo runtime, Jetson/Pixhawk/HIL/REAL evidence, or final
+  `0.3.0` promotion was claimed.
+- 2026-10-06：在现有 OnboardAI 上继续做几何增量训练与运行时安全收口。新增 `target_geometry_frame`
+  契约，明确相机相对 bearing 不能直接当 NED 世界方位；只有同帧 Depth、CameraInfo、相机姿态
+  和标定变换齐全时才允许把 FOLLOW_TARGET 绑定到 N/E 计划。r67/r68/r69 使用同一 40 维模型、
+  同一 ONNX 入口和 4060 训练链，独立全圆角度/8–420 米距离评估仍未通过，因此没有替换 r33
+  reference，也没有 promotion。Gazebo 训练主线仍等待真实中性 3-D RGB/Depth/telemetry episode，
+  红车/绿车不作为主线标签；没有外部 Gazebo、Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终
+  `0.3.0` 发布声明。证据：`docs/evidence/onboard-navigation-geometry-20261006.json`。
+- 2026-10-06：统一渲染数据生成器与 Jetson/SIM 的 OnboardAI 几何契约。`build_onboard_rendered_3d_dataset.py`
+  现在复用 `ContextSnapshot + OnboardRuntimeEvent + OnboardModelInput` 的 40 维特征；有完整
+  CameraInfo、Depth、姿态和 heading 时生成 calibrated NED geometry，缺少标定时保持
+  `camera_relative` 并 fail-closed，不把相机相对角当成全球 NED 或 GPS/航点。新增 8 个 heading、
+  pitch、Depth、偏移和无标定回归测试全部通过；这仍不是外部 Gazebo、Jetson、Pixhawk、HIL、REAL
+  或室外 GNSS 验收。
+- 2026-10-06：完成 r80 world-SDF 场景级 OnboardAI 增量候选训练，继续从 r33 父模型、同一 40 维输入和
+  ONNX 输出契约开始，使用三套实体 3-D world 的 visual/collision 几何统计；候选保持 quarantine，
+  因尚无真实 RGB/Depth/CameraInfo/pose/telemetry episode 和 reviewed trajectory，不替换 r33。
+- 2026-10-06：修正实体 3-D Gazebo 训练数据的距离语义。Gazebo `optical_axis_z_m` depth 现在按
+  CameraInfo 逐像素换算成与 Jetson 实时适配器一致的 `ray_slant_m`，缺少内参或未知语义直接
+  fail-closed；新增 optical-axis parity、ray-slant 保持和缺内参回归。旧的 RGB/结构化数据训练
+  尝试被严格门拒绝，没有生成或 promotion 新模型，r33 reference、SIM/HIL/REAL/室外 GNSS 与
+  最终 `0.3.0` 边界不变。
+- 2026-10-06：继续从 OnboardAI r33 reference 做第三轮中性 3-D 几何增量训练，使用 RTX 4060/CUDA
+  训练 `251,000` 行并保持同一 40/20 ONNX 契约。候选未晋级；新增证据明确区分结构化 SDF
+  bootstrap 与真实 Gazebo RGB/depth/CameraInfo/pose episode。导航评估器改按 raw head 的
+  `40m` bounded next-step 语义计算，并记录 calibrated adapter 对 FOLLOW/GOTO 的 measured NED
+  覆盖关系。没有声称 Gazebo、Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+- 2026-10-06：完成一轮从 OnboardAI r33 reference 出发的几何超参探针（RTX 4060/CUDA、30 epochs、
+  geometry weight `20.0`），验证较高几何权重只改善 bounded-step range、却损伤方向质量，
+  候选继续隔离。训练仍为中性实体 SDF 的结构化 bootstrap，未使用红车/绿车颜色 fixture，
+  也未声称真实 Gazebo、Jetson、Pixhawk、HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+- 2026-10-06：把真实 Gazebo 3-D capture 接入 OnboardAI 训练前的数据绑定链：新增
+  `build_gazebo_raw_recording_manifest.py`，严格校验 MDGZSIM3 RGB、MDGZDEP1 深度、场景/主线资产
+  hash 和 truth-free provenance，保留原始 BGR24 来源并用无损 PNG 绑定既有 replay 事件。
+  输出仍明确 `training_ready=false`，必须经过独立轨迹复核后才能从当前 r33 做增量训练。红车/绿车
+  没有被写入主线模型；本机 Docker/Gazebo/PX4 仍未运行，因此没有新增外部 SIM、Jetson、Pixhawk、
+  HIL/REAL、室外 GNSS 或最终 `0.3.0` 证据。
+- 2026-10-06：`run_external_onboard_model_acceptance.py` 增加 recording binding 接口；外部
+  PX4/Gazebo capture 成功后，可用 `--recording-output-directory` 在同一轮生成 recording，
+  并绑定 RGB/Depth/Telemetry 到既有 OnboardAI 训练门。dry-run 只记录计划，不生成假 recording，
+  不自动训练、不 promotion，也没有新增外部 runtime 或硬件验收声明。
+- 2026-10-06：收紧 `run_onboard_3d_training_pipeline.py` 的候选输出验收：拒绝非空/链接候选目录，
+  复核 config/report/父模型与数据哈希、reviewed real-3-D gate、独立 test split，并用 ONNX checker
+  与 CPU runtime 复开唯一 `[1,40] -> [1,20]` 模型；训练子进程 `0` 不再足以制造 `candidate_trained`。
+- 2026-10-07：修复真实 Gazebo 3-D RGB/Depth 进入 OnboardAI 训练前的零基序列、MDGZDEP1 v1
+  兼容和只读深度转换阻塞；历史真实地面 capture 已绑定为 3 帧 recording、1 个连续 episode。
+  实际 CUDA 严格训练入口拒绝未复核、样本不足、无独立 test 的轨迹；没有生成或晋级模型，
+  r33 reference 与 release parity 不变。相关回归 88 项通过；不是本轮新增外部飞行/HIL/REAL。
+- 2026-10-07：修复 DockerSimulatorPlan 到真实 Gazebo frame-set acceptance 的资产 bundle 传递，
+  采集持久化回归恢复通过。发现工作区历史 acceptance 资产绑定与 checked-in release parity
+  的 PX4 hash 尚未同步；本轮保持 parity 不变，不宣称 release gate 通过。
+- 2026-10-07：按实体 3-D Gazebo 主线推进 OnboardAI 训练数据。隔离 annotation world 的真实
+  `AnnotatedOriented3DBox_V` topic 已观察到 `label_id=42` 与 3-D center/size；同次运行保存了
+  20 帧 RGB、FLOAT32 Depth、CameraInfo、NavSat、Odometry。新增
+  `scripts/gazebo_annotation_stream.py`（只读 capture-only 标注）和
+  `scripts/materialize_gazebo_annotation_sensor_stream.py`（复用 MDGZSIM3/MDGZDEP1 生产解析器）。
+  RGB/Depth manifest 已生成并通过 dataset builder，但 Docker Desktop 随后发生 storage I/O，逐帧
+  annotation hash binding 尚未封存；因此 `training_ready=false`，r33 仍是唯一父模型，没有声称
+  Jetson/Pixhawk/HIL/REAL、室外 GNSS 或最终 `0.3.0`。
+- 2026-10-07：纠正 annotation sensor staging 的 provenance 边界。原始 MDGZSIM3/MDGZDEP1
+  保留，但 materialized-r4/r5 派生生产清单因伪造 host monotonic 时间、错误重绑定主线资产而
+  标记为历史无效；新增 `materialized-r6-staging`，只保存 `gazebo_sensor` 时间、wire hash、
+  实际 annotation binding 和原始 RGB/Depth，不生成可被训练器误认的生产 manifest。标注采集器
+  改用 `gz.msgs10`，按精确 sensor timestamp 保存 3-D box 与 RGB_INT8 labels-map hash/可见框；
+  尚未生成训练数据，`training_ready=false`。
+- 2026-10-07：新增 `bind_gazebo_annotation_staging.py`。它按精确 Gazebo sensor timestamp 和 RGB
+  payload SHA-256 绑定 v2 annotation observation，只接受真实可见的 RGB_INT8 labels-map、label-42
+  的 3-D rendering-view geometry 和可审计 hash；缺帧、重复帧、最近时间替代、目标在相机后方或
+  不可见时 fail-closed，输出保持 offline staging，未晋升为训练数据。
+ - 2026-10-07：新增 `multidetect.onboard-3d-target-visibility-gate-v1`，把 detector 命中、FLOAT32
+  深度测量和 calibrated camera/depth/pose 几何绑定为同帧训练前置条件；当前仓库为 0 行，训练入口
+  继续 fail-closed。重新生成 `onboard-3d-training-pipeline-20261007-r2` preflight，Docker/Gazebo/PX4
+  运行时仍不可用，r33 reference、r89 隔离和最终发布边界不变。
+- 2026-10-07：从r33完成r90隔离开发训练（RTX 4060、105200条结构化状态、60epochs）。
+  修复顺序场景块训练为seeded epoch shuffle，新增action-only父模型蒸馏；导航诊断明确区分完整
+  目标偏移与自选40m短步，阈值不变。900条同条件新采样task/flight从83.44%/83.67%到
+  99.78%/99.89%，但方向/距离仍不合格、r33不替换。训练不是渲染图像、外部Gazebo或实飞证明；
+  README收敛为当前结果与人话目标，详细限制写入docs/onboard-training-status.md。
+- 2026-10-07：新增三维可见实例标注到YOLO视觉训练格式的导出器，显式类别映射、完整录制
+  分区、图像实际像素/尺寸验证、同帧hash绑定与lossless PNG。出口是未review的staging，
+  不是实际视觉微调完成；不把40维策略监督或3-D scene truth误作视觉标签。
+- 2026-10-08：完整NEW267训练phase实际native0（aa1ca2），旧launcher／worker退出；
+  四阶段计数与API267、累计旧13＋新267＝280、source前后一致、candidate86及终态report
+  保存并独立raw复算。封存 docs/evidence/onboard-navigation-recovery267-train-closed-20261008-r1.json。
+  strict69→86／86，但动作55→27、数值0→8、STOP仍0／3，不作质量晋升；86图同scene仅3prompt。
+  独立fresh reload已启动仍运行，完整terminal audit与59开发模型评估未完成；保留旧观察／失败，
+  不改冻结输入、默认reference、产品版本、parity或实时／飞行／硬件／发布门。
+- 2026-10-08：新增四类FP32线性动作读出组件，12,294参数；作者／root各89项CPU
+  软件测试、Ruff与独立只读审查通过。支持last-nonzero prefix位置、known-only尺度loss和
+  单条batch仍有效的类别权重，拒绝非法尺度、不硬补步长／角度，不伪造文本token。
+  软件证据 docs/evidence/onboard-navigation-action-readout-software-20261008-r1.json；
+  尚无真实feature／probe训练／sidecar重载／速度结果，不替换默认或飞行／发布门。
+- 2026-10-08：新增有界原TRAIN注释索引，实际native0；65项测试／Ruff及独立精确
+  786432前缀SHA复核通过，196records→120route/prompt、5scene、4077候选metadata帧。
+  达候选预算partial停止，未重验全405MB／下载RGB或核rawposegold。10个typed -1/-2
+  padding记录仅隔离，旧严格parser未改；两次真实native1及计划保留，不扩大训练动作。
+  证据 docs/evidence/openfly-bounded-annotation-index-20261008-r1.json，训练准入与质量门不变。
+- 2026-10-08：新R3现场特征实验实际加载原生崩溃native1，c10.dll事件／失败计划／日志
+  封存，0新相机／feature／forward／训练／飞控，根因未证。R3入口26tests通过，NEW父
+  Mission区间72及CPU现场审计19独立进程tests／Ruff通过；137联合尝试失败如实保留，
+  不取消Torch隔离门。真实teacher数据与现场复算未完成，默认／版本／发布门不变。
+- 2026-10-08：NEW feature recorder v2修复atime-only误报，仍拒绝size／mtime／inode漂移
+  与等长内容SHA变化；保留原20＋新增6项CPUtests，root与独立26通过，Ruff／AST
+  审查闭合。v2合同显式独立，frozen R3及v1consumer未替换；无实际新采集或模型运行。
+- 2026-10-08：NEW exact-load-only诊断保留冻结loader，显式执行／只读预检分离，持有
+  fault FD、bounded fsync phase日志与cleanup最终门；44作者及独立CPUtests／Ruff通过。
+  R4计划实际发出，资源预检native1拒绝，0新load／模型／执行目录；8／16GiB仅本次
+  保守策略，非已证模型容量或R3 OOM原因。旧失败与默认／版本／发布门保持不变。
+- 2026-10-08：三子智能体并行完成NEW pinned元数据提取、唯一RX V4只读请求、事件／
+  原参数consumer及独立review，249新CPUcase通过。actual只读运行保存4623原包、
+  17参数CRC＋bytewise与PX4版本；COM_RC_IN_MODE1、容量-1与失联动作2保持原值。
+  第20次日志输出超限未保存、整轮native1失败；owned清理／PID／40源窗口闭合。
+  旧R3的24UNKNOWN包另CRC核、16事件metadata匹配，原sourcefalse保留、不定唯一根因。
+  consumer审核修复非选中标签隐藏冲突版本的漏洞，37cases green，另存新派生报告；
+  版本pre.8、默认r33及所有训练／飞行／硬件／晋升／正式发布门未改。
+- 2026-10-08：NEW完整架次有限预算／V4采集／原件账本／CP-v2主入口及条件静态地图整路检查；五轮actual no-ARM均拒绝，源码副本和owned清理核验。R5同窗原件齐但校验末尾真过期，优化实际延迟，不续期。新增公开动作／世界表征模型复核；无新飞行、训练、晋升或正式发布。

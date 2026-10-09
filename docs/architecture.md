@@ -1,5 +1,14 @@
 # Architecture
 
+> Latest OnboardAI development: the pinned Qwen3-VL-2B baseline now has a small language-only
+> grounding LoRA experiment, trained on 26 reviewed reference/current RGB pairs and compared on
+> 84 identical holdout inputs. This is not an actuator policy or a replacement for r33/COCO.
+> Full-schema compliance improved, but target-reference and occlusion regressions remain; the
+> original native run exited 1 at saved-adapter reload verification. A separate fresh-base FP32
+> adapter load check exited 0 with exact tensor and representative-generation equality; it does
+> not retroactively change the original native1 or pass model quality. See
+> [training scope and results](onboard-vlm-grounding-training.md).
+
 > Current source-of-truth snapshot: [current-progress.md](current-progress.md). The v57
 > camera-pixel-to-WGS-84 path is a single parity-bound implementation shared by
 > REPLAY/SIM/HIL/REAL; only its software/SIM subgate is currently proven. QGC manual visual,

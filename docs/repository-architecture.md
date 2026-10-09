@@ -1,5 +1,148 @@
 # 统一仓库架构
 
+## 2026-10-07 实际图文开发接入
+
+新增`onboard_multimodal.py`共用输入、scope、RGB、Prompt、unknown context和证据ledger，
+复用现有typed model output但无transport。`onboard_vlm_shadow_input.py`绑定真实bytes、
+录制身份和离线时轴，用opaque IDs防止条件泄漏；`build_onboard_vlm_shadow_cases.py`
+准备train三维RGB比较；`probe_onboard_vlm.py`固定官方revision、单次CUDA加载，保留raw
+及完整运行身份。它仍是development/shadow，不在当前注册模型或parity source list中，
+不能宣称已满足SIM／REAL部署一致性。实际8例／7结构合格暴露时序与未知状态错误。
+[图文接入记录](onboard-vlm-shadow-status.md)保存实现边界；沿现有YOLO／跟踪／测距／
+planner／PX4复用执行，真实测量、权限与完成证据不可由模型文字替代。
+
+## 2026-10-07 实体三维视觉微调与下一阶段多模态决策
+
+新增开发工具`merge_onboard_sdf_visual_curricula.py`逐帧绑定RGB/mask/label和SDF几何，
+保持原train/val/test，封存pending manifest；`audit_onboard_observation_corpus.py`重开
+真实raw录制并核对context/feature/time/seed，不改变旧parser或把缺失值当实测。
+12轮视觉增量训练已实际完成，但四组固定阈值对照未全通过，不替换当前模型。
+
+下一阶段拟议路径是“实际RGB + Prompt文本 + 证据化任务记忆 → 轻量VLM → typed意图 →
+原planner/safety/PX4事务”。现有r33保留baseline及未来轻量student；模型输入和语义阶段
+可以重新设计，执行权限、测量坐标和事实完成证据保持明确。VLM需异步、限预算与deadline，
+不能放入同步快循环拖延安全响应。世界模型是离线表示／预测候选，不是已部署飞控。
+目前仅完成选型及接入审查，未下载、推理或微调VLM。
+[架构建议与两路线比较](research/onboard-vlm-integration-review-20261007.md)。
+
+## 2026-10-07 OnboardAI 历史策略扩展
+
+当前默认仍为r33单帧模型，新增历史候选不是另一套飞控。`onboard_history.py` 按会话、Prompt、
+任务、飞机、home、机型和时钟epoch维护8次观察的有界事务缓存；`onboard_history_onnx.py`
+使用四输入ONNX和原来的同一个policy decoder。失败推理不提交历史，任务切换仅在Mission
+事务和任务回执成功后明确reset；同任务重规划保留历史。搜索等待只采样，不新增Mission。
+确认／记录和返航／报告组合入口对历史模型要求下一份真实观察，不伪造时间或复用旧帧。
+
+`train_onboard_history_model.py` 继承r33主体及task/flight/regression heads，以有序历史残差
+扩展模型；训练和运行时使用同一feature/action顺序、真实dt、origin reset和padding规则。
+正式动作微调继续复用现有trajectory review、来源及planner门，episode内home变化必须另起
+episode。实际迁移／导出／接口验证已完成，但epochs=0，历史候选未训练、未晋升。
+
+动作标签不足不应阻塞所有研究预训练：可以另设observation-only objective预训练同一历史
+表示，冻结原动作输出；它与动作微调、闭环和硬件验收是不同证据阶段，目前尚未执行。
+[开发回执](evidence/onboard-history-policy-development-20261007.json)保留实际源码与模型身份。
+
+## 2026-10-05 OnboardAI 3-D trajectory staging boundary
+
+Gazebo 训练数据现在分成两层：`scripts/build_onboard_rendered_3d_dataset.py` 负责确认真实 RGB/Depth
+传感器字节和 wire-v3 provenance；`scripts/build_onboard_trajectory_staging.py` 再把一个采集目录按
+时间组织成连续 episode，使用 `ContextSnapshot`、`OnboardRuntimeEvent` 和 `OnboardModelInput` 重新
+生成与 Jetson 共用的 40 维向量。它不读取 world truth，不把红车/绿车条件写进标签，也不拥有 PX4
+执行权限。
+
+暂存 artifact 必须保持 `training_ready=false`，直到补齐 raw replay recording、完整电量/风场/
+geofence 等任务上下文、独立人工审查、planner/Mission proof 和 episode-level pixel holdout。只有
+reviewed trajectory 才能进入 `scripts/train_onboard_model.py`；因此 staging、确定性软件 SIM、外部
+Gazebo/PX4、HIL、Jetson/Pixhawk 和室外 GNSS 仍是彼此独立的验收层。
+
+## 当前 source-bound evidence index（2026-09-30）
+
+当前 `docs/current-progress.json` 指向 `20261001-depth-r6` 独立后缀的 source-bound 证据链：
+`docs/evidence/external-mission-matrix-20261001-depth-r6.json`、
+`artifacts/evaluation/shared-policy-vehicle-matrix-20261001-depth-r6.json`、
+`docs/evidence/external-shared-policy-pair-20261001-depth-r6.json`，以及对应的 VTOL
+campaign receipt、fixed-wing/multirotor depth Mission evidence、observed session 和 release
+audit。历史 `depth-r4`/`r5` 文件只读保留，不覆盖、不冒充当前 parity。索引与矩阵 verifier
+会重新打开这些文件并复算 source hashes；当前只证明已有软件/SIM evidence 的身份绑定，
+不等同新的 PX4/Gazebo/QGC 运行，也不提升 HIL/REAL、室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+# Gazebo depth companion transport（2026-09-30，`v0.3.0-pre.8`）
+
+当前 Gazebo 深度源沿用现有 RGB/telemetry helper 与 `GazeboSimFrameSource`，不创建第二套
+Mission、感知或控制路径。三个仓库模型在 RGB `camera_link` 上增加同位姿
+`depth_camera_link/depth_camera`，输出 `R_FLOAT32` 1280×960 depth image。显式 contract
+启用时，helper 先发原有 `MDGZSIM3`，再紧邻发 `MDGZDEP1` companion；未启用时 RGB 字节流
+保持兼容。
+
+`MDGZDEP1` 的 canonical metadata 严格绑定 RGB sequence、RGB simulation stamp、RGB whole-record
+SHA-256、depth source stamp、精确的 world/model scoped topic、完整 depth calibration SHA、
+`registered_to_rgb`、`rgb_pixel_aligned`、`FLOAT32_M` 和 `optical_axis_z_m`。source 必须因果且
+距离 RGB 不超过 100 ms；主机还校验 header/metadata/payload/whole-record digest、几何、topic、
+校准和 registration。depth bytes 不进入 `CapturedFrame`，只作为当前 `frame_id` 的 side-channel
+供 `LiveMissionRunner._evaluate_track_ranging` 调用现有 `MultiModalRangingEngine`。sample 使用
+已有 robust median/MAD 和 optical-axis→ray-slant 转换；无 companion、错绑定、过期、坏 hash 或
+有效像素不足时只返回 unavailable，不落假距离、不产生 actuator command。
+
+当前 71 条 helper/backend/depth transport 回归和既有 LiveMissionRunner 回归通过；随后在 pinned
+`px4io/px4-sitl-gazebo` 的 `urban_inspection_multirotor_001` disposable 容器执行了 1 帧真实
+depth transport。运行证据位于
+`artifacts/evaluation/depth-external-20260930.json`，其中 `gate_passed=true`、
+`depth_enabled=true`、`depth_companion_count=1`、`complete=true` 且容器已清理。该证据只关闭
+depth transport 的 external-runtime 子门，不等同于完整 Mission、QGC 人工视觉、HIL/REAL、室外
+GNSS、硬件或最终 `0.3.0` 发布门。
+
+首轮组合证据后来被审计标记为历史：它的 policy/Mission 使用测试占位 airframe hash，未与 live
+sensor identity 交叉绑定，因此不再作为当前验收依据。随后同一 adapter 在真实
+`px4io/px4-sitl-gazebo` disposable 容器中把深度传输与高层任务链合并执行：`SharedTaskPolicy`
+先用 truth-free GPS/telemetry context 选择任务，原 planner 重验后进入既有 Mission
+upload/readback/commit/permit 事务，同时接收 2 帧 RGB 与 2 个 `MDGZDEP1` companion。r2 证据
+`artifacts/evaluation/external-multirotor-depth-shared-policy-20260930-r2.json`（59,675 bytes，
+SHA-256 `af58d0650c8db7f9dfe2a3fd76fedf41775e9428ae78607d2c07bfdccd75ddac`）记录
+`gate_passed=true`、`mission_transaction_gate_passed=true`、`sensor_transport_gate_passed=true`、
+`shared_policy_used=true`、`planner_revalidated=true`、当前 parity 绑定和清理通过；policy、Mission、
+sensor 和同一 Docker runtime 的 airframe/container identity 逐字段相等，executable Mission
+hash 与 wire/protocol hash 也相等。Mission 仍是显式 start-permit 但 `flight_started=false`，
+`physical_output=false`，策略不直接接管 actuator。这个组合证据说明共享策略、Mission 事务和
+深度 side-channel 已在同一 external runtime 闭环，仍不宣称 QGC 人工视觉、HIL/REAL、室外 GNSS、
+硬件或最终发布。
+
+固定翼随后沿用完全相同的 runner 和 Mission 生命周期。此前 `rc_cessna_mono_cam` 的 SDF 已有
+depth camera，但 `coastal_patrol_fixed_wing_001.runtime.json` 未声明对应 sensor，导致 runtime
+只启用 RGB；现在新增 `forward-depth` 场景级声明，loader 重新校验 channel canonical hash 后，
+`GazeboSimBackend` 自动生成与固定翼 scoped model topic 相符的 depth contract。新的证据
+`artifacts/evaluation/external-fixed-wing-depth-shared-policy-20260930-r2.json`（59,934 bytes，
+SHA-256 `a672e2f1f518d6f909c344d3ee337ab41021b34c1ff5526d46d65193d7a6fc06`）在同一 disposable
+runtime 中通过 SharedTaskPolicy、planner revalidation、Mission upload/readback/commit/permit、
+2/2 RGB 和 2/2 `MDGZDEP1` companion；policy、Mission、sensor、container identity 和 wire hash
+均交叉绑定，清理通过。它仍然是 software external SIM 证据，未提升 QGC 人工视觉、HIL/REAL、
+室外 GNSS、硬件或最终 `0.3.0` 发布门。
+
+## 目标证据卡接入 combined-SIM（2026-09-28，`v0.3.0-pre.8`）
+
+`cli._integrated_sim_ranging_acceptance` 现在把每个通过 GPS 新鲜度、测距和 WGS-84
+定位门的 primary observation materialize 成 `TargetEvidenceCard`，并把卡片放入
+`integrated_sim_qgc.target_geolocation_acceptance.target_evidence_cards`。卡片带有
+`run_identity_sha256`，因此与本次 SIM runtime 身份绑定；不可定位的样本保留明确原因并且
+坐标为 `null`。`simulator_combined_evidence.py` 会重新加载每张卡、校验 canonical schema、
+只读 claims、计数/错误数组以及 run identity，一旦卡片缺失或被篡改，combined-SIM gate
+fail-closed。旧的未配置历史 artifact 仍可读取；新配置的 acceptance 不能只靠汇总数字通过。
+该层只生成态势感知证据，不进入 Mission、Permit 或 actuator；也不替代 QGC 人工视觉、
+HIL/REAL、室外 GNSS 和最终 `0.3.0` 发布门。
+
+## 当前 external Mission 证据链（2026-09-27，`v0.3.0-pre.8`）
+
+当前固定翼、多旋翼和 VTOL 的 external-SIM Mission 证据汇总在
+`docs/evidence/external-mission-matrix-20261001-depth-r6.json`。固定翼/多旋翼入口
+`scripts/run_external_vehicle_mission_campaign.py` 与 VTOL campaign 共用
+`src/multidetect/autonomy/mission_campaign.py::select_and_compile_task` 的
+truth-free 任务选择、planner revalidation 和 `PlannedMissionCompilation`；随后才进入
+`ExternalPx4MissionExecutionAdapter` 的 `MISSION_ITEM_INT` upload/readback/commit/permit
+事务。每个 run 旁边的 `task-binding.json` 记录 plan/executable Mission hash、
+`planner_revalidated`、`truth_free` 和 `policy_applied_to_actuator=false`，矩阵 verifier
+会重新计算这些字段并重开源证据。这个链路只证明当前 PX4/Gazebo external SIM 的 Mission
+事务与实时 GPS context 绑定，不把策略层变成 actuator，也不替代 HIL、REAL、室外 GNSS、
+QGC 人工视觉或飞行验收。
+
 ## v191 PX4 receive-only runtime sidecar capture（2026-09-07，`v0.3.0-pre.8`）
 
 ```text
@@ -473,6 +616,10 @@ native target-observation recorder
 - 目标卡片和“定位诊断”弹窗读取同一 `MultiDetectState` 摘要，不复制 recorder 逻辑，也不在 QML 重新计算定位质量；
 - `WAITING` 在没有样本时保持中性，停止录制后明确显示“上次定位质量”，避免把缓存摘要当成当前观测；
 - 这是态势感知/记录层的只读投影，坐标、`1σ` 圆、PX4 Mission、飞控和物理释放仍由原有 fail-closed 门控制。
+- Python `TargetEvidenceCard` 是该投影的 SIM/REPLAY 机器侧对应物：它只接受同一 `TargetEvent`
+  和 canonical `TargetGeolocation`，把 `available=false`、GPS 新鲜度、测距状态和拒绝原因显式
+  写出；不可用卡片永远不带坐标，因此不会把旧点重绘成当前目标。它不进入 Mission compiler、
+  Permit、actuator 或 payload 路径。
 
 ## v164 外场定位诊断会话链（2026-09-07，`v0.3.0-pre.8`）
 
@@ -2172,6 +2319,15 @@ PX4/Gazebo/AI 协议证据。当前 E7 report-only manifest/report 位于
 `gate_passed=false`，现场链路、真实 GNSS/Pixhawk、HIL/REAL、人工 QGC Fly View、
 replay-set 和最终 release channel 仍 pending。
 
+## 当前现场链路 preflight 绑定（2026-09-19，`v0.3.0-pre.8`）
+
+`run_current_release_gate_pre8.ps1` 的无参数默认输入现在固定为
+`artifacts/evaluation/field-link-preflight-20260919-current.json`。这是当前工作站只读探针生成的
+版本化证据：`Ethernet=192.168.1.13/24` 不在期望的 `192.168.144.0/24`，Jetson、GR01、相机
+均不可达，因而 `hardware_link_ready=false`。无参数入口不再回退到 v33 的 2026-09-04 现场快照；
+v33 文件仍保留为历史 provenance。当前 gate report-only 绑定仍保持 `gate_passed=false`，不会把
+旧现场文件误报成当前硬件状态。
+
 ## v33 现场链路预检与 E7 证据绑定（2026-09-04，`v0.3.0-pre.8`）
 
 现场链路证据由 `scripts/run_field_link_preflight.ps1` 以 2 个样本重复生成，接口诊断和
@@ -2188,8 +2344,8 @@ replay-set 和最终 release channel 仍 pending。
 分别为 `C66DB565A12DC664C28F4DB12E38AD7E6611E28A14F650839362A18EDB817C19` /
 `340CE3C01968194B77010A808AE8A09BD62F269D9D56C786224E88099A3827D1`；结构通过但总门仍
 `gate_passed=false` / `release_allowed=false`，31 条 replay-set、现场、人工视觉、Mission、
-HIL/REAL 与 prerelease 阻断保留。wrapper 无参数默认现指向 v33 现场报告；接通飞机网段后再
-确认机载 IP 并重跑预检。
+HIL/REAL 与 prerelease 阻断保留。该段只记录 v33 历史绑定；当前 wrapper 无参数默认已迁移到
+2026-09-19 版本化 preflight。接通飞机网段后再确认机载 IP 并重跑预检。
 
 ## v31 多源测距残差不确定度层（2026-09-04，`v0.3.0-pre.8`）
 
