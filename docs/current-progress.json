@@ -45,7 +45,7 @@
     "owned_container_cleanup_and_job_empty": true,
     "old_and_new_signed_ground_gap_m": [
       -0.06442898014826774,
-      -1.860879331322396e-7
+      -1.860879331322396e-07
     ],
     "signed_geometry_compatible_not_ground_authority": true,
     "independent_signed_geometry_source_files_reopened": 18,
@@ -93,11 +93,28 @@
     "root_combined_CPU_tests": 602,
     "post_document_evidence_and_index_CPU_tests": 99,
     "current_source_and_progress_index_recomputed": true,
-    "actual_capture_root_and_child_native_exit_codes": [0, 0],
-    "actual_RGB_and_depth_frames": [4, 4],
-    "actual_readonly_commands_and_streams": [37, 74],
-    "raw_accepted_foreign_orphan_packets": [5819, 5705, 114, 0],
-    "producer_and_supervisor_listed_sources": [33, 30],
+    "actual_capture_root_and_child_native_exit_codes": [
+      0,
+      0
+    ],
+    "actual_RGB_and_depth_frames": [
+      4,
+      4
+    ],
+    "actual_readonly_commands_and_streams": [
+      37,
+      74
+    ],
+    "raw_accepted_foreign_orphan_packets": [
+      5819,
+      5705,
+      114,
+      0
+    ],
+    "producer_and_supervisor_listed_sources": [
+      33,
+      30
+    ],
     "listed_sources_unchanged_during_run": true,
     "independent_retained_file_audit_count": 226,
     "owned_container_cleanup_and_job_empty": true,
@@ -139,13 +156,33 @@
     },
     "final_root_combined_CPU_tests": 646,
     "additional_overlapping_document_index_regressions": 94,
-    "root_and_child_probe_native_exit_codes": [0, 0],
-    "actual_readonly_commands_and_streams": [18, 36],
-    "actual_ground_context_attempts_and_qualified": [20, 16],
-    "actual_RGB_and_depth_frames": [2, 2],
-    "raw_accepted_foreign_orphan_packets": [4356, 4268, 88, 0],
+    "root_and_child_probe_native_exit_codes": [
+      0,
+      0
+    ],
+    "actual_readonly_commands_and_streams": [
+      18,
+      36
+    ],
+    "actual_ground_context_attempts_and_qualified": [
+      20,
+      16
+    ],
+    "actual_RGB_and_depth_frames": [
+      2,
+      2
+    ],
+    "raw_accepted_foreign_orphan_packets": [
+      4356,
+      4268,
+      88,
+      0
+    ],
     "actual_static_inventory_collision_count": 15,
-    "probe_and_supervisor_listed_source_windows_equal": [22, 28],
+    "probe_and_supervisor_listed_source_windows_equal": [
+      22,
+      28
+    ],
     "source_inventory_is_complete_dependency_attestation": false,
     "owned_container_cleanup_and_job_empty": true,
     "diagnostic_after_telemetry_seal": true,
@@ -19722,5 +19759,203 @@
       }
     ],
     "software_foundation_reexecuted": true
+  },
+  "onboard_teacher_sortie_foundation_20261008_r1": {
+    "status": "five_actual_PX4_Gazebo_observe_only_refusals_r1_to_r5_r6_not_executed",
+    "evidence": {
+      "path": "docs/evidence/onboard-teacher-sortie-foundation-20261008-r1.json",
+      "bytes": 12779,
+      "sha256": "3c8454ff07b6b2e5ed3d3ab88c530c31c6b024b288210bc4f8e56b953f8325ed"
+    },
+    "claims": {
+      "current_live_origin_qualified": false,
+      "current_live_ground_state_qualified": false,
+      "complete_route_clearance_passed": false,
+      "real_original_draft_and_Grant_path_complete": false,
+      "Mission_approved": false,
+      "Mission_uploaded": false,
+      "ARM_sent": false,
+      "actual_airborne_flight": false,
+      "actual_action_trajectory": false,
+      "motion_training_samples_created": false,
+      "new_model_inference": false,
+      "optimizer_updates": false,
+      "candidate_promoted": false,
+      "physical_performance_claimed": false,
+      "hil_real_evidence": false,
+      "jetson_runtime_proven": false,
+      "outdoor_gnss_evidence": false,
+      "exact_sensor_SDF_synchronization": false,
+      "source_authenticated": false,
+      "execution_authority": false,
+      "final_release_allowed": false
+    },
+    "validation": {
+      "original_no_ARM_trials": [
+        {
+          "trial": 1,
+          "report": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-20261008-r1/current-navigation-probe.json",
+            "bytes": 106143,
+            "sha256": "aff5d20c2201a1aa1987d6c9d45f556386b9ec3878b475c79ef43916587556d0"
+          },
+          "supervisor": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-supervisor-20261008-r1/supervised-run.json",
+            "bytes": 19528,
+            "sha256": "f133f4b747a14474d158e799929a0747a915fdd6876a23c70ccda4f4f5363918"
+          },
+          "worker_status": "checkpoint-rejected",
+          "error": "AutonomyContractError: original context packet stale/future/not ready",
+          "native_exit_code": 1,
+          "raw": 1098,
+          "accepted": 1065,
+          "foreign": 33,
+          "orphan": 0,
+          "source_snapshots": [
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r1/run_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 16057,
+              "sha256": "792cd805f046dfae88dfe512b4ef7d65c4747340608faa138baeeb5a9f3134e8"
+            },
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r1/supervise_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 9704,
+              "sha256": "c8568bfa581f872fcf6733020d86ac3004463a245361de7ee74c39bd068f15b2"
+            }
+          ]
+        },
+        {
+          "trial": 2,
+          "report": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-20261008-r2/current-navigation-probe.json",
+            "bytes": 106501,
+            "sha256": "f45db40a1b9dd41c21cb0133d927326dbc2cf55dd8515756e0a567e8e4315282"
+          },
+          "supervisor": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-supervisor-20261008-r2/supervised-run.json",
+            "bytes": 19906,
+            "sha256": "ab7e5e576167dddddcce0a85fad4583c8b2a066c5f3c78b1a8a3ee2f59b1bc36"
+          },
+          "worker_status": "checkpoint-rejected",
+          "error": "AutonomyContractError: SDF source must be an exact whole-file EvidenceBinding",
+          "native_exit_code": 1,
+          "raw": 1217,
+          "accepted": 1184,
+          "foreign": 33,
+          "orphan": 0,
+          "source_snapshots": [
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r2/run_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 16880,
+              "sha256": "51169af1863caf4953f9692726a0fcf48b8f1a586abe8df0c68be3bce9184c9b"
+            },
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r2/supervise_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 9820,
+              "sha256": "6bf020d7e6bfd5a8e69aa3aeea66c376d442be21e3ea4cd7a9655751fb7a17e5"
+            }
+          ]
+        },
+        {
+          "trial": 3,
+          "report": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-20261008-r3/current-navigation-probe.json",
+            "bytes": 106547,
+            "sha256": "7c807a2944650ce0e09d3c66777855e0f511a503c7790b289c86485350c06b7b"
+          },
+          "supervisor": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-supervisor-20261008-r3/supervised-run.json",
+            "bytes": 19944,
+            "sha256": "3d36d0d10b3b63ff2c8c30d1d167bceeaad700e97665c6e88857dc89bbff24da"
+          },
+          "worker_status": "checkpoint-rejected",
+          "error": "AutonomyContractError: actual HOME/reference changed inside or after live window",
+          "native_exit_code": 1,
+          "raw": 1207,
+          "accepted": 1174,
+          "foreign": 33,
+          "orphan": 0,
+          "source_snapshots": [
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r3/run_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 17094,
+              "sha256": "9eb60ff29120c78826affc0697949412d2d185e4db047ab2a485f28d19e066f7"
+            },
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r3/supervise_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 9820,
+              "sha256": "6bf020d7e6bfd5a8e69aa3aeea66c376d442be21e3ea4cd7a9655751fb7a17e5"
+            }
+          ]
+        },
+        {
+          "trial": 4,
+          "report": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-20261008-r4/current-navigation-probe.json",
+            "bytes": 113950,
+            "sha256": "809192902439d75fc1912b8089d60d1dd0be22a5c5f3357c2cbbee217e8eec39"
+          },
+          "supervisor": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-supervisor-20261008-r4/supervised-run.json",
+            "bytes": 19904,
+            "sha256": "cc9eace12d2dab17bb0e473d7b4e183706edb2db78e9891cb1c47da43af5cc85"
+          },
+          "worker_status": "checkpoint-rejected",
+          "error": "ValueError: bounded HOME/reference stabilization wait exhausted",
+          "native_exit_code": 1,
+          "raw": 6140,
+          "accepted": 6019,
+          "foreign": 121,
+          "orphan": 0,
+          "source_snapshots": [
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r4/run_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 19940,
+              "sha256": "d1a502835e549cba4e6cbda271966a58ab277cb3db23fce849b36b2af3a58a67"
+            },
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r4/supervise_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 9820,
+              "sha256": "6bf020d7e6bfd5a8e69aa3aeea66c376d442be21e3ea4cd7a9655751fb7a17e5"
+            }
+          ]
+        },
+        {
+          "trial": 5,
+          "report": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-20261008-r5/current-navigation-probe.json",
+            "bytes": 110321,
+            "sha256": "6c730f53101c81c775ab73be9149be7daad1d8c23040ff048e61b90b9695fe58"
+          },
+          "supervisor": {
+            "path": "artifacts/diagnostics/onboard-teacher-current-navigation-supervisor-20261008-r5/supervised-run.json",
+            "bytes": 19906,
+            "sha256": "addcba306019a7d150a5d3d3452bbb3413a5b01730b1634c6c634d44b016bcd6"
+          },
+          "worker_status": "checkpoint-rejected",
+          "error": "AutonomyContractError: original checkpoint expired/future",
+          "native_exit_code": 1,
+          "raw": 2514,
+          "accepted": 2460,
+          "foreign": 54,
+          "orphan": 0,
+          "source_snapshots": [
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r5/run_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 20189,
+              "sha256": "a933d75009a0f45f1c562e3af297280fe8f9f83e92ece2e70904311e21931ed9"
+            },
+            {
+              "path": "artifacts/diagnostics/onboard-teacher-current-navigation-source-snapshot-20261008-r5/supervise_teacher_live_checkpoint_probe_v1.py",
+              "bytes": 9820,
+              "sha256": "6bf020d7e6bfd5a8e69aa3aeea66c376d442be21e3ea4cd7a9655751fb7a17e5"
+            }
+          ]
+        }
+      ],
+      "root_combined_CPU_native_exit_code": 0,
+      "root_combined_CPU_tests": 715,
+      "source_inventory_complete_dependency_attestation": false
+    }
   }
 }

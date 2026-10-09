@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- 2026-10-09??????????????R1?R5 ???? PX4/Gazebo ??????????? SHA-256 ???R6 ?????????? ARM?Mission ?????????????? 27 ???? `docs/current-progress-*.json` ????????????????? 4 ??
+
 - 2026-10-08：NEW提交前缀／原计划与当前执行重验／source-derived机体包络及静态环境查询；actual spawn-only对照初始抬高15cm后自然落稳model约.067m，足点8cm垫面差−.186µm。root／child0、4RGB／4Depth／5222原包与清理闭合；保留R1 canonical hash误配失败及原−6.44cm重叠。导航与15静态碰撞重算通过；独立审阅修复RX误用main-only writer、原时刻50ms误门和known提交批次复用问题，最终715项联合CPU通过。未ARM／飞行／新增训练或晋升；完整资源预算及真实Grant仍待实际整合，r33、canonical及pre.8不变。
 
 - 2026-10-08：NEW同期源窗actual native0：4RGB／4Depth、5819原包、37查询／74输出，33来源窗口与owned清理闭合；实际加载15碰撞体和原始四帧导航坐标链一致性重算通过。R1窗前HOME范围误拒保留，R2窄scope修正不改原包；纯源审计不造live Context／origin／Grant。正常ARM／Mission／一次RTL执行入口通过CPU协议验证，force参数0，纠正heading与当前模式健康语义；尚未实际ARM／飞行／新增训练，默认r33／canonical／pre.8不变。
